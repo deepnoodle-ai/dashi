@@ -124,10 +124,13 @@ go vet ./...
 go build ./...
 ```
 
-Tests use local servers and fixtures, without credentials. They do not establish
-live API compatibility.
-For selected live final-result routes, set `KERNEL_LIVE_TEST=1` plus
+Ordinary tests use local servers and fixtures, without credentials. For selected
+live final-result routes, set `KERNEL_LIVE_TEST=1` plus
 `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `OPENAI_API_KEY`/`OPENAI_MODEL`, and
 `GEMINI_API_KEY`/`GEMINI_MODEL`, then run
 `go test -tags live ./providers -run TestLiveAgentFinalFacts -v`. This makes
-six paid requests and qualifies only those model and endpoint selections.
+six paid requests. To test one provider, filter a subtest such as
+`-run '^TestLiveAgentFinalFacts/gemini$'` and set only its key and model.
+On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
+Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
+Gemini API (`gemini-2.5-flash`). This qualifies those routes only.

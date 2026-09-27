@@ -78,6 +78,9 @@ Parts of the provider foundation are adapted from Dive
 `65c393f221f193e85ce8a8c73c5e01d8ba056948`; source headers record that
 provenance, and the repository uses the [Apache-2.0 license](../LICENSE).
 Local tests cover preparation, replay boundaries, streaming equivalence,
-accounting, and tool validation. Selected live API routes and Vertex ADC still
-need qualification. Media, resource references, and provider-hosted tools have
+accounting, and tool validation. Blocking and streaming final-result calls
+passed on 2026-09-27 for Anthropic Messages (`claude-haiku-4-5-20251001`),
+OpenAI Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`). Other
+routes and Vertex ADC still need qualification. Media, resource references,
+and provider-hosted tools have
 separate implementation and qualification notes in this directory.

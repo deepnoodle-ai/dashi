@@ -68,7 +68,14 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 		}
 		envelope["content"], _ = json.Marshal(content)
 		if result.Usage != nil {
-			envelope["usage"], _ = json.Marshal(result.Usage)
+			usage, _ := json.Marshal(result.Usage)
+			if result.ServiceTier != "" {
+				var fields map[string]json.RawMessage
+				_ = json.Unmarshal(usage, &fields)
+				fields["service_tier"], _ = json.Marshal(result.ServiceTier)
+				usage, _ = json.Marshal(fields)
+			}
+			envelope["usage"] = usage
 		}
 		raw, _ := json.Marshal(envelope)
 		decoded, err := wire.decode(raw, result.Requested)
@@ -96,7 +103,7 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			Index        int
 			Message      json.RawMessage
 			ContentBlock json.RawMessage `json:"content_block"`
-			Usage        *llm.Usage
+			Usage        json.RawMessage
 			Delta        struct {
 				Type         string
 				Text         string
@@ -197,12 +204,21 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			}
 			// Usage in message_delta is cumulative, so it is absorbed into the
 			// usage reported at message_start rather than summed.
-			if e.Usage != nil {
-				if result.Usage == nil {
-					result.Usage = &llm.Usage{}
+			if len(e.Usage) > 0 {
+				usage, tier, err := decodeUsage(e.Usage)
+				if err != nil {
+					return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode stream usage: %w", err)
 				}
-				result.Usage.Absorb(e.Usage)
-				providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage})
+				if tier != "" {
+					result.ServiceTier = tier
+				}
+				if usage != nil {
+					if result.Usage == nil {
+						result.Usage = &llm.Usage{}
+					}
+					result.Usage.Absorb(usage)
+					providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage})
+				}
 			}
 		case "message_stop":
 			if !started {

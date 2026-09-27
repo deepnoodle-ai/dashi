@@ -49,14 +49,18 @@ reducer should follow evidence of need rather than precede it.
 
 The tracked `design/` decision set now makes the README and `AGENTS.md`
 references available in a fresh checkout. Local race tests, vet, and build
-support this implementation; they do not constitute live qualification.
+support this implementation. The selected final-result live routes below also
+passed on 2026-09-27.
 
 ## Remaining qualification
 
 Use a production-style durable recorder and worker in Nvoken to verify the
-same atomicity and takeover behavior under process failure. Qualify selected
-live provider routes, including streaming and hosted-tool behavior. An opt-in
-six-call final-result probe is in `providers/live_agent_test.go`. The
+same atomicity and takeover behavior under process failure. The opt-in
+six-call final-result probe in `providers/live_agent_test.go` passed on
+2026-09-27 for Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
+Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`), each with
+blocking and streaming calls. Hosted-tool behavior, other models and routes,
+and Vertex ADC still need live qualification. The
 engine-dispatch decision stays provisional until that consumer proof exists.
 Session runners, child turns, and compaction remain separate areas. A host
 must authenticate commands, operator origin, external results, and
