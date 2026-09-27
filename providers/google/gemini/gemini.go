@@ -393,7 +393,7 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 		return nil, wire.unsupported("at least one message is required")
 	}
 	var contents []any
-	callNames := map[string]string{}
+	callNames := map[string]functionCallRef{}
 	for _, message := range messages {
 		if message.Role != llm.RoleUser && message.Role != llm.RoleAssistant {
 			return nil, wire.unsupported("system or developer history; use Input.System")
@@ -418,7 +418,12 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 	return contents, nil
 }
 
-func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]string) (any, error) {
+type functionCallRef struct {
+	name          string
+	providerHasID bool
+}
+
+func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]functionCallRef) (any, error) {
 	if c.Opaque != nil {
 		if role != llm.RoleAssistant || c.Opaque.Origin != wire.origin || c.Opaque.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("opaque part from another destination")
@@ -450,22 +455,22 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 						// Preserve signed ID-less calls exactly. Their generated
 						// canonical IDs pair Kernel's call and result, but do not
 						// authorize modifying the signed provider part.
-						names[c.ToolCall.ID] = c.ToolCall.Name
+						names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name}
 						return c.Replay.Raw, nil
 					}
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return fields, nil
 				}
 				if saved.FunctionCall.ID == c.ToolCall.ID {
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return c.Replay.Raw, nil
 				}
 				if fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, true); ok {
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return fields, nil
 				}
 			}
@@ -529,11 +534,12 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 		if err := json.Unmarshal(c.ToolCall.Args, &args); err != nil || args == nil {
 			return nil, wire.unsupported("tool arguments require a JSON object")
 		}
-		names[c.ToolCall.ID] = c.ToolCall.Name
+		names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 		return map[string]any{"functionCall": map[string]any{"id": c.ToolCall.ID,
 			"name": c.ToolCall.Name, "args": args}}, nil
 	case llm.ContentToolResult:
-		if role != llm.RoleUser || names[c.ToolResult.CallID] == "" {
+		ref, ok := names[c.ToolResult.CallID]
+		if role != llm.RoleUser || !ok {
 			return nil, wire.unsupported("tool result requires an earlier model call")
 		}
 		var output []string
@@ -547,10 +553,13 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 		if c.ToolResult.IsError {
 			key = "error"
 		}
-		name := names[c.ToolResult.CallID]
 		delete(names, c.ToolResult.CallID)
-		return map[string]any{"functionResponse": map[string]any{"id": c.ToolResult.CallID,
-			"name": name, "response": map[string]any{key: strings.Join(output, "\n\n")}}}, nil
+		response := map[string]any{"name": ref.name,
+			"response": map[string]any{key: strings.Join(output, "\n\n")}}
+		if ref.providerHasID {
+			response["id"] = c.ToolResult.CallID
+		}
+		return map[string]any{"functionResponse": response}, nil
 	}
 	return nil, wire.unsupported("content kind %q", c.Kind)
 }

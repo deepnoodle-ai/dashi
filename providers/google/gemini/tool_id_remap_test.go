@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -287,43 +288,91 @@ func TestPrepareKeepsSynthesizedGeminiToolID(t *testing.T) {
 }
 
 func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
-	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	origin := clientOrigin(t, client, "gemini-test")
-	codec := codec{origin: origin}
-	raw := json.RawMessage(
-		`{"functionCall":{"name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`,
-	)
-	part, err := codec.decodePart(raw, "response-one", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := sampleInput(false)
-	input.Messages = append(input.Messages,
-		llm.AssistantMessage(part),
-		llm.UserMessage(llm.Content{
-			Kind: llm.ContentToolResult,
-			ToolResult: &llm.ToolResult{
-				CallID: part.ToolCall.ID,
-			},
-		}),
-	)
-	request, err := client.Prepare(context.Background(), input)
-	if err != nil {
-		t.Fatalf("signed ID-less replay failed: %v", err)
-	}
-	if !bytes.Contains(request.Body(), []byte(`"thoughtSignature":"c2ln"`)) {
-		t.Fatalf("signed ID-less replay lost its signature: %s", request.Body())
-	}
-	callID, resultID := geminiWireToolIDs(t, request.Body())
-	if callID != "" || resultID != part.ToolCall.ID {
-		t.Fatalf("signed call ID = %q, tool result ID = %q", callID, resultID)
+	for _, tc := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"missing_id", json.RawMessage(`{"functionCall":{"name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`)},
+		{"empty_id", json.RawMessage(`{"functionCall":{"id":"","name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := New(Config{
+				Provider:            "google",
+				APIKey:              "test",
+				UnknownCapabilities: llm.UnknownAllow,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			codec := codec{origin: clientOrigin(t, client, "gemini-test")}
+			part, err := codec.decodePart(tc.raw, "response-one", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if part.ToolCall.ID == "" {
+				t.Fatal("decoded call has no internal ID")
+			}
+			input := sampleInput(false)
+			input.Messages = append(input.Messages,
+				llm.AssistantMessage(part),
+				llm.UserMessage(llm.Content{
+					Kind: llm.ContentToolResult,
+					ToolResult: &llm.ToolResult{
+						CallID: part.ToolCall.ID,
+					},
+				}),
+			)
+			request, err := client.Prepare(context.Background(), input)
+			if err != nil {
+				t.Fatalf("signed ID-less replay failed: %v", err)
+			}
+			if !bytes.Equal(request.Input().Messages[1].Content[0].Replay.Raw, tc.raw) {
+				t.Fatal("signed ID-less replay data changed")
+			}
+			var body struct {
+				Contents []struct {
+					Parts []map[string]json.RawMessage `json:"parts"`
+				} `json:"contents"`
+			}
+			if err := json.Unmarshal(request.Body(), &body); err != nil {
+				t.Fatal(err)
+			}
+			var sourceCall, wireCall any
+			if err := json.Unmarshal(body.Contents[1].Parts[0]["functionCall"], &wireCall); err != nil {
+				t.Fatal(err)
+			}
+			var sourceFields map[string]json.RawMessage
+			if err := json.Unmarshal(tc.raw, &sourceFields); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(sourceFields["functionCall"], &sourceCall); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(sourceCall, wireCall) {
+				t.Fatalf("signed function call changed: source=%v wire=%v", sourceCall, wireCall)
+			}
+			if string(body.Contents[1].Parts[0]["thoughtSignature"]) != `"c2ln"` {
+				t.Fatal("signed function call lost its thought signature")
+			}
+			found := false
+			for _, message := range body.Contents {
+				for _, wirePart := range message.Parts {
+					if responseRaw, ok := wirePart["functionResponse"]; ok {
+						var response map[string]json.RawMessage
+						if err := json.Unmarshal(responseRaw, &response); err != nil {
+							t.Fatal(err)
+						}
+						if _, ok := response["id"]; ok {
+							t.Fatalf("ID-less call got a response ID: %s", responseRaw)
+						}
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing function response")
+			}
+		})
 	}
 }
 

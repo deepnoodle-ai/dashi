@@ -68,7 +68,9 @@ provider item IDs retain their identity. Remapping runs before replay edit check
 unfamiliar private fields prevent an edit whose dependencies are unknown.
 Gemini also uses this shared step; signed tool calls reject ID additions or
 changes. Only recognized unsigned Gemini function-call replay permits remapping,
-and foreign Gemini private replay remains unsupported.
+and foreign Gemini private replay remains unsupported. A signed call without a
+provider ID keeps Kernel's internal call/result correlation while its wire
+function response omits the ID.
 
 A known content kind alone does not establish portability. Unrecognized fields,
 nonempty output-phase metadata, and unmodeled semantics prevent automatic
