@@ -113,6 +113,8 @@ duplicate delivery handling. An acknowledged model or tool intent may already
 have caused an external effect; recover it by identity before deciding whether
 to retry. See [agent turns and recovery](docs/agent-turns.md) for the recorder,
 pending-result, approval, and stop contracts.
+The [Dive comparison and open gates](docs/agent-loop-review.md) record what
+remains to prove before stabilizing the loop API.
 
 ## Verify
 
