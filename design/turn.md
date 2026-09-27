@@ -54,9 +54,6 @@ must contain its content or an immutable, resolvable reference. A digest-only
 delivery proves what was offered but cannot reconstruct it; such context cannot
 support automatic recovery. Context retained for just one model call still
 needs a recorded value if that call is recoverable.
-Invocation-only model context is deliberately outside this recovery promise:
-its model intent records a digest, and the host must supply it again for a
-later invocation. See [runtime reminders](runtime-reminders.md).
 Prior session history is copied into the start fact so later invocations cannot
 substitute different history. Scheduled starts retain their origin; only an
 operator-origin start may introduce a system or developer role. Hosts authorize

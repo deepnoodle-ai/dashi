@@ -49,8 +49,8 @@ func TestLiveAnthropicAgentTurn(t *testing.T) {
 	runLiveAgentTurn(t, "anthropic", client, modelName)
 }
 
-// Each subtest makes one paid call through the model-only reminder path.
-func TestLiveRuntimeReminders(t *testing.T) {
+// Each subtest makes one paid call with a recorded reminder.
+func TestLiveRecordedReminders(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		new  func(string) (llm.Client, error)
@@ -76,14 +76,27 @@ func TestLiveRuntimeReminders(t *testing.T) {
 			def := kernel.Definition{ID: "reminder-live", Revision: "1", Provider: client.Provider(), API: client.API(), Model: modelName,
 				Settings: llm.Settings{MaxTokens: 256}, Limits: kernel.Limits{ModelAttempts: 1, ProviderPauses: 1, ToolConcurrency: 1}}
 			out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "reminder-live"}, def,
-				kernel.Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder."))}},
-				kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder(), ModelOnlyReminders: []llm.Reminder{{Name: "answer-word", Tier: llm.ReminderOperator, Content: "The answer word is indigo.", Details: json.RawMessage(`{"private":"do-not-record"}`)}}})
+				kernel.Start{ID: "start", Origin: kernel.StartOperator, Input: []llm.Message{
+					llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder.")),
+					llm.ReminderMessage(llm.Reminder{Name: "answer-word", Tier: llm.ReminderOperator, Content: "The answer word is indigo."}),
+				}}, kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()})
 			if err != nil || out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted || !strings.Contains(strings.ToLower(out.Turn.AnswerText()), "indigo") {
 				t.Fatalf("outcome=%+v answer=%q err=%v", out.Stop, out.Turn.AnswerText(), err)
 			}
-			record, _ := json.Marshal(out.Turn)
-			if strings.Contains(string(record), "The answer word is indigo.") || strings.Contains(string(record), "do-not-record") {
-				t.Fatal("model-only reminder leaked into turn record")
+			projected, err := kernel.Project(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, message := range projected {
+				for _, part := range message.Content {
+					if part.Reminder != nil && part.Reminder.Name == "answer-word" && part.Reminder.Content == "The answer word is indigo." {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatal("recorded reminder missing from projected history")
 			}
 		})
 	}

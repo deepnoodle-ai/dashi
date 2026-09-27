@@ -1,12 +1,9 @@
 package llm
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/kernel/content"
@@ -22,13 +19,11 @@ const (
 
 var reminderName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// Reminder is typed context supplied by a host, library, or tool. Details are
-// application metadata and never appear in the model-facing text.
+// Reminder is named context supplied by a host, library, or tool.
 type Reminder struct {
-	Name    string          `json:"name"`
-	Tier    ReminderTier    `json:"tier"`
-	Content string          `json:"content"`
-	Details json.RawMessage `json:"details,omitempty"`
+	Name    string       `json:"name"`
+	Tier    ReminderTier `json:"tier"`
+	Content string       `json:"content"`
 }
 
 func (r Reminder) Validate() error {
@@ -38,24 +33,16 @@ func (r Reminder) Validate() error {
 	if r.Tier != ReminderContextual && r.Tier != ReminderOperator {
 		return errors.New("llm: invalid reminder tier")
 	}
-	if !utf8.ValidString(r.Content) || len(r.Content) > 64<<10 {
-		return errors.New("llm: reminder content must be UTF-8 and at most 64 KiB")
-	}
-	if len(r.Details) > 16<<10 || (len(r.Details) > 0 && (!json.Valid(r.Details) || bytes.TrimSpace(r.Details)[0] != '{')) {
-		return errors.New("llm: reminder details must be a JSON object of at most 16 KiB")
+	if r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 64<<10 {
+		return errors.New("llm: reminder content must be nonempty UTF-8 and at most 64 KiB")
 	}
 	return nil
-}
-
-func (r Reminder) Clone() Reminder {
-	r.Details = slices.Clone(r.Details)
-	return r
 }
 
 // ReminderMessage keeps runtime context typed in records and caller history.
 // The provider adapter chooses the model-facing role during preparation.
 func ReminderMessage(r Reminder) Message {
-	v := r.Clone()
+	v := r
 	return Message{Role: RoleUser, Content: []Content{{Kind: ContentReminder, Reminder: &v}}}
 }
 

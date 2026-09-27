@@ -2,7 +2,6 @@ package providers_test
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -37,7 +36,7 @@ func TestReminderPreparedWireAndEvidence(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			input := llm.Input{Model: "example-model", Messages: []llm.Message{
 				llm.UserMessage(llm.Text("question")),
-				llm.ReminderMessage(llm.Reminder{Name: "scope", Tier: llm.ReminderOperator, Content: "visible reminder", Details: json.RawMessage(`{"private":"hidden detail"}`)}),
+				llm.ReminderMessage(llm.Reminder{Name: "scope", Tier: llm.ReminderOperator, Content: "visible reminder"}),
 			}}
 			req, err := tc.client.Prepare(context.Background(), input)
 			if err != nil {
@@ -48,8 +47,8 @@ func TestReminderPreparedWireAndEvidence(t *testing.T) {
 				t.Fatalf("snapshot=%+v", snapshot)
 			}
 			body := string(req.Body())
-			if !strings.Contains(body, "visible reminder") || strings.Contains(body, "hidden detail") {
-				t.Fatalf("wire privacy failure: %s", body)
+			if !strings.Contains(body, "visible reminder") {
+				t.Fatalf("wire reminder missing: %s", body)
 			}
 			if tc.name == "responses" && !strings.Contains(body, `"role":"developer"`) {
 				t.Fatalf("Responses lost operator role: %s", body)

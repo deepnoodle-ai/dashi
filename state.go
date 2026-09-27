@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -238,14 +237,6 @@ func (s *replayState) apply(step Step) error {
 		}
 		if len(step.Model.Admission) > 0 && (!json.Valid(step.Model.Admission) || len(step.Model.Admission) > 16<<10) {
 			return errors.New("invalid model admission metadata")
-		}
-		for _, evidence := range step.Model.ModelOnlyReminders {
-			if err := (llm.Reminder{Name: evidence.Name, Tier: evidence.Tier}).Validate(); err != nil || len(evidence.Digest) != 64 {
-				return errors.New("invalid model-only reminder evidence")
-			}
-			if _, err := hex.DecodeString(evidence.Digest); err != nil {
-				return errors.New("invalid model-only reminder digest")
-			}
 		}
 		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
@@ -702,8 +693,6 @@ func validateMessage(m llm.Message) error {
 		if err := part.Validate(); err != nil {
 			return err
 		}
-	}
-	for _, part := range m.Content {
 		if part.Kind == llm.ContentReminder && (m.Role != llm.RoleUser || len(m.Content) != 1) {
 			return errors.New("reminder requires a standalone user message")
 		}

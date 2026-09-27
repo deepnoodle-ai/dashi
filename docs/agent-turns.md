@@ -41,16 +41,12 @@ delivered with `Deliver` for recorded context. A `ContextItem` can use
 Only `StartOperator` or `ContextItem{Origin: "operator"}` may carry an
 operator-tier recorded reminder. The host authenticates those origins.
 
-Set `Bindings.ModelOnlyReminders` for context sent on every model call in the
-current `Apply` or `Stream` invocation. `BeforeModel` may return
-`ModelDecision.ModelOnlyReminders` for its current call. Their content and
-application details are absent from the turn and from `Project`; each model
-intent retains only name, tier, and a content digest. Supply binding reminders
-again after a later `Accept` or `Continue`. Provider preparation renders the
-typed content, omits details, and records the resulting role in
+The full typed reminder is saved in the turn and rebuilt by `Project` after a
+later `Accept` or `Continue`. `BeforeModel` can also deliver one through
+`ModelDecision.Deliver`; that delivery is recorded before the model call.
+Provider preparation renders the typed content and records the resulting role in
 `ContentChanges`. Operator-tier reminders use developer authority on
 first-party OpenAI Responses; other routes currently receive user-role text.
-The model may quote a reminder in its recorded answer.
 See [runtime reminders](../design/runtime-reminders.md) for the tradeoffs.
 
 `DefaultLimits()` reserves the last model attempt for a final answer after at

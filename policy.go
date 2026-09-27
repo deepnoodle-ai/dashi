@@ -15,10 +15,7 @@ type ModelPlan struct {
 type ModelDecision struct {
 	Settings *llm.Settings
 	Deliver  []ContextItem
-	// ModelOnlyReminders apply to this model call only. BeforeModel runs again
-	// before the next call; Bindings.ModelOnlyReminders spans the invocation.
-	ModelOnlyReminders []llm.Reminder
-	Stop               *Stop
+	Stop     *Stop
 }
 type ModelAuthorization struct {
 	Allow  bool

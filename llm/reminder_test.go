@@ -1,21 +1,19 @@
 package llm
 
 import (
-	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
 func TestReminderValidationAndOwnership(t *testing.T) {
-	r := Reminder{Name: "workspace-map", Tier: ReminderContextual, Content: "Use the current map.", Details: json.RawMessage(` {"private":"never send"} `)}
+	r := Reminder{Name: "workspace-map", Tier: ReminderContextual, Content: "Use the current map."}
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	m := ReminderMessage(r)
-	r.Details[3] = 'X'
-	if !bytes.Contains(m.Content[0].Reminder.Details, []byte("private")) {
-		t.Fatal("reminder message did not own details")
+	r.Content = "changed"
+	if m.Content[0].Reminder.Content != "Use the current map." {
+		t.Fatal("reminder message did not own the value")
 	}
 	if err := (Input{Model: "m", Messages: []Message{m}}).Validate(); err != nil {
 		t.Fatal(err)
@@ -23,8 +21,8 @@ func TestReminderValidationAndOwnership(t *testing.T) {
 	for _, bad := range []Reminder{
 		{Name: "Bad Name", Tier: ReminderContextual},
 		{Name: "x", Tier: "system"},
+		{Name: "x", Tier: ReminderContextual},
 		{Name: "x", Tier: ReminderOperator, Content: string([]byte{0xff})},
-		{Name: "x", Tier: ReminderOperator, Details: json.RawMessage(`[]`)},
 		{Name: "x", Tier: ReminderOperator, Content: strings.Repeat("x", 64<<10+1)},
 	} {
 		if err := bad.Validate(); err == nil {

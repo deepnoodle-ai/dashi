@@ -198,7 +198,6 @@ type ModelFact struct {
 	AttemptID           string                 `json:"attempt_id"`
 	MessageID           string                 `json:"message_id,omitempty"`
 	RequestDigest       string                 `json:"request_digest,omitempty"`
-	ModelOnlyReminders  []ReminderEvidence     `json:"model_only_reminders,omitempty"`
 	FinalAnswerOnly     bool                   `json:"final_answer_only,omitempty"`
 	Admission           json.RawMessage        `json:"admission,omitempty"`
 	Provider            string                 `json:"provider,omitempty"`
@@ -217,14 +216,6 @@ type ModelFact struct {
 	Failure             llm.FailureDisposition `json:"failure,omitempty"`
 	Evidence            string                 `json:"evidence,omitempty"`
 	Uncertain           bool                   `json:"uncertain,omitempty"`
-}
-
-// ReminderEvidence identifies ephemeral context sent with a model attempt.
-// Content and application details are intentionally absent from the turn.
-type ReminderEvidence struct {
-	Name   string           `json:"name"`
-	Tier   llm.ReminderTier `json:"tier"`
-	Digest string           `json:"digest"`
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

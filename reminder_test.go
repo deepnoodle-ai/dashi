@@ -11,11 +11,6 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-type oneCallReminderPolicy struct {
-	AllowLocalPolicy
-	calls int
-}
-
 type droppingReminderClient struct{ *scriptedClient }
 
 func (c droppingReminderClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
@@ -23,49 +18,31 @@ func (c droppingReminderClient) Prepare(_ context.Context, in llm.Input) (llm.Re
 	return llm.NewRequest(llm.RequestSnapshot{Origin: content.Origin{Provider: "test", API: "test.chat", Model: in.Model, Scope: "fixture"}, Input: in, Effective: in.Settings, Body: []byte(`{"ok":true}`)})
 }
 
-func (p *oneCallReminderPolicy) BeforeModel(context.Context, ModelPlan) (ModelDecision, error) {
-	p.calls++
-	if p.calls == 1 {
-		return ModelDecision{ModelOnlyReminders: []llm.Reminder{{Name: "per-call", Tier: llm.ReminderContextual, Content: "only first"}}}, nil
-	}
-	return ModelDecision{}, nil
-}
-
-func TestModelOnlyRemindersAcrossInvocation(t *testing.T) {
+func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("c1", "lookup"), final("done")}}
 	rec := NewMemoryRecorder()
-	policy := &oneCallReminderPolicy{}
 	binding := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: json.RawMessage(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("found"))}, nil
 	})}
-	secret := "private context value"
-	reminder := llm.Reminder{Name: "scope", Tier: llm.ReminderOperator, Content: secret, Details: json.RawMessage(`{"internal":"hidden detail"}`)}
-	got, err := (Engine{}).Apply(context.Background(), Turn{ID: "r1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{
-		Client: client, Recorder: rec, Tools: fixedTools{binding}, Policy: policy, ModelOnlyReminders: []llm.Reminder{reminder},
+	reminder := llm.Reminder{Name: "scope", Tier: llm.ReminderContextual, Content: "persistent context"}
+	got, err := (Engine{}).Apply(context.Background(), Turn{ID: "r1"}, definition(), Start{ID: "start", Input: []llm.Message{
+		llm.UserMessage(llm.Text("go")), llm.ReminderMessage(reminder),
+	}}, Bindings{
+		Client: client, Recorder: rec, Tools: fixedTools{binding}, Policy: AllowLocalPolicy{},
 	})
-	if err != nil || got.Stop.Kind != StopCompleted || len(client.inputs) != 2 || policy.calls != 2 {
-		t.Fatalf("stop=%+v err=%v inputs=%d policy=%d", got.Stop, err, len(client.inputs), policy.calls)
+	if err != nil || got.Stop.Kind != StopCompleted || len(client.inputs) != 2 {
+		t.Fatalf("stop=%+v err=%v inputs=%d", got.Stop, err, len(client.inputs))
 	}
-	if !hasReminder(client.inputs[0].Messages, "scope") || !hasReminder(client.inputs[0].Messages, "per-call") ||
-		!hasReminder(client.inputs[1].Messages, "scope") || hasReminder(client.inputs[1].Messages, "per-call") {
-		t.Fatalf("wrong call scope: %+v", client.inputs)
-	}
-	var intents []*ModelFact
-	for i := range got.Turn.Steps {
-		if got.Turn.Steps[i].Kind == StepModelIntent {
-			intents = append(intents, got.Turn.Steps[i].Model)
-		}
-	}
-	if len(intents) != 2 || len(intents[0].ModelOnlyReminders) != 2 || len(intents[1].ModelOnlyReminders) != 1 || len(intents[0].ModelOnlyReminders[0].Digest) != 64 {
-		t.Fatalf("intent evidence=%+v", intents)
+	if !hasReminder(client.inputs[0].Messages, "scope") || !hasReminder(client.inputs[1].Messages, "scope") {
+		t.Fatalf("recorded reminder missing from model calls: %+v", client.inputs)
 	}
 	encoded, _ := json.Marshal(got.Turn)
-	if strings.Contains(string(encoded), secret) || strings.Contains(string(encoded), "hidden detail") || strings.Contains(string(encoded), "only first") {
-		t.Fatalf("model-only content leaked into turn record: %s", encoded)
+	if !strings.Contains(string(encoded), "persistent context") {
+		t.Fatalf("recorded reminder missing from turn: %s", encoded)
 	}
 	projected, err := Project(got.Turn)
-	if err != nil || hasReminder(projected, "scope") || hasReminder(projected, "per-call") {
-		t.Fatalf("model-only content entered projection: %v %+v", err, projected)
+	if err != nil || !hasReminder(projected, "scope") {
+		t.Fatalf("recorded reminder missing from projection: %v %+v", err, projected)
 	}
 }
 
@@ -109,30 +86,13 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 	}
 }
 
-func TestModelOnlyReminderMustBeResuppliedAfterWaiting(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("c1", "lookup"), final("done")}}
-	rec := NewMemoryRecorder()
-	external := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: json.RawMessage(`{"type":"object"}`), Kind: tool.KindExternal}}
-	reminder := llm.Reminder{Name: "scope", Tier: llm.ReminderContextual, Content: "invocation only"}
-	first, err := (Engine{}).Apply(context.Background(), Turn{ID: "r4"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{
-		Client: client, Recorder: rec, Tools: fixedTools{external}, Policy: AllowLocalPolicy{}, ModelOnlyReminders: []llm.Reminder{reminder},
-	})
-	if err != nil || first.Stop.Kind != StopWaiting || !hasReminder(client.inputs[0].Messages, "scope") {
-		t.Fatalf("first=%+v err=%v", first.Stop, err)
-	}
-	second, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "accept", CallID: "c1", Outcome: &tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("found"))}}, Bindings{
-		Client: client, Recorder: rec, Tools: fixedTools{external}, Policy: AllowLocalPolicy{},
-	})
-	if err != nil || second.Stop.Kind != StopCompleted || len(client.inputs) != 2 || hasReminder(client.inputs[1].Messages, "scope") {
-		t.Fatalf("second=%+v err=%v inputs=%+v", second.Stop, err, client.inputs)
-	}
-}
-
 func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	base := &scriptedClient{results: []llm.Result{final("done")}}
 	client := droppingReminderClient{base}
-	got, err := (Engine{}).Apply(context.Background(), Turn{ID: "r5"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{
-		Client: client, Recorder: NewMemoryRecorder(), ModelOnlyReminders: []llm.Reminder{{Name: "scope", Tier: llm.ReminderContextual, Content: "must send"}},
+	got, err := (Engine{}).Apply(context.Background(), Turn{ID: "r5"}, definition(), Start{ID: "start", Input: []llm.Message{
+		llm.UserMessage(llm.Text("go")), llm.ReminderMessage(llm.Reminder{Name: "scope", Tier: llm.ReminderContextual, Content: "must send"}),
+	}}, Bindings{
+		Client: client, Recorder: NewMemoryRecorder(),
 	})
 	if err != nil || got.Stop.Kind != StopFailed || base.sends != 0 {
 		t.Fatalf("outcome=%+v err=%v sends=%d", got.Stop, err, base.sends)
