@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,9 +32,11 @@ func TestCanceledContextStopsToolBatchWithoutWaitingForExecutor(t *testing.T) {
 	})}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	def := definition()
+	def.Limits.ToolConcurrency = 1
 	finished := make(chan Outcome, 1)
 	go func() {
-		out, _ := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Tools: fixedTools{first, second}, Recorder: rec, Policy: AllowLocalPolicy{}})
+		out, _ := (Engine{}).Apply(ctx, Turn{ID: "t1"}, def, Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Tools: fixedTools{first, second}, Recorder: rec, Policy: AllowLocalPolicy{}})
 		finished <- out
 	}()
 	select {
@@ -59,9 +62,62 @@ func TestCanceledContextStopsToolBatchWithoutWaitingForExecutor(t *testing.T) {
 		t.Fatalf("pending=%v", out.Pending)
 	}
 	late := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("late"))}
-	settled, err := (Engine{}).Apply(context.Background(), out.Turn, definition(), Accept{ID: "late", CallID: "a", Outcome: &late}, Bindings{Client: client, Recorder: rec})
+	settled, err := (Engine{}).Apply(context.Background(), out.Turn, def, Accept{ID: "late", CallID: "a", Outcome: &late}, Bindings{Client: client, Recorder: rec})
 	if err != nil || settled.Stop.Kind != StopCanceled || len(settled.Pending) != 0 {
 		t.Fatalf("late=%+v err=%v", settled, err)
+	}
+}
+
+func TestCanceledParallelBatchDoesNotStartLaterSibling(t *testing.T) {
+	parts := []llm.Content{}
+	for _, name := range []string{"first", "second", "third"} {
+		call := tool.Call{ID: name, Name: name, Args: []byte(`{}`)}
+		parts = append(parts, llm.Content{Kind: llm.ContentToolCall, ToolCall: &call})
+	}
+	client := &scriptedClient{results: []llm.Result{{Message: llm.AssistantMessage(parts...), Stop: llm.Stop{Kind: llm.StopToolUse}}}}
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	defer close(release)
+	makeTool := func(name string) tool.Tool {
+		return tool.Tool{Definition: tool.Definition{Name: name, Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			started <- name
+			<-release
+			return tool.Outcome{State: tool.StateSucceeded}, nil
+		})}
+	}
+	var thirdRuns atomic.Int32
+	third := tool.Tool{Definition: tool.Definition{Name: "third", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		thirdRuns.Add(1)
+		return tool.Outcome{State: tool.StateSucceeded}, nil
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan Outcome, 1)
+	rec := NewMemoryRecorder()
+	go func() {
+		out, _ := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Tools: fixedTools{makeTool("first"), makeTool("second"), third}, Recorder: rec, Policy: AllowLocalPolicy{}})
+		finished <- out
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("parallel tools did not both start")
+		}
+	}
+	cancel()
+	var out Outcome
+	select {
+	case out = <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Apply waited for the parallel executors")
+	}
+	if out.Stop.Kind != StopCanceled || thirdRuns.Load() != 0 || len(out.Pending) != 2 {
+		t.Fatalf("out=%+v third runs=%d", out, thirdRuns.Load())
+	}
+	view, err := Replay(out.Turn)
+	if err != nil || view.Tools["first"].Status != ToolStarted || view.Tools["second"].Status != ToolStarted || view.Tools["third"].Status != ToolSettled || view.Tools["third"].Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("view=%+v err=%v", view, err)
 	}
 }
 
@@ -98,5 +154,29 @@ func TestCanceledAfterModelIntentDoesNotSend(t *testing.T) {
 	settled := out.Turn.Steps[len(out.Turn.Steps)-2]
 	if settled.Kind != StepModelSettled || settled.Model.Failure != llm.FailureNotDispatched {
 		t.Fatalf("settlement=%+v", settled)
+	}
+}
+
+func TestCanceledAfterModelResultDoesNotStartPendingTool(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "work")}}
+	rec := notifyingRecorder{Recorder: NewMemoryRecorder(), onCommit: func(step Step) {
+		if step.Kind == StepModelSettled {
+			cancel()
+		}
+	}}
+	runs := 0
+	binding := tool.Tool{Definition: tool.Definition{Name: "work", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		runs++
+		return tool.Outcome{State: tool.StateSucceeded}, nil
+	})}
+	out, err := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	if err != nil || out.Stop.Kind != StopCanceled || runs != 0 || client.sends != 1 || len(out.Pending) != 0 {
+		t.Fatalf("out=%+v err=%v runs=%d sends=%d", out, err, runs, client.sends)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil || view.Tools["call-1"].Status != ToolSettled || view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("view=%+v err=%v", view, err)
 	}
 }
