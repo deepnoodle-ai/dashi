@@ -134,12 +134,16 @@ func (s *replayState) apply(step Step) error {
 		}
 	}
 	// Once the validated output is recorded the turn's result is final; the
-	// only remaining fact is the completion stop. Later context, tools, model
-	// calls, or cancellation are refused rather than silently ignored.
+	// only remaining fact is the completion stop, or the limited stop when
+	// the answer came from the reserved final attempt. Later context, tools,
+	// model calls, or cancellation are refused rather than silently ignored.
 	if s.Output != nil {
 		switch {
 		case step.Kind == StepContinued:
 		case step.Kind == StepStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
+		case step.Kind == StepStopped && step.Stop != nil &&
+			step.Stop.Kind == StopLimited &&
+			step.Stop.Reason == "model_attempts" && s.finalAnswerOnly:
 		default:
 			return errors.New("turn with recorded output can only complete")
 		}

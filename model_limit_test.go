@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
@@ -67,10 +68,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	def.Limits.ModelAttempts = 2
 	def.Limits.ReserveFinalAnswer = true
 	client := &scriptedClient{results: []llm.Result{callResult("lookup-1", "lookup"), submitResult("submit", `{"answer":42}`)}}
-	binding := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
-		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-			return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("42"))}, nil
-		})}
+	binding := answerLookup()
 	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "limit"}, def,
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))}},
 		Bindings{Client: client, Tools: fixedTools{binding}, Recorder: NewMemoryRecorder(), Policy: AllowLocalPolicy{}})
@@ -95,6 +93,87 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 		}
 	}
 	t.Fatal("missing final-answer intent")
+}
+
+func TestReplayRejectsLimitedStopAfterOutputUnlessFinalAttempt(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
+	out := applyStructured(t, client, nil, NewMemoryRecorder())
+	i := slices.IndexFunc(out.Turn.Steps, func(step Step) bool {
+		return step.Kind == StepOutputRecorded
+	})
+	if i < 0 {
+		t.Fatal("no recorded output")
+	}
+	recorded := out.Turn.Steps[i]
+
+	tests := []struct {
+		name string
+		stop Stop
+	}{
+		{
+			name: "model attempts without final attempt",
+			stop: Stop{Kind: StopLimited, Reason: "model_attempts"},
+		},
+		{
+			name: "deadline",
+			stop: Stop{Kind: StopLimited, Reason: "deadline"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stop := tt.stop
+			turn := out.Turn
+			turn.Steps = append(slices.Clone(out.Turn.Steps[:i+1]), Step{
+				Version: recorded.Version,
+				TurnID:  recorded.TurnID,
+				Seq:     int64(i + 2),
+				Kind:    StepStopped,
+				Stop:    &stop,
+			})
+			if _, err := Replay(turn); err == nil {
+				t.Fatalf("replay accepted %+v after recorded output", stop)
+			}
+		})
+	}
+
+	def := structuredDefinition()
+	def.Limits.ModelAttempts = 2
+	def.Limits.ReserveFinalAnswer = true
+	final := &scriptedClient{
+		results: []llm.Result{
+			callResult("lookup-1", "lookup"),
+			submitResult("submit", `{"answer":42}`),
+		},
+	}
+	start := Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
+	}
+	bindings := Bindings{
+		Client:   final,
+		Tools:    fixedTools{answerLookup()},
+		Recorder: NewMemoryRecorder(),
+		Policy:   AllowLocalPolicy{},
+	}
+	limited, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "limit"},
+		def,
+		start,
+		bindings,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := Replay(limited.Turn)
+	if err != nil {
+		t.Fatalf("replay rejected limited stop after final attempt: %v", err)
+	}
+	if view.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) {
+		t.Fatalf("stop=%+v", view.Stop)
+	}
 }
 
 func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
@@ -147,5 +226,20 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	if err != nil || second.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) ||
 		second.Turn.AnswerText() != "42" || client.sends != 2 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
+	}
+}
+
+// answerLookup is a local tool that always answers 42.
+func answerLookup() tool.Tool {
+	return tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			output := tool.TextOutput("42")
+			return tool.Outcome{State: tool.StateSucceeded, Output: &output}, nil
+		}),
 	}
 }
