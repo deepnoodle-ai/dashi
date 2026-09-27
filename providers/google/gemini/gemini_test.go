@@ -19,7 +19,7 @@ import (
 
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
-	client, err := New(Config{Provider: "google", APIKey: "test", Endpoint: server.URL + "/v1/models/{model}:generateContent",
+	client, err := New(Config{Provider: "google", APIKey: "test", Endpoint: server.URL + "/v1beta/models/{model}:generateContent",
 		UnknownCapabilities: llm.UnknownAllow})
 	if err != nil {
 		t.Fatal(err)
@@ -33,12 +33,43 @@ func sampleInput(stream bool) llm.Input {
 		Tools:    []tool.Definition{{Name: "search", Schema: json.RawMessage(`{"type":"object"}`)}}}
 }
 
+func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
+	stable, err := New(Config{Provider: "google", APIKey: "test",
+		Endpoint:            strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
+		UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stable.Prepare(context.Background(), sampleInput(false)); err == nil ||
+		!strings.Contains(err.Error(), "v1beta") {
+		t.Fatalf("v1 client function calling was not rejected before dispatch: %v", err)
+	}
+	history := geminiToolHistory("call-1")
+	history.Tools = nil
+	if _, err := stable.Prepare(context.Background(), history); err == nil ||
+		!strings.Contains(err.Error(), "v1beta") {
+		t.Fatalf("v1 client function history was not rejected before dispatch: %v", err)
+	}
+	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := client.Prepare(context.Background(), sampleInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(client.endpoint("gemini-test"), "/v1beta/") ||
+		!bytes.Contains(request.Body(), []byte(`"parametersJsonSchema"`)) {
+		t.Fatalf("v1beta request lost JSON Schema: %s", request.Body())
+	}
+}
+
 func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	var attempts atomic.Int32
 	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
-		if r.URL.Path != "/v1/models/gemini-test:generateContent" || r.Header.Get("X-Goog-Api-Key") != "test" {
+		if r.URL.Path != "/v1beta/models/gemini-test:generateContent" || r.Header.Get("X-Goog-Api-Key") != "test" {
 			t.Errorf("wrong Gemini route or key: %s %+v", r.URL, r.Header)
 		}
 		sent, _ = io.ReadAll(r.Body)
@@ -59,6 +90,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	}
 	if attempts.Load() != 1 || string(sent) != string(prepared.Body()) || result.ID != "r1" ||
 		result.Served.Model != "served" || result.Stop.Kind != llm.StopFinished || result.Message.Text() != "Hello" ||
+		result.Message.Source == nil || result.Message.Source.ResponseID != "r1" ||
 		len(result.Message.Content) != 2 || result.Message.Content[0].Replay == nil ||
 		result.Message.Content[1].ToolCall.ID != "call-1" || result.Usage == nil ||
 		result.Usage.InputTokens != 7 || result.Usage.CacheReadInputTokens != 5 ||
@@ -83,7 +115,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 
 func TestStreamCollectsTextSignatureAndUsage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gemini-test:streamGenerateContent" || r.URL.Query().Get("alt") != "sse" {
+		if r.URL.Path != "/v1beta/models/gemini-test:streamGenerateContent" || r.URL.Query().Get("alt") != "sse" {
 			t.Errorf("wrong Gemini stream route: %s", r.URL)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")

@@ -84,7 +84,9 @@ func (p *InteractionsMediaClient) prepareVideo(ctx context.Context, in media.Vid
 	}
 	bodyValue := map[string]any{
 		"model": in.Model, "input": input, "response_format": format,
-		"background": false, "store": false, "stream": false,
+		// URI delivery creates a provider File and requires stored interaction
+		// state; inline delivery keeps the call stateless.
+		"background": false, "store": delivery == "uri", "stream": false,
 	}
 	if len(in.ReferenceFrames) == 1 {
 		bodyValue["generation_config"] = map[string]any{"video_config": map[string]any{"task": "image_to_video"}}

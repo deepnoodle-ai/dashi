@@ -69,7 +69,9 @@ func (p *InteractionsMediaClient) PrepareImage(ctx context.Context, in media.Ima
 		}
 		input = append(input, part)
 	}
-	format := map[string]any{"type": "image", "delivery": "inline"}
+	// Image responses are inline by default. The Interactions API rejects an
+	// explicit image delivery mode, even when its value is "inline".
+	format := map[string]any{"type": "image"}
 	if in.Settings.OutputMIMEType != "" {
 		format["mime_type"] = in.Settings.OutputMIMEType
 	}

@@ -5,6 +5,7 @@ will evolve as the agent layer takes shape.
 
 ## Foundation packages
 
+- `kernel`: Agent definitions, identified turn records, an acknowledged recorder, and the execution loop.
 - `content`: Shared text, media, resources, citations, and replay origins.
 - `model`: Shared model identity, capability support, and evidence.
 - `tool`: Definitions, calls, outputs, execution outcomes, and typed functions.
@@ -23,7 +24,8 @@ will evolve as the agent layer takes shape.
 
 Dependency direction: providers → `llm` → `tool` → `content`; `llm`, `media`,
 and `speech` share `model` identity and evidence. Shared content and model
-depend only on the standard library. Agent and session execution come later.
+depend only on the standard library. The root agent loop depends on `llm` and
+`tool`; session storage remains an optional future adapter.
 The Google adapter depends on `google.golang.org/genai`; the core packages do not.
 Media has provider clients for Gemini image generation/editing and Veo video
 jobs, xAI image generation/editing and video jobs, and OpenAI image
@@ -102,6 +104,18 @@ estimates require an explicitly selected `llm.Pricing` sheet and complete usage.
 See [foundation](design/foundation.md) for decisions, provenance, and limits,
 and [terminology](design/terminology-proposal.md) for API and record changes.
 
+## Run an agent turn
+
+With the same environment, run `go run ./examples/agent`. Its
+[source](examples/agent/main.go) shows the definition, recorder, command, and
+outcome. Each turn requires a stable ID and each command requires an ID for
+duplicate delivery handling. An acknowledged model or tool intent may already
+have caused an external effect; recover it by identity before deciding whether
+to retry. See [agent turns and recovery](docs/agent-turns.md) for the recorder,
+pending-result, approval, and stop contracts.
+The [Dive comparison and open gates](docs/agent-loop-review.md) record what
+remains to prove before stabilizing the loop API.
+
 ## Verify
 
 ```sh
@@ -110,5 +124,48 @@ go vet ./...
 go build ./...
 ```
 
-Tests use local servers and fixtures, without credentials. They do not establish
-live API compatibility.
+Ordinary tests use local servers and fixtures, without credentials. For selected
+live final-result routes, set `KERNEL_LIVE_TEST=1` plus
+`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `OPENAI_API_KEY`/`OPENAI_MODEL`, and
+`GEMINI_API_KEY`/`GEMINI_MODEL`, then run
+`go test -tags live ./providers -run TestLiveAgentFinalFacts -v`. This makes
+six paid requests. To test one provider, filter a subtest such as
+`-run '^TestLiveAgentFinalFacts/gemini$'` and set only its key and model.
+On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
+Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
+Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
+On 2026-09-27, Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
+Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`) agent turns
+passed live using `Engine.Apply`: a streamed final answer and a local tool call
+followed by a second model call. With the corresponding API keys set:
+
+```sh
+KERNEL_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
+  OPENAI_MODEL=gpt-4.1-mini GEMINI_MODEL=gemini-2.5-flash \
+  go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)AgentTurn$' -v
+```
+
+This makes three paid calls per provider and checks the recorded steps, replay,
+and duplicate start. Filter `-run` to one provider when needed. Gemini's
+conversational client defaults to `v1beta` because the tested
+`v1` route rejected function calling. Pin `v1` explicitly only for turns that
+must retain its earlier private replay scope; `Prepare` rejects client function
+calls there before dispatch.
+Gemini LLM image inputs passed live on 2026-09-27 with `gemini-2.5-flash`:
+two inline PNGs in blocking and streaming calls, a public image URL, and a
+Gemini Files URI. Each response identified image content. Run the opt-in checks
+with `GEMINI_API_KEY` and:
+
+```sh
+KERNEL_LIVE_IMAGE_INPUT_TEST=1 GEMINI_MODEL=gemini-2.5-flash \
+  go test -tags live ./providers/google/gemini -run '^TestLiveImageInput$' -v
+```
+
+The full test makes four paid LLM calls and temporarily uploads one PNG;
+filter a subtest to run one route.
+
+Selected Gemini image and video routes were also tested live; see
+[media qualification](design/media-provider-implementation.md). Opt-in media
+tests use `-tags live` with `KERNEL_LIVE_MEDIA_TEST=1` and
+`GEMINI_IMAGE_MODEL`, or `KERNEL_LIVE_VIDEO_TEST=1` and the selected
+`GEMINI_VIDEO_MODEL`/`GEMINI_OMNI_MODEL`. Filter one test to control paid calls.

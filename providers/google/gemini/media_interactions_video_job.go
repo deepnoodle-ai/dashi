@@ -45,6 +45,7 @@ func (p *InteractionsVideoJobClient) VideoModelInfo(name string) (media.ModelInf
 }
 
 // PrepareVideo records a URI-delivery request, including 1080p or 4k output.
+// Gemini requires stored interaction state to create the provider File.
 func (p *InteractionsVideoJobClient) PrepareVideo(ctx context.Context, in media.VideoInput) (media.VideoRequest, error) {
 	return p.client.prepareVideo(ctx, in, "uri")
 }

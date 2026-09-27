@@ -44,13 +44,16 @@ type replayState struct {
 	TurnView
 	modelIntent            string
 	unresolvedModel        string
+	unresolvedPartial      bool
 	modelUsages            map[string]*llm.Usage
+	modelMessages          map[string]string
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
 	hosted                 map[string]llm.HostedApprovalRequest
 	commandDigests         map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
+	failedModel            string
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -69,7 +72,7 @@ func snapshotView(v TurnView) TurnView {
 	return out
 }
 func replay(t Turn) (*replayState, error) {
-	s := &replayState{TurnView: TurnView{ID: t.ID, Tools: map[string]ToolView{}}, modelDefs: map[string]tool.Definition{}, hosted: map[string]llm.HostedApprovalRequest{}, commandDigests: map[string]string{}, modelUsages: map[string]*llm.Usage{}}
+	s := &replayState{TurnView: TurnView{ID: t.ID, Tools: map[string]ToolView{}}, modelDefs: map[string]tool.Definition{}, hosted: map[string]llm.HostedApprovalRequest{}, commandDigests: map[string]string{}, modelUsages: map[string]*llm.Usage{}, modelMessages: map[string]string{}}
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
 	}
@@ -115,6 +118,16 @@ func replay(t Turn) (*replayState, error) {
 	return s, nil
 }
 func (s *replayState) apply(step Step) error {
+	if s.Stop.Kind == StopCompleted {
+		return errors.New("completed turn cannot change")
+	}
+	if s.Stop.Kind == StopCanceled {
+		switch step.Kind {
+		case StepModelSettled, StepModelReconciled, StepToolSettled:
+		default:
+			return errors.New("canceled turn only accepts late results")
+		}
+	}
 	switch step.Kind {
 	case StepStarted:
 		if step.Started == nil {
@@ -126,9 +139,24 @@ func (s *replayState) apply(step Step) error {
 		if len(step.Started.Input) == 0 {
 			return errors.New("missing start input")
 		}
+		origin := step.Started.Origin
+		if origin == "" {
+			origin = StartUser
+		}
+		if origin != StartUser && origin != StartScheduled && origin != StartOperator {
+			return errors.New("invalid start origin")
+		}
+		for _, m := range step.Started.History {
+			if err := validateMessage(m); err != nil {
+				return err
+			}
+		}
 		for _, m := range step.Started.Input {
-			if m.Role != llm.RoleUser {
-				return errors.New("start input must be user messages")
+			if origin != StartOperator && m.Role != llm.RoleUser {
+				return errors.New("user or scheduled start input must use user role")
+			}
+			if origin == StartOperator && m.Role != llm.RoleUser && m.Role != llm.RoleSystem && m.Role != llm.RoleDeveloper {
+				return errors.New("invalid operator start role")
 			}
 			if err := validateMessage(m); err != nil {
 				return err
@@ -148,6 +176,9 @@ func (s *replayState) apply(step Step) error {
 		if !s.canContinue() {
 			return errors.New("turn cannot continue")
 		}
+		if s.Stop.Kind == StopFailed {
+			s.failedModel = ""
+		}
 		s.Stop = Stop{}
 	case StepLoopContinued:
 		if !s.awaitingClassification || len(s.pending()) > 0 {
@@ -165,29 +196,57 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 	case StepModelIntent:
-		if step.Model == nil || step.Model.AttemptID == "" || step.Model.RequestDigest == "" || s.modelIntent != "" || len(s.pending()) > 0 {
+		if step.Model == nil || step.Model.AttemptID == "" || step.Model.MessageID == "" || step.Model.RequestDigest == "" || s.modelIntent != "" || len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
+		if len(step.Model.Admission) > 0 && (!json.Valid(step.Model.Admission) || len(step.Model.Admission) > 16<<10) {
+			return errors.New("invalid model admission metadata")
+		}
+		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
+			return errors.New("model intent changed destination")
+		}
 		s.modelIntent = step.Model.AttemptID
+		s.unresolvedPartial = false
+		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
+			return errors.New("repeated model attempt ID")
+		}
+		s.modelMessages[step.Model.AttemptID] = step.Model.MessageID
 		s.awaitingClassification = false
 		s.ModelAttempts++
 		s.modelDefs = map[string]tool.Definition{}
 		for _, d := range step.Model.Tools {
+			if err := d.Validate(); err != nil {
+				return err
+			}
 			if _, ok := s.modelDefs[d.Name]; ok {
 				return errors.New("duplicate tool definition")
 			}
 			s.modelDefs[d.Name] = d
 		}
 	case StepModelSettled:
-		if step.Model == nil || step.Model.AttemptID == "" || step.Model.AttemptID != s.modelIntent {
+		if step.Model == nil || step.Model.AttemptID == "" || step.Model.AttemptID != s.modelIntent || step.Model.MessageID != s.modelMessages[s.modelIntent] {
 			return errors.New("model settlement without intent")
 		}
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
 		}
+		if step.Model.Failure != "" && step.Model.Failure != llm.FailureUnknown && step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched {
+			return errors.New("invalid model failure disposition")
+		}
+		if step.Model.Uncertain && (step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched) {
+			return errors.New("known model failure marked uncertain")
+		}
+		if step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched {
+			if step.Model.Error == "" || step.Model.Evidence == "" || (step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) != 0 || step.Model.Result.Usage != nil)) {
+				return errors.New("known model failure lacks evidence or has partial result")
+			}
+		}
 		s.modelIntent = ""
 		if step.Model.Uncertain {
 			s.unresolvedModel = step.Model.AttemptID
+			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
+		} else if step.Model.Error != "" {
+			s.failedModel = step.Model.Error
 		}
 		if step.Model.Result != nil {
 			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, step.Model.Error == "" && s.Stop.Kind != StopCanceled); err != nil {
@@ -198,14 +257,22 @@ func (s *replayState) apply(step Step) error {
 			s.awaitingClassification = true
 		}
 	case StepModelReconciled:
-		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.Result == nil || step.Model.Error != "" {
+		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.MessageID != s.modelMessages[s.unresolvedModel] || (step.Model.Result == nil && step.Model.Error == "") {
 			return errors.New("model reconciliation without uncertain attempt")
 		}
 		s.unresolvedModel = ""
-		if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
-			return err
+		if step.Model.Error != "" {
+			if step.Model.Result != nil || s.unresolvedPartial || (step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched) || step.Model.Evidence == "" {
+				return errors.New("model failure reconciliation lacks evidence")
+			}
+			s.failedModel = step.Model.Error
+		} else {
+			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
+				return err
+			}
+			s.awaitingClassification = true
 		}
-		s.awaitingClassification = true
+		s.unresolvedPartial = false
 	case StepToolDecision:
 		s.awaitingClassification = false
 		if step.Tool == nil {
@@ -218,6 +285,15 @@ func (s *replayState) apply(step Step) error {
 		v.Decision = step.Tool.Decision
 		if step.Tool.Call.ID != v.Call.ID || step.Tool.Call.Name != v.Call.Name {
 			return errors.New("tool decision changes identity")
+		}
+		if err := step.Tool.Call.Validate(); err != nil {
+			return err
+		}
+		if digest(step.Tool.Call.Args) != digest(v.Call.Args) && digest(step.Tool.Call.RequestedArgs) != digest(v.Call.Args) {
+			return errors.New("tool rewrite lost requested arguments")
+		}
+		if step.Tool.Definition.Name != "" && digest(step.Tool.Definition) != digest(v.Definition) {
+			return errors.New("tool decision changed definition")
 		}
 		v.Call = step.Tool.Call.Clone()
 		switch v.Decision.Kind {
@@ -237,7 +313,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool start")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status != ToolAllowed {
+		if !ok || v.Status != ToolAllowed || digest(v.Call) != digest(step.Tool.Call) || (step.Tool.Definition.Name != "" && digest(step.Tool.Definition) != digest(v.Definition)) {
 			return errors.New("tool start without allowance")
 		}
 		v.Status = ToolStarted
@@ -248,11 +324,14 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool wait")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || (v.Status != ToolAllowed && v.Status != ToolStarted) {
+		if !ok || digest(v.Call) != digest(step.Tool.Call) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
 			return errors.New("tool wait without allowance")
 		}
 		if step.Tool.Outcome.State != tool.StateWaiting && step.Tool.Outcome.State != tool.StateDetached {
 			return errors.New("invalid wait outcome")
+		}
+		if err := step.Tool.Outcome.Validate(); err != nil {
+			return err
 		}
 		v.Status = ToolWaiting
 		v.Outcome = step.Tool.Outcome
@@ -263,7 +342,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool settlement")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status == ToolSettled {
+		if !ok || v.Status == ToolSettled || digest(v.Call) != digest(step.Tool.Call) {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
@@ -277,6 +356,15 @@ func (s *replayState) apply(step Step) error {
 			}
 			if step.Tool.Outcome.State == tool.StateWaiting || step.Tool.Outcome.State == tool.StateDetached {
 				return errors.New("wait is not settlement")
+			}
+			switch v.Status {
+			case ToolRequested, ToolDenied:
+				if step.Tool.Outcome.State != tool.StateNotExecuted {
+					return errors.New("unexecuted tool cannot have an execution result")
+				}
+			case ToolStarted, ToolWaiting, ToolUncertain:
+			default:
+				return errors.New("tool result without execution or denial")
 			}
 			v.Status = ToolSettled
 			v.Outcome = step.Tool.Outcome
@@ -314,6 +402,28 @@ func (s *replayState) apply(step Step) error {
 		s.awaitingClassification = false
 		if step.Stop == nil {
 			return errors.New("missing stop")
+		}
+		switch step.Stop.Kind {
+		case StopCompleted, StopWaiting, StopLimited, StopRefused, StopCanceled, StopFailed, StopUncertain:
+		default:
+			return errors.New("invalid stop kind")
+		}
+		if step.Stop.Kind == StopCompleted && len(s.pending()) > 0 {
+			return errors.New("completed turn has pending work")
+		}
+		if step.Stop.Kind == StopCanceled {
+			// The stop is the evidence that calls without a start could not
+			// execute. Started calls remain pending for late reconciliation.
+			for _, id := range s.callOrder {
+				v := s.Tools[id]
+				switch v.Status {
+				case ToolRequested, ToolApprovalPending, ToolAllowed, ToolDenied:
+					v.Status = ToolSettled
+					v.Outcome = &tool.Outcome{State: tool.StateNotExecuted}
+					s.Tools[id] = v
+				}
+			}
+			clear(s.hosted)
 		}
 		s.Stop = *step.Stop
 	default:
@@ -367,13 +477,15 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 			s.callOrder = append(s.callOrder, c.ID)
 		}
 	}
-	for _, part := range result.Message.Content {
-		if part.Kind == llm.ContentHostedApprovalRequest && part.HostedApprovalRequest != nil {
-			a := part.HostedApprovalRequest.Clone()
-			if _, ok := s.hosted[a.ID]; ok {
-				return errors.New("repeated hosted approval ID")
+	if result.Stop.Kind == llm.StopToolUse || result.Stop.Kind == llm.StopFinished {
+		for _, part := range result.Message.Content {
+			if part.Kind == llm.ContentHostedApprovalRequest && part.HostedApprovalRequest != nil {
+				a := part.HostedApprovalRequest.Clone()
+				if _, ok := s.hosted[a.ID]; ok {
+					return errors.New("repeated hosted approval ID")
+				}
+				s.hosted[a.ID] = a
 			}
-			s.hosted[a.ID] = a
 		}
 	}
 	return nil
@@ -465,15 +577,19 @@ func validateMessage(m llm.Message) error {
 }
 func validateContext(item ContextItem) error {
 	switch item.Origin {
-	case "user", "operator", "library", "tool":
+	case "user", "library", "tool":
+		if item.Message.Role != llm.RoleUser {
+			return errors.New("untrusted context must use user role")
+		}
+	case "operator":
+		if item.Message.Role != llm.RoleUser && item.Message.Role != llm.RoleSystem && item.Message.Role != llm.RoleDeveloper {
+			return errors.New("operator context has invalid role")
+		}
 	default:
 		return errors.New("invalid context origin")
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
-	}
-	if item.Origin == "user" && item.Message.Role != llm.RoleUser {
-		return errors.New("user context cannot claim higher authority")
 	}
 	return validateMessage(item.Message)
 }

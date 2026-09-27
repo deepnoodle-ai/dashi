@@ -130,6 +130,10 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 			codeID = part.HostedUse.ID
 		}
 	}
+	result.Message.Source = &llm.MessageSource{
+		Requested: requested, Served: result.Served, API: wire.origin.API,
+		ResponseID: result.ID,
+	}
 	return result, nil
 }
 

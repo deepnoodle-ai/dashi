@@ -27,8 +27,8 @@ const ImageAPI = API
 // VideoAPI identifies the Veo long-running prediction route.
 const VideoAPI = "google.predict_long_running"
 
-// DefaultImageEndpoint is the model-specific GenerateContent URL template.
-const DefaultImageEndpoint = DefaultEndpoint
+// DefaultImageEndpoint is the live-qualified v1 GenerateContent image route.
+const DefaultImageEndpoint = "https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
 
 // DefaultVideoEndpoint is the model-specific Veo submission URL template.
 const DefaultVideoEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:predictLongRunning"

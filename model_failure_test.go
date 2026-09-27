@@ -1,0 +1,63 @@
+package kernel
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/deepnoodle-ai/kernel/llm"
+)
+
+func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{{}, final("done")}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorRateLimited, Status: 429, Disposition: llm.FailureRejected}}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Stop.Kind != StopFailed || len(first.Pending) != 0 || client.sends != 1 {
+		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
+	}
+	settled := first.Turn.Steps[len(first.Turn.Steps)-2]
+	if settled.Kind != StepModelSettled || settled.Model.Failure != llm.FailureRejected || settled.Model.Uncertain {
+		t.Fatalf("settlement=%+v", settled)
+	}
+	second, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})
+	if err != nil || second.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("second=%+v err=%v sends=%d", second, err, client.sends)
+	}
+}
+
+func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{{}, final("done")}, errors: []error{errors.New("connection lost")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Stop.Kind != StopUncertain || client.sends != 1 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	if _, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Continue{ID: "unsafe-retry"}, Bindings{Client: client, Recorder: rec}); err == nil || client.sends != 1 {
+		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
+	}
+	proved, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "proof", CallID: "t1:model:1", ModelFailure: &ModelFailure{Disposition: llm.FailureNotDispatched, Reason: "no dispatch", Evidence: "host dispatch log 42"}}, Bindings{Client: client, Recorder: rec})
+	if err != nil || proved.Stop.Kind != StopFailed || len(proved.Pending) != 0 || client.sends != 1 {
+		t.Fatalf("proof=%+v err=%v sends=%d", proved, err, client.sends)
+	}
+	retried, err := (Engine{}).Apply(context.Background(), proved.Turn, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})
+	if err != nil || retried.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("retry=%+v err=%v sends=%d", retried, err, client.sends)
+	}
+}
+
+func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{{Message: llm.AssistantMessage(llm.Text("partial")), Usage: &llm.Usage{InputTokens: 4}}}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorInvalidRequest, Status: 400, Disposition: llm.FailureRejected}}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	view, err := Replay(first.Turn)
+	if err != nil || view.Usage == nil || view.Usage.InputTokens != 4 {
+		t.Fatalf("usage=%+v err=%v", view.Usage, err)
+	}
+	falseProof, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "false-proof", CallID: "t1:model:1", ModelFailure: &ModelFailure{Disposition: llm.FailureNotDispatched, Reason: "not sent", Evidence: "claim"}}, Bindings{Client: client, Recorder: rec})
+	if err != nil || falseProof.Persistence != PersistenceRejected {
+		t.Fatalf("partial response accepted as non-dispatch: out=%+v err=%v", falseProof, err)
+	}
+}

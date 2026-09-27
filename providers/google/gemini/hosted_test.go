@@ -54,7 +54,9 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 		t.Fatal(err)
 	}
 	client, err := New(Config{
+		Provider:            "google",
 		APIKey:              "test",
+		Endpoint:            strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
 		UnknownCapabilities: llm.UnknownAllow,
 	})
 	if err != nil {
@@ -68,14 +70,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	if _, err := client.Prepare(context.Background(), input); err == nil {
 		t.Fatal("file search used v1 without evidence")
 	}
-	beta, err := New(Config{
-		Provider: "google",
-		APIKey:   "test",
-		Endpoint: strings.Replace(
-			DefaultEndpoint, "/v1/", "/v1beta/", 1,
-		),
-		UnknownCapabilities: llm.UnknownAllow,
-	})
+	beta, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
 	if err != nil {
 		t.Fatal(err)
 	}

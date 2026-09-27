@@ -565,6 +565,9 @@ type Error struct {
 
 	// Category allows decisions without parsing provider-specific error text.
 	Category ErrorCategory
+	// Disposition records what is known about this attempt's remote effect.
+	// An absent value is unknown and must not authorize a retry.
+	Disposition FailureDisposition
 
 	// Status is the HTTP status when a response was received, or zero.
 	Status int
@@ -585,6 +588,16 @@ type Error struct {
 	// Cause preserves the underlying error for errors.Is and errors.As.
 	Cause error
 }
+
+// FailureDisposition is evidence about a failed send, independent of whether
+// the error is retryable under a caller's policy.
+type FailureDisposition string
+
+const (
+	FailureNotDispatched FailureDisposition = "not_dispatched"
+	FailureRejected      FailureDisposition = "rejected"
+	FailureUnknown       FailureDisposition = "unknown"
+)
 
 // Error includes provider identity and category while retaining cause text.
 func (e *Error) Error() string {

@@ -20,6 +20,9 @@ type ModelDecision struct {
 type ModelAuthorization struct {
 	Allow  bool
 	Reason string
+	// Admission is host-owned, non-secret JSON copied into the model intent.
+	// The recorder can atomically reserve spending against these exact terms.
+	Admission json.RawMessage
 }
 type DecisionKind string
 

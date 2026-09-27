@@ -20,7 +20,6 @@ type Bindings struct {
 	Policy   Policy
 	Observer Observer
 	Stream   bool
-	History  []llm.Message
 	Owner    string
 }
 type Engine struct{}
@@ -59,7 +58,43 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if old != d {
 			return Outcome{}, ErrCommandConflict
 		}
+		if loader, ok := b.Recorder.(interface{ Load(string) (Turn, error) }); ok {
+			saved, loadErr := loader.Load(turn.ID)
+			if loadErr != nil {
+				return Outcome{}, loadErr
+			}
+			current, replayErr := replay(saved)
+			if replayErr != nil {
+				return Outcome{}, replayErr
+			}
+			if digest(def) != digest(current.Definition) {
+				return Outcome{}, ErrDefinitionChanged
+			}
+			if current.commandDigests[command.commandID()] != d {
+				return Outcome{}, ErrRevisionConflict
+			}
+			return outcome(saved, current, PersistenceAcknowledged), nil
+		}
 		return outcome(turn, state, PersistenceAcknowledged), nil
+	}
+	// A caller can retry with an old snapshot after an acknowledgement was lost.
+	// The built-in recorder exposes Load; other recorders may provide it too.
+	if loader, ok := b.Recorder.(interface{ Load(string) (Turn, error) }); ok {
+		if saved, loadErr := loader.Load(turn.ID); loadErr == nil {
+			current, replayErr := replay(saved)
+			if replayErr != nil {
+				return Outcome{}, replayErr
+			}
+			if old, found := current.commandDigests[command.commandID()]; found {
+				if digest(def) != digest(current.Definition) {
+					return Outcome{}, ErrDefinitionChanged
+				}
+				if old != d {
+					return Outcome{}, ErrCommandConflict
+				}
+				return outcome(saved, current, PersistenceAcknowledged), nil
+			}
+		}
 	}
 	rt := runtime{ctx: ctx, turn: cloneTurn(turn), def: def, b: b, emitter: newEmitter(b.Observer)}
 	defer rt.emitter.close()
@@ -68,7 +103,11 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
 			return Outcome{}, errors.New("kernel: start requires a new turn and input")
 		}
-		if o := rt.commit(Step{Kind: StepStarted, CommandID: c.ID, CommandDigest: d, Started: &StartFact{Definition: def, Input: cloneMessages(c.Input)}}); o != nil {
+		origin := c.Origin
+		if origin == "" {
+			origin = StartUser
+		}
+		if o := rt.commit(Step{Kind: StepStarted, CommandID: c.ID, CommandDigest: d, Started: &StartFact{Definition: def, Origin: origin, History: cloneMessages(c.History), Input: cloneMessages(c.Input)}}); o != nil {
 			return *o, nil
 		}
 	case Deliver:
@@ -106,10 +145,16 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			}
 			n++
 		}
+		if c.ModelFailure != nil {
+			if (c.ModelFailure.Disposition != llm.FailureNotDispatched && c.ModelFailure.Disposition != llm.FailureRejected) || c.ModelFailure.Reason == "" || c.ModelFailure.Evidence == "" {
+				return Outcome{}, errors.New("kernel: model failure requires verified nonexecution evidence")
+			}
+			n++
+		}
 		if n != 1 {
 			return Outcome{}, errors.New("kernel: accept requires one fact")
 		}
-		if c.ModelResult != nil {
+		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" || (c.CallID != state.modelIntent && c.CallID != state.unresolvedModel) {
 				return Outcome{}, errors.New("kernel: model attempt is not pending")
 			}
@@ -117,11 +162,20 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if c.CallID == state.unresolvedModel {
 				kind = StepModelReconciled
 			}
-			if o := rt.commit(Step{Kind: kind, CommandID: c.ID, CommandDigest: d, Model: &ModelFact{AttemptID: c.CallID, MessageID: c.CallID + ":message", Result: c.ModelResult}}); o != nil {
+			fact := &ModelFact{AttemptID: c.CallID, MessageID: c.CallID + ":message", Result: c.ModelResult}
+			if c.ModelFailure != nil {
+				fact.Error = c.ModelFailure.Reason
+				fact.Failure = c.ModelFailure.Disposition
+				fact.Evidence = c.ModelFailure.Evidence
+			}
+			if o := rt.commit(Step{Kind: kind, CommandID: c.ID, CommandDigest: d, Model: fact}); o != nil {
 				return *o, nil
 			}
 			if state.Stop.Kind == StopCanceled {
 				return rt.current(), nil
+			}
+			if c.ModelFailure != nil {
+				return rt.stop(StopFailed, c.ModelFailure.Reason), nil
 			}
 			classified, again := rt.classify(*c.ModelResult)
 			if !again {
@@ -272,6 +326,9 @@ func (r *runtime) run() Outcome {
 		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
 			return r.current()
 		}
+		if e := r.ctx.Err(); e != nil {
+			return r.stop(StopCanceled, e.Error())
+		}
 		if s.modelIntent != "" || s.unresolvedModel != "" {
 			return r.stop(StopUncertain, "model attempt needs reconciliation")
 		}
@@ -291,14 +348,14 @@ func (r *runtime) run() Outcome {
 			}
 			continue
 		}
+		if s.failedModel != "" {
+			return r.stop(StopFailed, s.failedModel)
+		}
 		if r.def.Limits.ModelAttempts <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")
 		}
 		if !r.def.Limits.Deadline.IsZero() && !time.Now().Before(r.def.Limits.Deadline) {
 			return r.stop(StopLimited, "deadline")
-		}
-		if e := r.ctx.Err(); e != nil {
-			return r.stop(StopCanceled, e.Error())
 		}
 		o, again := r.model(s)
 		if !again {
@@ -316,7 +373,7 @@ func hasOpenTools(s *replayState) bool {
 }
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
-	messages, err := Project(r.b.History, r.turn)
+	messages, err := Project(r.turn)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
@@ -345,7 +402,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if o := r.commit(Step{Kind: StepDelivered, Context: &ContextFact{Items: decision.Deliver}}); o != nil {
 			return *o, false
 		}
-		input.Messages, err = Project(r.b.History, r.turn)
+		input.Messages, err = Project(r.turn)
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false
 		}
@@ -367,12 +424,22 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if !authorization.Allow {
 		return r.stop(StopRefused, authorization.Reason), false
 	}
+	if len(authorization.Admission) > 0 && (!json.Valid(authorization.Admission) || len(authorization.Admission) > 16<<10) {
+		return r.stop(StopFailed, "invalid model admission metadata"), false
+	}
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.ModelAttempts+1)
 	snapshot := req.Snapshot()
 	messageID := attempt + ":message"
-	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, UnknownCapabilities: snapshot.UnknownCapabilities, Unverified: snapshot.Unverified, Tools: defs}
+	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, UnknownCapabilities: snapshot.UnknownCapabilities, Unverified: snapshot.Unverified, Tools: defs}
 	if o := r.commit(Step{Kind: StepModelIntent, Model: fact}); o != nil {
 		return *o, false
+	}
+	if err := r.ctx.Err(); err != nil {
+		settled := &ModelFact{AttemptID: attempt, MessageID: messageID, Error: err.Error(), Failure: llm.FailureNotDispatched, Evidence: "context canceled before Send"}
+		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+			return *o, false
+		}
+		return r.stop(StopCanceled, err.Error()), false
 	}
 	result, sendErr := r.b.Client.Send(r.ctx, req, func(d llm.Delta) {
 		if d.Content != nil {
@@ -387,7 +454,14 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var validationErr error
 	if sendErr != nil {
 		settled.Error = sendErr.Error()
-		settled.Uncertain = true
+		settled.Failure = failureDisposition(sendErr, result)
+		settled.Uncertain = settled.Failure == llm.FailureUnknown
+		if !settled.Uncertain {
+			var failure *llm.Error
+			if errors.As(sendErr, &failure) {
+				settled.Evidence = fmt.Sprintf("client disposition %s; HTTP %d", failure.Disposition, failure.Status)
+			}
+		}
 	} else {
 		validationErr = validateModelResult(result, r.def)
 		if validationErr != nil {
@@ -400,13 +474,27 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 		return *o, false
 	}
+	if err := r.ctx.Err(); err != nil {
+		return r.stop(StopCanceled, err.Error()), false
+	}
 	if sendErr != nil {
-		return r.stop(StopUncertain, sendErr.Error()), false
+		if settled.Uncertain {
+			return r.stop(StopUncertain, sendErr.Error()), false
+		}
+		return r.stop(StopFailed, sendErr.Error()), false
 	}
 	if validationErr != nil {
 		return r.stop(StopFailed, validationErr.Error()), false
 	}
 	return r.classify(result)
+}
+
+func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
+	var failure *llm.Error
+	if errors.As(err, &failure) && (failure.Disposition == llm.FailureNotDispatched || failure.Disposition == llm.FailureRejected) && result.ID == "" && len(result.Message.Content) == 0 && result.Usage == nil {
+		return failure.Disposition
+	}
+	return llm.FailureUnknown
 }
 
 func (r *runtime) classify(result llm.Result) (Outcome, bool) {
@@ -434,6 +522,9 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	}
 	if calls > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with client calls"), false
+	}
+	if hosted > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
+		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
 	}
 	if calls > 0 {
 		return Outcome{}, true

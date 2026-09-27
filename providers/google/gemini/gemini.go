@@ -26,9 +26,9 @@ import (
 // API identifies GenerateContent independently of a Google API-key destination.
 const API = "google.generate_content"
 
-// DefaultEndpoint names Dive's v1 Gemini API path. Streaming selects the
-// paired streamGenerateContent path while preserving this replay scope.
-const DefaultEndpoint = "https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
+// DefaultEndpoint uses v1beta for client function calling. Streaming selects
+// the paired streamGenerateContent path while preserving this replay scope.
+const DefaultEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 // Config describes one Gemini API or Vertex destination. Model evidence must
 // name its resolved model-specific endpoint, not the endpoint template.
@@ -175,6 +175,13 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	if err := input.Validate(); err != nil {
 		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
+	if !p.config.Vertex {
+		_, version, _ := sdkEndpoint(p.config.Endpoint, false)
+		if version == "v1" && hasClientFunctionCalls(input) {
+			return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorUnsupported,
+				"Gemini API v1 does not support client function calling; use a v1beta endpoint")
+		}
+	}
 	httpClient, err := p.httpClient(input.Model)
 	if err != nil {
 		return llm.Request{}, err
@@ -309,13 +316,29 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	})
 }
 
+func hasClientFunctionCalls(input llm.Input) bool {
+	for _, definition := range input.Tools {
+		if definition.Kind != tool.KindProviderHosted {
+			return true
+		}
+	}
+	for _, message := range input.Messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentToolCall || part.Kind == llm.ContentToolResult {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Send uses the Google SDK and guards its final HTTP request against the frozen
 // body. A sink observes provisional stream deltas; the final Result is authoritative.
 func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
 	model := prepared.Input().Model
 	httpClient, err := p.httpClient(model)
 	if err != nil {
-		return llm.Result{}, err
+		return llm.Result{}, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	wire := codec{origin: httpClient.Origin(model)}
 	result = llm.Result{Requested: llm.ModelRef{Provider: p.Provider(), Model: model}, Message: llm.Message{Role: llm.RoleAssistant}}
@@ -325,15 +348,15 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 		}
 	}()
 	if prepared.Origin() != wire.origin {
-		return result, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "prepared request belongs to another destination")
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "prepared request belongs to another destination")
 	}
 	client, guard, err := p.sdkClient(ctx, model, prepared.Input().Stream, prepared.Body())
 	if err != nil {
-		return result, err
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	contents, config, err := sdkArguments(prepared.Body())
 	if err != nil {
-		return result, err
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	if prepared.Input().Stream {
 		var streamErr error
@@ -370,7 +393,7 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 		return nil, wire.unsupported("at least one message is required")
 	}
 	var contents []any
-	callNames := map[string]string{}
+	callNames := map[string]functionCallRef{}
 	for _, message := range messages {
 		if message.Role != llm.RoleUser && message.Role != llm.RoleAssistant {
 			return nil, wire.unsupported("system or developer history; use Input.System")
@@ -395,7 +418,12 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 	return contents, nil
 }
 
-func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]string) (any, error) {
+type functionCallRef struct {
+	name          string
+	providerHasID bool
+}
+
+func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]functionCallRef) (any, error) {
 	if c.Opaque != nil {
 		if role != llm.RoleAssistant || c.Opaque.Origin != wire.origin || c.Opaque.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("opaque part from another destination")
@@ -424,21 +452,25 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 				if saved.FunctionCall.ID == "" {
 					fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, false)
 					if !ok {
-						return nil, wire.unsupported("ID-less function call replay requires unsigned recognized fields")
+						// Preserve signed ID-less calls exactly. Their generated
+						// canonical IDs pair Kernel's call and result, but do not
+						// authorize modifying the signed provider part.
+						names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name}
+						return c.Replay.Raw, nil
 					}
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return fields, nil
 				}
 				if saved.FunctionCall.ID == c.ToolCall.ID {
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return c.Replay.Raw, nil
 				}
 				if fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, true); ok {
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = c.ToolCall.Name
+					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 					return fields, nil
 				}
 			}
@@ -502,11 +534,12 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 		if err := json.Unmarshal(c.ToolCall.Args, &args); err != nil || args == nil {
 			return nil, wire.unsupported("tool arguments require a JSON object")
 		}
-		names[c.ToolCall.ID] = c.ToolCall.Name
+		names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
 		return map[string]any{"functionCall": map[string]any{"id": c.ToolCall.ID,
 			"name": c.ToolCall.Name, "args": args}}, nil
 	case llm.ContentToolResult:
-		if role != llm.RoleUser || names[c.ToolResult.CallID] == "" {
+		ref, ok := names[c.ToolResult.CallID]
+		if role != llm.RoleUser || !ok {
 			return nil, wire.unsupported("tool result requires an earlier model call")
 		}
 		var output []string
@@ -520,10 +553,13 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 		if c.ToolResult.IsError {
 			key = "error"
 		}
-		name := names[c.ToolResult.CallID]
 		delete(names, c.ToolResult.CallID)
-		return map[string]any{"functionResponse": map[string]any{"id": c.ToolResult.CallID,
-			"name": name, "response": map[string]any{key: strings.Join(output, "\n\n")}}}, nil
+		response := map[string]any{"name": ref.name,
+			"response": map[string]any{key: strings.Join(output, "\n\n")}}
+		if ref.providerHasID {
+			response["id"] = c.ToolResult.CallID
+		}
+		return map[string]any{"functionResponse": response}, nil
 	}
 	return nil, wire.unsupported("content kind %q", c.Kind)
 }

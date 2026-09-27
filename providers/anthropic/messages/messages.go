@@ -469,7 +469,7 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		Type       string
 		Content    []json.RawMessage
 		StopReason string `json:"stop_reason"`
-		Usage      *llm.Usage
+		Usage      json.RawMessage
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode response: %w", err)
@@ -483,7 +483,11 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		r.Served = llm.ModelRef{}
 	}
 	r.Message.Source = &llm.MessageSource{Requested: requested, Served: r.Served, API: wire.origin.API, ResponseID: r.ID}
-	r.Usage = v.Usage
+	usage, tier, err := decodeUsage(v.Usage)
+	if err != nil {
+		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode usage: %w", err)
+	}
+	r.Usage, r.ServiceTier = usage, tier
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(v.StopReason), Raw: v.StopReason}
 	for _, raw := range v.Content {
 		c, err := wire.decodeContent(raw)
@@ -493,6 +497,35 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		r.Message.Content = append(r.Message.Content, c)
 	}
 	return r, nil
+}
+
+// Anthropic reports service_tier inside usage. Kernel records it on Result,
+// where callers can select the applicable price sheet, while Usage keeps only
+// token measurements. Keep the original response separately in Result.Raw.
+func decodeUsage(raw json.RawMessage) (*llm.Usage, string, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, "", nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, "", err
+	}
+	var tier string
+	if value, ok := fields["service_tier"]; ok {
+		if err := json.Unmarshal(value, &tier); err != nil {
+			return nil, "", err
+		}
+		delete(fields, "service_tier")
+	}
+	tokens, err := json.Marshal(fields)
+	if err != nil {
+		return nil, "", err
+	}
+	var usage llm.Usage
+	if err := json.Unmarshal(tokens, &usage); err != nil {
+		return nil, "", err
+	}
+	return &usage, tier, nil
 }
 
 // decodeContent converts one Messages content block. Every block keeps its

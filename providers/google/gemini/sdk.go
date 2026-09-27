@@ -234,7 +234,11 @@ func sdkError(provider string, err error, body []byte) error {
 		case api.Code >= 500:
 			category = llm.ErrorOverloaded
 		}
-		return &llm.Error{Provider: provider, Category: category, Status: api.Code,
+		disposition := llm.FailureUnknown
+		if providerhttp.KnownRejection(api.Code) {
+			disposition = llm.FailureRejected
+		}
+		return &llm.Error{Provider: provider, Category: category, Disposition: disposition, Status: api.Code,
 			Body: bytes.Clone(body), Retryable: api.Code == 408 || api.Code == 429 || api.Code >= 500, Cause: err}
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
