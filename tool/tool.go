@@ -1,0 +1,338 @@
+// Package tool describes tools and execution independently of model calls or
+// agent state. Typed tool construction is adapted from Dive (65c393f),
+// Apache-2.0, with explicit outcomes and construction-time schema validation.
+package tool
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"unicode/utf8"
+
+	"github.com/deepnoodle-ai/kernel/content"
+)
+
+// Kind identifies where a tool runs. The empty Kind is accepted and leaves the
+// location unspecified.
+type Kind string
+
+// Tool kinds.
+const (
+	// KindLocal identifies a tool with an application-provided executor.
+	KindLocal Kind = "local"
+	// KindExternal identifies a tool whose result is supplied externally.
+	KindExternal Kind = "external"
+	// KindProviderHosted identifies a tool executed by the model service.
+	KindProviderHosted Kind = "provider_hosted"
+)
+
+// Annotations are advisory. Nil distinguishes an unspecified hint from false.
+type Annotations struct {
+	// ReadOnly hints that execution does not modify external state; nil means
+	// unknown.
+	ReadOnly *bool `json:"read_only,omitempty"`
+
+	// Destructive hints that execution can destroy or overwrite data; nil means
+	// unknown.
+	Destructive *bool `json:"destructive,omitempty"`
+
+	// Idempotent hints that repeated execution has the same effect; it does not
+	// deduplicate calls.
+	Idempotent *bool `json:"idempotent,omitempty"`
+
+	// OpenWorld hints that the tool interacts with an open set of external
+	// entities.
+	OpenWorld *bool `json:"open_world,omitempty"`
+}
+
+// Definition describes a tool to a model: its name, purpose, and input schema.
+// Schema stays raw JSON so it reaches providers unchanged.
+type Definition struct {
+	// Name is the nonempty identifier the model uses to request this tool.
+	Name string `json:"name"`
+
+	// Description explains the operation to the model.
+	Description string `json:"description,omitempty"`
+
+	// Schema is a JSON object or boolean schema, preserved through provider
+	// conversion.
+	Schema json.RawMessage `json:"schema"`
+
+	// Hosted selects a provider-owned tool configuration. Its wire options
+	// are validated again by the destination adapter before dispatch.
+	Hosted *HostedSpec `json:"hosted,omitempty"`
+
+	// Kind identifies the execution location; empty leaves it unspecified.
+	Kind Kind `json:"kind,omitempty"`
+
+	// Annotations supply advisory hints rather than execution guarantees.
+	Annotations Annotations `json:"annotations,omitempty"`
+}
+
+// HostedSpec binds a server-executed tool to one provider and API. Options
+// contain non-secret provider fields; credentials belong on the client.
+type HostedSpec struct {
+	Provider string          `json:"provider"`
+	API      string          `json:"api"`
+	Type     string          `json:"type"`
+	Options  json.RawMessage `json:"options,omitempty"`
+}
+
+// Validate requires a bound wire type and an optional JSON object. Adapters
+// impose the provider's narrower option vocabulary.
+func (s HostedSpec) Validate() error {
+	if s.Provider == "" || s.API == "" || s.Type == "" {
+		return errors.New("tool: hosted tool requires provider, API, and type")
+	}
+	if len(s.Options) == 0 {
+		return nil
+	}
+	var options map[string]json.RawMessage
+	if err := json.Unmarshal(s.Options, &options); err != nil || options == nil {
+		return errors.New("tool: hosted options require a JSON object")
+	}
+	return nil
+}
+
+// Clone detaches hosted wire options from the caller's buffer.
+func (s HostedSpec) Clone() HostedSpec {
+	s.Options = slices.Clone(s.Options)
+	return s
+}
+
+// Validate reports whether d has a name, a known or empty Kind, and a schema
+// that is a JSON object or boolean.
+func (d Definition) Validate() error {
+	if d.Name == "" {
+		return errors.New("tool: name is required")
+	}
+	if d.Kind != "" && d.Kind != KindLocal && d.Kind != KindExternal && d.Kind != KindProviderHosted {
+		return fmt.Errorf("tool: invalid kind %q", d.Kind)
+	}
+	if d.Kind == KindProviderHosted {
+		if len(d.Schema) != 0 || d.Hosted == nil {
+			return errors.New("tool: hosted definition requires hosted options without schema")
+		}
+		return d.Hosted.Validate()
+	}
+	if d.Hosted != nil {
+		return errors.New("tool: local or external definition cannot carry hosted options")
+	}
+	var schema any
+	if err := json.Unmarshal(d.Schema, &schema); err != nil {
+		return fmt.Errorf("tool: %q: invalid JSON schema: %w", d.Name, err)
+	}
+	switch schema.(type) {
+	case map[string]any, bool:
+		return nil
+	}
+	return fmt.Errorf("tool: %q: schema must be a JSON object or boolean", d.Name)
+}
+
+// Clone returns a copy of d that shares no schema bytes or annotation pointers
+// with the original.
+func (d Definition) Clone() Definition {
+	d.Schema = slices.Clone(d.Schema)
+	if d.Hosted != nil {
+		v := d.Hosted.Clone()
+		d.Hosted = &v
+	}
+	d.Annotations = Annotations{
+		ReadOnly:    cloneBool(d.Annotations.ReadOnly),
+		Destructive: cloneBool(d.Annotations.Destructive),
+		Idempotent:  cloneBool(d.Annotations.Idempotent),
+		OpenWorld:   cloneBool(d.Annotations.OpenWorld),
+	}
+	return d
+}
+
+// Call is an identified request to run a named tool. Args holds the effective
+// arguments; RequestedArgs optionally preserves the model's original arguments
+// when they differ.
+type Call struct {
+	// ID correlates execution with the model request and any later result.
+	// It must be valid UTF-8 so stored JSON preserves the original identity.
+	ID string `json:"id"`
+
+	// Name must match the definition selected for execution.
+	Name string `json:"name"`
+
+	// Args contains valid JSON for the effective arguments passed to the
+	// executor.
+	Args json.RawMessage `json:"args"`
+
+	// RequestedArgs optionally retains original JSON arguments when policy changed
+	// them.
+	RequestedArgs json.RawMessage `json:"requested_args,omitempty"`
+}
+
+// Validate reports whether c has an ID, a name, and JSON arguments, and whether
+// any requested arguments are also JSON.
+func (c Call) Validate() error {
+	if c.ID == "" || c.Name == "" || !json.Valid(c.Args) {
+		return errors.New("tool: call requires ID, name, and JSON arguments")
+	}
+	if !utf8.ValidString(c.ID) {
+		return errors.New("tool: call ID must be valid UTF-8")
+	}
+	if len(c.RequestedArgs) > 0 && !json.Valid(c.RequestedArgs) {
+		return errors.New("tool: requested arguments must be JSON")
+	}
+	return nil
+}
+
+// Clone returns a copy of c that shares no argument bytes with the original.
+func (c Call) Clone() Call {
+	c.Args = slices.Clone(c.Args)
+	c.RequestedArgs = slices.Clone(c.RequestedArgs)
+	return c
+}
+
+// Output is the content a tool returns, plus optional display text.
+type Output struct {
+	// Content holds ordered result blocks; Clone detaches their nested data.
+	Content []content.Block `json:"content"`
+
+	// Display optionally supplies text for presentation separately from model
+	// content.
+	Display string `json:"display,omitempty"`
+}
+
+// TextOutput constructs model-facing text without a separate display override.
+func TextOutput(text string) Output {
+	return Output{Content: []content.Block{content.TextBlock(text)}}
+}
+
+// Clone returns a deep copy of o whose content blocks share no data with the
+// original.
+func (o Output) Clone() Output {
+	o.Content = slices.Clone(o.Content)
+	for i := range o.Content {
+		o.Content[i] = o.Content[i].Clone()
+	}
+	return o
+}
+
+// State is the execution state of a tool call. Each state permits a specific
+// set of Outcome payloads; see Outcome.Validate.
+type State string
+
+// Outcome states. StateFailed is a known failure reported by the tool, distinct
+// from an uncertain execution error returned by an Executor.
+const (
+	// StateSucceeded requires output from a completed call.
+	StateSucceeded State = "succeeded"
+	// StateFailed requires output describing a known failure, not an uncertain
+	// effect.
+	StateFailed State = "failed"
+	// StateNotExecuted confirms the executor did not run; explanatory output is
+	// optional.
+	StateNotExecuted State = "not_executed"
+	// StateWaiting requires wait details and excludes output or a detached
+	// handle.
+	StateWaiting State = "waiting"
+	// StateDetached requires a handle for work whose result will arrive later.
+	StateDetached State = "detached"
+)
+
+// Wait describes why a call is waiting before it can complete.
+type Wait struct {
+	// Reason is required so the host can explain why execution is waiting.
+	Reason string `json:"reason"`
+
+	// Prompt optionally supplies a question or instruction to show the user.
+	Prompt string `json:"prompt,omitempty"`
+}
+
+// Handle identifies detached work whose result arrives later.
+type Handle struct {
+	// ID correlates detached work with the result supplied later.
+	ID string `json:"id"`
+}
+
+// Outcome is a call's execution state and the payload that state permits:
+// output for completed calls, wait details for waiting calls, and a handle for
+// detached calls. Copies share payload pointers; Output.Clone isolates returned
+// content when it needs to be edited independently.
+type Outcome struct {
+	// State determines which payload fields are valid.
+	State State `json:"state"`
+
+	// Output is required for completed calls and optional for nonexecution.
+	Output *Output `json:"output,omitempty"`
+
+	// Wait is required only for StateWaiting.
+	Wait *Wait `json:"wait,omitempty"`
+
+	// Handle is required only for StateDetached.
+	Handle *Handle `json:"handle,omitempty"`
+}
+
+// Validate reports whether o carries exactly the payloads its State permits
+// and whether any output content is well formed.
+func (o Outcome) Validate() error {
+	switch o.State {
+	case StateSucceeded, StateFailed:
+		if o.Output == nil || o.Wait != nil || o.Handle != nil {
+			return errors.New("tool: completed outcome requires only output")
+		}
+	case StateNotExecuted:
+		if o.Wait != nil || o.Handle != nil {
+			return errors.New("tool: nonexecution cannot wait or detach")
+		}
+	case StateWaiting:
+		if o.Wait == nil || o.Wait.Reason == "" || o.Output != nil || o.Handle != nil {
+			return errors.New("tool: waiting requires only wait details")
+		}
+	case StateDetached:
+		if o.Handle == nil || o.Handle.ID == "" || o.Output != nil || o.Wait != nil {
+			return errors.New("tool: detached outcome requires only a handle")
+		}
+	default:
+		return fmt.Errorf("tool: invalid outcome state %q", o.State)
+	}
+	if o.Output != nil {
+		for _, b := range o.Output.Content {
+			if err := b.Validate(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Executor returns a definite outcome with nil error. An execution error means
+// the outcome is uncertain, even when an Outcome was also returned.
+type Executor interface {
+	// Execute returns a definite outcome or an error indicating execution
+	// uncertainty.
+	Execute(context.Context, Call) (Outcome, error)
+}
+
+// Tool pairs a definition with the executor that runs its calls.
+type Tool struct {
+	// Definition is presented to the model; copying Tool shares its nested
+	// data.
+	Definition Definition
+
+	// Executor runs local calls and may be nil for external or provider-hosted
+	// tools.
+	Executor Executor
+}
+
+// Toolset is a source of tools resolved before each model call, so the
+// available tools may change between calls.
+type Toolset interface {
+	// Tools resolves the definitions and executors available for this call.
+	Tools(context.Context) ([]Tool, error)
+}
+
+func cloneBool(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
