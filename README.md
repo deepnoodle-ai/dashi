@@ -113,6 +113,10 @@ duplicate delivery handling. An acknowledged model or tool intent may already
 have caused an external effect; recover it by identity before deciding whether
 to retry. See [agent turns and recovery](docs/agent-turns.md) for the recorder,
 pending-result, approval, and stop contracts.
+For a validated object result, set `Definition.OutputSchema` or pass a
+per-turn `Start.OutputSchema`, then read `Outcome.Output.Value` after
+`StopCompleted`. The output fact includes tool-call or final-text provenance;
+see [structured final results](docs/agent-turns.md#structured-final-results).
 The [Dive comparison and open gates](docs/agent-loop-review.md) record what
 remains to prove before stabilizing the loop API.
 
@@ -146,8 +150,15 @@ KERNEL_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
 ```
 
 This makes three paid calls per provider and checks the recorded steps, replay,
-and duplicate start. Filter `-run` to one provider when needed. Gemini's
-conversational client defaults to `v1beta` because the tested
+and duplicate start. Filter `-run` to one provider when needed.
+
+On 2026-09-27, one-call structured-output turns also passed live on these
+three routes with a per-turn schema and a recorded `kernel_submit_output` call.
+Run `go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)StructuredOutput$' -v`
+with `KERNEL_LIVE_AGENT_TEST=1` and the corresponding provider keys and model
+names to repeat them.
+
+Gemini's conversational client defaults to `v1beta` because the tested
 `v1` route rejected function calling. Pin `v1` explicitly only for turns that
 must retain its earlier private replay scope; `Prepare` rejects client function
 calls there before dispatch.

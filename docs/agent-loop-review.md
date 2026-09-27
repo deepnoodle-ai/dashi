@@ -18,6 +18,7 @@ available from a fresh checkout.
 | Effects | Hooks mix control and observation. | Typed policy, acknowledged intent and result steps, and a lossy observer have distinct roles. | Prevents many invisible effects; does not guarantee remote exactly-once behavior. |
 | Late work | Background and external outcomes use separate paths. | `Accept` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
 | Integration | Dive owns much session and tool coordination. | `Bindings` supplies clients, tools, policy, and recorder; external tools can run in a host worker. | Keeps the core small, but the host seam is not proven in Nvoken. |
+| Structured result | Dive has provider-level response formatting without a turn result contract. | A per-turn schema yields a validated, recorded value with tool-call or text provenance. | Matches the result shape applications consume; native constrained generation remains provider-specific. |
 
 The two Dive v2 proposals agree on this direction but differ on dispatch:
 one proposes host-dispatched effects, while the other puts dispatch in the

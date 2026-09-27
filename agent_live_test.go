@@ -4,6 +4,7 @@ package kernel_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strconv"
@@ -46,6 +47,60 @@ func TestLiveAnthropicAgentTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	runLiveAgentTurn(t, "anthropic", client, modelName)
+}
+
+// These probes verify the shared turn contract over real provider tool calls.
+// Each test makes one paid call. Run them separately from the broader agent
+// turn probes with KERNEL_LIVE_AGENT_TEST=1.
+func TestLiveGeminiStructuredOutput(t *testing.T) {
+	key, modelName := liveAgentCredentials(t, "GEMINI")
+	client, err := gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLiveStructuredOutput(t, client, modelName)
+}
+
+func TestLiveOpenAIStructuredOutput(t *testing.T) {
+	key, modelName := liveAgentCredentials(t, "OPENAI")
+	client, err := responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLiveStructuredOutput(t, client, modelName)
+}
+
+func TestLiveAnthropicStructuredOutput(t *testing.T) {
+	key, modelName := liveAgentCredentials(t, "ANTHROPIC")
+	client, err := messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLiveStructuredOutput(t, client, modelName)
+}
+
+func runLiveStructuredOutput(t *testing.T, client llm.Client, modelName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	def := kernel.Definition{ID: "live-structured", Revision: "1", Provider: client.Provider(),
+		API: client.API(), Model: modelName, Settings: llm.Settings{MaxTokens: 512},
+		Limits: kernel.Limits{ModelAttempts: 1, ToolConcurrency: 1}}
+	start := kernel.Start{ID: "start", OutputSchema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
+		Input: []llm.Message{llm.UserMessage(llm.Text("Call kernel_submit_output with answer equal to 42. Do not write a final text answer."))}}
+	out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "live-structured"}, def, start,
+		kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != kernel.StopCompleted || out.Output == nil || out.Output.Source != kernel.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
+		t.Fatalf("stop=%+v output=%+v persistence=%s write=%v", out.Stop, out.Output, out.Persistence, out.WriteError)
+	}
+	view, err := kernel.Replay(out.Turn)
+	if err != nil || view.Output == nil || view.ModelAttempts != 1 {
+		t.Fatalf("replay=%+v err=%v", view, err)
+	}
+	t.Logf("provider=%s model=%s source=%s steps=%d", client.Provider(), modelName, out.Output.Source, len(out.Turn.Steps))
 }
 
 func liveAgentCredentials(t *testing.T, provider string) (string, string) {
