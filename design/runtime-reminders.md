@@ -29,9 +29,9 @@ as `<system-reminder name="...">` text and records a `render_reminder`
 reminder in a developer message. Contextual reminders remain user messages.
 Anthropic Messages, Gemini, and other routes use user messages for both tiers
 because Kernel cannot preserve mid-history developer authority on those
-routes. The recorded content change shows that reduction. The engine's fixed
-system instruction tells the model to follow the prepared role rather than
-infer authority from the tag. Authorization of operator origin and tool use
+routes. The recorded content change shows that reduction. When a request carries a
+reminder, the engine adds a system instruction telling the model to follow the
+prepared role rather than infer authority from the tag. Authorization of operator origin and tool use
 remains an application policy decision.
 
 This adapts Dive's typed recorded reminders to Kernel's `ContextItem`

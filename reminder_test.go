@@ -104,6 +104,70 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	}
 }
 
+type reminderDeliveryPolicy struct{ AllowLocalPolicy }
+
+func (reminderDeliveryPolicy) BeforeModel(
+	context.Context,
+	ModelPlan,
+) (ModelDecision, error) {
+	reminder := llm.Reminder{
+		Name:    "scope",
+		Tier:    llm.ReminderContextual,
+		Content: "delivered",
+	}
+	item := ContextItem{
+		Origin:  "library",
+		Message: llm.ReminderMessage(reminder),
+	}
+	return ModelDecision{Deliver: []ContextItem{item}}, nil
+}
+
+func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
+	const tag = "<system-reminder>"
+	reminder := llm.Reminder{
+		Name:    "scope",
+		Tier:    llm.ReminderContextual,
+		Content: "ctx",
+	}
+	run := func(t *testing.T, input []llm.Message, policy Policy) string {
+		t.Helper()
+		client := &scriptedClient{results: []llm.Result{final("done")}}
+		got, err := (Engine{}).Apply(
+			context.Background(),
+			Turn{ID: "r6"},
+			definition(),
+			Start{ID: "start", Input: input},
+			Bindings{
+				Client:   client,
+				Recorder: NewMemoryRecorder(),
+				Policy:   policy,
+			},
+		)
+		if err != nil {
+			t.Fatalf("apply failed: %v", err)
+		}
+		if got.Stop.Kind != StopCompleted {
+			t.Fatalf("turn did not complete: %+v", got.Stop)
+		}
+		if len(client.inputs) != 1 {
+			t.Fatalf("expected one model call, got %d", len(client.inputs))
+		}
+		return client.inputs[0].System
+	}
+	plain := []llm.Message{llm.UserMessage(llm.Text("go"))}
+	if system := run(t, plain, AllowLocalPolicy{}); strings.Contains(system, tag) {
+		t.Fatalf("reminder instruction sent without a reminder: %q", system)
+	}
+	withReminder := []llm.Message{llm.ReminderMessage(reminder)}
+	if system := run(t, withReminder, AllowLocalPolicy{}); !strings.Contains(system, tag) {
+		t.Fatalf("reminder instruction missing for start reminder: %q", system)
+	}
+	delivered := run(t, plain, reminderDeliveryPolicy{})
+	if !strings.Contains(delivered, tag) {
+		t.Fatalf("reminder instruction missing for delivered reminder: %q", delivered)
+	}
+}
+
 func hasReminder(messages []llm.Message, name string) bool {
 	for _, m := range messages {
 		if len(m.Content) == 1 && m.Content[0].Reminder != nil && m.Content[0].Reminder.Name == name {
