@@ -32,6 +32,18 @@ advancing execution. `Cancel` prevents further execution: unstarted calls
 become known not executed, while started effects can still receive late results
 for reconciliation and usage accounting.
 
+`DefaultLimits()` reserves the last model attempt for a final answer after at
+least one earlier attempt. That request omits application and provider-hosted
+tools and clears forced tool choice. It is prepared, authorized, recorded, and
+counted like any other attempt; there is no extra call beyond `ModelAttempts`.
+The final response ends with `StopLimited` and reason `model_attempts`, even
+when it contains useful text. Read that text with `Turn.AnswerText()`. A
+structured-output turn may still call the internal `kernel_submit_output` tool;
+its validated value is available in `Outcome.Output`. Set
+`Limits.ReserveFinalAnswer` on a custom `Limits` value to use this behavior.
+With only one allowed attempt, there is no earlier call from which to reserve
+a final answer.
+
 ## Structured final results
 
 Set `Definition.OutputSchema` for a reusable default, or set

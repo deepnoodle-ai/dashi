@@ -51,6 +51,7 @@ type replayState struct {
 	modelMessages          map[string]string
 	callAttempts           map[string]string
 	latestAttempt          string
+	finalAnswerOnly        bool
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
 	hosted                 map[string]llm.HostedApprovalRequest
@@ -233,7 +234,11 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
 		}
+		if step.Model.FinalAnswerOnly && (!s.Definition.Limits.ReserveFinalAnswer || s.ModelAttempts == 0 || s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
+			return errors.New("final-answer intent is not the last model attempt")
+		}
 		s.modelIntent = step.Model.AttemptID
+		s.finalAnswerOnly = step.Model.FinalAnswerOnly
 		s.unresolvedPartial = false
 		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
 			return errors.New("repeated model attempt ID")
@@ -255,6 +260,8 @@ func (s *replayState) apply(step Step) error {
 					return errors.New("invalid reserved output tool")
 				}
 				outputTool = true
+			} else if step.Model.FinalAnswerOnly {
+				return errors.New("final-answer intent offers an application tool")
 			}
 			s.modelDefs[d.Name] = d
 		}
@@ -588,6 +595,9 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 
 func (s *replayState) canContinue() bool {
 	if s.Revision == 0 || s.Stop.Kind == StopCompleted || s.Stop.Kind == StopCanceled || s.modelIntent != "" || s.unresolvedModel != "" || len(s.hosted) > 0 {
+		return false
+	}
+	if s.Stop.Kind == StopLimited && s.ModelAttempts >= s.Definition.Limits.ModelAttempts {
 		return false
 	}
 	for _, id := range s.callOrder {

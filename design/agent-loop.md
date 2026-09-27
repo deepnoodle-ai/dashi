@@ -111,6 +111,15 @@ from an open-ended human decision. Cancellation prevents new effects and marks
 in-flight effects uncertain until settled; late facts remain recordable but
 cannot restart canceled work.
 
+`DefaultLimits` reserves the last attempt, after earlier attempts, for a final
+answer. It removes application and hosted tools from that request while keeping
+the internal structured-output submission tool when required. The prepared
+request and its final-only intent are recorded before dispatch. A useful answer
+at this boundary has stop kind `limited` with reason `model_attempts`, so hosts
+can show the answer and the exhausted budget together. Custom limits opt in via
+`ReserveFinalAnswer`; a one-attempt turn cannot reserve a later call. This keeps
+the total call count strict and preserves existing custom-limit behavior.
+
 The first implementation should prove: ordinary and streamed results agree;
 tool batches preserve completion evidence and call order; approval binds the
 effective call; recording failure prevents the next effect; duplicate commands
