@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -235,5 +236,131 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}})
 	if err == nil {
 		t.Fatal("host settled an engine-owned output submission")
+	}
+}
+
+func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	base := NewMemoryRecorder()
+	rec := &failOnceKind{base: base, kind: StepStopped}
+	first := applyStructured(t, client, nil, rec)
+	if first.Persistence != PersistenceRejected {
+		t.Fatalf("persistence=%q", first.Persistence)
+	}
+	if first.Output == nil {
+		t.Fatal("first outcome has no output")
+	}
+	if client.sends != 1 {
+		t.Fatalf("sends=%d", client.sends)
+	}
+
+	saved, err := base.Load("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := Replay(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Output == nil {
+		t.Fatal("saved record has no output")
+	}
+	if view.Stop.Kind != "" {
+		t.Fatalf("stop=%q", view.Stop.Kind)
+	}
+
+	def := structuredDefinition()
+	bindings := Bindings{
+		Client:   client,
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}
+	deliver := Deliver{
+		ID: "nudge",
+		Items: []ContextItem{{
+			Origin:  "user",
+			Message: llm.UserMessage(llm.Text("more")),
+		}},
+	}
+	if _, err := (Engine{}).Apply(context.Background(), saved, def, deliver, bindings); err == nil {
+		t.Fatal("deliver accepted after recorded output")
+	}
+	assertStepCount(t, base, len(saved.Steps))
+
+	if _, err := (Engine{}).Apply(context.Background(), saved, def, Cancel{ID: "cancel"}, bindings); err == nil {
+		t.Fatal("cancel accepted after recorded output")
+	}
+	assertStepCount(t, base, len(saved.Steps))
+
+	out, err := (Engine{}).Apply(context.Background(), saved, def, Continue{ID: "recover"}, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%q", out.Stop.Kind)
+	}
+	if out.Output == nil || string(out.Output.Value) != `{"answer":8}` {
+		t.Fatalf("output=%+v", out.Output)
+	}
+	if client.sends != 1 {
+		t.Fatalf("sends=%d", client.sends)
+	}
+	if len(out.Turn.Steps) != len(saved.Steps)+2 {
+		t.Fatalf("steps=%d saved=%d", len(out.Turn.Steps), len(saved.Steps))
+	}
+}
+
+func assertStepCount(t *testing.T, base *MemoryRecorder, want int) {
+	t.Helper()
+	turn, err := base.Load("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turn.Steps) != want {
+		t.Fatalf("steps=%d want=%d", len(turn.Steps), want)
+	}
+}
+
+func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	out := applyStructured(t, client, nil, NewMemoryRecorder())
+	i := -1
+	for j, step := range out.Turn.Steps {
+		if step.Kind == StepOutputRecorded {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		t.Fatal("no recorded output")
+	}
+	recorded := out.Turn.Steps[i]
+	seq := int64(i + 2)
+
+	forged := []Step{
+		{
+			Version: recorded.Version,
+			TurnID:  recorded.TurnID,
+			Seq:     seq,
+			Kind:    StepDelivered,
+			Context: &ContextFact{Items: []ContextItem{{
+				Origin:  "user",
+				Message: llm.UserMessage(llm.Text("more")),
+			}}},
+		},
+		{
+			Version: recorded.Version,
+			TurnID:  recorded.TurnID,
+			Seq:     seq,
+			Kind:    StepStopped,
+			Stop:    &Stop{Kind: StopCanceled},
+		},
+	}
+	for _, step := range forged {
+		turn := out.Turn
+		turn.Steps = append(slices.Clone(out.Turn.Steps[:i+1]), step)
+		if _, err := Replay(turn); err == nil {
+			t.Fatalf("replay accepted %s after recorded output", step.Kind)
+		}
 	}
 }

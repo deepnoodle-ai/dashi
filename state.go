@@ -132,6 +132,17 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("canceled turn only accepts late results")
 		}
 	}
+	// Once the validated output is recorded the turn's result is final; the
+	// only remaining fact is the completion stop. Later context, tools, model
+	// calls, or cancellation are refused rather than silently ignored.
+	if s.Output != nil {
+		switch {
+		case step.Kind == StepContinued:
+		case step.Kind == StepStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
+		default:
+			return errors.New("turn with recorded output can only complete")
+		}
+	}
 	switch step.Kind {
 	case StepStarted:
 		if step.Started == nil {

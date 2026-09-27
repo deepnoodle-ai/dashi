@@ -41,7 +41,9 @@ and cannot change during recovery. Schema and value are bounded at 32 KiB and
 256 KiB. `Outcome.Output` contains the validated JSON object, its source, model
 attempt ID, and optional tool call ID. `Turn.StructuredOutput()` retrieves the
 same recorded fact. A completed turn with an output schema always has this
-value; `AnswerText()` may be empty.
+value; `AnswerText()` may be empty. Once the output is recorded the result is
+final: if the completion stop was not acknowledged, `Continue` finishes the
+record, while `Deliver` and `Cancel` are rejected rather than silently ignored.
 
 The engine advertises `kernel_submit_output` as a reserved model tool. The
 model may use application tools first, then call it with the final object in a

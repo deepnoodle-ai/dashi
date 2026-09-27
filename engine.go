@@ -119,7 +119,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return *o, nil
 		}
 	case Deliver:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || len(c.Items) == 0 {
+		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil || len(c.Items) == 0 {
 			return Outcome{}, errors.New("kernel: turn cannot receive context")
 		}
 		if o := rt.commit(Step{Kind: StepDelivered, CommandID: c.ID, CommandDigest: d, Context: &ContextFact{Items: c.Items}}); o != nil {
@@ -239,7 +239,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return rt.current(), nil
 		}
 	case Cancel:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled {
+		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil {
 			return Outcome{}, errors.New("kernel: turn cannot cancel")
 		}
 		if o := rt.commit(Step{Kind: StepStopped, CommandID: c.ID, CommandDigest: d, Stop: &Stop{Kind: StopCanceled, Reason: c.Reason}}); o != nil {
