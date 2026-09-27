@@ -40,6 +40,10 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	image, err := grok.NewImageGenerationTool(grok.ImageGenerationToolOptions{Action: "generate"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	request, err := client.Prepare(context.Background(), llm.Input{
 		Model:    "test-model",
 		Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
@@ -48,6 +52,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 			x,
 			collections,
 			grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}),
+			image,
 		},
 	})
 	if err != nil {
@@ -60,7 +65,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	if err := json.Unmarshal(request.Body(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Tools) != 4 {
+	if len(body.Tools) != 5 {
 		t.Fatal("Grok hosted definitions were lost")
 	}
 	if body.Tools[0]["filters"] == nil || body.Tools[1]["type"] != "x_search" {
@@ -68,6 +73,10 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	}
 	if body.Tools[3]["container"] != nil {
 		t.Fatal("Grok code execution gained an OpenAI container field")
+	}
+	if body.Tools[4]["type"] != "image_generation" ||
+		body.Tools[4]["action"] != "generate" || body.Tools[4]["size"] != nil {
+		t.Fatal("Grok image tool used unsupported output controls")
 	}
 }
 

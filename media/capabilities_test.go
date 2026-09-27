@@ -58,3 +58,52 @@ func TestVideoCapabilitiesCheckAcceptsKnownDurationRange(t *testing.T) {
 		t.Fatal("video duration above known limit was allowed")
 	}
 }
+
+func TestVideoCapabilitiesCheckDistinguishesOperations(t *testing.T) {
+	input := VideoInput{Model: "video-model", Operation: VideoEdit}
+	capabilities := VideoCapabilities{
+		Generate: model.SupportSupported,
+		Edit:     model.SupportUnsupported,
+		Extend:   model.SupportUnknown,
+	}
+	if _, err := capabilities.Check(input, model.UnknownAllow); err == nil {
+		t.Fatal("allowed known unsupported video edit")
+	}
+	input.Operation = VideoExtend
+	unverified, err := capabilities.Check(input, model.UnknownAllow)
+	if err != nil || !slices.Equal(unverified, []string{"video.extend"}) {
+		t.Fatalf("unknown extend support = %v, %v", unverified, err)
+	}
+	input.Operation = ""
+	if _, err := capabilities.Check(input, model.UnknownReject); err != nil {
+		t.Fatalf("zero operation did not default to generate: %v", err)
+	}
+}
+
+func TestImageSizeBoundsCheckFlexibleDimensions(t *testing.T) {
+	bounds := ImageSizeBounds{
+		MinPixels: 655_360, MaxPixels: 8_294_400,
+		MaxEdge: 3840, Multiple: 16, MaxAspectRatio: 3,
+	}
+	for _, size := range []Size{{1024, 1024}, {3840, 2160}, {1536, 1024}} {
+		if err := bounds.Check(size); err != nil {
+			t.Fatalf("accepted size %+v rejected: %v", size, err)
+		}
+	}
+	for _, size := range []Size{{512, 512}, {3856, 1024}, {1025, 1024}, {3840, 1024}} {
+		if err := bounds.Check(size); err == nil {
+			t.Fatalf("unsupported size %+v accepted", size)
+		}
+	}
+	input := ImageInput{Model: "image-model", Operation: ImageGenerate,
+		Prompt:   []content.Block{content.TextBlock("a mountain")},
+		Settings: ImageSettings{Size: Size{1024, 1024}}}
+	capabilities := ImageCapabilities{Generate: model.SupportSupported, SizeBounds: &bounds}
+	if _, err := capabilities.Check(input, model.UnknownReject); err != nil {
+		t.Fatalf("strict evidence rejected supported size: %v", err)
+	}
+	input.Settings.Size = Size{512, 512}
+	if _, err := capabilities.Check(input, model.UnknownAllow); err == nil {
+		t.Fatal("known unsupported size was allowed")
+	}
+}

@@ -126,6 +126,21 @@ func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Definition {
 	}
 }
 
+// ImageGenerationToolOptions controls whether Grok may generate, edit, or
+// choose between the two. The hosted tool chooses its own size and format.
+type ImageGenerationToolOptions struct {
+	Action string `json:"action,omitempty"`
+}
+
+// NewImageGenerationTool lets Grok generate or edit images within a response.
+func NewImageGenerationTool(options ImageGenerationToolOptions) (tool.Definition, error) {
+	if options.Action != "" && options.Action != "auto" &&
+		options.Action != "generate" && options.Action != "edit" {
+		return tool.Definition{}, errors.New("grok: image action must be auto, generate, or edit")
+	}
+	return newHosted("image_generation", "image_generation", options)
+}
+
 func newHosted(name, toolType string, options any) (tool.Definition, error) {
 	raw, err := json.Marshal(options)
 	if err != nil {

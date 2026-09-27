@@ -34,6 +34,12 @@ func (p *MediaClient) PrepareVideo(ctx context.Context, in media.VideoInput) (me
 	if err := in.Validate(); err != nil {
 		return media.VideoRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
+	if in.Operation != "" && in.Operation != media.VideoGenerate {
+		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Veo %s requires an explicit video source contract", in.Operation)
+	}
+	if strings.HasPrefix(in.Model, "veo-3.0-") || strings.HasPrefix(in.Model, "veo-2.0-") {
+		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Veo 2 and Veo 3 models are retired from the Gemini API")
+	}
 	if in.Settings.Size.Width != 0 || len(in.ReferenceFrames) > 1 {
 		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Veo exact size or ambiguous multiple reference frames")
 	}
@@ -50,6 +56,9 @@ func (p *MediaClient) PrepareVideo(ctx context.Context, in media.VideoInput) (me
 	if (in.Settings.Resolution == "1080p" || in.Settings.Resolution == "4k") &&
 		in.Settings.Duration != 8*time.Second {
 		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Veo high resolution requires an explicit eight-second duration")
+	}
+	if in.Model == "veo-3.1-lite-generate-preview" && in.Settings.Resolution == "4k" {
+		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Veo 3.1 Lite does not support 4k")
 	}
 	info, unverified, err := p.videoEvidence(in)
 	if err != nil {

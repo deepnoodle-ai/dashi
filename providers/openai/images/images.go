@@ -144,6 +144,14 @@ func (c *Client) ModelInfo(name string) (media.ModelInfo, bool) {
 // exact body SendImage will dispatch. It performs no network request.
 func (c *Client) PrepareImage(ctx context.Context,
 	input media.ImageInput) (media.ImageRequest, error) {
+	return c.PrepareImageWithOptions(ctx, input, Options{})
+}
+
+// PrepareImageWithOptions freezes OpenAI-specific controls with the image
+// request. The returned request owns both the exact wire body and options.
+func (c *Client) PrepareImageWithOptions(ctx context.Context,
+	input media.ImageInput, options Options) (media.ImageRequest, error) {
+	options = options.clone()
 	if err := ctx.Err(); err != nil {
 		return media.ImageRequest{}, err
 	}
@@ -172,9 +180,13 @@ func (c *Client) PrepareImage(ctx context.Context,
 			Reason: "Images API default made explicit in the prepared body",
 		})
 	}
-	body, contentType, err := encodeImage(effective, prompt)
+	body, contentType, err := encodeImage(effective, prompt, options)
 	if err != nil {
 		return media.ImageRequest{}, c.failure(media.ErrorUnsupported, err)
+	}
+	optionBytes, err := json.Marshal(options)
+	if err != nil {
+		return media.ImageRequest{}, c.failure(media.ErrorInvalidRequest, err)
 	}
 	snapshot := media.ImageRequestSnapshot{
 		Origin:              c.origin(input.Model),
@@ -182,6 +194,7 @@ func (c *Client) PrepareImage(ctx context.Context,
 		Effective:           effective.Settings,
 		Body:                body,
 		ContentType:         contentType,
+		ProviderOptions:     optionBytes,
 		Adjustments:         adjustments,
 		UnknownCapabilities: c.unknown,
 		Unverified:          unverified,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -17,9 +18,10 @@ type imageWireResponse struct {
 	Model string          `json:"model"`
 	Usage json.RawMessage `json:"usage"`
 	Data  []struct {
-		URL      string `json:"url"`
-		Base64   string `json:"b64_json"`
-		MIMEType string `json:"mime_type"`
+		URL        string          `json:"url"`
+		Base64     string          `json:"b64_json"`
+		MIMEType   string          `json:"mime_type"`
+		FileOutput *fileOutputWire `json:"file_output"`
 	} `json:"data"`
 }
 
@@ -31,8 +33,19 @@ const (
 )
 
 func imageWireBody(input media.ImageInput) ([]byte, string, error) {
+	return imageWireBodyWithOptions(input, ImageOptions{}, content.Origin{})
+}
+
+func imageWireBodyWithOptions(input media.ImageInput, options ImageOptions, fileOrigin content.Origin) ([]byte, string, error) {
 	if err := input.Validate(); err != nil {
 		return nil, "", err
+	}
+	format := options.ResponseFormat
+	if format == "" {
+		format = ImageResponseURL
+	}
+	if format != ImageResponseURL && format != ImageResponseBase64 {
+		return nil, "", errors.New("imagine: unsupported image response format")
 	}
 	prompt, err := textPrompt(input.Prompt)
 	if err != nil {
@@ -74,7 +87,10 @@ func imageWireBody(input media.ImageInput) ([]byte, string, error) {
 	body := map[string]any{
 		"model":           input.Model,
 		"prompt":          prompt,
-		"response_format": "url", // Pin the documented temporary-URL mode.
+		"response_format": format,
+	}
+	if err := addStorageOptions(body, options.Storage); err != nil {
+		return nil, "", err
 	}
 	if input.Settings.Count > 0 {
 		body["n"] = input.Settings.Count
@@ -106,7 +122,7 @@ func imageWireBody(input media.ImageInput) ([]byte, string, error) {
 		}
 		images := make([]any, 0, len(input.ReferenceImages))
 		for _, block := range input.ReferenceImages {
-			image, err := imageInputSource(block.Image.Source)
+			image, err := imageInputSource(block.Image.Source, fileOrigin)
 			if err != nil {
 				return nil, "", err
 			}
@@ -145,7 +161,16 @@ func imageAspectRatio(ratio string) bool {
 	}
 }
 
-func imageInputSource(source content.Source) (map[string]string, error) {
+func imageInputSource(source content.Source, fileOrigin ...content.Origin) (map[string]string, error) {
+	if source.MIMEType != "" && !strings.HasPrefix(source.MIMEType, "image/") {
+		return nil, errors.New("imagine: reference image requires image MIME type when specified")
+	}
+	if source.ID != "" {
+		if len(fileOrigin) != 1 || source.Origin != fileOrigin[0] {
+			return nil, errors.New("imagine: file ID belongs to another Files API destination")
+		}
+		return map[string]string{"file_id": source.ID}, nil
+	}
 	if source.URL != "" {
 		if !validHTTPURL(source.URL) {
 			return nil, errors.New("imagine: reference image URL must be HTTP(S) without user info")
@@ -159,6 +184,10 @@ func imageInputSource(source content.Source) (map[string]string, error) {
 }
 
 func decodeImageWire(raw []byte, provider, requested string) (media.Result, error) {
+	return decodeImageWireWithFiles(raw, provider, requested, content.Origin{})
+}
+
+func decodeImageWireWithFiles(raw []byte, provider, requested string, files content.Origin) (media.Result, error) {
 	var wire imageWireResponse
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return media.Result{}, fmt.Errorf("imagine: decode image response: %w", err)
@@ -194,9 +223,19 @@ func decodeImageWire(raw []byte, provider, requested string) (media.Result, erro
 		}
 		source.MIMEType = item.MIMEType
 		if source.Data != nil && source.MIMEType == "" {
-			return media.Result{}, errors.New("imagine: inline image response requires MIME type")
+			source.MIMEType = http.DetectContentType(source.Data)
+			if !strings.HasPrefix(source.MIMEType, "image/") {
+				return media.Result{}, errors.New("imagine: inline image response has unknown image MIME type")
+			}
 		}
 		result.Content = append(result.Content, content.ImageBlock(source))
+		if item.FileOutput != nil {
+			stored, err := item.FileOutput.storedOutput(len(result.Content)-1, source.MIMEType, files)
+			if err != nil {
+				return media.Result{}, err
+			}
+			result.StoredOutputs = append(result.StoredOutputs, stored)
+		}
 	}
 	return result, result.Validate()
 }

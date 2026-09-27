@@ -1,6 +1,7 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,11 +25,14 @@ type Adjustment struct {
 // Body is the exact JSON or multipart payload, including binary uploads, and
 // is encoded as base64 if this snapshot is serialized to JSON.
 type ImageRequestSnapshot struct {
-	Origin              content.Origin      `json:"origin"`
-	Input               ImageInput          `json:"input"`
-	Effective           ImageSettings       `json:"effective"`
-	Body                []byte              `json:"body"`
-	ContentType         string              `json:"content_type"`
+	Origin      content.Origin `json:"origin"`
+	Input       ImageInput     `json:"input"`
+	Effective   ImageSettings  `json:"effective"`
+	Body        []byte         `json:"body"`
+	ContentType string         `json:"content_type"`
+	// ProviderOptions records adapter-specific per-call controls. Body remains
+	// the dispatch authority; options must be a JSON object when present.
+	ProviderOptions     json.RawMessage     `json:"provider_options,omitempty"`
 	Adjustments         []Adjustment        `json:"adjustments,omitempty"`
 	ModelInfo           *ModelInfo          `json:"model_info,omitempty"`
 	UnknownCapabilities model.UnknownPolicy `json:"unknown_capabilities,omitempty"`
@@ -39,6 +43,7 @@ type ImageRequestSnapshot struct {
 func (s ImageRequestSnapshot) Clone() ImageRequestSnapshot {
 	s.Input = s.Input.Clone()
 	s.Body = slices.Clone(s.Body)
+	s.ProviderOptions = slices.Clone(s.ProviderOptions)
 	s.Adjustments = slices.Clone(s.Adjustments)
 	s.Unverified = slices.Clone(s.Unverified)
 	if s.ModelInfo != nil {
@@ -61,6 +66,9 @@ func NewImageRequest(snapshot ImageRequestSnapshot) (ImageRequest, error) {
 		return ImageRequest{}, err
 	}
 	if err := snapshot.Effective.Validate(); err != nil {
+		return ImageRequest{}, err
+	}
+	if err := validateProviderOptions(snapshot.ProviderOptions); err != nil {
 		return ImageRequest{}, err
 	}
 	if snapshot.Effective != snapshot.Input.Settings &&
@@ -102,14 +110,17 @@ func (r ImageRequest) ContentType() string {
 	return r.snapshot.ContentType
 }
 
-// VideoRequestSnapshot records video submission intent before any remote
-// attempt. A submission response is recorded separately from this snapshot.
+// VideoRequestSnapshot records video intent before any remote attempt. A job
+// submission response is recorded separately from this snapshot when used.
 type VideoRequestSnapshot struct {
-	Origin              content.Origin      `json:"origin"`
-	Input               VideoInput          `json:"input"`
-	Effective           VideoSettings       `json:"effective"`
-	Body                []byte              `json:"body"`
-	ContentType         string              `json:"content_type"`
+	Origin      content.Origin `json:"origin"`
+	Input       VideoInput     `json:"input"`
+	Effective   VideoSettings  `json:"effective"`
+	Body        []byte         `json:"body"`
+	ContentType string         `json:"content_type"`
+	// ProviderOptions records adapter-specific per-call controls. Body remains
+	// the dispatch authority; options must be a JSON object when present.
+	ProviderOptions     json.RawMessage     `json:"provider_options,omitempty"`
 	Adjustments         []Adjustment        `json:"adjustments,omitempty"`
 	ModelInfo           *ModelInfo          `json:"model_info,omitempty"`
 	UnknownCapabilities model.UnknownPolicy `json:"unknown_capabilities,omitempty"`
@@ -120,6 +131,7 @@ type VideoRequestSnapshot struct {
 func (s VideoRequestSnapshot) Clone() VideoRequestSnapshot {
 	s.Input = s.Input.Clone()
 	s.Body = slices.Clone(s.Body)
+	s.ProviderOptions = slices.Clone(s.ProviderOptions)
 	s.Adjustments = slices.Clone(s.Adjustments)
 	s.Unverified = slices.Clone(s.Unverified)
 	if s.ModelInfo != nil {
@@ -129,8 +141,8 @@ func (s VideoRequestSnapshot) Clone() VideoRequestSnapshot {
 	return s
 }
 
-// VideoRequest owns destination-bound submission intent. SubmitVideo makes
-// one remote attempt; a lost response can leave its outcome unknown.
+// VideoRequest owns destination-bound video intent. A job submission can
+// leave its outcome unknown if the provider's response is lost.
 type VideoRequest struct {
 	snapshot VideoRequestSnapshot
 }
@@ -141,6 +153,9 @@ func NewVideoRequest(snapshot VideoRequestSnapshot) (VideoRequest, error) {
 		return VideoRequest{}, err
 	}
 	if err := snapshot.Effective.Validate(); err != nil {
+		return VideoRequest{}, err
+	}
+	if err := validateProviderOptions(snapshot.ProviderOptions); err != nil {
 		return VideoRequest{}, err
 	}
 	if snapshot.Effective != snapshot.Input.Settings &&
@@ -172,12 +187,12 @@ func (r VideoRequest) Input() VideoInput {
 	return r.snapshot.Input.Clone()
 }
 
-// Body returns a copy of the exact payload prepared for submission.
+// Body returns a copy of the exact payload prepared for dispatch.
 func (r VideoRequest) Body() []byte {
 	return slices.Clone(r.snapshot.Body)
 }
 
-// ContentType returns the exact media type prepared for submission.
+// ContentType returns the exact media type prepared for dispatch.
 func (r VideoRequest) ContentType() string {
 	return r.snapshot.ContentType
 }
@@ -188,6 +203,13 @@ type ImageClient interface {
 	SendImage(context.Context, ImageRequest) (Result, error)
 }
 
+// VideoCallClient separates preparation from one synchronous video call.
+// A provider may instead implement VideoJobClient for asynchronous work.
+type VideoCallClient interface {
+	PrepareVideo(context.Context, VideoInput) (VideoRequest, error)
+	SendVideo(context.Context, VideoRequest) (Result, error)
+}
+
 // VideoJobClient separates submission, polling, and output retrieval. A
 // SubmitVideo transport error may accompany SubmissionUnknown; callers must
 // record that uncertainty rather than resubmit automatically.
@@ -196,6 +218,17 @@ type VideoJobClient interface {
 	SubmitVideo(context.Context, VideoRequest) (Submission, error)
 	PollVideo(context.Context, Job) (JobPoll, error)
 	FetchVideo(context.Context, JobPoll) (Result, error)
+}
+
+func validateProviderOptions(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if !json.Valid(trimmed) || len(trimmed) == 0 || trimmed[0] != '{' {
+		return errors.New("media: provider options require a JSON object")
+	}
+	return nil
 }
 
 func validatePrepared(

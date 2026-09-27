@@ -25,15 +25,28 @@ var (
 // PrepareImage validates an image operation and captures the exact JSON body
 // without contacting xAI. Edit inputs may contain inline bytes as data URLs.
 func (c *Client) PrepareImage(ctx context.Context, input media.ImageInput) (media.ImageRequest, error) {
+	return c.PrepareImageWithOptions(ctx, input, ImageOptions{})
+}
+
+// PrepareImageWithOptions adds xAI's response format to an image request.
+// The exact body and provider options are frozen before the call.
+func (c *Client) PrepareImageWithOptions(ctx context.Context, input media.ImageInput, options ImageOptions) (media.ImageRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.ImageRequest{}, err
 	}
 	if err := input.Validate(); err != nil {
 		return media.ImageRequest{}, c.failure(media.ErrorInvalidRequest, err)
 	}
-	body, _, err := imageWireBody(input)
+	body, _, err := imageWireBodyWithOptions(input, options, c.files)
 	if err != nil {
 		return media.ImageRequest{}, c.failure(media.ErrorUnsupported, err)
+	}
+	var providerOptions json.RawMessage
+	if options.ResponseFormat != "" || options.Storage != nil {
+		providerOptions, err = json.Marshal(options)
+		if err != nil {
+			return media.ImageRequest{}, c.failure(media.ErrorProtocol, err)
+		}
 	}
 	var info *media.ModelInfo
 	capabilities := media.ImageCapabilities{}
@@ -52,6 +65,7 @@ func (c *Client) PrepareImage(ctx context.Context, input media.ImageInput) (medi
 		Effective:           input.Settings,
 		Body:                body,
 		ContentType:         "application/json",
+		ProviderOptions:     providerOptions,
 		ModelInfo:           info,
 		UnknownCapabilities: c.unknown,
 		Unverified:          unverified,
@@ -80,7 +94,7 @@ func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (med
 	if err != nil {
 		return media.Result{}, err
 	}
-	result, err := decodeImageWire(raw, c.provider, input.Model)
+	result, err := decodeImageWireWithFiles(raw, c.provider, input.Model, c.files)
 	if err != nil {
 		return media.Result{}, c.failure(media.ErrorProtocol, err)
 	}
@@ -90,15 +104,28 @@ func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (med
 // PrepareVideo validates an xAI video request and captures its exact JSON
 // submission body. At most one reference frame is accepted as the first frame.
 func (c *Client) PrepareVideo(ctx context.Context, input media.VideoInput) (media.VideoRequest, error) {
+	return c.PrepareVideoWithOptions(ctx, input, VideoOptions{})
+}
+
+// PrepareVideoWithOptions adds xAI-specific reference, frame, and audio
+// controls. The options and exact wire body are captured in the request.
+func (c *Client) PrepareVideoWithOptions(ctx context.Context, input media.VideoInput, options VideoOptions) (media.VideoRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.VideoRequest{}, err
 	}
 	if err := input.Validate(); err != nil {
 		return media.VideoRequest{}, c.failure(media.ErrorInvalidRequest, err)
 	}
-	body, err := videoWireBody(input)
+	body, err := videoWireBodyWithOptions(input, options, c.files)
 	if err != nil {
 		return media.VideoRequest{}, c.failure(media.ErrorUnsupported, err)
+	}
+	var providerOptions json.RawMessage
+	if optionsHasValues(options) {
+		providerOptions, err = json.Marshal(options)
+		if err != nil {
+			return media.VideoRequest{}, c.failure(media.ErrorProtocol, err)
+		}
 	}
 	var info *media.ModelInfo
 	capabilities := media.VideoCapabilities{}
@@ -117,6 +144,7 @@ func (c *Client) PrepareVideo(ctx context.Context, input media.VideoInput) (medi
 		Effective:           input.Settings,
 		Body:                body,
 		ContentType:         "application/json",
+		ProviderOptions:     providerOptions,
 		ModelInfo:           info,
 		UnknownCapabilities: c.unknown,
 		Unverified:          unverified,
@@ -140,7 +168,14 @@ func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (m
 	if err := ctx.Err(); err != nil {
 		return media.Submission{}, err
 	}
-	raw, err := c.do(ctx, http.MethodPost, "/videos/generations", request.Body(), request.ContentType())
+	path := "/videos/generations"
+	switch input.Operation {
+	case media.VideoEdit:
+		path = "/videos/edits"
+	case media.VideoExtend:
+		path = "/videos/extensions"
+	}
+	raw, err := c.do(ctx, http.MethodPost, path, request.Body(), request.ContentType())
 	if err != nil {
 		state := media.SubmissionUnknown
 		var failure *media.Error
@@ -224,6 +259,13 @@ func (c *Client) PollVideo(ctx context.Context, job media.Job) (media.JobPoll, e
 		poll.Content = []content.Block{
 			block,
 		}
+		if wire.Video.FileOutput != nil {
+			stored, err := wire.Video.FileOutput.storedOutput(0, "video/mp4", c.files)
+			if err != nil {
+				return media.JobPoll{}, c.failure(media.ErrorProtocol, err)
+			}
+			poll.StoredOutputs = []media.StoredOutput{stored}
+		}
 	case "failed":
 		poll.State = media.JobFailed
 		poll.Failure = providerFailure(wire.Error)
@@ -257,13 +299,14 @@ func (c *Client) FetchVideo(ctx context.Context, poll media.JobPoll) (media.Resu
 	}
 	copy := poll.Clone()
 	result := media.Result{
-		Kind:       media.KindVideo,
-		Content:    copy.Content,
-		Requested:  c.modelRef(poll.Job.Origin.Model),
-		Served:     poll.Served,
-		API:        VideoAPI,
-		ResponseID: poll.Job.ID,
-		RawUsage:   copy.RawUsage,
+		Kind:          media.KindVideo,
+		Content:       copy.Content,
+		StoredOutputs: copy.StoredOutputs,
+		Requested:     c.modelRef(poll.Job.Origin.Model),
+		Served:        poll.Served,
+		API:           VideoAPI,
+		ResponseID:    poll.Job.ID,
+		RawUsage:      copy.RawUsage,
 	}
 	if err := result.Validate(); err != nil {
 		return media.Result{}, c.failure(media.ErrorProtocol, err)

@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/media"
@@ -17,7 +15,6 @@ import (
 )
 
 type imageResponse struct {
-	Created      int64           `json:"created"`
 	OutputFormat string          `json:"output_format"`
 	Usage        json.RawMessage `json:"usage"`
 	Data         []struct {
@@ -38,7 +35,7 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 	blocks := make([]content.Block, 0, len(response.Data))
 	for _, item := range response.Data {
 		source, err := decodeImageSource(item.Base64, item.URL,
-			response.OutputFormat, response.Created, input.Model)
+			response.OutputFormat, input.Model)
 		if err != nil {
 			return media.Result{}, err
 		}
@@ -61,8 +58,8 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 	return result, nil
 }
 
-func decodeImageSource(encoded, imageURL, outputFormat string,
-	created int64, modelName string) (content.Source, error) {
+func decodeImageSource(encoded, imageURL, outputFormat,
+	modelName string) (content.Source, error) {
 	if (encoded == "") == (imageURL == "") {
 		return content.Source{}, errors.New(
 			"images: response image requires exactly one of base64 or URL",
@@ -93,8 +90,7 @@ func decodeImageSource(encoded, imageURL, outputFormat string,
 		}
 		return content.Source{Data: data, MIMEType: mimeType}, nil
 	}
-	if knownGPTImageModel(modelName) ||
-		modelName == "chatgpt-image-latest" {
+	if knownGPTImageModel(modelName) {
 		return content.Source{}, errors.New("images: GPT image response requires base64 image data")
 	}
 	parsed, err := url.Parse(imageURL)
@@ -103,12 +99,7 @@ func decodeImageSource(encoded, imageURL, outputFormat string,
 		parsed.User != nil {
 		return content.Source{}, errors.New("images: response image requires an HTTP URL")
 	}
-	source := content.Source{URL: imageURL, MIMEType: mimeType}
-	if created > 0 && strings.HasPrefix(modelName, "dall-e-") {
-		expiry := time.Unix(created, 0).Add(time.Hour)
-		source.ExpiresAt = &expiry
-	}
-	return source, nil
+	return content.Source{URL: imageURL, MIMEType: mimeType}, nil
 }
 
 func formatMIME(format string) (string, error) {

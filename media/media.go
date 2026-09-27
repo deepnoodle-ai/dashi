@@ -39,6 +39,16 @@ const (
 	ImageEdit ImageOperation = "edit"
 )
 
+// VideoOperation distinguishes creation, editing, and extending a video.
+// The zero value means generation for existing callers.
+type VideoOperation string
+
+const (
+	VideoGenerate VideoOperation = "generate"
+	VideoEdit     VideoOperation = "edit"
+	VideoExtend   VideoOperation = "extend"
+)
+
 // Size requests exact pixel dimensions when both fields are set. A zero value
 // leaves dimensions unspecified; provider preparation checks known limits.
 type Size struct {
@@ -165,19 +175,25 @@ func (s VideoSettings) Validate() error {
 	return nil
 }
 
-// VideoInput holds prompt and reference frames without assuming that every
-// video provider accepts both.
+// VideoInput holds portable prompt and reference frames. Provider-specific
+// options may carry other inputs such as keyframes or reference audio.
 type VideoInput struct {
 	Model           string          `json:"model"`
+	Operation       VideoOperation  `json:"operation,omitempty"`
 	Prompt          []content.Block `json:"prompt"`
 	ReferenceFrames []content.Block `json:"reference_frames,omitempty"`
 	Settings        VideoSettings   `json:"settings,omitzero"`
 }
 
-// Validate checks shape and content before provider preparation.
+// Validate checks portable shape and content. Providers must require the
+// inputs their operation actually needs during preparation.
 func (in VideoInput) Validate() error {
-	if in.Model == "" || (len(in.Prompt) == 0 && len(in.ReferenceFrames) == 0) {
-		return errors.New("media: video input requires model and prompt or reference frame")
+	if in.Model == "" {
+		return errors.New("media: video input requires a model")
+	}
+	if in.Operation != "" && in.Operation != VideoGenerate &&
+		in.Operation != VideoEdit && in.Operation != VideoExtend {
+		return errors.New("media: unknown video operation")
 	}
 	if err := validateBlocks(in.Prompt); err != nil {
 		return err
@@ -249,12 +265,15 @@ func (in AudioInput) Clone() AudioInput {
 // output medium; ancillary content may use another kind. The host chooses
 // durable artifact storage and any smaller model-facing representation.
 type Result struct {
-	Kind       Kind            `json:"kind"`
-	Content    []content.Block `json:"content"`
-	Requested  model.ModelRef  `json:"requested"`
-	Served     model.ModelRef  `json:"served"`
-	API        string          `json:"api"`
-	ResponseID string          `json:"response_id,omitempty"`
+	Kind    Kind            `json:"kind"`
+	Content []content.Block `json:"content"`
+	// StoredOutputs links generated blocks to optional provider-owned files.
+	// These references are separate from host-owned artifacts.
+	StoredOutputs []StoredOutput `json:"stored_outputs,omitempty"`
+	Requested     model.ModelRef `json:"requested"`
+	Served        model.ModelRef `json:"served"`
+	API           string         `json:"api"`
+	ResponseID    string         `json:"response_id,omitempty"`
 	// RawUsage preserves provider-reported usage without claiming shared billing
 	// units across image and video APIs. Nil means the provider did not report it.
 	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
@@ -284,12 +303,16 @@ func (r Result) Validate() error {
 	if !hasPrimary {
 		return fmt.Errorf("media: result requires a primary %s block", r.Kind)
 	}
+	if err := validateStoredOutputs(r.StoredOutputs, r.Content, r.Requested.Provider); err != nil {
+		return err
+	}
 	return nil
 }
 
 // Clone detaches result content and its nested bytes.
 func (r Result) Clone() Result {
 	r.Content = cloneBlocks(r.Content)
+	r.StoredOutputs = cloneStoredOutputs(r.StoredOutputs)
 	r.RawUsage = slices.Clone(r.RawUsage)
 	return r
 }

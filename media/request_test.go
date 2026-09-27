@@ -47,11 +47,13 @@ func videoSnapshot() VideoRequestSnapshot {
 
 func TestImageRequestOwnsPreparationBytes(t *testing.T) {
 	snapshot := imageSnapshot()
+	snapshot.ProviderOptions = json.RawMessage(`{"moderation":"auto"}`)
 	request, err := NewImageRequest(snapshot)
 	if err != nil {
 		t.Fatalf("valid image preparation rejected: %v", err)
 	}
 	snapshot.Body[0] = '['
+	snapshot.ProviderOptions[0] = '['
 	snapshot.Input.Prompt[0].Text.Text = "changed"
 	if bytes.Equal(request.Body(), snapshot.Body) {
 		t.Fatal("prepared image body shared caller bytes")
@@ -61,12 +63,34 @@ func TestImageRequestOwnsPreparationBytes(t *testing.T) {
 	}
 	view := request.Snapshot()
 	view.Body[0] = '['
+	view.ProviderOptions[0] = '['
 	view.Input.Prompt[0].Text.Text = "changed again"
 	if request.Body()[0] != '{' {
 		t.Fatal("image snapshot mutation changed prepared body")
 	}
+	if request.Snapshot().ProviderOptions[0] != '{' {
+		t.Fatal("image provider options shared caller storage")
+	}
 	if request.Input().Prompt[0].Text.Text != "a mountain" {
 		t.Fatal("image snapshot mutation changed prepared input")
+	}
+}
+
+func TestPreparedRequestRequiresObjectOptions(t *testing.T) {
+	image := imageSnapshot()
+	image.ProviderOptions = json.RawMessage(`[]`)
+	if _, err := NewImageRequest(image); err == nil {
+		t.Fatal("accepted non-object image options")
+	}
+	video := videoSnapshot()
+	video.ProviderOptions = json.RawMessage(`{"generate_audio":false}`)
+	request, err := NewVideoRequest(video)
+	if err != nil {
+		t.Fatalf("valid video provider options rejected: %v", err)
+	}
+	video.ProviderOptions[0] = '['
+	if request.Snapshot().ProviderOptions[0] != '{' {
+		t.Fatal("video provider options shared caller storage")
 	}
 }
 

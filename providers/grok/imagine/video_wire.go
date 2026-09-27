@@ -15,17 +15,32 @@ type videoWireResponse struct {
 	Status string `json:"status"`
 	Model  string `json:"model"`
 	Video  struct {
-		URL               string   `json:"url"`
-		Duration          *float64 `json:"duration"`
-		RespectModeration *bool    `json:"respect_moderation"`
+		URL               string          `json:"url"`
+		Duration          *float64        `json:"duration"`
+		RespectModeration *bool           `json:"respect_moderation"`
+		FileOutput        *fileOutputWire `json:"file_output"`
 	} `json:"video"`
 	Error json.RawMessage `json:"error"`
 	Usage json.RawMessage `json:"usage"`
 }
 
 func videoWireBody(input media.VideoInput) ([]byte, error) {
+	return videoWireBodyWithOptions(input, VideoOptions{})
+}
+
+func videoWireBodyWithOptions(input media.VideoInput, options VideoOptions, fileOrigin ...content.Origin) ([]byte, error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
+	}
+	var files content.Origin
+	if len(fileOrigin) == 1 {
+		files = fileOrigin[0]
+	}
+	if input.Operation == media.VideoEdit || input.Operation == media.VideoExtend {
+		return videoTransformWireBody(input, options, files)
+	}
+	if options.SourceVideo != nil {
+		return nil, errors.New("imagine: source video requires edit or extend operation")
 	}
 	if input.Settings.Size != (media.Size{}) {
 		return nil, errors.New("imagine: exact video size is not supported; use aspect ratio and resolution")
@@ -37,7 +52,7 @@ func videoWireBody(input media.VideoInput) ([]byte, error) {
 		if resolution != "480p" && resolution != "720p" && resolution != "1080p" {
 			return nil, fmt.Errorf("imagine: unsupported video resolution %q", resolution)
 		}
-		if resolution == "1080p" && input.Model != "grok-imagine-video-1.5" {
+		if resolution == "1080p" && !videoModel15(input.Model) {
 			return nil, errors.New("imagine: 1080p requires grok-imagine-video-1.5")
 		}
 	}
@@ -58,8 +73,9 @@ func videoWireBody(input media.VideoInput) ([]byte, error) {
 	if len(prompt) > maxPreparedBytes {
 		return nil, errors.New("imagine: video prompt exceeds 24 MiB prepared-body bound")
 	}
-	if prompt == "" && len(input.ReferenceFrames) == 0 {
-		return nil, errors.New("imagine: video requires text or an initial frame")
+	if prompt == "" && len(input.ReferenceFrames) == 0 && len(options.ReferenceImages) == 0 &&
+		options.LastFrame == nil && len(options.Keyframes) == 0 && len(options.ReferenceVoices) == 0 {
+		return nil, errors.New("imagine: video requires text, a frame, or a reference")
 	}
 	if len(input.ReferenceFrames) > 1 {
 		return nil, errors.New("imagine: only one initial video frame is supported")
@@ -69,15 +85,17 @@ func videoWireBody(input media.VideoInput) ([]byte, error) {
 		body["prompt"] = prompt
 	}
 	if len(input.ReferenceFrames) == 1 {
-		if len(input.ReferenceFrames[0].Image.Source.Data) > maxInlineImageBytes {
-			return nil, errors.New("imagine: inline image data exceeds 16 MiB per request")
-		}
-		frame, err := imageInputSource(input.ReferenceFrames[0].Image.Source)
+		frame, err := videoImageSource(input.ReferenceFrames[0], files)
 		if err != nil {
 			return nil, err
 		}
-		delete(frame, "type") // The video endpoint's image object has no type field.
 		body["image"] = frame
+	}
+	if err := addVideoOptions(body, input, options, files); err != nil {
+		return nil, err
+	}
+	if err := addStorageOptions(body, options.Storage); err != nil {
+		return nil, err
 	}
 	if input.Settings.Duration > 0 {
 		body["duration"] = int(input.Settings.Duration / time.Second)
@@ -89,6 +107,15 @@ func videoWireBody(input media.VideoInput) ([]byte, error) {
 		body["resolution"] = input.Settings.Resolution
 	}
 	return boundedJSON(body)
+}
+
+func videoModel15(name string) bool {
+	switch name {
+	case "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-2026-05-30":
+		return true
+	default:
+		return false
+	}
 }
 
 func videoAspectRatio(ratio string) bool {

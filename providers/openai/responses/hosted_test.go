@@ -105,7 +105,11 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := NewImageGenerationTool(ImageGenerationOptions{})
+	compression := 0
+	image, err := NewImageGenerationTool(ImageGenerationOptions{
+		Model: "gpt-image-2.5-sunburst", Action: "generate",
+		OutputFormat: "webp", OutputCompression: &compression,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +133,32 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	}
 	if body.Tools[1]["vector_store_ids"] == nil {
 		t.Fatal("file search lost its vector store")
+	}
+	if body.Tools[3]["model"] != "gpt-image-2.5-sunburst" ||
+		body.Tools[3]["action"] != "generate" ||
+		body.Tools[3]["output_compression"] != float64(0) {
+		t.Fatalf("image generation options omitted: %+v", body.Tools[3])
+	}
+}
+
+func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
+	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compression := 50
+	image, err := NewImageGenerationTool(ImageGenerationOptions{
+		OutputFormat: "png", OutputCompression: &compression,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Prepare(context.Background(), llm.Input{
+		Model: "test-model", Messages: []llm.Message{llm.UserMessage(llm.Text("Draw"))},
+		Tools: []tool.Definition{image},
+	})
+	if err == nil {
+		t.Fatal("accepted JPEG/WebP compression for PNG")
 	}
 }
 
@@ -258,6 +288,26 @@ func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
 	if use == nil || use.ServerName != "docs" ||
 		len(use.Output) != 1 || use.Output[0].Text.Text != "Result" {
 		t.Fatal("MCP result lost its server or output")
+	}
+}
+
+func TestGrokHostedImageKeepsModelWrittenPrompt(t *testing.T) {
+	wire := codec{origin: content.Origin{
+		Provider: "grok", API: API, Model: "grok-4.7", Scope: "test-scope",
+	}}
+	items, err := wire.decodeItem(json.RawMessage(`{
+		"type":"image_generation_call","id":"ig_1","status":"completed",
+		"prompt":"A corgi on a wave","result":"iVBORw0KGgo="
+	}`))
+	if err != nil || len(items) != 1 || items[0].HostedUse == nil {
+		t.Fatalf("decode Grok image: %v", err)
+	}
+	var input struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal(items[0].HostedUse.Input, &input); err != nil ||
+		input.Prompt != "A corgi on a wave" {
+		t.Fatalf("Grok image prompt lost: %+v, %v", input, err)
 	}
 }
 

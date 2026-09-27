@@ -26,9 +26,15 @@ type AdaptOptions struct {
 
 // Adapt returns owned messages and decisions at original input positions.
 // Provider encoders remain responsible for representing canonical values.
-func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm.Input, []llm.ContentChange, error) {
+func Adapt(
+	input llm.Input,
+	origin content.Origin,
+	options ...AdaptOptions,
+) (llm.Input, []llm.ContentChange, error) {
 	if len(options) > 1 {
-		return llm.Input{}, nil, errors.New("providercontent: one adaptation option is supported")
+		return llm.Input{}, nil, errors.New(
+			"providercontent: one adaptation option is supported",
+		)
 	}
 	var capability AdaptOptions
 	if len(options) > 0 {
@@ -47,21 +53,31 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 	usableHistory := false
 	calls := map[string]bool{}
 	pending := map[string]bool{}
-	hostedCalls := map[string]bool{}
-	hostedResults := map[string]bool{}
-	hostedPending := map[string]int{}
-	approvals := map[string]bool{}
+	hosted := newHostedHistory()
 	for mi, original := range input.Messages {
 		m := original.Clone()
 		kept := make([]llm.Content, 0, len(m.Content))
 		for ci := range m.Content {
 			c := &m.Content[ci]
 			fail := func(reason string) (llm.Input, []llm.ContentChange, error) {
-				return llm.Input{}, nil, &llm.Error{Provider: origin.Provider, Category: llm.ErrorUnsupported,
-					Cause: fmt.Errorf("providercontent: message %d content %d: %s", mi, ci, reason)}
+				return llm.Input{}, nil, &llm.Error{
+					Provider: origin.Provider,
+					Category: llm.ErrorUnsupported,
+					Cause: fmt.Errorf(
+						"providercontent: message %d content %d: %s",
+						mi,
+						ci,
+						reason,
+					),
+				}
 			}
 			record := func(action llm.ContentChangeAction, reason string) {
-				changes = append(changes, llm.ContentChange{MessageIndex: mi, ContentIndex: ci, Action: action, Reason: reason})
+				changes = append(changes, llm.ContentChange{
+					MessageIndex: mi,
+					ContentIndex: ci,
+					Action:       action,
+					Reason:       reason,
+				})
 			}
 			remapID := func(id *string) {
 				toID, ok := remappedIDs[*id]
@@ -101,8 +117,7 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 			}
 			if c.HostedUse != nil || c.HostedResult != nil ||
 				c.HostedApprovalRequest != nil || c.HostedApprovalResponse != nil {
-				if err := checkHosted(*c, m.Role, origin, hostedCalls,
-					hostedResults, hostedPending, approvals, mi); err != nil {
+				if err := hosted.check(*c, m.Role, origin, mi); err != nil {
 					return fail(err.Error())
 				}
 				kept = append(kept, *c)
@@ -112,35 +127,53 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 				if m.Role != llm.RoleAssistant {
 					return fail("reasoning requires assistant role")
 				}
-				plainReplay := c.Replay == nil && origin.API == "openai.completions" && capability.ReplayPlainReasoning
-				unreplayable := !plainReplay && (c.Replay == nil || c.Replay.Origin != origin || origin.API == "openai.completions")
+				plainReplay := c.Replay == nil &&
+					origin.API == "openai.completions" &&
+					capability.ReplayPlainReasoning
+				unreplayable := !plainReplay &&
+					(c.Replay == nil || c.Replay.Origin != origin ||
+						origin.API == "openai.completions")
 				if unreplayable {
 					if input.ContentPolicy.UnreplayableReasoning != llm.ReasoningOmit {
-						return fail("reasoning requires its original destination or an explicit omission policy")
+						return fail(
+							"reasoning requires its original destination or an explicit omission policy",
+						)
 					}
 					if c.Replay != nil {
 						if err := checkReasoningReplay(*c); err != nil {
 							return fail(err.Error())
 						}
 					}
-					record(llm.ContentChangeOmitReasoning, "reasoning cannot be replayed to this destination")
+					record(
+						llm.ContentChangeOmitReasoning,
+						"reasoning cannot be replayed to this destination",
+					)
 					omittedReasoning = true
 					continue
 				}
 			}
 			if c.Replay != nil {
 				foreign := c.Replay.Origin != origin
-				if err := checkReplay(*c, original.Content[ci], m.Role, foreign); err != nil {
+				if err := checkReplay(
+					*c,
+					original.Content[ci],
+					m.Role,
+					foreign,
+				); err != nil {
 					return fail(err.Error())
 				}
 				if foreign {
 					c.Replay = nil
-					record(llm.ContentChangeStripReplay, "incompatible replay origin; recognized canonical content is portable")
+					record(
+						llm.ContentChangeStripReplay,
+						"incompatible replay origin; recognized canonical content is portable",
+					)
 				}
 			}
 			if c.ToolCall != nil {
 				id := original.Content[ci].ToolCall.ID
-				if m.Role != llm.RoleAssistant || calls[id] || id == "" || !utf8.ValidString(id) {
+				if m.Role != llm.RoleAssistant || calls[id] || id == "" ||
+					!utf8.ValidString(id) {
 					return fail("tool call requires assistant role and a unique nonempty UTF-8 ID")
 				}
 				calls[id], pending[id] = true, true
@@ -152,11 +185,17 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 				}
 				delete(pending, id)
 				if c.ToolResult.IsError && origin.API == "openai.responses" {
-					record(llm.ContentChangeEncodeToolError, "Responses represents the tool error flag with a visible failure prefix")
+					record(
+						llm.ContentChangeEncodeToolError,
+						"Responses represents the tool error flag with a visible failure prefix",
+					)
 				}
 			}
 			if m.Role == llm.RoleDeveloper && origin.API == "anthropic.messages" {
-				record(llm.ContentChangeConvertRole, "Messages encodes developer instructions as system content")
+				record(
+					llm.ContentChangeConvertRole,
+					"Messages encodes developer instructions as system content",
+				)
 				changes[len(changes)-1].FromRole = llm.RoleDeveloper
 				changes[len(changes)-1].ToRole = llm.RoleSystem
 			}
@@ -168,19 +207,32 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 		}
 		// Messages moves system and developer content into top-level system;
 		// those blocks cannot make an otherwise empty messages array usable.
-		if len(kept) > 0 && (origin.API != "anthropic.messages" || m.Role == llm.RoleUser || m.Role == llm.RoleAssistant) {
+		if len(kept) > 0 &&
+			(origin.API != "anthropic.messages" ||
+				m.Role == llm.RoleUser || m.Role == llm.RoleAssistant) {
 			usableHistory = true
 		}
 	}
 	if (omittedReasoning || omittedHosted) && !usableHistory {
-		return llm.Input{}, nil, &llm.Error{Provider: origin.Provider, Category: llm.ErrorUnsupported,
-			Cause: errors.New("providercontent: content omission would leave no usable input")}
+		return llm.Input{}, nil, &llm.Error{
+			Provider: origin.Provider,
+			Category: llm.ErrorUnsupported,
+			Cause: errors.New(
+				"providercontent: content omission would leave no usable input",
+			),
+		}
 	}
 	if len(pending) != 0 {
-		return llm.Input{}, nil, &llm.Error{Provider: origin.Provider, Category: llm.ErrorUnsupported,
-			Cause: fmt.Errorf("providercontent: history has %d unresolved tool calls", len(pending))}
+		return llm.Input{}, nil, &llm.Error{
+			Provider: origin.Provider,
+			Category: llm.ErrorUnsupported,
+			Cause: fmt.Errorf(
+				"providercontent: history has %d unresolved tool calls",
+				len(pending),
+			),
+		}
 	}
-	for _, from := range hostedPending {
+	for _, from := range hosted.pending {
 		if !hostedTail(input.Messages, from) {
 			return llm.Input{}, nil, &llm.Error{
 				Provider: origin.Provider,
@@ -194,14 +246,27 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 	return out, changes, nil
 }
 
-func checkHosted(
+type hostedHistory struct {
+	calls   map[string]bool
+	results map[string]bool
+	pending map[string]int
+	// Answered IDs stay in the map so a later request cannot reuse them.
+	approvals map[string]bool
+}
+
+func newHostedHistory() hostedHistory {
+	return hostedHistory{
+		calls:     map[string]bool{},
+		results:   map[string]bool{},
+		pending:   map[string]int{},
+		approvals: map[string]bool{},
+	}
+}
+
+func (history *hostedHistory) check(
 	c llm.Content,
 	role llm.Role,
 	origin content.Origin,
-	calls map[string]bool,
-	results map[string]bool,
-	pending map[string]int,
-	approvals map[string]bool,
 	messageIndex int,
 ) error {
 	var artifactOrigin content.Origin
@@ -220,10 +285,10 @@ func checkHosted(
 	}
 	if c.HostedApprovalResponse != nil {
 		response := c.HostedApprovalResponse
-		if role != llm.RoleUser || !approvals[response.RequestID] {
+		if role != llm.RoleUser || !history.approvals[response.RequestID] {
 			return errors.New("hosted approval requires a preceding request")
 		}
-		approvals[response.RequestID] = false
+		history.approvals[response.RequestID] = false
 		return nil
 	}
 	if role != llm.RoleAssistant || c.Replay == nil ||
@@ -233,26 +298,26 @@ func checkHosted(
 	switch {
 	case c.HostedUse != nil:
 		use := c.HostedUse
-		if calls[use.ID] {
+		if history.calls[use.ID] {
 			return errors.New("hosted use ID must be unique")
 		}
-		calls[use.ID] = true
+		history.calls[use.ID] = true
 		if use.Status != "completed" && use.Status != "failed" {
-			pending[use.ID] = messageIndex
+			history.pending[use.ID] = messageIndex
 		}
 	case c.HostedResult != nil:
 		result := c.HostedResult
-		if !calls[result.CallID] || results[result.CallID] {
+		if !history.calls[result.CallID] || history.results[result.CallID] {
 			return errors.New("hosted result requires an earlier use")
 		}
-		results[result.CallID] = true
-		delete(pending, result.CallID)
+		history.results[result.CallID] = true
+		delete(history.pending, result.CallID)
 	case c.HostedApprovalRequest != nil:
 		request := c.HostedApprovalRequest
-		if _, seen := approvals[request.ID]; seen {
+		if _, seen := history.approvals[request.ID]; seen {
 			return errors.New("hosted approval request ID must be unique")
 		}
-		approvals[request.ID] = true
+		history.approvals[request.ID] = true
 	}
 	return nil
 }
@@ -396,18 +461,24 @@ func checkBlock(b content.Block, origin content.Origin) error {
 	case b.Text != nil:
 		for _, citation := range b.Text.Citations {
 			if citation.Origin != origin || len(citation.Raw) == 0 {
-				return errors.New("providercontent: citation requires its original replay data and destination")
+				return errors.New(
+					"providercontent: citation requires its original replay data and destination",
+				)
 			}
 		}
 	case b.Resource != nil:
 		if b.Resource.Origin != (content.Origin{}) &&
 			!sameFileScope(b.Resource.Origin, origin) {
-			return errors.New("providercontent: resource requires its original provider, API, and scope")
+			return errors.New(
+				"providercontent: resource requires its original provider, API, and scope",
+			)
 		}
 	}
 	if source != nil && (source.ID != "" || source.URI != "") &&
 		!sameFileScope(source.Origin, origin) {
-		return errors.New("providercontent: file reference requires its original provider, API, and scope")
+		return errors.New(
+			"providercontent: file reference requires its original provider, API, and scope",
+		)
 	}
 	return nil
 }
@@ -466,7 +537,8 @@ func portableCallID(id string) bool {
 		return false
 	}
 	for _, c := range id {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
+			c >= '0' && c <= '9' || c == '_' || c == '-') {
 			return false
 		}
 	}

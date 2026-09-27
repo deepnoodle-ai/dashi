@@ -26,6 +26,8 @@ const (
 	ImageAPI = "xai.images"
 	// VideoAPI identifies the xAI video job wire format.
 	VideoAPI = "xai.videos"
+	// FilesAPI identifies xAI Files API IDs used as media inputs.
+	FilesAPI = "xai.files"
 )
 
 // Config defines one xAI destination. Models holds application-owned evidence
@@ -63,6 +65,7 @@ type Client struct {
 	unknown  model.UnknownPolicy
 	image    content.Origin
 	video    content.Origin
+	files    content.Origin
 }
 
 // New validates and snapshots one destination. Custom endpoints are useful for
@@ -134,7 +137,19 @@ func New(config Config) (*Client, error) {
 			API:      VideoAPI,
 			Scope:    credentialScope(VideoAPI, endpoint, config.APIKey),
 		},
+		files: content.Origin{
+			Provider: config.Provider,
+			API:      FilesAPI,
+			Scope:    credentialScope(FilesAPI, endpoint, config.APIKey),
+		},
 	}, nil
+}
+
+// FileOrigin binds a Files API ID to this endpoint and credential. Callers
+// that already have an uploaded xAI file can set Source.Origin to this value;
+// the client does not upload or check the file's contents.
+func (c *Client) FileOrigin() content.Origin {
+	return c.files
 }
 
 // ModelInfo returns an independent copy of the configured model evidence.
