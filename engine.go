@@ -103,15 +103,23 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
 			return Outcome{}, errors.New("kernel: start requires a new turn and input")
 		}
+		if len(c.OutputSchema) > 0 {
+			if _, err := compileOutputSchema(c.OutputSchema); err != nil {
+				return Outcome{}, err
+			}
+			if err := validateOutputToolChoice(def.Settings); err != nil {
+				return Outcome{}, err
+			}
+		}
 		origin := c.Origin
 		if origin == "" {
 			origin = StartUser
 		}
-		if o := rt.commit(Step{Kind: StepStarted, CommandID: c.ID, CommandDigest: d, Started: &StartFact{Definition: def, Origin: origin, History: cloneMessages(c.History), Input: cloneMessages(c.Input)}}); o != nil {
+		if o := rt.commit(Step{Kind: StepStarted, CommandID: c.ID, CommandDigest: d, Started: &StartFact{Definition: def, OutputSchema: slices.Clone(c.OutputSchema), Origin: origin, History: cloneMessages(c.History), Input: cloneMessages(c.Input)}}); o != nil {
 			return *o, nil
 		}
 	case Deliver:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || len(c.Items) == 0 {
+		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil || len(c.Items) == 0 {
 			return Outcome{}, errors.New("kernel: turn cannot receive context")
 		}
 		if o := rt.commit(Step{Kind: StepDelivered, CommandID: c.ID, CommandDigest: d, Context: &ContextFact{Items: c.Items}}); o != nil {
@@ -214,6 +222,9 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !ok || (v.Status != ToolStarted && v.Status != ToolWaiting && v.Status != ToolUncertain) {
 				return Outcome{}, errors.New("kernel: tool result is not pending")
 			}
+			if v.Call.Name == SubmitOutputTool {
+				return Outcome{}, errors.New("kernel: structured output is settled by the engine")
+			}
 			if e := c.Outcome.Validate(); e != nil {
 				return Outcome{}, e
 			}
@@ -228,7 +239,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return rt.current(), nil
 		}
 	case Cancel:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled {
+		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil {
 			return Outcome{}, errors.New("kernel: turn cannot cancel")
 		}
 		if o := rt.commit(Step{Kind: StepStopped, CommandID: c.ID, CommandDigest: d, Stop: &Stop{Kind: StopCanceled, Reason: c.Reason}}); o != nil {
@@ -308,7 +319,13 @@ func outcome(t Turn, s *replayState, p Persistence) Outcome {
 			stop = Stop{Kind: StopWaiting}
 		}
 	}
-	return Outcome{Turn: cloneTurn(t), Stop: stop, Pending: slices.Clone(s.Pending), Persistence: p}
+	var output *StructuredOutput
+	if s.Output != nil {
+		value := *s.Output
+		value.Value = slices.Clone(value.Value)
+		output = &value
+	}
+	return Outcome{Turn: cloneTurn(t), Stop: stop, Output: output, Pending: slices.Clone(s.Pending), Persistence: p}
 }
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	o := r.commit(Step{Kind: StepStopped, Stop: &Stop{Kind: kind, Reason: reason}})
@@ -340,6 +357,15 @@ func (r *runtime) run() Outcome {
 		}
 		if len(s.hosted) > 0 {
 			return r.stop(StopWaiting, "provider approval pending")
+		}
+		if s.Output != nil {
+			return r.stop(StopCompleted, "")
+		}
+		if submitted := submittedOutput(s); submitted != nil {
+			if o := r.commit(Step{Kind: StepOutputRecorded, Output: submitted}); o != nil {
+				return *o
+			}
+			return r.stop(StopCompleted, "")
 		}
 		if s.awaitingClassification && s.latestResult != nil {
 			o, again := r.classify(*s.latestResult)
@@ -387,10 +413,24 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			if e = t.Definition.Validate(); e != nil {
 				return r.stop(StopFailed, e.Error()), false
 			}
+			if t.Definition.Name == SubmitOutputTool {
+				return r.stop(StopFailed, "tool name is reserved for structured output"), false
+			}
 			defs = append(defs, t.Definition.Clone())
 		}
 	}
-	input := llm.Input{Model: r.def.Model, System: r.def.Instructions, Messages: messages, Tools: defs, Settings: r.def.Settings, Stream: r.b.Stream}
+	system := r.def.Instructions
+	if len(s.OutputSchema) > 0 {
+		defs = append(defs, tool.Definition{Name: SubmitOutputTool,
+			Description: "Submit the final JSON object when all other work is finished. Its arguments must satisfy the output schema.",
+			Schema:      slices.Clone(s.OutputSchema), Kind: tool.KindLocal,
+			Annotations: tool.Annotations{ReadOnly: ptr(true), Idempotent: ptr(true)}})
+		if system != "" {
+			system += "\n\n"
+		}
+		system += "When your work is finished, call kernel_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted."
+	}
+	input := llm.Input{Model: r.def.Model, System: system, Messages: messages, Tools: defs, Settings: r.def.Settings, Stream: r.b.Stream}
 	decision, err := r.b.Policy.BeforeModel(r.ctx, ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)})
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
@@ -409,6 +449,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	if decision.Settings != nil {
 		input.Settings = *decision.Settings
+	}
+	if len(s.OutputSchema) > 0 {
+		if err := validateOutputToolChoice(input.Settings); err != nil {
+			return r.stop(StopFailed, err.Error()), false
+		}
 	}
 	req, err := r.b.Client.Prepare(r.ctx, input)
 	if err != nil {
@@ -554,7 +599,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		if e != nil {
 			return r.stop(StopFailed, e.Error()), false
 		}
-		if !useful && !sd.AcceptEmpty {
+		if !useful && !sd.AcceptEmpty && len(state.OutputSchema) == 0 {
 			return r.stop(StopFailed, "empty_response"), false
 		}
 		if sd.Continue {
@@ -567,10 +612,43 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 			}
 			return Outcome{}, true
 		}
+		if len(state.OutputSchema) > 0 {
+			if result.Stop.Kind != llm.StopFinished {
+				return r.stop(StopFailed, "output_schema_unsatisfied: unrecognized model stop"), false
+			}
+			schema, err := compileOutputSchema(state.OutputSchema)
+			if err != nil {
+				return r.stop(StopFailed, err.Error()), false
+			}
+			raw, err := parseOutputText(result.Message.Text(), schema)
+			if err != nil {
+				return r.stop(StopFailed, "output_schema_unsatisfied: "+err.Error()), false
+			}
+			state, _ := replay(r.turn)
+			fact := &StructuredOutput{Value: raw, Source: OutputFromText, AttemptID: state.latestAttempt}
+			if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
+				return *o, false
+			}
+			return r.stop(StopCompleted, ""), false
+		}
 		return r.stop(StopCompleted, ""), false
 	default:
 		return r.stop(StopFailed, "incomplete_model_result"), false
 	}
+}
+
+func submittedOutput(s *replayState) *StructuredOutput {
+	if len(s.OutputSchema) == 0 || len(s.pending()) > 0 {
+		return nil
+	}
+	for _, id := range s.callOrder {
+		v := s.Tools[id]
+		if v.Call.Name == SubmitOutputTool && v.Status == ToolSettled && v.Outcome != nil && v.Outcome.State == tool.StateSucceeded {
+			return &StructuredOutput{Value: slices.Clone(v.Call.Args), Source: OutputFromTool,
+				ToolCallID: id, AttemptID: s.callAttempts[id]}
+		}
+	}
+	return nil
 }
 
 func validateModelResult(result llm.Result, def Definition) error {

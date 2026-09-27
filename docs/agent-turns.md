@@ -32,6 +32,31 @@ advancing execution. `Cancel` prevents further execution: unstarted calls
 become known not executed, while started effects can still receive late results
 for reconciliation and usage accounting.
 
+## Structured final results
+
+Set `Definition.OutputSchema` for a reusable default, or set
+`Start.OutputSchema` to request a different shape for one turn. The schema must
+be a JSON Schema object with root `"type":"object"`; it is recorded at start
+and cannot change during recovery. Schema and value are bounded at 32 KiB and
+256 KiB. `Outcome.Output` contains the validated JSON object, its source, model
+attempt ID, and optional tool call ID. `Turn.StructuredOutput()` retrieves the
+same recorded fact. A completed turn with an output schema always has this
+value; `AnswerText()` may be empty. Once the output is recorded the result is
+final: if the completion stop was not acknowledged, `Continue` finishes the
+record, while `Deliver` and `Cancel` are rejected rather than silently ignored.
+
+The engine advertises `kernel_submit_output` as a reserved model tool. The
+model may use application tools first, then call it with the final object in a
+separate response. Kernel validates and records the submission; the host does
+not bind, authorize, or settle this internal tool. An invalid submission
+returns a tool error so the model can correct it within the attempt limit. A
+final response containing only one JSON object (or one `json` fenced object)
+is accepted as a fallback after the same validation. If neither path provides
+a valid value, the turn stops with `output_schema_unsatisfied`. Provider
+refusal and output limits keep their own stop kinds. This is a result contract;
+generation is not guaranteed to be constrained at the provider. Application
+tools cannot use the reserved name.
+
 ## Recorder contract
 
 `Recorder.Commit` acknowledges one versioned `Step` under `ExpectedSeq` and an

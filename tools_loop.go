@@ -3,6 +3,8 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/deepnoodle-ai/kernel/tool"
 )
@@ -58,6 +60,12 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			continue
 		}
 		if v.Status == ToolStarted {
+			if v.Call.Name == SubmitOutputTool {
+				if o := r.settleOutputSubmission(v.Call); o != nil {
+					return *o, true
+				}
+				continue
+			}
 			if o := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Reason: "previous execution may have taken effect"}}); o != nil {
 				return *o, true
 			}
@@ -71,17 +79,47 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				continue
 			}
+			if v.Call.Name == SubmitOutputTool && len(v.Call.Args) > maxOutputValueBytes {
+				out := tool.Outcome{State: tool.StateNotExecuted, Output: ptr(tool.TextOutput("Output rejected because it is too large. Return a smaller object and submit again."))}
+				if x := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &out, Reason: "output exceeds size limit"}}); x != nil {
+					return *x, true
+				}
+				continue
+			}
 			if err := validateToolCall(v.Definition, v.Call); err != nil {
-				out := tool.Outcome{State: tool.StateNotExecuted, Output: ptr(tool.TextOutput("Invalid tool arguments: " + err.Error()))}
+				message := "Invalid tool arguments: " + err.Error()
+				if v.Call.Name == SubmitOutputTool {
+					message = "Output rejected: " + boundedOutputError(err) + ". Correct it and call " + SubmitOutputTool + " again."
+				}
+				out := tool.Outcome{State: tool.StateNotExecuted, Output: ptr(tool.TextOutput(message))}
 				if x := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &out, Reason: "invalid arguments"}}); x != nil {
 					return *x, true
 				}
 				continue
 			}
+			if v.Call.Name == SubmitOutputTool {
+				batchCalls := 0
+				for _, callID := range state.callOrder {
+					if state.callAttempts[callID] == state.callAttempts[id] {
+						batchCalls++
+					}
+				}
+				if batchCalls != 1 {
+					out := tool.Outcome{State: tool.StateNotExecuted, Output: ptr(tool.TextOutput("Submit output in a separate model response after other tool calls finish."))}
+					if x := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &out, Reason: "submission shared a tool batch"}}); x != nil {
+						return *x, true
+					}
+					continue
+				}
+			}
 			call := v.Call.Clone()
 			decision := ToolDecision{}
 			var err error
 			for changes := 0; changes < 4; changes++ {
+				if call.Name == SubmitOutputTool {
+					decision = ToolDecision{Kind: DecisionAllow, Revision: "kernel-output-v1"}
+					break
+				}
 				view, _ := Replay(r.turn)
 				decision, err = r.b.Policy.AuthorizeTool(ctx, call.Clone(), view)
 				if err != nil {
@@ -129,6 +167,15 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		if err := ctx.Err(); err != nil {
 			return r.stop(StopCanceled, err.Error()), true
+		}
+		if v.Call.Name == SubmitOutputTool {
+			if o := r.commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: v.Call, Definition: v.Definition}}); o != nil {
+				return *o, true
+			}
+			if o := r.settleOutputSubmission(v.Call); o != nil {
+				return *o, true
+			}
+			continue
 		}
 		if v.Definition.Kind == tool.KindExternal {
 			wait := tool.Outcome{State: tool.StateWaiting, Wait: &tool.Wait{Reason: "external execution"}}
@@ -206,4 +253,31 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		return r.stop(StopWaiting, "tool result or approval pending"), true
 	}
 	return Outcome{}, false
+}
+
+func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
+	state, replayErr := replay(r.turn)
+	if replayErr != nil {
+		out := r.stop(StopFailed, replayErr.Error())
+		return &out
+	}
+	schema, err := compileOutputSchema(state.OutputSchema)
+	if err == nil {
+		err = validateOutputValue(schema, call.Args)
+	}
+	if err != nil {
+		message := fmt.Sprintf("Output rejected: %s. Correct it and call %s again.", boundedOutputError(err), SubmitOutputTool)
+		out := tool.Outcome{State: tool.StateFailed, Output: ptr(tool.TextOutput(message))}
+		return r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: call, Outcome: &out, Reason: "output schema rejected submission"}})
+	}
+	out := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("Output accepted."))}
+	return r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: call, Outcome: &out}})
+}
+
+func boundedOutputError(err error) string {
+	message := strings.ReplaceAll(err.Error(), "\n", " ")
+	if len(message) > 400 {
+		message = message[:400]
+	}
+	return message
 }

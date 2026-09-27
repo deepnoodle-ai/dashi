@@ -26,7 +26,10 @@ type Definition struct {
 	API          string       `json:"api"`
 	Model        string       `json:"model"`
 	Settings     llm.Settings `json:"settings"`
-	Limits       Limits       `json:"limits"`
+	// OutputSchema is the default final-result schema for turns using this
+	// definition. Start.OutputSchema may override it for one turn.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+	Limits       Limits          `json:"limits"`
 }
 
 type Limits struct {
@@ -45,6 +48,14 @@ func (d Definition) Validate() error {
 	if d.Limits.ModelAttempts < 1 || d.Limits.ToolConcurrency < 1 || d.Limits.ProviderPauses < 0 {
 		return errors.New("kernel: invalid limits")
 	}
+	if len(d.OutputSchema) > 0 {
+		if _, err := compileOutputSchema(d.OutputSchema); err != nil {
+			return err
+		}
+		if err := validateOutputToolChoice(d.Settings); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -61,6 +72,21 @@ type ContextItem struct {
 type Turn struct {
 	ID    string `json:"id"`
 	Steps []Step `json:"steps"`
+}
+
+// StructuredOutput returns the validated terminal value and its provenance.
+// The boolean is false when this turn has no recorded structured output.
+func (t Turn) StructuredOutput() (StructuredOutput, bool, error) {
+	view, err := Replay(t)
+	if err != nil {
+		return StructuredOutput{}, false, err
+	}
+	if view.Output == nil {
+		return StructuredOutput{}, false, nil
+	}
+	value := *view.Output
+	value.Value = append(json.RawMessage(nil), value.Value...)
+	return value, true, nil
 }
 
 // AnswerText returns text from the latest settled assistant message. A turn
@@ -98,6 +124,7 @@ const (
 	StepToolSettled     StepKind = "tool_settled"
 	StepApproval        StepKind = "approval_accepted"
 	StepHostedApproval  StepKind = "hosted_approval_accepted"
+	StepOutputRecorded  StepKind = "output_recorded"
 	StepStopped         StepKind = "turn_stopped"
 )
 
@@ -117,14 +144,32 @@ type Step struct {
 	Tool           *ToolFact                   `json:"tool,omitempty"`
 	Approval       *ApprovalFact               `json:"approval,omitempty"`
 	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
+	Output         *StructuredOutput           `json:"output,omitempty"`
 	Stop           *Stop                       `json:"stop,omitempty"`
 }
 
+type OutputSource string
+
+const (
+	OutputFromTool OutputSource = "tool_call"
+	OutputFromText OutputSource = "text"
+)
+
+// StructuredOutput is a schema-validated final value. ToolCallID or AttemptID
+// ties it to the model evidence from which it was derived.
+type StructuredOutput struct {
+	Value      json.RawMessage `json:"value"`
+	Source     OutputSource    `json:"source"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	AttemptID  string          `json:"attempt_id"`
+}
+
 type StartFact struct {
-	Definition Definition    `json:"definition"`
-	Origin     StartOrigin   `json:"origin,omitempty"`
-	History    []llm.Message `json:"history,omitempty"`
-	Input      []llm.Message `json:"input"`
+	Definition   Definition      `json:"definition"`
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+	Origin       StartOrigin     `json:"origin,omitempty"`
+	History      []llm.Message   `json:"history,omitempty"`
+	Input        []llm.Message   `json:"input"`
 }
 
 // StartOrigin records who supplied the initial work. The host must authorize
@@ -218,6 +263,7 @@ const (
 type Outcome struct {
 	Turn           Turn
 	Stop           Stop
+	Output         *StructuredOutput
 	Pending        []string
 	Persistence    Persistence
 	Unacknowledged *Step
@@ -228,10 +274,13 @@ type Outcome struct {
 // content acknowledges the first application without advancing again.
 type Command interface{ commandID() string }
 type Start struct {
-	ID      string
-	Origin  StartOrigin
-	History []llm.Message
-	Input   []llm.Message
+	ID     string
+	Origin StartOrigin
+	// OutputSchema overrides the definition's default for this turn. The
+	// admitted schema is pinned in the start fact for replay and recovery.
+	OutputSchema json.RawMessage
+	History      []llm.Message
+	Input        []llm.Message
 }
 type Deliver struct {
 	ID    string

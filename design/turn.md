@@ -62,7 +62,8 @@ that origin before admission.
 ## Facts and state
 
 The minimum step groups are: turn started; context delivered; model intent and
-settlement; tool decision, start, wait, and settlement; turn stop. A model
+settlement; tool decision, start, wait, and settlement; validated output
+recorded when a schema is requested; turn stop. A model
 settlement records the complete assistant result and its client tool calls as
 one accepted fact. Requested and effective tool arguments, the authorization
 decision, and the definition/policy revision belong to the tool facts. A
