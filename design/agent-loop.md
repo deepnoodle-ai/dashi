@@ -20,6 +20,9 @@ turn, commands, outcomes, policy, engine, and private replay validation, with
 the existing `llm`, `tool`, and `content` packages below it. A later `session`
 package can compose the same engine with history and a store. Dependencies
 point toward `llm`/`tool` and never back into the engine from them.
+`Engine.Stream` exposes the same execution path as a backpressured `iter.Seq2`
+of recorded steps, provisional deltas, and a terminal outcome. Ending the
+range cancels the invocation while acknowledged facts remain in the record.
 
 ```text
 definition + turn record + command + bindings

@@ -59,7 +59,13 @@ request, err := client.Prepare(ctx, llm.Input{
     },
 })
 // Handle err and record request.Snapshot() if needed, then:
-result, err := client.Send(ctx, request, sink)
+var result llm.Result
+for event, err := range llm.Stream(ctx, client, request) {
+    if event.Delta != nil { /* show provisional progress */ }
+    if event.Result != nil { result = *event.Result }
+    if err != nil { log.Fatal(err) }
+}
+// Inspect result.Stop before acting on tool calls.
 ```
 
 Running the example makes a paid request. It explicitly lets the API validate
@@ -78,6 +84,10 @@ Preparation is not proof of dispatch or receipt.
 `Input.Stream` selects streaming; a sink observes deltas without changing the
 request. A nil sink still collects a streaming result. Each `Send` makes at most
 one HTTP dispatch; the caller handles recording, admission, and any retry.
+`llm.Stream` starts that dispatch when ranged, yields deltas with backpressure,
+then yields one final result. Breaking the range cancels the request. The
+sequence is single-use; ranging it again returns `llm.ErrStreamConsumed`. `Send`
+remains available when one collected result is simpler.
 `llm.Generate` combines preparation and sending for simple use.
 
 Custom endpoints require `Config.Provider`, the application's stable name for
@@ -120,6 +130,13 @@ see [structured final results](docs/agent-turns.md#structured-final-results).
 The [Dive comparison and open gates](docs/agent-loop-review.md) record what
 remains to prove before stabilizing the loop API.
 
+`Engine.Stream` is the iterator form of `Engine.Apply`. It enables provider
+streaming, yields acknowledged steps and provisional deltas in order, then
+one final `Outcome`. Breaking the range cancels the turn; reload its record
+to inspect the committed result or pending uncertainty. The iterator is
+backpressured; `Bindings.Observer` remains a separate, lossy display hook.
+Ranging the same turn sequence again returns `kernel.ErrStreamConsumed`.
+
 ## Verify
 
 ```sh
@@ -157,6 +174,10 @@ three routes with a per-turn schema and a recorded `kernel_submit_output` call.
 Run `go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)StructuredOutput$' -v`
 with `KERNEL_LIVE_AGENT_TEST=1` and the corresponding provider keys and model
 names to repeat them.
+
+On 2026-09-27, `Engine.Stream` also passed one live streamed turn per provider
+on those models. Run `go test -tags live . -run '^TestLiveIteratorAgentTurns$' -v`
+with `KERNEL_LIVE_AGENT_TEST=1`, keys, and model names to repeat the probe.
 
 Gemini's conversational client defaults to `v1beta` because the tested
 `v1` route rejected function calling. Pin `v1` explicitly only for turns that

@@ -79,6 +79,58 @@ func TestLiveAnthropicStructuredOutput(t *testing.T) {
 	runLiveStructuredOutput(t, client, modelName)
 }
 
+// Each subtest makes one paid streamed model call through Engine.Stream.
+func TestLiveIteratorAgentTurns(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		new  func(string) (llm.Client, error)
+	}{
+		{"gemini", func(key string) (llm.Client, error) {
+			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"openai", func(key string) (llm.Client, error) {
+			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"anthropic", func(key string) (llm.Client, error) {
+			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key, modelName := liveAgentCredentials(t, strings.ToUpper(tc.name))
+			client, err := tc.new(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			def := kernel.Definition{ID: "iterator-live", Revision: "1", Provider: client.Provider(),
+				API: client.API(), Model: modelName, Settings: llm.Settings{MaxTokens: 256}, Limits: kernel.DefaultLimits()}
+			var outcome *kernel.Outcome
+			previews, committed := 0, 0
+			for event, err := range (kernel.Engine{}).Stream(ctx, kernel.Turn{ID: "iterator-live"}, def,
+				kernel.Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("Reply with exactly one word: indigo."))}},
+				kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()}) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if event.Delta != nil {
+					previews++
+				}
+				if event.Step != nil {
+					committed++
+				}
+				if event.Outcome != nil {
+					outcome = event.Outcome
+				}
+			}
+			if outcome == nil || outcome.Stop.Kind != kernel.StopCompleted || !strings.Contains(strings.ToLower(outcome.Turn.AnswerText()), "indigo") || previews == 0 || committed < 4 {
+				t.Fatalf("outcome=%+v previews=%d committed=%d", outcome, previews, committed)
+			}
+			t.Logf("provider=%s model=%s previews=%d steps=%d", client.Provider(), modelName, previews, committed)
+		})
+	}
+}
+
 func runLiveStructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

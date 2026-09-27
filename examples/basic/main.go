@@ -33,14 +33,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	result, err := client.Send(ctx, request, func(delta llm.Delta) {
-		if delta.Kind == llm.DeltaText {
-			fmt.Print(delta.Text)
+	var result llm.Result
+	for event, err := range llm.Stream(ctx, client, request) {
+		if event.Delta != nil && event.Delta.Kind == llm.DeltaText {
+			fmt.Print(event.Delta.Text)
 		}
-	})
-	fmt.Println()
-	if err != nil {
-		log.Fatal(err)
+		if event.Result != nil {
+			result = *event.Result
+		}
+		if err != nil {
+			fmt.Println()
+			log.Fatal(err)
+		}
 	}
+	fmt.Println()
 	fmt.Printf("Stop: %s; served model: %s\n", result.Stop.Kind, result.Served.Model)
 }
