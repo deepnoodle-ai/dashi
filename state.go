@@ -44,6 +44,7 @@ type replayState struct {
 	TurnView
 	modelIntent            string
 	unresolvedModel        string
+	unresolvedPartial      bool
 	modelUsages            map[string]*llm.Usage
 	modelMessages          map[string]string
 	modelDefs              map[string]tool.Definition
@@ -138,9 +139,24 @@ func (s *replayState) apply(step Step) error {
 		if len(step.Started.Input) == 0 {
 			return errors.New("missing start input")
 		}
+		origin := step.Started.Origin
+		if origin == "" {
+			origin = StartUser
+		}
+		if origin != StartUser && origin != StartScheduled && origin != StartOperator {
+			return errors.New("invalid start origin")
+		}
+		for _, m := range step.Started.History {
+			if err := validateMessage(m); err != nil {
+				return err
+			}
+		}
 		for _, m := range step.Started.Input {
-			if m.Role != llm.RoleUser {
-				return errors.New("start input must be user messages")
+			if origin != StartOperator && m.Role != llm.RoleUser {
+				return errors.New("user or scheduled start input must use user role")
+			}
+			if origin == StartOperator && m.Role != llm.RoleUser && m.Role != llm.RoleSystem && m.Role != llm.RoleDeveloper {
+				return errors.New("invalid operator start role")
 			}
 			if err := validateMessage(m); err != nil {
 				return err
@@ -183,10 +199,14 @@ func (s *replayState) apply(step Step) error {
 		if step.Model == nil || step.Model.AttemptID == "" || step.Model.MessageID == "" || step.Model.RequestDigest == "" || s.modelIntent != "" || len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
+		if len(step.Model.Admission) > 0 && (!json.Valid(step.Model.Admission) || len(step.Model.Admission) > 16<<10) {
+			return errors.New("invalid model admission metadata")
+		}
 		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
 		}
 		s.modelIntent = step.Model.AttemptID
+		s.unresolvedPartial = false
 		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
 			return errors.New("repeated model attempt ID")
 		}
@@ -210,9 +230,21 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
 		}
+		if step.Model.Failure != "" && step.Model.Failure != llm.FailureUnknown && step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched {
+			return errors.New("invalid model failure disposition")
+		}
+		if step.Model.Uncertain && (step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched) {
+			return errors.New("known model failure marked uncertain")
+		}
+		if step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched {
+			if step.Model.Error == "" || step.Model.Evidence == "" || (step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) != 0 || step.Model.Result.Usage != nil)) {
+				return errors.New("known model failure lacks evidence or has partial result")
+			}
+		}
 		s.modelIntent = ""
 		if step.Model.Uncertain {
 			s.unresolvedModel = step.Model.AttemptID
+			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
 		} else if step.Model.Error != "" {
 			s.failedModel = step.Model.Error
 		}
@@ -225,14 +257,22 @@ func (s *replayState) apply(step Step) error {
 			s.awaitingClassification = true
 		}
 	case StepModelReconciled:
-		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.MessageID != s.modelMessages[s.unresolvedModel] || step.Model.Result == nil || step.Model.Error != "" {
+		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.MessageID != s.modelMessages[s.unresolvedModel] || (step.Model.Result == nil && step.Model.Error == "") {
 			return errors.New("model reconciliation without uncertain attempt")
 		}
 		s.unresolvedModel = ""
-		if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
-			return err
+		if step.Model.Error != "" {
+			if step.Model.Result != nil || s.unresolvedPartial || (step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched) || step.Model.Evidence == "" {
+				return errors.New("model failure reconciliation lacks evidence")
+			}
+			s.failedModel = step.Model.Error
+		} else {
+			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
+				return err
+			}
+			s.awaitingClassification = true
 		}
-		s.awaitingClassification = true
+		s.unresolvedPartial = false
 	case StepToolDecision:
 		s.awaitingClassification = false
 		if step.Tool == nil {
@@ -370,6 +410,20 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Stop.Kind == StopCompleted && len(s.pending()) > 0 {
 			return errors.New("completed turn has pending work")
+		}
+		if step.Stop.Kind == StopCanceled {
+			// The stop is the evidence that calls without a start could not
+			// execute. Started calls remain pending for late reconciliation.
+			for _, id := range s.callOrder {
+				v := s.Tools[id]
+				switch v.Status {
+				case ToolRequested, ToolApprovalPending, ToolAllowed, ToolDenied:
+					v.Status = ToolSettled
+					v.Outcome = &tool.Outcome{State: tool.StateNotExecuted}
+					s.Tools[id] = v
+				}
+			}
+			clear(s.hosted)
 		}
 		s.Stop = *step.Stop
 	default:

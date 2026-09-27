@@ -16,7 +16,7 @@ available from a fresh checkout.
 | Unit of work | Response creation owns the loop and session behavior. | An identified `Turn` advances through commands; a session can sit above it. | Addresses the central organizing problem. |
 | Durable authority | Transcript and callbacks carry much of the lifecycle. | Versioned steps are authoritative; `Project` derives model history. | Better recovery boundary, subject to a durable host test. |
 | Effects | Hooks mix control and observation. | Typed policy, acknowledged intent and result steps, and a lossy observer have distinct roles. | Prevents many invisible effects; does not guarantee remote exactly-once behavior. |
-| Late work | Background and external outcomes use separate paths. | `Accept` correlates model results, external tools, and approvals to pending IDs. | One useful path, with cancellation edge cases below. |
+| Late work | Background and external outcomes use separate paths. | `Accept` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
 | Integration | Dive owns much session and tool coordination. | `Bindings` supplies clients, tools, policy, and recorder; external tools can run in a host worker. | Keeps the core small, but the host seam is not proven in Nvoken. |
 
 The two Dive v2 proposals agree on this direction but differ on dispatch:
@@ -26,39 +26,38 @@ that choice provisional until a real host demonstrates budget admission,
 worker ownership, and recovery without duplicate effects. A pure public
 reducer should follow evidence of need rather than precede it.
 
-## Gates before stabilizing the API
+## Implemented and tested locally
 
-1. **Cancellation.** A canceled context can enter the tool scheduler before
-   the loop checks it; an executor that ignores context can keep `Apply`
-   blocked. Explicit `Cancel` leaves unstarted calls in `Pending` although
-   they cannot execute or be accepted. Define and test nonexecution versus
-   uncertain started work, including partial batches and late results.
-2. **Provider failure knowledge.** The loop treats every `Send` error as
-   uncertain. Distinguish a proven pre-dispatch or rejected request from an
-   ambiguous transport failure, based on evidence supplied by the client;
-   preserve any partial result and usage. Only the former can permit an
-   automatic new attempt.
-3. **Accepted inputs.** `Start` currently accepts only user-role messages,
-   which excludes the proposed sessionless scheduled origin. `Bindings.History`
-   can change between invocations without a pinned version or digest. Decide
-   how recoverable turns bind trusted origin, history, and durable context.
-4. **Host proof.** Build an Nvoken-shaped recorder and external-tool fixture:
-   atomically admit an attempt with spending authority, lose its acknowledgement,
-   change configuration, take over ownership, and reconcile without resending
-   the effect or double-counting usage. Verify the recorded model intent gives
-   the host enough information for admission; its digest and effective settings
-   may be insufficient for prompt-token budgeting.
-5. **Provider parity.** Run shared blocking and streaming result fixtures
-   across Anthropic, OpenAI, and Gemini, then qualify selected live routes.
-   Package tests and local fixtures do not establish that cross-provider claim.
-6. **Publish the design.** The README and `AGENTS.md` refer to `design/`, but
-   those files are not tracked in this PR's base or head. Commit a focused
-   decision set so a fresh checkout can review the intended contract.
+1. Cancellation checks precede tool dispatch, stop waiting when an executor
+   ignores context, and derive not-executed outcomes for calls without a
+   recorded start. Started effects remain pending for late reconciliation.
+2. Provider errors carry explicit rejection, pre-dispatch, or unknown effect
+   knowledge. Partial content or usage keeps a failure uncertain. A host can
+   submit a verified nonexecution fact, with an evidence reference, before a
+   new attempt.
+3. `Start` pins origin and prior history in the turn. Scheduled work retains
+   its origin; a changed definition or duplicate command with changed history
+   conflicts. Only an operator-origin start may carry privileged roles.
+4. A host-shaped fixture atomically reserves budget from prepared-request
+   admission metadata, loses an acknowledgement, changes configuration and
+   ownership, reconciles non-dispatch, accepts external work, and counts usage
+   once. A shared wire fixture checks blocking and streaming text, stop,
+   identity, and usage facts for Anthropic, OpenAI, and Gemini.
+5. Incomplete client calls and hosted approval requests do not become
+   actionable pending work or dangling projected calls. Duplicate commands
+   return the current turn when the recorder supports `Load`.
 
-The current branch has regression tests for incomplete client calls and
-provider-hosted approval requests: neither becomes an actionable pending item
-or a dangling projected call. Duplicate commands can return the current turn
-when the recorder supports `Load`; other recorder implementations still require
-the caller to reload. Local race tests, vet, and build pass. These results
-support the implementation slice; they do not close the host and provider
-gates above. Session runners, child turns, and compaction remain separate areas.
+The tracked `design/` decision set now makes the README and `AGENTS.md`
+references available in a fresh checkout. Local race tests, vet, and build
+support this implementation; they do not constitute live qualification.
+
+## Remaining qualification
+
+Use a production-style durable recorder and worker in Nvoken to verify the
+same atomicity and takeover behavior under process failure. Qualify selected
+live provider routes, including streaming and hosted-tool behavior. An opt-in
+six-call final-result probe is in `providers/live_agent_test.go`. The
+engine-dispatch decision stays provisional until that consumer proof exists.
+Session runners, child turns, and compaction remain separate areas. A host
+must authenticate commands, operator origin, external results, and
+nonexecution evidence; Kernel validates correlation, not the external truth.

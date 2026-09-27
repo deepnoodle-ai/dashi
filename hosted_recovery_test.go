@@ -38,3 +38,37 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		}
 	}
 }
+
+func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
+	origin := content.Origin{Provider: "test", API: "test.chat", Model: "fixture", Scope: "fixture"}
+	request := llm.HostedApprovalRequest{ID: "approval-1", Name: "remote", Origin: origin}
+	result := llm.Result{Requested: llm.ModelRef{Provider: "test", Model: "fixture"}, Message: llm.AssistantMessage(llm.Text("before approval"), llm.Content{Kind: llm.ContentHostedApprovalRequest, HostedApprovalRequest: &request}), Stop: llm.Stop{Kind: llm.StopToolUse}}
+	client := &scriptedClient{results: []llm.Result{result}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Stop.Kind != StopWaiting {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	canceled, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Cancel{ID: "cancel"}, Bindings{Client: client, Recorder: rec})
+	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
+		t.Fatalf("canceled=%+v err=%v", canceled, err)
+	}
+	messages, err := Project(canceled.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptText := false
+	for _, message := range messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentHostedApprovalRequest {
+				t.Fatal("canceled approval reached projection")
+			}
+			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil && part.Block.Text.Text == "before approval" {
+				keptText = true
+			}
+		}
+	}
+	if !keptText {
+		t.Fatal("non-approval content was lost")
+	}
+}

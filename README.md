@@ -126,3 +126,8 @@ go build ./...
 
 Tests use local servers and fixtures, without credentials. They do not establish
 live API compatibility.
+For selected live final-result routes, set `KERNEL_LIVE_TEST=1` plus
+`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `OPENAI_API_KEY`/`OPENAI_MODEL`, and
+`GEMINI_API_KEY`/`GEMINI_MODEL`, then run
+`go test -tags live ./providers -run TestLiveAgentFinalFacts -v`. This makes
+six paid requests and qualifies only those model and endpoint selections.

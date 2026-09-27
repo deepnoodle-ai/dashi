@@ -315,7 +315,7 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 	model := prepared.Input().Model
 	httpClient, err := p.httpClient(model)
 	if err != nil {
-		return llm.Result{}, err
+		return llm.Result{}, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	wire := codec{origin: httpClient.Origin(model)}
 	result = llm.Result{Requested: llm.ModelRef{Provider: p.Provider(), Model: model}, Message: llm.Message{Role: llm.RoleAssistant}}
@@ -325,15 +325,15 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 		}
 	}()
 	if prepared.Origin() != wire.origin {
-		return result, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "prepared request belongs to another destination")
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "prepared request belongs to another destination")
 	}
 	client, guard, err := p.sdkClient(ctx, model, prepared.Input().Stream, prepared.Body())
 	if err != nil {
-		return result, err
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	contents, config, err := sdkArguments(prepared.Body())
 	if err != nil {
-		return result, err
+		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
 	if prepared.Input().Stream {
 		var streamErr error

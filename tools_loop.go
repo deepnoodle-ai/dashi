@@ -31,8 +31,20 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		return r.commit(Step{Kind: kind, Tool: fact})
 	}
-	drainOne := func() *Outcome { v := <-results; running--; return settle(v) }
+	drainOne := func() *Outcome {
+		select {
+		case v := <-results:
+			running--
+			return settle(v)
+		case <-ctx.Done():
+			o := r.stop(StopCanceled, ctx.Err().Error())
+			return &o
+		}
+	}
 	for _, id := range s.callOrder {
+		if err := ctx.Err(); err != nil {
+			return r.stop(StopCanceled, err.Error()), true
+		}
 		state, _ := replay(r.turn)
 		v := state.Tools[id]
 		if v.Status == ToolSettled || v.Status == ToolWaiting || v.Status == ToolApprovalPending || v.Status == ToolUncertain {
@@ -115,6 +127,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				continue
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return r.stop(StopCanceled, err.Error()), true
+		}
 		if v.Definition.Kind == tool.KindExternal {
 			wait := tool.Outcome{State: tool.StateWaiting, Wait: &tool.Wait{Reason: "external execution"}}
 			if o := r.commit(Step{Kind: StepToolWaiting, Tool: &ToolFact{Call: v.Call, Outcome: &wait}}); o != nil {
@@ -148,9 +163,19 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				return *o, true
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return r.stop(StopCanceled, err.Error()), true
+		}
 		if o := r.commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: v.Call, Definition: v.Definition}}); o != nil {
 			cancel()
 			return *o, true
+		}
+		if err := ctx.Err(); err != nil {
+			out := tool.Outcome{State: tool.StateNotExecuted}
+			if o := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &out, Reason: err.Error()}}); o != nil {
+				return *o, true
+			}
+			return r.stop(StopCanceled, err.Error()), true
 		}
 		running++
 		call := v.Call.Clone()

@@ -8,9 +8,9 @@ import (
 )
 
 // Project builds the next model-facing history without modifying the record.
-// The caller supplies earlier session history if desired. Unsettled client
-// calls and model intents cannot be projected into a new request.
-func Project(history []llm.Message, t Turn) ([]llm.Message, error) {
+// Earlier session history is pinned in the start fact. Unsettled client calls
+// and model intents cannot be projected into a new request.
+func Project(t Turn) ([]llm.Message, error) {
 	state, err := replay(t)
 	if err != nil {
 		return nil, err
@@ -26,12 +26,13 @@ func Project(history []llm.Message, t Turn) ([]llm.Message, error) {
 	if len(state.hosted) > 0 {
 		return nil, errors.New("kernel: hosted approval is unresolved")
 	}
-	out := make([]llm.Message, 0, len(history)+len(t.Steps))
-	for _, m := range history {
-		out = append(out, m.Clone())
-	}
+	out := make([]llm.Message, 0, len(t.Steps))
 	latest := map[string]int64{}
+	acceptedHosted := map[string]bool{}
 	for _, step := range t.Steps {
+		if step.Kind == StepHostedApproval && step.HostedApproval != nil {
+			acceptedHosted[step.HostedApproval.RequestID] = true
+		}
 		if step.Context != nil {
 			for _, item := range step.Context.Items {
 				if item.Snapshot {
@@ -49,6 +50,9 @@ func Project(history []llm.Message, t Turn) ([]llm.Message, error) {
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepStarted:
+			for _, m := range step.Started.History {
+				out = append(out, m.Clone())
+			}
 			for _, m := range step.Started.Input {
 				out = append(out, m.Clone())
 			}
@@ -75,8 +79,13 @@ func Project(history []llm.Message, t Turn) ([]llm.Message, error) {
 			// Keep its other content without creating a dangling call in history.
 			content := make([]llm.Content, 0, len(m.Content))
 			for _, part := range m.Content {
-				if part.Kind == llm.ContentHostedApprovalRequest && step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
-					continue
+				if part.Kind == llm.ContentHostedApprovalRequest {
+					if step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
+						continue
+					}
+					if part.HostedApprovalRequest == nil || !acceptedHosted[part.HostedApprovalRequest.ID] {
+						continue
+					}
 				}
 				if part.Kind == llm.ContentToolCall {
 					if step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {

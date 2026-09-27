@@ -115,10 +115,10 @@ func (c Client) Prepare(requested, effective llm.Input, body map[string]any, adj
 func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error) {
 	request := p.Input()
 	if p.Origin() != c.Origin(request.Model) {
-		return nil, Failure(c.Provider, llm.ErrorInvalidRequest, "prepared request belongs to another destination")
+		return nil, NotDispatched(c.Provider, llm.ErrorInvalidRequest, "prepared request belongs to another destination")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, NotDispatched(c.Provider, llm.ErrorTransport, "%w", err)
 	}
 	client := http.Client{Timeout: 5 * time.Minute}
 	if c.HTTP != nil {
@@ -129,7 +129,7 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	}
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(p.Body()))
 	if err != nil {
-		return nil, Failure(c.Provider, llm.ErrorInvalidRequest, "%w", err)
+		return nil, NotDispatched(c.Provider, llm.ErrorInvalidRequest, "%w", err)
 	}
 	r.Header = c.Headers.Clone()
 	if r.Header == nil {
@@ -161,9 +161,26 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	case pe.statusCode >= 500:
 		category = llm.ErrorOverloaded
 	}
-	return nil, &llm.Error{Provider: c.Provider, Category: category, Status: pe.statusCode,
+	disposition := llm.FailureUnknown
+	if KnownRejection(pe.statusCode) {
+		disposition = llm.FailureRejected
+	}
+	return nil, &llm.Error{Provider: c.Provider, Category: category, Disposition: disposition, Status: pe.statusCode,
 		Code: pe.code, Body: body, RetryAfter: pe.retryAfter,
 		Retryable: shouldRetry(pe.statusCode, pe.code), Cause: pe}
+}
+
+// KnownRejection is limited to HTTP statuses that affirmatively reject a
+// request. Timeout, conflict, and too-early responses remain ambiguous.
+func KnownRejection(status int) bool {
+	return status >= 400 && status < 500 && status != 408 && status != 409 && status != 425
+}
+
+// NotDispatched marks failures that occur before the HTTP attempt begins.
+func NotDispatched(provider string, category llm.ErrorCategory, format string, args ...any) error {
+	err := Failure(provider, category, format, args...)
+	err.(*llm.Error).Disposition = llm.FailureNotDispatched
+	return err
 }
 
 // Failure attaches provider identity and category, preserving a cause with %w.

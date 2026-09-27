@@ -122,8 +122,21 @@ type Step struct {
 
 type StartFact struct {
 	Definition Definition    `json:"definition"`
+	Origin     StartOrigin   `json:"origin,omitempty"`
+	History    []llm.Message `json:"history,omitempty"`
 	Input      []llm.Message `json:"input"`
 }
+
+// StartOrigin records who supplied the initial work. The host must authorize
+// operator and scheduled starts; an absent value means a user start.
+type StartOrigin string
+
+const (
+	StartUser      StartOrigin = "user"
+	StartScheduled StartOrigin = "scheduled"
+	StartOperator  StartOrigin = "operator"
+)
+
 type ContextFact struct {
 	Items []ContextItem `json:"items"`
 }
@@ -132,23 +145,34 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
-	AttemptID           string              `json:"attempt_id"`
-	MessageID           string              `json:"message_id,omitempty"`
-	RequestDigest       string              `json:"request_digest,omitempty"`
-	Provider            string              `json:"provider,omitempty"`
-	API                 string              `json:"api,omitempty"`
-	Model               string              `json:"model,omitempty"`
-	Effective           llm.Settings        `json:"effective,omitzero"`
-	Origin              content.Origin      `json:"origin,omitzero"`
-	Adjustments         []llm.Adjustment    `json:"adjustments,omitempty"`
-	ContentChanges      []llm.ContentChange `json:"content_changes,omitempty"`
-	ModelInfo           *llm.ModelInfo      `json:"model_info,omitempty"`
-	UnknownCapabilities llm.UnknownPolicy   `json:"unknown_capabilities,omitempty"`
-	Unverified          []llm.Feature       `json:"unverified,omitempty"`
-	Tools               []tool.Definition   `json:"tools,omitempty"`
-	Result              *llm.Result         `json:"result,omitempty"`
-	Error               string              `json:"error,omitempty"`
-	Uncertain           bool                `json:"uncertain,omitempty"`
+	AttemptID           string                 `json:"attempt_id"`
+	MessageID           string                 `json:"message_id,omitempty"`
+	RequestDigest       string                 `json:"request_digest,omitempty"`
+	Admission           json.RawMessage        `json:"admission,omitempty"`
+	Provider            string                 `json:"provider,omitempty"`
+	API                 string                 `json:"api,omitempty"`
+	Model               string                 `json:"model,omitempty"`
+	Effective           llm.Settings           `json:"effective,omitzero"`
+	Origin              content.Origin         `json:"origin,omitzero"`
+	Adjustments         []llm.Adjustment       `json:"adjustments,omitempty"`
+	ContentChanges      []llm.ContentChange    `json:"content_changes,omitempty"`
+	ModelInfo           *llm.ModelInfo         `json:"model_info,omitempty"`
+	UnknownCapabilities llm.UnknownPolicy      `json:"unknown_capabilities,omitempty"`
+	Unverified          []llm.Feature          `json:"unverified,omitempty"`
+	Tools               []tool.Definition      `json:"tools,omitempty"`
+	Result              *llm.Result            `json:"result,omitempty"`
+	Error               string                 `json:"error,omitempty"`
+	Failure             llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence            string                 `json:"evidence,omitempty"`
+	Uncertain           bool                   `json:"uncertain,omitempty"`
+}
+
+// ModelFailure is host-supplied evidence that a pending model attempt did not
+// produce a result. The host is responsible for verifying this assertion.
+type ModelFailure struct {
+	Disposition llm.FailureDisposition
+	Reason      string
+	Evidence    string
 }
 
 type ToolFact struct {
@@ -204,8 +228,10 @@ type Outcome struct {
 // content acknowledges the first application without advancing again.
 type Command interface{ commandID() string }
 type Start struct {
-	ID    string
-	Input []llm.Message
+	ID      string
+	Origin  StartOrigin
+	History []llm.Message
+	Input   []llm.Message
 }
 type Deliver struct {
 	ID    string
@@ -219,6 +245,7 @@ type Accept struct {
 	Approval       *ApprovalFact
 	HostedApproval *llm.HostedApprovalResponse
 	ModelResult    *llm.Result
+	ModelFailure   *ModelFailure
 }
 type Cancel struct {
 	ID     string

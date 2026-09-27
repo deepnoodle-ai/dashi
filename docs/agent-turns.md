@@ -7,7 +7,8 @@ source, recorder, policy, and optional observer. The caller supplies a stable
 `Cancel` command. Repeating the same command ID and payload acknowledges its
 recorded step without repeating an effect. When the recorder exposes `Load`,
 the outcome contains the latest turn; otherwise callers should reload it.
-Reusing an ID with different content fails.
+Reusing an ID with different content fails. `Start` records its origin and a
+copy of prior history, which later invocations project without substitution.
 
 See [the runnable example](../examples/agent/main.go) for setup. `Engine.Apply`
 returns a Go error for a command or record rejected before a new fact is
@@ -27,15 +28,17 @@ settled assistant result; a valid tool-only turn may have no answer text.
 `StopFailed`, `StopRefused`, and `StopLimited` retain their reason and record.
 `Continue` can advance a continuable stopped turn; it does not reset attempt
 counts, deadlines, or a pending effect. `Deliver` records context without
-advancing execution. `Cancel` prevents further execution; a late model or tool
-result can still be accepted for reconciliation and usage accounting.
+advancing execution. `Cancel` prevents further execution: unstarted calls
+become known not executed, while started effects can still receive late results
+for reconciliation and usage accounting.
 
 ## Recorder contract
 
 `Recorder.Commit` acknowledges one versioned `Step` under `ExpectedSeq` and an
 optional `Owner` fencing token. A host recorder should atomically check the
 current revision and owner, append the step, and commit any related budget,
-accounting, or outbox rows. Return `CommitError` with
+accounting, or outbox rows. `BeforeSend` may supply bounded, non-secret admission
+JSON derived from the prepared request for that transaction. Return `CommitError` with
 `PersistenceRejected` only when the write certainly did not commit. Return
 `PersistenceUnknown` for an ambiguous acknowledgement; plain errors are also
 treated as unknown. Provide a way to load the authoritative turn by ID after
@@ -50,7 +53,10 @@ an intent without a result means the effect may have occurred. Reload, call
 `Replay` to validate the record and inspect `Pending`, then reconcile by the
 recorded attempt or call ID. `Accept{ModelResult: ...}` or
 `Accept{Outcome: ...}` records a verified result; an external result must be a
-final `tool.Outcome`. Never infer nonexecution from a transport error or send
+final `tool.Outcome`. A host can submit `Accept{ModelFailure: ...}` only with
+verified nonexecution evidence. An explicit HTTP rejection or pre-dispatch
+failure is recorded as known; ambiguous transport and protocol failures remain
+uncertain. Never infer nonexecution from an unclassified transport error or send
 the same unresolved intent again. A durable host also needs downstream
 idempotency or reconciliation for effects that cannot be queried.
 
@@ -68,6 +74,9 @@ client tools. Use `AllowLocalPolicy` only when that permission is intended.
 Context from a user, library, or tool uses the user message role; only
 operator-sourced context may use a system or developer role. The host must
 authorize who can submit operator context.
+Only operator-origin starts may introduce system or developer role input; a
+scheduled start retains its separate origin with user-role input. The host
+authenticates that origin.
 
 `Observer` receives bounded, lossy display events. Stream deltas are
 provisional and carry turn, attempt, and message IDs; the recorder's settled

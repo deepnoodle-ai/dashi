@@ -687,7 +687,7 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	add(Step{Kind: StepStarted, Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}})
 	add(Step{Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Name: "catalog", Origin: "operator", Snapshot: true, Message: llm.UserMessage(llm.Text("old"))}}}})
 	add(Step{Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Name: "catalog", Origin: "operator", Snapshot: true, Message: llm.UserMessage(llm.Text("new"))}}}})
-	messages, err := Project(nil, turn)
+	messages, err := Project(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +769,7 @@ func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
 			{Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted, Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
 			{Version: 1, TurnID: "t1", Seq: 2, Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Origin: "tool", Message: message}}}},
 		}}
-		if _, err := Project(nil, turn); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := Project(turn); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("tool context with role %q reached projection: %v", role, err)
 		}
 	}
