@@ -60,7 +60,7 @@ func TestInteractionsImageEditAndInterleavedOutput(t *testing.T) {
 		if body.Model != "gemini-3.1-flash-image" || len(body.Input) != 2 ||
 			body.Input[0].Text != "change color" || body.Input[1].Type != "image" ||
 			body.Input[1].Data != base64.StdEncoding.EncodeToString([]byte("input-image")) ||
-			body.ResponseFormat.Type != "image" || body.ResponseFormat.Delivery != "inline" ||
+			body.ResponseFormat.Type != "image" || body.ResponseFormat.Delivery != "" ||
 			body.ResponseFormat.ImageSize != "2K" || body.ResponseFormat.AspectRatio != "16:9" ||
 			body.ResponseFormat.MIMEType != "image/png" ||
 			body.Store || body.Background || body.Stream {

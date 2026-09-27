@@ -1,6 +1,6 @@
 # Image and video provider routes
 
-Status: adapter and model review, 2026-09-27.
+Status: adapter, model review, and selected live Gemini routes, 2026-09-27.
 This implements dedicated and provider-hosted routes from
 [media and speech](media-and-speech-proposal.md).
 
@@ -58,3 +58,16 @@ requires larger inputs. No client internally polls to completion or retries a
 submission. Local-server tests verify wire shape, destination binding,
 uncertain outcomes, poll/fetch separation, and content conversion. Live
 provider interoperability remains a separate qualification step.
+
+## Live Gemini qualification
+
+On 2026-09-27, API-key calls passed for `gemini-3.1-flash-lite-image`
+generation and editing through both GenerateContent and Interactions. Each
+returned a decodable 1024×1024 JPEG, and the edits visibly applied the prompt.
+`veo-3.1-lite-generate-preview` completed a four-second 720p job through
+submit, poll, and Files download. `gemini-omni-1.1-flash` returned valid 360p
+MP4 video through both inline and URI-delivered paths. URI delivery requires
+`store=true` and creates provider-owned state; the host still owns downloaded
+artifacts. The opt-in tests are in `providers/google/gemini/*_live_test.go`.
+Other models, higher resolutions, Vertex credentials, and conversational
+editing remain unqualified.

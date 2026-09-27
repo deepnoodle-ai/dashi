@@ -46,7 +46,7 @@ func TestInteractionsURIVideoLifecycle(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.ResponseFormat.Delivery != "uri" || body.ResponseFormat.Resolution != "4k" || body.Store {
+			if body.ResponseFormat.Delivery != "uri" || body.ResponseFormat.Resolution != "4k" || !body.Store {
 				t.Errorf("unexpected URI body: %+v", body)
 			}
 			fmt.Fprintf(w, `{"id":"interaction-1","model":"gemini-omni-1.1-flash","status":"completed","usage":{"total_tokens":99},"steps":[{"type":"model_output","content":[{"type":"video","mime_type":"video/mp4","uri":%q}]}]}`,

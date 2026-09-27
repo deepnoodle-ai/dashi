@@ -122,7 +122,7 @@ func TestMediaVeoJobLifecycle(t *testing.T) {
 			if polled == 1 {
 				io.WriteString(w, `{"name":"models/veo/operations/job-1","done":false}`)
 			} else {
-				fmt.Fprintf(w, `{"name":"models/veo/operations/job-1","done":true,"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":%q,"mimeType":"video/mp4"}}]}}}`, server.URL+"/v1beta/files/output-1")
+				fmt.Fprintf(w, `{"name":"models/veo/operations/job-1","done":true,"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":%q,"mimeType":"video/mp4"}}]}}}`, server.URL+"/v1beta/files/output-1:download?alt=media")
 			}
 		case "/v1beta/files/output-1:download":
 			if r.URL.Query().Get("alt") != "media" {
@@ -168,6 +168,36 @@ func TestMediaVeoJobLifecycle(t *testing.T) {
 	if err != nil || string(result.Content[0].Video.Source.Data) != "video-data" ||
 		submitted != 1 || polled != 2 || fetched != 1 {
 		t.Fatalf("fetch: %+v, %v; calls=%d/%d/%d", result, err, submitted, polled, fetched)
+	}
+}
+
+func TestVeoDownloadURLForms(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	p := newMediaFixture(t, server)
+	base := server.URL + "/v1beta/files/output-1"
+	ready := base + ":download?alt=media"
+	for _, tc := range []struct {
+		name, input, want string
+		valid             bool
+	}{
+		{name: "file URI", input: base, want: ready, valid: true},
+		{name: "download URI", input: ready, want: ready, valid: true},
+		{name: "foreign query", input: base + ":download?key=secret"},
+		{name: "double download", input: base + ":download:download?alt=media"},
+		{name: "nested path", input: base + "/other"},
+		{name: "path traversal", input: base + ".."},
+		{name: "foreign host", input: "https://evil.example/v1beta/files/output-1:download?alt=media"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := p.downloadURL(tc.input)
+			if tc.valid && (err != nil || got != tc.want) {
+				t.Fatalf("download URL: got %q, error %v, want %q", got, err, tc.want)
+			}
+			if !tc.valid && err == nil {
+				t.Fatalf("accepted unsafe download URL %q", got)
+			}
+		})
 	}
 }
 

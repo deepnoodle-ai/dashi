@@ -134,3 +134,8 @@ six paid requests. To test one provider, filter a subtest such as
 On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
 Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
 Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
+Selected Gemini image and video routes were also tested live; see
+[media qualification](design/media-provider-implementation.md). Opt-in media
+tests use `-tags live` with `KERNEL_LIVE_MEDIA_TEST=1` and
+`GEMINI_IMAGE_MODEL`, or `KERNEL_LIVE_VIDEO_TEST=1` and the selected
+`GEMINI_VIDEO_MODEL`/`GEMINI_OMNI_MODEL`. Filter one test to control paid calls.

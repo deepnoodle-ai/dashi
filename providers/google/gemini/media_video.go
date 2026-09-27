@@ -272,17 +272,28 @@ func (p *MediaClient) operationURL(name, operation string) (string, error) {
 	return u.String(), nil
 }
 
+// Veo has returned both a Files URI and a ready-to-download URI. Accept only
+// those two forms on the configured Files host; never follow arbitrary output
+// locations with the API key.
 func (p *MediaClient) downloadURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	base, _ := url.Parse(p.config.VideoEndpoint)
 	filesPrefix := strings.TrimSuffix(base.Path, "/models/{model}:predictLongRunning") + "/files/"
 	if err != nil || u.Scheme != base.Scheme || u.Host != base.Host || u.User != nil || u.Fragment != "" ||
-		!strings.HasPrefix(u.Path, filesPrefix) || u.RawQuery != "" ||
-		strings.Contains(u.Path, "..") || strings.Contains(u.EscapedPath(), "%") ||
-		path.Base(u.Path) == "" || strings.Contains(path.Base(u.Path), ":") {
+		!strings.HasPrefix(u.Path, filesPrefix) || strings.Contains(u.EscapedPath(), "%") {
 		return "", p.failure(media.ErrorUnsupported, "Veo output URI is outside the configured Files API")
 	}
-	u.Path += ":download"
-	u.RawQuery = "alt=media"
+	ready := strings.HasSuffix(u.Path, ":download")
+	filePath := strings.TrimSuffix(u.Path, ":download")
+	fileID := strings.TrimPrefix(filePath, filesPrefix)
+	if fileID == "" || strings.Contains(fileID, "..") || strings.ContainsAny(fileID, "/:\\") ||
+		url.PathEscape(fileID) != fileID ||
+		(ready && u.RawQuery != "alt=media") || (!ready && u.RawQuery != "") {
+		return "", p.failure(media.ErrorUnsupported, "Veo output URI is outside the configured Files API")
+	}
+	if !ready {
+		u.Path += ":download"
+		u.RawQuery = "alt=media"
+	}
 	return u.String(), nil
 }
