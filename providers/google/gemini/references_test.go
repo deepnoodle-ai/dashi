@@ -2,12 +2,54 @@ package gemini
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/llm"
 )
+
+func TestPrepareEncodesMultipleInlineImages(t *testing.T) {
+	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := llm.Input{Model: "gemini-test", Messages: []llm.Message{llm.UserMessage(
+		llm.Text("Describe both images."),
+		llm.Block(content.ImageBlock(content.Source{Data: []byte("first"), MIMEType: "image/png"})),
+		llm.Block(content.ImageBlock(content.Source{Data: []byte("second"), MIMEType: "image/jpeg"})),
+	)}}
+	prepared, err := client.Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Contents []struct {
+			Parts []struct {
+				Text       string `json:"text"`
+				InlineData struct {
+					MIMEType string `json:"mimeType"`
+					Data     string `json:"data"`
+				} `json:"inlineData"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(prepared.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Contents) != 1 || len(body.Contents[0].Parts) != 3 {
+		t.Fatalf("unexpected image input parts: %s", prepared.Body())
+	}
+	parts := body.Contents[0].Parts
+	if parts[0].Text != "Describe both images." ||
+		parts[1].InlineData.MIMEType != "image/png" ||
+		parts[1].InlineData.Data != base64.StdEncoding.EncodeToString([]byte("first")) ||
+		parts[2].InlineData.MIMEType != "image/jpeg" ||
+		parts[2].InlineData.Data != base64.StdEncoding.EncodeToString([]byte("second")) {
+		t.Fatalf("inline images changed or reordered: %s", prepared.Body())
+	}
+}
 
 func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 	client, err := New(Config{

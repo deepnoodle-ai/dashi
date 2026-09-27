@@ -134,6 +134,18 @@ six paid requests. To test one provider, filter a subtest such as
 On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
 Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
 Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
+Gemini LLM image inputs passed live on 2026-09-27 with `gemini-2.5-flash`:
+two inline PNGs in blocking and streaming calls, a public image URL, and a
+Gemini Files URI. Each response identified image content. Run the opt-in checks
+with `GEMINI_API_KEY` and:
+
+```sh
+KERNEL_LIVE_IMAGE_INPUT_TEST=1 GEMINI_MODEL=gemini-2.5-flash \
+  go test -tags live ./providers/google/gemini -run '^TestLiveImageInput$' -v
+```
+
+The full test makes four paid LLM calls and temporarily uploads one PNG;
+filter a subtest to run one route.
 Selected Gemini image and video routes were also tested live; see
 [media qualification](design/media-provider-implementation.md). Opt-in media
 tests use `-tags live` with `KERNEL_LIVE_MEDIA_TEST=1` and

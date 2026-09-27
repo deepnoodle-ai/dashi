@@ -81,6 +81,8 @@ Local tests cover preparation, replay boundaries, streaming equivalence,
 accounting, and tool validation. Blocking and streaming final-result calls
 passed on 2026-09-27 for Anthropic Messages (`claude-haiku-4-5-20251001`),
 OpenAI Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`). Other
-routes and Vertex ADC still need qualification. Media, resource references,
-and provider-hosted tools have
-separate implementation and qualification notes in this directory.
+routes and Vertex ADC still need qualification. Gemini LLM image input also
+passed live with inline bytes (blocking and streaming), a public URL, and a
+Files URI on `gemini-2.5-flash`. Media, resource references, and
+provider-hosted tools have separate implementation and qualification notes
+in this directory.
