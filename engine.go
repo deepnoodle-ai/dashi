@@ -61,6 +61,25 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		return outcome(turn, state, PersistenceAcknowledged), nil
 	}
+	// A caller can retry with an old snapshot after an acknowledgement was lost.
+	// The built-in recorder exposes Load; other recorders may provide it too.
+	if loader, ok := b.Recorder.(interface{ Load(string) (Turn, error) }); ok {
+		if saved, loadErr := loader.Load(turn.ID); loadErr == nil {
+			current, replayErr := replay(saved)
+			if replayErr != nil {
+				return Outcome{}, replayErr
+			}
+			if old, found := current.commandDigests[command.commandID()]; found {
+				if digest(def) != digest(current.Definition) {
+					return Outcome{}, ErrDefinitionChanged
+				}
+				if old != d {
+					return Outcome{}, ErrCommandConflict
+				}
+				return outcome(saved, current, PersistenceAcknowledged), nil
+			}
+		}
+	}
 	rt := runtime{ctx: ctx, turn: cloneTurn(turn), def: def, b: b, emitter: newEmitter(b.Observer)}
 	defer rt.emitter.close()
 	switch c := command.(type) {
@@ -290,6 +309,9 @@ func (r *runtime) run() Outcome {
 				return o
 			}
 			continue
+		}
+		if s.failedModel != "" {
+			return r.stop(StopFailed, s.failedModel)
 		}
 		if r.def.Limits.ModelAttempts <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")

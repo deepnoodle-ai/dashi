@@ -39,7 +39,9 @@ accounting, or outbox rows. Return `CommitError` with
 `PersistenceUnknown` for an ambiguous acknowledgement; plain errors are also
 treated as unknown. Provide a way to load the authoritative turn by ID after
 an unknown result. `MemoryRecorder` and its `Claim` method are local fixtures,
-not a production lease service.
+not a production lease service. `Engine.Apply` uses an optional recorder
+`Load(string)` method to recognize a command retried with an old turn snapshot;
+other hosts should reload before retrying after an ambiguous write.
 
 The engine records a model intent before `Send` and a tool start before a local
 executor call. It records their outcomes before acting on them. After a crash,
@@ -62,6 +64,9 @@ Deferred decisions require an `ApprovalFact` bound to the call ID, argument
 digest, and policy revision. Provider-hosted approval is a separate response;
 it never becomes a locally executable tool call. The default policy denies
 client tools. Use `AllowLocalPolicy` only when that permission is intended.
+Context from a user, library, or tool uses the user message role; only
+operator-sourced context may use a system or developer role. The host must
+authorize who can submit operator context.
 
 `Observer` receives bounded, lossy display events. Stream deltas are
 provisional and carry turn, attempt, and message IDs; the recorder's settled

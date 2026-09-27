@@ -52,6 +52,7 @@ type replayState struct {
 	commandDigests         map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
+	failedModel            string
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -159,6 +160,9 @@ func (s *replayState) apply(step Step) error {
 		if !s.canContinue() {
 			return errors.New("turn cannot continue")
 		}
+		if s.Stop.Kind == StopFailed {
+			s.failedModel = ""
+		}
 		s.Stop = Stop{}
 	case StepLoopContinued:
 		if !s.awaitingClassification || len(s.pending()) > 0 {
@@ -209,6 +213,8 @@ func (s *replayState) apply(step Step) error {
 		s.modelIntent = ""
 		if step.Model.Uncertain {
 			s.unresolvedModel = step.Model.AttemptID
+		} else if step.Model.Error != "" {
+			s.failedModel = step.Model.Error
 		}
 		if step.Model.Result != nil {
 			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, step.Model.Error == "" && s.Stop.Kind != StopCanceled); err != nil {
@@ -515,15 +521,19 @@ func validateMessage(m llm.Message) error {
 }
 func validateContext(item ContextItem) error {
 	switch item.Origin {
-	case "user", "operator", "library", "tool":
+	case "user", "library", "tool":
+		if item.Message.Role != llm.RoleUser {
+			return errors.New("untrusted context must use user role")
+		}
+	case "operator":
+		if item.Message.Role != llm.RoleUser && item.Message.Role != llm.RoleSystem && item.Message.Role != llm.RoleDeveloper {
+			return errors.New("operator context has invalid role")
+		}
 	default:
 		return errors.New("invalid context origin")
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
-	}
-	if item.Origin == "user" && item.Message.Role != llm.RoleUser {
-		return errors.New("user context cannot claim higher authority")
 	}
 	return validateMessage(item.Message)
 }

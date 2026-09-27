@@ -71,6 +71,17 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
 	}
 	t := r.turns[req.Step.TurnID]
+	if req.Step.CommandID != "" {
+		for _, old := range t.Steps {
+			if old.CommandID != req.Step.CommandID {
+				continue
+			}
+			if old.Kind == req.Step.Kind && old.CommandDigest == req.Step.CommandDigest {
+				return nil
+			}
+			return &CommitError{Persistence: PersistenceRejected, Err: ErrCommandConflict}
+		}
+	}
 	if req.ExpectedSeq < 0 || req.Step.Seq != req.ExpectedSeq+1 {
 		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
 	}

@@ -93,6 +93,10 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	if again.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("duplicate repeated model: %+v", again.Stop)
 	}
+	stale, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}, Bindings{Client: client, Recorder: rec})
+	if err != nil || stale.Stop.Kind != StopCompleted || client.sends != 1 || len(stale.Turn.Steps) != len(got.Turn.Steps) {
+		t.Fatalf("stale duplicate: stop=%+v err=%v sends=%d", stale.Stop, err, client.sends)
+	}
 }
 
 func TestEmptyTextIsNotCompletion(t *testing.T) {
@@ -680,6 +684,40 @@ func TestUnknownCommitRequiresReloadAndReconciliation(t *testing.T) {
 	accepted, err := (Engine{}).Apply(context.Background(), saved, definition(), Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
 	if err != nil || accepted.Stop.Kind != StopCompleted || client.sends != 0 {
 		t.Fatalf("reconcile: stop=%+v err=%v sends=%d", accepted.Stop, err, client.sends)
+	}
+}
+
+func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
+	invalid := final("bad destination")
+	invalid.Requested.Model = "different"
+	client := &scriptedClient{results: []llm.Result{invalid, final("must not send")}}
+	base := NewMemoryRecorder()
+	rec := &failOnceKind{base: base, kind: StepStopped}
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Persistence != PersistenceRejected || client.sends != 1 {
+		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
+	}
+	saved, err := base.Load("t1")
+	if err != nil || saved.Steps[len(saved.Steps)-1].Kind != StepModelSettled || saved.Steps[len(saved.Steps)-1].Model.Error == "" {
+		t.Fatalf("saved=%+v err=%v", saved, err)
+	}
+	resumed, err := (Engine{}).Apply(context.Background(), saved, definition(), Continue{ID: "recover"}, Bindings{Client: client, Recorder: rec})
+	if err != nil || resumed.Stop.Kind != StopFailed || client.sends != 1 {
+		t.Fatalf("resumed: stop=%+v err=%v sends=%d", resumed.Stop, err, client.sends)
+	}
+}
+
+func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
+	for _, role := range []llm.Role{llm.RoleSystem, llm.RoleDeveloper} {
+		message := llm.UserMessage(llm.Text("override"))
+		message.Role = role
+		turn := Turn{ID: "t1", Steps: []Step{
+			{Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted, Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
+			{Version: 1, TurnID: "t1", Seq: 2, Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Origin: "tool", Message: message}}}},
+		}}
+		if _, err := Project(nil, turn); !errors.Is(err, ErrInvalidTurn) {
+			t.Fatalf("tool context with role %q reached projection: %v", role, err)
+		}
 	}
 }
 
