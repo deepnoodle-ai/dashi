@@ -5,6 +5,7 @@ will evolve as the agent layer takes shape.
 
 ## Foundation packages
 
+- `kernel`: Agent definitions, identified turn records, an acknowledged recorder, and the execution loop.
 - `content`: Shared text, media, resources, citations, and replay origins.
 - `model`: Shared model identity, capability support, and evidence.
 - `tool`: Definitions, calls, outputs, execution outcomes, and typed functions.
@@ -23,7 +24,8 @@ will evolve as the agent layer takes shape.
 
 Dependency direction: providers → `llm` → `tool` → `content`; `llm`, `media`,
 and `speech` share `model` identity and evidence. Shared content and model
-depend only on the standard library. Agent and session execution come later.
+depend only on the standard library. The root agent loop depends on `llm` and
+`tool`; session storage remains an optional future adapter.
 The Google adapter depends on `google.golang.org/genai`; the core packages do not.
 Media has provider clients for Gemini image generation/editing and Veo video
 jobs, xAI image generation/editing and video jobs, and OpenAI image
@@ -101,6 +103,15 @@ estimates require an explicitly selected `llm.Pricing` sheet and complete usage.
 
 See [foundation](design/foundation.md) for decisions, provenance, and limits,
 and [terminology](design/terminology-proposal.md) for API and record changes.
+
+## Run an agent turn
+
+With the same environment, run `go run ./examples/agent`. Its
+[source](examples/agent/main.go) shows the definition, recorder, command, and
+outcome. Each turn requires a stable ID and each command requires an ID for
+duplicate delivery handling. An acknowledged model or tool intent may already
+have caused an external effect; recover it by identity before deciding whether
+to retry.
 
 ## Verify
 
