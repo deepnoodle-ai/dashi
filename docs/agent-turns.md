@@ -4,9 +4,10 @@ The root `kernel` package runs one identified turn at a time. A `Definition`
 pins reusable behavior and limits; `Bindings` supplies the model client, tool
 source, recorder, policy, and optional observer. The caller supplies a stable
 `Turn.ID` and a unique ID for each `Start`, `Deliver`, `Continue`, `Accept`, or
-`Cancel` command. Repeating the same command ID and payload returns the current
-recorded turn without repeating an effect. Reusing an ID with different content
-fails.
+`Cancel` command. Repeating the same command ID and payload acknowledges its
+recorded step without repeating an effect. When the recorder exposes `Load`,
+the outcome contains the latest turn; otherwise callers should reload it.
+Reusing an ID with different content fails.
 
 See [the runnable example](../examples/agent/main.go) for setup. `Engine.Apply`
 returns a Go error for a command or record rejected before a new fact is

@@ -168,6 +168,21 @@ func (f *failOnceKind) Commit(ctx context.Context, req CommitRequest) error {
 	return f.base.Commit(ctx, req)
 }
 
+type notifyingRecorder struct {
+	Recorder
+	onCommit func(Step)
+}
+
+func (r notifyingRecorder) Commit(ctx context.Context, req CommitRequest) error {
+	if err := r.Recorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if r.onCommit != nil {
+		r.onCommit(req.Step)
+	}
+	return nil
+}
+
 type denyPolicy struct{ AllowLocalPolicy }
 
 func (denyPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
@@ -465,23 +480,62 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 	}
 }
 
+func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
+	incomplete := callResult("call-1", "lookup")
+	incomplete.Stop = llm.Stop{Kind: llm.StopIncomplete}
+	incomplete.Message.Content = append([]llm.Content{llm.Text("partial explanation")}, incomplete.Message.Content...)
+	client := &scriptedClient{results: []llm.Result{incomplete, final("recovered")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with client calls" {
+		t.Fatalf("first stop=%+v", first.Stop)
+	}
+	second, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Continue{ID: "resume"}, Bindings{Client: client, Recorder: rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Stop.Kind != StopCompleted || len(client.inputs) != 2 {
+		t.Fatalf("second stop=%+v inputs=%d", second.Stop, len(client.inputs))
+	}
+	keptText := false
+	for _, message := range client.inputs[1].Messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil && part.Block.Text.Text == "partial explanation" {
+				keptText = true
+			}
+			if part.Kind == llm.ContentToolCall {
+				t.Fatalf("incomplete tool call projected into new model request: %+v", client.inputs[1].Messages)
+			}
+		}
+	}
+	if !keptText {
+		t.Fatal("partial assistant text was lost from projection")
+	}
+}
+
 func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 	a := tool.Call{ID: "a", Name: "first", Args: []byte(`{}`)}
 	b := tool.Call{ID: "b", Name: "second", Args: []byte(`{}`)}
 	requested := llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &a}, llm.Content{Kind: llm.ContentToolCall, ToolCall: &b}), Stop: llm.Stop{Kind: llm.StopToolUse}}
 	client := &scriptedClient{results: []llm.Result{requested, final("done")}}
-	rec := NewMemoryRecorder()
-	secondDone := make(chan struct{})
+	secondSettled := make(chan struct{})
+	rec := notifyingRecorder{Recorder: NewMemoryRecorder(), onCommit: func(step Step) {
+		if step.Kind == StepToolSettled && step.Tool.Call.ID == "b" {
+			close(secondSettled)
+		}
+	}}
 	first := tool.Tool{Definition: tool.Definition{Name: "first", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		select {
-		case <-secondDone:
+		case <-secondSettled:
 			return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("first result"))}, nil
-		case <-time.After(time.Second):
-			return tool.Outcome{}, errors.New("second tool did not run concurrently")
+		case <-time.After(5 * time.Second):
+			return tool.Outcome{}, errors.New("second tool did not settle concurrently")
 		}
 	})}
 	second := tool.Tool{Definition: tool.Definition{Name: "second", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		close(secondDone)
 		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("second result"))}, nil
 	})}
 	got, err := start(t, client, fixedTools{first, second}, rec, AllowLocalPolicy{})

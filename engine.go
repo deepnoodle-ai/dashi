@@ -59,6 +59,23 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if old != d {
 			return Outcome{}, ErrCommandConflict
 		}
+		if loader, ok := b.Recorder.(interface{ Load(string) (Turn, error) }); ok {
+			saved, loadErr := loader.Load(turn.ID)
+			if loadErr != nil {
+				return Outcome{}, loadErr
+			}
+			current, replayErr := replay(saved)
+			if replayErr != nil {
+				return Outcome{}, replayErr
+			}
+			if digest(def) != digest(current.Definition) {
+				return Outcome{}, ErrDefinitionChanged
+			}
+			if current.commandDigests[command.commandID()] != d {
+				return Outcome{}, ErrRevisionConflict
+			}
+			return outcome(saved, current, PersistenceAcknowledged), nil
+		}
 		return outcome(turn, state, PersistenceAcknowledged), nil
 	}
 	// A caller can retry with an old snapshot after an acknowledgement was lost.
@@ -456,6 +473,9 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	}
 	if calls > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with client calls"), false
+	}
+	if hosted > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
+		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
 	}
 	if calls > 0 {
 		return Outcome{}, true

@@ -423,13 +423,15 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 			s.callOrder = append(s.callOrder, c.ID)
 		}
 	}
-	for _, part := range result.Message.Content {
-		if part.Kind == llm.ContentHostedApprovalRequest && part.HostedApprovalRequest != nil {
-			a := part.HostedApprovalRequest.Clone()
-			if _, ok := s.hosted[a.ID]; ok {
-				return errors.New("repeated hosted approval ID")
+	if result.Stop.Kind == llm.StopToolUse || result.Stop.Kind == llm.StopFinished {
+		for _, part := range result.Message.Content {
+			if part.Kind == llm.ContentHostedApprovalRequest && part.HostedApprovalRequest != nil {
+				a := part.HostedApprovalRequest.Clone()
+				if _, ok := s.hosted[a.ID]; ok {
+					return errors.New("repeated hosted approval ID")
+				}
+				s.hosted[a.ID] = a
 			}
-			s.hosted[a.ID] = a
 		}
 	}
 	return nil

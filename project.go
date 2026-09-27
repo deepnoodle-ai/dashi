@@ -70,6 +70,32 @@ func Project(history []llm.Message, t Turn) ([]llm.Message, error) {
 				continue
 			}
 			m := step.Model.Result.Message.Clone()
+			// An incomplete result may contain a partial client call. It was
+			// recorded for audit but never admitted as an actionable tool request.
+			// Keep its other content without creating a dangling call in history.
+			content := make([]llm.Content, 0, len(m.Content))
+			for _, part := range m.Content {
+				if part.Kind == llm.ContentHostedApprovalRequest && step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
+					continue
+				}
+				if part.Kind == llm.ContentToolCall {
+					if step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
+						continue
+					}
+					if part.ToolCall == nil {
+						continue
+					}
+					v, ok := state.Tools[part.ToolCall.ID]
+					if !ok || v.Status != ToolSettled {
+						continue
+					}
+				}
+				content = append(content, part)
+			}
+			m.Content = content
+			if len(m.Content) == 0 {
+				continue
+			}
 			out = append(out, m)
 			for _, part := range m.Content {
 				if part.Kind != llm.ContentToolCall || part.ToolCall == nil {
