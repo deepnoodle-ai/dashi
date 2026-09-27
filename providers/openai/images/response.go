@@ -93,7 +93,7 @@ func decodeImageSource(encoded, imageURL, outputFormat string,
 		}
 		return content.Source{Data: data, MIMEType: mimeType}, nil
 	}
-	if strings.HasPrefix(modelName, "gpt-image-") ||
+	if knownGPTImageModel(modelName) ||
 		modelName == "chatgpt-image-latest" {
 		return content.Source{}, errors.New("images: GPT image response requires base64 image data")
 	}

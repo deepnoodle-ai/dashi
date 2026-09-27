@@ -27,8 +27,11 @@ func TestImageCallUsesPreparedJSONAndReturnsURL(t *testing.T) {
 	}))
 	defer server.Close()
 	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
-	input := media.ImageInput{Model: "grok-imagine-image-2.0", Operation: media.ImageGenerate,
-		Prompt: []content.Block{content.TextBlock("A quiet lake")}}
+	input := media.ImageInput{
+		Model:     "grok-imagine-image-2.0",
+		Operation: media.ImageGenerate,
+		Prompt:    []content.Block{content.TextBlock("A quiet lake")},
+	}
 	request, err := client.PrepareImage(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +43,14 @@ func TestImageCallUsesPreparedJSONAndReturnsURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 1 || result.Content[0].Image.Source.URL != "https://imgen.x.ai/temporary.jpeg" {
-		t.Fatalf("calls = %d; result = %+v", calls.Load(), result)
+	if calls.Load() != 1 {
+		t.Fatalf("image call dispatched %d times", calls.Load())
+	}
+	if result.Content[0].Image.Source.URL != "https://imgen.x.ai/temporary.jpeg" {
+		t.Fatalf("image URL = %q", result.Content[0].Image.Source.URL)
+	}
+	if result.Requested.Provider != "test-grok" {
+		t.Fatalf("requested provider = %q", result.Requested.Provider)
 	}
 	if string(result.RawUsage) != `{"cost_in_usd_ticks":200000000}` {
 		t.Fatalf("image usage was lost: %s", result.RawUsage)
@@ -68,9 +77,11 @@ func TestVideoJobSeparatesSubmitPollAndFetch(t *testing.T) {
 	}))
 	defer server.Close()
 	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
-	input := media.VideoInput{Model: "grok-imagine-video-1.5",
+	input := media.VideoInput{
+		Model:    "grok-imagine-video-1.5",
 		Prompt:   []content.Block{content.TextBlock("A quiet lake at sunrise")},
-		Settings: media.VideoSettings{Duration: 8 * time.Second}}
+		Settings: media.VideoSettings{Duration: 8 * time.Second},
+	}
 	request, err := client.PrepareVideo(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -97,9 +108,17 @@ func TestVideoJobSeparatesSubmitPollAndFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 3 || result.Content[0].Video.Source.URL != "https://vidgen.x.ai/temporary.mp4" ||
-		result.Served.Model != "grok-imagine-video-1.5" {
-		t.Fatalf("calls = %d; result = %+v", calls.Load(), result)
+	if calls.Load() != 3 {
+		t.Fatalf("job lifecycle dispatched %d times", calls.Load())
+	}
+	if result.Content[0].Video.Source.URL != "https://vidgen.x.ai/temporary.mp4" {
+		t.Fatalf("video URL = %q", result.Content[0].Video.Source.URL)
+	}
+	if result.Served.Model != "grok-imagine-video-1.5" {
+		t.Fatalf("served model = %q", result.Served.Model)
+	}
+	if result.Content[0].Video.Duration != 8*time.Second {
+		t.Fatalf("reported duration = %v", result.Content[0].Video.Duration)
 	}
 	if string(done.RawUsage) != `{"cost_in_usd_ticks":500000000}` ||
 		string(result.RawUsage) != string(done.RawUsage) {
@@ -113,16 +132,25 @@ func TestVideoSubmitOutcomeStaysUnknownAfterTransportFailure(t *testing.T) {
 		calls.Add(1)
 		return nil, errors.New("connection dropped after request write")
 	})
-	client := testClient(t, "https://example.test/v1", &http.Client{Transport: transport}, model.UnknownAllow)
+	client := testClient(
+		t,
+		"https://example.test/v1",
+		&http.Client{Transport: transport},
+		model.UnknownAllow,
+	)
 	request, err := client.PrepareVideo(context.Background(), media.VideoInput{
-		Model: "unlisted-video-model", Prompt: []content.Block{content.TextBlock("Waves")},
+		Model:  "unlisted-video-model",
+		Prompt: []content.Block{content.TextBlock("Waves")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	submission, err := client.SubmitVideo(context.Background(), request)
-	if err == nil || submission.State != media.SubmissionUnknown || submission.Job != nil || calls.Load() != 1 {
-		t.Fatalf("submission = %+v, err = %v, calls = %d", submission, err, calls.Load())
+	if err == nil || submission.State != media.SubmissionUnknown || submission.Job != nil {
+		t.Fatalf("submission = %+v, err = %v", submission, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("transport dispatched %d attempts", calls.Load())
 	}
 }
 
@@ -143,7 +171,8 @@ func TestVideoSubmitHTTPOutcomes(t *testing.T) {
 			defer server.Close()
 			client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
 			request, err := client.PrepareVideo(context.Background(), media.VideoInput{
-				Model: "grok-imagine-video-1.5", Prompt: []content.Block{content.TextBlock("Waves")},
+				Model:  "grok-imagine-video-1.5",
+				Prompt: []content.Block{content.TextBlock("Waves")},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -156,22 +185,95 @@ func TestVideoSubmitHTTPOutcomes(t *testing.T) {
 	}
 }
 
+func TestVideoSubmitWithoutUsableHandleStaysUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"request_id":"  "}`)
+	}))
+	defer server.Close()
+	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	request, err := client.PrepareVideo(context.Background(), media.VideoInput{
+		Model:  "grok-imagine-video-1.5",
+		Prompt: []content.Block{content.TextBlock("Waves")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := client.SubmitVideo(context.Background(), request)
+	if err == nil || submission.State != media.SubmissionUnknown || submission.Job != nil {
+		t.Fatalf("submission = %+v, err = %v", submission, err)
+	}
+}
+
+func TestVideoPollTreatsModerationFilterAsFailedOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"done","video":{"respect_moderation":false}}`)
+	}))
+	defer server.Close()
+	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	job := media.Job{
+		ID:     "filtered-request",
+		Kind:   media.KindVideo,
+		Origin: client.origin(VideoAPI, "grok-imagine-video-1.5"),
+	}
+	poll, err := client.PollVideo(context.Background(), job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.State != media.JobFailed || poll.Failure == "" || len(poll.Content) != 0 {
+		t.Fatalf("moderated poll = %+v", poll)
+	}
+}
+
 func TestPreparedImageCannotCrossCredentialScope(t *testing.T) {
 	clientA := testClient(t, "https://example.test/v1", nil, model.UnknownAllow)
-	clientB, err := New(Config{APIKey: "other-key", Endpoint: "https://example.test/v1",
-		UnknownCapabilities: model.UnknownAllow})
+	clientB, err := New(Config{
+		Provider:            "test-grok",
+		APIKey:              "other-key",
+		Endpoint:            "https://example.test/v1",
+		UnknownCapabilities: model.UnknownAllow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	request, err := clientA.PrepareImage(context.Background(), media.ImageInput{
-		Model: "unlisted-image-model", Operation: media.ImageGenerate,
-		Prompt: []content.Block{content.TextBlock("A lake")},
+		Model:     "unlisted-image-model",
+		Operation: media.ImageGenerate,
+		Prompt:    []content.Block{content.TextBlock("A lake")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := clientB.SendImage(context.Background(), request); err == nil {
 		t.Fatal("prepared request crossed credential scope")
+	}
+}
+
+func TestNewCustomEndpointRequiresProviderIdentity(t *testing.T) {
+	if _, err := New(Config{
+		APIKey:   "test-key",
+		Endpoint: "https://example.test/v1",
+	}); err == nil {
+		t.Fatal("custom endpoint inherited the public Grok identity")
+	}
+	client, err := New(Config{
+		Provider:            "private-grok",
+		APIKey:              "test-key",
+		Endpoint:            "https://example.test/v1",
+		UnknownCapabilities: model.UnknownAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := client.PrepareImage(context.Background(), media.ImageInput{
+		Model:     "unlisted-image-model",
+		Operation: media.ImageGenerate,
+		Prompt:    []content.Block{content.TextBlock("A lake")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Origin().Provider != "private-grok" {
+		t.Fatalf("prepared provider = %q", request.Origin().Provider)
 	}
 }
 
@@ -185,23 +287,41 @@ func testClient(t *testing.T, endpoint string, httpClient *http.Client, unknown 
 		{name: "grok-imagine-image-2.0", api: ImageAPI},
 		{name: "grok-imagine-video-1.5", api: VideoAPI},
 	} {
-		info := media.ModelInfo{Evidence: model.ModelEvidence{
-			Model: entry.name, API: entry.api, Endpoint: endpoint,
-			Owner: "test", Source: "fixture", Method: model.EvidenceFixture,
-			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
-		}}
+		info := media.ModelInfo{
+			Evidence: model.ModelEvidence{
+				Model:       entry.name,
+				API:         entry.api,
+				Endpoint:    endpoint,
+				Owner:       "test",
+				Source:      "fixture",
+				Method:      model.EvidenceFixture,
+				QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
+			},
+		}
 		if entry.api == ImageAPI {
-			info.Image = &media.ImageCapabilities{Generate: model.SupportSupported,
-				Edit: model.SupportSupported, MaxCount: 10}
+			info.Image = &media.ImageCapabilities{
+				Generate: model.SupportSupported,
+				Edit:     model.SupportSupported,
+				MaxCount: 10,
+			}
 		} else {
-			info.Video = &media.VideoCapabilities{Generate: model.SupportSupported,
-				ReferenceFrames: model.SupportSupported, MinDuration: time.Second,
-				MaxDuration: 15 * time.Second}
+			info.Video = &media.VideoCapabilities{
+				Generate:        model.SupportSupported,
+				ReferenceFrames: model.SupportSupported,
+				MinDuration:     time.Second,
+				MaxDuration:     15 * time.Second,
+			}
 		}
 		models[entry.name] = info
 	}
-	client, err := New(Config{APIKey: "test-key", Endpoint: endpoint, Client: httpClient,
-		Models: models, UnknownCapabilities: unknown})
+	client, err := New(Config{
+		Provider:            "test-grok",
+		APIKey:              "test-key",
+		Endpoint:            endpoint,
+		Client:              httpClient,
+		Models:              models,
+		UnknownCapabilities: unknown,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,4 +330,6 @@ func testClient(t *testing.T, endpoint string, httpClient *http.Client, unknown 
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}

@@ -51,6 +51,14 @@ func TestVideoBlockCloneCopiesSourceBytes(t *testing.T) {
 	}
 }
 
+func TestVideoBlockRejectsNegativeOutputDuration(t *testing.T) {
+	block := VideoBlock(Source{Data: []byte{1}, MIMEType: "video/mp4"})
+	block.Video.Duration = -time.Second
+	if err := block.Validate(); err == nil {
+		t.Fatal("accepted negative output duration")
+	}
+}
+
 func TestAudioBlockCloneCopiesFrameFormat(t *testing.T) {
 	block := Block{
 		Kind: KindAudio,

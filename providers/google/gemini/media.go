@@ -204,8 +204,17 @@ func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []by
 	}
 	client.CheckRedirect = func(next *http.Request, prior []*http.Request) error {
 		if method != http.MethodGet || !strings.Contains(endpoint, ":download?") || len(prior) > 3 ||
-			next.URL.Scheme != prior[0].URL.Scheme || next.URL.Host != prior[0].URL.Host {
+			next.URL.Scheme != prior[0].URL.Scheme {
 			return http.ErrUseLastResponse
+		}
+		if next.URL.Host != prior[0].URL.Host {
+			if prior[0].URL.Host != "generativelanguage.googleapis.com" ||
+				next.URL.Scheme != "https" || !googleDownloadHost(next.URL.Hostname()) {
+				return http.ErrUseLastResponse
+			}
+			// Files API may redirect to a Google storage URL. Its signed URL
+			// carries its own authorization; never forward the Gemini API key.
+			next.Header.Del("X-Goog-Api-Key")
 		}
 		return nil
 	}
@@ -254,4 +263,10 @@ func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []by
 		}
 	}
 	return raw, nil
+}
+
+func googleDownloadHost(host string) bool {
+	return host == "storage.googleapis.com" ||
+		strings.HasSuffix(host, ".storage.googleapis.com") ||
+		strings.HasSuffix(host, ".googleusercontent.com")
 }

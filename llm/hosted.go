@@ -38,7 +38,7 @@ func (u HostedUse) Validate() error {
 	if u.ID == "" || u.Name == "" || u.Type == "" || u.Origin.Validate() != nil ||
 		u.Origin.Model == "" || (len(u.Input) > 0 && !json.Valid(u.Input)) {
 		return errors.New(
-			"llm: hosted use requires ID, name, type, origin, and JSON input",
+			"llm: hosted use requires ID, name, type, origin, and valid optional JSON input",
 		)
 	}
 	for _, block := range u.Output {
@@ -112,7 +112,7 @@ func (r HostedApprovalRequest) Validate() error {
 		r.Origin.Model == "" ||
 		(len(r.Arguments) > 0 && !json.Valid(r.Arguments)) {
 		return errors.New(
-			"llm: hosted approval request requires ID, name, origin, and JSON arguments",
+			"llm: hosted approval request requires ID, name, origin, and valid optional JSON arguments",
 		)
 	}
 	return nil

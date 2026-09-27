@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/kernel/content"
@@ -21,6 +22,7 @@ func (wire codec) decodeHostedItem(
 		ID            string            `json:"id"`
 		Status        string            `json:"status"`
 		Name          string            `json:"name"`
+		ServerLabel   string            `json:"server_label"`
 		Arguments     string            `json:"arguments"`
 		Action        json.RawMessage   `json:"action"`
 		Queries       json.RawMessage   `json:"queries"`
@@ -61,21 +63,15 @@ func (wire codec) decodeHostedItem(
 		status = "completed"
 	}
 	use := llm.HostedUse{
-		ID:      value.ID,
-		Name:    name,
-		Type:    replay.Type,
-		Origin:  wire.origin,
-		Status:  status,
-		Input:   input,
-		Output:  wire.hostedItemOutput(value.Results, value.Outputs),
-		IsError: status == "failed" || nonNull(value.Error),
-	}
-	if replay.Type == "mcp_call" {
-		var server struct {
-			Label string `json:"server_label"`
-		}
-		_ = json.Unmarshal(raw, &server)
-		use.ServerName = server.Label
+		ID:         value.ID,
+		Name:       name,
+		ServerName: value.ServerLabel,
+		Type:       replay.Type,
+		Origin:     wire.origin,
+		Status:     status,
+		Input:      input,
+		Output:     wire.hostedItemOutput(value.Results, value.Outputs),
+		IsError:    status == "failed" || nonNull(value.Error),
 	}
 	if replay.Type == "web_search_call" {
 		use.Output = append(use.Output, wire.webSearchSources(value.Action)...)
@@ -154,9 +150,8 @@ func (wire codec) hostedItemOutput(
 	outputs []json.RawMessage,
 ) []content.Block {
 	var blocks []content.Block
-	for _, raw := range append(results, outputs...) {
+	for _, raw := range slices.Concat(results, outputs) {
 		var item struct {
-			Type     string `json:"type"`
 			URL      string `json:"url"`
 			Title    string `json:"title"`
 			Text     string `json:"text"`

@@ -125,9 +125,14 @@ func TestMediaVeoJobLifecycle(t *testing.T) {
 				fmt.Fprintf(w, `{"name":"models/veo/operations/job-1","done":true,"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":%q,"mimeType":"video/mp4"}}]}}}`, server.URL+"/v1beta/files/output-1")
 			}
 		case "/v1beta/files/output-1:download":
-			fetched++
 			if r.URL.Query().Get("alt") != "media" {
 				t.Errorf("download lacks alt=media: %s", r.URL)
+			}
+			http.Redirect(w, r, "/v1beta/files/output-1-final:download?alt=media", http.StatusFound)
+		case "/v1beta/files/output-1-final:download":
+			fetched++
+			if r.Header.Get("X-Goog-Api-Key") != "fixture-key" {
+				t.Error("same-origin redirect lost API key")
 			}
 			w.Header().Set("Content-Type", "video/mp4")
 			io.WriteString(w, "video-data")

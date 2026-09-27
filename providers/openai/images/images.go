@@ -32,11 +32,26 @@ const defaultEndpoint = "https://api.openai.com/v1"
 // Config identifies an Images API destination and its model evidence. Endpoint
 // is the API base URL; generation and editing use fixed paths below it.
 type Config struct {
-	Provider            string
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]media.ModelInfo
+	// Provider is the application's stable name for this destination. The
+	// public endpoint defaults to "openai"; custom endpoints require a name.
+	Provider string
+
+	// APIKey defaults to OPENAI_API_KEY when New is called.
+	APIKey string
+
+	// Endpoint defaults to the public /v1 base URL.
+	Endpoint string
+
+	// Client supplies transport and timeout behavior. Redirects are disabled;
+	// its transport must not hide retries.
+	Client *http.Client
+
+	// Models supplies exact-model evidence scoped to API and Endpoint. New
+	// validates and copies it; empty means support is unknown.
+	Models map[string]media.ModelInfo
+
+	// UnknownCapabilities requires explicit opt-in before unknown support can
+	// reach the provider. Known rejection is never overridden.
 	UnknownCapabilities model.UnknownPolicy
 }
 

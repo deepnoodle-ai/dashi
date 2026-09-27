@@ -55,7 +55,8 @@ func encodeImage(input media.ImageInput, prompt string) ([]byte, string, error) 
 		body, err := json.Marshal(fields)
 		return body, "application/json", err
 	}
-	if len(input.ReferenceImages) > maxReferenceCount {
+	if knownGPTImageModel(input.Model) &&
+		len(input.ReferenceImages) > maxReferenceCount {
 		return nil, "", errors.New("images: at most 16 reference images are supported")
 	}
 	if input.Model == "dall-e-2" && len(input.ReferenceImages) != 1 {
@@ -115,7 +116,7 @@ func validatePromptLength(model, prompt string) error {
 	case "dall-e-3":
 		limit = 4000
 	default:
-		if strings.HasPrefix(model, "gpt-image-") ||
+		if knownGPTImageModel(model) ||
 			model == "chatgpt-image-latest" {
 			limit = 32000
 		}
@@ -172,7 +173,7 @@ func imageFields(input media.ImageInput, prompt string) (map[string]any, error) 
 
 func validSize(model string, size media.Size) bool {
 	width, height := size.Width, size.Height
-	if strings.HasPrefix(model, "gpt-image-2") {
+	if knownFlexibleSizeModel(model) {
 		return width%16 == 0 && height%16 == 0 &&
 			width <= 3840 && height <= 3840 &&
 			width*height <= 3840*2160 &&
@@ -186,7 +187,8 @@ func validSize(model string, size media.Size) bool {
 		return width == 1024 && (height == 1024 || height == 1792) ||
 			width == 1792 && height == 1024
 	default:
-		if strings.HasPrefix(model, "gpt-image-1") {
+		if model == "gpt-image-1" || model == "gpt-image-1-mini" ||
+			model == "gpt-image-1.5" {
 			return width == 1024 && (height == 1024 || height == 1536) ||
 				width == 1536 && height == 1024
 		}
@@ -208,9 +210,7 @@ func validQuality(model, quality string) bool {
 		if strings.HasPrefix(model, "gpt-image-2.5-") {
 			return true
 		}
-		return !strings.HasPrefix(model, "gpt-image-1") &&
-			model != "gpt-image-2" &&
-			!strings.HasPrefix(model, "gpt-image-2-")
+		return !knownGPTImageModel(model)
 	}
 	return false
 }
@@ -247,8 +247,12 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 			}
 		}
 	}
+	imageField := "image"
+	if len(refs) > 1 {
+		imageField = "image[]"
+	}
 	for i, ref := range refs {
-		if err := writeImagePart(writer, "image[]", i, ref.Image.Source); err != nil {
+		if err := writeImagePart(writer, imageField, i, ref.Image.Source); err != nil {
 			return nil, "", err
 		}
 	}
@@ -268,8 +272,8 @@ func writeImagePart(writer *multipart.Writer, name string, index int,
 	if !supportedInputMIME(source.MIMEType) {
 		return fmt.Errorf("images: unsupported input MIME type %q", source.MIMEType)
 	}
-	if len(source.Data) >= 50<<20 {
-		return errors.New("images: uploaded image must be smaller than 50 MiB")
+	if len(source.Data) >= 50_000_000 {
+		return errors.New("images: uploaded image must be smaller than 50 MB")
 	}
 	extension := inputExtension(source.MIMEType)
 	header := make(textproto.MIMEHeader)
@@ -331,4 +335,25 @@ func inputExtension(mimeType string) string {
 func supportedInputMIME(mimeType string) bool {
 	return mimeType == "image/png" || mimeType == "image/jpeg" ||
 		mimeType == "image/webp"
+}
+
+func knownGPTImageModel(name string) bool {
+	switch name {
+	case "gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5",
+		"gpt-image-2", "gpt-image-2-2026-04-21",
+		"gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
+		"gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08":
+		return true
+	}
+	return false
+}
+
+func knownFlexibleSizeModel(name string) bool {
+	switch name {
+	case "gpt-image-2", "gpt-image-2-2026-04-21",
+		"gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
+		"gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08":
+		return true
+	}
+	return false
 }

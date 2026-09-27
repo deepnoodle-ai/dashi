@@ -110,6 +110,8 @@ func TestClientGenerateImageSendsPreparedJSON(t *testing.T) {
 	if request.Snapshot().Effective.Count != 1 {
 		t.Fatal("provider default count was not recorded")
 	}
+	returnedBody := request.Body()
+	returnedBody[0] = 'X'
 	result, err := client.SendImage(context.Background(), request)
 	if err != nil {
 		t.Fatalf("send image: %v", err)
@@ -156,7 +158,7 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 				t.Errorf("read multipart bytes: %v", err)
 				return
 			}
-			if part.FormName() == "image[]" || part.FormName() == "mask" {
+			if part.FormName() == "image" || part.FormName() == "mask" {
 				files++
 				if !bytes.Equal(data, tinyPNG) {
 					t.Error("multipart upload changed inline image bytes")
@@ -187,6 +189,8 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 	if !strings.HasPrefix(request.ContentType(), "multipart/form-data;") {
 		t.Fatal("inline edit did not prepare multipart")
 	}
+	returnedBody := request.Body()
+	returnedBody[0] = 'X'
 	if _, err := client.SendImage(context.Background(), request); err != nil {
 		t.Fatalf("send edit: %v", err)
 	}
@@ -227,12 +231,14 @@ func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
 	input := imageInput(media.ImageGenerate)
 	input.Model = "future-image-model"
 	input.Settings.Quality = "max"
+	input.Settings.Size = media.Size{Width: 4096, Height: 4096}
 	request, err := client.PrepareImage(context.Background(), input)
 	if err != nil {
 		t.Fatalf("future model was blocked despite explicit allowance: %v", err)
 	}
 	if !slices.Contains(request.Snapshot().Unverified, "image.generate") ||
-		!slices.Contains(request.Snapshot().Unverified, "image.quality") {
+		!slices.Contains(request.Snapshot().Unverified, "image.quality") ||
+		!slices.Contains(request.Snapshot().Unverified, "image.size") {
 		t.Fatalf("missing uncertainty record: %#v", request.Snapshot().Unverified)
 	}
 }
@@ -398,5 +404,30 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 				t.Fatal("unsupported input was silently encoded")
 			}
 		})
+	}
+}
+
+func TestDecodeImageSourceMarksDalleURLExpiry(t *testing.T) {
+	const created = int64(1_800_000_000)
+	source, err := decodeImageSource(
+		"", "https://example.com/generated.png", "", created, "dall-e-3",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.URL != "https://example.com/generated.png" {
+		t.Fatal("provider URL was lost")
+	}
+	if source.ExpiresAt == nil ||
+		!source.ExpiresAt.Equal(time.Unix(created, 0).Add(time.Hour)) {
+		t.Fatal("DALL-E URL expiry was not preserved")
+	}
+}
+
+func TestDecodeImageSourceRejectsFalseFormat(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString(tinyPNG)
+	if _, err := decodeImageSource(encoded, "", "jpeg", 0,
+		"gpt-image-1.5"); err == nil {
+		t.Fatal("declared JPEG with PNG bytes was accepted")
 	}
 }

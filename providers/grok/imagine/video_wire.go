@@ -15,8 +15,9 @@ type videoWireResponse struct {
 	Status string `json:"status"`
 	Model  string `json:"model"`
 	Video  struct {
-		URL      string   `json:"url"`
-		Duration *float64 `json:"duration"`
+		URL               string   `json:"url"`
+		Duration          *float64 `json:"duration"`
+		RespectModeration *bool    `json:"respect_moderation"`
 	} `json:"video"`
 	Error json.RawMessage `json:"error"`
 	Usage json.RawMessage `json:"usage"`
@@ -110,6 +111,9 @@ func decodeVideoWire(raw []byte) (videoWireResponse, error) {
 		return videoWireResponse{}, fmt.Errorf("imagine: unknown video status %q", wire.Status)
 	}
 	if wire.Status == "done" {
+		if wire.Video.RespectModeration != nil && !*wire.Video.RespectModeration {
+			return wire, nil
+		}
 		if !validHTTPURL(wire.Video.URL) {
 			return videoWireResponse{}, errors.New("imagine: completed video URL must be HTTP(S) without user info")
 		}

@@ -11,10 +11,12 @@ import (
 
 func TestImageEditUsesJSONDataURL(t *testing.T) {
 	input := media.ImageInput{
-		Model: "grok-imagine-image-2.0", Operation: media.ImageEdit,
-		Prompt: []content.Block{content.TextBlock("Make it blue")},
+		Model:     "grok-imagine-image-2.0",
+		Operation: media.ImageEdit,
+		Prompt:    []content.Block{content.TextBlock("Make it blue")},
 		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
-			Data: []byte("image bytes"), MIMEType: "image/png",
+			Data:     []byte("image bytes"),
+			MIMEType: "image/png",
 		})},
 	}
 	body, path, err := imageWireBody(input)
@@ -41,8 +43,9 @@ func TestImageEditUsesJSONDataURL(t *testing.T) {
 func TestImageEditRejectsMaskInsteadOfDroppingIt(t *testing.T) {
 	mask := content.ImageBlock(content.Source{URL: "https://example.test/mask.png"})
 	input := media.ImageInput{
-		Model: "grok-imagine-image-2.0", Operation: media.ImageEdit,
-		Prompt: []content.Block{content.TextBlock("Fill the masked area")},
+		Model:     "grok-imagine-image-2.0",
+		Operation: media.ImageEdit,
+		Prompt:    []content.Block{content.TextBlock("Fill the masked area")},
 		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
 			URL: "https://example.test/photo.png",
 		})},
@@ -55,8 +58,9 @@ func TestImageEditRejectsMaskInsteadOfDroppingIt(t *testing.T) {
 
 func TestImageEditRejectsNonHTTPReferenceURL(t *testing.T) {
 	input := media.ImageInput{
-		Model: "grok-imagine-image-2.0", Operation: media.ImageEdit,
-		Prompt: []content.Block{content.TextBlock("Make it blue")},
+		Model:     "grok-imagine-image-2.0",
+		Operation: media.ImageEdit,
+		Prompt:    []content.Block{content.TextBlock("Make it blue")},
 		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
 			URL: "https://user:secret@example.test/photo.png",
 		})},
@@ -72,11 +76,15 @@ func TestImageEditRejectsNonHTTPReferenceURL(t *testing.T) {
 
 func TestVideoWireConvertsInitialFrameAndWholeSeconds(t *testing.T) {
 	input := media.VideoInput{
-		Model: "grok-imagine-video-1.5", Prompt: []content.Block{content.TextBlock("Move slowly")},
+		Model:  "grok-imagine-video-1.5",
+		Prompt: []content.Block{content.TextBlock("Move slowly")},
 		ReferenceFrames: []content.Block{content.ImageBlock(content.Source{
 			URL: "https://example.test/frame.png",
 		})},
-		Settings: media.VideoSettings{Duration: 5 * time.Second, AspectRatio: "16:9"},
+		Settings: media.VideoSettings{
+			Duration:    5 * time.Second,
+			AspectRatio: "16:9",
+		},
 	}
 	body, err := videoWireBody(input)
 	if err != nil {
@@ -99,7 +107,11 @@ func TestVideoWireConvertsInitialFrameAndWholeSeconds(t *testing.T) {
 }
 
 func TestDecodeImageResponseRetainsTemporaryURL(t *testing.T) {
-	result, err := decodeImageWire([]byte(`{"data":[{"url":"https://imgen.x.ai/tmp.jpeg","mime_type":"image/jpeg","revised_prompt":"changed text"}]}`), "grok-imagine-image-2.0")
+	result, err := decodeImageWire(
+		[]byte(`{"data":[{"url":"https://imgen.x.ai/tmp.jpeg","mime_type":"image/jpeg","revised_prompt":"changed text"}]}`),
+		"test-grok",
+		"grok-imagine-image-2.0",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,5 +126,16 @@ func TestDecodeVideoStatusRequiresOutputForDone(t *testing.T) {
 	}
 	if _, err := decodeVideoWire([]byte(`{"status":"pending"}`)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDecodeVideoStatusRejectsInvalidReportedDuration(t *testing.T) {
+	for _, seconds := range []string{"-1", "1e12"} {
+		t.Run(seconds, func(t *testing.T) {
+			raw := []byte(`{"status":"done","video":{"url":"https://vidgen.x.ai/output.mp4","duration":` + seconds + `}}`)
+			if _, err := decodeVideoWire(raw); err == nil {
+				t.Fatal("invalid reported duration was accepted")
+			}
+		})
 	}
 }

@@ -80,7 +80,7 @@ func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (med
 	if err != nil {
 		return media.Result{}, err
 	}
-	result, err := decodeImageWire(raw, input.Model)
+	result, err := decodeImageWire(raw, c.provider, input.Model)
 	if err != nil {
 		return media.Result{}, c.failure(media.ErrorProtocol, err)
 	}
@@ -152,7 +152,7 @@ func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (m
 	var response struct {
 		RequestID string `json:"request_id"`
 	}
-	if err := json.Unmarshal(raw, &response); err != nil || response.RequestID == "" {
+	if err := json.Unmarshal(raw, &response); err != nil || strings.TrimSpace(response.RequestID) == "" {
 		return media.Submission{State: media.SubmissionUnknown},
 			c.failure(media.ErrorProtocol, errors.New("video submission returned no usable request_id"))
 	}
@@ -200,12 +200,17 @@ func (c *Client) PollVideo(ctx context.Context, job media.Job) (media.JobPoll, e
 	}
 	poll := media.JobPoll{Job: job, RawUsage: wire.Usage}
 	if wire.Model != "" {
-		poll.Served = modelRef(wire.Model)
+		poll.Served = c.modelRef(wire.Model)
 	}
 	switch wire.Status {
 	case "pending":
 		poll.State = media.JobPending
 	case "done":
+		if wire.Video.RespectModeration != nil && !*wire.Video.RespectModeration {
+			poll.State = media.JobFailed
+			poll.Failure = "video filtered by provider moderation"
+			break
+		}
 		poll.State = media.JobSucceeded
 		var duration time.Duration
 		if wire.Video.Duration != nil {
@@ -254,7 +259,7 @@ func (c *Client) FetchVideo(ctx context.Context, poll media.JobPoll) (media.Resu
 	result := media.Result{
 		Kind:       media.KindVideo,
 		Content:    copy.Content,
-		Requested:  modelRef(poll.Job.Origin.Model),
+		Requested:  c.modelRef(poll.Job.Origin.Model),
 		Served:     poll.Served,
 		API:        VideoAPI,
 		ResponseID: poll.Job.ID,
@@ -266,12 +271,12 @@ func (c *Client) FetchVideo(ctx context.Context, poll media.JobPoll) (media.Resu
 	return result, nil
 }
 
-func modelRef(name string) model.ModelRef {
-	return model.ModelRef{Provider: "grok", Model: name}
+func (c *Client) modelRef(name string) model.ModelRef {
+	return model.ModelRef{Provider: c.provider, Model: name}
 }
 
 func (c *Client) failure(category media.ErrorCategory, cause error) error {
-	return &media.Error{Provider: "grok", Category: category, Cause: cause}
+	return &media.Error{Provider: c.provider, Category: category, Cause: cause}
 }
 
 // do sends exactly one HTTP request and bounds the response held in memory.
@@ -324,7 +329,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, conte
 			category = media.ErrorOverloaded
 		}
 		return nil, &media.Error{
-			Provider:   "grok",
+			Provider:   c.provider,
 			Category:   category,
 			Status:     response.StatusCode,
 			Code:       providerError.Code(),

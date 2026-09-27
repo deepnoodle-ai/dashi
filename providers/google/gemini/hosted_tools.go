@@ -86,12 +86,12 @@ func (wire codec) hostedTool(
 	switch spec.Type {
 	case "googleSearch":
 		if definition.Name != "google_search" || len(spec.Options) > 0 {
-			return nil, wire.unsupported("Google Search requires no options")
+			return nil, wire.unsupported("google search requires no options")
 		}
 		config["googleSearch"] = map[string]any{}
 	case "urlContext":
 		if definition.Name != "url_context" || len(spec.Options) > 0 {
-			return nil, wire.unsupported("URL Context requires no options")
+			return nil, wire.unsupported("url context requires no options")
 		}
 		config["urlContext"] = map[string]any{}
 	case "codeExecution":

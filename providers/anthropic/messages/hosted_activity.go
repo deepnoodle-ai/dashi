@@ -10,6 +10,30 @@ import (
 	"github.com/deepnoodle-ai/kernel/llm"
 )
 
+type hostedOutputItem struct {
+	Type     string            `json:"type"`
+	Text     string            `json:"text"`
+	URL      string            `json:"url"`
+	Title    string            `json:"title"`
+	URI      string            `json:"uri"`
+	Stdout   string            `json:"stdout"`
+	Stderr   string            `json:"stderr"`
+	Source   hostedImageSource `json:"source"`
+	Resource struct {
+		URI      string `json:"uri"`
+		MIMEType string `json:"mimeType"`
+		Text     string `json:"text"`
+	} `json:"resource"`
+}
+
+type hostedImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+	URL       string `json:"url"`
+	FileID    string `json:"file_id"`
+}
+
 // Anthropic puts results in separate blocks. The original block, including
 // encrypted search data, is replayed unchanged; these fields are display only.
 func (wire codec) decodeHostedUse(
@@ -89,27 +113,7 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 	}
 	var output []content.Block
 	for _, item := range items {
-		var value struct {
-			Type   string `json:"type"`
-			Text   string `json:"text"`
-			URL    string `json:"url"`
-			Title  string `json:"title"`
-			URI    string `json:"uri"`
-			Stdout string `json:"stdout"`
-			Stderr string `json:"stderr"`
-			Source struct {
-				Type      string `json:"type"`
-				MediaType string `json:"media_type"`
-				Data      string `json:"data"`
-				URL       string `json:"url"`
-				FileID    string `json:"file_id"`
-			} `json:"source"`
-			Resource struct {
-				URI      string `json:"uri"`
-				MIMEType string `json:"mimeType"`
-				Text     string `json:"text"`
-			} `json:"resource"`
-		}
+		var value hostedOutputItem
 		if json.Unmarshal(item, &value) != nil {
 			continue
 		}
@@ -123,9 +127,7 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 			output = append(output, content.TextBlock(value.Stderr))
 		}
 		if value.Type == "image" {
-			if image := wire.hostedImage(value.Source.Type,
-				value.Source.MediaType, value.Source.Data,
-				value.Source.URL, value.Source.FileID); image != nil {
+			if image := wire.hostedImage(value.Source); image != nil {
 				output = append(output, *image)
 			}
 		}
@@ -155,25 +157,19 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 	return output
 }
 
-func (wire codec) hostedImage(
-	sourceType string,
-	mimeType string,
-	encoded string,
-	url string,
-	fileID string,
-) *content.Block {
-	source := content.Source{MIMEType: mimeType}
-	switch sourceType {
+func (wire codec) hostedImage(value hostedImageSource) *content.Block {
+	source := content.Source{MIMEType: value.MediaType}
+	switch value.Type {
 	case "base64":
-		data, err := base64.StdEncoding.DecodeString(encoded)
+		data, err := base64.StdEncoding.DecodeString(value.Data)
 		if err != nil {
 			return nil
 		}
 		source.Data = data
 	case "url":
-		source.URL = url
+		source.URL = value.URL
 	case "file":
-		source.ID = fileID
+		source.ID = value.FileID
 		source.Origin = wire.origin
 	default:
 		return nil

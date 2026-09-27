@@ -29,7 +29,9 @@ func (wire codec) grokHostedTool(
 	switch spec.Type {
 	case "web_search":
 		if definition.Name != "web_search" {
-			return nil, nil, wire.unsupported("Grok web search name")
+			return nil, nil, wire.unsupported(
+				"grok web search requires name web_search",
+			)
 		}
 		var options struct {
 			AllowedDomains           []string `json:"allowed_domains"`
@@ -38,11 +40,13 @@ func (wire codec) grokHostedTool(
 			EnableImageSearch        bool     `json:"enable_image_search"`
 		}
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, nil, wire.unsupported("Grok web search options: %v", err)
+			return nil, nil, wire.unsupported("grok web search options: %w", err)
 		}
 		if len(options.AllowedDomains) > 5 || len(options.ExcludedDomains) > 5 ||
 			(len(options.AllowedDomains) > 0 && len(options.ExcludedDomains) > 0) {
-			return nil, nil, wire.unsupported("Grok web search domain limits")
+			return nil, nil, wire.unsupported(
+				"grok web search requires at most five allowed or excluded domains",
+			)
 		}
 		filters := map[string]any{}
 		if len(options.AllowedDomains) > 0 {
@@ -62,7 +66,9 @@ func (wire codec) grokHostedTool(
 		}
 	case "x_search":
 		if definition.Name != "x_search" {
-			return nil, nil, wire.unsupported("Grok X search name")
+			return nil, nil, wire.unsupported(
+				"grok X search requires name x_search",
+			)
 		}
 		var options struct {
 			AllowedXHandles          []string `json:"allowed_x_handles"`
@@ -73,50 +79,54 @@ func (wire codec) grokHostedTool(
 			EnableVideoUnderstanding bool     `json:"enable_video_understanding"`
 		}
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, nil, wire.unsupported("Grok X search options: %v", err)
+			return nil, nil, wire.unsupported("grok X search options: %w", err)
 		}
 		if len(options.AllowedXHandles) > 20 ||
 			len(options.ExcludedXHandles) > 20 ||
 			(len(options.AllowedXHandles) > 0 && len(options.ExcludedXHandles) > 0) {
-			return nil, nil, wire.unsupported("Grok X search handle limits")
+			return nil, nil, wire.unsupported(
+				"grok X search requires at most twenty allowed or excluded handles",
+			)
 		}
 		for _, date := range []string{options.FromDate, options.ToDate} {
 			if date == "" {
 				continue
 			}
 			if _, err := time.Parse("2006-01-02", date); err != nil {
-				return nil, nil, wire.unsupported("Grok X search date format")
+				return nil, nil, wire.unsupported(
+					"grok X search dates require YYYY-MM-DD",
+				)
 			}
 		}
-		if options.FromDate > options.ToDate && options.ToDate != "" {
-			return nil, nil, wire.unsupported("Grok X search date order")
+		if options.FromDate != "" && options.ToDate != "" &&
+			options.FromDate > options.ToDate {
+			return nil, nil, wire.unsupported(
+				"grok X search from date must precede to date",
+			)
 		}
-		for key, value := range map[string]any{
-			"allowed_x_handles":          options.AllowedXHandles,
-			"excluded_x_handles":         options.ExcludedXHandles,
-			"from_date":                  options.FromDate,
-			"to_date":                    options.ToDate,
-			"enable_image_understanding": options.EnableImageUnderstanding,
-			"enable_video_understanding": options.EnableVideoUnderstanding,
-		} {
-			switch value := value.(type) {
-			case string:
-				if value != "" {
-					config[key] = value
-				}
-			case bool:
-				if value {
-					config[key] = true
-				}
-			case []string:
-				if len(value) > 0 {
-					config[key] = value
-				}
-			}
+		if len(options.AllowedXHandles) > 0 {
+			config["allowed_x_handles"] = options.AllowedXHandles
+		}
+		if len(options.ExcludedXHandles) > 0 {
+			config["excluded_x_handles"] = options.ExcludedXHandles
+		}
+		if options.FromDate != "" {
+			config["from_date"] = options.FromDate
+		}
+		if options.ToDate != "" {
+			config["to_date"] = options.ToDate
+		}
+		if options.EnableImageUnderstanding {
+			config["enable_image_understanding"] = true
+		}
+		if options.EnableVideoUnderstanding {
+			config["enable_video_understanding"] = true
 		}
 	case "file_search":
 		if definition.Name != "collections_search" {
-			return nil, nil, wire.unsupported("Grok collections search name")
+			return nil, nil, wire.unsupported(
+				"grok collections search requires name collections_search",
+			)
 		}
 		var options struct {
 			CollectionIDs  []string `json:"collection_ids"`
@@ -124,12 +134,12 @@ func (wire codec) grokHostedTool(
 			IncludeResults bool     `json:"include_results"`
 		}
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, nil, wire.unsupported("Grok collections options: %v", err)
+			return nil, nil, wire.unsupported("grok collections options: %w", err)
 		}
 		if len(options.CollectionIDs) == 0 || options.MaxNumResults < 0 ||
 			options.MaxNumResults > 50 {
 			return nil, nil, wire.unsupported(
-				"Grok collections require IDs and at most fifty results",
+				"grok collections require IDs and at most fifty results",
 			)
 		}
 		config["vector_store_ids"] = options.CollectionIDs
@@ -141,19 +151,21 @@ func (wire codec) grokHostedTool(
 		}
 	case "code_interpreter":
 		if definition.Name != "code_execution" {
-			return nil, nil, wire.unsupported("Grok code execution name")
+			return nil, nil, wire.unsupported(
+				"grok code execution requires name code_execution",
+			)
 		}
 		var options struct {
 			IncludeOutputs bool `json:"include_outputs"`
 		}
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, nil, wire.unsupported("Grok code options: %v", err)
+			return nil, nil, wire.unsupported("grok code options: %w", err)
 		}
 		if options.IncludeOutputs {
 			return config, []string{"code_interpreter_call.outputs"}, nil
 		}
 	default:
-		return nil, nil, wire.unsupported("Grok hosted type %q", spec.Type)
+		return nil, nil, wire.unsupported("grok hosted type %q", spec.Type)
 	}
 	return config, nil, nil
 }
@@ -162,7 +174,9 @@ func (wire codec) metaHostedTool(
 	definition tool.Definition,
 ) (map[string]any, []string, error) {
 	if definition.Name != "web_search" || definition.Hosted.Type != "web_search" {
-		return nil, nil, wire.unsupported("Meta hosted web search only")
+		return nil, nil, wire.unsupported(
+			"meta hosted tools require web_search",
+		)
 	}
 	var options struct {
 		SearchContextSize string `json:"search_context_size"`
@@ -177,11 +191,11 @@ func (wire codec) metaHostedTool(
 	if err := decodeHostedOptions(
 		definition.Hosted.Options, &options,
 	); err != nil {
-		return nil, nil, wire.unsupported("Meta web search options: %v", err)
+		return nil, nil, wire.unsupported("meta web search options: %w", err)
 	}
 	if !searchContextSize(options.SearchContextSize) {
 		return nil, nil, wire.unsupported(
-			"Meta search context size must be low, medium, or high",
+			"meta search context size must be low, medium, or high",
 		)
 	}
 	config := map[string]any{"type": "web_search"}

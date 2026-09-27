@@ -35,8 +35,8 @@ func imageWireBody(input media.ImageInput) ([]byte, string, error) {
 		return nil, "", err
 	}
 	prompt, err := textPrompt(input.Prompt)
-	if err != nil || prompt == "" {
-		return nil, "", errors.New("imagine: image operation requires one nonempty text prompt")
+	if err != nil {
+		return nil, "", err
 	}
 	if len(prompt) > maxPreparedBytes {
 		return nil, "", errors.New("imagine: image prompt exceeds 24 MiB prepared-body bound")
@@ -158,7 +158,7 @@ func imageInputSource(source content.Source) (map[string]string, error) {
 	return nil, errors.New("imagine: edit images require a public URL or inline bytes")
 }
 
-func decodeImageWire(raw []byte, requested string) (media.Result, error) {
+func decodeImageWire(raw []byte, provider, requested string) (media.Result, error) {
 	var wire imageWireResponse
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return media.Result{}, fmt.Errorf("imagine: decode image response: %w", err)
@@ -168,12 +168,12 @@ func decodeImageWire(raw []byte, requested string) (media.Result, error) {
 	}
 	result := media.Result{
 		Kind:      media.KindImage,
-		Requested: model.ModelRef{Provider: "grok", Model: requested},
+		Requested: model.ModelRef{Provider: provider, Model: requested},
 		API:       ImageAPI,
 		RawUsage:  wire.Usage,
 	}
 	if wire.Model != "" {
-		result.Served = model.ModelRef{Provider: "grok", Model: wire.Model}
+		result.Served = model.ModelRef{Provider: provider, Model: wire.Model}
 	}
 	for _, item := range wire.Data {
 		if (item.URL == "") == (item.Base64 == "") {

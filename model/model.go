@@ -21,18 +21,32 @@ type ModelRef struct {
 type Support string
 
 const (
-	SupportUnknown     Support = ""
-	SupportSupported   Support = "supported"
+	// SupportUnknown means no support claim has been established.
+	SupportUnknown Support = ""
+	// SupportSupported means capability support has been established.
+	SupportSupported Support = "supported"
+	// SupportUnsupported means known rejection for this capability.
 	SupportUnsupported Support = "unsupported"
 )
+
+// Valid reports whether s is one of the three recorded support states.
+func (s Support) Valid() bool {
+	switch s {
+	case SupportUnknown, SupportSupported, SupportUnsupported:
+		return true
+	}
+	return false
+}
 
 // UnknownPolicy controls incomplete capability knowledge. It never overrides
 // known rejection or an encoding the client cannot perform.
 type UnknownPolicy string
 
 const (
+	// UnknownReject declines an operation with unknown required support.
 	UnknownReject UnknownPolicy = ""
-	UnknownAllow  UnknownPolicy = "allow"
+	// UnknownAllow records uncertainty and lets the provider validate it.
+	UnknownAllow UnknownPolicy = "allow"
 )
 
 // EvidenceMethod says how a capability claim was established, not whether a
@@ -40,10 +54,14 @@ const (
 type EvidenceMethod string
 
 const (
-	EvidenceLiveProbe     EvidenceMethod = "live_probe"
+	// EvidenceLiveProbe records a tested provider operation.
+	EvidenceLiveProbe EvidenceMethod = "live_probe"
+	// EvidenceDocumentation records a published provider claim.
 	EvidenceDocumentation EvidenceMethod = "documentation"
-	EvidenceInference     EvidenceMethod = "inference"
-	EvidenceFixture       EvidenceMethod = "fixture"
+	// EvidenceInference records a conclusion without direct qualification.
+	EvidenceInference EvidenceMethod = "inference"
+	// EvidenceFixture records behavior observed against a local fixture.
+	EvidenceFixture EvidenceMethod = "fixture"
 )
 
 // ModelEvidence scopes capability claims to an exact model, API, and endpoint.

@@ -1,5 +1,3 @@
-// OpenAI hosted tools are adapted from Dive's tool_web_search_preview.go and
-// ResponsesToolProvider implementations.
 package responses
 
 import (
@@ -223,13 +221,15 @@ func (wire codec) hostedTool(
 	case "mcp":
 		var options MCPOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, nil, wire.unsupported("MCP options: %v", err)
+			return nil, nil, wire.unsupported("mcp options: %w", err)
 		}
 		if definition.Name != "mcp:"+options.ServerLabel {
-			return nil, nil, wire.unsupported("MCP tool name must match server label")
+			return nil, nil, wire.unsupported(
+				"mcp tool name must match server label",
+			)
 		}
 		if err := validateMCPOptions(options); err != nil {
-			return nil, nil, wire.unsupported("MCP options: %v", err)
+			return nil, nil, wire.unsupported("mcp options: %w", err)
 		}
 		config["server_label"] = options.ServerLabel
 		config["server_url"] = options.ServerURL
@@ -250,18 +250,18 @@ func (wire codec) hostedTool(
 
 func validateMCPOptions(options MCPOptions) error {
 	if options.ServerLabel == "" {
-		return errors.New("responses: MCP requires a server label")
+		return errors.New("responses: mcp requires a server label")
 	}
 	u, err := url.Parse(options.ServerURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" ||
 		u.User != nil || u.Fragment != "" || u.RawQuery != "" {
-		return errors.New("responses: MCP requires an HTTPS server URL")
+		return errors.New("responses: mcp requires an HTTPS server URL")
 	}
 	switch options.RequireApproval {
 	case "", "always", "never":
 		return nil
 	}
-	return errors.New("responses: MCP approval must be always or never")
+	return errors.New("responses: mcp approval must be always or never")
 }
 
 func decodeHostedOptions(raw json.RawMessage, out any) error {

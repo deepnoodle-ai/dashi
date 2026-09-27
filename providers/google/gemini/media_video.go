@@ -244,11 +244,18 @@ func (p *MediaClient) operationURL(name, operation string) (string, error) {
 		path.Clean(operation) != operation || strings.HasPrefix(operation, "/") {
 		return "", p.failure(media.ErrorProtocol, "invalid Veo operation name")
 	}
-	if operation != "operations/"+path.Base(operation) &&
-		!strings.HasPrefix(operation, "models/"+name+"/operations/") {
+	prefix := "models/" + name + "/operations/"
+	var operationID string
+	switch {
+	case strings.HasPrefix(operation, prefix):
+		operationID = strings.TrimPrefix(operation, prefix)
+	case strings.HasPrefix(operation, "operations/"):
+		operationID = strings.TrimPrefix(operation, "operations/")
+	default:
 		return "", p.failure(media.ErrorProtocol, "Veo operation belongs to another model")
 	}
-	if path.Base(operation) == "." || path.Base(operation) == "" {
+	if operationID == "" || strings.Contains(operationID, "/") ||
+		url.PathEscape(operationID) != operationID {
 		return "", p.failure(media.ErrorProtocol, "invalid Veo operation name")
 	}
 	u, _ := url.Parse(p.videoURL(name))

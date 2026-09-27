@@ -32,16 +32,30 @@ const (
 // for an exact model, API, and base endpoint. A model without evidence requires
 // explicit UnknownAllow before its operation can be prepared.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]media.ModelInfo
+	// Provider is the application's stable destination name. It defaults to
+	// "grok" only for DefaultEndpoint; custom endpoints require a name.
+	Provider string
+
+	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY.
+	APIKey string
+
+	// Endpoint is the base URL shared by image and video routes.
+	Endpoint string
+
+	// Client supplies transport and timeout behavior without hidden retries.
+	Client *http.Client
+
+	// Models contains evidence keyed by exact model ID.
+	Models map[string]media.ModelInfo
+
+	// UnknownCapabilities controls how absent model claims are handled.
 	UnknownCapabilities model.UnknownPolicy
 }
 
 // Client prepares and executes dedicated xAI image calls and video jobs.
 // It snapshots configuration; the configured HTTP client remains shared.
 type Client struct {
+	provider string
 	endpoint string
 	apiKey   string
 	http     *http.Client
@@ -69,6 +83,15 @@ func New(config Config) (*Client, error) {
 		return nil, errors.New("imagine: endpoint must be an absolute HTTP(S) base URL")
 	}
 	endpoint := strings.TrimRight(u.String(), "/")
+	if config.Provider == "" {
+		if endpoint != DefaultEndpoint {
+			return nil, errors.New("imagine: custom endpoint requires provider identity")
+		}
+		config.Provider = "grok"
+	}
+	if strings.TrimSpace(config.Provider) == "" {
+		return nil, errors.New("imagine: provider identity is required")
+	}
 	if config.UnknownCapabilities != model.UnknownReject &&
 		config.UnknownCapabilities != model.UnknownAllow {
 		return nil, errors.New("imagine: invalid unknown capability policy")
@@ -95,18 +118,19 @@ func New(config Config) (*Client, error) {
 		models[name] = info.Clone()
 	}
 	return &Client{
+		provider: config.Provider,
 		endpoint: endpoint,
 		apiKey:   config.APIKey,
 		http:     config.Client,
 		models:   models,
 		unknown:  config.UnknownCapabilities,
 		image: content.Origin{
-			Provider: "grok",
+			Provider: config.Provider,
 			API:      ImageAPI,
 			Scope:    credentialScope(ImageAPI, endpoint, config.APIKey),
 		},
 		video: content.Origin{
-			Provider: "grok",
+			Provider: config.Provider,
 			API:      VideoAPI,
 			Scope:    credentialScope(VideoAPI, endpoint, config.APIKey),
 		},

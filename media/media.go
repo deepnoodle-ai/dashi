@@ -1,7 +1,8 @@
-// Package media defines values for image, video, and non-speech audio
-// generation. Its values do not assign a fixed call or job lifecycle to any
-// medium. Provider clients and wire plans are qualified separately; this
-// package does not select providers or store artifacts.
+// Package media defines inputs, capabilities, prepared requests, results, and
+// jobs for image, video, and non-speech audio generation. Media type and
+// execution shape remain separate: an image may be a call or a job. Provider
+// adapters own wire formats; this package does not select providers or store
+// artifacts.
 package media
 
 import (

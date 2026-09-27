@@ -35,13 +35,22 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 		capability = options[0]
 	}
 	remappedIDs := toolIDRemaps(input)
+	var omittableHosted map[hostedPosition]bool
+	if input.ContentPolicy.ForeignHostedActivity == llm.HostedOmit {
+		omittableHosted = completedForeignHosted(input, origin)
+	}
 	out := input
 	out.Messages = make([]llm.Message, 0, len(input.Messages))
 	var changes []llm.ContentChange
 	omittedReasoning := false
+	omittedHosted := false
 	usableHistory := false
 	calls := map[string]bool{}
 	pending := map[string]bool{}
+	hostedCalls := map[string]bool{}
+	hostedResults := map[string]bool{}
+	hostedPending := map[string]int{}
+	approvals := map[string]bool{}
 	for mi, original := range input.Messages {
 		m := original.Clone()
 		kept := make([]llm.Content, 0, len(m.Content))
@@ -76,11 +85,28 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 			if c.ToolResult != nil {
 				remapID(&c.ToolResult.CallID)
 			}
+			if omittableHosted[hostedPosition{mi, ci}] {
+				record(
+					llm.ContentChangeOmitHostedActivity,
+					"completed hosted activity belongs to another destination",
+				)
+				omittedHosted = true
+				continue
+			}
 			if err := checkReferences(*c, origin); err != nil {
 				return fail(err.Error())
 			}
 			if c.Opaque != nil && c.Opaque.Origin != origin {
 				return fail("opaque content requires its original destination")
+			}
+			if c.HostedUse != nil || c.HostedResult != nil ||
+				c.HostedApprovalRequest != nil || c.HostedApprovalResponse != nil {
+				if err := checkHosted(*c, m.Role, origin, hostedCalls,
+					hostedResults, hostedPending, approvals, mi); err != nil {
+					return fail(err.Error())
+				}
+				kept = append(kept, *c)
+				continue
 			}
 			if c.Kind == llm.ContentReasoning {
 				if m.Role != llm.RoleAssistant {
@@ -146,15 +172,186 @@ func Adapt(input llm.Input, origin content.Origin, options ...AdaptOptions) (llm
 			usableHistory = true
 		}
 	}
-	if omittedReasoning && !usableHistory {
+	if (omittedReasoning || omittedHosted) && !usableHistory {
 		return llm.Input{}, nil, &llm.Error{Provider: origin.Provider, Category: llm.ErrorUnsupported,
-			Cause: errors.New("providercontent: reasoning omission would leave no usable input")}
+			Cause: errors.New("providercontent: content omission would leave no usable input")}
 	}
 	if len(pending) != 0 {
 		return llm.Input{}, nil, &llm.Error{Provider: origin.Provider, Category: llm.ErrorUnsupported,
 			Cause: fmt.Errorf("providercontent: history has %d unresolved tool calls", len(pending))}
 	}
+	for _, from := range hostedPending {
+		if !hostedTail(input.Messages, from) {
+			return llm.Input{}, nil, &llm.Error{
+				Provider: origin.Provider,
+				Category: llm.ErrorUnsupported,
+				Cause: errors.New(
+					"providercontent: unfinished hosted call requires a paused or mixed-tool tail",
+				),
+			}
+		}
+	}
 	return out, changes, nil
+}
+
+func checkHosted(
+	c llm.Content,
+	role llm.Role,
+	origin content.Origin,
+	calls map[string]bool,
+	results map[string]bool,
+	pending map[string]int,
+	approvals map[string]bool,
+	messageIndex int,
+) error {
+	var artifactOrigin content.Origin
+	switch {
+	case c.HostedUse != nil:
+		artifactOrigin = c.HostedUse.Origin
+	case c.HostedResult != nil:
+		artifactOrigin = c.HostedResult.Origin
+	case c.HostedApprovalRequest != nil:
+		artifactOrigin = c.HostedApprovalRequest.Origin
+	case c.HostedApprovalResponse != nil:
+		artifactOrigin = c.HostedApprovalResponse.Origin
+	}
+	if artifactOrigin != origin {
+		return errors.New("hosted activity requires its original destination")
+	}
+	if c.HostedApprovalResponse != nil {
+		response := c.HostedApprovalResponse
+		if role != llm.RoleUser || !approvals[response.RequestID] {
+			return errors.New("hosted approval requires a preceding request")
+		}
+		approvals[response.RequestID] = false
+		return nil
+	}
+	if role != llm.RoleAssistant || c.Replay == nil ||
+		c.Replay.Origin != origin || c.Replay.Partial {
+		return errors.New("hosted output requires assistant role and original replay data")
+	}
+	switch {
+	case c.HostedUse != nil:
+		use := c.HostedUse
+		if calls[use.ID] {
+			return errors.New("hosted use ID must be unique")
+		}
+		calls[use.ID] = true
+		if use.Status != "completed" && use.Status != "failed" {
+			pending[use.ID] = messageIndex
+		}
+	case c.HostedResult != nil:
+		result := c.HostedResult
+		if !calls[result.CallID] || results[result.CallID] {
+			return errors.New("hosted result requires an earlier use")
+		}
+		results[result.CallID] = true
+		delete(pending, result.CallID)
+	case c.HostedApprovalRequest != nil:
+		request := c.HostedApprovalRequest
+		if _, seen := approvals[request.ID]; seen {
+			return errors.New("hosted approval request ID must be unique")
+		}
+		approvals[request.ID] = true
+	}
+	return nil
+}
+
+func hostedTail(messages []llm.Message, from int) bool {
+	for _, message := range messages[from+1:] {
+		if message.Role != llm.RoleUser {
+			return false
+		}
+		for _, part := range message.Content {
+			if part.ToolResult == nil && part.HostedApprovalResponse == nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+type hostedPosition struct {
+	message int
+	content int
+}
+
+type hostedKey struct {
+	origin content.Origin
+	id     string
+}
+
+type hostedPair struct {
+	use    hostedPosition
+	result hostedPosition
+	status string
+	valid  bool
+	paired bool
+}
+
+// Omission is decided for complete exchanges before adapting any message.
+// This keeps a foreign use from being dropped ahead of a later pending result.
+func completedForeignHosted(
+	input llm.Input,
+	origin content.Origin,
+) map[hostedPosition]bool {
+	pairs := map[hostedKey]hostedPair{}
+	for mi, message := range input.Messages {
+		for ci, part := range message.Content {
+			position := hostedPosition{mi, ci}
+			switch {
+			case part.HostedUse != nil:
+				use := part.HostedUse
+				if use.Origin == origin {
+					continue
+				}
+				key := hostedKey{use.Origin, use.ID}
+				_, duplicate := pairs[key]
+				pairs[key] = hostedPair{
+					use:    position,
+					status: use.Status,
+					valid: !duplicate && message.Role == llm.RoleAssistant &&
+						validForeignReplay(part.Replay, use.Origin),
+				}
+			case part.HostedResult != nil:
+				result := part.HostedResult
+				if result.Origin == origin {
+					continue
+				}
+				key := hostedKey{result.Origin, result.CallID}
+				pair, found := pairs[key]
+				if !found {
+					continue
+				}
+				pair.valid = pair.valid && !pair.paired &&
+					message.Role == llm.RoleAssistant &&
+					validForeignReplay(part.Replay, result.Origin)
+				pair.paired = true
+				pair.result = position
+				pairs[key] = pair
+			}
+		}
+	}
+	omittable := map[hostedPosition]bool{}
+	for _, pair := range pairs {
+		complete := pair.paired || pair.status == "completed" ||
+			pair.status == "failed"
+		if !pair.valid || !complete {
+			continue
+		}
+		omittable[pair.use] = true
+		if pair.paired {
+			omittable[pair.result] = true
+		}
+	}
+	return omittable
+}
+
+func validForeignReplay(
+	replay *llm.Opaque,
+	origin content.Origin,
+) bool {
+	return replay != nil && replay.Origin == origin && !replay.Partial
 }
 
 func checkReferences(c llm.Content, origin content.Origin) error {
@@ -165,6 +362,20 @@ func checkReferences(c llm.Content, origin content.Origin) error {
 	}
 	if c.ToolResult != nil {
 		for _, b := range c.ToolResult.Output.Content {
+			if err := checkBlock(b, origin); err != nil {
+				return err
+			}
+		}
+	}
+	if c.HostedUse != nil {
+		for _, b := range c.HostedUse.Output {
+			if err := checkBlock(b, origin); err != nil {
+				return err
+			}
+		}
+	}
+	if c.HostedResult != nil {
+		for _, b := range c.HostedResult.Output {
 			if err := checkBlock(b, origin); err != nil {
 				return err
 			}

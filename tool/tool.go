@@ -74,10 +74,14 @@ type Definition struct {
 // HostedSpec binds a server-executed tool to one provider and API. Options
 // contain non-secret provider fields; credentials belong on the client.
 type HostedSpec struct {
-	Provider string          `json:"provider"`
-	API      string          `json:"api"`
-	Type     string          `json:"type"`
-	Options  json.RawMessage `json:"options,omitempty"`
+	// Provider identifies the configured destination that owns this tool.
+	Provider string `json:"provider"`
+	// API prevents the same provider name from crossing wire formats.
+	API string `json:"api"`
+	// Type is the provider's wire tool version or kind.
+	Type string `json:"type"`
+	// Options contain non-secret provider fields and are owned after Clone.
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 // Validate requires a bound wire type and an optional JSON object. Adapters

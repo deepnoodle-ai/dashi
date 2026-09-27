@@ -1,5 +1,3 @@
-// Anthropic hosted search options are adapted from Dive's
-// tool_web_search.go.
 package messages
 
 import (
@@ -217,7 +215,9 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 	switch spec.Type {
 	case WebSearchType:
 		if d.Name != "web_search" {
-			return nil, wire.unsupported("Anthropic web search requires name web_search")
+			return nil, wire.unsupported(
+				"anthropic web search requires name web_search",
+			)
 		}
 		var options webSearchOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
@@ -255,7 +255,9 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 		}
 	case WebFetchType:
 		if d.Name != "web_fetch" {
-			return nil, wire.unsupported("Anthropic web fetch requires name web_fetch")
+			return nil, wire.unsupported(
+				"anthropic web fetch requires name web_fetch",
+			)
 		}
 		var options struct {
 			MaxUses int `json:"max_uses"`
@@ -272,13 +274,13 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 	case MCPToolsetType:
 		var options MCPToolsetOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
-			return nil, wire.unsupported("MCP toolset options: %v", err)
+			return nil, wire.unsupported("mcp toolset options: %w", err)
 		}
 		if err := validateMCPToolset(options); err != nil {
-			return nil, wire.unsupported("MCP toolset options: %v", err)
+			return nil, wire.unsupported("mcp toolset options: %w", err)
 		}
 		if d.Name != "mcp:"+options.Name {
-			return nil, wire.unsupported("MCP toolset name must match server")
+			return nil, wire.unsupported("mcp toolset name must match server")
 		}
 		config["mcp_server_name"] = options.Name
 		delete(config, "name")
@@ -290,12 +292,12 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 
 func validateMCPToolset(options MCPToolsetOptions) error {
 	if options.Name == "" {
-		return errors.New("messages: MCP toolset requires a server name")
+		return errors.New("messages: mcp toolset requires a server name")
 	}
 	u, err := url.Parse(options.URL)
 	if err != nil || u.Scheme != "https" || u.Host == "" ||
 		u.User != nil || u.Fragment != "" || u.RawQuery != "" {
-		return errors.New("messages: MCP toolset requires an HTTPS URL")
+		return errors.New("messages: mcp toolset requires an HTTPS URL")
 	}
 	return nil
 }
