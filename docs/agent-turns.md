@@ -32,6 +32,27 @@ advancing execution. `Cancel` prevents further execution: unstarted calls
 become known not executed, while started effects can still receive late results
 for reconciliation and usage accounting.
 
+## Runtime reminders
+
+Use `llm.ReminderMessage(llm.Reminder{Name: "workspace", Tier:
+llm.ReminderContextual, Content: "..."})` in `Start.Input` or a `ContextItem`
+delivered with `Deliver` for recorded context. A `ContextItem` can use
+`Snapshot` for latest-value replacement or `NextCallOnly` for one model call.
+Only `StartOperator` or `ContextItem{Origin: "operator"}` may carry an
+operator-tier recorded reminder. The host authenticates those origins.
+
+Set `Bindings.ModelOnlyReminders` for context sent on every model call in the
+current `Apply` or `Stream` invocation. `BeforeModel` may return
+`ModelDecision.ModelOnlyReminders` for its current call. Their content and
+application details are absent from the turn and from `Project`; each model
+intent retains only name, tier, and a content digest. Supply binding reminders
+again after a later `Accept` or `Continue`. Provider preparation renders the
+typed content, omits details, and records the resulting role in
+`ContentChanges`. Operator-tier reminders use developer authority on
+first-party OpenAI Responses; other routes currently receive user-role text.
+The model may quote a reminder in its recorded answer.
+See [runtime reminders](../design/runtime-reminders.md) for the tradeoffs.
+
 `DefaultLimits()` reserves the last model attempt for a final answer after at
 least one earlier attempt. That request omits application and provider-hosted
 tools and clears forced tool choice. It is prepared, authorized, recorded, and

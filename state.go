@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,6 +194,9 @@ func (s *replayState) apply(step Step) error {
 			if err := validateMessage(m); err != nil {
 				return err
 			}
+			if reminder := messageReminder(m); reminder != nil && reminder.Tier == llm.ReminderOperator && origin != StartOperator {
+				return errors.New("operator reminder requires operator start origin")
+			}
 		}
 		s.Definition = step.Started.Definition
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
@@ -234,6 +238,14 @@ func (s *replayState) apply(step Step) error {
 		}
 		if len(step.Model.Admission) > 0 && (!json.Valid(step.Model.Admission) || len(step.Model.Admission) > 16<<10) {
 			return errors.New("invalid model admission metadata")
+		}
+		for _, evidence := range step.Model.ModelOnlyReminders {
+			if err := (llm.Reminder{Name: evidence.Name, Tier: evidence.Tier}).Validate(); err != nil || len(evidence.Digest) != 64 {
+				return errors.New("invalid model-only reminder evidence")
+			}
+			if _, err := hex.DecodeString(evidence.Digest); err != nil {
+				return errors.New("invalid model-only reminder digest")
+			}
 		}
 		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
@@ -691,6 +703,17 @@ func validateMessage(m llm.Message) error {
 			return err
 		}
 	}
+	for _, part := range m.Content {
+		if part.Kind == llm.ContentReminder && (m.Role != llm.RoleUser || len(m.Content) != 1) {
+			return errors.New("reminder requires a standalone user message")
+		}
+	}
+	return nil
+}
+func messageReminder(m llm.Message) *llm.Reminder {
+	if len(m.Content) == 1 && m.Content[0].Kind == llm.ContentReminder {
+		return m.Content[0].Reminder
+	}
 	return nil
 }
 func validateContext(item ContextItem) error {
@@ -708,6 +731,9 @@ func validateContext(item ContextItem) error {
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
+	}
+	if reminder := messageReminder(item.Message); reminder != nil && reminder.Tier == llm.ReminderOperator && item.Origin != "operator" {
+		return errors.New("operator reminder requires operator context origin")
 	}
 	return validateMessage(item.Message)
 }

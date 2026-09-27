@@ -139,6 +139,9 @@ Ranging the same turn sequence again returns `kernel.ErrStreamConsumed`.
 
 ## Verify
 
+For typed recorded and invocation-only context, see
+[runtime reminders](design/runtime-reminders.md).
+
 ```sh
 go test -race ./...
 go vet ./...

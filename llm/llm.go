@@ -63,6 +63,8 @@ const (
 	ContentReasoning ContentKind = "reasoning"
 	// ContentRefusal preserves refusal text separately from ordinary output.
 	ContentRefusal ContentKind = "refusal"
+	// ContentReminder carries named runtime context until provider preparation.
+	ContentReminder ContentKind = "reminder"
 	// ContentOpaque retains provider content outside the canonical vocabulary.
 	ContentOpaque ContentKind = "opaque"
 )
@@ -124,6 +126,9 @@ type Content struct {
 	// payload.
 	Refusal *string `json:"refusal,omitempty"`
 
+	// Reminder is runtime context, separate from user-authored text.
+	Reminder *Reminder `json:"reminder,omitempty"`
+
 	// Opaque is required only for ContentOpaque.
 	Opaque *Opaque `json:"opaque,omitempty"`
 
@@ -150,10 +155,13 @@ func (c Content) Validate() error {
 	if count(c.Block != nil, c.ToolCall != nil, c.ToolResult != nil,
 		c.HostedUse != nil, c.HostedResult != nil,
 		c.HostedApprovalRequest != nil, c.HostedApprovalResponse != nil,
-		c.Reasoning != nil, c.Refusal != nil, c.Opaque != nil) != 1 {
+		c.Reasoning != nil, c.Refusal != nil, c.Reminder != nil, c.Opaque != nil) != 1 {
 		return errors.New("llm: content requires one payload")
 	}
 	if c.Replay != nil {
+		if c.Kind == ContentReminder {
+			return errors.New("llm: reminder cannot carry provider replay data")
+		}
 		if c.Kind == ContentOpaque {
 			return errors.New("llm: opaque content cannot also carry replay data")
 		}
@@ -196,6 +204,8 @@ func (c Content) Validate() error {
 		return nil
 	case c.Kind == ContentRefusal && c.Refusal != nil:
 		return nil
+	case c.Kind == ContentReminder && c.Reminder != nil:
+		return c.Reminder.Validate()
 	case c.Kind == ContentOpaque && c.Opaque != nil:
 		return c.Opaque.Validate()
 	}
@@ -412,6 +422,9 @@ func (r Input) Validate() error {
 		for _, c := range m.Content {
 			if err := c.Validate(); err != nil {
 				return err
+			}
+			if c.Kind == ContentReminder && (m.Role != RoleUser || len(m.Content) != 1) {
+				return errors.New("llm: reminder requires its own user-role message")
 			}
 			for _, o := range []*Opaque{c.Replay, c.Opaque} {
 				if o != nil && o.Partial {
