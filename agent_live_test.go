@@ -13,25 +13,56 @@ import (
 
 	"github.com/deepnoodle-ai/kernel"
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
+	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// Run with KERNEL_LIVE_AGENT_TEST=1, GEMINI_API_KEY, and GEMINI_MODEL.
-// The streamed final turn makes one paid call; the tool turn makes two.
+// Run with KERNEL_LIVE_AGENT_TEST=1 and the corresponding provider key/model.
+// Each streamed final turn makes one paid call; each tool turn makes two.
 func TestLiveGeminiAgentTurn(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_AGENT_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_AGENT_TEST=1 to make paid Gemini agent calls")
-	}
-	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL")
-	if key == "" || modelName == "" {
-		t.Fatal("GEMINI_API_KEY and GEMINI_MODEL are required")
-	}
+	key, modelName := liveAgentCredentials(t, "GEMINI")
 	client, err := gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := kernel.Definition{ID: "gemini-live", Revision: "1", Provider: client.Provider(),
+	runLiveAgentTurn(t, "gemini", client, modelName)
+}
+
+func TestLiveOpenAIAgentTurn(t *testing.T) {
+	key, modelName := liveAgentCredentials(t, "OPENAI")
+	client, err := responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLiveAgentTurn(t, "openai", client, modelName)
+}
+
+func TestLiveAnthropicAgentTurn(t *testing.T) {
+	key, modelName := liveAgentCredentials(t, "ANTHROPIC")
+	client, err := messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLiveAgentTurn(t, "anthropic", client, modelName)
+}
+
+func liveAgentCredentials(t *testing.T, provider string) (string, string) {
+	t.Helper()
+	if os.Getenv("KERNEL_LIVE_AGENT_TEST") != "1" {
+		t.Skip("set KERNEL_LIVE_AGENT_TEST=1 to make paid agent calls")
+	}
+	key, modelName := os.Getenv(provider+"_API_KEY"), os.Getenv(provider+"_MODEL")
+	if key == "" || modelName == "" {
+		t.Fatalf("%s_API_KEY and %s_MODEL are required", provider, provider)
+	}
+	return key, modelName
+}
+
+func runLiveAgentTurn(t *testing.T, provider string, client llm.Client, modelName string) {
+	t.Helper()
+	definition := kernel.Definition{ID: provider + "-live", Revision: "1", Provider: client.Provider(),
 		API: client.API(), Model: modelName, Settings: llm.Settings{MaxTokens: 1024},
 		Limits: kernel.DefaultLimits()}
 
@@ -42,7 +73,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 		start := kernel.Start{ID: "start", Input: []llm.Message{
 			llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
 		}}
-		out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "gemini-live-stream"},
+		out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: provider + "-live-stream"},
 			definition, start, kernel.Bindings{Client: client, Recorder: recorder, Stream: true})
 		if err != nil {
 			t.Fatal(err)
@@ -58,7 +89,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 		}
 		if out.Turn.Steps[2].Model.Result.Message.Source == nil ||
 			out.Turn.Steps[2].Model.Result.Message.Source.Requested.Model != modelName {
-			t.Fatal("streamed answer lost Gemini message provenance")
+			t.Fatalf("streamed answer lost %s message provenance", provider)
 		}
 		t.Logf("streamed turn: attempts=%d steps=%d answer=%q", view.ModelAttempts,
 			len(out.Turn.Steps), out.Turn.AnswerText())
@@ -67,7 +98,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 	t.Run("local_tool_and_duplicate_start", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
-		const turnID = "gemini-live-tool"
+		turnID := provider + "-live-tool"
 		recorder := kernel.NewMemoryRecorder()
 		runs := 0
 		typed, err := tool.Func[struct {
@@ -86,7 +117,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 					return tool.Outcome{}, errors.New("tool started before its step was acknowledged")
 				}
 				if args.A != 7 || args.B != 8 {
-					return tool.Outcome{}, errors.New("Gemini supplied unexpected tool arguments")
+					return tool.Outcome{}, errors.New(provider + " supplied unexpected tool arguments")
 				}
 				runs++
 				output := tool.TextOutput(strconv.Itoa(args.A * args.B))
@@ -137,7 +168,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 		for _, index := range []int{2, 7} {
 			if out.Turn.Steps[index].Model.Result.Message.Source == nil ||
 				out.Turn.Steps[index].Model.Result.Message.Source.Requested.Model != modelName {
-				t.Fatalf("model step %d lost Gemini message provenance", index+1)
+				t.Fatalf("model step %d lost %s message provenance", index+1, provider)
 			}
 		}
 		duplicate, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: turnID}, definition, start, bindings)

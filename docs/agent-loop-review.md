@@ -49,7 +49,7 @@ reducer should follow evidence of need rather than precede it.
 
 The tracked `design/` decision set now makes the README and `AGENTS.md`
 references available in a fresh checkout. Local race tests, vet, and build
-support this implementation. The selected final-result live routes below also
+support this implementation. The selected live provider exercises below also
 passed on 2026-09-27.
 
 ## Remaining qualification
@@ -59,9 +59,12 @@ same atomicity and takeover behavior under process failure. The opt-in
 six-call final-result probe in `providers/live_agent_test.go` passed on
 2026-09-27 for Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
 Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`), each with
-blocking and streaming calls. Hosted-tool behavior, other models and routes,
-and Vertex ADC still need live qualification. The
-engine-dispatch decision stays provisional until that consumer proof exists.
+blocking and streaming calls. The three-call-per-provider
+`agent_live_test.go` exercise also passed for those models: streamed
+`Engine.Apply` final answer, local tool execution and second model call, step
+replay, and duplicate-start suppression. Hosted-tool behavior,
+other models and routes, and Vertex ADC still need live qualification. The
+engine-dispatch decision stays provisional until durable consumer proof exists.
 Session runners, child turns, and compaction remain separate areas. A host
 must authenticate commands, operator origin, external results, and
 nonexecution evidence; Kernel validates correlation, not the external truth.

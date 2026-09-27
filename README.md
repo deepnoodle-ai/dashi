@@ -134,17 +134,20 @@ six paid requests. To test one provider, filter a subtest such as
 On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
 Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
 Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
-On 2026-09-27, Gemini agent turns passed live using `Engine.Apply`: a streamed
-final answer and a local tool call followed by a second model call. With
-`GEMINI_API_KEY` set:
+On 2026-09-27, Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
+Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`) agent turns
+passed live using `Engine.Apply`: a streamed final answer and a local tool call
+followed by a second model call. With the corresponding API keys set:
 
 ```sh
-KERNEL_LIVE_AGENT_TEST=1 GEMINI_MODEL=gemini-2.5-flash \
-  go test -tags live . -run '^TestLiveGeminiAgentTurn$' -v
+KERNEL_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
+  OPENAI_MODEL=gpt-4.1-mini GEMINI_MODEL=gemini-2.5-flash \
+  go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)AgentTurn$' -v
 ```
 
-It makes three paid calls and checks the recorded steps, replay, and duplicate
-start. Gemini's conversational client defaults to `v1beta` because the tested
+This makes three paid calls per provider and checks the recorded steps, replay,
+and duplicate start. Filter `-run` to one provider when needed. Gemini's
+conversational client defaults to `v1beta` because the tested
 `v1` route rejected function calling. Pin `v1` explicitly only for turns that
 must retain its earlier private replay scope; `Prepare` rejects client function
 calls there before dispatch.
