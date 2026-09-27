@@ -1,0 +1,158 @@
+package media
+
+import (
+	"encoding/json"
+	"errors"
+	"slices"
+	"time"
+
+	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/model"
+)
+
+// Job is a provider handle for polling an accepted remote operation. The ID
+// is meaningful only within Origin's destination scope. Kernel does not own
+// persistence or retries.
+type Job struct {
+	ID        string         `json:"id"`
+	Kind      Kind           `json:"kind"`
+	Origin    content.Origin `json:"origin"`
+	ExpiresAt *time.Time     `json:"expires_at,omitempty"`
+}
+
+// Validate requires the handle and its destination scope.
+func (j Job) Validate() error {
+	if j.ID == "" || !knownKind(j.Kind) || j.Origin.Validate() != nil ||
+		j.Origin.Model == "" {
+		return errors.New("media: job requires ID, kind, and model origin")
+	}
+	return nil
+}
+
+// Clone detaches optional expiry before the caller changes a copy.
+func (j Job) Clone() Job {
+	if j.ExpiresAt != nil {
+		expiry := *j.ExpiresAt
+		j.ExpiresAt = &expiry
+	}
+	return j
+}
+
+// SubmissionState records whether the provider accepted a job request. An
+// unknown state does not authorize resubmission.
+type SubmissionState string
+
+const (
+	// SubmissionAccepted means the provider returned a usable job handle.
+	SubmissionAccepted SubmissionState = "accepted"
+	// SubmissionRejected means the provider is known not to have accepted it.
+	SubmissionRejected SubmissionState = "rejected"
+	// SubmissionUnknown means receipt could not be established.
+	SubmissionUnknown SubmissionState = "unknown"
+)
+
+// Submission keeps receipt uncertainty distinct from a known remote handle.
+// Rejected and unknown submissions have no handle; the caller records errors
+// and reconciliation evidence separately.
+type Submission struct {
+	State SubmissionState `json:"state"`
+	Job   *Job            `json:"job,omitempty"`
+}
+
+// Validate rejects invented handles for uncertain or rejected submissions.
+func (s Submission) Validate() error {
+	switch s.State {
+	case SubmissionAccepted:
+		if s.Job != nil {
+			return s.Job.Validate()
+		}
+	case SubmissionRejected, SubmissionUnknown:
+		if s.Job == nil {
+			return nil
+		}
+	}
+	return errors.New("media: submission state and job handle disagree")
+}
+
+// Clone detaches the accepted job handle and its expiry from the original.
+func (s Submission) Clone() Submission {
+	if s.Job != nil {
+		job := s.Job.Clone()
+		s.Job = &job
+	}
+	return s
+}
+
+// JobState describes the remote work seen during one poll, independently of
+// the submission outcome and local output retrieval.
+type JobState string
+
+const (
+	// JobPending means the provider has not finished the operation.
+	JobPending JobState = "pending"
+	// JobSucceeded means output is available for a separate fetch step.
+	JobSucceeded JobState = "succeeded"
+	// JobFailed means the provider completed without usable output.
+	JobFailed JobState = "failed"
+	// JobExpired means the provider no longer retains the job or output.
+	JobExpired JobState = "expired"
+)
+
+// JobPoll records one provider status observation. Content holds output
+// references when a provider returns them; a fetch step resolves those refs or
+// retrieves the output from the job ID. Failure is provider-reported detail.
+type JobPoll struct {
+	Job     Job             `json:"job"`
+	State   JobState        `json:"state"`
+	Served  model.ModelRef  `json:"served,omitzero"`
+	Content []content.Block `json:"content,omitempty"`
+	Failure string          `json:"failure,omitempty"`
+	// RawUsage retains a reported usage object until output fetching completes.
+	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
+}
+
+// Validate prevents an incomplete or failed job from claiming output.
+func (p JobPoll) Validate() error {
+	if err := p.Job.Validate(); err != nil {
+		return err
+	}
+	if p.Served != (model.ModelRef{}) &&
+		(p.Served.Provider != p.Job.Origin.Provider || p.Served.Model == "") {
+		return errors.New("media: polled served model requires the job provider")
+	}
+	if err := validateRawUsage(p.RawUsage); err != nil {
+		return err
+	}
+	switch p.State {
+	case JobPending, JobFailed, JobExpired:
+		if len(p.Content) > 0 {
+			return errors.New("media: unfinished job cannot carry output")
+		}
+	case JobSucceeded:
+		if p.Failure != "" {
+			return errors.New("media: successful job cannot carry failure")
+		}
+		for _, block := range p.Content {
+			if block.Kind != content.Kind(p.Job.Kind) {
+				return errors.New("media: job output requires blocks matching its kind")
+			}
+			if err := block.Validate(); err != nil {
+				return err
+			}
+		}
+	default:
+		return errors.New("media: invalid job state")
+	}
+	return nil
+}
+
+// Clone detaches the job expiry and any output references.
+func (p JobPoll) Clone() JobPoll {
+	p.Job = p.Job.Clone()
+	p.Content = slices.Clone(p.Content)
+	for i := range p.Content {
+		p.Content[i] = p.Content[i].Clone()
+	}
+	p.RawUsage = slices.Clone(p.RawUsage)
+	return p
+}

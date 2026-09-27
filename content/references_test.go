@@ -55,7 +55,6 @@ func TestBlockCloneCopiesReferenceExpiry(t *testing.T) {
 		},
 	}
 	clone := block.Clone()
-	clone.Resource.ExpiresAt.AddDate(1, 0, 0)
 	*clone.Resource.ExpiresAt = expires.AddDate(1, 0, 0)
 	if !block.Resource.ExpiresAt.Equal(expires) {
 		t.Fatal("resource expiry shared caller pointer")

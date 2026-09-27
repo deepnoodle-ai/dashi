@@ -17,6 +17,22 @@ func (c Content) Clone() Content {
 		v.Output = v.Output.Clone()
 		c.ToolResult = &v
 	}
+	if c.HostedUse != nil {
+		v := c.HostedUse.Clone()
+		c.HostedUse = &v
+	}
+	if c.HostedResult != nil {
+		v := c.HostedResult.Clone()
+		c.HostedResult = &v
+	}
+	if c.HostedApprovalRequest != nil {
+		v := c.HostedApprovalRequest.Clone()
+		c.HostedApprovalRequest = &v
+	}
+	if c.HostedApprovalResponse != nil {
+		v := *c.HostedApprovalResponse
+		c.HostedApprovalResponse = &v
+	}
 	if c.Reasoning != nil {
 		v := *c.Reasoning
 		c.Reasoning = &v

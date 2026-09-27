@@ -38,6 +38,20 @@ func TestUsageUnmarshalReasoningTokens(t *testing.T) {
 	}
 }
 
+func TestUsageUnmarshalRejectsLegacyResultFields(t *testing.T) {
+	for _, raw := range []string{
+		`{"input_tokens":10,"cost":{"total":0.25}}`,
+		`{"input_tokens":10,"cost_estimate_unavailable":true}`,
+		`{"input_tokens":10,"service_tier":"priority"}`,
+		`{"input_tokens":10,"speed":"fast"}`,
+	} {
+		var usage Usage
+		if err := json.Unmarshal([]byte(raw), &usage); err == nil {
+			t.Fatalf("legacy result fact disappeared from usage: %s", raw)
+		}
+	}
+}
+
 func TestUsageUnmarshalNativeInputDetails(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

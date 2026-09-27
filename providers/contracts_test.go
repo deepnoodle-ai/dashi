@@ -183,6 +183,10 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 				Currency:  "USD",
 				UpdatedAt: "2026-09-27",
 				Base:      llm.Rates{Input: 2},
+				Tiers: []llm.PriceTier{{
+					MinInputTokens: 100,
+					Rates:          llm.Rates{Input: 4},
+				}},
 				Modality: map[string]llm.Rates{
 					"audio": {Input: 3},
 				},
@@ -191,10 +195,12 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 			p := configured(t, tc, clientConfig{endpoint: "https://example.com/api", models: catalog})
 			info.Capabilities.Features[llm.FeatureText] = llm.SupportUnsupported
 			info.Pricing.Modality["audio"] = llm.Rates{Input: 100}
+			info.Pricing.Tiers[0].Rates.Input = 100
 			delete(catalog, "requested")
 			copy, _ := p.ModelInfo("requested")
 			copy.Capabilities.Features[llm.FeatureText] = llm.SupportUnsupported
 			copy.Pricing.Base.Input = 200
+			copy.Pricing.Tiers[0].Rates.Input = 200
 			prep, err := p.Prepare(context.Background(), modelInput())
 			if err != nil {
 				t.Fatal("catalog snapshots were shared", err)
@@ -202,6 +208,7 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 			record := prep.Snapshot()
 			if record.ModelInfo.Evidence.Source != "test evidence" ||
 				record.ModelInfo.Pricing.Base.Input != 2 ||
+				record.ModelInfo.Pricing.Tiers[0].Rates.Input != 4 ||
 				record.ModelInfo.Pricing.Modality["audio"].Input != 3 ||
 				len(record.Unverified) != 0 {
 				t.Fatal("prepared evidence lost model knowledge or pricing")

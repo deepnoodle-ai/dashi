@@ -50,6 +50,14 @@ const (
 	ContentToolCall ContentKind = "tool_call"
 	// ContentToolResult answers a tool call with its output and failure flag.
 	ContentToolResult ContentKind = "tool_result"
+	// ContentHostedUse reports a provider-executed call, never a local call.
+	ContentHostedUse ContentKind = "hosted_use"
+	// ContentHostedResult reports a separate provider-executed result block.
+	ContentHostedResult ContentKind = "hosted_result"
+	// ContentHostedApprovalRequest asks for an application decision.
+	ContentHostedApprovalRequest ContentKind = "hosted_approval_request"
+	// ContentHostedApprovalResponse records that application decision.
+	ContentHostedApprovalResponse ContentKind = "hosted_approval_response"
 	// ContentReasoning carries display reasoning and optional private replay
 	// data.
 	ContentReasoning ContentKind = "reasoning"
@@ -97,6 +105,18 @@ type Content struct {
 	// ToolResult is required only for ContentToolResult.
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 
+	// HostedUse is provider activity and cannot be executed locally.
+	HostedUse *HostedUse `json:"hosted_use,omitempty"`
+
+	// HostedResult is provider activity paired with HostedUse.
+	HostedResult *HostedResult `json:"hosted_result,omitempty"`
+
+	// HostedApprovalRequest requires an explicit application response.
+	HostedApprovalRequest *HostedApprovalRequest `json:"hosted_approval_request,omitempty"`
+
+	// HostedApprovalResponse carries the application decision.
+	HostedApprovalResponse *HostedApprovalResponse `json:"hosted_approval_response,omitempty"`
+
 	// Reasoning is required only for ContentReasoning.
 	Reasoning *Reasoning `json:"reasoning,omitempty"`
 
@@ -127,12 +147,20 @@ func Block(block content.Block) Content {
 // Validate checks a recordable content value with exactly one matching payload.
 // Partial provider data is valid here; Input.Validate prohibits its replay.
 func (c Content) Validate() error {
-	if count(c.Block != nil, c.ToolCall != nil, c.ToolResult != nil, c.Reasoning != nil, c.Refusal != nil, c.Opaque != nil) != 1 {
+	if count(c.Block != nil, c.ToolCall != nil, c.ToolResult != nil,
+		c.HostedUse != nil, c.HostedResult != nil,
+		c.HostedApprovalRequest != nil, c.HostedApprovalResponse != nil,
+		c.Reasoning != nil, c.Refusal != nil, c.Opaque != nil) != 1 {
 		return errors.New("llm: content requires one payload")
 	}
 	if c.Replay != nil {
 		if c.Kind == ContentOpaque {
 			return errors.New("llm: opaque content cannot also carry replay data")
+		}
+		if c.Kind == ContentHostedApprovalResponse {
+			return errors.New(
+				"llm: hosted approval response cannot carry provider replay",
+			)
 		}
 		if err := c.Replay.Validate(); err != nil {
 			return err
@@ -156,6 +184,14 @@ func (c Content) Validate() error {
 			}
 		}
 		return nil
+	case c.Kind == ContentHostedUse && c.HostedUse != nil:
+		return c.HostedUse.Validate()
+	case c.Kind == ContentHostedResult && c.HostedResult != nil:
+		return c.HostedResult.Validate()
+	case c.Kind == ContentHostedApprovalRequest && c.HostedApprovalRequest != nil:
+		return c.HostedApprovalRequest.Validate()
+	case c.Kind == ContentHostedApprovalResponse && c.HostedApprovalResponse != nil:
+		return c.HostedApprovalResponse.Validate()
 	case c.Kind == ContentReasoning && c.Reasoning != nil:
 		return nil
 	case c.Kind == ContentRefusal && c.Refusal != nil:
@@ -303,6 +339,7 @@ type Settings struct {
 type Input struct {
 	// Model is the requested model name within the configured provider.
 	Model string `json:"model"`
+
 	// Stream selects transport during Prepare, independently of observation.
 	Stream bool `json:"stream,omitempty"`
 

@@ -4,6 +4,7 @@ package llm
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 )
 
@@ -28,8 +29,8 @@ type ModalityTokenUsage struct {
 // Usage contains token usage information for an LLM response.
 //
 // The input-side token buckets are mutually disjoint. InputTokens counts
-// uncached input; CacheCreationInputTokens counts the subset reported as cache
-// writes; and CacheReadInputTokens counts cache hits. When a provider does not
+// uncached input; CacheCreationInputTokens counts cache writes; and
+// CacheReadInputTokens counts cache hits. When a provider does not
 // expose cache writes, InputTokens contains all uncached input and
 // CacheCreationInputTokensUnavailable is true. The full input size is their
 // sum, exposed by TotalInputTokens.
@@ -111,6 +112,13 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
+	}
+	for _, field := range []string{
+		"cost", "cost_estimate_unavailable", "service_tier", "speed",
+	} {
+		if _, present := fields[field]; present {
+			return fmt.Errorf("llm: usage field %q requires record migration", field)
+		}
 	}
 	*u = Usage(raw.usageAlias)
 

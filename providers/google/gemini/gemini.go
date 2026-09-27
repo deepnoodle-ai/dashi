@@ -214,9 +214,21 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	}
 	if len(input.Tools) > 0 {
 		declarations := make([]any, 0, len(input.Tools))
+		configs := make([]any, 0, len(input.Tools))
 		for _, d := range input.Tools {
 			if d.Kind == tool.KindProviderHosted {
-				return llm.Request{}, wire.unsupported("provider-hosted tool %q", d.Name)
+				if d.Hosted.Type == "fileSearch" &&
+					!strings.Contains(p.config.Endpoint, "/v1beta/") {
+					return llm.Request{}, wire.unsupported(
+						"file search requires a v1beta endpoint",
+					)
+				}
+				config, err := wire.hostedTool(d)
+				if err != nil {
+					return llm.Request{}, err
+				}
+				configs = append(configs, config)
+				continue
 			}
 			if raw := strings.TrimSpace(string(d.Schema)); !strings.HasPrefix(raw, "{") {
 				return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
@@ -224,9 +236,36 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 			declarations = append(declarations, map[string]any{"name": d.Name,
 				"description": d.Description, "parametersJsonSchema": d.Schema})
 		}
-		body["tools"] = []any{map[string]any{"functionDeclarations": declarations}}
+		if len(declarations) > 0 {
+			configs = append(configs, map[string]any{
+				"functionDeclarations": declarations,
+			})
+		}
+		body["tools"] = configs
 	}
 	if choice := input.Settings.ToolChoice; choice != nil {
+		if choice.Mode == llm.ToolChoiceTool ||
+			choice.Mode == llm.ToolChoiceAny {
+			clientTools := false
+			for _, definition := range input.Tools {
+				if definition.Kind == tool.KindProviderHosted {
+					if choice.Mode == llm.ToolChoiceTool &&
+						definition.Name == choice.Name {
+						return llm.Request{}, wire.unsupported(
+							"named choice of hosted tool %q",
+							choice.Name,
+						)
+					}
+					continue
+				}
+				clientTools = true
+			}
+			if choice.Mode == llm.ToolChoiceAny && !clientTools {
+				return llm.Request{}, wire.unsupported(
+					"forced function calling requires a client tool",
+				)
+			}
+		}
 		calling := map[string]any{}
 		switch choice.Mode {
 		case llm.ToolChoiceAuto:
@@ -372,6 +411,10 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 			return nil, wire.unsupported("invalid replay part")
 		}
 		switch {
+		case c.HostedUse != nil && saved.ExecutableCode != nil:
+			return c.Replay.Raw, nil
+		case c.HostedResult != nil && saved.CodeExecutionResult != nil:
+			return c.Replay.Raw, nil
 		case c.Block != nil && c.Block.Text != nil && saved.Text == c.Block.Text.Text:
 			return c.Replay.Raw, nil
 		case c.Reasoning != nil && saved.Thought && saved.Text == c.Reasoning.Text:

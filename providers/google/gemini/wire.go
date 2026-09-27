@@ -38,6 +38,16 @@ type partWire struct {
 	FunctionCall     *functionCallWire `json:"functionCall"`
 	InlineData       json.RawMessage   `json:"inlineData"`
 	FileData         json.RawMessage   `json:"fileData"`
+	ExecutableCode   *struct {
+		ID       string `json:"id"`
+		Language string `json:"language"`
+		Code     string `json:"code"`
+	} `json:"executableCode"`
+	CodeExecutionResult *struct {
+		ID      string `json:"id"`
+		Outcome string `json:"outcome"`
+		Output  string `json:"output"`
+	} `json:"codeExecutionResult"`
 }
 
 type usageWire struct {
@@ -107,23 +117,42 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		hash := sha256.Sum256(raw)
 		seed = fmt.Sprintf("%x", hash[:12])
 	}
+	var codeID string
 	for index, rawPart := range candidate.Content.Parts {
-		part, err := wire.decodePart(rawPart, seed, index)
+		part, err := wire.decodePartWithCodeID(
+			rawPart, seed, index, codeID,
+		)
 		if err != nil {
 			return result, err
 		}
 		result.Message.Content = append(result.Message.Content, part)
+		if part.HostedUse != nil {
+			codeID = part.HostedUse.ID
+		}
 	}
 	return result, nil
 }
 
 func (wire codec) decodePart(raw json.RawMessage, responseID string, index int) (llm.Content, error) {
+	return wire.decodePartWithCodeID(raw, responseID, index, "")
+}
+
+func (wire codec) decodePartWithCodeID(
+	raw json.RawMessage,
+	responseID string,
+	index int,
+	codeID string,
+) (llm.Content, error) {
 	var part partWire
 	if err := providerhttp.Decode(raw, &part); err != nil {
 		return llm.Content{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode part: %w", err)
 	}
 	kind := "unknown"
 	switch {
+	case part.ExecutableCode != nil:
+		kind = "code_execution"
+	case part.CodeExecutionResult != nil:
+		kind = "code_execution_result"
 	case part.FunctionCall != nil:
 		kind = "function_call"
 	case part.Thought:
@@ -134,6 +163,50 @@ func (wire codec) decodePart(raw json.RawMessage, responseID string, index int) 
 	replay := &llm.Opaque{Version: 1, Origin: wire.origin, Type: kind,
 		Unit: llm.OpaqueUnitContentBlock, Raw: slices.Clone(raw)}
 	switch kind {
+	case "code_execution":
+		id := part.ExecutableCode.ID
+		if id == "" {
+			id = callID(responseID, "code_execution", index)
+		}
+		input, _ := json.Marshal(part.ExecutableCode)
+		use := llm.HostedUse{
+			ID:     id,
+			Name:   "code_execution",
+			Type:   "codeExecution",
+			Origin: wire.origin,
+			Input:  input,
+		}
+		return llm.Content{
+			Kind:      llm.ContentHostedUse,
+			HostedUse: &use,
+			Replay:    replay,
+		}, nil
+	case "code_execution_result":
+		id := part.CodeExecutionResult.ID
+		if id == "" {
+			id = codeID
+		}
+		if id == "" {
+			return llm.Content{Kind: llm.ContentOpaque, Opaque: replay}, nil
+		}
+		output := []content.Block{}
+		if part.CodeExecutionResult.Output != "" {
+			output = append(output, content.TextBlock(
+				part.CodeExecutionResult.Output,
+			))
+		}
+		result := llm.HostedResult{
+			CallID:  id,
+			Type:    "codeExecutionResult",
+			Origin:  wire.origin,
+			Output:  output,
+			IsError: part.CodeExecutionResult.Outcome != "OUTCOME_OK",
+		}
+		return llm.Content{
+			Kind:         llm.ContentHostedResult,
+			HostedResult: &result,
+			Replay:       replay,
+		}, nil
 	case "text":
 		b := content.TextBlock(part.Text)
 		return llm.Content{Kind: llm.ContentBlock, Block: &b, Replay: replay}, nil

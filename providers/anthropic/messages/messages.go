@@ -175,9 +175,26 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		}
 	}
 	var defs []any
+	var mcpServers []any
 	for _, d := range r.Tools {
 		if d.Kind == tool.KindProviderHosted {
-			return llm.Request{}, wire.unsupported("provider-hosted tool %q has no Messages encoding", d.Name)
+			config, err := wire.hostedTool(d)
+			if err != nil {
+				return llm.Request{}, err
+			}
+			defs = append(defs, config)
+			if d.Hosted.Type == MCPToolsetType {
+				var options MCPToolsetOptions
+				if err := decodeHostedOptions(d.Hosted.Options, &options); err != nil {
+					return llm.Request{}, wire.unsupported("MCP toolset options: %v", err)
+				}
+				mcpServers = append(mcpServers, map[string]any{
+					"type": "url",
+					"name": options.Name,
+					"url":  options.URL,
+				})
+			}
+			continue
 		}
 		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 || schema[0] != '{' {
 			return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
@@ -191,7 +208,20 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	if len(defs) > 0 {
 		body["tools"] = defs
 	}
+	if len(mcpServers) > 0 {
+		body["mcp_servers"] = mcpServers
+	}
 	if c := r.Settings.ToolChoice; c != nil {
+		if c.Mode == llm.ToolChoiceTool {
+			for _, definition := range r.Tools {
+				if definition.Name == c.Name &&
+					definition.Kind == tool.KindProviderHosted {
+					return llm.Request{}, wire.unsupported(
+						"named choice of hosted tool %q", c.Name,
+					)
+				}
+			}
+		}
 		if r.Settings.Reasoning != nil && (c.Mode == llm.ToolChoiceAny || c.Mode == llm.ToolChoiceTool) {
 			return llm.Request{}, wire.unsupported("forced tool choice with reasoning")
 		}
@@ -276,7 +306,16 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 		Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},
 		Message:   llm.Message{Role: llm.RoleAssistant},
 	}
-	resp, err := p.client.Post(ctx, prepared)
+	client := p.client
+	for _, definition := range prepared.Input().Tools {
+		if definition.Hosted != nil &&
+			definition.Hosted.Type == MCPToolsetType {
+			client.Headers = client.Headers.Clone()
+			client.Headers.Set("Anthropic-Beta", "mcp-client-2025-11-20")
+			break
+		}
+	}
+	resp, err := client.Post(ctx, prepared)
 	if err != nil {
 		return r, err
 	}
@@ -379,6 +418,14 @@ func (wire codec) encode(c llm.Content) (map[string]any, error) {
 			"is_error":    c.ToolResult.IsError,
 			"content":     blocks,
 		}
+	case llm.ContentHostedUse, llm.ContentHostedResult,
+		llm.ContentHostedApprovalRequest:
+		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitContentBlock {
+			return nil, wire.unsupported("hosted activity needs original replay data")
+		}
+		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
+	case llm.ContentHostedApprovalResponse:
+		return nil, wire.unsupported("Anthropic hosted approval response")
 	case llm.ContentReasoning:
 		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("reasoning needs its original replay data")
@@ -500,6 +547,12 @@ func (wire codec) decodeContent(raw json.RawMessage) (llm.Content, error) {
 			return llm.Content{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid tool call: %w", err)
 		}
 		return llm.Content{Kind: llm.ContentToolCall, ToolCall: &call, Replay: replay}, nil
+	case "server_tool_use", "mcp_tool_use":
+		return wire.decodeHostedUse(raw, replay)
+	case "web_search_tool_result", "web_fetch_tool_result",
+		"code_execution_tool_result", "bash_code_execution_tool_result",
+		"text_editor_code_execution_tool_result", "mcp_tool_result":
+		return wire.decodeHostedResult(raw, replay)
 	case "thinking":
 		return llm.Content{
 			Kind:      llm.ContentReasoning,

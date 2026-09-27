@@ -149,6 +149,16 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		body["parallel_tool_calls"] = *p
 	}
 	if c := r.Settings.ToolChoice; c != nil {
+		if c.Mode == llm.ToolChoiceTool {
+			for _, definition := range r.Tools {
+				if definition.Name == c.Name &&
+					definition.Kind == tool.KindProviderHosted {
+					return llm.Request{}, wire.unsupported(
+						"named choice of hosted tool %q", c.Name,
+					)
+				}
+			}
+		}
 		switch c.Mode {
 		case llm.ToolChoiceAuto, llm.ToolChoiceNone:
 			body["tool_choice"] = c.Mode
@@ -161,7 +171,13 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	var defs []any
 	for _, d := range r.Tools {
 		if d.Kind == tool.KindProviderHosted {
-			return llm.Request{}, wire.unsupported("provider-hosted tool %q has no Responses encoding", d.Name)
+			config, includes, err := wire.hostedTool(d)
+			if err != nil {
+				return llm.Request{}, err
+			}
+			defs = append(defs, config)
+			body["include"] = append(body["include"].([]string), includes...)
+			continue
 		}
 		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 || schema[0] != '{' {
 			return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
@@ -369,6 +385,22 @@ func (wire codec) encode(c llm.Content, role llm.Role) (map[string]any, error) {
 			return nil, wire.unsupported("reasoning needs original replay data")
 		}
 		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
+	case llm.ContentHostedUse, llm.ContentHostedResult,
+		llm.ContentHostedApprovalRequest:
+		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitItem {
+			return nil, wire.unsupported("hosted activity needs original item replay")
+		}
+		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
+	case llm.ContentHostedApprovalResponse:
+		item := map[string]any{
+			"type":                "mcp_approval_response",
+			"approval_request_id": c.HostedApprovalResponse.RequestID,
+			"approve":             c.HostedApprovalResponse.Approve,
+		}
+		if c.HostedApprovalResponse.Reason != "" {
+			item["reason"] = c.HostedApprovalResponse.Reason
+		}
+		return item, nil
 	case llm.ContentOpaque:
 		if c.Opaque.Unit == llm.OpaqueUnitMessagePart {
 			return wire.encodePart(role, nil, c.Opaque)
@@ -534,6 +566,11 @@ func (wire codec) decodeItem(raw json.RawMessage) ([]llm.Content, error) {
 			Reasoning: &llm.Reasoning{Text: text},
 			Replay:    replay,
 		}}, nil
+	case "web_search_call", "x_search_call", "file_search_call", "code_interpreter_call",
+		"image_generation_call", "mcp_call":
+		return wire.decodeHostedItem(raw, replay)
+	case "mcp_approval_request":
+		return wire.decodeHostedApproval(raw, replay)
 	case "message":
 		var message struct{ Content []json.RawMessage }
 		if err := json.Unmarshal(raw, &message); err != nil {

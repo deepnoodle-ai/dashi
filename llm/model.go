@@ -19,8 +19,11 @@ type ModelRef = model.ModelRef
 type Support = model.Support
 
 const (
-	SupportUnknown     = model.SupportUnknown
-	SupportSupported   = model.SupportSupported
+	// SupportUnknown means no support claim has been established.
+	SupportUnknown = model.SupportUnknown
+	// SupportSupported means capability support has been established.
+	SupportSupported = model.SupportSupported
+	// SupportUnsupported means known rejection for this capability.
 	SupportUnsupported = model.SupportUnsupported
 )
 
@@ -75,8 +78,10 @@ func HostedToolFeature(toolType string) Feature {
 type UnknownPolicy = model.UnknownPolicy
 
 const (
+	// UnknownReject declines a request with unknown required support.
 	UnknownReject = model.UnknownReject
-	UnknownAllow  = model.UnknownAllow
+	// UnknownAllow records uncertainty and lets the provider validate it.
+	UnknownAllow = model.UnknownAllow
 )
 
 // Capabilities describes model behavior, independently of pricing. Zero limits
@@ -170,7 +175,7 @@ func (m ModelInfo) Validate() error {
 		return err
 	}
 	for f, support := range m.Capabilities.Features {
-		if !knownFeature(f) || (support != SupportUnknown && support != SupportSupported && support != SupportUnsupported) {
+		if !knownFeature(f) || !support.Valid() {
 			return fmt.Errorf("llm: invalid capability %q: %q", f, support)
 		}
 	}
@@ -253,7 +258,9 @@ func requestedFeatures(r Input) []Feature {
 			if part.Block != nil {
 				data(*part.Block)
 			}
-			if part.ToolCall != nil || part.ToolResult != nil {
+			if part.ToolCall != nil || part.ToolResult != nil ||
+				part.HostedUse != nil || part.HostedResult != nil ||
+				part.HostedApprovalRequest != nil || part.HostedApprovalResponse != nil {
 				add(FeatureTools)
 			}
 			if part.ToolResult != nil {
@@ -261,6 +268,8 @@ func requestedFeatures(r Input) []Feature {
 					data(b)
 				}
 			}
+			// Hosted outputs are display projections of provider replay data.
+			// They are not encoded as independent media inputs.
 		}
 	}
 	return features

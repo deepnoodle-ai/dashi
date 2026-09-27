@@ -7,20 +7,6 @@ import (
 	"testing"
 )
 
-func pricedSheet() Pricing {
-	return Pricing{
-		Currency:  "USD",
-		UpdatedAt: "2026-09-27",
-		Reference: "fixture",
-		Base: Rates{
-			Input:      1,
-			Output:     2,
-			CacheRead:  0.1,
-			CacheWrite: 1.25,
-		},
-	}
-}
-
 func TestPricingEstimateUsesLiteralRates(t *testing.T) {
 	p := pricedSheet()
 	u := &Usage{
@@ -98,21 +84,21 @@ func TestPricingEstimateTierAndModality(t *testing.T) {
 	if math.Abs(cost.Total-want) > 1e-12 {
 		t.Fatalf("tier and modality total = %v, want %v", cost.Total, want)
 	}
-	u.InputTokens = 79
-	u.ModalityTokens["text"] = ModalityTokenUsage{
-		InputTokens:              39,
-		OutputTokens:             6,
-		CacheReadInputTokens:     6,
-		CacheCreationInputTokens: 6,
+	boundary := &Usage{
+		InputTokens: 99,
+		ModalityTokens: map[string]ModalityTokenUsage{
+			"text": {InputTokens: 99},
+		},
 	}
-	u.CacheReadInputTokens = 0
-	u.CacheCreationInputTokens = 0
-	delete(u.ModalityTokens, "text")
-	delete(u.ModalityTokens, "audio")
-	u.OutputTokens = 0
-	cost, ok = p.Estimate(u)
-	if !ok || cost.Input != float64(79)/1_000_000 {
+	cost, ok = p.Estimate(boundary)
+	if !ok || cost.Input != 99.0/1_000_000 {
 		t.Fatalf("below-threshold base rate = %+v, %v", cost, ok)
+	}
+	boundary.InputTokens = 100
+	boundary.ModalityTokens["text"] = ModalityTokenUsage{InputTokens: 100}
+	cost, ok = p.Estimate(boundary)
+	if !ok || cost.Input != 300.0/1_000_000 {
+		t.Fatalf("inclusive tier rate = %+v, %v", cost, ok)
 	}
 }
 
@@ -168,6 +154,22 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 			},
 		},
 		{
+			name:  "input has no modality attribution",
+			usage: Usage{InputTokens: 100},
+		},
+		{
+			name:  "output has no modality attribution",
+			usage: Usage{OutputTokens: 100},
+		},
+		{
+			name:  "cache reads have no modality attribution",
+			usage: Usage{CacheReadInputTokens: 100},
+		},
+		{
+			name:  "cache writes have no modality attribution",
+			usage: Usage{CacheCreationInputTokens: 100},
+		},
+		{
 			name:  "provider total mismatch",
 			usage: Usage{TotalTokenCountMismatch: true},
 		},
@@ -181,8 +183,24 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 			},
 		},
 		{
+			name: "unrecognized modality capitalization",
+			usage: Usage{
+				InputTokens: 10,
+				ModalityTokens: map[string]ModalityTokenUsage{
+					"Audio": {InputTokens: 10},
+				},
+			},
+		},
+		{
 			name:  "negative tokens",
 			usage: Usage{InputTokens: -1},
+		},
+		{
+			name: "input count overflow",
+			usage: Usage{
+				InputTokens:          math.MaxInt,
+				CacheReadInputTokens: 1,
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -193,7 +211,26 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 	}
 }
 
-func TestPricingValidationAndStoredJSON(t *testing.T) {
+func TestPricingEstimateNeedsDetailOnlyWhereRatesDiffer(t *testing.T) {
+	p := pricedSheet()
+	rates := p.Base
+	rates.Output = 8
+	p.Modality = map[string]Rates{"audio": rates}
+	cost, ok := p.Estimate(&Usage{InputTokens: 100})
+	if !ok || cost.Input != 100.0/1_000_000 {
+		t.Fatalf("unaffected input needed modality detail: %+v, %v", cost, ok)
+	}
+}
+
+func TestPricingEstimateRejectsArithmeticOverflow(t *testing.T) {
+	p := pricedSheet()
+	p.Base.Input = math.MaxFloat64
+	if _, ok := p.Estimate(&Usage{InputTokens: 10_000_000}); ok {
+		t.Fatal("unrepresentable cost was returned as an estimate")
+	}
+}
+
+func TestPricingValidateRejectsInvalidSheet(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		edit func(*Pricing)
@@ -202,15 +239,27 @@ func TestPricingValidationAndStoredJSON(t *testing.T) {
 		{"invalid date", func(p *Pricing) { p.UpdatedAt = "2026-02-30" }},
 		{"negative rate", func(p *Pricing) { p.Base.Input = -1 }},
 		{"infinite rate", func(p *Pricing) { p.Base.Output = math.Inf(1) }},
-		{"unordered tiers", func(p *Pricing) {
-			p.Tiers = []PriceTier{
-				{MinInputTokens: 10},
-				{MinInputTokens: 10},
-			}
-		}},
-		{"empty modality", func(p *Pricing) {
-			p.Modality = map[string]Rates{"": {}}
-		}},
+		{
+			name: "unordered tiers",
+			edit: func(p *Pricing) {
+				p.Tiers = []PriceTier{
+					{MinInputTokens: 10},
+					{MinInputTokens: 10},
+				}
+			},
+		},
+		{
+			name: "empty modality",
+			edit: func(p *Pricing) {
+				p.Modality = map[string]Rates{"": {}}
+			},
+		},
+		{
+			name: "uppercase modality",
+			edit: func(p *Pricing) {
+				p.Modality = map[string]Rates{"Audio": {}}
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := pricedSheet()
@@ -220,10 +269,15 @@ func TestPricingValidationAndStoredJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPricingStoredJSONRequiresCompleteRates(t *testing.T) {
 	for _, raw := range []string{
 		`{"currency":"USD","updated_at":"2026-09-27","input_price_per_1m_tokens":2}`,
 		`{"currency":"USD","updated_at":"2026-09-27","base":null}`,
 		`{"currency":"USD","updated_at":"2026-09-27","base":{"input":1}}`,
+		`{"currency":"USD","updated_at":"2026-09-27","base":{"input":0,"output":0,"cache_read":0,"cache_write":0},"tiers":[{"min_input_tokens":100}]}`,
+		`{"currency":"USD","updated_at":"2026-09-27","base":{"input":0,"output":0,"cache_read":0,"cache_write":0},"tiers":[{"min_input_tokens":100,"rates":null}]}`,
 		`{"currency":"USD","updated_at":"2026-09-27","base":{"input":0,"output":0,"cache_read":0,"cache_write":0},"input_price_per_1m_tokens":2}`,
 	} {
 		var p Pricing
@@ -231,6 +285,9 @@ func TestPricingValidationAndStoredJSON(t *testing.T) {
 			t.Fatalf("legacy or incomplete sheet was accepted: %s", raw)
 		}
 	}
+}
+
+func TestPricingStoredJSONRoundTrips(t *testing.T) {
 	p := pricedSheet()
 	raw, err := json.Marshal(p)
 	if err != nil {
@@ -255,5 +312,49 @@ func TestPricingCloneOwnsTiersAndModalities(t *testing.T) {
 	copy.Modality["audio"] = Rates{Input: 9}
 	if p.Tiers[0].Rates.Input != 1 || p.Modality["audio"].Input != 1 {
 		t.Fatal("pricing clone shared mutable rate data")
+	}
+}
+
+func TestCostStoredJSONRequiresCurrentAttemptShape(t *testing.T) {
+	for _, raw := range []string{
+		`{"total":0.5,"currency":"USD","source":"provider_reported","model":"old"}`,
+		`{"total":0.5,"currency":"USD","source":"mixed"}`,
+		`{"total":-0.5,"currency":"USD","source":"provider_estimate"}`,
+		`{"total":0.5,"currency":"","source":"provider_estimate"}`,
+		`{"currency":"USD","source":"provider_reported"}`,
+		`{"total":null,"currency":"USD","source":"provider_reported"}`,
+	} {
+		var cost Cost
+		if err := json.Unmarshal([]byte(raw), &cost); err == nil {
+			t.Fatalf("invalid or legacy cost was accepted: %s", raw)
+		}
+	}
+	knownZero := Cost{
+		Total:    0,
+		Currency: "USD",
+		Source:   CostSourceProviderReported,
+	}
+	raw, err := json.Marshal(knownZero)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Cost
+	if err := json.Unmarshal(raw, &restored); err != nil ||
+		restored != knownZero {
+		t.Fatalf("known zero cost did not round trip: %+v, %v", restored, err)
+	}
+}
+
+func pricedSheet() Pricing {
+	return Pricing{
+		Currency:  "USD",
+		UpdatedAt: "2026-09-27",
+		Reference: "fixture",
+		Base: Rates{
+			Input:      1,
+			Output:     2,
+			CacheRead:  0.1,
+			CacheWrite: 1.25,
+		},
 	}
 }

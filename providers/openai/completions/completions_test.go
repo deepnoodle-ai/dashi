@@ -198,6 +198,19 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 	}
 }
 
+func TestReportedZeroCostDiffersFromMissingCost(t *testing.T) {
+	wire := codec{costField: "cost", costCurrency: "USD"}
+	zero := 0.0
+	known := wire.reportedCost(Usage{Cost: &zero})
+	if known == nil || known.Total != 0 ||
+		known.Source != llm.CostSourceProviderReported {
+		t.Fatal("provider-reported zero cost was treated as unknown")
+	}
+	if unknown := wire.reportedCost(Usage{}); unknown != nil {
+		t.Fatal("missing provider cost was treated as known zero")
+	}
+}
+
 func TestPrepareRejectsUnsupportedContentBeforeDispatch(t *testing.T) {
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1) }))

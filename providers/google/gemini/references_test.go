@@ -1,0 +1,93 @@
+package gemini
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/llm"
+)
+
+func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
+	client, err := New(Config{
+		APIKey:              "test",
+		UnknownCapabilities: llm.UnknownAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpClient, err := client.httpClient("gemini-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := llm.Input{
+		Model: "gemini-test",
+		Messages: []llm.Message{llm.UserMessage(
+			llm.Block(content.DocumentBlock(content.Source{
+				URI:      "https://files.example.test/pdf-1",
+				MIMEType: "application/pdf",
+				Origin:   httpClient.Origin("gemini-test"),
+			})),
+			llm.Block(content.ImageBlock(content.Source{
+				URL:      "https://example.test/image.png",
+				MIMEType: "image/png",
+			})),
+		)},
+	}
+	prepared, err := client.Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Gemini file references did not prepare: %v", err)
+	}
+	var body struct {
+		Contents []struct {
+			Parts []struct {
+				FileData struct {
+					MIMEType string `json:"mimeType"`
+					FileURI  string `json:"fileUri"`
+				} `json:"fileData"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(prepared.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Contents) != 1 || len(body.Contents[0].Parts) != 2 {
+		t.Fatalf("Gemini file parts were lost: %s", prepared.Body())
+	}
+	first := body.Contents[0].Parts[0].FileData
+	if first.FileURI != "https://files.example.test/pdf-1" || first.MIMEType != "application/pdf" {
+		t.Fatalf("provider URI was changed: %+v", first)
+	}
+	second := body.Contents[0].Parts[1].FileData
+	if second.FileURI != "https://example.test/image.png" || second.MIMEType != "image/png" {
+		t.Fatalf("public URL was changed: %+v", second)
+	}
+}
+
+func TestPrepareRejectsForeignGeminiFileURI(t *testing.T) {
+	client, err := New(Config{
+		APIKey:              "test",
+		UnknownCapabilities: llm.UnknownAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := llm.Input{
+		Model: "gemini-test",
+		Messages: []llm.Message{llm.UserMessage(llm.Block(
+			content.DocumentBlock(content.Source{
+				URI:      "https://files.example.test/pdf-1",
+				MIMEType: "application/pdf",
+				Origin: content.Origin{
+					Provider: "other",
+					API:      API,
+					Scope:    "other",
+				},
+			}),
+		))},
+	}
+	if _, err := client.Prepare(context.Background(), input); err == nil {
+		t.Fatal("foreign provider URI prepared for Gemini")
+	}
+}

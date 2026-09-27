@@ -32,6 +32,39 @@ func TestCapabilitiesCheckIncludesToolResultMedia(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesCheckScopesHostedToolType(t *testing.T) {
+	input := Input{
+		Model: "m",
+		Tools: []tool.Definition{{
+			Name: "web_search",
+			Kind: tool.KindProviderHosted,
+			Hosted: &tool.HostedSpec{
+				Provider: "anthropic",
+				API:      "anthropic.messages",
+				Type:     "web_search_20250305",
+			},
+		}},
+	}
+	capabilities := Capabilities{
+		Features: map[Feature]Support{
+			FeatureText:  SupportSupported,
+			FeatureTools: SupportSupported,
+		},
+	}
+	if _, err := capabilities.Check(input, UnknownReject); err == nil {
+		t.Fatal("unknown hosted tool support was accepted")
+	}
+	feature := HostedToolFeature("web_search_20250305")
+	unverified, err := capabilities.Check(input, UnknownAllow)
+	if err != nil || !slices.Equal(unverified, []Feature{feature}) {
+		t.Fatalf("hosted type evidence was not reported: %v, %v", unverified, err)
+	}
+	capabilities.Features[feature] = SupportUnsupported
+	if _, err := capabilities.Check(input, UnknownAllow); err == nil {
+		t.Fatal("known unsupported hosted tool was accepted")
+	}
+}
+
 func TestCapabilitiesCheckReasoningConstraints(t *testing.T) {
 	c := Capabilities{
 		Features: map[Feature]Support{FeatureText: SupportSupported,

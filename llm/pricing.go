@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -17,11 +18,11 @@ import (
 // literal: zero means free, never inherited from another rate.
 type Rates struct {
 	// Input prices uncached input not classified as a cache write.
-	Input      float64 `json:"input"`
+	Input float64 `json:"input"`
 	// Output prices generated tokens, including reasoning tokens.
-	Output     float64 `json:"output"`
+	Output float64 `json:"output"`
 	// CacheRead prices input served from the prompt cache.
-	CacheRead  float64 `json:"cache_read"`
+	CacheRead float64 `json:"cache_read"`
 	// CacheWrite prices input written to the prompt cache.
 	CacheWrite float64 `json:"cache_write"`
 }
@@ -70,9 +71,35 @@ func (r Rates) validate() error {
 // Tiers must be strictly increasing; the highest eligible tier wins.
 type PriceTier struct {
 	// MinInputTokens is inclusive and counts all disjoint input buckets.
-	MinInputTokens int   `json:"min_input_tokens"`
+	MinInputTokens int `json:"min_input_tokens"`
 	// Rates completely replace Base above the threshold.
-	Rates          Rates `json:"rates"`
+	Rates Rates `json:"rates"`
+}
+
+// UnmarshalJSON requires an explicit replacement rate set. Missing tier rates
+// must not silently turn a stored threshold into a free tier.
+func (t *PriceTier) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if len(fields["rates"]) == 0 ||
+		bytes.Equal(fields["rates"], []byte("null")) {
+		return errors.New("llm: pricing tier requires explicit rates")
+	}
+	type alias PriceTier
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("llm: decode pricing tier: %w", err)
+	}
+	value := PriceTier(decoded)
+	if value.MinInputTokens <= 0 {
+		return errors.New("llm: pricing tier requires a positive threshold")
+	}
+	*t = value
+	return nil
 }
 
 // Pricing is one complete token price sheet. Its caller qualifies the model,
@@ -80,25 +107,26 @@ type PriceTier struct {
 // regional, speed, or service-tier variant by itself.
 type Pricing struct {
 	// Currency identifies the unit of every rate and estimated amount.
-	Currency  string           `json:"currency"`
+	Currency string `json:"currency"`
 	// UpdatedAt dates the sheet without implying that prices remain current.
-	UpdatedAt string           `json:"updated_at"`
+	UpdatedAt string `json:"updated_at"`
 	// Reference names the price page or catalog version used for these rates.
-	Reference string           `json:"reference,omitempty"`
+	Reference string `json:"reference,omitempty"`
 	// Base applies below the first tier and to requests without tiers.
-	Base      Rates            `json:"base"`
+	Base Rates `json:"base"`
 	// Tiers replace Base at inclusive thresholds in increasing order.
-	Tiers     []PriceTier      `json:"tiers,omitempty"`
+	Tiers []PriceTier `json:"tiers,omitempty"`
 	// Modality supplies complete rates for named modalities, independent of
 	// input-size tiers. Other tokens retain the selected base or tier rates.
-	Modality  map[string]Rates `json:"modality,omitempty"`
+	Modality map[string]Rates `json:"modality,omitempty"`
 }
 
 // Validate rejects incomplete or ambiguous sheets before they are used as
 // model knowledge. Reference identifies where rates came from, not their
 // qualification for a particular call.
 func (p Pricing) Validate() error {
-	if strings.TrimSpace(p.Currency) == "" {
+	if strings.TrimSpace(p.Currency) == "" ||
+		strings.TrimSpace(p.Currency) != p.Currency {
 		return errors.New("llm: pricing requires currency")
 	}
 	date, err := time.Parse("2006-01-02", p.UpdatedAt)
@@ -111,7 +139,7 @@ func (p Pricing) Validate() error {
 	previous := 0
 	for _, tier := range p.Tiers {
 		if tier.MinInputTokens <= previous {
-			return errors.New("llm: pricing tiers require increasing positive thresholds")
+			return errors.New("llm: pricing tiers require increasing thresholds")
 		}
 		if err := tier.Rates.validate(); err != nil {
 			return err
@@ -119,8 +147,9 @@ func (p Pricing) Validate() error {
 		previous = tier.MinInputTokens
 	}
 	for modality, rates := range p.Modality {
-		if strings.TrimSpace(modality) == "" {
-			return errors.New("llm: pricing requires named modalities")
+		if strings.TrimSpace(modality) == "" ||
+			modality != strings.ToLower(strings.TrimSpace(modality)) {
+			return errors.New("llm: pricing requires lowercase modality names")
 		}
 		if err := rates.validate(); err != nil {
 			return err
@@ -167,7 +196,11 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // call. The result is unavailable when token detail cannot support a faithful
 // estimate; nil usage never means known zero usage.
 func (p Pricing) Estimate(u *Usage) (Cost, bool) {
-	if u == nil || p.Validate() != nil || !validUsageBuckets(u) {
+	if u == nil || p.Validate() != nil {
+		return Cost{}, false
+	}
+	unattributed, valid := unattributedUsageBuckets(u)
+	if !valid {
 		return Cost{}, false
 	}
 	rates := p.Base
@@ -176,95 +209,36 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			rates = tier.Rates
 		}
 	}
-	if !pricingDetailAvailable(p, rates, u) {
+	if !pricingDetailAvailable(p, rates, u, unattributed) {
 		return Cost{}, false
 	}
 	const perMillion = 1_000_000.0
 	cost := Cost{
-		Input:      float64(u.InputTokens) * rates.Input / perMillion,
-		Output:     float64(u.OutputTokens) * rates.Output / perMillion,
-		CacheRead:  float64(u.CacheReadInputTokens) * rates.CacheRead / perMillion,
-		CacheWrite: float64(u.CacheCreationInputTokens) * rates.CacheWrite / perMillion,
-		Currency:   p.Currency,
-		Source:     CostSourceListPriceEstimate,
+		Currency: p.Currency,
+		Source:   CostSourceListPriceEstimate,
 	}
-	for modality, tokens := range u.ModalityTokens {
-		override, ok := p.Modality[modality]
-		if !ok {
-			continue
-		}
-		cost.Input += float64(tokens.InputTokens) *
-			(override.Input - rates.Input) / perMillion
-		cost.Output += float64(tokens.OutputTokens) *
-			(override.Output - rates.Output) / perMillion
+	applyRates := func(tokens ModalityTokenUsage, rates Rates) {
+		cost.Input += float64(tokens.InputTokens) * rates.Input / perMillion
+		cost.Output += float64(tokens.OutputTokens) * rates.Output / perMillion
 		cost.CacheRead += float64(tokens.CacheReadInputTokens) *
-			(override.CacheRead - rates.CacheRead) / perMillion
+			rates.CacheRead / perMillion
 		cost.CacheWrite += float64(tokens.CacheCreationInputTokens) *
-			(override.CacheWrite - rates.CacheWrite) / perMillion
+			rates.CacheWrite / perMillion
+	}
+	applyRates(unattributed, rates)
+	for _, modality := range slices.Sorted(maps.Keys(u.ModalityTokens)) {
+		tokens := u.ModalityTokens[modality]
+		modalityRates, ok := p.Modality[modality]
+		if !ok {
+			modalityRates = rates
+		}
+		applyRates(tokens, modalityRates)
 	}
 	cost.Total = cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite
-	if math.IsNaN(cost.Total) || math.IsInf(cost.Total, 0) {
+	if cost.Validate() != nil {
 		return Cost{}, false
 	}
 	return cost, true
-}
-
-func validUsageBuckets(u *Usage) bool {
-	if u.InputTokens < 0 || u.OutputTokens < 0 ||
-		u.CacheReadInputTokens < 0 || u.CacheCreationInputTokens < 0 {
-		return false
-	}
-	remaining := ModalityTokenUsage{
-		InputTokens:              u.InputTokens,
-		OutputTokens:             u.OutputTokens,
-		CacheReadInputTokens:     u.CacheReadInputTokens,
-		CacheCreationInputTokens: u.CacheCreationInputTokens,
-	}
-	for _, tokens := range u.ModalityTokens {
-		if tokens.InputTokens < 0 || tokens.InputTokens > remaining.InputTokens ||
-			tokens.OutputTokens < 0 || tokens.OutputTokens > remaining.OutputTokens ||
-			tokens.CacheReadInputTokens < 0 ||
-			tokens.CacheReadInputTokens > remaining.CacheReadInputTokens ||
-			tokens.CacheCreationInputTokens < 0 ||
-			tokens.CacheCreationInputTokens > remaining.CacheCreationInputTokens {
-			return false
-		}
-		remaining.InputTokens -= tokens.InputTokens
-		remaining.OutputTokens -= tokens.OutputTokens
-		remaining.CacheReadInputTokens -= tokens.CacheReadInputTokens
-		remaining.CacheCreationInputTokens -= tokens.CacheCreationInputTokens
-	}
-	return true
-}
-
-func pricingDetailAvailable(p Pricing, base Rates, u *Usage) bool {
-	if u.TotalTokenCountMismatch {
-		return false
-	}
-	if u.CacheCreationInputTokensUnavailable && base.CacheWrite != base.Input {
-		return false
-	}
-	cacheWritesByModality := 0
-	for _, tokens := range u.ModalityTokens {
-		cacheWritesByModality += tokens.CacheCreationInputTokens
-	}
-	needsCacheWriteDetail := false
-	for _, rates := range p.Modality {
-		if u.InputModalityTokenDetailsIncomplete && rates.Input != base.Input ||
-			u.OutputModalityTokenDetailsIncomplete && rates.Output != base.Output ||
-			u.CacheReadModalityTokenDetailsIncomplete &&
-				rates.CacheRead != base.CacheRead {
-			return false
-		}
-		if rates.CacheWrite != base.CacheWrite {
-			needsCacheWriteDetail = true
-		}
-		if u.CacheCreationInputTokensUnavailable && rates.CacheWrite != rates.Input {
-			return false
-		}
-	}
-	return !needsCacheWriteDetail ||
-		cacheWritesByModality == u.CacheCreationInputTokens
 }
 
 // CostSource distinguishes the origin of a monetary amount. A reported
@@ -285,19 +259,146 @@ const (
 // provider reports an exact total.
 type Cost struct {
 	// Input values uncached input excluding cache writes and cache reads.
-	Input                float64    `json:"input"`
+	Input float64 `json:"input"`
 	// Output values generated output.
-	Output               float64    `json:"output"`
+	Output float64 `json:"output"`
 	// CacheRead values cached input.
-	CacheRead            float64    `json:"cache_read"`
+	CacheRead float64 `json:"cache_read"`
 	// CacheWrite values cache creation input.
-	CacheWrite           float64    `json:"cache_write"`
+	CacheWrite float64 `json:"cache_write"`
 	// Total may be available even when the category breakdown is not.
-	Total                float64    `json:"total"`
+	Total float64 `json:"total"`
 	// Currency identifies the unit shared by the monetary fields.
-	Currency             string     `json:"currency"`
+	Currency string `json:"currency"`
 	// Source distinguishes reported charges, reported estimates, and rates.
-	Source               CostSource `json:"source"`
+	Source CostSource `json:"source"`
 	// BreakdownUnavailable means category zeros are unknown rather than free.
-	BreakdownUnavailable bool       `json:"breakdown_unavailable,omitempty"`
+	BreakdownUnavailable bool `json:"breakdown_unavailable,omitempty"`
+}
+
+// Validate requires a nonnegative finite amount with a known source and
+// currency. It does not equate a provider total with Kernel's breakdown.
+func (c Cost) Validate() error {
+	if strings.TrimSpace(c.Currency) == "" ||
+		strings.TrimSpace(c.Currency) != c.Currency {
+		return errors.New("llm: cost requires currency")
+	}
+	switch c.Source {
+	case CostSourceListPriceEstimate, CostSourceProviderReported,
+		CostSourceProviderEstimate:
+	default:
+		return errors.New("llm: cost requires a known source")
+	}
+	for _, amount := range []float64{
+		c.Input, c.Output, c.CacheRead, c.CacheWrite, c.Total,
+	} {
+		if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+			return errors.New("llm: cost requires finite nonnegative amounts")
+		}
+	}
+	return nil
+}
+
+// UnmarshalJSON requires a total and rejects legacy model and aggregation
+// fields rather than silently dropping them from an attempt-level amount.
+func (c *Cost) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if len(fields["total"]) == 0 ||
+		bytes.Equal(fields["total"], []byte("null")) {
+		return errors.New("llm: cost requires an explicit total")
+	}
+	type alias Cost
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("llm: decode cost: %w", err)
+	}
+	value := Cost(decoded)
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	*c = value
+	return nil
+}
+
+// unattributedUsageBuckets checks disjoint buckets and returns the tokens that
+// have no provider-reported modality. They cannot receive a modality rate.
+func unattributedUsageBuckets(u *Usage) (ModalityTokenUsage, bool) {
+	if u.InputTokens < 0 || u.OutputTokens < 0 ||
+		u.CacheReadInputTokens < 0 || u.CacheCreationInputTokens < 0 {
+		return ModalityTokenUsage{}, false
+	}
+	if u.InputTokens > math.MaxInt-u.CacheCreationInputTokens ||
+		u.InputTokens+u.CacheCreationInputTokens >
+			math.MaxInt-u.CacheReadInputTokens {
+		return ModalityTokenUsage{}, false
+	}
+	remaining := ModalityTokenUsage{
+		InputTokens:              u.InputTokens,
+		OutputTokens:             u.OutputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
+	}
+	for modality, tokens := range u.ModalityTokens {
+		if strings.TrimSpace(modality) == "" ||
+			modality != strings.ToLower(strings.TrimSpace(modality)) {
+			return ModalityTokenUsage{}, false
+		}
+		if tokens.InputTokens < 0 || tokens.InputTokens > remaining.InputTokens ||
+			tokens.OutputTokens < 0 || tokens.OutputTokens > remaining.OutputTokens ||
+			tokens.CacheReadInputTokens < 0 ||
+			tokens.CacheReadInputTokens > remaining.CacheReadInputTokens ||
+			tokens.CacheCreationInputTokens < 0 ||
+			tokens.CacheCreationInputTokens > remaining.CacheCreationInputTokens {
+			return ModalityTokenUsage{}, false
+		}
+		remaining.InputTokens -= tokens.InputTokens
+		remaining.OutputTokens -= tokens.OutputTokens
+		remaining.CacheReadInputTokens -= tokens.CacheReadInputTokens
+		remaining.CacheCreationInputTokens -= tokens.CacheCreationInputTokens
+	}
+	return remaining, true
+}
+
+func pricingDetailAvailable(
+	p Pricing,
+	base Rates,
+	u *Usage,
+	unattributed ModalityTokenUsage,
+) bool {
+	if u.TotalTokenCountMismatch {
+		return false
+	}
+	if u.CacheCreationInputTokensUnavailable && base.CacheWrite != base.Input {
+		return false
+	}
+	for _, rates := range p.Modality {
+		// Unattributed tokens could belong to this modality, so pricing
+		// them at the base rate would invent a billing allocation.
+		switch {
+		case rates.Input != base.Input &&
+			(u.InputModalityTokenDetailsIncomplete ||
+				unattributed.InputTokens != 0):
+			return false
+		case rates.Output != base.Output &&
+			(u.OutputModalityTokenDetailsIncomplete ||
+				unattributed.OutputTokens != 0):
+			return false
+		case rates.CacheRead != base.CacheRead &&
+			(u.CacheReadModalityTokenDetailsIncomplete ||
+				unattributed.CacheReadInputTokens != 0):
+			return false
+		case rates.CacheWrite != base.CacheWrite &&
+			unattributed.CacheCreationInputTokens != 0:
+			return false
+		}
+		if u.CacheCreationInputTokensUnavailable && rates.CacheWrite != rates.Input {
+			return false
+		}
+	}
+	return true
 }

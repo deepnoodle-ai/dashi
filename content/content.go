@@ -25,6 +25,8 @@ const (
 	KindDocument Kind = "document"
 	// KindAudio carries an audio source without implying provider support.
 	KindAudio Kind = "audio"
+	// KindVideo carries a video source without implying provider support.
+	KindVideo Kind = "video"
 	// KindResource carries a URI without resolving the referenced content.
 	KindResource Kind = "resource"
 )
@@ -54,8 +56,8 @@ type Source struct {
 	// MIMEType describes inline bytes and is required when Data is set.
 	MIMEType string `json:"mime_type,omitempty"`
 
-	// ExpiresAt reports a known expiration without promising that a remote
-	// service will accept the reference until that instant.
+	// ExpiresAt reports a known expiration of a remote reference. Inline bytes
+	// do not expire; this does not promise remote acceptance until that instant.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -68,6 +70,9 @@ func (s Source) Validate() error {
 	if s.Data != nil && (len(s.Data) == 0 || s.MIMEType == "") {
 		return errors.New("content: inline source requires data and MIME type")
 	}
+	if s.Data != nil && s.ExpiresAt != nil {
+		return errors.New("content: inline source cannot expire")
+	}
 	if s.URI != "" && s.MIMEType == "" {
 		return errors.New("content: provider URI requires MIME type")
 	}
@@ -78,6 +83,14 @@ func (s Source) Validate() error {
 		return errors.New("content: source origin requires a provider ID or URI")
 	}
 	return nil
+}
+
+// Clone detaches inline bytes and expiry while preserving the location and
+// provenance fields.
+func (s Source) Clone() Source {
+	s.Data = slices.Clone(s.Data)
+	s.ExpiresAt = cloneTime(s.ExpiresAt)
+	return s
 }
 
 // DataURL returns the inline data encoded as a base64 data URL.
@@ -135,10 +148,39 @@ type Document struct {
 	Title string `json:"title,omitempty"`
 }
 
+// AudioFormat describes audio frames when MIME type alone is insufficient.
+// A zero value means the format has not been specified.
+type AudioFormat struct {
+	Encoding     string `json:"encoding"`
+	SampleRateHz int    `json:"sample_rate_hz"`
+	Channels     int    `json:"channels"`
+}
+
+// Validate requires all format fields when frame format is specified.
+func (f AudioFormat) Validate() error {
+	if f.Encoding == "" || f.SampleRateHz <= 0 || f.Channels <= 0 {
+		return errors.New("content: audio format requires encoding, sample rate, and channels")
+	}
+	return nil
+}
+
 // Audio describes audio data without fetching or decoding it.
 type Audio struct {
 	// Source selects audio data without fetching or decoding it.
 	Source Source `json:"source"`
+
+	// Format describes sample layout when known, including raw PCM.
+	Format *AudioFormat `json:"format,omitempty"`
+}
+
+// Video describes video data without fetching or decoding it.
+type Video struct {
+	// Source selects inline bytes or a remote reference without resolving it.
+	Source Source `json:"source"`
+
+	// Duration is measured or provider-reported output length. Zero means it is
+	// unknown; JSON encodes time.Duration as nanoseconds.
+	Duration time.Duration `json:"duration,omitempty"`
 }
 
 // Resource is a reference to content identified by URI.
@@ -177,6 +219,9 @@ type Block struct {
 	// Audio is required only for KindAudio; every other payload must be nil.
 	Audio *Audio `json:"audio,omitempty"`
 
+	// Video is required only for KindVideo; every other payload must be nil.
+	Video *Video `json:"video,omitempty"`
+
 	// Resource is required only for KindResource; every other payload must be
 	// nil.
 	Resource *Resource `json:"resource,omitempty"`
@@ -197,10 +242,23 @@ func DocumentBlock(source Source) Block {
 	return Block{Kind: KindDocument, Document: &Document{Source: source}}
 }
 
+// AudioBlock retains source as supplied without decoding it.
+func AudioBlock(source Source) Block {
+	return Block{Kind: KindAudio, Audio: &Audio{Source: source}}
+}
+
+// VideoBlock retains source as supplied without fetching it.
+func VideoBlock(source Source) Block {
+	return Block{Kind: KindVideo, Video: &Video{Source: source}}
+}
+
 // Validate reports whether b carries exactly one payload that matches its Kind
 // and whether that payload is well formed.
 func (b Block) Validate() error {
-	if count(b.Text != nil, b.Image != nil, b.Document != nil, b.Audio != nil, b.Resource != nil) != 1 {
+	if count(
+		b.Text != nil, b.Image != nil, b.Document != nil,
+		b.Audio != nil, b.Video != nil, b.Resource != nil,
+	) != 1 {
 		return errors.New("content: block requires one payload")
 	}
 	switch {
@@ -216,7 +274,21 @@ func (b Block) Validate() error {
 	case b.Kind == KindDocument && b.Document != nil:
 		return b.Document.Source.Validate()
 	case b.Kind == KindAudio && b.Audio != nil:
-		return b.Audio.Source.Validate()
+		if err := b.Audio.Source.Validate(); err != nil {
+			return err
+		}
+		if b.Audio.Format != nil {
+			return b.Audio.Format.Validate()
+		}
+		return nil
+	case b.Kind == KindVideo && b.Video != nil:
+		if err := b.Video.Source.Validate(); err != nil {
+			return err
+		}
+		if b.Video.Duration < 0 {
+			return errors.New("content: video duration cannot be negative")
+		}
+		return nil
 	case b.Kind == KindResource && b.Resource != nil && b.Resource.URI != "":
 		if b.Resource.Origin != (Origin{}) {
 			return b.Resource.Origin.Validate()
@@ -238,21 +310,27 @@ func (b Block) Clone() Block {
 	}
 	if b.Image != nil {
 		v := *b.Image
-		v.Source.Data = slices.Clone(v.Source.Data)
-		v.Source.ExpiresAt = cloneTime(v.Source.ExpiresAt)
+		v.Source = v.Source.Clone()
 		b.Image = &v
 	}
 	if b.Document != nil {
 		v := *b.Document
-		v.Source.Data = slices.Clone(v.Source.Data)
-		v.Source.ExpiresAt = cloneTime(v.Source.ExpiresAt)
+		v.Source = v.Source.Clone()
 		b.Document = &v
 	}
 	if b.Audio != nil {
 		v := *b.Audio
-		v.Source.Data = slices.Clone(v.Source.Data)
-		v.Source.ExpiresAt = cloneTime(v.Source.ExpiresAt)
+		v.Source = v.Source.Clone()
+		if v.Format != nil {
+			format := *v.Format
+			v.Format = &format
+		}
 		b.Audio = &v
+	}
+	if b.Video != nil {
+		v := *b.Video
+		v.Source = v.Source.Clone()
+		b.Video = &v
 	}
 	if b.Resource != nil {
 		v := *b.Resource
