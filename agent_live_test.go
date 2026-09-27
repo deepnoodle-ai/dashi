@@ -131,6 +131,82 @@ func TestLiveIteratorAgentTurns(t *testing.T) {
 	}
 }
 
+// Each subtest makes exactly two paid calls. The second call must see the
+// recorded tool result while no longer advertising application tools.
+func TestLiveReservedFinalAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		new  func(string) (llm.Client, error)
+	}{
+		{"gemini", func(key string) (llm.Client, error) {
+			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"openai", func(key string) (llm.Client, error) {
+			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"anthropic", func(key string) (llm.Client, error) {
+			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key, modelName := liveAgentCredentials(t, strings.ToUpper(tc.name))
+			client, err := tc.new(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			runs := 0
+			typed, err := tool.Func[struct {
+				A int `json:"a"`
+				B int `json:"b"`
+			}]("multiply_numbers", "Multiply two integers and return the product.",
+				func(_ context.Context, _ tool.Call, args struct {
+					A int `json:"a"`
+					B int `json:"b"`
+				}) (tool.Outcome, error) {
+					if args.A != 7 || args.B != 8 {
+						return tool.Outcome{}, errors.New("unexpected multiplication arguments")
+					}
+					runs++
+					output := tool.TextOutput("56")
+					return tool.Outcome{State: tool.StateSucceeded, Output: &output}, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			counted := &liveCountingClient{Client: client}
+			limits := kernel.DefaultLimits()
+			limits.ModelAttempts = 2
+			def := kernel.Definition{ID: "limit-live", Revision: "1", Provider: client.Provider(), API: client.API(),
+				Model: modelName, Instructions: "Use multiply_numbers to calculate products. Report the result after the tool returns.",
+				Settings: llm.Settings{MaxTokens: 1024, ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAny}},
+				Limits:   limits}
+			out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "limit-live"}, def,
+				kernel.Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8, then answer with the result."))}},
+				kernel.Bindings{Client: counted, Tools: liveToolset{typed}, Recorder: kernel.NewMemoryRecorder(), Policy: kernel.AllowLocalPolicy{}})
+			if err != nil || out.Stop.Kind != kernel.StopLimited || out.Stop.Reason != "model_attempts" ||
+				!strings.Contains(out.Turn.AnswerText(), "56") || counted.sends != 2 || runs != 1 {
+				t.Fatalf("out=%+v err=%v sends=%d runs=%d", out.Stop, err, counted.sends, runs)
+			}
+			view, err := kernel.Replay(out.Turn)
+			if err != nil || view.ModelAttempts != 2 {
+				t.Fatalf("replay=%+v err=%v", view, err)
+			}
+			for _, step := range out.Turn.Steps {
+				if step.Kind == kernel.StepModelIntent && step.Model.FinalAnswerOnly {
+					if len(step.Model.Tools) != 0 {
+						t.Fatalf("final request advertised tools: %+v", step.Model.Tools)
+					}
+					t.Logf("model=%s attempts=%d answer=%q", modelName, view.ModelAttempts, out.Turn.AnswerText())
+					return
+				}
+			}
+			t.Fatal("missing final-answer intent")
+		})
+	}
+}
+
 func runLiveStructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

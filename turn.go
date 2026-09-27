@@ -33,13 +33,18 @@ type Definition struct {
 }
 
 type Limits struct {
-	ModelAttempts   int       `json:"model_attempts"`
-	ProviderPauses  int       `json:"provider_pauses"`
-	ToolConcurrency int       `json:"tool_concurrency"`
-	Deadline        time.Time `json:"deadline,omitempty"`
+	ModelAttempts   int `json:"model_attempts"`
+	ProviderPauses  int `json:"provider_pauses"`
+	ToolConcurrency int `json:"tool_concurrency"`
+	// ReserveFinalAnswer uses the last allowed model attempt for an answer
+	// after earlier attempts, without advertising application tools.
+	ReserveFinalAnswer bool      `json:"reserve_final_answer,omitempty"`
+	Deadline           time.Time `json:"deadline,omitempty"`
 }
 
-func DefaultLimits() Limits { return Limits{ModelAttempts: 8, ProviderPauses: 3, ToolConcurrency: 1} }
+func DefaultLimits() Limits {
+	return Limits{ModelAttempts: 8, ProviderPauses: 3, ToolConcurrency: 1, ReserveFinalAnswer: true}
+}
 
 func (d Definition) Validate() error {
 	if d.ID == "" || d.Revision == "" || d.Provider == "" || d.API == "" || d.Model == "" {
@@ -193,6 +198,7 @@ type ModelFact struct {
 	AttemptID           string                 `json:"attempt_id"`
 	MessageID           string                 `json:"message_id,omitempty"`
 	RequestDigest       string                 `json:"request_digest,omitempty"`
+	FinalAnswerOnly     bool                   `json:"final_answer_only,omitempty"`
 	Admission           json.RawMessage        `json:"admission,omitempty"`
 	Provider            string                 `json:"provider,omitempty"`
 	API                 string                 `json:"api,omitempty"`

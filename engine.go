@@ -402,6 +402,14 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	}
 	return r.current()
 }
+
+func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
+	if s.finalAnswerOnly {
+		return r.stop(StopLimited, "model_attempts")
+	}
+	return r.stop(StopCompleted, "")
+}
+
 func (r *runtime) run() Outcome {
 	for {
 		s, e := replay(r.turn)
@@ -427,13 +435,13 @@ func (r *runtime) run() Outcome {
 			return r.stop(StopWaiting, "provider approval pending")
 		}
 		if s.Output != nil {
-			return r.stop(StopCompleted, "")
+			return r.stopAfterAnswer(s)
 		}
 		if submitted := submittedOutput(s); submitted != nil {
 			if o := r.commit(Step{Kind: StepOutputRecorded, Output: submitted}); o != nil {
 				return *o
 			}
-			return r.stop(StopCompleted, "")
+			return r.stopAfterAnswer(s)
 		}
 		if s.awaitingClassification && s.latestResult != nil {
 			o, again := r.classify(*s.latestResult)
@@ -467,12 +475,13 @@ func hasOpenTools(s *replayState) bool {
 }
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
+	finalAnswerOnly := r.def.Limits.ReserveFinalAnswer && s.ModelAttempts > 0 && s.ModelAttempts+1 == r.def.Limits.ModelAttempts
 	messages, err := Project(r.turn)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if r.b.Tools != nil {
+	if !finalAnswerOnly && r.b.Tools != nil {
 		tools, e := r.b.Tools.Tools(r.ctx)
 		if e != nil {
 			return r.stop(StopFailed, e.Error()), false
@@ -498,7 +507,17 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 		system += "When your work is finished, call kernel_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted."
 	}
+	if finalAnswerOnly {
+		if system != "" {
+			system += "\n\n"
+		}
+		system += "This is the last model call allowed for this turn. Use the information already available to give the best final answer. State any unfinished work or uncertainty. Do not request further work or application tools."
+	}
 	input := llm.Input{Model: r.def.Model, System: system, Messages: messages, Tools: defs, Settings: r.def.Settings, Stream: r.b.Stream}
+	if finalAnswerOnly {
+		input.Settings.ToolChoice = nil
+		input.Settings.ParallelTools = nil
+	}
 	decision, err := r.b.Policy.BeforeModel(r.ctx, ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)})
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
@@ -517,6 +536,12 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	if decision.Settings != nil {
 		input.Settings = *decision.Settings
+	}
+	if finalAnswerOnly {
+		// The turn-wide call limit wins over a forced application-tool choice.
+		// BeforeSend still authorizes the actual prepared request.
+		input.Settings.ToolChoice = nil
+		input.Settings.ParallelTools = nil
 	}
 	if len(s.OutputSchema) > 0 {
 		if err := validateOutputToolChoice(input.Settings); err != nil {
@@ -543,7 +568,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.ModelAttempts+1)
 	snapshot := req.Snapshot()
 	messageID := attempt + ":message"
-	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, UnknownCapabilities: snapshot.UnknownCapabilities, Unverified: snapshot.Unverified, Tools: defs}
+	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), FinalAnswerOnly: finalAnswerOnly, Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, UnknownCapabilities: snapshot.UnknownCapabilities, Unverified: snapshot.Unverified, Tools: defs}
 	if o := r.commit(Step{Kind: StepModelIntent, Model: fact}); o != nil {
 		return *o, false
 	}
@@ -672,7 +697,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		if !useful && !sd.AcceptEmpty && len(state.OutputSchema) == 0 {
 			return r.stop(StopFailed, "empty_response"), false
 		}
-		if sd.Continue {
+		if sd.Continue && !state.finalAnswerOnly {
 			step := Step{Kind: StepLoopContinued}
 			if len(sd.Deliver) > 0 {
 				step.Context = &ContextFact{Items: sd.Deliver}
@@ -699,9 +724,9 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 			if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 				return *o, false
 			}
-			return r.stop(StopCompleted, ""), false
+			return r.stopAfterAnswer(state), false
 		}
-		return r.stop(StopCompleted, ""), false
+		return r.stopAfterAnswer(state), false
 	default:
 		return r.stop(StopFailed, "incomplete_model_result"), false
 	}

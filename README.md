@@ -175,6 +175,13 @@ Run `go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)StructuredOutp
 with `KERNEL_LIVE_AGENT_TEST=1` and the corresponding provider keys and model
 names to repeat them.
 
+On 2026-09-27, the reserved final-answer attempt passed live on the same three
+routes: each turn used a local multiplication tool once, sent a second request
+without application tools, and returned an answer with `StopLimited` and
+`model_attempts`. With the same keys and model names, run
+`KERNEL_LIVE_AGENT_TEST=1 go test -tags live . -run '^TestLiveReservedFinalAnswer$' -v`
+to repeat the two-call check per provider.
+
 On 2026-09-27, `Engine.Stream` also passed one live streamed turn per provider
 on those models. Run `go test -tags live . -run '^TestLiveIteratorAgentTurns$' -v`
 with `KERNEL_LIVE_AGENT_TEST=1`, keys, and model names to repeat the probe.
