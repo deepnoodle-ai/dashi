@@ -27,16 +27,20 @@ func Project(t Turn) ([]llm.Message, error) {
 		return nil, errors.New("kernel: hosted approval is unresolved")
 	}
 	out := make([]llm.Message, 0, len(t.Steps))
-	latest := map[string]int64{}
+	type position struct {
+		seq   int64
+		index int
+	}
+	latest := map[string]position{}
 	acceptedHosted := map[string]bool{}
 	for _, step := range t.Steps {
 		if step.Kind == StepHostedApproval && step.HostedApproval != nil {
 			acceptedHosted[step.HostedApproval.RequestID] = true
 		}
 		if step.Context != nil {
-			for _, item := range step.Context.Items {
+			for index, item := range step.Context.Items {
 				if item.Snapshot {
-					latest[item.Origin+"\x00"+item.Name] = step.Seq
+					latest[item.Origin+"\x00"+item.Name] = position{step.Seq, index}
 				}
 			}
 		}
@@ -60,8 +64,8 @@ func Project(t Turn) ([]llm.Message, error) {
 			if step.Context == nil {
 				continue
 			}
-			for _, item := range step.Context.Items {
-				if item.Snapshot && latest[item.Origin+"\x00"+item.Name] != step.Seq {
+			for index, item := range step.Context.Items {
+				if item.Snapshot && latest[item.Origin+"\x00"+item.Name] != (position{step.Seq, index}) {
 					continue
 				}
 				if item.NextCallOnly && lastIntent > step.Seq {

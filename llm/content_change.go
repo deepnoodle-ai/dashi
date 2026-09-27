@@ -28,6 +28,9 @@ const (
 	// or its matching result. Both positions carry the same mapping; the
 	// original Input retains the source ID.
 	ContentChangeRemapToolID ContentChangeAction = "remap_tool_id"
+	// ContentChangeRenderReminder records a typed reminder rendered to tagged
+	// text and the authority selected for this destination.
+	ContentChangeRenderReminder ContentChangeAction = "render_reminder"
 )
 
 // ContentChange explains a transformation at an original input position. The
@@ -42,9 +45,9 @@ type ContentChange struct {
 	Action ContentChangeAction `json:"action"`
 	// Reason explains why this API required the transformation.
 	Reason string `json:"reason"`
-	// FromRole and ToRole are set only for ContentChangeConvertRole.
+	// FromRole and ToRole are set for role conversion or reminder rendering.
 	FromRole Role `json:"from_role,omitempty"`
-	// ToRole is the authority encoded by a ContentChangeConvertRole decision.
+	// ToRole is the authority encoded by a role conversion or reminder rendering.
 	ToRole Role `json:"to_role,omitempty"`
 	// FromID is the original call ID for ContentChangeRemapToolID.
 	FromID string `json:"from_id,omitempty"`
@@ -72,7 +75,7 @@ func validateContentChanges(p RequestSnapshot) error {
 		}
 		seen[key] = true
 		c := m.Content[change.ContentIndex]
-		if change.Action != ContentChangeConvertRole && (change.FromRole != "" || change.ToRole != "") {
+		if change.Action != ContentChangeConvertRole && change.Action != ContentChangeRenderReminder && (change.FromRole != "" || change.ToRole != "") {
 			return errors.New("llm: role fields require a role conversion")
 		}
 		if change.Action != ContentChangeRemapToolID &&
@@ -101,6 +104,11 @@ func validateContentChanges(p RequestSnapshot) error {
 		case ContentChangeConvertRole:
 			if m.Role != RoleDeveloper || change.FromRole != m.Role || change.ToRole != RoleSystem {
 				return errors.New("llm: unsupported recorded role conversion")
+			}
+		case ContentChangeRenderReminder:
+			if c.Kind != ContentReminder || c.Reminder == nil || m.Role != RoleUser || len(m.Content) != 1 ||
+				change.FromRole != RoleUser || change.ToRole != ReminderPreparedRole(*c.Reminder, p.Origin) {
+				return errors.New("llm: invalid reminder rendering decision")
 			}
 		case ContentChangeEncodeToolError:
 			if c.ToolResult == nil || !c.ToolResult.IsError {

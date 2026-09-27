@@ -41,6 +41,10 @@ func (c Content) Clone() Content {
 		v := *c.Refusal
 		c.Refusal = &v
 	}
+	if c.Reminder != nil {
+		v := *c.Reminder
+		c.Reminder = &v
+	}
 	return c
 }
 

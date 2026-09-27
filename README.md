@@ -137,6 +137,9 @@ to inspect the committed result or pending uncertainty. The iterator is
 backpressured; `Bindings.Observer` remains a separate, lossy display hook.
 Ranging the same turn sequence again returns `kernel.ErrStreamConsumed`.
 
+For typed recorded context, see
+[runtime reminders](design/runtime-reminders.md).
+
 ## Verify
 
 ```sh

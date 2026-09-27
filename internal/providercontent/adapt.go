@@ -123,6 +123,24 @@ func Adapt(
 				kept = append(kept, *c)
 				continue
 			}
+			if c.Kind == llm.ContentReminder {
+				if m.Role != llm.RoleUser || len(m.Content) != 1 {
+					return fail("reminder requires its own user-role message")
+				}
+				reminder := *c.Reminder
+				m.Role = llm.ReminderPreparedRole(reminder, origin)
+				*c = llm.Text(llm.FormatReminder(reminder))
+				reason := "typed runtime context rendered for destination"
+				if reminder.Tier == llm.ReminderOperator && m.Role == llm.RoleUser {
+					reason = "destination cannot preserve operator authority at this history position; rendered as user context"
+				}
+				changes = append(changes, llm.ContentChange{
+					MessageIndex: mi, ContentIndex: ci,
+					Action:   llm.ContentChangeRenderReminder,
+					Reason:   reason,
+					FromRole: llm.RoleUser, ToRole: m.Role,
+				})
+			}
 			if c.Kind == llm.ContentReasoning {
 				if m.Role != llm.RoleAssistant {
 					return fail("reasoning requires assistant role")

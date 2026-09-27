@@ -193,6 +193,9 @@ func (s *replayState) apply(step Step) error {
 			if err := validateMessage(m); err != nil {
 				return err
 			}
+			if reminder := messageReminder(m); reminder != nil && reminder.Tier == llm.ReminderOperator && origin != StartOperator {
+				return errors.New("operator reminder requires operator start origin")
+			}
 		}
 		s.Definition = step.Started.Definition
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
@@ -690,6 +693,15 @@ func validateMessage(m llm.Message) error {
 		if err := part.Validate(); err != nil {
 			return err
 		}
+		if part.Kind == llm.ContentReminder && (m.Role != llm.RoleUser || len(m.Content) != 1) {
+			return errors.New("reminder requires a standalone user message")
+		}
+	}
+	return nil
+}
+func messageReminder(m llm.Message) *llm.Reminder {
+	if len(m.Content) == 1 && m.Content[0].Kind == llm.ContentReminder {
+		return m.Content[0].Reminder
 	}
 	return nil
 }
@@ -708,6 +720,9 @@ func validateContext(item ContextItem) error {
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
+	}
+	if reminder := messageReminder(item.Message); reminder != nil && reminder.Tier == llm.ReminderOperator && item.Origin != "operator" {
+		return errors.New("operator reminder requires operator context origin")
 	}
 	return validateMessage(item.Message)
 }

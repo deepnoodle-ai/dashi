@@ -49,6 +49,59 @@ func TestLiveAnthropicAgentTurn(t *testing.T) {
 	runLiveAgentTurn(t, "anthropic", client, modelName)
 }
 
+// Each subtest makes one paid call with a recorded reminder.
+func TestLiveRecordedReminders(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		new  func(string) (llm.Client, error)
+	}{
+		{"gemini", func(key string) (llm.Client, error) {
+			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"openai", func(key string) (llm.Client, error) {
+			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+		{"anthropic", func(key string) (llm.Client, error) {
+			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key, modelName := liveAgentCredentials(t, strings.ToUpper(tc.name))
+			client, err := tc.new(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			def := kernel.Definition{ID: "reminder-live", Revision: "1", Provider: client.Provider(), API: client.API(), Model: modelName,
+				Settings: llm.Settings{MaxTokens: 256}, Limits: kernel.Limits{ModelAttempts: 1, ProviderPauses: 1, ToolConcurrency: 1}}
+			out, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "reminder-live"}, def,
+				kernel.Start{ID: "start", Origin: kernel.StartOperator, Input: []llm.Message{
+					llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder.")),
+					llm.ReminderMessage(llm.Reminder{Name: "answer-word", Tier: llm.ReminderOperator, Content: "The answer word is indigo."}),
+				}}, kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()})
+			if err != nil || out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted || !strings.Contains(strings.ToLower(out.Turn.AnswerText()), "indigo") {
+				t.Fatalf("outcome=%+v answer=%q err=%v", out.Stop, out.Turn.AnswerText(), err)
+			}
+			projected, err := kernel.Project(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, message := range projected {
+				for _, part := range message.Content {
+					if part.Reminder != nil && part.Reminder.Name == "answer-word" && part.Reminder.Content == "The answer word is indigo." {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatal("recorded reminder missing from projected history")
+			}
+		})
+	}
+}
+
 // These probes verify the shared turn contract over real provider tool calls.
 // Each test makes one paid call. Run them separately from the broader agent
 // turn probes with KERNEL_LIVE_AGENT_TEST=1.
