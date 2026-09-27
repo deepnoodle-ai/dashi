@@ -286,7 +286,7 @@ func TestPrepareKeepsSynthesizedGeminiToolID(t *testing.T) {
 	}
 }
 
-func TestDecodeThenPrepareRejectsSignedIDLessGeminiToolCall(t *testing.T) {
+func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 	client, err := New(Config{
 		Provider:            "google",
 		APIKey:              "test",
@@ -314,8 +314,16 @@ func TestDecodeThenPrepareRejectsSignedIDLessGeminiToolCall(t *testing.T) {
 			},
 		}),
 	)
-	if _, err := client.Prepare(context.Background(), input); err == nil {
-		t.Fatal("signed ID-less replay was rewritten with a synthesized ID")
+	request, err := client.Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatalf("signed ID-less replay failed: %v", err)
+	}
+	if !bytes.Contains(request.Body(), []byte(`"thoughtSignature":"c2ln"`)) {
+		t.Fatalf("signed ID-less replay lost its signature: %s", request.Body())
+	}
+	callID, resultID := geminiWireToolIDs(t, request.Body())
+	if callID != "" || resultID != part.ToolCall.ID {
+		t.Fatalf("signed call ID = %q, tool result ID = %q", callID, resultID)
 	}
 }
 

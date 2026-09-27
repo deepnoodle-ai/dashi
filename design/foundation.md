@@ -34,6 +34,12 @@ dispatch; a sink observes streaming deltas. Each send is a separate attempt,
 including retries of the same request. The caller owns attempt identity and
 recording.
 `llm.Generate` combines preparation and sending for simple use.
+Gemini's conversational default is `v1beta`: its tested `v1` route rejected
+client function calling. The image-generation client keeps its independently
+qualified `v1` endpoint. Changing the conversational default changes private
+replay scope; a host with saved `v1` turns must pin that endpoint to preserve
+private replay, and cannot continue client function calls there. Portable text
+can be re-encoded with an explicit recorded replay strip.
 
 `ModelInfo` contains application-supplied capability facts. Its `ModelEvidence`
 scopes them to an exact model, API, and endpoint with owner, source, date, and

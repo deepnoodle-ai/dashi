@@ -1,6 +1,6 @@
 # Agent definition and loop
 
-**Status:** Local loop implemented; host and live provider qualification pending · **Date:** 2026-09-27
+**Status:** Local loop and selected live Gemini turn qualified; durable host and other providers pending · **Date:** 2026-09-27
 **Workflow:** Specified, then built. Public Go signatures remain provisional.
 
 ## Shape and ownership
@@ -116,8 +116,10 @@ limits do not reset on continuation; and a changed definition revision is
 rejected. These are contract tests, not claims of live provider qualification.
 Local fixtures now cover these cases, canceled execution under a stubborn
 executor, lost admission acknowledgement with budget and owner takeover, and
-matching final facts from three provider wire formats. Production storage,
-real worker takeover, and selected live routes still need qualification.
+matching final facts from three provider wire formats. A live Gemini `v1beta`
+exercise completed a streamed turn and a local tool turn with two model calls,
+record replay, and duplicate-start suppression. Production storage, real worker
+takeover, and other live routes still need qualification.
 
 **Tradeoff:** keeping dispatch in the engine gives small callers one clear loop
 and leaves a durable host less freedom over model worker placement. Revisit that

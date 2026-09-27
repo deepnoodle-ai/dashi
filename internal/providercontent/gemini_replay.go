@@ -110,6 +110,12 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 		if id != "" && c.ToolCall.ID == original.ToolCall.ID {
 			return nil
 		}
+		// An ID-less signed part can be replayed byte for byte. The canonical
+		// call ID is only Kernel's pairing identity; it must not be injected
+		// into the provider-signed functionCall.
+		if id == "" && c.ToolCall.ID == original.ToolCall.ID {
+			return nil
+		}
 		outer, outerOK := geminiStrictObject(o.Raw)
 		inner, innerOK := geminiStrictObject(fields["functionCall"])
 		if !outerOK || !innerOK || !only(outer, "functionCall") ||

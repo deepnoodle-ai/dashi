@@ -31,10 +31,9 @@ func TestAdaptGeminiSignedReplayRequiresUnchangedID(t *testing.T) {
 			raw:  `{"functionCall":{"id":"call.with.dot","name":"lookup","args":{}}}`,
 		},
 		{
-			name: "signed missing ID requires injection",
+			name: "signed missing ID preserves raw replay",
 			id:   "call-1",
 			raw:  `{"functionCall":{"name":"lookup","args":{}},"thoughtSignature":"signed"}`,
-			fail: true,
 		},
 		{
 			name: "unsigned missing ID permits injection",
@@ -42,10 +41,9 @@ func TestAdaptGeminiSignedReplayRequiresUnchangedID(t *testing.T) {
 			raw:  `{"functionCall":{"name":"lookup","args":{}}}`,
 		},
 		{
-			name: "signed empty ID requires injection",
+			name: "signed empty ID preserves raw replay",
 			id:   "call-1",
 			raw:  `{"functionCall":{"id":"","name":"lookup","args":{}},"thoughtSignature":"signed"}`,
-			fail: true,
 		},
 		{
 			name: "unsigned remap with missing ID",
@@ -56,6 +54,12 @@ func TestAdaptGeminiSignedReplayRequiresUnchangedID(t *testing.T) {
 			name: "signed remap",
 			id:   "call.with.dot",
 			raw:  `{"functionCall":{"id":"call.with.dot","name":"lookup","args":{}},"thoughtSignature":"signed"}`,
+			fail: true,
+		},
+		{
+			name: "signed missing ID cannot be remapped",
+			id:   "call.with.dot",
+			raw:  `{"functionCall":{"name":"lookup","args":{}},"thoughtSignature":"signed"}`,
 			fail: true,
 		},
 		{

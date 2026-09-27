@@ -26,9 +26,9 @@ import (
 // API identifies GenerateContent independently of a Google API-key destination.
 const API = "google.generate_content"
 
-// DefaultEndpoint names Dive's v1 Gemini API path. Streaming selects the
-// paired streamGenerateContent path while preserving this replay scope.
-const DefaultEndpoint = "https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
+// DefaultEndpoint uses v1beta for client function calling. Streaming selects
+// the paired streamGenerateContent path while preserving this replay scope.
+const DefaultEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 // Config describes one Gemini API or Vertex destination. Model evidence must
 // name its resolved model-specific endpoint, not the endpoint template.
@@ -175,6 +175,13 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	if err := input.Validate(); err != nil {
 		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
+	if !p.config.Vertex {
+		_, version, _ := sdkEndpoint(p.config.Endpoint, false)
+		if version == "v1" && hasClientFunctionCalls(input) {
+			return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorUnsupported,
+				"Gemini API v1 does not support client function calling; use a v1beta endpoint")
+		}
+	}
 	httpClient, err := p.httpClient(input.Model)
 	if err != nil {
 		return llm.Request{}, err
@@ -309,6 +316,22 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	})
 }
 
+func hasClientFunctionCalls(input llm.Input) bool {
+	for _, definition := range input.Tools {
+		if definition.Kind != tool.KindProviderHosted {
+			return true
+		}
+	}
+	for _, message := range input.Messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentToolCall || part.Kind == llm.ContentToolResult {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Send uses the Google SDK and guards its final HTTP request against the frozen
 // body. A sink observes provisional stream deltas; the final Result is authoritative.
 func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
@@ -424,7 +447,11 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]s
 				if saved.FunctionCall.ID == "" {
 					fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, false)
 					if !ok {
-						return nil, wire.unsupported("ID-less function call replay requires unsigned recognized fields")
+						// Preserve signed ID-less calls exactly. Their generated
+						// canonical IDs pair Kernel's call and result, but do not
+						// authorize modifying the signed provider part.
+						names[c.ToolCall.ID] = c.ToolCall.Name
+						return c.Replay.Raw, nil
 					}
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
