@@ -164,6 +164,25 @@ func (wire codec) grokHostedTool(
 		if options.IncludeOutputs {
 			return config, []string{"code_interpreter_call.outputs"}, nil
 		}
+	case "image_generation":
+		if definition.Name != "image_generation" {
+			return nil, nil, wire.unsupported(
+				"grok image generation requires name image_generation",
+			)
+		}
+		var options struct {
+			Action string `json:"action"`
+		}
+		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+			return nil, nil, wire.unsupported("grok image options: %w", err)
+		}
+		if options.Action != "" && options.Action != "auto" &&
+			options.Action != "generate" && options.Action != "edit" {
+			return nil, nil, wire.unsupported("invalid Grok image action")
+		}
+		if options.Action != "" {
+			config["action"] = options.Action
+		}
 	default:
 		return nil, nil, wire.unsupported("grok hosted type %q", spec.Type)
 	}

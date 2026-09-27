@@ -60,8 +60,10 @@ func NewCodeInterpreterTool(
 	return hostedDefinition("code_interpreter", "code_interpreter", options)
 }
 
-// ImageGenerationOptions limits the generated image's format and size.
+// ImageGenerationOptions configures the provider-hosted image generator.
 type ImageGenerationOptions struct {
+	// Model selects a GPT Image model independently of the mainline model.
+	Model string `json:"model,omitempty"`
 	// Size selects a provider-supported image dimension.
 	Size string `json:"size,omitempty"`
 	// Quality selects a provider-supported quality level.
@@ -70,6 +72,11 @@ type ImageGenerationOptions struct {
 	Background string `json:"background,omitempty"`
 	// OutputFormat selects the returned image encoding.
 	OutputFormat string `json:"output_format,omitempty"`
+	// OutputCompression is a percentage for JPEG or WebP. A pointer preserves
+	// an explicit zero, which means no compression.
+	OutputCompression *int `json:"output_compression,omitempty"`
+	// Action selects automatic generation/editing or forces one operation.
+	Action string `json:"action,omitempty"`
 }
 
 // MCPOptions connects an unauthenticated remote MCP server. Tokens and custom
@@ -208,11 +215,24 @@ func (wire codec) hostedTool(
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("image generation options: %v", err)
 		}
+		if options.Action != "" && options.Action != "auto" &&
+			options.Action != "generate" && options.Action != "edit" {
+			return nil, nil, wire.unsupported("image generation action %q", options.Action)
+		}
+		if options.OutputCompression != nil {
+			if *options.OutputCompression < 0 || *options.OutputCompression > 100 ||
+				(options.OutputFormat != "jpeg" && options.OutputFormat != "webp") {
+				return nil, nil, wire.unsupported("image compression requires JPEG or WebP and a value from 0 to 100")
+			}
+			config["output_compression"] = *options.OutputCompression
+		}
 		for key, value := range map[string]string{
+			"model":         options.Model,
 			"size":          options.Size,
 			"quality":       options.Quality,
 			"background":    options.Background,
 			"output_format": options.OutputFormat,
+			"action":        options.Action,
 		} {
 			if value != "" {
 				config[key] = value

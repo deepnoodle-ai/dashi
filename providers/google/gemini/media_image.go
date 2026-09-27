@@ -31,13 +31,18 @@ func (p *MediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (me
 	if err := in.Validate(); err != nil {
 		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
+	if strings.HasPrefix(in.Model, "imagen-") {
+		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Imagen models are retired from the Gemini API")
+	}
 	if in.Mask != nil || in.Settings.Size.Width != 0 || in.Settings.Quality != "" ||
 		in.Settings.OutputMIMEType != "" || in.Settings.Count > 1 {
 		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Gemini image mask, exact size, quality, output MIME, or count above one")
 	}
-	if resolution := in.Settings.Resolution; resolution != "" && resolution != "512" &&
-		resolution != "1K" && resolution != "2K" && resolution != "4K" {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Gemini image resolution %q", resolution)
+	if err := validateImageModelResolution(in.Model, in.Settings.Resolution); err != nil {
+		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
+	}
+	if err := validateImageModelAspectRatio(in.Model, in.Settings.AspectRatio); err != nil {
+		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
 	if in.Operation == media.ImageGenerate && len(in.ReferenceImages) > 0 {
 		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "reference images require edit operation")

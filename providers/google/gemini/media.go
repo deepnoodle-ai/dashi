@@ -191,16 +191,23 @@ func (p *MediaClient) videoOrigin(name string) content.Origin {
 }
 
 func (p *MediaClient) failure(category media.ErrorCategory, format string, args ...any) error {
-	return &media.Error{Provider: p.Provider(), Category: category, Cause: fmt.Errorf(format, args...)}
+	return mediaFailure(p.Provider(), category, format, args...)
 }
 
 func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []byte, contentType string, maxBytes int64, expectVideo bool) ([]byte, error) {
+	return doGeminiMedia(ctx, p.Provider(), p.config.APIKey, p.config.Client,
+		method, endpoint, body, contentType, maxBytes, expectVideo)
+}
+
+func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClient *http.Client,
+	method, endpoint string, body []byte, contentType string, maxBytes int64, expectVideo bool,
+) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	client := http.Client{Timeout: 5 * time.Minute}
-	if p.config.Client != nil {
-		client = *p.config.Client
+	if configuredClient != nil {
+		client = *configuredClient
 	}
 	client.CheckRedirect = func(next *http.Request, prior []*http.Request) error {
 		if method != http.MethodGet || !strings.Contains(endpoint, ":download?") || len(prior) > 3 ||
@@ -220,15 +227,15 @@ func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []by
 	}
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, p.failure(media.ErrorInvalidRequest, "%w", err)
+		return nil, mediaFailure(provider, media.ErrorInvalidRequest, "%w", err)
 	}
-	req.Header.Set("X-Goog-Api-Key", p.config.APIKey)
+	req.Header.Set("X-Goog-Api-Key", apiKey)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, p.failure(media.ErrorTransport, "%w", err)
+		return nil, mediaFailure(provider, media.ErrorTransport, "%w", err)
 	}
 	defer resp.Body.Close()
 	readLimit := maxBytes
@@ -237,10 +244,10 @@ func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []by
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, readLimit+1))
 	if err != nil {
-		return nil, p.failure(media.ErrorTransport, "read response: %w", err)
+		return nil, mediaFailure(provider, media.ErrorTransport, "read response: %w", err)
 	}
 	if int64(len(raw)) > readLimit {
-		return nil, p.failure(media.ErrorProtocol, "media response exceeds %d bytes", readLimit)
+		return nil, mediaFailure(provider, media.ErrorProtocol, "media response exceeds %d bytes", readLimit)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		category := media.ErrorInvalidRequest
@@ -252,17 +259,21 @@ func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []by
 		case resp.StatusCode >= 500:
 			category = media.ErrorOverloaded
 		}
-		return nil, &media.Error{Provider: p.Provider(), Category: category, Status: resp.StatusCode,
+		return nil, &media.Error{Provider: provider, Category: category, Status: resp.StatusCode,
 			Body: slices.Clone(raw), Retryable: resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500,
 			Cause: fmt.Errorf("HTTP %d", resp.StatusCode)}
 	}
 	if expectVideo {
 		mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if mediaType != "" && !strings.HasPrefix(mediaType, "video/") && mediaType != "application/octet-stream" {
-			return nil, p.failure(media.ErrorProtocol, "Veo file download returned %q", mediaType)
+			return nil, mediaFailure(provider, media.ErrorProtocol, "video file download returned %q", mediaType)
 		}
 	}
 	return raw, nil
+}
+
+func mediaFailure(provider string, category media.ErrorCategory, format string, args ...any) error {
+	return &media.Error{Provider: provider, Category: category, Cause: fmt.Errorf(format, args...)}
 }
 
 func googleDownloadHost(host string) bool {

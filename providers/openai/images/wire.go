@@ -20,7 +20,8 @@ import (
 
 const maxReferenceCount = 16
 
-func encodeImage(input media.ImageInput, prompt string) ([]byte, string, error) {
+func encodeImage(input media.ImageInput, prompt string,
+	options Options) ([]byte, string, error) {
 	if input.Operation == media.ImageGenerate &&
 		(len(input.ReferenceImages) > 0 || input.Mask != nil) {
 		return nil, "", errors.New("images: generation does not accept reference images or a mask")
@@ -51,6 +52,13 @@ func encodeImage(input media.ImageInput, prompt string) ([]byte, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
+	optionFields, err := options.fields(input)
+	if err != nil {
+		return nil, "", err
+	}
+	for key, value := range optionFields {
+		fields[key] = value
+	}
 	if input.Operation == media.ImageGenerate {
 		body, err := json.Marshal(fields)
 		return body, "application/json", err
@@ -58,9 +66,6 @@ func encodeImage(input media.ImageInput, prompt string) ([]byte, string, error) 
 	if knownGPTImageModel(input.Model) &&
 		len(input.ReferenceImages) > maxReferenceCount {
 		return nil, "", errors.New("images: at most 16 reference images are supported")
-	}
-	if input.Model == "dall-e-2" && len(input.ReferenceImages) != 1 {
-		return nil, "", errors.New("images: DALL-E 2 editing requires one reference image")
 	}
 	if allInline(input.ReferenceImages, input.Mask) {
 		return encodeMultipart(fields, input.ReferenceImages, input.Mask)
@@ -101,25 +106,17 @@ func encodePrompt(blocks []content.Block) (string, error) {
 	return prompt, nil
 }
 
-func validateModelOperation(model string, operation media.ImageOperation) error {
-	if model == "dall-e-3" && operation == media.ImageEdit {
-		return errors.New("images: DALL-E 3 does not support image editing")
+func validateModelOperation(model string, _ media.ImageOperation) error {
+	if model == "dall-e-2" || model == "dall-e-3" {
+		return errors.New("images: DALL-E 2 and DALL-E 3 were retired from the API on 2026-05-12")
 	}
 	return nil
 }
 
 func validatePromptLength(model, prompt string) error {
 	limit := 0
-	switch model {
-	case "dall-e-2":
-		limit = 1000
-	case "dall-e-3":
-		limit = 4000
-	default:
-		if knownGPTImageModel(model) ||
-			model == "chatgpt-image-latest" {
-			limit = 32000
-		}
+	if knownGPTImageModel(model) {
+		limit = 32000
 	}
 	if limit > 0 && utf8.RuneCountInString(prompt) > limit {
 		return fmt.Errorf("images: prompt exceeds %d characters for %s", limit, model)
@@ -134,8 +131,7 @@ func imageFields(input media.ImageInput, prompt string) (map[string]any, error) 
 		return nil, errors.New("images: aspect ratio cannot be encoded by the Images API")
 	}
 	if s.Resolution != "" {
-		if s.Resolution != "auto" || input.Model == "dall-e-2" ||
-			input.Model == "dall-e-3" {
+		if s.Resolution != "auto" {
 			return nil, errors.New("images: unsupported image resolution")
 		}
 		fields["size"] = s.Resolution
@@ -147,7 +143,7 @@ func imageFields(input media.ImageInput, prompt string) (map[string]any, error) 
 		fields["size"] = strconv.Itoa(s.Size.Width) + "x" + strconv.Itoa(s.Size.Height)
 	}
 	if s.Count > 0 {
-		if s.Count > 10 || (input.Model == "dall-e-3" && s.Count != 1) {
+		if s.Count > 10 {
 			return nil, errors.New("images: image count is unsupported by this model")
 		}
 		fields["n"] = s.Count
@@ -159,9 +155,6 @@ func imageFields(input media.ImageInput, prompt string) (map[string]any, error) 
 		fields["quality"] = s.Quality
 	}
 	if s.OutputMIMEType != "" {
-		if input.Model == "dall-e-2" || input.Model == "dall-e-3" {
-			return nil, errors.New("images: output MIME type requires a GPT image model")
-		}
 		format, err := outputFormat(s.OutputMIMEType)
 		if err != nil {
 			return nil, err
@@ -176,16 +169,10 @@ func validSize(model string, size media.Size) bool {
 	if knownFlexibleSizeModel(model) {
 		return width%16 == 0 && height%16 == 0 &&
 			width <= 3840 && height <= 3840 &&
-			width*height <= 3840*2160 &&
+			width*height >= 655_360 && width*height <= 8_294_400 &&
 			width <= 3*height && height <= 3*width
 	}
 	switch model {
-	case "dall-e-2":
-		return width == height &&
-			(width == 256 || width == 512 || width == 1024)
-	case "dall-e-3":
-		return width == 1024 && (height == 1024 || height == 1792) ||
-			width == 1792 && height == 1024
 	default:
 		if model == "gpt-image-1" || model == "gpt-image-1-mini" ||
 			model == "gpt-image-1.5" {
@@ -197,15 +184,11 @@ func validSize(model string, size media.Size) bool {
 }
 
 func validQuality(model, quality string) bool {
-	switch model {
-	case "dall-e-2":
-		return quality == "standard"
-	case "dall-e-3":
-		return quality == "standard" || quality == "hd"
-	}
 	switch quality {
 	case "auto", "low", "medium", "high":
 		return true
+	case "standard", "hd":
+		return !knownGPTImageModel(model)
 	case "xhigh", "max":
 		if strings.HasPrefix(model, "gpt-image-2.5-") {
 			return true
@@ -240,7 +223,10 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 	mask *content.Block) ([]byte, string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	for _, key := range []string{"model", "prompt", "size", "n", "quality", "output_format"} {
+	for _, key := range []string{
+		"model", "prompt", "size", "n", "quality", "output_format",
+		"background", "moderation", "input_fidelity", "output_compression",
+	} {
 		if value, ok := fields[key]; ok {
 			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
 				return nil, "", err
@@ -340,6 +326,7 @@ func supportedInputMIME(mimeType string) bool {
 func knownGPTImageModel(name string) bool {
 	switch name {
 	case "gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5",
+		"chatgpt-image-latest",
 		"gpt-image-2", "gpt-image-2-2026-04-21",
 		"gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
 		"gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08":
@@ -356,4 +343,8 @@ func knownFlexibleSizeModel(name string) bool {
 		return true
 	}
 	return false
+}
+
+func knownImage2Model(name string) bool {
+	return name == "gpt-image-2" || name == "gpt-image-2-2026-04-21"
 }

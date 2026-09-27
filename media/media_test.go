@@ -116,6 +116,33 @@ func TestSubmissionCloneCopiesJobExpiry(t *testing.T) {
 	}
 }
 
+func TestSubmissionKeepsInitialResponseFacts(t *testing.T) {
+	job := Job{ID: "files/video-1", Kind: KindVideo, Origin: content.Origin{
+		Provider: "google", API: "google.interactions", Model: "omni", Scope: "account",
+	}}
+	submission := Submission{State: SubmissionAccepted, Job: &job,
+		ResponseID: "interaction-1", Served: model.ModelRef{Provider: "google", Model: "omni"},
+		RawUsage: json.RawMessage(`{"total_tokens":12}`)}
+	if err := submission.Validate(); err != nil {
+		t.Fatalf("valid submission rejected: %v", err)
+	}
+	copy := submission.Clone()
+	copy.RawUsage[0] = '['
+	if submission.RawUsage[0] != '{' {
+		t.Fatal("submission usage bytes were shared")
+	}
+	copy.Served.Provider = "other"
+	if err := copy.Validate(); err == nil {
+		t.Fatal("accepted a served model from another provider")
+	}
+	unknown := Submission{State: SubmissionUnknown, ResponseID: "interaction-2",
+		Served:   model.ModelRef{Provider: "google", Model: "omni"},
+		RawUsage: json.RawMessage(`{"total_tokens":3}`)}
+	if err := unknown.Validate(); err != nil {
+		t.Fatalf("observed facts without a handle were lost: %v", err)
+	}
+}
+
 func TestResultValidateRequiresCoherentServedIdentity(t *testing.T) {
 	result := Result{
 		Kind: KindImage,
@@ -146,6 +173,41 @@ func TestResultCloneCopiesRawUsage(t *testing.T) {
 	clone.RawUsage[0] = '['
 	if result.RawUsage[0] != '{' {
 		t.Fatal("provider usage bytes were shared")
+	}
+}
+
+func TestStoredOutputPreservesProviderFileAndPublicURL(t *testing.T) {
+	expires := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	result := Result{Kind: KindImage,
+		Content:   []content.Block{content.ImageBlock(content.Source{URL: "https://temporary.example/image.png"})},
+		Requested: model.ModelRef{Provider: "grok", Model: "imagine"}, API: "xai.images",
+		StoredOutputs: []StoredOutput{{ContentIndex: 0,
+			File: content.Source{ID: "file-1", Origin: content.Origin{
+				Provider: "grok", API: "xai.files", Scope: "account"}},
+			Filename: "image.png", PublicURL: &content.Source{
+				URL: "https://public.example/image.png", ExpiresAt: &expires}}},
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("valid stored output rejected: %v", err)
+	}
+	copy := result.Clone()
+	copy.StoredOutputs[0].File.ID = "other"
+	*copy.StoredOutputs[0].PublicURL.ExpiresAt = expires.Add(time.Hour)
+	if result.StoredOutputs[0].File.ID != "file-1" ||
+		!result.StoredOutputs[0].PublicURL.ExpiresAt.Equal(expires) {
+		t.Fatal("stored output was shared")
+	}
+	result.StoredOutputs[0].PublicURLError = "quota"
+	if err := result.Validate(); err == nil {
+		t.Fatal("accepted a public URL and its failure together")
+	}
+	result.StoredOutputs[0].PublicURL = nil
+	if err := result.Validate(); err != nil {
+		t.Fatalf("partial URL failure lost stored file: %v", err)
+	}
+	result.StoredOutputs[0].ContentIndex = 1
+	if err := result.Validate(); err == nil {
+		t.Fatal("accepted a stored output without a corresponding block")
 	}
 }
 

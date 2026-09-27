@@ -28,6 +28,7 @@ func (wire codec) decodeHostedItem(
 		Queries       json.RawMessage   `json:"queries"`
 		Code          string            `json:"code"`
 		RevisedPrompt string            `json:"revised_prompt"`
+		Prompt        string            `json:"prompt"`
 		Results       []json.RawMessage `json:"results"`
 		Outputs       []json.RawMessage `json:"outputs"`
 		Result        string            `json:"result"`
@@ -48,9 +49,13 @@ func (wire codec) decodeHostedItem(
 	case "code_interpreter_call":
 		input, _ = json.Marshal(map[string]string{"code": value.Code})
 	case "image_generation_call":
-		input, _ = json.Marshal(map[string]string{
-			"revised_prompt": value.RevisedPrompt,
-		})
+		if value.Prompt != "" {
+			input, _ = json.Marshal(map[string]string{"prompt": value.Prompt})
+		} else {
+			input, _ = json.Marshal(map[string]string{
+				"revised_prompt": value.RevisedPrompt,
+			})
+		}
 	case "mcp_call":
 		input = json.RawMessage(value.Arguments)
 		if !json.Valid(input) {

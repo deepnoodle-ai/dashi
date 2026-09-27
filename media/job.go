@@ -55,12 +55,28 @@ const (
 // Rejected and unknown submissions have no handle; the caller records errors
 // and reconciliation evidence separately.
 type Submission struct {
-	State SubmissionState `json:"state"`
-	Job   *Job            `json:"job,omitempty"`
+	State      SubmissionState `json:"state"`
+	Job        *Job            `json:"job,omitempty"`
+	ResponseID string          `json:"response_id,omitempty"`
+	Served     model.ModelRef  `json:"served,omitzero"`
+	// RawUsage records usage reported at submission, independently of any
+	// later poll or output fetch. It may be absent even for an accepted job.
+	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
 }
 
 // Validate rejects invented handles for uncertain or rejected submissions.
 func (s Submission) Validate() error {
+	if err := validateRawUsage(s.RawUsage); err != nil {
+		return err
+	}
+	if s.Served != (model.ModelRef{}) {
+		if s.Served.Provider == "" || s.Served.Model == "" {
+			return errors.New("media: submitted served model requires provider and model")
+		}
+		if s.Job != nil && s.Served.Provider != s.Job.Origin.Provider {
+			return errors.New("media: submitted served model must match the job provider")
+		}
+	}
 	switch s.State {
 	case SubmissionAccepted:
 		if s.Job != nil {
@@ -80,6 +96,7 @@ func (s Submission) Clone() Submission {
 		job := s.Job.Clone()
 		s.Job = &job
 	}
+	s.RawUsage = slices.Clone(s.RawUsage)
 	return s
 }
 
@@ -106,7 +123,10 @@ type JobPoll struct {
 	State   JobState        `json:"state"`
 	Served  model.ModelRef  `json:"served,omitzero"`
 	Content []content.Block `json:"content,omitempty"`
-	Failure string          `json:"failure,omitempty"`
+	// StoredOutputs records optional provider-owned files corresponding to
+	// generated content. The host still decides durable artifact storage.
+	StoredOutputs []StoredOutput `json:"stored_outputs,omitempty"`
+	Failure       string         `json:"failure,omitempty"`
 	// RawUsage retains a reported usage object until output fetching completes.
 	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
 }
@@ -125,7 +145,7 @@ func (p JobPoll) Validate() error {
 	}
 	switch p.State {
 	case JobPending, JobFailed, JobExpired:
-		if len(p.Content) > 0 {
+		if len(p.Content) > 0 || len(p.StoredOutputs) > 0 {
 			return errors.New("media: unfinished job cannot carry output")
 		}
 	case JobSucceeded:
@@ -139,6 +159,9 @@ func (p JobPoll) Validate() error {
 			if err := block.Validate(); err != nil {
 				return err
 			}
+		}
+		if err := validateStoredOutputs(p.StoredOutputs, p.Content, p.Job.Origin.Provider); err != nil {
+			return err
 		}
 	default:
 		return errors.New("media: invalid job state")
@@ -154,5 +177,6 @@ func (p JobPoll) Clone() JobPoll {
 		p.Content[i] = p.Content[i].Clone()
 	}
 	p.RawUsage = slices.Clone(p.RawUsage)
+	p.StoredOutputs = cloneStoredOutputs(p.StoredOutputs)
 	return p
 }

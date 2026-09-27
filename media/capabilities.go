@@ -3,6 +3,7 @@ package media
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 	"slices"
 	"time"
 
@@ -10,23 +11,82 @@ import (
 	"github.com/deepnoodle-ai/kernel/model"
 )
 
+// ImageSizeBounds describes a continuous set of valid exact image sizes.
+// Evidence must establish that omitted bounds are unrestricted. Multiple
+// applies to both edges; MaxAspectRatio is the larger edge divided by the
+// smaller edge.
+type ImageSizeBounds struct {
+	MinPixels      uint64 `json:"min_pixels,omitempty"`
+	MaxPixels      uint64 `json:"max_pixels,omitempty"`
+	MaxEdge        int    `json:"max_edge,omitempty"`
+	Multiple       int    `json:"multiple,omitempty"`
+	MaxAspectRatio int    `json:"max_aspect_ratio,omitempty"`
+}
+
+// Validate checks the bounds' internal shape.
+func (b ImageSizeBounds) Validate() error {
+	if b.MaxEdge < 0 || b.Multiple < 0 || b.MaxAspectRatio < 0 ||
+		(b.MaxPixels > 0 && b.MinPixels > b.MaxPixels) ||
+		(b.MinPixels == 0 && b.MaxPixels == 0 && b.MaxEdge == 0 &&
+			b.Multiple == 0 && b.MaxAspectRatio == 0) {
+		return errors.New("media: invalid image size bounds")
+	}
+	return nil
+}
+
+// Check reports whether an exact size meets every known bound.
+func (b ImageSizeBounds) Check(size Size) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	if size.Width <= 0 || size.Height <= 0 {
+		return errors.New("media: image size requires two positive edges")
+	}
+	if b.MaxEdge > 0 && (size.Width > b.MaxEdge || size.Height > b.MaxEdge) {
+		return errors.New("media: image size exceeds maximum edge")
+	}
+	if b.Multiple > 0 && (size.Width%b.Multiple != 0 || size.Height%b.Multiple != 0) {
+		return errors.New("media: image size edges require a supported multiple")
+	}
+	hi, pixels := bits.Mul64(uint64(size.Width), uint64(size.Height))
+	if hi != 0 || (b.MaxPixels > 0 && pixels > b.MaxPixels) {
+		return errors.New("media: image size exceeds maximum pixels")
+	}
+	if b.MinPixels > 0 && pixels < b.MinPixels {
+		return errors.New("media: image size is below minimum pixels")
+	}
+	if b.MaxAspectRatio > 0 {
+		larger, smaller := max(size.Width, size.Height), min(size.Width, size.Height)
+		if larger/smaller > b.MaxAspectRatio ||
+			(larger/smaller == b.MaxAspectRatio && larger%smaller != 0) {
+			return errors.New("media: image aspect ratio exceeds maximum")
+		}
+	}
+	return nil
+}
+
 // ImageCapabilities states known operation support and known output limits.
 // Empty constraint lists mean unknown, not unrestricted.
 type ImageCapabilities struct {
-	Generate        model.Support `json:"generate,omitempty"`
-	Edit            model.Support `json:"edit,omitempty"`
-	Mask            model.Support `json:"mask,omitempty"`
-	Sizes           []Size        `json:"sizes,omitempty"`
-	Resolutions     []string      `json:"resolutions,omitempty"`
-	AspectRatios    []string      `json:"aspect_ratios,omitempty"`
-	Qualities       []string      `json:"qualities,omitempty"`
-	OutputMIMETypes []string      `json:"output_mime_types,omitempty"`
-	MaxCount        int           `json:"max_count,omitempty"`
+	Generate        model.Support    `json:"generate,omitempty"`
+	Edit            model.Support    `json:"edit,omitempty"`
+	Mask            model.Support    `json:"mask,omitempty"`
+	Sizes           []Size           `json:"sizes,omitempty"`
+	SizeBounds      *ImageSizeBounds `json:"size_bounds,omitempty"`
+	Resolutions     []string         `json:"resolutions,omitempty"`
+	AspectRatios    []string         `json:"aspect_ratios,omitempty"`
+	Qualities       []string         `json:"qualities,omitempty"`
+	OutputMIMETypes []string         `json:"output_mime_types,omitempty"`
+	MaxCount        int              `json:"max_count,omitempty"`
 }
 
 // Clone detaches constraint lists.
 func (c ImageCapabilities) Clone() ImageCapabilities {
 	c.Sizes = slices.Clone(c.Sizes)
+	if c.SizeBounds != nil {
+		bounds := *c.SizeBounds
+		c.SizeBounds = &bounds
+	}
 	c.Resolutions = slices.Clone(c.Resolutions)
 	c.AspectRatios = slices.Clone(c.AspectRatios)
 	c.Qualities = slices.Clone(c.Qualities)
@@ -34,10 +94,12 @@ func (c ImageCapabilities) Clone() ImageCapabilities {
 	return c
 }
 
-// VideoCapabilities states known generation and reference-frame support.
+// VideoCapabilities states known video operation and reference-frame support.
 // A provider may still reject a request for content policy reasons.
 type VideoCapabilities struct {
 	Generate        model.Support   `json:"generate,omitempty"`
+	Edit            model.Support   `json:"edit,omitempty"`
+	Extend          model.Support   `json:"extend,omitempty"`
 	ReferenceFrames model.Support   `json:"reference_frames,omitempty"`
 	Sizes           []Size          `json:"sizes,omitempty"`
 	Resolutions     []string        `json:"resolutions,omitempty"`
@@ -101,9 +163,18 @@ func (m ModelInfo) Validate() error {
 				return errors.New("media: invalid supported image size")
 			}
 		}
+		if c.SizeBounds != nil {
+			if len(c.Sizes) != 0 {
+				return errors.New("media: image sizes and size bounds are mutually exclusive")
+			}
+			if err := c.SizeBounds.Validate(); err != nil {
+				return err
+			}
+		}
 	}
 	if c := m.Video; c != nil {
-		if !c.Generate.Valid() || !c.ReferenceFrames.Valid() {
+		if !c.Generate.Valid() || !c.Edit.Valid() || !c.Extend.Valid() ||
+			!c.ReferenceFrames.Valid() {
 			return errors.New("media: invalid video capabilities")
 		}
 		for _, size := range c.Sizes {
@@ -181,7 +252,11 @@ func (c ImageCapabilities) Check(
 		}
 	}
 	if s.Size.Width > 0 {
-		if len(c.Sizes) == 0 {
+		if c.SizeBounds != nil {
+			if err := c.SizeBounds.Check(s.Size); err != nil {
+				return nil, err
+			}
+		} else if len(c.Sizes) == 0 {
 			if err := check.unknown("image.size"); err != nil {
 				return nil, err
 			}
@@ -215,8 +290,19 @@ func (c VideoCapabilities) Check(
 	if err != nil {
 		return nil, err
 	}
-	if err := check.support("video.generate", c.Generate); err != nil {
-		return nil, err
+	switch input.Operation {
+	case "", VideoGenerate:
+		if err := check.support("video.generate", c.Generate); err != nil {
+			return nil, err
+		}
+	case VideoEdit:
+		if err := check.support("video.edit", c.Edit); err != nil {
+			return nil, err
+		}
+	case VideoExtend:
+		if err := check.support("video.extend", c.Extend); err != nil {
+			return nil, err
+		}
 	}
 	if len(input.ReferenceFrames) > 0 {
 		if err := check.support("video.reference_frames", c.ReferenceFrames); err != nil {

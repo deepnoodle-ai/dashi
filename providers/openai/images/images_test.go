@@ -407,27 +407,174 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 	}
 }
 
-func TestDecodeImageSourceMarksDalleURLExpiry(t *testing.T) {
-	const created = int64(1_800_000_000)
-	source, err := decodeImageSource(
-		"", "https://example.com/generated.png", "", created, "dall-e-3",
-	)
+func TestClientPreparesOpenAIOptions(t *testing.T) {
+	client, err := New(Config{
+		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.URL != "https://example.com/generated.png" {
-		t.Fatal("provider URL was lost")
+	input := imageInput(media.ImageGenerate)
+	input.Model = "gpt-image-2.5-sunburst"
+	input.Settings.Size = media.Size{Width: 1536, Height: 864}
+	input.Settings.Quality = "max"
+	input.Settings.OutputMIMEType = "image/webp"
+	zero := 0
+	options := Options{
+		Background: "transparent", Moderation: "low",
+		OutputCompression: &zero,
 	}
-	if source.ExpiresAt == nil ||
-		!source.ExpiresAt.Equal(time.Unix(created, 0).Add(time.Hour)) {
-		t.Fatal("DALL-E URL expiry was not preserved")
+	request, err := client.PrepareImageWithOptions(context.Background(), input, options)
+	if err != nil {
+		t.Fatalf("prepare current image model: %v", err)
+	}
+	zero = 90
+	var body map[string]any
+	if err := json.Unmarshal(request.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["size"] != "1536x864" || body["quality"] != "max" ||
+		body["background"] != "transparent" || body["moderation"] != "low" ||
+		body["output_format"] != "webp" || body["output_compression"] != float64(0) {
+		t.Fatalf("options not fully encoded: %#v", body)
+	}
+	var saved Options
+	if err := json.Unmarshal(request.Snapshot().ProviderOptions, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.OutputCompression == nil || *saved.OutputCompression != 0 {
+		t.Fatalf("prepared options were not frozen: %#v", saved)
+	}
+}
+
+func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
+	client, err := New(Config{
+		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := imageInput(media.ImageEdit)
+	input.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
+		Data: tinyPNG, MIMEType: "image/png",
+	})}
+	request, err := client.PrepareImageWithOptions(context.Background(), input,
+		Options{InputFidelity: "high", Background: "opaque"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, params, err := mime.ParseMediaType(request.ContentType())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := multipart.NewReader(bytes.NewReader(request.Body()), params["boundary"])
+	var fields = map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields[part.FormName()] = string(data)
+	}
+	if fields["input_fidelity"] != "high" || fields["background"] != "opaque" ||
+		!bytes.Equal([]byte(fields["image"]), tinyPNG) {
+		t.Fatalf("multipart options or image were lost: %#v", fields)
+	}
+}
+
+func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
+	client, err := New(Config{
+		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"dall-e-2", "dall-e-3"} {
+		input := imageInput(media.ImageGenerate)
+		input.Model = name
+		if _, err := client.PrepareImage(context.Background(), input); err == nil {
+			t.Errorf("retired model %s was accepted", name)
+		}
+	}
+	jpeg := imageInput(media.ImageGenerate)
+	jpeg.Settings.OutputMIMEType = "image/jpeg"
+	edit := imageInput(media.ImageEdit)
+	edit.Model = "gpt-image-2"
+	edit.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
+		Data: tinyPNG, MIMEType: "image/png",
+	})}
+	badCompression := 101
+	cases := []struct {
+		name    string
+		input   media.ImageInput
+		options Options
+	}{
+		{"transparent JPEG", jpeg, Options{Background: "transparent"}},
+		{"compression without format", imageInput(media.ImageGenerate),
+			Options{OutputCompression: &badCompression}},
+		{"invalid moderation", imageInput(media.ImageGenerate),
+			Options{Moderation: "none"}},
+		{"generation fidelity", imageInput(media.ImageGenerate),
+			Options{InputFidelity: "high"}},
+		{"GPT Image 2 fixed fidelity", edit,
+			Options{InputFidelity: "low"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := client.PrepareImageWithOptions(context.Background(),
+				tc.input, tc.options); err == nil {
+				t.Fatal("invalid options were accepted")
+			}
+		})
+	}
+}
+
+func TestFlexibleImageSizesRespectCurrentBounds(t *testing.T) {
+	const name = "gpt-image-2.5-flare"
+	for _, tc := range []struct {
+		size media.Size
+		want bool
+	}{
+		{media.Size{Width: 1024, Height: 640}, true},
+		{media.Size{Width: 1024, Height: 624}, false},
+		{media.Size{Width: 3840, Height: 2160}, true},
+		{media.Size{Width: 3840, Height: 2176}, false},
+		{media.Size{Width: 3840, Height: 1024}, false},
+		{media.Size{Width: 1025, Height: 1024}, false},
+	} {
+		if got := validSize(name, tc.size); got != tc.want {
+			t.Errorf("validSize(%+v) = %v, want %v", tc.size, got, tc.want)
+		}
 	}
 }
 
 func TestDecodeImageSourceRejectsFalseFormat(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(tinyPNG)
-	if _, err := decodeImageSource(encoded, "", "jpeg", 0,
+	if _, err := decodeImageSource(encoded, "", "jpeg",
 		"gpt-image-1.5"); err == nil {
 		t.Fatal("declared JPEG with PNG bytes was accepted")
+	}
+}
+
+func TestDecodeImageSourceRequiresBase64ForKnownGPTModels(t *testing.T) {
+	_, err := decodeImageSource("", "https://example.com/generated.png", "png",
+		"gpt-image-2.5-sunburst")
+	if err == nil {
+		t.Fatal("known GPT Image URL was accepted despite base64-only response")
+	}
+	source, err := decodeImageSource("", "https://example.com/generated.png", "png",
+		"future-image-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.URL != "https://example.com/generated.png" || source.ExpiresAt != nil {
+		t.Fatalf("unknown model URL received invented expiry: %#v", source)
 	}
 }
