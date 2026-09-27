@@ -105,6 +105,13 @@ authenticates that origin.
 
 `Observer` receives bounded, lossy display events. Stream deltas are
 provisional and carry turn, attempt, and message IDs; the recorder's settled
-result is authoritative. The engine does not own session storage, durable
-leases, budget enforcement, child turns, or compaction. Its Go API and record
-shape are experimental.
+result is authoritative. `Engine.Stream` offers a backpressured iterator over
+acknowledged steps and provisional deltas. A fully consumed range ends with
+one `Event.Outcome`; command validation errors use the iterator's error slot.
+Stopping the range cancels the turn and suppresses the terminal event. Reload
+the record by turn ID to inspect what was committed, including partial model
+results or uncertain effects. The sequence is single-use; another range
+returns `ErrStreamConsumed`. `Bindings.Observer` remains an independent,
+lossy hook, while `Engine.Apply` remains the collected call. The engine does
+not own session storage, durable leases, budget enforcement, child turns, or
+compaction. Its Go API and record shape are experimental.

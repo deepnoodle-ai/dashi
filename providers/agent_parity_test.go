@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
@@ -91,14 +92,82 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				result, err := client.Send(context.Background(), request, nil)
-				if err != nil {
-					t.Fatalf("stream=%t: %v", stream, err)
+				var result llm.Result
+				if stream {
+					deltas, terminals := 0, 0
+					for event, err := range llm.Stream(context.Background(), client, request) {
+						if err != nil {
+							t.Fatal(err)
+						}
+						if event.Delta != nil {
+							deltas++
+						}
+						if event.Result != nil {
+							terminals++
+							result = *event.Result
+						}
+					}
+					if deltas == 0 || terminals != 1 {
+						t.Fatalf("stream events: deltas=%d terminals=%d", deltas, terminals)
+					}
+				} else {
+					result, err = client.Send(context.Background(), request, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
 				if result.Stop.Kind != llm.StopFinished || result.Message.Text() != "Hello" || result.Usage == nil || result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 || result.ID != "r1" {
 					t.Fatalf("stream=%t result=%+v", stream, result)
 				}
 			}
 		})
+	}
+}
+
+func TestIteratorBreakCancelsProviderHTTPRequest(t *testing.T) {
+	canceled := make(chan bool, 1)
+	release := make(chan struct{})
+	defer close(release)
+	server := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, events(
+			`{"type":"response.created","response":{"id":"r1","object":"response","status":"in_progress","output":[]}}`,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"m1","type":"message","role":"assistant","content":[]}}`,
+			`{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}`,
+			`{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"first"}`))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+			canceled <- true
+		case <-release:
+			canceled <- false
+		}
+	})
+	client := newResponses(t, responses.Config{Provider: "openai", APIKey: "test", Endpoint: server.URL, UnknownCapabilities: llm.UnknownAllow})
+	request, err := client.Prepare(context.Background(), llm.Input{Model: "requested", Stream: true,
+		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for event, err := range llm.Stream(context.Background(), client, request) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Delta != nil && event.Delta.Text == "first" {
+			seen = true
+			break
+		}
+	}
+	if !seen {
+		t.Fatal("stream did not yield text before cancellation")
+	}
+	select {
+	case ok := <-canceled:
+		if !ok {
+			t.Fatal("server request ended without client cancellation")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider request stayed open after iterator break")
 	}
 }

@@ -326,6 +326,7 @@ var (
 	ErrCommandConflict   = errors.New("kernel: command conflict")
 	ErrInvalidTurn       = errors.New("kernel: invalid turn record")
 	ErrRevisionConflict  = errors.New("kernel: revision conflict")
+	ErrStreamConsumed    = errors.New("kernel: stream already consumed")
 )
 
 func cloneStep(s Step) Step {

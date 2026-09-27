@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/llm"
@@ -14,15 +16,53 @@ import (
 )
 
 type Bindings struct {
-	Client   llm.Client
-	Tools    tool.Toolset
-	Recorder Recorder
-	Policy   Policy
-	Observer Observer
-	Stream   bool
-	Owner    string
+	Client     llm.Client
+	Tools      tool.Toolset
+	Recorder   Recorder
+	Policy     Policy
+	Observer   Observer
+	Stream     bool
+	Owner      string
+	streamSink func(Event)
 }
 type Engine struct{}
+
+// Stream advances a turn when iteration begins. A fully read sequence ends
+// with one Outcome event; command validation errors appear in the error slot.
+// Breaking the range cancels the work. Reload the turn by ID to inspect the
+// facts committed during cancellation, since no terminal event follows break.
+// A second range yields ErrStreamConsumed instead of repeating work.
+func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Command, b Bindings) iter.Seq2[Event, error] {
+	var started atomic.Bool
+	return func(yield func(Event, error) bool) {
+		if !started.CompareAndSwap(false, true) {
+			yield(Event{}, ErrStreamConsumed)
+			return
+		}
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stopped := false
+		b.Stream = true
+		b.streamSink = func(event Event) {
+			if stopped {
+				return
+			}
+			if !yield(event, nil) {
+				stopped = true
+				cancel()
+			}
+		}
+		out, err := (Engine{}).Apply(streamCtx, turn, def, command, b)
+		if stopped {
+			return
+		}
+		if err != nil {
+			yield(Event{}, err)
+			return
+		}
+		yield(Event{TurnID: turn.ID, Outcome: &out}, nil)
+	}
+}
 
 // Apply advances one turn from an explicit command. A Go error means command
 // validation failed before a new fact was acknowledged. Once a commit succeeds,
@@ -292,15 +332,43 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
-	if r.emitter != nil {
-		event := Event{TurnID: step.TurnID, Step: ptr(cloneStep(step))}
+	if (r.emitter != nil && r.emitter.ch != nil) || r.b.streamSink != nil {
+		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
 			event.AttemptID = step.Model.AttemptID
 			event.MessageID = step.Model.MessageID
 		}
-		r.emitter.send(event)
+		r.emit(event)
 	}
 	return nil
+}
+
+func (r *runtime) emit(event Event) {
+	if r.emitter != nil && r.emitter.ch != nil {
+		r.emitter.send(cloneEvent(event))
+	}
+	if r.b.streamSink != nil {
+		r.b.streamSink(cloneEvent(event))
+	}
+}
+
+func cloneEvent(event Event) Event {
+	if event.Step != nil {
+		step := cloneStep(*event.Step)
+		event.Step = &step
+	}
+	if event.Delta != nil {
+		delta := *event.Delta
+		if delta.Content != nil {
+			content := delta.Content.Clone()
+			delta.Content = &content
+		}
+		if delta.Usage != nil {
+			delta.Usage = delta.Usage.Copy()
+		}
+		event.Delta = &delta
+	}
+	return event
 }
 func ptr[T any](v T) *T { return &v }
 func (r *runtime) current() Outcome {
@@ -486,15 +554,17 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 		return r.stop(StopCanceled, err.Error()), false
 	}
-	result, sendErr := r.b.Client.Send(r.ctx, req, func(d llm.Delta) {
-		if d.Content != nil {
-			d.Content = ptr(d.Content.Clone())
+	var result llm.Result
+	var sendErr error
+	for item, err := range llm.Stream(r.ctx, r.b.Client, req) {
+		if item.Delta != nil {
+			r.emit(Event{TurnID: r.turn.ID, AttemptID: attempt, MessageID: messageID, Delta: item.Delta})
 		}
-		if d.Usage != nil {
-			d.Usage = d.Usage.Copy()
+		if item.Result != nil {
+			result = *item.Result
+			sendErr = err
 		}
-		r.emitter.send(Event{TurnID: r.turn.ID, AttemptID: attempt, MessageID: messageID, Delta: ptr(d)})
-	})
+	}
 	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
 	var validationErr error
 	if sendErr != nil {

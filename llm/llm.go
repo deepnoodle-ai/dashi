@@ -501,8 +501,9 @@ type Delta struct {
 	Usage *Usage `json:"usage,omitempty"`
 }
 
-// Sink observes deltas. It never selects the transport mode; Input.Stream
-// does. A nil sink discards previews while Send still collects the result.
+// Sink observes deltas. Send must invoke it synchronously and stop invoking it
+// before returning. It never selects the transport mode; Input.Stream does. A
+// nil sink discards previews while Send still collects the result.
 type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.

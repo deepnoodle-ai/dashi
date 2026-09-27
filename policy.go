@@ -76,5 +76,8 @@ type Event struct {
 	MessageID string
 	Step      *Step
 	Delta     *llm.Delta
+	// Outcome is set only on the final Engine.Stream event. Observer receives
+	// committed steps and provisional deltas, not this terminal event.
+	Outcome *Outcome
 }
 type Observer func(Event)
