@@ -111,7 +111,8 @@ With the same environment, run `go run ./examples/agent`. Its
 outcome. Each turn requires a stable ID and each command requires an ID for
 duplicate delivery handling. An acknowledged model or tool intent may already
 have caused an external effect; recover it by identity before deciding whether
-to retry.
+to retry. See [agent turns and recovery](docs/agent-turns.md) for the recorder,
+pending-result, approval, and stop contracts.
 
 ## Verify
 

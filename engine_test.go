@@ -203,6 +203,45 @@ type deferredPolicy struct{ AllowLocalPolicy }
 func (deferredPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
 	return ToolDecision{Kind: DecisionDefer, Revision: "policy-v1"}, nil
 }
+
+type rewritePolicy struct{ AllowLocalPolicy }
+
+func (rewritePolicy) AuthorizeTool(_ context.Context, call tool.Call, _ TurnView) (ToolDecision, error) {
+	if string(call.Args) == `{"value":1}` {
+		return ToolDecision{Rewrite: []byte(`{"value":2}`)}, nil
+	}
+	if string(call.Args) != `{"value":2}` {
+		return ToolDecision{}, errors.New("unexpected effective arguments")
+	}
+	return ToolDecision{Kind: DecisionAllow, Revision: "rewrite-v1"}, nil
+}
+
+func TestToolRewriteRequiresReauthorization(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("done")}}
+	rec := NewMemoryRecorder()
+	runs := 0
+	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(_ context.Context, call tool.Call) (tool.Outcome, error) {
+		runs++
+		if string(call.Args) != `{"value":2}` || string(call.RequestedArgs) != `{"value":1}` {
+			return tool.Outcome{}, errors.New("wrong effective tool call")
+		}
+		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
+	})}
+	got, err := start(t, client, fixedTools{binding}, rec, rewritePolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Stop.Kind != StopCompleted || runs != 1 {
+		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
+	}
+	view, err := Replay(got.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(view.Tools["call-1"].Call.Args) != `{"value":2}` || string(view.Tools["call-1"].Call.RequestedArgs) != `{"value":1}` {
+		t.Fatalf("recorded call=%+v", view.Tools["call-1"].Call)
+	}
+}
 func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("written")}}
 	rec := NewMemoryRecorder()
@@ -253,7 +292,7 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 		turn.Steps = append(turn.Steps, step)
 	}
 	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("hello"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", RequestDigest: "digest"}})
+	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model}})
 	commit(Step{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"}})
 	answer := final("recovered")
 	got, err := (Engine{}).Apply(context.Background(), turn, def, Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
@@ -281,9 +320,9 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 		turn.Steps = append(turn.Steps, step)
 	}
 	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("hello"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", RequestDigest: "digest"}})
+	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model}})
 	answer := final("saved")
-	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", Result: &answer}})
+	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", Result: &answer}})
 	got, err := (Engine{}).Apply(context.Background(), turn, def, Continue{ID: "recover"}, Bindings{Client: client, Recorder: rec})
 	if err != nil {
 		t.Fatal(err)
@@ -488,9 +527,9 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	call := tool.Call{ID: "a", Name: "work", Args: []byte(`{}`)}
 	definition := tool.Definition{Name: "work", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}
 	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", RequestDigest: "digest", Tools: []tool.Definition{definition}}})
+	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model, Tools: []tool.Definition{definition}}})
 	requested := llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}), Stop: llm.Stop{Kind: llm.StopToolUse}, Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}
-	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", Result: &requested}})
+	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", Result: &requested}})
 	commit(Step{Kind: StepToolDecision, Tool: &ToolFact{Call: call, Decision: ToolDecision{Kind: DecisionAllow, Revision: "r1"}}})
 	commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}})
 	outcome := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("verified"))}
@@ -596,5 +635,90 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	}
 	if len(messages) != 2 || !strings.Contains(messages[1].Content[0].Block.Text.Text, "new") {
 		t.Fatalf("projection=%+v", messages)
+	}
+}
+
+type lostAcknowledgment struct {
+	base *MemoryRecorder
+	lost bool
+}
+
+func (r *lostAcknowledgment) Commit(ctx context.Context, req CommitRequest) error {
+	if err := r.base.Commit(ctx, req); err != nil {
+		return err
+	}
+	if req.Step.Kind == StepModelIntent && !r.lost {
+		r.lost = true
+		return errors.New("acknowledgment lost after commit")
+	}
+	return nil
+}
+
+func TestUnknownCommitRequiresReloadAndReconciliation(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("must not send")}}
+	base := NewMemoryRecorder()
+	rec := &lostAcknowledgment{base: base}
+	got, err := start(t, client, nil, rec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Persistence != PersistenceUnknown || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
+		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
+	}
+	saved, err := base.Load("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != 2 || saved.Steps[1].Kind != StepModelIntent {
+		t.Fatalf("saved steps=%+v", saved.Steps)
+	}
+	_, err = (Engine{}).Apply(context.Background(), saved, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})
+	if err == nil || client.sends != 0 {
+		t.Fatalf("unresolved intent retried: err=%v sends=%d", err, client.sends)
+	}
+	answer := final("reconciled")
+	accepted, err := (Engine{}).Apply(context.Background(), saved, definition(), Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
+	if err != nil || accepted.Stop.Kind != StopCompleted || client.sends != 0 {
+		t.Fatalf("reconcile: stop=%+v err=%v sends=%d", accepted.Stop, err, client.sends)
+	}
+}
+
+func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{{}}, errors: []error{errors.New("connection lost")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, nil)
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
+	}
+	canceled, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Cancel{ID: "cancel"}, Bindings{Client: client, Recorder: rec})
+	if err != nil || canceled.Stop.Kind != StopCanceled {
+		t.Fatalf("cancel: stop=%+v err=%v", canceled.Stop, err)
+	}
+	answer := final("late")
+	answer.Usage = &llm.Usage{InputTokens: 7}
+	late, err := (Engine{}).Apply(context.Background(), canceled.Turn, definition(), Accept{ID: "late", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
+	if err != nil || late.Stop.Kind != StopCanceled || client.sends != 1 {
+		t.Fatalf("late: stop=%+v err=%v sends=%d", late.Stop, err, client.sends)
+	}
+	view, err := Replay(late.Turn)
+	if err != nil || view.Usage == nil || view.Usage.InputTokens != 7 {
+		t.Fatalf("late usage=%+v err=%v", view.Usage, err)
+	}
+}
+
+func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	rec := NewMemoryRecorder()
+	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}}
+	got, err := start(t, client, fixedTools{binding}, rec, deferredPolicy{})
+	if err != nil || got.Stop.Kind != StopWaiting {
+		t.Fatalf("start: stop=%+v err=%v", got.Stop, err)
+	}
+	forged := cloneTurn(got.Turn)
+	call := tool.Call{ID: "call-1", Name: "write", Args: []byte(`{"value":1}`)}
+	outcome := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("forged"))}
+	forged.Steps = append(forged.Steps, Step{Version: 1, TurnID: forged.ID, Seq: int64(len(forged.Steps) + 1), Kind: StepToolSettled, Tool: &ToolFact{Call: call, Outcome: &outcome}})
+	if _, err := Replay(forged); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("forged successful tool result accepted: %v", err)
 	}
 }
