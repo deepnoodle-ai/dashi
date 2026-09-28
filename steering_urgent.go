@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -35,9 +36,10 @@ type steerListener struct {
 	// ID, refreshed after each commit, so it never interrupts for a steer
 	// the record already holds.
 	recorded map[string]ContextItem
-	// urgent holds fresh urgent steers not yet recorded. FR-6 removes an ID
-	// when it records the steer or when the source no longer returns it.
-	urgent map[string]bool
+	// urgent holds fresh urgent steers not yet recorded, by ID. FR-6
+	// removes an ID when it records the steer or when the source no longer
+	// returns it.
+	urgent map[string]ContextItem
 	// interrupted holds the IDs that already cut a call short: each
 	// interrupts at most once.
 	interrupted map[string]bool
@@ -92,7 +94,7 @@ func (r *runtime) startSteering(s *replayState) {
 	ctx, stop := context.WithCancel(r.ctx)
 	l := &steerListener{
 		recorded:    map[string]ContextItem{},
-		urgent:      map[string]bool{},
+		urgent:      map[string]ContextItem{},
 		interrupted: map[string]bool{},
 		loopBack:    map[string]bool{},
 		seenSet:     map[string]bool{},
@@ -283,7 +285,7 @@ func (l *steerListener) check(
 		if !steer.Urgent {
 			continue
 		}
-		l.urgent[steer.Item.ID] = true
+		l.urgent[steer.Item.ID] = steer.Item
 		if !l.interrupted[steer.Item.ID] {
 			ids = append(ids, steer.Item.ID)
 		}
@@ -393,9 +395,13 @@ const (
 // steerSkips reports whether call id must not start because of an urgent
 // steer. Once a call of a batch is skipped, no later call of that batch
 // starts, so the record alone decides a resumed batch the same way.
-// Otherwise the urgent set decides. Earlier calls, such as one awaiting
-// approval, are not held back by the record. Only a requested or allowed
-// call can be skipped: a started call may have taken effect.
+// Otherwise the urgent set decides, and only when a later model call can
+// deliver the steer: a skip the model never reads would only cancel its
+// work, so then the batch runs and the steer waits with a warning. Earlier
+// calls, such as one awaiting approval, are not held back by the record.
+// Only a requested or allowed call can be skipped: a started call may have
+// taken effect. The caller exempts dashi_submit_output, whose finish point
+// decides a waiting steer itself.
 func (r *runtime) steerSkips(s *replayState, id string) bool {
 	if status := s.Tools[id].Status; status != ToolRequested &&
 		status != ToolAllowed {
@@ -410,22 +416,46 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 			return true
 		}
 	}
-	return r.urgentWaiting()
+	steers := r.urgentSteers()
+	if len(steers) == 0 {
+		return false
+	}
+	if r.nextCallPossible(s, estimatedItemTokens(steers)) {
+		return true
+	}
+	if !r.steers.skipDeclined {
+		r.steers.skipDeclined = true
+		r.warnSteering(fmt.Sprintf(
+			"%d urgent steer(s) did not skip the remaining tool calls: no "+
+				"further model call can happen because of %s; they stay "+
+				"with their source",
+			len(steers),
+			noCallCause(s),
+		))
+	}
+	return false
 }
 
-// urgentWaiting reports whether the urgent set holds a steer. Like
-// registerCall, it takes the source lock, so a steer the listener has
-// fetched is decided before the run looks.
-func (r *runtime) urgentWaiting() bool {
+// urgentSteers returns the urgent set's steers. Like registerCall, it takes
+// the source lock, so a steer the listener has fetched is decided before
+// the run looks. Taking the lock cancels the listener's fetch in flight;
+// the listener retries it once the run lets go. That is safe: a steer the
+// cut fetch would have found is seen by the retry, only later, and a later
+// steer can only skip fewer calls (U-1).
+func (r *runtime) urgentSteers() []ContextItem {
 	l := r.listen
 	if l == nil {
-		return false
+		return nil
 	}
 	l.lockSource()
 	defer l.sourceMu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return len(l.urgent) > 0
+	var items []ContextItem
+	for _, item := range l.urgent {
+		items = append(items, item)
+	}
+	return items
 }
 
 // skipForSteer settles a requested or allowed call as not executed, so the

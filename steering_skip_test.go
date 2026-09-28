@@ -610,3 +610,188 @@ func TestSteerSkipsOnlyUnstartedCalls(t *testing.T) {
 		}
 	}
 }
+
+// A submission is never skipped: the finish point decides a waiting steer.
+// On the last model call no further call can deliver the steer, so the
+// valid output stands and the steer waits with a warning.
+func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
+	inbox := newWatchedInbox()
+	agent := testAgent()
+	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
+	agent.Limits.ModelAttempts = 1
+	agent.Limits.NoReservedFinalAnswer = true
+	submit := func(string) string { return SubmitOutputTool }
+	client := newUrgentClient(urgentCall{
+		during: func(ctx context.Context) {
+			inbox.sendUrgent(t, "also mention the date")
+			<-ctx.Done()
+		},
+		result: batchResult(submit, "s1"),
+	})
+	out := runUrgent(t, client, inbox, func(r *Runner) { r.Agent = agent })
+	if out.Stop.Kind != StopCompleted || out.Output == nil {
+		t.Fatalf("stop=%+v output=%s", out.Stop, out.Output)
+	}
+	if fact := settledFact(t, out.Turn, "s1"); fact.Reason == reasonSteering {
+		t.Fatalf("submission skipped: %+v", fact)
+	}
+	if !hasWarning(out, WarningSteering) {
+		t.Fatalf("warnings: %+v", out.Warnings)
+	}
+}
+
+// A skip the model never reads would only cancel its work: with no further
+// model call possible, the batch runs and the steer waits with one warning.
+func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
+	inbox := newWatchedInbox()
+	bench := newSkipBench()
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 1
+	agent.Limits.NoReservedFinalAnswer = true
+	client := newUrgentClient(urgentCall{
+		during: func(ctx context.Context) {
+			inbox.sendUrgent(t, "note")
+			<-ctx.Done()
+		},
+		result: batchResult(allWork, "a", "b"),
+	})
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Agent = agent
+		r.Tools = tool.List{bench.tool()}
+	})
+	requireRan(t, out.Turn, "a")
+	requireRan(t, out.Turn, "b")
+	n := 0
+	for _, w := range out.Warnings {
+		if w.Code == WarningSteering &&
+			strings.Contains(w.Message, "did not skip") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("want one skip warning: %+v", out.Warnings)
+	}
+}
+
+// A call that fails its own checks reports that failure, not a skip.
+func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
+	inbox := newWatchedInbox()
+	bench := newSkipBench()
+	release := bench.releaseOn("b")
+	bench.run["a"] = func(context.Context) error {
+		<-release
+		inbox.sendUrgent(t, "stop")
+		return nil
+	}
+	name := func(id string) string {
+		if id == "x" {
+			return "nope"
+		}
+		return "work"
+	}
+	client := newUrgentClient(
+		urgentCall{result: batchResult(name, "a", "b", "x", "c")},
+		urgentCall{result: final("ok")},
+	)
+	runner := skipRunner(client, bench, 1, nil)
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		startInput(),
+		WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	requireRan(t, out.Turn, "a")
+	requireSkipped(t, out.Turn, "b", true)
+	requireSkipped(t, out.Turn, "c", false)
+	if fact := settledFact(t, out.Turn, "x"); fact.Reason != "unknown tool" {
+		t.Fatalf("x settled as %+v", fact)
+	}
+	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Handing a call to the host starts it, so a steer that arrives during an
+// external call's BeforeTool skips it instead.
+func TestUrgentSteerSkipsExternalCallBeforeHandOff(t *testing.T) {
+	inbox := newWatchedInbox()
+	bench := newSkipBench()
+	bench.onPlan = func(id string) {
+		if id == "e" {
+			inbox.sendUrgent(t, "stop")
+		}
+	}
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "ext",
+		Schema: json.RawMessage(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	client := newUrgentClient(
+		urgentCall{result: batchResult(func(string) string { return "ext" }, "e")},
+		urgentCall{result: final("ok")},
+	)
+	runner := skipRunner(client, bench, 1, nil, external)
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		startInput(),
+		WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	requireSkipped(t, out.Turn, "e", true)
+	requireResultsThenSteer(t, client.inputs()[1], "stop", []string{"e"})
+}
+
+// steerOnModelSettled sends an urgent steer as the first model result is
+// recorded: the call no longer runs, so the steer cannot cut it and waits
+// for the batch.
+type steerOnModelSettled struct {
+	*MemoryRecorder
+	t     *testing.T
+	inbox *watchedInbox
+	fired atomic.Bool
+}
+
+func (c *steerOnModelSettled) Commit(ctx context.Context, req CommitRequest) error {
+	if err := c.MemoryRecorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if req.Step.Kind == StepModelSettled && c.fired.CompareAndSwap(false, true) {
+		c.inbox.sendUrgent(c.t, "also mention the date")
+	}
+	return nil
+}
+
+// With room for another call, the finish point turns the submission down
+// for the steer, as it does a text answer; the skip never touches it.
+func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
+	inbox := newWatchedInbox()
+	agent := testAgent()
+	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
+	submit := func(string) string { return SubmitOutputTool }
+	client := newUrgentClient(
+		urgentCall{result: batchResult(submit, "s1")},
+		urgentCall{result: batchResult(submit, "s2")},
+	)
+	rec := &steerOnModelSettled{
+		MemoryRecorder: NewMemoryRecorder(),
+		t:              t,
+		inbox:          inbox,
+	}
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Agent = agent
+		r.Recorder = rec
+	})
+	if out.Stop.Kind != StopCompleted || out.Output == nil {
+		t.Fatalf("stop=%+v output=%s", out.Stop, out.Output)
+	}
+	fact := settledFact(t, out.Turn, "s1")
+	if fact.Reason != "not accepted: "+sourceSteering {
+		t.Fatalf("s1 settled as %+v", fact)
+	}
+}

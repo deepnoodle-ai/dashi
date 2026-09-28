@@ -104,6 +104,9 @@ type steerState struct {
 	// cut short. Each is reported once per run.
 	urgentUnheard bool
 	declined      bool
+	// skipDeclined records that the run already warned that urgent steers
+	// did not skip tool calls because no further model call can happen.
+	skipDeclined bool
 }
 
 func (st *steerState) claim(id string) {
@@ -344,28 +347,32 @@ func (r *runtime) warnSteering(message string) {
 // steersWait records why waiting steers could not supersede a candidate
 // answer. They stay with their source for the next turn.
 func (r *runtime) steersWait(s *replayState, n int) {
-	why := "a limit, the deadline, or a pause"
-	if !s.roomForNormalCall() {
-		why = fmt.Sprintf(
-			"the model attempt limit (%d of %d used, with the last reserved "+
-				"for a final answer)",
-			s.ModelAttempts,
-			s.Agent.Limits.ModelAttempts,
-		)
-		if s.Agent.Limits.NoReservedFinalAnswer {
-			why = fmt.Sprintf(
-				"the model attempt limit (%d of %d used)",
-				s.ModelAttempts,
-				s.Agent.Limits.ModelAttempts,
-			)
-		}
-	}
 	r.warnSteering(fmt.Sprintf(
 		"%d steer(s) could not supersede the answer: no further model call "+
 			"can happen because of %s; they stay with their source",
 		n,
-		why,
+		noCallCause(s),
 	))
+}
+
+// noCallCause names why no further model call can happen.
+func noCallCause(s *replayState) string {
+	if s.roomForNormalCall() {
+		return "a limit, the deadline, or a pause"
+	}
+	if s.Agent.Limits.NoReservedFinalAnswer {
+		return fmt.Sprintf(
+			"the model attempt limit (%d of %d used)",
+			s.ModelAttempts,
+			s.Agent.Limits.ModelAttempts,
+		)
+	}
+	return fmt.Sprintf(
+		"the model attempt limit (%d of %d used, with the last reserved "+
+			"for a final answer)",
+		s.ModelAttempts,
+		s.Agent.Limits.ModelAttempts,
+	)
 }
 
 // skipRecordedItems drops context items whose ID the turn already records.

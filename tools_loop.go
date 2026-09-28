@@ -131,12 +131,6 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			paused = true
 			break
 		}
-		if r.steerSkips(state, id) {
-			if o := r.skipForSteer(v.Call); o != nil {
-				return *o, true
-			}
-			continue
-		}
 		if v.Status == ToolRequested {
 			if v.Definition.Name == "" {
 				// A bound tool the call did not offer, such as one a hook
@@ -221,6 +215,16 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					continue
 				}
 			}
+			// An urgent steer skips the call before any hook sees it. The
+			// checks above run first, so a call that fails them reports
+			// that failure. A submission is never skipped: the finish
+			// point decides a waiting steer for it.
+			if v.Call.Name != SubmitOutputTool && r.steerSkips(state, id) {
+				if o := r.skipForSteer(v.Call); o != nil {
+					return *o, true
+				}
+				continue
+			}
 			call := v.Call.Clone()
 			verdict := ToolVerdict{
 				Kind:     DecisionAllow,
@@ -277,7 +281,17 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}
 			continue
 		}
+		// Each check below, just before a call starts, covers a steer that
+		// arrived during BeforeTool, while the call waited for a slot, or
+		// on resume; the call is allowed but has not started. Handing a
+		// call to the host is its start.
 		if v.Definition.Kind == tool.KindExternal {
+			if r.steerSkips(state, id) {
+				if o := r.skipForSteer(v.Call); o != nil {
+					return *o, true
+				}
+				continue
+			}
 			wait := tool.Outcome{
 				State: tool.StateWaiting,
 				Wait:  &tool.Wait{Reason: "external execution"},
@@ -333,9 +347,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			break
 		}
 		if v.Status != ToolStarted {
-			// A steer may have arrived during BeforeTool or while the call
-			// waited for a slot; the call is allowed but has not started.
-			if r.urgentWaiting() {
+			if r.steerSkips(state, id) {
 				if o := r.skipForSteer(v.Call); o != nil {
 					cancel()
 					return *o, true
