@@ -26,9 +26,16 @@ every numbered answer with comments into plain text he pastes back to an agent.
    needs:
    - `topic`: two to four words naming the area (used as the eyebrow label).
    - `question`: one sentence, a real question mark at the end.
-   - `why`: one or two sentences on what hangs on the answer, in Curtis's
-     terms (what applications get, what it costs, what it forecloses).
-     Optional but usually worth it.
+   - `facts`: two to four labeled rows that give the reader the state of
+     play for this one question, so it can be scanned without reading the
+     document. Each is `{label, text}` or `{label, items: [...]}`. Use short
+     labels from this set where they fit: `Today` (what Kernel does now, with
+     a file reference), `Proposed` (what the document suggests), `At stake`
+     (what applications gain or lose, what it forecloses), `Evidence` (the
+     number, incident, or Dive behavior that bears on it), `Depends on` (a
+     prior question whose answer settles or moots this one).
+   - `why`: optional one-sentence framing when the facts alone do not say
+     what hangs on the answer. Prefer `facts`; use `why` sparingly.
    - `options`: two to five, each `{label, desc?, recommended?}`. Labels are
      short noun phrases; `desc` is one sentence on the tradeoff. Mark at most
      one option `recommended: true` and only when the proposal or you have a
@@ -38,11 +45,14 @@ every numbered answer with comments into plain text he pastes back to an agent.
    Order questions from most consequential to least. Where one answer makes a
    later question moot, say so in that question's `why`.
 
-3. **Write the context.** Three to six short paragraphs as plain strings:
-   what the document proposes, the decision it serves, the constraint or
-   evidence that matters most, and any recommendation the document makes.
-   Backticks render as code. Write for someone who has not read the document
-   today. No headings, no lists inside a paragraph.
+3. **Write the context.** Labeled rows, the same `{label, text}` or
+   `{label, items}` shape as question facts, four to six of them: `Proposes`
+   (what the document says to build, in two sentences), `Serves` (the
+   decision-log entry and what it left open), `Constraint` (the requirement
+   or evidence that most limits the answer), `Recommends` (the document's own
+   preference, if it has one), and `Out of scope` when the document draws a
+   line worth knowing. Backticks render as code. Write for someone who has
+   not read the document today. Plain strings still work but read worse.
 
 4. **Fill the template.** Copy `template.html` from this skill's directory to
    the scratchpad directory under a distinctive file name, for example
@@ -56,12 +66,20 @@ every numbered answer with comments into plain text he pastes back to an agent.
      "title": "Budgets Review",
      "source": "design/budgets.md",
      "date": "2026-09-27",
-     "context": ["...", "..."],
+     "context": [
+       {"label": "Proposes", "text": "..."},
+       {"label": "Serves", "text": "Decision 7; left open where limits live."},
+       {"label": "Constraint", "items": ["...", "..."]}
+     ],
      "questions": [
        {
          "topic": "Where limits live",
          "question": "Should a budget be declared on the Definition, on Start, or both?",
-         "why": "Decides whether a limit is a property of the agent or of one run.",
+         "facts": [
+           {"label": "Today", "text": "No limit anywhere; `Policy.BeforeSend` is the only hook."},
+           {"label": "Proposed", "text": "Declare on Definition, allow Start to narrow."},
+           {"label": "At stake", "text": "Whether a limit is a property of the agent or of one run."}
+         ],
          "options": [
            {"label": "Definition only", "desc": "One limit per agent; simplest to record."},
            {"label": "Start only", "desc": "Callers set a limit per run; nothing on the agent."},
