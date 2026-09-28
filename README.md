@@ -46,7 +46,8 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 
 Requires Go 1.26 and an API key. Set `OPENAI_API_KEY` and `OPENAI_MODEL`, then
 run `go run ./examples/basic` for one model call or `go run ./examples/agent`
-for a recorded agent turn. Both make paid requests.
+for a recorded agent turn. Both make paid requests. See
+[examples](examples/) for tools, approvals, resuming a turn, and more.
 
 ## Providers
 
