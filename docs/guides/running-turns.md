@@ -93,6 +93,38 @@ the turn as canceled. The iterator is backpressured; `Bindings.Observer`
 remains a separate, lossy display hook. Ranging the same turn sequence again
 returns `kernel.ErrStreamConsumed`.
 
+## Serving live updates
+
+`Engine.Stream` suits a caller that owns the turn's lifetime, such as a CLI or
+a worker. For a durable turn served to browsers, do not connect an HTTP or SSE
+request to `Stream`: leaving the range interrupts the turn, and a closed tab
+must not control agent work.
+
+Instead, run the turn in your own background execution (a queue worker or job)
+under a context you control, using `Engine.Apply` or `Stream`. Your
+`Recorder.Commit` is the natural place to write what clients read: in the same
+transaction that appends the step, write your projection or outbox row. Clients
+then follow your committed record, not the engine. Each step carries a gap-free
+`Seq` per turn, so a client reconnects with the last `Seq` it applied and
+receives everything after it. A disconnect ends only that follow.
+
+```go
+func (r *pgRecorder) Commit(ctx context.Context, req kernel.CommitRequest) error {
+	return r.db.InTx(ctx, func(tx Tx) error {
+		// Check ExpectedSeq and Owner, append req.Step, then in the same tx:
+		return tx.InsertEvent(req.Step.TurnID, req.Step.Seq, project(req.Step))
+	})
+}
+
+// GET /turns/{id}/events?after=N: replay rows with seq > N, then poll
+// (optionally woken by a notify) until the request context ends.
+```
+
+`Bindings.Observer` is lossy: it drops events, including steps, when its buffer
+fills. Use it for in-process display hints such as text deltas, never as a
+delivery channel. Treat deltas as previews that the committed model step
+supersedes.
+
 ## Runtime reminders
 
 For typed recorded context, see
