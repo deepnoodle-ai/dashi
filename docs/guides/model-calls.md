@@ -129,7 +129,8 @@ result and stop kind before acting on tool calls.
 Missing usage is nil. `Result.Cost` holds a provider-reported amount when
 available; list-price estimates require an explicitly selected `llm.Pricing`
 sheet and complete usage. A catalog sheet applies when `Entry.Serves` accepts
-`Result.Served`.
+`Result.Served`. Prices and costs are exact `money.Amount` values: rates per
+million tokens and charges in nano-units, never binary floats.
 
 ## Further reading
 

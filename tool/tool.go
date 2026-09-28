@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
 // Kind identifies where a tool runs. The empty Kind is accepted and leaves the
@@ -287,8 +287,8 @@ type Outcome struct {
 
 // Cost is an application-reported charge for one completed tool call.
 type Cost struct {
-	// Amount is the nonnegative charge for completed execution.
-	Amount float64 `json:"amount"`
+	// Amount is the nonnegative, exact charge for completed execution.
+	Amount money.Amount `json:"amount"`
 	// Currency identifies the unit without implying conversion.
 	Currency string `json:"currency"`
 }
@@ -299,9 +299,8 @@ func (o Outcome) Validate() error {
 	if o.Cost != nil {
 		if strings.TrimSpace(o.Cost.Currency) == "" ||
 			strings.TrimSpace(o.Cost.Currency) != o.Cost.Currency ||
-			o.Cost.Amount < 0 ||
-			math.IsNaN(o.Cost.Amount) || math.IsInf(o.Cost.Amount, 0) {
-			return errors.New("tool: cost requires finite nonnegative amount and currency")
+			o.Cost.Amount < 0 {
+			return errors.New("tool: cost requires nonnegative amount and currency")
 		}
 		if o.State != StateSucceeded && o.State != StateFailed {
 			return errors.New("tool: cost requires completed execution")

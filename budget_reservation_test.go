@@ -4,24 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"sync"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
 type creditAdmission struct {
-	Account  string  `json:"account"`
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	Account  string       `json:"account"`
+	Amount   money.Amount `json:"amount"`
+	Currency string       `json:"currency"`
 }
 
 type creditRecorder struct {
 	mu      sync.Mutex
 	base    *MemoryRecorder
-	balance float64
-	holds   map[string]float64
+	balance money.Amount
+	holds   map[string]money.Amount
 }
 
 func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
@@ -111,8 +111,8 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 	client := newPricedClient(answer)
 	recorder := &creditRecorder{
 		base:    NewMemoryRecorder(),
-		balance: 0.01,
-		holds:   map[string]float64{},
+		balance: amount("0.01"),
+		holds:   map[string]money.Amount{},
 	}
 	def := definition()
 	def.Settings.MaxTokens = 100
@@ -144,12 +144,13 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 		t.Fatalf("risk or charge missing: intent=%+v settled=%+v", intent, settled)
 	}
 	if intent.AtRisk.Total <= settled.Charge.Total {
-		t.Fatalf("risk=%g charge=%g", intent.AtRisk.Total, settled.Charge.Total)
+		t.Fatalf("risk=%s charge=%s", intent.AtRisk.Total, settled.Charge.Total)
 	}
 	if len(recorder.holds) != 0 {
 		t.Fatalf("remaining holds=%v", recorder.holds)
 	}
-	if math.Abs(recorder.balance-(0.01-settled.Charge.Total)) > 1e-12 {
-		t.Fatalf("balance=%g charge=%g", recorder.balance, settled.Charge.Total)
+	// Exact amounts make the ledger balance to the nano.
+	if recorder.balance != amount("0.01")-settled.Charge.Total {
+		t.Fatalf("balance=%s charge=%s", recorder.balance, settled.Charge.Total)
 	}
 }

@@ -32,10 +32,10 @@ even when Kernel cannot independently reproduce it.
 ```go
 // All rates are per million tokens; zero literally means free.
 type Rates struct {
-    Input      float64
-    Output     float64
-    CacheRead  float64
-    CacheWrite float64
+    Input      money.Amount
+    Output     money.Amount
+    CacheRead  money.Amount
+    CacheWrite money.Amount
 }
 
 // One complete rate sheet; the caller qualifies where it applies.
@@ -69,8 +69,8 @@ and map.
 call cannot be priced faithfully, including nil usage, missing required token
 breakdowns, or unattributed tokens when modality rates differ. It never turns
 missing usage into a known zero cost. An estimate from a sheet has a typed
-list-price source. `float64` is sufficient for estimates; this is not an
-invoicing representation.
+list-price source. Amounts are exact nano-units, not floats; see decision 28
+in [decisions.md](decisions.md) for the representation and rounding rule.
 
 `Result.Cost` is a nullable per-call amount beside `Usage`; nil means unknown.
 Typed `CostSource` distinguishes provider-reported charges from provider

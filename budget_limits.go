@@ -2,9 +2,9 @@ package kernel
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
@@ -34,15 +34,15 @@ func checkSendBudget(
 			Reason: "cost cannot be checked: an earlier charge is unknown " +
 				"or in another currency",
 			Limit: &LimitDetail{
-				Kind:  LimitCost,
-				Limit: cap.Amount,
-				Used:  used,
+				Kind:      LimitCost,
+				CostLimit: cap.Amount,
+				CostUsed:  used,
 			},
 		}
 	}
 	if atRisk == nil || atRisk.Currency != cap.Currency {
 		reason := fmt.Sprintf(
-			"cost risk unavailable for model %s; the %.6g %s cost cap "+
+			"cost risk unavailable for model %s; the %s %s cost cap "+
 				"cannot be enforced",
 			model,
 			cap.Amount,
@@ -51,7 +51,7 @@ func checkSendBudget(
 		unpriced := ""
 		if snapshot.ModelInfo == nil || snapshot.ModelInfo.Pricing == nil {
 			reason = fmt.Sprintf(
-				"no price for model %s; the %.6g %s cost cap cannot "+
+				"no price for model %s; the %s %s cost cap cannot "+
 					"be enforced; supply this model's prices to run capped turns",
 				model,
 				cap.Amount,
@@ -61,7 +61,7 @@ func checkSendBudget(
 		} else if snapshot.Effective.MaxTokens <= 0 {
 			reason = fmt.Sprintf(
 				"cost risk unavailable for model %s: a finite max_tokens "+
-					"allowance is required to enforce the %.6g %s cost cap",
+					"allowance is required to enforce the %s %s cost cap",
 				model,
 				cap.Amount,
 				cap.Currency,
@@ -70,7 +70,7 @@ func checkSendBudget(
 			reason = fmt.Sprintf(
 				"cost risk unavailable for model %s: provider-hosted tool "+
 					"request counts are unbounded; remove hosted tools to "+
-					"enforce the %.6g %s cost cap",
+					"enforce the %s %s cost cap",
 				model,
 				cap.Amount,
 				cap.Currency,
@@ -81,14 +81,15 @@ func checkSendBudget(
 			Reason: reason,
 			Limit: &LimitDetail{
 				Kind:          LimitCost,
-				Limit:         cap.Amount,
-				Used:          used,
+				CostLimit:     cap.Amount,
+				CostUsed:      used,
 				UnpricedModel: unpriced,
 			},
 		}
 	}
 	remaining := cap.Amount - used
-	if used+atRisk.Total > cap.Amount {
+	// A sum past the int64 range is over any cap; it must not wrap.
+	if after, ok := used.Add(atRisk.Total); !ok || after > cap.Amount {
 		fit := llm.FitOutputTokens(
 			request,
 			*snapshot.ModelInfo.Pricing,
@@ -105,11 +106,11 @@ func checkSendBudget(
 				cap.Currency,
 			),
 			Limit: &LimitDetail{
-				Kind:      LimitCost,
-				Limit:     cap.Amount,
-				Used:      used,
-				AtRisk:    atRisk.Total,
-				FitTokens: fit,
+				Kind:       LimitCost,
+				CostLimit:  cap.Amount,
+				CostUsed:   used,
+				CostAtRisk: atRisk.Total,
+				FitTokens:  fit,
 			},
 		}
 	}
@@ -117,34 +118,34 @@ func checkSendBudget(
 }
 
 func costLimitReason(
-	cap float64,
-	used float64,
-	risk float64,
+	cap money.Amount,
+	used money.Amount,
+	risk money.Amount,
 	tokens int,
 	fit int,
 	currency string,
 ) string {
 	if fit == 0 {
 		return fmt.Sprintf(
-			"next call could cost up to %.6g %s (%d output tokens); "+
-				"%.6g of the %.6g %s cap remains; no positive output-token "+
+			"next call could cost up to %s %s (%d output tokens); "+
+				"%s of the %s %s cap remains; no positive output-token "+
 				"allowance would fit; raise the cap or reduce input/history",
 			risk,
 			currency,
 			tokens,
-			math.Max(0, cap-used),
+			max(cap-used, 0),
 			cap,
 			currency,
 		)
 	}
 	return fmt.Sprintf(
-		"next call could cost up to %.6g %s (%d output tokens); "+
-			"%.6g of the %.6g %s cap remains; an output-token "+
+		"next call could cost up to %s %s (%d output tokens); "+
+			"%s of the %s %s cap remains; an output-token "+
 			"allowance of about %d would fit",
 		risk,
 		currency,
 		tokens,
-		math.Max(0, cap-used),
+		max(cap-used, 0),
 		cap,
 		currency,
 		fit,
@@ -182,8 +183,8 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Reason: "output_tokens",
 			Limit: &LimitDetail{
 				Kind:  LimitOutputTokens,
-				Limit: float64(b.MaxOutputTokens),
-				Used:  float64(output),
+				Limit: int64(b.MaxOutputTokens),
+				Used:  int64(output),
 			},
 		}
 	}
@@ -195,8 +196,8 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Reason: "total_tokens",
 			Limit: &LimitDetail{
 				Kind:  LimitTotalTokens,
-				Limit: float64(b.MaxTotalTokens),
-				Used:  float64(total),
+				Limit: int64(b.MaxTotalTokens),
+				Used:  int64(total),
 			},
 		}
 	}
@@ -210,9 +211,9 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Reason: "cost cannot be checked: an earlier charge is unknown " +
 				"or in another currency",
 			Limit: &LimitDetail{
-				Kind:  LimitCost,
-				Limit: b.MaxCost.Amount,
-				Used:  used,
+				Kind:      LimitCost,
+				CostLimit: b.MaxCost.Amount,
+				CostUsed:  used,
 			},
 		}
 	}
@@ -222,9 +223,9 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Kind:   StopLimited,
 			Reason: "cost",
 			Limit: &LimitDetail{
-				Kind:  LimitCost,
-				Limit: b.MaxCost.Amount,
-				Used:  used,
+				Kind:      LimitCost,
+				CostLimit: b.MaxCost.Amount,
+				CostUsed:  used,
 			},
 		}
 	}

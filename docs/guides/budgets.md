@@ -14,7 +14,7 @@ start := kernel.Start{
 		MaxOutputTokens: 4_000,
 		MaxTotalTokens:  12_000,
 		MaxCost: &kernel.Money{
-			Amount:   0.50,
+			Amount:   money.MustParseAmount("0.50"),
 			Currency: "USD",
 		},
 	},
@@ -27,8 +27,9 @@ For a cost cap, the prepared request must carry model prices and a finite
 effective output allowance. Kernel estimates the full input and output cost
 before `BeforeSend`. If it cannot bound the call or the call would exceed the
 cap, the turn stops `limited` before dispatch. It does not shrink the reply to
-fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case, and
-the output-token allowance that would fit. If input alone consumes the remaining
+fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case
+(`CostLimit`, `CostUsed`, `CostAtRisk`), and the output-token allowance that
+would fit. A call whose worst case reaches the cap exactly is admitted. If input alone consumes the remaining
 cap, no positive allowance fits; raise the cap or reduce input/history.
 A model without prices has an explicit `UnpricedModel` detail. A call without
 a finite `MaxTokens` or with provider-hosted tools also stops before dispatch,
@@ -46,6 +47,13 @@ charge guarantee for that case. A tool may return `tool.Outcome.Cost`; it is
 counted after the tool settles and does not consume
 `MaxCost`. The application must bound and admit charged tools before execution
 if it promises a cap covering them.
+
+Amounts are exact. `money.Amount` counts nano-units (1e-9) of the currency in
+an int64 and encodes in JSON as a decimal string such as `"0.5"`; it also reads
+the bare JSON numbers in older records. Kernel sums charges without drift. A
+worst case (`AtRisk`) rounds up to the nano, so rounding never breaches a cap,
+and a settled list-price charge rounds half to even. A ledger in coarser units
+converts from `Nanos()` with its own rounding, for example up for holds.
 
 To raise a cap, authorize the increase in the application and pass the full
 new budget to `Continue`. It can raise existing caps but cannot lower them or

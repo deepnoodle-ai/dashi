@@ -8,6 +8,8 @@ other.
 - `kernel`: Agent definitions, identified turn records, an acknowledged
   recorder, and the execution loop.
 - `content`: Shared text, media, resources, citations, and replay origins.
+- `money`: Exact monetary amounts in nano-units, shared by prices, charges,
+  and budgets.
 - `model`: Shared model identity, capability support, and evidence.
 - `tool`: Definitions, calls, outputs, execution outcomes, and typed functions.
 - `llm`: Model references, requests, preparation, results, streaming, and
@@ -37,9 +39,10 @@ other.
 ## Dependency direction
 
 Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
-`speech` share `model` identity and evidence. Shared content and model depend
-only on the standard library. The root agent loop depends on `llm` and `tool`;
-session storage remains an optional future adapter.
+`speech` share `model` identity and evidence. Shared content, model, and money
+depend only on the standard library; `money` is a leaf so that `tool` can
+report exact charges without importing `llm`. The root agent loop depends on
+`llm` and `tool`; session storage remains an optional future adapter.
 
 The Google adapter depends on `google.golang.org/genai`; the core packages do
 not.

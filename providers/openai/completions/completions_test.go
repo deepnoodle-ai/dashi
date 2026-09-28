@@ -13,6 +13,7 @@ import (
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
@@ -160,7 +161,8 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 				t.Fatal(err)
 			}
 			if result.Usage == nil || result.Usage.InputTokens != 10 ||
-				result.Cost == nil || result.Cost.Total != 0.25 ||
+				result.Cost == nil ||
+				result.Cost.Total != money.MustParseAmount("0.25") ||
 				result.Cost.Source != llm.CostSourceProviderEstimate ||
 				result.ServiceTier != "priority" {
 				t.Fatalf("final accounting was incomplete: %+v", result)
@@ -173,7 +175,8 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 			if err := json.Unmarshal(encoded, &restored); err != nil {
 				t.Fatal(err)
 			}
-			if restored.Cost == nil || restored.Cost.Total != 0.25 ||
+			if restored.Cost == nil ||
+				restored.Cost.Total != money.MustParseAmount("0.25") ||
 				restored.ServiceTier != "priority" ||
 				strings.Contains(string(encoded), `"usage":{"cost"`) {
 				t.Fatal("cost or serving tier was lost in the stored result")
@@ -196,7 +199,7 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 
 func TestReportedZeroCostDiffersFromMissingCost(t *testing.T) {
 	wire := codec{costField: "cost", costCurrency: "USD"}
-	zero := 0.0
+	var zero money.Amount
 	known := wire.reportedCost(Usage{Cost: &zero})
 	if known == nil || known.Total != 0 ||
 		known.Source != llm.CostSourceProviderReported {

@@ -177,15 +177,16 @@ type LimitDetail struct {
     Kind                LimitKind // model_attempts, deadline, interruptions,
                                   // output_tokens, total_tokens, cost, host
     Code                string    // application code for a host limit
-    Limit, Used, AtRisk float64
+    Limit, Used         int64     // counts, or Unix seconds for a deadline
+    CostLimit, CostUsed, CostAtRisk money.Amount // exact, in the cap currency
     FitTokens           int       // output allowance that would fit a cost cap
     UnpricedModel       string
 }
 type Stop struct { Kind StopKind; Reason string; Limit *LimitDetail }
 type Spend struct {
     Usage                  llm.Usage
-    Cost                   map[string]float64 // model calls by currency
-    ToolCost               map[string]float64 // local tools by currency
+    Cost                   map[string]money.Amount // model calls by currency
+    ToolCost               map[string]money.Amount // local tools by currency
     Estimated, CostUnknown int
 }
 // Start.Budget, Continue.Budget *Budget; ModelFact.AtRisk, .Charge *llm.Cost;

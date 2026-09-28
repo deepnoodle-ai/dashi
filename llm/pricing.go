@@ -9,22 +9,26 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
-// Rates prices disjoint token buckets per million tokens. Every value is
-// literal: zero means free, never inherited from another rate.
+// Rates prices disjoint token buckets per million tokens, so a price of
+// "$3 / MTok" is money.MustParseAmount("3"). Every value is literal: zero
+// means free, never inherited from another rate.
 type Rates struct {
 	// Input prices uncached input not classified as a cache write.
-	Input float64 `json:"input"`
+	Input money.Amount `json:"input"`
 	// Output prices generated tokens, including reasoning tokens.
-	Output float64 `json:"output"`
+	Output money.Amount `json:"output"`
 	// CacheRead prices input served from the prompt cache.
-	CacheRead float64 `json:"cache_read"`
+	CacheRead money.Amount `json:"cache_read"`
 	// CacheWrite prices input written to the prompt cache.
-	CacheWrite float64 `json:"cache_write"`
+	CacheWrite money.Amount `json:"cache_write"`
 }
 
 // UnmarshalJSON requires all four literal rates. An absent rate must not
@@ -57,11 +61,11 @@ func (r *Rates) UnmarshalJSON(data []byte) error {
 }
 
 func (r Rates) validate() error {
-	for _, rate := range []float64{
+	for _, rate := range []money.Amount{
 		r.Input, r.Output, r.CacheRead, r.CacheWrite,
 	} {
-		if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
-			return errors.New("llm: pricing requires finite nonnegative rates")
+		if rate < 0 {
+			return errors.New("llm: pricing requires nonnegative rates")
 		}
 	}
 	return nil
@@ -120,7 +124,7 @@ type Pricing struct {
 	// input-size tiers. Other tokens retain the selected base or tier rates.
 	Modality map[string]Rates `json:"modality,omitempty"`
 	// Requests prices provider-hosted operations in currency units per call.
-	Requests map[string]float64 `json:"requests,omitempty"`
+	Requests map[string]money.Amount `json:"requests,omitempty"`
 }
 
 // Validate rejects incomplete or ambiguous sheets before they are used as
@@ -158,7 +162,7 @@ func (p Pricing) Validate() error {
 		}
 	}
 	for name, rate := range p.Requests {
-		if name == "" || rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		if name == "" || rate < 0 {
 			return errors.New("llm: invalid hosted request price")
 		}
 	}
@@ -202,7 +206,13 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 
 // Estimate calculates list-price cost from a sheet already qualified for the
 // call. The result is unavailable when token detail cannot support a faithful
-// estimate; nil usage never means known zero usage.
+// estimate, or when the amount would overflow; nil usage never means known
+// zero usage.
+//
+// An estimate is a settled charge, so it rounds half to even at the nano.
+// Each field sums its exact token-rate products before rounding once, and
+// Total rounds the exact sum of all products once. Total can therefore differ
+// from the sum of the rounded fields by a few nanos; Total is the charge.
 func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 	if u == nil || p.Validate() != nil || u.Validate() != nil {
 		return Cost{}, false
@@ -220,18 +230,12 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 	if !pricingDetailAvailable(p, rates, u, unattributed) {
 		return Cost{}, false
 	}
-	const perMillion = 1_000_000.0
-	cost := Cost{
-		Currency: p.Currency,
-		Source:   CostSourceListPriceEstimate,
-	}
+	var input, output, cacheRead, cacheWrite, hosted, total exactSum
 	applyRates := func(tokens ModalityTokenUsage, rates Rates) {
-		cost.Input += float64(tokens.InputTokens) * rates.Input / perMillion
-		cost.Output += float64(tokens.OutputTokens) * rates.Output / perMillion
-		cost.CacheRead += float64(tokens.CacheReadInputTokens) *
-			rates.CacheRead / perMillion
-		cost.CacheWrite += float64(tokens.CacheCreationInputTokens) *
-			rates.CacheWrite / perMillion
+		input.add(tokens.InputTokens, rates.Input)
+		output.add(tokens.OutputTokens, rates.Output)
+		cacheRead.add(tokens.CacheReadInputTokens, rates.CacheRead)
+		cacheWrite.add(tokens.CacheCreationInputTokens, rates.CacheWrite)
 	}
 	applyRates(unattributed, rates)
 	for _, modality := range slices.Sorted(maps.Keys(u.ModalityTokens)) {
@@ -247,9 +251,34 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		if !ok || count < 0 {
 			return Cost{}, false
 		}
-		cost.Hosted += float64(count) * rate
+		hosted.addPerCall(count, rate)
 	}
-	cost.Total = cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite + cost.Hosted
+	for _, part := range []*exactSum{
+		&input, &output, &cacheRead, &cacheWrite, &hosted,
+	} {
+		total.addSum(part)
+	}
+	cost := Cost{
+		Currency: p.Currency,
+		Source:   CostSourceListPriceEstimate,
+	}
+	for _, field := range []struct {
+		sum *exactSum
+		out *money.Amount
+	}{
+		{&input, &cost.Input},
+		{&output, &cost.Output},
+		{&cacheRead, &cost.CacheRead},
+		{&cacheWrite, &cost.CacheWrite},
+		{&hosted, &cost.Hosted},
+		{&total, &cost.Total},
+	} {
+		amount, ok := field.sum.round(roundHalfEven)
+		if !ok {
+			return Cost{}, false
+		}
+		*field.out = amount
+	}
 	if cost.Validate() != nil {
 		return Cost{}, false
 	}
@@ -269,22 +298,28 @@ const (
 	CostSourceProviderEstimate CostSource = "provider_estimate"
 )
 
-// Cost values one model call. A missing *Cost means unknown, independently of
-// whether usage is zero or unavailable. Breakdowns may be unknown even when a
-// provider reports an exact total.
+// Cost values one model call in exact nano-units. A missing *Cost means
+// unknown, independently of whether usage is zero or unavailable. Breakdowns
+// may be unknown even when a provider reports an exact total.
+//
+// Kernel applies one rounding rule to the amounts it computes: a cost at risk
+// rounds up to the nano, so rounding can never let a cap be breached
+// (MaxCostAtRisk), and a settled charge rounds half to even (Pricing.Estimate).
+// Each rounds the exact sum of its token-rate products once per call.
 type Cost struct {
 	// Input values uncached input excluding cache writes and cache reads.
-	Input float64 `json:"input"`
+	Input money.Amount `json:"input"`
 	// Output values generated output.
-	Output float64 `json:"output"`
+	Output money.Amount `json:"output"`
 	// CacheRead values cached input.
-	CacheRead float64 `json:"cache_read"`
+	CacheRead money.Amount `json:"cache_read"`
 	// CacheWrite values cache creation input.
-	CacheWrite float64 `json:"cache_write"`
+	CacheWrite money.Amount `json:"cache_write"`
 	// Hosted values priced provider-hosted requests.
-	Hosted float64 `json:"hosted,omitempty"`
-	// Total may be available even when the category breakdown is not.
-	Total float64 `json:"total"`
+	Hosted money.Amount `json:"hosted,omitempty"`
+	// Total may be available even when the category breakdown is not. It is
+	// the amount that budgets and ledgers use.
+	Total money.Amount `json:"total"`
 	// Currency identifies the unit shared by the monetary fields.
 	Currency string `json:"currency"`
 	// Source distinguishes reported charges, reported estimates, and rates.
@@ -293,7 +328,7 @@ type Cost struct {
 	BreakdownUnavailable bool `json:"breakdown_unavailable,omitempty"`
 }
 
-// Validate requires a nonnegative finite amount with a known source and
+// Validate requires nonnegative amounts with a known source and
 // currency. It does not equate a provider total with Kernel's breakdown.
 func (c Cost) Validate() error {
 	if strings.TrimSpace(c.Currency) == "" ||
@@ -306,11 +341,11 @@ func (c Cost) Validate() error {
 	default:
 		return errors.New("llm: cost requires a known source")
 	}
-	for _, amount := range []float64{
+	for _, amount := range []money.Amount{
 		c.Input, c.Output, c.CacheRead, c.CacheWrite, c.Hosted, c.Total,
 	} {
-		if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
-			return errors.New("llm: cost requires finite nonnegative amounts")
+		if amount < 0 {
+			return errors.New("llm: cost requires nonnegative amounts")
 		}
 	}
 	return nil
@@ -418,4 +453,71 @@ func pricingDetailAvailable(
 		}
 	}
 	return true
+}
+
+// tokensPerRate is the token count that one Rates value prices.
+const tokensPerRate = 1_000_000
+
+// rounding selects how an exact sum becomes whole nanos.
+type rounding int
+
+const (
+	// roundHalfEven settles charges without bias across many calls.
+	roundHalfEven rounding = iota
+	// roundUp bounds risk so a cap is never breached by rounding.
+	roundUp
+)
+
+// exactSum accumulates token × rate products in nanos per million tokens.
+// Products are exact and unbounded, so rounding and overflow are decided once,
+// when the sum becomes an Amount.
+type exactSum struct {
+	value big.Int
+}
+
+func (s *exactSum) add(count int, rate money.Amount) {
+	var product big.Int
+	product.Mul(big.NewInt(int64(count)), big.NewInt(rate.Nanos()))
+	s.value.Add(&s.value, &product)
+}
+
+// addPerCall adds a price per call, scaled to the per-million denominator.
+func (s *exactSum) addPerCall(count int, price money.Amount) {
+	var product big.Int
+	product.Mul(big.NewInt(int64(count)), big.NewInt(price.Nanos()))
+	product.Mul(&product, big.NewInt(tokensPerRate))
+	s.value.Add(&s.value, &product)
+}
+
+func (s *exactSum) addSum(other *exactSum) {
+	s.value.Add(&s.value, &other.value)
+}
+
+// round divides by tokensPerRate. It returns false when the result is outside
+// the int64 nano range, so an overflow is never silently wrapped.
+func (s *exactSum) round(mode rounding) (money.Amount, bool) {
+	var quotient, remainder big.Int
+	divisor := big.NewInt(tokensPerRate)
+	// DivMod floors and leaves a nonnegative remainder for either sign.
+	quotient.DivMod(&s.value, divisor, &remainder)
+	if remainder.Sign() != 0 {
+		switch mode {
+		case roundUp:
+			quotient.Add(&quotient, big.NewInt(1))
+		case roundHalfEven:
+			remainder.Lsh(&remainder, 1)
+			switch remainder.Cmp(divisor) {
+			case 1:
+				quotient.Add(&quotient, big.NewInt(1))
+			case 0:
+				if quotient.Bit(0) == 1 {
+					quotient.Add(&quotient, big.NewInt(1))
+				}
+			}
+		}
+	}
+	if !quotient.IsInt64() {
+		return 0, false
+	}
+	return money.AmountFromNanos(quotient.Int64()), true
 }
