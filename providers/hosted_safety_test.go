@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
 	"github.com/deepnoodle-ai/kernel/providers/grok"
 	"github.com/deepnoodle-ai/kernel/providers/meta"
 	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
+// Gemini hosted tools are checked in the providers/google/gemini module.
 func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -67,38 +67,6 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 				return responses.NewImageGenerationTool(
 					responses.ImageGenerationOptions{},
 				)
-			},
-		},
-		{
-			name: "Gemini search",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewGoogleSearchTool(""), nil
-			},
-			readOnly: true,
-		},
-		{
-			name: "Gemini URL context",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewURLContextTool(""), nil
-			},
-			readOnly: true,
-		},
-		{
-			name: "Gemini file search",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewFileSearchTool(
-					"",
-					gemini.FileSearchOptions{
-						StoreNames: []string{"store"},
-					},
-				)
-			},
-			readOnly: true,
-		},
-		{
-			name: "Gemini code execution",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewCodeExecutionTool(""), nil
 			},
 		},
 		{

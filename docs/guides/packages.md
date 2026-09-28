@@ -29,7 +29,8 @@ other.
 - `providers/openai/completions`: Chat Completions format.
 - `providers/openai/images`: OpenAI image generation and editing.
 - `providers/google/gemini`: Gemini API and Vertex GenerateContent via Google's
-  Go SDK.
+  Go SDK. This is a separate module; add it with
+  `go get github.com/deepnoodle-ai/kernel/providers/google/gemini`.
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.
 - `providers/deepinfra`, `mistral`, `openrouter`: configured Chat Completions
   destinations.
@@ -44,8 +45,9 @@ depend only on the standard library; `money` is a leaf so that `tool` can
 report exact charges without importing `llm`. The root agent loop depends on
 `llm` and `tool`; session storage remains an optional future adapter.
 
-The Google adapter depends on `google.golang.org/genai`; the core packages do
-not.
+The Google adapter depends on `google.golang.org/genai` and gRPC, so it is its
+own module and the root module does not require them. The other providers use
+only the standard library and stay in the root module.
 
 ## Media and speech status
 

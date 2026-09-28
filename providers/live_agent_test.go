@@ -3,33 +3,25 @@
 package providers_test
 
 import (
-	"context"
 	"os"
 	"testing"
-	"time"
 
+	"github.com/deepnoodle-ai/kernel/internal/providertest"
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
 	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
 )
 
 // Run only with explicit credentials and selected model IDs:
-// KERNEL_LIVE_TEST=1 OPENAI_MODEL=... ANTHROPIC_MODEL=... GEMINI_MODEL=...
+// KERNEL_LIVE_TEST=1 OPENAI_MODEL=... ANTHROPIC_MODEL=...
 // go test -tags live ./providers -run TestLiveAgentFinalFacts -v
-// The full run makes six paid requests. A subtest filter selects one provider
-// and needs only that provider's key and model ID.
+// The full run makes four paid requests. A subtest filter selects one provider
+// and needs only that provider's key and model ID. The Gemini equivalent lives
+// in the providers/google/gemini module.
 func TestLiveAgentFinalFacts(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_TEST=1 to make paid provider calls")
-	}
-	type fixture struct {
-		name, key, model string
-		new              func(string) (llm.Client, error)
-	}
-	cases := []fixture{
-		{
-			"anthropic",
+	t.Run("anthropic", func(t *testing.T) {
+		providertest.LiveFinalFacts(
+			t,
 			os.Getenv("ANTHROPIC_API_KEY"),
 			os.Getenv("ANTHROPIC_MODEL"),
 			func(key string) (llm.Client, error) {
@@ -38,9 +30,11 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 					CapabilityPolicy: llm.CapabilityAdjust,
 				})
 			},
-		},
-		{
-			"openai",
+		)
+	})
+	t.Run("openai", func(t *testing.T) {
+		providertest.LiveFinalFacts(
+			t,
 			os.Getenv("OPENAI_API_KEY"),
 			os.Getenv("OPENAI_MODEL"),
 			func(key string) (llm.Client, error) {
@@ -49,54 +43,6 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 					CapabilityPolicy: llm.CapabilityAdjust,
 				})
 			},
-		},
-		{
-			"gemini",
-			os.Getenv("GEMINI_API_KEY"),
-			os.Getenv("GEMINI_MODEL"),
-			func(key string) (llm.Client, error) {
-				return gemini.New(gemini.Config{
-					APIKey:           key,
-					CapabilityPolicy: llm.CapabilityAdjust,
-				})
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.key == "" || tc.model == "" {
-				t.Fatalf("%s needs its API key and MODEL environment variable", tc.name)
-			}
-			client, err := tc.new(tc.key)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, stream := range []bool{false, true} {
-				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-				input := llm.Input{
-					Model:    tc.model,
-					Stream:   stream,
-					Settings: llm.Settings{MaxTokens: 32},
-					Messages: []llm.Message{
-						llm.UserMessage(llm.Text("Reply with one short greeting.")),
-					},
-				}
-				request, err := client.Prepare(ctx, input)
-				if err == nil {
-					var result llm.Result
-					result, err = client.Send(ctx, llm.Call{Request: request})
-					if err == nil &&
-						(result.Stop.Kind != llm.StopFinished ||
-							result.Message.Text() == "" ||
-							result.Requested.Model != tc.model) {
-						t.Errorf("stream=%t incomplete final facts: %+v", stream, result)
-					}
-				}
-				cancel()
-				if err != nil {
-					t.Errorf("stream=%t: %v", stream, err)
-				}
-			}
-		})
-	}
+		)
+	})
 }

@@ -2,14 +2,13 @@ package providers_test
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/catalog"
+	"github.com/deepnoodle-ai/kernel/internal/providertest"
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
 	"github.com/deepnoodle-ai/kernel/providers/grok"
 	"github.com/deepnoodle-ai/kernel/providers/meta"
 	"github.com/deepnoodle-ai/kernel/providers/mistral"
@@ -21,6 +20,7 @@ import (
 
 // publicClients builds every client whose default endpoint a catalog file
 // documents, paired with the catalog provider and a model it serves there.
+// The Gemini cases live in the providers/google/gemini module.
 func publicClients(t *testing.T) []struct {
 	provider, model string
 	client          llm.Client
@@ -53,11 +53,6 @@ func publicClients(t *testing.T) []struct {
 			client:   must(completions.New(completions.Config{APIKey: "k"})),
 		},
 		{
-			provider: "google",
-			model:    "gemini-3.8-flash",
-			client:   must(gemini.New(gemini.Config{APIKey: "k"})),
-		},
-		{
 			provider: "grok",
 			model:    "grok-4.7",
 			client:   must(grok.New(grok.Config{APIKey: "k"})),
@@ -78,66 +73,14 @@ func publicClients(t *testing.T) []struct {
 func TestPublicEndpointsUseCatalogByDefault(t *testing.T) {
 	for _, tc := range publicClients(t) {
 		t.Run(tc.provider+"/"+tc.client.API(), func(t *testing.T) {
-			info, ok := tc.client.ModelInfo(tc.model)
-			if !ok {
-				t.Fatalf("%s is unknown at the public endpoint", tc.model)
-			}
-			if info.Evidence.Owner != catalog.Owner {
-				t.Fatalf("evidence owner = %q", info.Evidence.Owner)
-			}
-			if info.Evidence.API != tc.client.API() {
-				t.Fatalf("evidence API = %q", info.Evidence.API)
-			}
-			if info.Evidence.Method != llm.EvidenceDocumentation {
-				t.Fatalf("evidence method = %q", info.Evidence.Method)
-			}
-			prep, err := tc.client.Prepare(
-				context.Background(),
-				llm.Input{
-					Model: tc.model,
-					Messages: []llm.Message{
-						llm.UserMessage(llm.Text("hello")),
-					},
-				},
-			)
-			if err != nil {
-				t.Fatalf("prepare with catalog knowledge: %v", err)
-			}
-			snapshot := prep.Snapshot()
-			if snapshot.ModelInfo == nil {
-				t.Fatal("snapshot did not record the catalog facts")
-			}
-			if slices.Contains(snapshot.Unverified, llm.FeatureText) {
-				t.Fatal("documented text support was recorded as unverified")
-			}
+			providertest.CatalogDefaults(t, tc.client, tc.model)
 		})
 	}
 }
 
 func TestEveryCatalogModelPreparesPlainRequest(t *testing.T) {
-	// Catalog facts must never make a request fail that would succeed
-	// without them.
-	temperature := 0.7
 	for _, tc := range publicClients(t) {
-		for _, entry := range catalog.Entries(tc.provider) {
-			if !slices.Contains(entry.APIs, tc.client.API()) {
-				continue
-			}
-			_, err := tc.client.Prepare(
-				context.Background(),
-				llm.Input{
-					Model:    entry.Model,
-					Stream:   true,
-					Settings: llm.Settings{Temperature: &temperature},
-					Messages: []llm.Message{
-						llm.UserMessage(llm.Text("hello")),
-					},
-				},
-			)
-			if err != nil {
-				t.Fatalf("%s at %s: %v", entry.Model, tc.client.API(), err)
-			}
-		}
+		providertest.CatalogModelsPrepare(t, tc.provider, tc.client)
 	}
 }
 
@@ -242,15 +185,6 @@ func TestUndocumentedDestinationsGetNoCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vertex, err := gemini.New(gemini.Config{
-		Vertex:          true,
-		Project:         "p",
-		Location:        "us-central1",
-		CredentialScope: "service-account",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	cases := []struct {
 		name   string
 		client llm.Client
@@ -259,7 +193,6 @@ func TestUndocumentedDestinationsGetNoCatalog(t *testing.T) {
 		{name: "custom endpoint", client: custom, model: "claude-sonnet-5"},
 		{name: "ollama", client: local, model: "claude-sonnet-5"},
 		{name: "openrouter", client: router, model: "gpt-6-luna"},
-		{name: "vertex", client: vertex, model: "gemini-3.8-flash"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

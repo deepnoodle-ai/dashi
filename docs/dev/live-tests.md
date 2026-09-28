@@ -11,16 +11,24 @@ go vet ./...
 go build ./...
 ```
 
+Run the same commands in `providers/google/gemini`, which is a separate module.
+Its `go.mod` replaces `github.com/deepnoodle-ai/kernel` with the local checkout.
 Ordinary tests use local servers and fixtures, without credentials.
+
+The shared checks live in `internal/providertest`. Each module keeps its own
+cases, so Gemini's live tests run from `providers/google/gemini` with the same
+variables; commands below that name Gemini show both locations.
 
 ## Live final-result routes
 
 For selected live final-result routes, set `KERNEL_LIVE_TEST=1` plus
 `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `OPENAI_API_KEY`/`OPENAI_MODEL`, and
 `GEMINI_API_KEY`/`GEMINI_MODEL`, then run
-`go test -tags live ./providers -run TestLiveAgentFinalFacts -v`. This makes
-six paid requests. To test one provider, filter a subtest such as
-`-run '^TestLiveAgentFinalFacts/gemini$'` and set only its key and model.
+`go test -tags live ./providers -run TestLiveAgentFinalFacts -v` and, in
+`providers/google/gemini`, `go test -tags live . -run TestLiveAgentFinalFacts -v`.
+Each provider makes two paid requests. To test one provider, filter a subtest
+such as `-run '^TestLiveAgentFinalFacts/openai$'` and set only its key and
+model.
 
 On 2026-09-27, blocking and streaming final-result calls passed for Anthropic
 Messages (`claude-haiku-4-5-20251001`), OpenAI Responses (`gpt-4.1-mini`), and
@@ -36,7 +44,9 @@ followed by a second model call. With the corresponding API keys set:
 ```sh
 KERNEL_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
   OPENAI_MODEL=gpt-4.1-mini GEMINI_MODEL=gemini-2.5-flash \
-  go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)AgentTurn$' -v
+  go test -tags live . -run '^TestLive(Anthropic|OpenAI)AgentTurn$' -v
+(cd providers/google/gemini && KERNEL_LIVE_AGENT_TEST=1 \
+  GEMINI_MODEL=gemini-2.5-flash go test -tags live . -run '^TestLiveAgentTurn$' -v)
 ```
 
 This makes three paid calls per provider and checks the recorded steps, replay,
@@ -50,8 +60,12 @@ To repeat them, set `KERNEL_LIVE_AGENT_TEST=1` and the corresponding provider
 keys and model names, then run:
 
 ```sh
-go test -tags live . -run '^TestLive(Anthropic|OpenAI|Gemini)StructuredOutput$' -v
+go test -tags live . -run '^TestLive(Anthropic|OpenAI)StructuredOutput$' -v
 ```
+
+In `providers/google/gemini`, the Gemini probes drop the provider from the
+name: `TestLiveStructuredOutput`, `TestLiveReservedFinalAnswer`,
+`TestLiveIteratorAgentTurn`, and `TestLiveRecordedReminder`.
 
 ## Reserved final answer
 
@@ -81,6 +95,8 @@ variable; filter `-run` to one provider when needed:
 ```sh
 KERNEL_LIVE_TEST=1 go test -tags live ./providers -run '^TestLiveErrorReasons$' -v
 ```
+
+The Gemini probe is `TestLiveErrorReasons` in `providers/google/gemini`.
 
 On 2026-09-28 every probe was classified as expected: a corrupt PNG and a TIFF
 were rejected as media by Anthropic Messages (`claude-haiku-4-5-20251001`),
