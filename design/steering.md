@@ -1,6 +1,6 @@
 # PRD: Steering a running turn
 
-**Status:** Draft, revised after two reviews · **Date:** 2026-09-28 ·
+**Status:** Draft, revised after three reviews · **Date:** 2026-09-28 ·
 **Owner:** Curtis
 
 ## Problem
@@ -17,8 +17,8 @@ into a running turn.
 - Pause, then `Deliver`, then `Continue` counts every steer against
   `Limits.Interruptions` (default 10) and makes the host resend history.
 
-Dive never shipped steering, so Nvoken rebuilt it from hooks. Pi's tracker
-shows the failure modes: queues matched by text (#9803), messages lost on abort
+Dive never shipped steering, so Nvoken rebuilt it from hooks. Pi's tracker shows
+the failure modes: queues matched by text (#9803), messages lost on abort
 (#10017), messages inserted between a tool call and its result (#1717), and
 races with an "idle" snapshot (#5886). Nvoken shows what works: IDs, safe
 delivery points, and an unambiguous fate for each message.
@@ -51,8 +51,8 @@ and each change discards the provider's prompt cache. Dive always sends it.
 - **Model visibility follows lifetime rules.** A recorded steer is seen on the
   next model call, if one happens, subject to `Snapshot` and `NextCallOnly`.
 - **The built-in `Inbox` adds claims.** A steer returned by `Pending` is claimed
-  by that run. A claimed steer cannot be cancelled. Claims are released when
-  the run ends without acknowledging them.
+  by that run. A claimed steer cannot be cancelled. Claims are released when the
+  run ends without acknowledging them.
 - **Reconcile before moving input.** Before an app moves leftover steers into
   another turn, it reconciles them against the turn record. After an unknown
   write, it first reloads the turn.
@@ -87,7 +87,8 @@ case out.Stop.Final():
     next := inbox.Leftovers(out.Turn) // drops steers the record already has
     // start the next turn with next, if any
 default:
-    // resumable: keep the inbox and pass it again on Continue
+    // stopped but resumable: pass the inbox again on Continue,
+    // or give up on the turn and take its Leftovers
 }
 ```
 
@@ -102,8 +103,8 @@ recorder transaction that saves the step, since the step carries the IDs.
 - FR-1: `WithSteering(Steering) RunOption`, per run like `WithPause`.
 - FR-2: The interface and value below. `Delivered` is idempotent; an error is
   recorded as a warning and retried on the next acknowledgment or run.
-- FR-3: `kernel.NewInbox()` returns a concurrency-safe `*Inbox`, reusable
-  across turns. It has these methods:
+- FR-3: `kernel.NewInbox()` returns a concurrency-safe `*Inbox`, reusable across
+  turns. It has these methods:
   - `Send(Steer) (string, error)` validates and generates a missing ID.
   - `SendText(text string) (string, error)` sends user-origin text.
   - `Cancel(id string) bool` succeeds only while the steer is unclaimed.
@@ -114,7 +115,9 @@ recorder transaction that saves the step, since the step carries the IDs.
 - FR-4: `ContextItem` gains `ID string`: one delivery, as opposed to `Name`, a
   slot that a later snapshot replaces. It is optional for `Deliver` and hook
   items and required for steers. `Step.Items() []ContextItem` returns the items
-  of either step kind that carries them. `StopKind` gains `Final() bool`.
+  of either step kind that carries them. `Stop` gains `Final() bool`, true only
+  for completed or canceled turns; for other stops (a budget stop can resume)
+  the app decides.
 
 ```go
 type Steering interface {
@@ -141,11 +144,11 @@ type Steer struct {
 
 **Allowed content**
 
-- FR-5: Every context item (steer, `Deliver`, or hook) may carry only user
-  text, media, and typed reminders. Tool calls, tool results, approval
-  messages, reasoning, and provider replay data are rejected before recording.
-  Today a user-role tool result with an arbitrary call ID passes validation,
-  and Gemini rejects it.
+- FR-5: Every context item (steer, `Deliver`, or hook) may carry only user text,
+  media, and typed reminders. Tool calls, tool results, approval messages,
+  reasoning, and provider replay data are rejected before recording. Today a
+  user-role tool result with an arbitrary call ID passes validation, and Gemini
+  rejects it.
 
 **Delivery points.** Kernel always calls `Pending` at these points (not gated on
 `Ready`), and nowhere else:
@@ -158,8 +161,8 @@ type Steer struct {
   before structured output is recorded, on both the final-text path and the
   `kernel_submit_output` path. A pending steer is recorded as a
   `StepLoopContinued` that names the superseded candidate (attempt ID or
-  submission call ID). Replay allows this step after a successful submission
-  and selects the latest eligible submission, not the first.
+  submission call ID). Replay allows this step after a successful submission and
+  selects the latest eligible submission, not the first.
 - FR-8: **Never between a tool call and its result.** Projection already places
   delivered items after the preceding call's results; tests lock this in.
 - FR-9: **Never on the last possible answer.** Before superseding a candidate or
@@ -170,9 +173,9 @@ type Steer struct {
   - no pause is requested.
 
   Otherwise steers stay unacknowledged. If the next call is refused anyway (by
-  `BeforeSend` or an admission failure), the turn stops with that stop kind,
-  and the superseded candidate remains readable: `AnswerText` and
-  `Turn.StructuredOutput()` return the latest valid answer.
+  `BeforeSend` or an admission failure), the turn stops with that stop kind.
+  The superseded candidate was never recorded as output, so
+  `StructuredOutput()` reports none; `AnswerText` returns the latest text.
 
 **Contract details**
 
@@ -180,10 +183,10 @@ type Steer struct {
   steers, and for filtered IDs already in the record. It uses
   `context.WithoutCancel` with a short timeout, so it runs after the run's
   context ends. At run end it calls `Release` for claimed, unacknowledged IDs.
-- FR-11: IDs are unique within a turn, and replay rejects duplicates. A
-  repeated ID with the same content (same JSON value) is skipped. With
-  different content, `Deliver` returns an error; a steer is skipped with a
-  warning and acknowledged, so it cannot loop.
+- FR-11: IDs are unique within a turn, and replay rejects duplicates. A repeated
+  ID with the same content (same JSON value) is skipped. With different content,
+  `Deliver` returns an error; a steer is skipped with a warning and left
+  unacknowledged for the host to repair. `Inbox` IDs cannot conflict.
 - FR-12: `Pending` errors and invalid steers never fail the turn. They produce a
   new `WarningSteering` code. Replay accepts warnings on any step kind; a
   warning with no step of its own rides on the next committed step.
@@ -203,19 +206,21 @@ same PR)
 - FR-17: While a call is active, a listener waits on `Ready`, then calls
   `Pending`. If an urgent steer is pending and FR-9 allows it, Kernel cancels
   the call, records the attempt as interrupted with a new field
-  `ModelFact.InterruptedBy: "steering"`, and delivers at FR-6. A result that
-  arrives after cancellation is discarded. `Stream` consumers already received
-  partial deltas; `InterruptedBy` tells the UI to discard them.
+  `ModelFact.InterruptedBy: "steering"`, and delivers at FR-6. The existing
+  interruption path settles the attempt: provider ID, usage, cost, and partial
+  output are recorded but never acted on. A call that completes before the
+  cancel takes effect stands, and the steer waits for FR-6. `InterruptedBy`
+  tells `Stream` consumers to discard partial deltas.
 - FR-18: Kernel does not interrupt a call whose request included a
   provider-hosted tool that is unsafe to repeat. The steer waits, with a
   warning.
 - FR-19: An urgent steer during a tool batch stops new calls from starting.
   Unstarted allowed calls settle as `StateNotExecuted` with the output "Not run:
-  the user sent new input." This is a new replay transition, from allowed to
-  not executed, with the reason `steering`. Running calls finish. Calls awaiting
+  the user sent new input." This is a new replay transition, from allowed to not
+  executed, with the reason `steering`. Running calls finish. Calls awaiting
   approval and waiting external calls stay pending.
-- FR-20: A steering-interrupted attempt counts toward `ModelAttempts` and the
-  budget. That changes today's documented rule, so replay counts only
+- FR-20: An attempt actually cancelled for a steer counts toward `ModelAttempts`
+  and the budget. That changes today's documented rule, so replay counts only
   `InterruptedBy: "steering"`. Update the `Limits.ModelAttempts` comment and
   `docs/agent-turns.md`. It does not count toward `Limits.Interruptions`.
 
@@ -247,14 +252,14 @@ same PR)
   In every case a steer is recorded at most once and never lost from the
   source until the record acknowledges it.
 - Provider contract tests (Anthropic, OpenAI Responses, Gemini) accept a steer
-  after a tool batch and after an interrupted response. Invalid steer content
-  is rejected before recording.
+  after a tool batch and after an interrupted response. Invalid steer content is
+  rejected before recording.
 - The CLI example works as written; a durable example maps Nvoken's nudges onto
   `Steering` with no hooks or sentinel errors.
 - Guardrails: turns without steering make the same model and tool calls as
-  today. The always-on reminder sentence is measured on its own (about 30
-  tokens per request), and the prompt-cache prefix stays stable across
-  reminder changes.
+  today. The always-on reminder sentence is measured on its own (about 30 tokens
+  per request), and the prompt-cache prefix stays stable across reminder
+  changes.
 
 ## Risks
 
