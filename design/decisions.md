@@ -214,8 +214,10 @@ with "tool binding changed" or a false history mismatch.
 **28. Money is an exact integer count of nano-units.** Decided. Prices,
 charges, caps, and spend use `money.Amount`, an int64 of 1e-9 currency units
 as in `google.type.Money`; JSON writes a decimal string (`"0.5"`) and still
-reads the bare numbers of older records. Cents are too coarse for per-token
-prices; nanos hold every catalog price exactly and cover about ±$9.2 billion.
+reads the bare numbers of older records; a command digest recorded over a
+float amount still acknowledges a retry of the same command. Cents are too
+coarse for per-token prices; nanos hold every catalog price exactly and cover
+about ±$9.2 billion.
 One rounding rule: a cost at risk rounds up, so rounding never breaches a cap,
 and a settled charge rounds half to even; each rounds the exact sum of its
 token-rate products once per call. An overflow makes the amount unknown rather

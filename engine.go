@@ -146,7 +146,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	// Stored command digests may predate canonical hashing, so they are
 	// compared with digestMatches rather than to d.
 	if old, ok := state.commandDigests[command.commandID()]; ok {
-		if !digestMatches(old, command) {
+		if !commandDigestMatches(old, command) {
 			return Outcome{}, ErrCommandConflict
 		}
 		if loader, ok := b.Recorder.(Loader); ok {
@@ -161,7 +161,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !sameDefinition(def, current.Definition) {
 				return Outcome{}, ErrDefinitionChanged
 			}
-			if !digestMatches(current.commandDigests[command.commandID()], command) {
+			if !commandDigestMatches(current.commandDigests[command.commandID()], command) {
 				return Outcome{}, ErrRevisionConflict
 			}
 			return outcome(saved, current, PersistenceAcknowledged), nil
@@ -185,7 +185,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				if !sameDefinition(def, current.Definition) {
 					return Outcome{}, ErrDefinitionChanged
 				}
-				if !digestMatches(old, command) {
+				if !commandDigestMatches(old, command) {
 					return Outcome{}, ErrCommandConflict
 				}
 				return outcome(saved, current, PersistenceAcknowledged), nil

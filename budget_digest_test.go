@@ -76,7 +76,7 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	}
 	// Typed money fields decode to the same values, so the reloaded steps
 	// re-encode identically; reload's check for changed bytes does not apply.
-	turn, err := rec.Load("t1")
+	turn, err := rec.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
