@@ -5,7 +5,13 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/deepnoodle-ai/kernel/money"
 )
+
+func amt(s string) money.Amount {
+	return money.MustParseAmount(s)
+}
 
 func TestPricingEstimateUsesLiteralRates(t *testing.T) {
 	p := pricedSheet()
@@ -19,8 +25,9 @@ func TestPricingEstimateUsesLiteralRates(t *testing.T) {
 	if !ok {
 		t.Fatal("complete usage could not be priced")
 	}
-	if cost.Input != 1 || cost.Output != 2 || cost.CacheRead != 0.1 ||
-		cost.CacheWrite != 1.25 || cost.Total != 4.35 ||
+	if cost.Input != amt("1") || cost.Output != amt("2") ||
+		cost.CacheRead != amt("0.1") || cost.CacheWrite != amt("1.25") ||
+		cost.Total != amt("4.35") ||
 		cost.Currency != "USD" || cost.Source != CostSourceListPriceEstimate {
 		t.Fatalf("unexpected estimate: %+v", cost)
 	}
@@ -40,18 +47,18 @@ func TestPricingEstimateTierAndModality(t *testing.T) {
 	p.Tiers = []PriceTier{{
 		MinInputTokens: 100,
 		Rates: Rates{
-			Input:      3,
-			Output:     6,
-			CacheRead:  0.3,
-			CacheWrite: 3.75,
+			Input:      amt("3"),
+			Output:     amt("6"),
+			CacheRead:  amt("0.3"),
+			CacheWrite: amt("3.75"),
 		},
 	}}
 	p.Modality = map[string]Rates{
 		"audio": {
-			Input:      10,
-			Output:     20,
-			CacheRead:  1,
-			CacheWrite: 12,
+			Input:      amt("10"),
+			Output:     amt("20"),
+			CacheRead:  amt("1"),
+			CacheWrite: amt("12"),
 		},
 	}
 	u := &Usage{
@@ -79,9 +86,9 @@ func TestPricingEstimateTierAndModality(t *testing.T) {
 		t.Fatal("tiered multimodal usage could not be priced")
 	}
 	// Audio keeps its modality rates; text uses the threshold-selected rates.
-	want := (80*3 + 40*10 + 6*6 + 4*20 +
-		6*0.3 + 4*1 + 6*3.75 + 4*12) / 1_000_000.0
-	if math.Abs(cost.Total-want) > 1e-12 {
+	// 240+400+36+80 + 1.8+4+22.5+48 = 832.3 dollar-tokens per MTok.
+	want := amt("0.0008323")
+	if cost.Total != want {
 		t.Fatalf("tier and modality total = %v, want %v", cost.Total, want)
 	}
 	boundary := &Usage{
@@ -91,13 +98,13 @@ func TestPricingEstimateTierAndModality(t *testing.T) {
 		},
 	}
 	cost, ok = p.Estimate(boundary)
-	if !ok || cost.Input != 99.0/1_000_000 {
+	if !ok || cost.Input != amt("0.000099") {
 		t.Fatalf("below-threshold base rate = %+v, %v", cost, ok)
 	}
 	boundary.InputTokens = 100
 	boundary.ModalityTokens["text"] = ModalityTokenUsage{InputTokens: 100}
 	cost, ok = p.Estimate(boundary)
-	if !ok || cost.Input != 300.0/1_000_000 {
+	if !ok || cost.Input != amt("0.0003") {
 		t.Fatalf("inclusive tier rate = %+v, %v", cost, ok)
 	}
 }
@@ -106,10 +113,10 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 	p := pricedSheet()
 	p.Modality = map[string]Rates{
 		"audio": {
-			Input:      4,
-			Output:     8,
-			CacheRead:  0.4,
-			CacheWrite: 5,
+			Input:      amt("4"),
+			Output:     amt("8"),
+			CacheRead:  amt("0.4"),
+			CacheWrite: amt("5"),
 		},
 	}
 	for _, tc := range []struct {
@@ -214,17 +221,17 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 func TestPricingEstimateNeedsDetailOnlyWhereRatesDiffer(t *testing.T) {
 	p := pricedSheet()
 	rates := p.Base
-	rates.Output = 8
+	rates.Output = amt("8")
 	p.Modality = map[string]Rates{"audio": rates}
 	cost, ok := p.Estimate(&Usage{InputTokens: 100})
-	if !ok || cost.Input != 100.0/1_000_000 {
+	if !ok || cost.Input != amt("0.0001") {
 		t.Fatalf("unaffected input needed modality detail: %+v, %v", cost, ok)
 	}
 }
 
 func TestPricingEstimateRejectsArithmeticOverflow(t *testing.T) {
 	p := pricedSheet()
-	p.Base.Input = math.MaxFloat64
+	p.Base.Input = money.AmountFromNanos(math.MaxInt64)
 	if _, ok := p.Estimate(&Usage{InputTokens: 10_000_000}); ok {
 		t.Fatal("unrepresentable cost was returned as an estimate")
 	}
@@ -238,7 +245,9 @@ func TestPricingValidateRejectsInvalidSheet(t *testing.T) {
 		{"missing currency", func(p *Pricing) { p.Currency = "" }},
 		{"invalid date", func(p *Pricing) { p.UpdatedAt = "2026-02-30" }},
 		{"negative rate", func(p *Pricing) { p.Base.Input = -1 }},
-		{"infinite rate", func(p *Pricing) { p.Base.Output = math.Inf(1) }},
+		{"negative hosted price", func(p *Pricing) {
+			p.Requests = map[string]money.Amount{"web_search": -1}
+		}},
 		{
 			name: "unordered tiers",
 			edit: func(p *Pricing) {
@@ -308,9 +317,10 @@ func TestPricingCloneOwnsTiersAndModalities(t *testing.T) {
 	p.Tiers = []PriceTier{{MinInputTokens: 100, Rates: p.Base}}
 	p.Modality = map[string]Rates{"audio": p.Base}
 	copy := p.Clone()
-	copy.Tiers[0].Rates.Input = 9
-	copy.Modality["audio"] = Rates{Input: 9}
-	if p.Tiers[0].Rates.Input != 1 || p.Modality["audio"].Input != 1 {
+	copy.Tiers[0].Rates.Input = amt("9")
+	copy.Modality["audio"] = Rates{Input: amt("9")}
+	if p.Tiers[0].Rates.Input != amt("1") ||
+		p.Modality["audio"].Input != amt("1") {
 		t.Fatal("pricing clone shared mutable rate data")
 	}
 }
@@ -351,10 +361,10 @@ func pricedSheet() Pricing {
 		UpdatedAt: "2026-09-27",
 		Reference: "fixture",
 		Base: Rates{
-			Input:      1,
-			Output:     2,
-			CacheRead:  0.1,
-			CacheWrite: 1.25,
+			Input:      amt("1"),
+			Output:     amt("2"),
+			CacheRead:  amt("0.1"),
+			CacheWrite: amt("1.25"),
 		},
 	}
 }

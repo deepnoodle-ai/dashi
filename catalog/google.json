@@ -27,10 +27,10 @@
         "updated_at": "2026-09-02",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.75,
-          "output": 3.75,
-          "cache_read": 0.075,
-          "cache_write": 0.75
+          "input": "0.75",
+          "output": "3.75",
+          "cache_read": "0.075",
+          "cache_write": "0.75"
         }
       }
     },
@@ -52,10 +52,10 @@
         "updated_at": "2026-09-01",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.75,
-          "output": 3.75,
-          "cache_read": 0.075,
-          "cache_write": 0.75
+          "input": "0.75",
+          "output": "3.75",
+          "cache_read": "0.075",
+          "cache_write": "0.75"
         }
       }
     },
@@ -77,10 +77,10 @@
         "updated_at": "2026-09-01",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.75,
-          "output": 3.75,
-          "cache_read": 0.075,
-          "cache_write": 0.75
+          "input": "0.75",
+          "output": "3.75",
+          "cache_read": "0.075",
+          "cache_write": "0.75"
         }
       }
     },
@@ -101,10 +101,10 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 1.5,
-          "output": 9,
-          "cache_read": 0.15,
-          "cache_write": 1.5
+          "input": "1.5",
+          "output": "9",
+          "cache_read": "0.15",
+          "cache_write": "1.5"
         }
       }
     },
@@ -125,10 +125,10 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.3,
-          "output": 2.5,
-          "cache_read": 0.03,
-          "cache_write": 0.3
+          "input": "0.3",
+          "output": "2.5",
+          "cache_read": "0.03",
+          "cache_write": "0.3"
         }
       }
     },
@@ -151,19 +151,19 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 2,
-          "output": 12,
-          "cache_read": 0.2,
-          "cache_write": 2
+          "input": "2",
+          "output": "12",
+          "cache_read": "0.2",
+          "cache_write": "2"
         },
         "tiers": [
           {
             "min_input_tokens": 200001,
             "rates": {
-              "input": 4,
-              "output": 18,
-              "cache_read": 0.4,
-              "cache_write": 4
+              "input": "4",
+              "output": "18",
+              "cache_read": "0.4",
+              "cache_write": "4"
             }
           }
         ]
@@ -188,19 +188,19 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 2,
-          "output": 12,
-          "cache_read": 0.2,
-          "cache_write": 2
+          "input": "2",
+          "output": "12",
+          "cache_read": "0.2",
+          "cache_write": "2"
         },
         "tiers": [
           {
             "min_input_tokens": 200001,
             "rates": {
-              "input": 4,
-              "output": 18,
-              "cache_read": 0.4,
-              "cache_write": 4
+              "input": "4",
+              "output": "18",
+              "cache_read": "0.4",
+              "cache_write": "4"
             }
           }
         ]
@@ -224,17 +224,17 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.25,
-          "output": 1.5,
-          "cache_read": 0.025,
-          "cache_write": 0.25
+          "input": "0.25",
+          "output": "1.5",
+          "cache_read": "0.025",
+          "cache_write": "0.25"
         },
         "modality": {
           "audio": {
-            "input": 0.5,
-            "output": 1.5,
-            "cache_read": 0.05,
-            "cache_write": 0.5
+            "input": "0.5",
+            "output": "1.5",
+            "cache_read": "0.05",
+            "cache_write": "0.5"
           }
         }
       }
@@ -257,10 +257,10 @@
         "updated_at": "2026-03-10",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.1,
-          "output": 0.4,
-          "cache_read": 0.1,
-          "cache_write": 0.1
+          "input": "0.1",
+          "output": "0.4",
+          "cache_read": "0.1",
+          "cache_write": "0.1"
         }
       }
     },
@@ -282,17 +282,17 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.5,
-          "output": 3,
-          "cache_read": 0.05,
-          "cache_write": 0.5
+          "input": "0.5",
+          "output": "3",
+          "cache_read": "0.05",
+          "cache_write": "0.5"
         },
         "modality": {
           "audio": {
-            "input": 1,
-            "output": 3,
-            "cache_read": 0.1,
-            "cache_write": 1
+            "input": "1",
+            "output": "3",
+            "cache_read": "0.1",
+            "cache_write": "1"
           }
         }
       }
@@ -315,19 +315,19 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 1.25,
-          "output": 10,
-          "cache_read": 0.125,
-          "cache_write": 1.25
+          "input": "1.25",
+          "output": "10",
+          "cache_read": "0.125",
+          "cache_write": "1.25"
         },
         "tiers": [
           {
             "min_input_tokens": 200001,
             "rates": {
-              "input": 2.5,
-              "output": 15,
-              "cache_read": 0.25,
-              "cache_write": 2.5
+              "input": "2.5",
+              "output": "15",
+              "cache_read": "0.25",
+              "cache_write": "2.5"
             }
           }
         ]
@@ -350,17 +350,17 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.3,
-          "output": 2.5,
-          "cache_read": 0.03,
-          "cache_write": 0.3
+          "input": "0.3",
+          "output": "2.5",
+          "cache_read": "0.03",
+          "cache_write": "0.3"
         },
         "modality": {
           "audio": {
-            "input": 1,
-            "output": 2.5,
-            "cache_read": 0.1,
-            "cache_write": 1
+            "input": "1",
+            "output": "2.5",
+            "cache_read": "0.1",
+            "cache_write": "1"
           }
         }
       }
@@ -382,17 +382,17 @@
         "updated_at": "2026-07-21",
         "reference": "https://ai.google.dev/gemini-api/docs/pricing",
         "base": {
-          "input": 0.1,
-          "output": 0.4,
-          "cache_read": 0.01,
-          "cache_write": 0.1
+          "input": "0.1",
+          "output": "0.4",
+          "cache_read": "0.01",
+          "cache_write": "0.1"
         },
         "modality": {
           "audio": {
-            "input": 0.3,
-            "output": 0.4,
-            "cache_read": 0.03,
-            "cache_write": 0.3
+            "input": "0.3",
+            "output": "0.4",
+            "cache_read": "0.03",
+            "cache_write": "0.3"
           }
         }
       }

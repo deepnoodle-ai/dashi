@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
@@ -168,8 +169,8 @@ func replay(t Turn) (*replayState, error) {
 
 func (s *replayState) calculateSpend() error {
 	s.Spend = Spend{
-		Cost:     map[string]float64{},
-		ToolCost: map[string]float64{},
+		Cost:     map[string]money.Amount{},
+		ToolCost: map[string]money.Amount{},
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
 		usage, charge, estimated, counted := attemptSpend(
@@ -825,9 +826,10 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 				return false
 			}
 			used, known := s.Spend.costIn(budget.MaxCost.Currency)
-			if !known || limit.AtRisk > 0 &&
-				used+limit.AtRisk > budget.MaxCost.Amount ||
-				limit.AtRisk == 0 && used >= budget.MaxCost.Amount {
+			after, ok := used.Add(limit.CostAtRisk)
+			if !known || !ok || limit.CostAtRisk > 0 &&
+				after > budget.MaxCost.Amount ||
+				limit.CostAtRisk == 0 && used >= budget.MaxCost.Amount {
 				return false
 			}
 		case LimitOutputTokens:

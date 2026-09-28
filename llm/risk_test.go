@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
@@ -35,10 +36,10 @@ func riskRequest(t *testing.T, maxTokens int, tools []tool.Definition) Request {
 func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 	p := pricedSheet()
 	p.Base = Rates{
-		Input:      1,
-		Output:     2,
-		CacheRead:  3,
-		CacheWrite: 4,
+		Input:      amt("1"),
+		Output:     amt("2"),
+		CacheRead:  amt("3"),
+		CacheWrite: amt("4"),
 	}
 	request := riskRequest(t, 100, nil)
 	cost, ok := MaxCostAtRisk(request, p)
@@ -48,13 +49,15 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 	if EstimatedInputTokens(request) != len(request.Body())+1024 {
 		t.Fatal("input bound did not include body and fixed margin")
 	}
-	if cost.Input != float64(EstimatedInputTokens(request))*4/1_000_000 {
-		t.Fatalf("input cost=%g", cost.Input)
+	// Input tokens × $4/MTok is 4 µ$ per token, exact in nanos.
+	wantInput := money.AmountFromNanos(int64(EstimatedInputTokens(request)) * 4000)
+	if cost.Input != wantInput {
+		t.Fatalf("input cost=%s", cost.Input)
 	}
-	if cost.Output != 0.0002 {
-		t.Fatalf("output cost=%g", cost.Output)
+	if cost.Output != amt("0.0002") {
+		t.Fatalf("output cost=%s", cost.Output)
 	}
-	fit := FitOutputTokens(request, p, cost.Input+0.0001)
+	fit := FitOutputTokens(request, p, cost.Input+amt("0.0001"))
 	if fit != 50 {
 		t.Fatalf("fit=%d", fit)
 	}
@@ -62,7 +65,7 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 
 func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 	p := pricedSheet()
-	p.Requests = map[string]float64{"web_search": 0.01}
+	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
 	request := riskRequest(t, 100, []tool.Definition{
 		{
 			Name: "web_search",
@@ -81,7 +84,7 @@ func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 
 func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
 	p := pricedSheet()
-	p.Requests = map[string]float64{"web_search": 0.01}
+	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
 	cost, ok := p.Estimate(&Usage{
 		InputTokens: 100,
 		Requests:    map[string]int{"web_search": 2},
@@ -89,11 +92,11 @@ func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
 	if !ok {
 		t.Fatal("hosted request was not priced")
 	}
-	if cost.Hosted != 0.02 {
-		t.Fatalf("hosted cost=%g", cost.Hosted)
+	if cost.Hosted != amt("0.02") {
+		t.Fatalf("hosted cost=%s", cost.Hosted)
 	}
-	if cost.Total < 0.02 {
-		t.Fatalf("total cost=%g", cost.Total)
+	if cost.Total != amt("0.0201") {
+		t.Fatalf("total cost=%s", cost.Total)
 	}
 	if _, ok := p.Estimate(&Usage{Requests: map[string]int{"unknown": 1}}); ok {
 		t.Fatal("missing hosted request price must not count as free")

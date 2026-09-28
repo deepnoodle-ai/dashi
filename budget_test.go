@@ -9,8 +9,14 @@ import (
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
+
+// amount keeps exact money literals short in budget tests.
+func amount(s string) money.Amount {
+	return money.MustParseAmount(s)
+}
 
 type pricedClient struct {
 	scriptedClient
@@ -24,10 +30,10 @@ func newPricedClient(results ...llm.Result) *pricedClient {
 			Currency:  "USD",
 			UpdatedAt: "2026-09-28",
 			Base: llm.Rates{
-				Input:      1,
-				Output:     1,
-				CacheRead:  1,
-				CacheWrite: 1,
+				Input:      amount("1"),
+				Output:     amount("1"),
+				CacheRead:  amount("1"),
+				CacheWrite: amount("1"),
 			},
 		},
 	}
@@ -129,10 +135,10 @@ func requireBudgetLimit(
 }
 
 func TestBudgetCloneCopiesCostCap(t *testing.T) {
-	budget := Budget{MaxCost: &Money{Amount: 1, Currency: "USD"}}
+	budget := Budget{MaxCost: &Money{Amount: amount("1"), Currency: "USD"}}
 	clone := budget.Clone()
-	clone.MaxCost.Amount = 2
-	if budget.MaxCost.Amount != 1 {
+	clone.MaxCost.Amount = amount("2")
+	if budget.MaxCost.Amount != amount("1") {
 		t.Fatal("budget clone shared its cost cap")
 	}
 }
@@ -140,30 +146,31 @@ func TestBudgetCloneCopiesCostCap(t *testing.T) {
 func TestSpendCloneCopiesUsageAndCosts(t *testing.T) {
 	spend := Spend{
 		Usage:    llm.Usage{Requests: map[string]int{"web_search": 1}},
-		Cost:     map[string]float64{"USD": 1},
-		ToolCost: map[string]float64{"EUR": 2},
+		Cost:     map[string]money.Amount{"USD": amount("1")},
+		ToolCost: map[string]money.Amount{"EUR": amount("2")},
 	}
 	clone := spend.Clone()
 	clone.Usage.Requests["web_search"] = 2
-	clone.Cost["USD"] = 2
-	clone.ToolCost["EUR"] = 3
+	clone.Cost["USD"] = amount("2")
+	clone.ToolCost["EUR"] = amount("3")
 	if spend.Usage.Requests["web_search"] != 1 {
 		t.Fatal("spend clone shared hosted request counts")
 	}
-	if spend.Cost["USD"] != 1 {
+	if spend.Cost["USD"] != amount("1") {
 		t.Fatal("spend clone shared model cost totals")
 	}
-	if spend.ToolCost["EUR"] != 2 {
+	if spend.ToolCost["EUR"] != amount("2") {
 		t.Fatal("spend clone shared tool cost totals")
 	}
 }
 
 func TestSpendAddCostRejectsOverflow(t *testing.T) {
-	spend := Spend{Cost: map[string]float64{"USD": math.MaxFloat64}}
-	if err := addCurrencyCost(spend.Cost, "USD", math.MaxFloat64); err == nil {
+	most := money.AmountFromNanos(math.MaxInt64)
+	spend := Spend{Cost: map[string]money.Amount{"USD": most}}
+	if err := addCurrencyCost(spend.Cost, "USD", 1); err == nil {
 		t.Fatal("overflowing cumulative cost was accepted")
 	}
-	if spend.Cost["USD"] != math.MaxFloat64 {
+	if spend.Cost["USD"] != most {
 		t.Fatal("failed cost addition changed spend")
 	}
 }
@@ -173,7 +180,7 @@ func TestBudgetStopsUnpricedModelBeforeDispatch(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.5, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
 		nil,
@@ -195,7 +202,7 @@ func TestBudgetStopsWithoutFiniteOutputAllowance(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.5, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
 		llm.Settings{},
 		nil,
 		nil,
@@ -214,7 +221,7 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.00001, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.00001"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
 		nil,
@@ -253,7 +260,7 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &replayState{TurnView: TurnView{
-		Budget: &Budget{MaxCost: &Money{Amount: 0.5, Currency: "USD"}},
+		Budget: &Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
 	}}
 	_, _, stop := checkSendBudget(state, request, "fixture")
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
@@ -269,7 +276,7 @@ func TestBudgetCostShortfallDoesNotShrinkRequest(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.0015, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.0015"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 1000},
 		nil,
 		nil,
@@ -295,7 +302,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 		client,
 		&Budget{
 			MaxOutputTokens: 50,
-			MaxCost:         &Money{Amount: 0.01, Currency: "USD"},
+			MaxCost:         &Money{Amount: amount("0.01"), Currency: "USD"},
 		},
 		llm.Settings{MaxTokens: 1000},
 		nil,
@@ -311,8 +318,8 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(view.Spend.Cost["USD"]-0.00014) > 1e-12 {
-		t.Fatalf("cost=%g", view.Spend.Cost["USD"])
+	if view.Spend.Cost["USD"] != amount("0.00014") {
+		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
 	}
 	if view.Spend.Usage.OutputTokens != 40 {
 		t.Fatalf("output tokens=%d", view.Spend.Usage.OutputTokens)
@@ -329,7 +336,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 		t.Fatalf("missing risk or charge: intent=%+v settled=%+v", intent, settled)
 	}
 	if intent.AtRisk.Total <= settled.Charge.Total {
-		t.Fatalf("risk=%g charge=%g", intent.AtRisk.Total, settled.Charge.Total)
+		t.Fatalf("risk=%s charge=%s", intent.AtRisk.Total, settled.Charge.Total)
 	}
 	if settled.EstimatedUsage {
 		t.Fatal("reported usage marked estimated")
@@ -343,7 +350,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	second.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 100}
 	client := newPricedClient(first, second)
 	lookup := budgetLookup(nil)
-	initial := &Budget{MaxCost: &Money{Amount: 0.0016, Currency: "USD"}}
+	initial := &Budget{MaxCost: &Money{Amount: amount("0.0016"), Currency: "USD"}}
 	def := definition()
 	def.Settings.MaxTokens = 500
 	rec := NewMemoryRecorder()
@@ -374,7 +381,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	if client.sends != 1 {
 		t.Fatalf("first phase sent %d calls", client.sends)
 	}
-	raised := &Budget{MaxCost: &Money{Amount: 0.003, Currency: "USD"}}
+	raised := &Budget{MaxCost: &Money{Amount: amount("0.003"), Currency: "USD"}}
 	out, err = (Engine{}).Apply(
 		context.Background(),
 		out.Turn,
@@ -401,8 +408,8 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	if view.Raises[0].At.IsZero() {
 		t.Fatal("budget raise has no audit time")
 	}
-	if view.Raises[0].Budget.MaxCost.Amount != 0.003 {
-		t.Fatalf("raised cap=%g", view.Raises[0].Budget.MaxCost.Amount)
+	if view.Raises[0].Budget.MaxCost.Amount != amount("0.003") {
+		t.Fatalf("raised cap=%s", view.Raises[0].Budget.MaxCost.Amount)
 	}
 }
 
@@ -411,7 +418,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.01, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
 		nil,
@@ -442,7 +449,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		t.Fatalf("missing charge or risk: intent=%+v settled=%+v", intent, settled)
 	}
 	if settled.Charge.Total >= intent.AtRisk.Total {
-		t.Fatalf("charge=%g risk=%g", settled.Charge.Total, intent.AtRisk.Total)
+		t.Fatalf("charge=%s risk=%s", settled.Charge.Total, intent.AtRisk.Total)
 	}
 }
 
@@ -469,7 +476,7 @@ func TestBudgetHostDenialIsResumableLimit(t *testing.T) {
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.01, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
 		hostBudgetPolicy{},
@@ -490,11 +497,11 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 10}
 	client := newPricedClient(first, final("unused"))
-	lookup := budgetLookup(&tool.Cost{Amount: 0.5, Currency: "EUR"})
+	lookup := budgetLookup(&tool.Cost{Amount: amount("0.5"), Currency: "EUR"})
 	out := runBudgetTurn(
 		t,
 		client,
-		&Budget{MaxCost: &Money{Amount: 0.01, Currency: "USD"}},
+		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		fixedTools{lookup},
 		nil,
@@ -509,11 +516,11 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 	if client.sends != 2 {
 		t.Fatalf("sends=%d", client.sends)
 	}
-	if view.Spend.ToolCost["EUR"] != 0.5 {
-		t.Fatalf("EUR tool cost=%g", view.Spend.ToolCost["EUR"])
+	if view.Spend.ToolCost["EUR"] != amount("0.5") {
+		t.Fatalf("EUR tool cost=%s", view.Spend.ToolCost["EUR"])
 	}
 	if view.Spend.Cost["USD"] <= 0 {
-		t.Fatalf("USD model cost=%g", view.Spend.Cost["USD"])
+		t.Fatalf("USD model cost=%s", view.Spend.Cost["USD"])
 	}
 	if view.Spend.CostUnknown != 0 {
 		t.Fatalf("unknown costs=%d", view.Spend.CostUnknown)
@@ -583,7 +590,7 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 		client,
 		&Budget{
 			MaxOutputTokens: 50,
-			MaxCost:         &Money{Amount: 0.0001, Currency: "USD"},
+			MaxCost:         &Money{Amount: amount("0.0001"), Currency: "USD"},
 		},
 		llm.Settings{MaxTokens: 100},
 		nil,
@@ -602,7 +609,7 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 			ID: "lower",
 			Budget: &Budget{
 				MaxOutputTokens: 40,
-				MaxCost:         &Money{Amount: 0.001, Currency: "USD"},
+				MaxCost:         &Money{Amount: amount("0.001"), Currency: "USD"},
 			},
 		},
 		Bindings{Client: client, Policy: AllowLocalPolicy{}},
@@ -617,7 +624,9 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 
 func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
 	client := newPricedClient()
-	client.pricing.Requests = map[string]float64{"web_search": 0.01}
+	client.pricing.Requests = map[string]money.Amount{
+		"web_search": amount("0.01"),
+	}
 	result := final("answer")
 	result.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 10}
 	result.Message.Content = append(
@@ -655,8 +664,8 @@ func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
 	if view.Spend.Usage.Requests["web_search"] != 1 {
 		t.Fatalf("web searches=%d", view.Spend.Usage.Requests["web_search"])
 	}
-	if math.Abs(view.Spend.Cost["USD"]-0.01002) > 1e-12 {
-		t.Fatalf("cost=%g", view.Spend.Cost["USD"])
+	if view.Spend.Cost["USD"] != amount("0.01002") {
+		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
 	}
 }
 
@@ -698,7 +707,7 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 			ID: "start",
 			Budget: &Budget{
 				MaxOutputTokens: 2,
-				MaxCost:         &Money{Amount: 0.01, Currency: "USD"},
+				MaxCost:         &Money{Amount: amount("0.01"), Currency: "USD"},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
@@ -726,7 +735,7 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 		t.Fatalf("partial output estimate=%d", view.Spend.Usage.OutputTokens)
 	}
 	if view.Spend.Cost["USD"] <= 0 {
-		t.Fatalf("cost=%g", view.Spend.Cost["USD"])
+		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
 	}
 	if out.Turn.Steps[2].Model.Charge == nil ||
 		!out.Turn.Steps[2].Model.EstimatedUsage {
@@ -763,8 +772,8 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if view.Spend.Estimated != 1 {
 				t.Fatalf("estimated attempts=%d", view.Spend.Estimated)
 			}
-			if math.Abs(view.Spend.Cost["USD"]-0.000102) > 1e-12 {
-				t.Fatalf("replayed charge=%g", view.Spend.Cost["USD"])
+			if view.Spend.Cost["USD"] != amount("0.000102") {
+				t.Fatalf("replayed charge=%s", view.Spend.Cost["USD"])
 			}
 			settled := out.Turn.Steps[2].Model
 			if settled.Result == nil || settled.Result.Usage == nil {
@@ -779,8 +788,8 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if settled.Charge == nil {
 				t.Fatal("partial usage has no estimated charge")
 			}
-			if math.Abs(settled.Charge.Total-0.000102) > 1e-12 {
-				t.Fatalf("estimated charge=%g", settled.Charge.Total)
+			if settled.Charge.Total != amount("0.000102") {
+				t.Fatalf("estimated charge=%s", settled.Charge.Total)
 			}
 			def := definition()
 			def.Settings.MaxTokens = 100
@@ -836,7 +845,7 @@ func TestBudgetTotalTokensStopsBetweenCalls(t *testing.T) {
 	)
 	limit := requireBudgetLimit(t, out, LimitTotalTokens)
 	if limit.Used != 60 {
-		t.Fatalf("used tokens=%g", limit.Used)
+		t.Fatalf("used tokens=%d", limit.Used)
 	}
 	if client.sends != 1 {
 		t.Fatalf("sends=%d", client.sends)

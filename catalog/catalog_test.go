@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
 func TestEmbeddedFilesParseAndValidate(t *testing.T) {
@@ -116,9 +117,10 @@ func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
 			t.Fatalf("%s has no price", e.Model)
 		}
 		base := e.Pricing.Base
-		if base.CacheWrite != base.Input*1.25 {
+		// Exact nanos make 1.25x an integer identity: 4w == 5i.
+		if base.CacheWrite*4 != base.Input*5 {
 			t.Fatalf(
-				"%s cache write %g is not 1.25x input %g",
+				"%s cache write %s is not 1.25x input %s",
 				e.Model, base.CacheWrite, base.Input,
 			)
 		}
@@ -156,9 +158,9 @@ func TestLongContextTierReplacesEveryRate(t *testing.T) {
 		t.Fatal("estimate was unavailable")
 	}
 	// 200,001 input tokens at $2.50/M plus 1M output tokens at $15/M.
-	want := 200_001*2.50/1_000_000 + 15
-	if diff := cost.Total - want; diff > 1e-9 || diff < -1e-9 {
-		t.Fatalf("total = %g, want %g", cost.Total, want)
+	want := money.MustParseAmount("15.5000025")
+	if cost.Total != want {
+		t.Fatalf("total = %s, want %s", cost.Total, want)
 	}
 }
 

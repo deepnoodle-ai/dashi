@@ -298,8 +298,8 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 					Reason: "interruptions",
 					Limit: &LimitDetail{
 						Kind:  LimitInterruptions,
-						Limit: float64(def.Limits.interruptionLimit()),
-						Used:  float64(state.Interruptions),
+						Limit: int64(def.Limits.interruptionLimit()),
+						Used:  int64(state.Interruptions),
 					},
 				},
 			}
@@ -640,26 +640,26 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 			case "model_attempts":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitModelAttempts,
-					Limit: float64(r.def.Limits.ModelAttempts),
-					Used:  float64(state.ModelAttempts),
+					Limit: int64(r.def.Limits.ModelAttempts),
+					Used:  int64(state.ModelAttempts),
 				}
 			case "interruptions":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitInterruptions,
-					Limit: float64(r.def.Limits.interruptionLimit()),
-					Used:  float64(state.Interruptions),
+					Limit: int64(r.def.Limits.interruptionLimit()),
+					Used:  int64(state.Interruptions),
 				}
 			case "provider_pauses":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitProviderPauses,
-					Limit: float64(r.def.Limits.ProviderPauses),
-					Used:  float64(state.ProviderPauses),
+					Limit: int64(r.def.Limits.ProviderPauses),
+					Used:  int64(state.ProviderPauses),
 				}
 			case "deadline":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitDeadline,
-					Limit: float64(r.def.Limits.Deadline.Unix()),
-					Used:  float64(time.Now().Unix()),
+					Limit: r.def.Limits.Deadline.Unix(),
+					Used:  time.Now().Unix(),
 				}
 			}
 		}

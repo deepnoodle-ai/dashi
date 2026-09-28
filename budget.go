@@ -1,19 +1,22 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
-// Money is one amount in one currency. Budgets do not convert currencies.
+// Money is one exact amount in one currency. Budgets do not convert
+// currencies.
 type Money struct {
 	// Amount is denominated in Currency without conversion.
-	Amount float64 `json:"amount"`
+	Amount money.Amount `json:"amount"`
 	// Currency must match the price sheet used for cost admission.
 	Currency string `json:"currency"`
 }
@@ -45,10 +48,9 @@ func (b Budget) Validate() error {
 	}
 	if b.MaxCost != nil && (strings.TrimSpace(b.MaxCost.Currency) == "" ||
 		strings.TrimSpace(b.MaxCost.Currency) != b.MaxCost.Currency ||
-		b.MaxCost.Amount <= 0 || math.IsNaN(b.MaxCost.Amount) ||
-		math.IsInf(b.MaxCost.Amount, 0)) {
+		b.MaxCost.Amount <= 0) {
 		return errors.New(
-			"kernel: budget cost cap requires a positive finite amount and currency",
+			"kernel: budget cost cap requires a positive amount and currency",
 		)
 	}
 	return nil
@@ -86,23 +88,40 @@ const (
 	LimitTotalTokens LimitKind = "total_tokens"
 	// LimitCost is the turn's cumulative cost cap.
 	LimitCost LimitKind = "cost"
-	// LimitHost is an application-owned spending decision.
+	// LimitHost is an application-owned spending decision. A host denial
+	// puts money, such as a balance and the amount the call needs, in the
+	// Cost fields with a Currency, and uses Limit and Used only for counts.
 	LimitHost LimitKind = "host"
 )
 
 // LimitDetail gives machine-readable amounts and an application code for a
 // host limit. FitTokens is advice, not an automatic request change.
+//
+// Counts and money are separate fields so that neither passes through a
+// binary float: Limit and Used hold whole counts, and the Cost fields hold
+// exact amounts in Currency.
 type LimitDetail struct {
 	// Kind identifies the ceiling for programmatic handling.
 	Kind LimitKind `json:"kind"`
 	// Code is the application's stable identifier for a host limit.
 	Code string `json:"code,omitempty"`
-	// Limit is the ceiling in the units selected by Kind.
-	Limit float64 `json:"limit,omitempty"`
-	// Used is the measured or estimated amount already consumed.
-	Used float64 `json:"used,omitempty"`
-	// AtRisk is the worst-case cost of the proposed next model call.
-	AtRisk float64 `json:"at_risk,omitempty"`
+	// Limit is the ceiling for a counted kind: tokens, model attempts,
+	// interruptions, or provider pauses, or Unix seconds for a deadline.
+	Limit int64 `json:"limit,omitempty"`
+	// Used is the count already consumed, or the current Unix time.
+	Used int64 `json:"used,omitempty"`
+	// CostLimit is the cost cap for LimitCost, or a host's money ceiling or
+	// balance for LimitHost.
+	CostLimit money.Amount `json:"cost_limit,omitempty"`
+	// CostUsed is the measured or estimated cost already charged.
+	CostUsed money.Amount `json:"cost_used,omitempty"`
+	// CostAtRisk is the worst-case cost of the proposed next model call.
+	CostAtRisk money.Amount `json:"cost_at_risk,omitempty"`
+	// Currency is the unit of the Cost fields and is required when any of
+	// them is nonzero: an ISO 4217 code, or a host's own code for a credit
+	// unit. Kernel sets the cap's currency on LimitCost. A LimitCost record
+	// written before this field has none; its unit is the turn's cap.
+	Currency string `json:"currency,omitempty"`
 	// FitTokens advises a smaller allowance without changing the request.
 	FitTokens int `json:"fit_tokens,omitempty"`
 	// UnpricedModel identifies the model whose cost could not be bounded.
@@ -124,14 +143,74 @@ func (l LimitDetail) Validate() error {
 	default:
 		return errors.New("kernel: invalid limit kind")
 	}
-	for _, amount := range []float64{l.Limit, l.Used, l.AtRisk} {
-		if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
-			return errors.New("kernel: limit amounts must be finite and nonnegative")
-		}
+	if l.Limit < 0 || l.Used < 0 ||
+		l.CostLimit < 0 || l.CostUsed < 0 || l.CostAtRisk < 0 {
+		return errors.New("kernel: limit amounts must be nonnegative")
 	}
 	if l.FitTokens < 0 {
 		return errors.New("kernel: fit tokens cannot be negative")
 	}
+	// A legacy LimitCost record carries no currency, and its unit is
+	// recoverable from the turn's budget, so only other kinds require one.
+	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.CostAtRisk != 0
+	if strings.TrimSpace(l.Currency) != l.Currency ||
+		hasMoney && l.Currency == "" && l.Kind != LimitCost {
+		return errors.New("kernel: limit amounts require a currency")
+	}
+	return nil
+}
+
+// UnmarshalJSON also reads records written when every amount was a float in
+// limit, used, and at_risk. A legacy cost limit moves to the Cost fields,
+// rounded half to even at the nano; other legacy values must be whole counts.
+// The cap's currency is not in the detail, and this layer cannot see the
+// turn's budget, so Currency stays empty; Validate accepts that for
+// LimitCost only.
+func (l *LimitDetail) UnmarshalJSON(data []byte) error {
+	type alias LimitDetail
+	var wire struct {
+		alias
+		Limit  json.RawMessage `json:"limit,omitempty"`
+		Used   json.RawMessage `json:"used,omitempty"`
+		AtRisk json.RawMessage `json:"at_risk,omitempty"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	value := LimitDetail(wire.alias)
+	if value.Kind == LimitCost {
+		for _, field := range []struct {
+			raw json.RawMessage
+			out *money.Amount
+		}{
+			{wire.Limit, &value.CostLimit},
+			{wire.Used, &value.CostUsed},
+			{wire.AtRisk, &value.CostAtRisk},
+		} {
+			if len(field.raw) == 0 {
+				continue
+			}
+			if err := json.Unmarshal(field.raw, field.out); err != nil {
+				return fmt.Errorf("kernel: decode legacy cost limit: %w", err)
+			}
+		}
+	} else {
+		for _, field := range []struct {
+			raw json.RawMessage
+			out *int64
+		}{
+			{wire.Limit, &value.Limit},
+			{wire.Used, &value.Used},
+		} {
+			if len(field.raw) == 0 {
+				continue
+			}
+			if err := json.Unmarshal(field.raw, field.out); err != nil {
+				return fmt.Errorf("kernel: decode limit count: %w", err)
+			}
+		}
+	}
+	*l = value
 	return nil
 }
 
@@ -143,10 +222,11 @@ func (l LimitDetail) Validate() error {
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
-	// Cost contains model-call charges by currency, without conversion.
-	Cost map[string]float64 `json:"cost,omitempty"`
-	// ToolCost contains local tool charges outside MaxCost.
-	ToolCost map[string]float64 `json:"tool_cost,omitempty"`
+	// Cost contains exact model-call charges by currency, without
+	// conversion.
+	Cost map[string]money.Amount `json:"cost,omitempty"`
+	// ToolCost contains exact local tool charges outside MaxCost.
+	ToolCost map[string]money.Amount `json:"tool_cost,omitempty"`
 	// Estimated counts calls without complete provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
 	// CostUnknown counts attempts whose charge cannot enforce a cost cap.
@@ -192,7 +272,7 @@ func (b Budget) raisedFrom(old Budget) error {
 	return nil
 }
 
-func (s Spend) costIn(currency string) (float64, bool) {
+func (s Spend) costIn(currency string) (money.Amount, bool) {
 	used := s.Cost[currency]
 	if s.CostUnknown > 0 {
 		return used, false
@@ -206,12 +286,12 @@ func (s Spend) costIn(currency string) (float64, bool) {
 }
 
 func addCurrencyCost(
-	totals map[string]float64,
+	totals map[string]money.Amount,
 	currency string,
-	amount float64,
+	amount money.Amount,
 ) error {
-	total := totals[currency] + amount
-	if math.IsNaN(total) || math.IsInf(total, 0) {
+	total, ok := totals[currency].Add(amount)
+	if !ok {
 		return errors.New("kernel: cumulative cost overflows")
 	}
 	totals[currency] = total

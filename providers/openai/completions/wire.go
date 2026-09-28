@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 )
 
 type Message struct {
@@ -151,11 +152,14 @@ type Choice struct {
 }
 
 type Usage struct {
-	PromptTokens            int                      `json:"prompt_tokens"`
-	CompletionTokens        int                      `json:"completion_tokens"`
-	TotalTokens             int                      `json:"total_tokens"`
-	Cost                    *float64                 `json:"cost,omitempty"`
-	EstimatedCost           *float64                 `json:"estimated_cost,omitempty"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	// Cost and EstimatedCost arrive as JSON numbers. money.Amount reads
+	// their decimal text exactly and rounds digits past the nano half to
+	// even, so a reported charge never passes through float64.
+	Cost                    *money.Amount            `json:"cost,omitempty"`
+	EstimatedCost           *money.Amount            `json:"estimated_cost,omitempty"`
 	PromptTokensDetails     *PromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
 	present                 bool

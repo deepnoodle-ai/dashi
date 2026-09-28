@@ -210,3 +210,20 @@ fingerprints move to `v2:`; bare-hex digests and `v1:` fingerprints in older
 records are still checked their original way. Rationale: jsonb is the most
 common store, and byte-exact digests made its reloaded turns fail recovery
 with "tool binding changed" or a false history mismatch.
+
+**28. Money is an exact integer count of nano-units.** Decided. Prices,
+charges, caps, and spend use `money.Amount`, an int64 of 1e-9 currency units
+as in `google.type.Money`; JSON writes a decimal string (`"0.5"`) and still
+reads the bare numbers of older records. Known break, accepted: a retry of a
+capped `Start` or budget-raising `Continue` recorded before exact money returns
+`ErrCommandConflict`, since its digest covers the old number encoding. Cents
+are too coarse for per-token prices; nanos hold every catalog price exactly and
+cover about ±$9.2 billion.
+One rounding rule: a cost at risk rounds up, so rounding never breaches a cap,
+and a settled charge rounds half to even; each rounds the exact sum of its
+token-rate products once per call. An overflow makes the amount unknown rather
+than wrapping. `LimitDetail` splits counts (`Limit`, `Used`) from money
+(`CostLimit`, `CostUsed`, `CostAtRisk`). Rationale: integrators keep exact
+ledgers keyed by attempt ID, and float sums drift and can misjudge a cap at its
+boundary. The type lives in a stdlib-only `money` package because `llm`
+imports `tool`, so `tool` cannot import `llm`.

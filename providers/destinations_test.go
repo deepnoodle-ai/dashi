@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/kernel/providers/deepinfra"
 	"github.com/deepnoodle-ai/kernel/providers/grok"
@@ -93,11 +94,11 @@ func TestDiveDestinationAdapters(t *testing.T) {
 				t.Fatal("destination changed prepared body")
 			}
 			if tt.name == "deepinfra" && (result.Usage == nil || result.Cost == nil ||
-				result.Cost.Total != 0.25 || result.Cost.Source != llm.CostSourceProviderEstimate) {
+				result.Cost.Total != money.MustParseAmount("0.25") || result.Cost.Source != llm.CostSourceProviderEstimate) {
 				t.Fatalf("DeepInfra estimate provenance lost: %+v", result)
 			}
 			if tt.name == "openrouter" && (result.Usage == nil || result.Cost == nil ||
-				result.Cost.Total != 0.5 || result.Cost.Source != llm.CostSourceProviderReported) {
+				result.Cost.Total != money.MustParseAmount("0.5") || result.Cost.Source != llm.CostSourceProviderReported) {
 				t.Fatalf("OpenRouter reported cost provenance lost: %+v", result)
 			}
 			if tt.name == "mistral" && (len(result.Message.Content) != 2 ||
