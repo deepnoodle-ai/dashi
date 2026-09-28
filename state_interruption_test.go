@@ -365,8 +365,8 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		Step{
 			Kind: StepToolDecision,
 			Tool: &ToolFact{
-				Call:     call,
-				Decision: ToolDecision{Kind: DecisionAllow},
+				Call:    call,
+				Verdict: ToolVerdict{Kind: DecisionAllow},
 			},
 		},
 		Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}},

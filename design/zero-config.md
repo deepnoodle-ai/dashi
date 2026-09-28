@@ -4,6 +4,12 @@
 [gaps/F](gaps/F-example-ports.md) 1.1, 3.1, 1.2, 1.3, 2.1 · **Relates to:**
 decision 31 ([hooks.md](hooks.md)), [turn.md](turn.md)
 
+> **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
+> `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
+> are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
+> hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
+> carry a policy revision; and a tool with no hook opinion runs.
+
 ## The problem
 
 The shortest useful program needed an agent `ID` and `Revision`, a model name,

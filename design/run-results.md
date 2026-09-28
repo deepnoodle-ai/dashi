@@ -3,6 +3,12 @@
 **Status:** Accepted · **Date:** 2026-09-28 · **Addresses:**
 [F](gaps/F-example-ports.md) 4.1, 4.2, 8.1, 8.2, 9.4, 9.5, 4.3; B rows 2 and 7
 
+> **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
+> `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
+> are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
+> hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
+> carry a policy revision; and a tool with no hook opinion runs.
+
 ## Problem
 
 A caller reads a run's result from four places: the Go error,
@@ -149,7 +155,7 @@ The deferred form moves to `examples/durable_approval`, for servers that record
 an answer in one request and resume in another:
 
 ```go
-runner.Policy = dashi.RequireApproval("deploy")
+runner.Hooks = dashi.RequireApproval("deploy")
 out, err := runner.Run(ctx, dashi.NewTurn("deploy"), start)
 for err == nil && out.Stop.Kind == dashi.StopWaiting {
 	for _, p := range out.Pending {

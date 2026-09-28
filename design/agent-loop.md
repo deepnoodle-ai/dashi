@@ -10,14 +10,14 @@ identity/revision, instructions, model choice and settings, output schema, and
 turn-wide limits. It is plain JSON data with no mutable history, recorder,
 observer, or tenant credentials. One agent may serve concurrent turns. A
 **runner** (`dashi.Runner`) holds the agent and its long-lived services
-(client, tool source, recorder, policy, observer) and runs one turn per call
+(client, tool source, recorder, hooks, observer) and runs one turn per call
 through ordinary Go code. It owns the order of model calls and client tool
 calls, while `llm` owns one prepared model call and `tool` owns tool
 definitions and outcomes. A future session layer may add history, storage, and
 claims without changing the loop's semantics.
 
 The initial package shape is a small root `dashi` package for agent, runner,
-turn, commands, outcomes, policy, and private replay validation, with
+turn, commands, outcomes, hooks, and private replay validation, with
 the existing `llm`, `tool`, and `content` packages below it. A later `session`
 package can compose the same runner with history and a store. Dependencies
 point toward `llm`/`tool` and never back into the runner from them.
@@ -55,7 +55,7 @@ intent-before-effect constraint.
    definitions and validate arguments. Transformations produce new effective
    arguments, then authorization evaluates those exact arguments. A denial is
    recorded as confirmed nonexecution. A deferred approval is a pending
-   decision bound to the call, effective arguments, and policy revision; no
+   decision bound to the call and its effective arguments; no
    executor starts before `Settle` records the decision.
 3. Record each permitted tool start before invocation. Execute local calls with
    bounded concurrency; record each known result as it finishes. A Go executor
@@ -68,7 +68,7 @@ intent-before-effect constraint.
    call order. No next model call occurs until every client call in the batch
    is resolved.
 4. Otherwise, check turn-wide limits and a requested soft stop. Resolve tools
-   and context for this call, apply typed request policy, and prepare one
+   and context for this call, apply the `BeforeModel` hooks, and prepare one
    `llm.Request`. Preparation warns and adjusts unsupported controls when a
    safe substitute exists; strict failure is opt-in. Authorize the effective
    request, then acknowledge its safe intent and attempt ID together with any
@@ -105,15 +105,15 @@ call, and child turns; hidden extra calls are not allowed.
 
 ## Control and limits
 
-Typed policy owns request adjustment, tool authorization, and whether to
-continue after a candidate final answer. It reads an immutable turn view and
-returns a decision; a later rewrite invalidates earlier authorization. A
-policy infrastructure error stops the loop. An observer receives isolated
-committed events and bounded, lossy previews with no control return. Queueing
-new context through `Deliver` is safe at the next step boundary; it cannot
-mutate a model call already prepared or sent.
+Hooks ([hooks.md](hooks.md)) own request adjustment, tool authorization, and
+whether to continue after a candidate final answer. Each reads an immutable turn
+view and returns a decision that Dashi records; a rewrite asks every tool hook
+again. Guarding hooks fail closed and shaping hooks fail open. An observer
+receives isolated committed events and bounded, lossy previews with no control
+return. Queueing new context through `Deliver` is safe at the next step
+boundary; it cannot mutate a model call already prepared or sent.
 
-Limits count across starts, retries, waits, continuations, and policy-driven
+Limits count across starts, retries, waits, continuations, and hook-driven
 extra calls. An interruption has its own resume limit (default 10), separate
 from `ModelAttempts`. A turn deadline persists across invocations and stops the
 turn as limited; a host context deadline interrupts it. Account for known usage

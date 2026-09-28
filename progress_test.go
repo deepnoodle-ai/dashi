@@ -68,7 +68,6 @@ func progressRunner(
 		Client:   &scriptedClient{results: results},
 		Tools:    tool.List(tools),
 		Recorder: NewMemoryRecorder(),
-		Policy:   AllowLocalPolicy{},
 	}
 }
 

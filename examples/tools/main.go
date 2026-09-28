@@ -52,7 +52,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tools: create client: %w", err)
 	}
-	// Bound tools are allowed by default; a Policy can deny or defer calls.
+	// Bound tools run by default; a BeforeTool hook can deny or defer calls.
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),

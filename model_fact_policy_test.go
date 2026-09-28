@@ -11,7 +11,7 @@ import (
 
 func TestModelIntentRecordsResolvedCapabilityPolicy(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := start(t, client, nil, NewMemoryRecorder(), nil)
+	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestModelIntentRecordsResolvedCapabilityPolicy(t *testing.T) {
 
 func TestReplayRejectsUnknownCapabilityPolicy(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := start(t, client, nil, NewMemoryRecorder(), nil)
+	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}

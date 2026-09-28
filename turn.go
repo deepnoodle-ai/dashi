@@ -159,7 +159,7 @@ const (
 	StepModelSettled StepKind = "model_settled"
 	// StepModelReconciled records a host-supplied result for an uncertain call.
 	StepModelReconciled StepKind = "model_reconciled"
-	// StepToolDecision records policy authorization for a call.
+	// StepToolDecision records the BeforeTool verdict for a call.
 	StepToolDecision StepKind = "tool_decision"
 	// StepToolStarted records the start of tool execution.
 	StepToolStarted StepKind = "tool_started"
@@ -204,6 +204,11 @@ type Step struct {
 	Stop           *Stop                       `json:"stop,omitempty"`
 	// Warnings records nonfatal conditions observed when this step was made.
 	Warnings []Warning `json:"warnings,omitempty"`
+	// HookResults records the hook answers given since the previous step:
+	// every answer that was not "no opinion", and every failure.
+	HookResults []HookResult `json:"hook_results,omitempty"`
+	// ActiveHooks lists the Runner's hooks on the first step of each command.
+	ActiveHooks *ActiveHooks `json:"active_hooks,omitempty"`
 }
 
 // WarningCode identifies a nonfatal condition recorded during a turn.
@@ -216,6 +221,18 @@ const (
 	WarningHistoryMismatch WarningCode = "history_mismatch"
 	// WarningBudgetClamp records an output allowance reduced by a turn cap.
 	WarningBudgetClamp WarningCode = "budget_clamp"
+	// WarningHookFailed records a hook error or invalid answer that the turn
+	// worked around: a skipped BeforeModel hook, or a tool call denied
+	// because its BeforeTool hook failed or its rewrites did not converge.
+	// The step's HookResults name the hook.
+	WarningHookFailed WarningCode = "hook_failed"
+	// WarningHooksChanged means a command ran with different Runner hooks
+	// from the previous command. Supply the same hooks on every command.
+	WarningHooksChanged WarningCode = "hooks_changed"
+	// WarningDeliveryDropped means a BeforeFinish hook asked the model to
+	// continue when no further model call was possible, so its items were
+	// not delivered.
+	WarningDeliveryDropped WarningCode = "delivery_dropped"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -286,8 +303,9 @@ type ModelFact struct {
 	RequestDigest string `json:"request_digest,omitempty"`
 	// FinalAnswerOnly records that application tools were withheld on this call.
 	FinalAnswerOnly bool `json:"final_answer_only,omitempty"`
-	// Admission carries the host's reservation terms from BeforeSend.
-	Admission json.RawMessage `json:"admission,omitempty"`
+	// Admission carries each BeforeSend hook's reservation terms, keyed by
+	// hook name.
+	Admission map[string]json.RawMessage `json:"admission,omitempty"`
 	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
 	AtRisk *llm.Cost `json:"at_risk,omitempty"`
 	// Charge is the settled amount reconstructed into turn spend.
@@ -334,14 +352,14 @@ type ModelFailure struct {
 type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
-	Decision   ToolDecision    `json:"decision,omitzero"`
+	Verdict    ToolVerdict     `json:"verdict,omitzero"`
 	Outcome    *tool.Outcome   `json:"outcome,omitempty"`
 	Reason     string          `json:"reason,omitempty"`
 }
 
-// ApprovalFact answers a deferred tool decision. Settle accepts it only while
-// the call awaits approval and its arguments and policy revision are the ones
-// the fact names. Pending.Approve and Pending.Deny build it.
+// ApprovalFact answers a deferred tool call. Settle accepts it only while
+// the call awaits approval and its arguments are the ones the fact names.
+// Pending.Approve and Pending.Deny build it.
 type ApprovalFact struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
@@ -350,8 +368,7 @@ type ApprovalFact struct {
 	// can compute it with ArgsDigest from the arguments that were shown.
 	// Bare-hex digests from before canonical hashing are still accepted,
 	// but only while the arguments keep their original bytes.
-	ArgsDigest     string `json:"args_digest"`
-	PolicyRevision string `json:"policy_revision"`
+	ArgsDigest string `json:"args_digest"`
 	// Reason explains a denial. The next Continue gives it to the model as
 	// the denied call's result.
 	Reason string `json:"reason,omitempty"`
@@ -367,7 +384,8 @@ const (
 	StopWaiting StopKind = "waiting"
 	// StopLimited means a turn limit or budget cap stopped execution.
 	StopLimited StopKind = "limited"
-	// StopRefused means policy denied further execution.
+	// StopRefused means a hook refused further execution, or the model
+	// refused to answer.
 	StopRefused StopKind = "refused"
 	// StopCanceled means a caller explicitly ended the turn.
 	StopCanceled StopKind = "canceled"
@@ -399,11 +417,11 @@ type Stop struct {
 	Terminal bool `json:"terminal,omitempty"`
 }
 
-// Stop reasons for a StopFailed turn ended by a tool. The reason is a stable
-// code a host can branch on; the error text stays on the call's settled step
-// in ToolFact.Reason. Both leave the failing call settled, so once the host
-// has fixed the cause, Continue resumes the turn and the model sees the
-// failure as the call's result.
+// Stop reasons for a StopFailed turn ended by a tool or a hook. The reason
+// is a stable code a host can branch on; the error text stays on the record.
+// The tool reasons leave the failing call settled, so once the host has
+// fixed the cause, Continue resumes the turn and the model sees the failure
+// as the call's result.
 const (
 	// StopReasonToolFatal means an executor returned an error wrapped with
 	// tool.Fatal.
@@ -414,6 +432,12 @@ const (
 	// an uncertain effect: the runner observed the result, and it was
 	// malformed.
 	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
+
+	// StopReasonHookFailed means a BeforeSend or BeforeFinish hook returned
+	// an error or an invalid answer; the step's HookResults name the hook.
+	// Fix the cause, then Continue: the turn resumes where it stopped. A
+	// failed stop does not count toward Limits.Interruptions.
+	StopReasonHookFailed = "hook_failed"
 )
 
 // Persistence classifies a step write the recorder did not acknowledge.

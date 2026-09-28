@@ -189,8 +189,8 @@ type Call struct {
 	// executor.
 	Args json.RawMessage `json:"args"`
 
-	// RequestedArgs optionally retains original JSON arguments when policy changed
-	// them.
+	// RequestedArgs optionally retains the model's original JSON arguments
+	// when a hook rewrote them.
 	RequestedArgs json.RawMessage `json:"requested_args,omitempty"`
 }
 
@@ -448,8 +448,8 @@ func (e fatalError) Is(target error) bool {
 // A Tool with a nil Executor is definition-only: the model sees it, but the
 // runner never executes it. That is meaningful for two kinds. A
 // KindProviderHosted tool runs inside the model call, so the runner neither
-// dispatches it nor consults a Policy; provider packages construct these. A
-// KindExternal tool is checked by the Policy like a local tool, then waits
+// dispatches it nor runs hooks for it; provider packages construct these. A
+// KindExternal tool passes the BeforeTool hooks like a local tool, then waits
 // until the host records its result with Settle. A local or unspecified-kind
 // tool with a nil Executor stops the turn as failed when the model calls it.
 type Tool struct {

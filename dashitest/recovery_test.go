@@ -105,7 +105,6 @@ func testRecovery(
 		Client:   model,
 		Tools:    work,
 		Recorder: rec,
-		Policy:   dashi.AllowLocalPolicy{},
 	}
 	begin := dashi.Start{
 		CommandID: "start",
@@ -256,7 +255,6 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 				Client:   model,
 				Tools:    work,
 				Recorder: rec,
-				Policy:   dashi.AllowLocalPolicy{},
 			}
 			// The lost acknowledgement comes back as a *CommitError.
 			_, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, startCommand())
@@ -338,7 +336,6 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 					Client:   model,
 					Tools:    work,
 					Recorder: newTurnLoader{dashi.NewMemoryRecorder(), tc.load},
-					Policy:   dashi.AllowLocalPolicy{},
 				},
 			)
 			if out.Stop.Kind != dashi.StopCompleted {

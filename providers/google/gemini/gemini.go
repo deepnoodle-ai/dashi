@@ -5,8 +5,8 @@
 // # Hosted tools
 //
 // Hosted tool constructors return a definition-only tool.Tool: Google runs it
-// inside the model call, so it has no Executor and needs no Policy. Add it to
-// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
+// inside the model call, so it has no Executor and no hook sees its calls.
+// Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid.
 //
 // Each options struct has a Provider field that binds the tool to one

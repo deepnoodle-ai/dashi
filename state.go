@@ -19,11 +19,12 @@ type ToolStatus string
 const (
 	// ToolRequested means the model requested the call.
 	ToolRequested ToolStatus = "requested"
-	// ToolApprovalPending means the call awaits a host decision.
+	// ToolApprovalPending means a BeforeTool hook deferred the call, which
+	// awaits a host answer.
 	ToolApprovalPending ToolStatus = "approval_pending"
-	// ToolDenied means policy rejected the call.
+	// ToolDenied means a hook or the host refused the call.
 	ToolDenied ToolStatus = "denied"
-	// ToolAllowed means policy authorized the call.
+	// ToolAllowed means the call may run.
 	ToolAllowed ToolStatus = "allowed"
 	// ToolStarted means execution began without a settled outcome.
 	ToolStarted ToolStatus = "started"
@@ -40,14 +41,15 @@ type ToolView struct {
 	Call       tool.Call
 	Definition tool.Definition
 	Status     ToolStatus
-	Decision   ToolDecision
-	Outcome    *tool.Outcome
+	// Verdict is the combined BeforeTool result.
+	Verdict ToolVerdict
+	Outcome *tool.Outcome
 	// ArgsDigest is set while Status is ToolApprovalPending. It identifies
 	// Call.Args by JSON meaning; echo it in ApprovalFact.ArgsDigest to approve
 	// or deny exactly the arguments shown.
 	ArgsDigest string
 	// Approval is the host's answer to a deferred call, recorded by Settle.
-	// Decision remains the policy's deferral.
+	// Verdict remains the hooks' deferral.
 	Approval *ApprovalFact
 }
 
@@ -72,7 +74,7 @@ type TurnView struct {
 	Spend Spend
 	// Stop is why the last run ended. Replay and Outcome project a missing
 	// stop as Run does: uncertain for an unsettled model attempt,
-	// interrupted for work in flight, waiting for pending work. A policy's
+	// interrupted for work in flight, waiting for pending work. A hook's
 	// view is taken mid-run, so its Stop is empty.
 	Stop   Stop
 	Output *StructuredOutput
@@ -92,6 +94,25 @@ type TurnView struct {
 	ReadyToContinue bool
 	// Tools is keyed by tool call ID and rebuilt from committed steps.
 	Tools map[string]ToolView
+
+	// live holds the latest named context item per origin and name that the
+	// next model call would still see; see Context.
+	live map[string]ContextItem
+}
+
+// Context returns the latest context item with this origin and name that the
+// next model call would still see, so a BeforeModel hook can tell whether
+// the item it would deliver is already current. An empty origin means
+// ContextUser.
+func (v TurnView) Context(
+	origin ContextOrigin,
+	name string,
+) (ContextItem, bool) {
+	item, ok := v.live[contextKey(ContextItem{Origin: origin, Name: name})]
+	if !ok {
+		return ContextItem{}, false
+	}
+	return cloneContextItem(item), true
 }
 
 type replayState struct {
@@ -117,6 +138,8 @@ type replayState struct {
 	latestResult           *llm.Result
 	awaitingClassification bool
 	failedModel            string
+	// activeHooks is the ActiveHooks of the latest command.
+	activeHooks *ActiveHooks
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -135,6 +158,12 @@ func snapshotView(v TurnView) TurnView {
 	b, _ := json.Marshal(v)
 	var out TurnView
 	_ = json.Unmarshal(b, &out)
+	if len(v.live) > 0 {
+		out.live = make(map[string]ContextItem, len(v.live))
+		for k, item := range v.live {
+			out.live[k] = cloneContextItem(item)
+		}
+	}
 	return out
 }
 
@@ -188,6 +217,10 @@ func replay(t Turn) (*replayState, error) {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		s.Warnings = append(s.Warnings, step.Warnings...)
+		if step.Kind == StepStarted || step.Kind == StepContinued {
+			s.activeHooks = step.ActiveHooks
+		}
+		s.trackContext(step)
 		s.Revision = step.Seq
 	}
 	// Derive ArgsDigest from the final status, so no transition out of
@@ -380,6 +413,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
+		if s.deliverySupersedesCandidate() {
+			s.awaitingClassification = false
+		}
 		for _, item := range step.Context.Items {
 			if err := validateContext(item); err != nil {
 				return err
@@ -442,10 +478,8 @@ func (s *replayState) apply(step Step) error {
 			len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
-		if len(step.Model.Admission) > 0 &&
-			(!json.Valid(step.Model.Admission) ||
-				len(step.Model.Admission) > 16<<10) {
-			return errors.New("invalid model admission metadata")
+		if err := validateAdmission(step.Model.Admission); err != nil {
+			return err
 		}
 		if step.Model.Provider != s.Agent.Provider ||
 			step.Model.API != s.Agent.API ||
@@ -620,7 +654,7 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolRequested {
 			return errors.New("tool decision without request")
 		}
-		v.Decision = step.Tool.Decision
+		v.Verdict = step.Tool.Verdict
 		if step.Tool.Call.ID != v.Call.ID || step.Tool.Call.Name != v.Call.Name {
 			return errors.New("tool decision changes identity")
 		}
@@ -638,9 +672,8 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("tool decision changed definition")
 		}
 		if v.Call.Name == SubmitOutputTool &&
-			(v.Decision.Kind != DecisionAllow ||
-				v.Decision.Revision != "dashi-output-v1" ||
-				len(v.Decision.Rewrite) != 0 ||
+			(v.Verdict.Kind != DecisionAllow ||
+				v.Verdict.Revision != "dashi-output-v1" ||
 				len(step.Tool.Call.RequestedArgs) != 0 ||
 				!sameJSON(
 					v.Call.Args,
@@ -649,7 +682,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("reserved output tool cannot be rewritten or denied")
 		}
 		v.Call = step.Tool.Call.Clone()
-		switch v.Decision.Kind {
+		switch v.Verdict.Kind {
 		case DecisionAllow:
 			v.Status = ToolAllowed
 		case DecisionDefer:
@@ -766,11 +799,10 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if step.Approval.ArgsDigest != ArgsDigest(v.Call.Args) ||
-			v.Decision.Revision != step.Approval.PolicyRevision {
+		if step.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
 			return errors.New("stale approval")
 		}
-		// Decision stays the policy's; the host's answer is kept beside it,
+		// Verdict stays the hooks'; the host's answer is kept beside it,
 		// so a denial's reason reaches the model when Continue settles the
 		// call.
 		answer := *step.Approval
@@ -852,7 +884,12 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if step.Stop.Kind != StopInterrupted {
+		// A candidate answer survives an interruption, and a BeforeFinish
+		// failure, so Continue can classify it again without another model
+		// call.
+		if step.Stop.Kind != StopInterrupted &&
+			(step.Stop.Kind != StopFailed ||
+				step.Stop.Reason != StopReasonHookFailed) {
 			s.awaitingClassification = false
 		}
 		switch step.Stop.Kind {
@@ -1255,23 +1292,165 @@ func validateModelAccounting(fact *ModelFact) error {
 	return nil
 }
 
+// trackContext keeps the named items the next model call would see: the
+// latest item per origin and name, less NextCallOnly items once a model call
+// has been requested after them.
+func (s *replayState) trackContext(step Step) {
+	switch step.Kind {
+	case StepDelivered, StepLoopContinued:
+		if step.Context == nil {
+			return
+		}
+		for _, item := range step.Context.Items {
+			if item.Name == "" {
+				continue
+			}
+			if s.live == nil {
+				s.live = map[string]ContextItem{}
+			}
+			s.live[contextKey(item)] = cloneContextItem(item)
+		}
+	case StepModelIntent:
+		for key, item := range s.live {
+			if item.NextCallOnly {
+				delete(s.live, key)
+			}
+		}
+	}
+}
+
+// deliverySupersedesCandidate reports whether context delivered now replaces
+// the answer a BeforeFinish failure kept: Continue then asks the model again
+// instead of re-checking the old answer. That needs room for one more normal
+// model call; otherwise the old answer is re-checked and the delivery is not
+// seen, which Deliver records as WarningDeliveryDropped.
+func (s *replayState) deliverySupersedesCandidate() bool {
+	return s.keptFinishCandidate() && s.roomForNormalCall()
+}
+
+func (s *replayState) keptFinishCandidate() bool {
+	return s.awaitingClassification &&
+		s.Stop.Kind == StopFailed &&
+		s.Stop.Reason == StopReasonHookFailed
+}
+
+// roomForNormalCall reports whether one more model call fits before the
+// reserved final-answer call, or within ModelAttempts when there is no
+// reserve. A model call in flight, requested but not settled, counts as
+// used, since ModelAttempts counts only settled calls.
+func (s *replayState) roomForNormalCall() bool {
+	used := s.ModelAttempts
+	if s.modelIntent != "" {
+		used++
+	}
+	limit := s.Agent.Limits.ModelAttempts
+	if s.Agent.Limits.NoReservedFinalAnswer {
+		return used < limit
+	}
+	return used+1 < limit
+}
+
+// hookVerdicts lists the verdicts each hook point can record.
+var hookVerdicts = map[HookPoint][]HookVerdict{
+	HookBeforeModel: {VerdictChange, VerdictStop, VerdictFailed},
+	HookBeforeSend:  {VerdictAdmit, VerdictDeny, VerdictLimit, VerdictFailed},
+	HookBeforeTool: {
+		VerdictAllow,
+		VerdictDeny,
+		VerdictDefer,
+		VerdictRewrite,
+		VerdictFailed,
+	},
+	HookBeforeFinish: {VerdictDeliver, VerdictAcceptEmpty, VerdictFailed},
+}
+
+func validateHookResult(result HookResult) error {
+	verdicts, ok := hookVerdicts[result.Point]
+	if !ok {
+		return errors.New("invalid hook point")
+	}
+	if result.Name == "" || !slices.Contains(verdicts, result.Verdict) {
+		return errors.New("invalid hook result")
+	}
+	if result.Pass < 0 || result.Pass > 0 && result.Point != HookBeforeTool {
+		return errors.New("hook result pass is only for before_tool")
+	}
+	if (result.Error != "") != (result.Verdict == VerdictFailed) {
+		return errors.New("a hook error goes with a failed verdict")
+	}
+	return nil
+}
+
+// validate checks that each point lists unique, nonempty hook names.
+func (a ActiveHooks) validate() error {
+	for _, names := range [][]string{
+		a.BeforeModel,
+		a.BeforeSend,
+		a.BeforeTool,
+		a.BeforeFinish,
+	} {
+		seen := map[string]bool{}
+		for _, name := range names {
+			if name == "" || seen[name] {
+				return errors.New("invalid active hook names")
+			}
+			seen[name] = true
+		}
+	}
+	return nil
+}
+
+// validateAdmission checks the BeforeSend admissions recorded on an intent.
+func validateAdmission(admission map[string]json.RawMessage) error {
+	total := 0
+	for name, raw := range admission {
+		if name == "" || len(raw) == 0 || !json.Valid(raw) {
+			return errors.New("invalid model admission metadata")
+		}
+		total += len(raw)
+	}
+	if total > maxAdmission {
+		return errors.New("model admission metadata exceeds 16 KiB")
+	}
+	return nil
+}
+
+func cloneContextItem(item ContextItem) ContextItem {
+	item.Message = item.Message.Clone()
+	return item
+}
+
 func validateStepPayload(step Step) error {
 	if step.Budget != nil && step.Kind != StepContinued {
 		return errors.New("budget raise requires a continuation step")
 	}
-	if len(step.Warnings) > 0 && step.Kind != StepContinued &&
-		step.Kind != StepModelIntent {
-		return errors.New("warnings require a continuation or model intent step")
-	}
+	// Warnings ride on whatever step comes next, except the two that
+	// describe their own step.
 	for _, warning := range step.Warnings {
-		if warning.Message == "" ||
-			(warning.Code != WarningHistoryMismatch &&
-				warning.Code != WarningBudgetClamp) ||
-			(warning.Code == WarningHistoryMismatch &&
-				step.Kind != StepContinued) ||
-			(warning.Code == WarningBudgetClamp &&
-				step.Kind != StepModelIntent) {
+		valid := false
+		switch warning.Code {
+		case WarningHistoryMismatch:
+			valid = step.Kind == StepContinued
+		case WarningBudgetClamp:
+			valid = step.Kind == StepModelIntent
+		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped:
+			valid = true
+		}
+		if !valid || warning.Message == "" {
 			return errors.New("invalid warning")
+		}
+	}
+	for _, result := range step.HookResults {
+		if err := validateHookResult(result); err != nil {
+			return err
+		}
+	}
+	if step.ActiveHooks != nil {
+		if step.Kind != StepStarted && step.Kind != StepContinued {
+			return errors.New("active hooks require a start or continuation step")
+		}
+		if err := step.ActiveHooks.validate(); err != nil {
+			return err
 		}
 	}
 	count := 0

@@ -158,7 +158,6 @@ func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 		Agent:  def,
 		Client: client,
 		Tools:  tool.List{binding},
-		Policy: AllowLocalPolicy{},
 	}).Run(t.Context(), Turn{ID: "no-reserve"}, limitsStart())
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v, want completed", out.Stop, err)

@@ -78,10 +78,10 @@ func runBudgetTurn(
 	budget *Budget,
 	settings llm.Settings,
 	tools tool.Toolset,
-	policy Policy,
+	hooks Hooks,
 ) Outcome {
 	t.Helper()
-	out, err := runBudgetTurnErr(client, budget, settings, tools, policy)
+	out, err := runBudgetTurnErr(client, budget, settings, tools, hooks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,18 +93,15 @@ func runBudgetTurnErr(
 	budget *Budget,
 	settings llm.Settings,
 	tools tool.Toolset,
-	policy Policy,
+	hooks Hooks,
 ) (Outcome, error) {
 	def := testAgent()
 	def.Settings = settings
-	if policy == nil {
-		policy = AllowLocalPolicy{}
-	}
 	return (Runner{
 		Agent:  def,
 		Client: client,
 		Tools:  tools,
-		Policy: policy,
+		Hooks:  hooks,
 	}).Run(
 		context.Background(),
 		Turn{ID: "budget"},
@@ -197,7 +194,7 @@ func TestBudgetStopsUnpricedModelBeforeDispatch(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		nil,
+		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
 	if limit.UnpricedModel != "fixture" {
@@ -219,7 +216,7 @@ func TestBudgetStopsWithoutFiniteOutputAllowance(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
 		llm.Settings{},
 		nil,
-		nil,
+		Hooks{},
 	)
 	requireBudgetLimit(t, out, LimitCost)
 	if client.sends != 0 {
@@ -238,7 +235,7 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.00001"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		nil,
+		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
 	if limit.FitTokens != 0 {
@@ -295,7 +292,7 @@ func TestBudgetCostShortfallDoesNotShrinkRequest(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.0015"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 1000},
 		nil,
-		nil,
+		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
 	if limit.FitTokens <= 0 || limit.FitTokens >= 1000 {
@@ -322,7 +319,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 		},
 		llm.Settings{MaxTokens: 1000},
 		nil,
-		nil,
+		Hooks{},
 	)
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
@@ -375,7 +372,6 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{lookup},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -434,7 +430,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		nil,
+		Hooks{},
 	)
 	view, err := Replay(out.Turn)
 	if err != nil {
@@ -467,19 +463,24 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 	}
 }
 
-type hostBudgetPolicy struct{ AllowLocalPolicy }
-
-func (hostBudgetPolicy) BeforeSend(
-	_ context.Context,
-	plan SendPlan,
-) (ModelAuthorization, error) {
-	if plan.AtRisk == nil || plan.Remaining == nil {
-		return ModelAuthorization{Reason: "missing estimate"}, nil
-	}
-	return ModelAuthorization{
-		Reason: "insufficient credits",
-		Limit:  &LimitDetail{Kind: LimitHost, Code: "insufficient_credits"},
-	}, nil
+// hostBudgetHooks deny every call with a resumable host limit once the
+// estimate is known.
+func hostBudgetHooks() Hooks {
+	return SendHook{
+		Name: "host-budget",
+		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
+			if plan.AtRisk == nil || plan.Remaining == nil {
+				return SendDecision{Deny: true, Reason: "missing estimate"}, nil
+			}
+			return SendDecision{
+				Reason: "insufficient credits",
+				Limit: &LimitDetail{
+					Kind: LimitHost,
+					Code: "insufficient_credits",
+				},
+			}, nil
+		},
+	}.Hooks()
 }
 
 func TestBudgetHostDenialIsResumableLimit(t *testing.T) {
@@ -490,7 +491,7 @@ func TestBudgetHostDenialIsResumableLimit(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		hostBudgetPolicy{},
+		hostBudgetHooks(),
 	)
 	limit := requireBudgetLimit(t, out, LimitHost)
 	if limit.Code != "insufficient_credits" {
@@ -515,7 +516,7 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
 		tool.List{lookup},
-		nil,
+		Hooks{},
 	)
 	view, err := Replay(out.Turn)
 	if err != nil {
@@ -551,7 +552,6 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 		Agent:  def,
 		Client: client,
 		Tools:  tool.List{lookup},
-		Policy: AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -602,7 +602,7 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 		},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		nil,
+		Hooks{},
 	)
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
@@ -612,7 +612,6 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	_, err := (Runner{
 		Agent:  def,
 		Client: client,
-		Policy: AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		out.Turn,
@@ -669,7 +668,7 @@ func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
 		result.Message.Content...,
 	)
 	client.results = []llm.Result{result}
-	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, nil)
+	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
 	view, err := Replay(out.Turn)
 	if err != nil {
 		t.Fatal(err)
@@ -702,7 +701,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 		RequestsFinal: true,
 	}
 	client.results = []llm.Result{result}
-	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, nil)
+	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
 	view, err := Replay(out.Turn)
 	if err != nil {
 		t.Fatal(err)
@@ -747,7 +746,6 @@ func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 		Agent:  def,
 		Client: client,
 		Tools:  tool.List{budgetLookup(nil)},
-		Policy: AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -826,7 +824,6 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 	out, err := (Runner{
 		Agent:  def,
 		Client: client,
-		Policy: AllowLocalPolicy{},
 	}).Run(
 		ctx,
 		Turn{ID: "partial"},
@@ -920,7 +917,6 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			continued, err := (Runner{
 				Agent:  def,
 				Client: client,
-				Policy: AllowLocalPolicy{},
 			}).Run(t.Context(), out.Turn, Continue{CommandID: "resume"})
 			if err != nil {
 				t.Fatal(err)
@@ -943,7 +939,7 @@ func TestBudgetReportsProviderTokenOverrunOnFinalAnswer(t *testing.T) {
 		&Budget{MaxOutputTokens: 50},
 		llm.Settings{MaxTokens: 100},
 		nil,
-		nil,
+		Hooks{},
 	)
 	requireBudgetLimit(t, out, LimitOutputTokens)
 	if out.Answer != "answer" {
@@ -962,7 +958,7 @@ func TestBudgetTotalTokensStopsBetweenCalls(t *testing.T) {
 		&Budget{MaxTotalTokens: 60},
 		llm.Settings{MaxTokens: 100},
 		tool.List{lookup},
-		nil,
+		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitTotalTokens)
 	if limit.Used != 60 {
@@ -987,7 +983,7 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 		&Budget{MaxTotalTokens: math.MaxInt},
 		llm.Settings{MaxTokens: 100},
 		tool.List{budgetLookup(nil)},
-		nil,
+		Hooks{},
 	)
 	if persistence(err) != PersistenceRejected {
 		t.Fatalf("overflowing intent error=%v", err)
@@ -1039,7 +1035,7 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	}
 	def := testAgent()
 	def.Settings.MaxTokens = 100
-	out, err := (Runner{Agent: def, Client: client, Policy: AllowLocalPolicy{}}).Run(
+	out, err := (Runner{Agent: def, Client: client}).Run(
 		ctx,
 		Turn{ID: "cut"},
 		Start{
@@ -1149,7 +1145,7 @@ func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
 		nil,
 		llm.Settings{MaxTokens: 100},
 		tool.List{budgetLookup(nil)},
-		nil,
+		Hooks{},
 	)
 	view, err := Replay(out.Turn)
 	if err != nil {
@@ -1239,7 +1235,6 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 		Agent:  def,
 		Client: client,
 		Tools:  tool.List{search},
-		Policy: AllowLocalPolicy{},
 	}).Run(
 		ctx,
 		Turn{ID: "grounding-cut"},

@@ -55,7 +55,6 @@ func applyStructuredErr(
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		context.Background(),
 		Turn{ID: "t1"},
@@ -112,7 +111,6 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		out.Turn,
@@ -212,7 +210,6 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 		Agent:    structuredAgent(),
 		Client:   client,
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || second.Stop.Kind != StopCompleted || second.Output == nil || client.sends != 1 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
@@ -250,7 +247,6 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 		Agent:    def,
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), Turn{ID: "t1"}, start)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"label":"ready"}` {
 		t.Fatalf("out=%+v err=%v", out, err)
@@ -289,7 +285,6 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 			Agent:    testAgent(),
 			Client:   client,
 			Recorder: NewMemoryRecorder(),
-			Policy:   AllowLocalPolicy{},
 		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
@@ -350,7 +345,6 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 		Agent:    structuredAgent(),
 		Client:   client,
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		saved,
@@ -400,7 +394,6 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		Agent:    def,
 		Client:   client,
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 	deliver := Deliver{
 		CommandID: "nudge",

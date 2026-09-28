@@ -302,3 +302,4 @@ switch, with no registry. Rationale: works by default. No warning is recorded
 for generated IDs: step-sequence fencing already stops a stale retry, and a
 recorded warning would sit in every turn of a durable host that chose to rely
 on it. Dashi had no users, so there is no migration.
+The nil-Policy default is now "no hook opinion" (decision 31).

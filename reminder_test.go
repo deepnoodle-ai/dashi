@@ -59,7 +59,6 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{binding},
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "r1"},
@@ -106,7 +105,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "r2"},
@@ -140,7 +138,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		start.Turn,
@@ -174,7 +171,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		delivered.Turn,
@@ -195,7 +191,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {
 		t.Fatalf("continue=%+v err=%v", completed, err)
@@ -274,22 +269,23 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	}
 }
 
-type reminderDeliveryPolicy struct{ AllowLocalPolicy }
-
-func (reminderDeliveryPolicy) BeforeModel(
-	context.Context,
-	ModelPlan,
-) (ModelDecision, error) {
-	reminder := llm.Reminder{
-		Name:    "scope",
-		Tier:    llm.ReminderContextual,
-		Content: "delivered",
-	}
-	item := ContextItem{
-		Origin:  ContextRuntime,
-		Message: llm.ReminderMessage(reminder),
-	}
-	return ModelDecision{Deliver: []ContextItem{item}}, nil
+// reminderDeliveryHooks deliver a contextual reminder before each call.
+func reminderDeliveryHooks() Hooks {
+	return ModelHook{
+		Name: "reminder",
+		Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+			reminder := llm.Reminder{
+				Name:    "scope",
+				Tier:    llm.ReminderContextual,
+				Content: "delivered",
+			}
+			item := ContextItem{
+				Origin:  ContextRuntime,
+				Message: llm.ReminderMessage(reminder),
+			}
+			return ModelDecision{Deliver: []ContextItem{item}}, nil
+		},
+	}.Hooks()
 }
 
 func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
@@ -299,14 +295,14 @@ func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
 		Tier:    llm.ReminderContextual,
 		Content: "ctx",
 	}
-	run := func(t *testing.T, input []llm.Message, policy Policy) string {
+	run := func(t *testing.T, input []llm.Message, hooks Hooks) string {
 		t.Helper()
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		got, err := (Runner{
 			Agent:    testAgent(),
 			Client:   client,
 			Recorder: NewMemoryRecorder(),
-			Policy:   policy,
+			Hooks:    hooks,
 		}).Run(
 			t.Context(),
 			Turn{ID: "r6"},
@@ -327,7 +323,7 @@ func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
 	if system := run(
 		t,
 		plain,
-		AllowLocalPolicy{},
+		Hooks{},
 	); strings.Contains(system, tag) {
 		t.Fatalf("reminder instruction sent without a reminder: %q", system)
 	}
@@ -335,11 +331,11 @@ func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
 	if system := run(
 		t,
 		withReminder,
-		AllowLocalPolicy{},
+		Hooks{},
 	); !strings.Contains(system, tag) {
 		t.Fatalf("reminder instruction missing for start reminder: %q", system)
 	}
-	delivered := run(t, plain, reminderDeliveryPolicy{})
+	delivered := run(t, plain, reminderDeliveryHooks())
 	if !strings.Contains(delivered, tag) {
 		t.Fatalf(
 			"reminder instruction missing for delivered reminder: %q",

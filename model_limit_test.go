@@ -46,7 +46,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
@@ -85,7 +84,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		out.Turn,
@@ -108,7 +106,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), out.Turn, Continue{CommandID: "too-late"}); err == nil {
 		t.Fatal("exhausted turn accepted a continuation")
 	}
@@ -129,7 +126,6 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
@@ -226,7 +222,6 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 		Client:   final,
 		Tools:    tool.List{answerLookup()},
 		Recorder: NewMemoryRecorder(),
-		Policy:   AllowLocalPolicy{},
 	}
 	limited, err := runner.Run(
 		t.Context(),
@@ -274,7 +269,6 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
@@ -319,7 +313,6 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
@@ -340,7 +333,6 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || !limitedForAttempts(second.Stop) ||
 		second.Answer != "42" || client.sends != 2 {

@@ -1,10 +1,10 @@
 // Command durable_approval approves tool calls the way a server does. The
-// policy defers each deploy call, so the turn stops waiting; each answer is
-// recorded with its own Run, and Continue resumes the turn. With a durable
-// recorder, each of those Runs could happen in a different request or
-// process, given IDs the host chose and saved. Set ANTHROPIC_API_KEY before
-// running it; ANTHROPIC_MODEL optionally overrides the catalog's default
-// model.
+// RequireApproval hook defers each deploy call, so the turn stops waiting;
+// each answer is recorded with its own Run, and Continue resumes the turn.
+// With a durable recorder, each of those Runs could happen in a different
+// request or process, given IDs the host chose and saved. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model.
 package main
 
 import (
@@ -52,7 +52,7 @@ func main() {
 		},
 		Client: client,
 		Tools:  tool.List{deploy},
-		Policy: dashi.RequireApproval("deploy"),
+		Hooks:  dashi.RequireApproval("deploy"),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{

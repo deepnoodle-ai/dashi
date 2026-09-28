@@ -72,19 +72,8 @@ func (c *approvalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	}, nil
 }
 
-// approvalPolicy defers every tool call to a person.
-type approvalPolicy struct{ dashi.AllowLocalPolicy }
-
-func (approvalPolicy) AuthorizeTool(
-	context.Context,
-	tool.Call,
-	dashi.TurnView,
-) (dashi.ToolDecision, error) {
-	return dashi.ToolDecision{
-		Kind:     dashi.DecisionDefer,
-		Revision: "policy-v1",
-	}, nil
-}
+// approvalHooks defer every tool call to a person.
+var approvalHooks = dashi.RequireApproval()
 
 // jsonbStore wraps MemoryRecorder; Load returns each step re-encoded with
 // sorted keys, decoded escapes, and exponent numbers expanded.
@@ -156,7 +145,7 @@ func pendingApproval(
 		Client:   client,
 		Tools:    tool.List{write},
 		Recorder: store,
-		Policy:   approvalPolicy{},
+		Hooks:    approvalHooks,
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -198,10 +187,9 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 		t.Fatal("view digest differs from the digest of the arguments first shown")
 	}
 	approval := dashi.ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     pending.ArgsDigest,
-		PolicyRevision: pending.Decision.Revision,
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: pending.ArgsDigest,
 	}
 	accepted, err := runner.Run(
 		t.Context(),
@@ -233,10 +221,9 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 	turn, runner, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
 	approval := dashi.ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     dashi.ArgsDigest(shownArgs),
-		PolicyRevision: "policy-v1",
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: dashi.ArgsDigest(shownArgs),
 	}
 	accepted, err := runner.Run(
 		t.Context(),
@@ -252,10 +239,9 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
 	approval := dashi.ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     dashi.ArgsDigest(changed),
-		PolicyRevision: "policy-v1",
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: dashi.ArgsDigest(changed),
 	}
 	_, err := runner.Run(
 		t.Context(),

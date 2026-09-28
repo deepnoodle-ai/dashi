@@ -27,9 +27,10 @@ type Runner struct {
 	// Recorder acknowledges steps. When nil, Run uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
-	// Policy decides model calls and tool calls. When nil, every bound local
-	// and external tool is allowed; supply a policy to deny or defer calls.
-	Policy Policy
+	// Hooks decide and shape model calls, tool calls, and final answers.
+	// With none, every bound local and external tool runs. Supply the same
+	// hooks on every command for a turn; WithHooks adds per-command extras.
+	Hooks Hooks
 	// Observer receives every committed step, plus provisional deltas and
 	// tool progress, which it may drop (see Observer). When it is set, Run
 	// requests streamed model output and delivers tool.Report snapshots so
@@ -50,6 +51,7 @@ type runOptions struct {
 	pause      <-chan struct{}
 	stream     bool
 	streamSink func(Event)
+	hooks      Hooks
 }
 
 // WithOwner forwards owner to recorder commits for host lease fencing.
@@ -219,8 +221,9 @@ func (r Runner) apply(
 		turn.ID = NewID()
 	}
 	command = withCommandID(command)
-	if r.Policy == nil {
-		r.Policy = defaultPolicy{}
+	hooks := JoinHooks(r.Hooks, opts.hooks)
+	if err := hooks.validate(); err != nil {
+		return Outcome{}, err
 	}
 	state, err := replay(turn)
 	if err != nil {
@@ -317,12 +320,15 @@ func (r Runner) apply(
 		defer cancel()
 	}
 	rt := runtime{
-		ctx:     runCtx,
-		turn:    cloneTurn(turn),
-		agent:   agent,
-		runner:  r,
-		opts:    opts,
-		emitter: newEmitter(r.Observer),
+		ctx:         runCtx,
+		turn:        cloneTurn(turn),
+		agent:       agent,
+		runner:      r,
+		opts:        opts,
+		emitter:     newEmitter(r.Observer),
+		hooks:       hooks,
+		activeHooks: r.Hooks.active(),
+		lastHooks:   state.activeHooks,
 	}
 	defer rt.emitter.close()
 	switch c := command.(type) {
@@ -376,12 +382,21 @@ func (r Runner) apply(
 			len(c.Items) == 0 {
 			return Outcome{}, errors.New("dashi: turn cannot receive context")
 		}
-		if o := rt.commit(Step{
+		step := Step{
 			Kind:          StepDelivered,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
-		}); o != nil {
+		}
+		if state.keptFinishCandidate() && !state.roomForNormalCall() {
+			step.Warnings = []Warning{{
+				Code: WarningDeliveryDropped,
+				Message: "no model call remains before the reserved final " +
+					"answer, so Continue re-checks the kept answer and the " +
+					"model does not see this context",
+			}}
+		}
+		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
 		}
 		return rt.result(rt.current())
@@ -544,8 +559,7 @@ func (r Runner) apply(
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
 				return Outcome{}, errors.New("dashi: tool approval is not pending")
 			}
-			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) ||
-				v.Decision.Revision != c.Approval.PolicyRevision {
+			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
 				return Outcome{}, errors.New("dashi: stale tool approval")
 			}
 			if o := rt.commit(Step{
@@ -613,6 +627,16 @@ type runtime struct {
 	emitter *emitter
 	// err is the recording failure that ended the run, if any.
 	err error
+	// hooks are the Runner's hooks followed by this call's WithHooks.
+	hooks Hooks
+	// activeHooks is recorded on a Start or Continue step, and a Continue
+	// warns when it differs from lastHooks, the previous one's.
+	activeHooks *ActiveHooks
+	lastHooks   *ActiveHooks
+	// pendingWarnings and pendingHooks ride on the next committed step, so
+	// a warning or hook answer is saved with the step it leads to.
+	pendingWarnings []Warning
+	pendingHooks    []HookResult
 }
 
 // result pairs an Outcome with the recording failure that ended the run.
@@ -693,6 +717,18 @@ func sameAgent(a, b Agent) bool {
 }
 
 func (r *runtime) commit(step Step) *Outcome {
+	if step.Kind == StepStarted || step.Kind == StepContinued {
+		step.ActiveHooks = r.activeHooks
+		if step.Kind == StepContinued &&
+			!sameJSONValue(r.lastHooks, r.activeHooks) {
+			step.Warnings = append(step.Warnings, Warning{
+				Code:    WarningHooksChanged,
+				Message: "this command's Runner hooks differ from the previous command's",
+			})
+		}
+	}
+	step.Warnings = append(step.Warnings, r.pendingWarnings...)
+	step.HookResults = append(step.HookResults, r.pendingHooks...)
 	step.Version = 1
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
@@ -731,6 +767,8 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
+	r.pendingWarnings = nil
+	r.pendingHooks = nil
 	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
@@ -1037,26 +1075,17 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	decision, err := r.runner.Policy.BeforeModel(
-		r.ctx,
-		ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)},
-	)
-	if err != nil {
-		return r.failureOrContext(err), false
+	deliver, hookStop, ctxStop := r.beforeModel(s, &input)
+	if ctxStop != nil {
+		return *ctxStop, false
 	}
-	if decision.Stop != nil {
-		if decision.Stop.Limit != nil {
-			if decision.Stop.Kind != StopLimited ||
-				decision.Stop.Limit.Validate() != nil {
-				return r.stop(StopFailed, "invalid policy limit"), false
-			}
-		}
-		return r.stopWith(decision.Stop), false
+	if hookStop != nil {
+		return r.stopWith(hookStop), false
 	}
-	if len(decision.Deliver) > 0 {
+	if len(deliver) > 0 {
 		if o := r.commit(Step{
 			Kind:    StepDelivered,
-			Context: &ContextFact{Items: decision.Deliver},
+			Context: &ContextFact{Items: deliver},
 		}); o != nil {
 			return *o, false
 		}
@@ -1070,9 +1099,6 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			structured,
 			finalAnswerOnly,
 		)
-	}
-	if decision.Settings != nil {
-		input.Settings = *decision.Settings
 	}
 	if finalAnswerOnly {
 		// The turn-wide call limit wins over a forced application-tool choice.
@@ -1127,36 +1153,12 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if costStop != nil {
 		return r.stopWith(costStop), false
 	}
-	authorization, err := r.runner.Policy.BeforeSend(
-		r.ctx,
-		SendPlan{
-			Request:   req,
-			Turn:      snapshotView(s.TurnView),
-			AtRisk:    atRisk,
-			Remaining: remainingCost,
-		},
-	)
-	if err != nil {
-		return r.failureOrContext(err), false
+	admission, sendStop, ctxStop := r.beforeSend(s, req, atRisk, remainingCost)
+	if ctxStop != nil {
+		return *ctxStop, false
 	}
-	if !authorization.Allow {
-		if authorization.Limit != nil {
-			limit := *authorization.Limit
-			if limit.Kind != LimitHost || limit.Validate() != nil {
-				return r.stop(StopFailed, "invalid host limit"), false
-			}
-			return r.stopWith(&Stop{
-				Kind:   StopLimited,
-				Reason: authorization.Reason,
-				Limit:  &limit,
-			}), false
-		}
-		return r.stop(StopRefused, authorization.Reason), false
-	}
-	if len(authorization.Admission) > 0 &&
-		(!json.Valid(authorization.Admission) ||
-			len(authorization.Admission) > 16<<10) {
-		return r.stop(StopFailed, "invalid model admission metadata"), false
+	if sendStop != nil {
+		return r.stopWith(sendStop), false
 	}
 	if r.ctx.Err() != nil {
 		return r.contextStop(), false
@@ -1167,14 +1169,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
 	fact := &ModelFact{
-		AttemptID:       attempt,
-		MessageID:       messageID,
-		RequestDigest:   digest(req.Body()),
-		FinalAnswerOnly: finalAnswerOnly,
-		Admission: append(
-			json.RawMessage(nil),
-			authorization.Admission...,
-		),
+		AttemptID:            attempt,
+		MessageID:            messageID,
+		RequestDigest:        digest(req.Body()),
+		FinalAnswerOnly:      finalAnswerOnly,
+		Admission:            admission,
 		AtRisk:               atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
 		Provider:             r.runner.Client.Provider(),
@@ -1419,57 +1418,85 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	case llm.StopContextLimit:
 		return r.stop(StopLimited, "context"), false
 	case llm.StopFinished, llm.StopOther:
-		state, _ := replay(r.turn)
-		sd, e := r.runner.Policy.OnStop(r.ctx, snapshotView(state.TurnView))
-		if e != nil {
-			return r.failureOrContext(e), false
+		return r.finishText(result, useful)
+	default:
+		return r.stop(StopFailed, "incomplete_model_result"), false
+	}
+}
+
+// finishText decides a final-text candidate: it parses structured output,
+// runs the BeforeFinish hooks, and then either asks the model again with the
+// hooks' items or accepts the answer. The parse comes first so hooks see the
+// value, or why it failed, and can ask for a correction.
+func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
+	state, err := replay(r.turn)
+	if err != nil {
+		return r.stop(StopFailed, err.Error()), false
+	}
+	structured := len(state.OutputSchema) > 0
+	plan := FinishPlan{
+		Turn:      snapshotView(state.TurnView),
+		AttemptID: state.latestAttempt,
+		Answer:    result.Message.Text(),
+	}
+	if structured {
+		if result.Stop.Kind != llm.StopFinished {
+			plan.OutputErr = errors.New("unrecognized model stop")
+		} else {
+			schema, err := compileOutputSchema(state.OutputSchema)
+			if err != nil {
+				return r.stop(StopFailed, err.Error()), false
+			}
+			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
 		}
-		if r.ctx.Err() != nil {
-			return r.contextStop(), false
-		}
-		if !useful && !sd.AcceptEmpty && len(state.OutputSchema) == 0 {
-			return r.stop(StopFailed, "empty_response"), false
-		}
-		if sd.Continue && !state.finalAnswerOnly {
-			step := Step{Kind: StepLoopContinued}
-			if len(sd.Deliver) > 0 {
-				step.Context = &ContextFact{Items: sd.Deliver}
+	}
+	mark := r.hookMark()
+	finish, o := r.beforeFinish(plan)
+	if o != nil {
+		return *o, false
+	}
+	if r.ctx.Err() != nil {
+		r.dropHooks(mark)
+		return r.contextStop(), false
+	}
+	if len(finish.deliver) > 0 {
+		if r.nextCallFits(state, estimatedItemTokens(finish.deliver)) {
+			step := Step{
+				Kind:    StepLoopContinued,
+				Context: &ContextFact{Items: finish.deliver},
 			}
 			if o := r.commit(step); o != nil {
 				return *o, false
 			}
 			return Outcome{}, true
 		}
-		if len(state.OutputSchema) > 0 {
-			if result.Stop.Kind != llm.StopFinished {
-				return r.stop(
-					StopFailed,
-					"output_schema_unsatisfied: unrecognized model stop",
-				), false
-			}
-			schema, err := compileOutputSchema(state.OutputSchema)
-			if err != nil {
-				return r.stop(StopFailed, err.Error()), false
-			}
-			raw, err := parseOutputText(result.Message.Text(), schema)
-			if err != nil {
-				return r.stop(StopFailed, "output_schema_unsatisfied: "+err.Error()), false
-			}
-			state, _ := replay(r.turn)
-			fact := &StructuredOutput{
-				Value:     raw,
-				Source:    OutputFromText,
-				AttemptID: state.latestAttempt,
-			}
-			if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
-				return *o, false
-			}
-			return r.stopAfterAnswer(state), false
+		r.pendingWarnings = append(r.pendingWarnings, Warning{
+			Code: WarningDeliveryDropped,
+			Message: "BeforeFinish items dropped: no further model call " +
+				"can run within the turn's limits",
+		})
+	}
+	if !structured {
+		if !useful && !finish.acceptEmpty {
+			return r.stop(StopFailed, "empty_response"), false
 		}
 		return r.stopAfterAnswer(state), false
-	default:
-		return r.stop(StopFailed, "incomplete_model_result"), false
 	}
+	if plan.OutputErr != nil {
+		return r.stop(
+			StopFailed,
+			"output_schema_unsatisfied: "+plan.OutputErr.Error(),
+		), false
+	}
+	fact := &StructuredOutput{
+		Value:     plan.Output,
+		Source:    OutputFromText,
+		AttemptID: state.latestAttempt,
+	}
+	if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
+		return *o, false
+	}
+	return r.stopAfterAnswer(state), false
 }
 
 func submittedOutput(s *replayState) *StructuredOutput {

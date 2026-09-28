@@ -34,7 +34,7 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		results: []llm.Result{incomplete, final("recovered")},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with hosted approval" || len(first.Pending) != 0 {
 		t.Fatalf("first: stop=%+v pending=%v err=%v", first.Stop, first.Pending, err)
 	}
@@ -105,7 +105,7 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 	}
 	client := &scriptedClient{results: []llm.Result{result}}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}

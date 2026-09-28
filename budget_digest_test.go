@@ -62,7 +62,6 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 		Agent:    def,
 		Client:   newPricedClient(answer),
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 	start := Start{
 		CommandID: "start",

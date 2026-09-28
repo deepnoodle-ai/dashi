@@ -32,7 +32,7 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		fact := req.Step.Model
 		var admission creditAdmission
 		if fact == nil || fact.AtRisk == nil ||
-			json.Unmarshal(fact.Admission, &admission) != nil ||
+			json.Unmarshal(fact.Admission["credits"], &admission) != nil ||
 			admission.Account != "tenant-1" ||
 			admission.Currency != fact.AtRisk.Currency ||
 			admission.Amount != fact.AtRisk.Total ||
@@ -67,36 +67,41 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	return r.base.Commit(ctx, req)
 }
 
-type creditPolicy struct {
-	AllowLocalPolicy
-	recorder *creditRecorder
-}
-
-func (p creditPolicy) BeforeSend(
-	_ context.Context,
-	plan SendPlan,
-) (ModelAuthorization, error) {
-	if plan.AtRisk == nil {
-		return ModelAuthorization{
-			Reason: "price unavailable",
-			Limit:  &LimitDetail{Kind: LimitHost, Code: "cost_estimate_unavailable"},
-		}, nil
-	}
-	p.recorder.mu.Lock()
-	available := p.recorder.balance
-	p.recorder.mu.Unlock()
-	if plan.AtRisk.Total > available {
-		return ModelAuthorization{
-			Reason: "insufficient credits",
-			Limit:  &LimitDetail{Kind: LimitHost, Code: "insufficient_credits"},
-		}, nil
-	}
-	data, err := json.Marshal(creditAdmission{
-		Account:  "tenant-1",
-		Amount:   plan.AtRisk.Total,
-		Currency: plan.AtRisk.Currency,
-	})
-	return ModelAuthorization{Allow: true, Admission: data}, err
+// creditHooks admit a call against the recorder's balance, recording the
+// reservation terms under the hook name "credits".
+func creditHooks(recorder *creditRecorder) Hooks {
+	return SendHook{
+		Name: "credits",
+		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
+			if plan.AtRisk == nil {
+				return SendDecision{
+					Reason: "price unavailable",
+					Limit: &LimitDetail{
+						Kind: LimitHost,
+						Code: "cost_estimate_unavailable",
+					},
+				}, nil
+			}
+			recorder.mu.Lock()
+			available := recorder.balance
+			recorder.mu.Unlock()
+			if plan.AtRisk.Total > available {
+				return SendDecision{
+					Reason: "insufficient credits",
+					Limit: &LimitDetail{
+						Kind: LimitHost,
+						Code: "insufficient_credits",
+					},
+				}, nil
+			}
+			data, err := json.Marshal(creditAdmission{
+				Account:  "tenant-1",
+				Amount:   plan.AtRisk.Total,
+				Currency: plan.AtRisk.Currency,
+			})
+			return SendDecision{Admission: data}, err
+		},
+	}.Hooks()
 }
 
 func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
@@ -114,7 +119,7 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 		Agent:    def,
 		Client:   client,
 		Recorder: recorder,
-		Policy:   creditPolicy{recorder: recorder},
+		Hooks:    creditHooks(recorder),
 	}).Run(
 		t.Context(),
 		Turn{ID: "credit"},

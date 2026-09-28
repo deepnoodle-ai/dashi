@@ -119,7 +119,7 @@ func start(
 	client *scriptedClient,
 	tools tool.Toolset,
 	rec Recorder,
-	policy Policy,
+	hooks Hooks,
 ) (Outcome, error) {
 	t.Helper()
 	return (Runner{
@@ -127,7 +127,7 @@ func start(
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
-		Policy:   policy,
+		Hooks:    hooks,
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -138,7 +138,7 @@ func start(
 func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 func TestEmptyTextIsNotCompletion(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("   ")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestExternalToolSettlement(t *testing.T) {
 			Kind:   tool.KindExternal,
 		},
 	}
-	got, err := start(t, client, tool.List{external}, rec, AllowLocalPolicy{})
+	got, err := start(t, client, tool.List{external}, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		got.Turn,
@@ -243,7 +242,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 2 {
 		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
@@ -260,7 +258,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
 		completed.Turn,
@@ -324,14 +321,14 @@ func (r notifyingRecorder) Commit(
 	return nil
 }
 
-type denyPolicy struct{ AllowLocalPolicy }
-
-func (denyPolicy) AuthorizeTool(
-	context.Context,
-	tool.Call,
-	TurnView,
-) (ToolDecision, error) {
-	return ToolDecision{Kind: DecisionDeny, Reason: "blocked"}, nil
+// denyHooks deny every tool call.
+func denyHooks() Hooks {
+	return ToolHook{
+		Name: "deny",
+		Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+			return Deny("blocked"), nil
+		},
+	}.Hooks()
 }
 
 func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
@@ -355,7 +352,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, tool.List{binding}, rec, denyPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, denyHooks())
 	if persistence(err) != PersistenceRejected || runs != 0 {
 		t.Fatalf("first outcome=%+v err=%v runs=%d", got, err, runs)
 	}
@@ -368,7 +365,6 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil {
 		t.Fatal(err)
@@ -378,30 +374,30 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	}
 }
 
-type deferredPolicy struct{ AllowLocalPolicy }
-
-func (deferredPolicy) AuthorizeTool(
-	context.Context,
-	tool.Call,
-	TurnView,
-) (ToolDecision, error) {
-	return ToolDecision{Kind: DecisionDefer, Revision: "policy-v1"}, nil
+// deferredHooks defer every tool call for approval.
+func deferredHooks() Hooks {
+	return ToolHook{
+		Name: "defer",
+		Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+			return ToolDecision{Kind: DecisionDefer, Revision: "policy-v1"}, nil
+		},
+	}.Hooks()
 }
 
-type rewritePolicy struct{ AllowLocalPolicy }
-
-func (rewritePolicy) AuthorizeTool(
-	_ context.Context,
-	call tool.Call,
-	_ TurnView,
-) (ToolDecision, error) {
-	if string(call.Args) == `{"value":1}` {
-		return ToolDecision{Rewrite: []byte(`{"value":2}`)}, nil
-	}
-	if string(call.Args) != `{"value":2}` {
-		return ToolDecision{}, errors.New("unexpected effective arguments")
-	}
-	return ToolDecision{Kind: DecisionAllow, Revision: "rewrite-v1"}, nil
+// rewriteHooks rewrite value 1 to 2 and allow only the rewritten call.
+func rewriteHooks() Hooks {
+	return ToolHook{
+		Name: "rewrite",
+		Func: func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
+			if string(plan.Call.Args) == `{"value":1}` {
+				return ToolDecision{Rewrite: []byte(`{"value":2}`)}, nil
+			}
+			if string(plan.Call.Args) != `{"value":2}` {
+				return ToolDecision{}, errors.New("unexpected effective arguments")
+			}
+			return ToolDecision{Kind: DecisionAllow, Revision: "rewrite-v1"}, nil
+		},
+	}.Hooks()
 }
 
 func TestToolRewriteRequiresReauthorization(t *testing.T) {
@@ -427,7 +423,7 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, tool.List{binding}, rec, rewritePolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, rewriteHooks())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +439,7 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 	}
 }
 
-func TestApprovalBoundToCallAndPolicy(t *testing.T) {
+func TestApprovalBoundToCallAndArguments(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "write"), final("written")},
 	}
@@ -463,7 +459,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, tool.List{binding}, rec, deferredPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, deferredHooks())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,17 +467,16 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
 	}
 	bad := ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     "wrong",
-		PolicyRevision: "policy-v1",
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: "wrong",
 	}
 	_, err = (Runner{
 		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   deferredPolicy{},
+		Hooks:    deferredHooks(),
 	}).Run(
 		t.Context(),
 		got.Turn,
@@ -495,17 +490,16 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     digest(view.Tools["call-1"].Call.Args),
-		PolicyRevision: "policy-v1",
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: digest(view.Tools["call-1"].Call.Args),
 	}
 	accepted, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   deferredPolicy{},
+		Hooks:    deferredHooks(),
 	}).Run(
 		t.Context(),
 		got.Turn,
@@ -522,7 +516,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   deferredPolicy{},
+		Hooks:    deferredHooks(),
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted || runs != 1 {
 		t.Fatalf("completed=%+v err=%v runs=%d", completed, err, runs)
@@ -660,7 +654,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 		errors:  []error{errors.New("connection lost")},
 	}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +714,7 @@ func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
 	}
 	client := &scriptedClient{results: []llm.Result{paused, final("done")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +752,7 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 	}
 	client := &scriptedClient{results: []llm.Result{first, final("approved")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +881,7 @@ func TestRunWithObserverStreamsDeltas(t *testing.T) {
 
 func TestRunWithoutObserverDoesNotStream(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("hi")}}
-	if _, err := start(t, client, nil, NewMemoryRecorder(), nil); err != nil {
+	if _, err := start(t, client, nil, NewMemoryRecorder(), Hooks{}); err != nil {
 		t.Fatal(err)
 	}
 	if client.inputs[0].Stream {
@@ -924,7 +918,7 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, tool.List{binding}, rec, AllowLocalPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +945,7 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 		results: []llm.Result{incomplete, final("recovered")},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1044,7 +1038,7 @@ func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 		client,
 		tool.List{first, second},
 		rec,
-		AllowLocalPolicy{},
+		Hooks{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1136,8 +1130,8 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	commit(Step{
 		Kind: StepToolDecision,
 		Tool: &ToolFact{
-			Call:     call,
-			Decision: ToolDecision{Kind: DecisionAllow, Revision: "r1"},
+			Call:    call,
+			Verdict: ToolVerdict{Kind: DecisionAllow, Revision: "r1"},
 		},
 	})
 	commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}})
@@ -1169,7 +1163,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 func TestIntentFailurePreventsSend(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("should not send")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, failIntentRecorder{rec}, nil)
+	got, err := start(t, client, nil, failIntentRecorder{rec}, Hooks{})
 	step := unacknowledged(err)
 	if persistence(err) != PersistenceRejected ||
 		step == nil ||
@@ -1189,7 +1183,7 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 func TestChangedAgentAndCommandConflict(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1310,7 +1304,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("recovered")}}
 	base := NewMemoryRecorder()
 	rec := &lostAcknowledgment{base: base}
-	got, err := start(t, client, nil, rec, nil)
+	got, err := start(t, client, nil, rec, Hooks{})
 	step := unacknowledged(err)
 	if persistence(err) != PersistenceUnknown ||
 		step == nil ||
@@ -1347,7 +1341,7 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if persistence(err) != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
 	}
@@ -1410,7 +1404,7 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 		errors:  []error{errors.New("connection lost")},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
@@ -1454,7 +1448,7 @@ func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
 			Kind:   tool.KindLocal,
 		},
 	}
-	got, err := start(t, client, tool.List{binding}, rec, deferredPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, deferredHooks())
 	if err != nil || got.Stop.Kind != StopWaiting {
 		t.Fatalf("start: stop=%+v err=%v", got.Stop, err)
 	}
