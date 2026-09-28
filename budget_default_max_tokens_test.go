@@ -17,16 +17,20 @@ import (
 
 // sendPlans records each admission plan and otherwise allows everything.
 type sendPlans struct {
-	dashi.AllowLocalPolicy
 	plans []dashi.SendPlan
 }
 
-func (p *sendPlans) BeforeSend(
-	ctx context.Context,
-	plan dashi.SendPlan,
-) (dashi.ModelAuthorization, error) {
-	p.plans = append(p.plans, plan)
-	return p.AllowLocalPolicy.BeforeSend(ctx, plan)
+func (p *sendPlans) hooks() dashi.Hooks {
+	return dashi.SendHook{
+		Name: "record",
+		Func: func(
+			_ context.Context,
+			plan dashi.SendPlan,
+		) (dashi.SendDecision, error) {
+			p.plans = append(p.plans, plan)
+			return dashi.SendDecision{}, nil
+		},
+	}.Hooks()
 }
 
 // A cost cap used to stop every turn whose settings left MaxTokens unset on a
@@ -84,7 +88,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := &sendPlans{}
+	plans := &sendPlans{}
 	out, err := (dashi.Runner{
 		Agent: dashi.Agent{
 			ID:       "agent",
@@ -94,7 +98,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 			Model:    "priced",
 		},
 		Client: client,
-		Policy: policy,
+		Hooks:  plans.hooks(),
 	}).Run(
 		t.Context(),
 		dashi.Turn{ID: "capped"},
@@ -115,10 +119,10 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("capped turn with default settings stopped %+v", out.Stop)
 	}
-	if len(policy.plans) != 1 || policy.plans[0].AtRisk == nil {
+	if len(plans.plans) != 1 || plans.plans[0].AtRisk == nil {
 		t.Fatal("cost risk was not bounded before dispatch")
 	}
-	effective := policy.plans[0].Request.Effective()
+	effective := plans.plans[0].Request.Effective()
 	if effective.MaxTokens != llm.DefaultMaxTokens {
 		t.Fatalf(
 			"effective max tokens = %d, want %d",

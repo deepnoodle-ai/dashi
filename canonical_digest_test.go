@@ -273,7 +273,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   deferredPolicy{},
+		Hooks:    deferredHooks(),
 	}
 	history := messyHistory()
 
@@ -323,10 +323,9 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		}
 	}
 	approval := ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     digest(messyArgs),
-		PolicyRevision: "policy-v1",
+		CallID:     "call-1",
+		Approve:    true,
+		ArgsDigest: digest(messyArgs),
 	}
 	settle := Settle{CommandID: "approve", CallID: "call-1", Approval: &approval}
 	out, err = runner.Run(t.Context(), turn, settle)
@@ -395,7 +394,6 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 	history := messyHistory()
 

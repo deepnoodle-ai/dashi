@@ -247,7 +247,6 @@ func TestRunnerStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{local},
 		Recorder: recorder,
-		Policy:   AllowLocalPolicy{},
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 		if err != nil {
 			t.Fatal(err)

@@ -238,7 +238,7 @@ func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
 	}
 }
 
-func TestNilPolicyAllowsBoundTools(t *testing.T) {
+func TestNoHooksAllowBoundTools(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "echo"), final("done")},
 	}
@@ -253,7 +253,7 @@ func TestNilPolicyAllowsBoundTools(t *testing.T) {
 			}, nil
 		}),
 	}
-	out, err := start(t, client, tool.List{local}, nil, nil)
+	out, err := start(t, client, tool.List{local}, nil, Hooks{})
 	if err != nil || out.Stop.Kind != StopCompleted || !ran {
 		t.Fatalf("stop=%+v err=%v ran=%v", out.Stop, err, ran)
 	}
@@ -261,9 +261,9 @@ func TestNilPolicyAllowsBoundTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := view.Tools["call-1"].Decision; got.Kind != DecisionAllow ||
-		got.Revision != "default-v1" {
-		t.Fatalf("decision = %+v", got)
+	if got := view.Tools["call-1"].Verdict; got.Kind != DecisionAllow ||
+		got.Reason != "no hook opinion" || got.Hook != "" {
+		t.Fatalf("verdict = %+v", got)
 	}
 
 	external := tool.Tool{Definition: tool.Definition{
@@ -272,7 +272,7 @@ func TestNilPolicyAllowsBoundTools(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}
 	client = &scriptedClient{results: []llm.Result{callResult("call-1", "echo")}}
-	out, err = start(t, client, tool.List{external}, nil, nil)
+	out, err = start(t, client, tool.List{external}, nil, Hooks{})
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("external stop=%+v err=%v", out.Stop, err)
 	}

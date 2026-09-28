@@ -204,7 +204,6 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		Client:   counted,
 		Tools:    tool.List{typed},
 		Recorder: dashi.NewMemoryRecorder(),
-		Policy:   dashi.AllowLocalPolicy{},
 	}).Run(
 		ctx,
 		dashi.Turn{ID: "limit-live"},
@@ -405,7 +404,6 @@ func AgentTurn(
 				Client:   counted,
 				Tools:    tool.List{typed},
 				Recorder: recorder,
-				Policy:   dashi.AllowLocalPolicy{},
 			}
 			out, err := runner.Run(
 				ctx,

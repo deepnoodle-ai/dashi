@@ -2,11 +2,9 @@ package dashi
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -32,7 +30,7 @@ type Outcome struct {
 type PendingKind string
 
 const (
-	// PendingApproval is a local call a policy deferred, or a
+	// PendingApproval is a local call a BeforeTool hook deferred, or a
 	// provider-hosted approval request. Answer it with Approve or Deny.
 	PendingApproval PendingKind = "approval"
 	// PendingTool is a local call that started, waits for an external
@@ -49,7 +47,7 @@ const (
 
 // Pending is one piece of work a stopped turn waits on. Its methods build
 // the Settle command that answers it, so the caller never copies argument
-// digests, policy revisions, or IDs by hand. Each builder derives the command
+// digests or IDs by hand. Each builder derives the command
 // ID from the item: a retried answer is recognized as a duplicate, and a
 // different second answer fails with ErrCommandConflict.
 //
@@ -72,7 +70,7 @@ type Pending struct {
 }
 
 // Approve builds the Settle command that approves this call with exactly
-// the arguments shown under the policy revision that deferred it. Settle
+// the arguments shown. Settle
 // only records the answer; Continue runs the call.
 func (p Pending) Approve() Settle {
 	return p.answer(true, "")
@@ -121,48 +119,12 @@ func (p Pending) answer(approve bool, reason string) Settle {
 	// approval gets an empty digest, which Run rejects as not pending.
 	if p.Tool != nil {
 		fact.ArgsDigest = p.Tool.ArgsDigest
-		fact.PolicyRevision = p.Tool.Decision.Revision
 	}
 	return Settle{
 		CommandID: "approval:" + p.ID,
 		CallID:    p.ID,
 		Approval:  fact,
 	}
-}
-
-// RequireApproval returns a policy that allows local and external tools and
-// defers each call to one of the named tools until a host answers it with
-// Pending.Approve or Pending.Deny. The deferral's revision is derived from
-// the names; it records which list deferred the call.
-func RequireApproval(tools ...string) Policy {
-	names := slices.Clone(tools)
-	slices.Sort(names)
-	names = slices.Compact(names)
-	return requireApproval{
-		tools:    names,
-		revision: "require-approval:" + strings.Join(names, ","),
-	}
-}
-
-type requireApproval struct {
-	AllowLocalPolicy
-	tools    []string
-	revision string
-}
-
-func (p requireApproval) AuthorizeTool(
-	ctx context.Context,
-	call tool.Call,
-	view TurnView,
-) (ToolDecision, error) {
-	if _, found := slices.BinarySearch(p.tools, call.Name); found {
-		return ToolDecision{
-			Kind:     DecisionDefer,
-			Revision: p.revision,
-			Reason:   "requires approval",
-		}, nil
-	}
-	return p.AllowLocalPolicy.AuthorizeTool(ctx, call, view)
 }
 
 // restingOutcome is the Outcome for a command that did not apply: the

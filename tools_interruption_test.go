@@ -66,7 +66,6 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 				Client:   client,
 				Tools:    tool.List{bound},
 				Recorder: rec,
-				Policy:   AllowLocalPolicy{},
 			}).Run(t.Context(), turn, Continue{CommandID: "resume"})
 			if err != nil {
 				t.Fatal(err)
@@ -152,7 +151,6 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 			Client:   client,
 			Tools:    tool.List{first, second},
 			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
 		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
@@ -203,7 +201,6 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{first, second},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), got.out.Turn, Continue{CommandID: "resume"})
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +236,6 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}).Run(
 		ctx,
 		Turn{ID: "t1"},
@@ -332,7 +328,7 @@ func startedLocalToolTurn(
 		Tool: &ToolFact{
 			Call:       call,
 			Definition: toolDef,
-			Decision:   ToolDecision{Kind: DecisionAllow, Revision: "r1"},
+			Verdict:    ToolVerdict{Kind: DecisionAllow, Revision: "r1"},
 		},
 	})
 	commit(Step{

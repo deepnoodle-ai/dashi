@@ -44,8 +44,8 @@ type WebSearchToolOptions struct {
 
 // NewWebSearchTool declares Meta's provider-executed search grounding. It
 // returns a definition-only tool.Tool: Meta runs it inside the model call, so
-// it has no Executor and needs no Policy. Add it to a Runner with tool.List,
-// or pass its Definition in llm.Input.Tools. The tool is bound to the
+// it has no Executor and no hook sees its calls. Add it to a Runner with
+// tool.List, or pass its Definition in llm.Input.Tools. The tool is bound to the
 // destination named "meta" that New configures.
 func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	switch options.SearchContextSize {

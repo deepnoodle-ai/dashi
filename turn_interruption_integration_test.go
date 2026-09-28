@@ -330,7 +330,6 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{local},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 	first, err := runner.Run(
 		t.Context(),

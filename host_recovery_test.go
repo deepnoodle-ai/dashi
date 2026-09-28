@@ -16,17 +16,19 @@ type testAdmission struct {
 	RequestProof string `json:"request_proof"`
 }
 
-type budgetPolicy struct{ AllowLocalPolicy }
-
-func (budgetPolicy) BeforeSend(
-	_ context.Context,
-	plan SendPlan,
-) (ModelAuthorization, error) {
-	admission, err := json.Marshal(testAdmission{
-		Units:        3,
-		RequestProof: digest(plan.Request.Body()),
-	})
-	return ModelAuthorization{Allow: true, Admission: admission}, err
+// budgetHooks admit each call with reservation terms bound to the request,
+// recorded under the hook name "budget".
+func budgetHooks() Hooks {
+	return SendHook{
+		Name: "budget",
+		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
+			admission, err := json.Marshal(testAdmission{
+				Units:        3,
+				RequestProof: digest(plan.Request.Body()),
+			})
+			return SendDecision{Admission: admission}, err
+		},
+	}.Hooks()
 }
 
 // This fixture makes record, reservation, usage, and ownership updates one
@@ -67,7 +69,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	var admission testAdmission
 	if step.Kind == StepModelIntent {
 		if err := json.Unmarshal(
-			step.Model.Admission,
+			step.Model.Admission["budget"],
 			&admission,
 		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestDigest {
 			return &CommitError{
@@ -143,7 +145,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
-		Policy:   budgetPolicy{},
+		Hooks:    budgetHooks(),
 	}
 	first, err := runner.Run(
 		t.Context(),

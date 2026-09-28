@@ -83,7 +83,7 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{countingTool("deploy", &runs), externalTool("mail")},
 		Recorder: NewMemoryRecorder(),
-		Policy:   RequireApproval("deploy"),
+		Hooks:    RequireApproval("deploy"),
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -164,7 +164,6 @@ func TestApproveOnNonApprovalIsRejected(t *testing.T) {
 		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{externalTool("mail")},
-		Policy: AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -198,7 +197,7 @@ func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 		Client:   client,
 		Tools:    tool.List{countingTool("deploy", &runs)},
 		Recorder: base,
-		Policy:   RequireApproval("deploy"),
+		Hooks:    RequireApproval("deploy"),
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -256,7 +255,7 @@ func TestContinueOnWaitingTurnIsNotReady(t *testing.T) {
 		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", &runs)},
-		Policy: RequireApproval("deploy"),
+		Hooks:  RequireApproval("deploy"),
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -302,7 +301,7 @@ func (r conflictRecorder) Commit(ctx context.Context, req CommitRequest) error {
 
 func TestCommitErrorWrapsRecorderConflict(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
-	out, err := start(t, client, nil, conflictRecorder{NewMemoryRecorder()}, nil)
+	out, err := start(t, client, nil, conflictRecorder{NewMemoryRecorder()}, Hooks{})
 	if !errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("err=%v does not match ErrRevisionConflict", err)
 	}
@@ -323,7 +322,7 @@ func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
 	result.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 5}
 	client := &scriptedClient{results: []llm.Result{result}}
 	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepModelSettled}
-	out, err := start(t, client, nil, rec, nil)
+	out, err := start(t, client, nil, rec, Hooks{})
 	step := unacknowledged(err)
 	if persistence(err) != PersistenceRejected ||
 		step == nil ||
@@ -339,39 +338,41 @@ func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
 	}
 }
 
-type viewRecordingPolicy struct {
-	AllowLocalPolicy
-	stops      *[]Stop
-	authorized *int
+// viewRecordingHooks record the Stop of each view the hooks receive.
+func viewRecordingHooks(stops *[]Stop, authorized *int) Hooks {
+	return Hooks{
+		BeforeModel: []ModelHook{
+			{
+				Name: "record",
+				Func: func(_ context.Context, plan ModelPlan) (ModelDecision, error) {
+					*stops = append(*stops, plan.Turn.Stop)
+					return ModelDecision{}, nil
+				},
+			},
+		},
+		BeforeTool: []ToolHook{
+			{
+				Name: "record",
+				Func: func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
+					*stops = append(*stops, plan.Turn.Stop)
+					*authorized++
+					return ToolDecision{}, nil
+				},
+			},
+		},
+		BeforeFinish: []FinishHook{
+			{
+				Name: "record",
+				Func: func(_ context.Context, plan FinishPlan) (FinishDecision, error) {
+					*stops = append(*stops, plan.Turn.Stop)
+					return FinishDecision{}, nil
+				},
+			},
+		},
+	}
 }
 
-func (p viewRecordingPolicy) BeforeModel(
-	_ context.Context,
-	plan ModelPlan,
-) (ModelDecision, error) {
-	*p.stops = append(*p.stops, plan.Turn.Stop)
-	return ModelDecision{}, nil
-}
-
-func (p viewRecordingPolicy) AuthorizeTool(
-	ctx context.Context,
-	call tool.Call,
-	view TurnView,
-) (ToolDecision, error) {
-	*p.stops = append(*p.stops, view.Stop)
-	*p.authorized++
-	return p.AllowLocalPolicy.AuthorizeTool(ctx, call, view)
-}
-
-func (p viewRecordingPolicy) OnStop(
-	_ context.Context,
-	view TurnView,
-) (StopDecision, error) {
-	*p.stops = append(*p.stops, view.Stop)
-	return StopDecision{}, nil
-}
-
-func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
+func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "work"),
 		final("paused"),
@@ -386,7 +387,7 @@ func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
 		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{countingTool("work", &runs)},
-		Policy: viewRecordingPolicy{stops: &stops, authorized: &authorized},
+		Hooks:  viewRecordingHooks(&stops, &authorized),
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -401,7 +402,7 @@ func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
 	}
 	for _, stop := range stops {
 		if stop.Kind != "" {
-			t.Fatalf("policy view stop=%+v", stop)
+			t.Fatalf("hook view stop=%+v", stop)
 		}
 	}
 	if out.Answer != "pauseddone" {
@@ -411,7 +412,7 @@ func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
 
 func TestReplayProjectsStopLikeOutcome(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := start(t, client, nil, nil, nil)
+	out, err := start(t, client, nil, nil, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,24 +642,32 @@ func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
 }
 
 func TestRequireApprovalDefersNamedTools(t *testing.T) {
-	policy := RequireApproval("b", "a", "a")
-	named, err := policy.AuthorizeTool(t.Context(), tool.Call{Name: "a"}, TurnView{})
+	hook := RequireApproval("b", "a", "a").BeforeTool[0]
+	if hook.Name != "require_approval:a,b" {
+		t.Fatalf("name=%q", hook.Name)
+	}
+	named, err := hook.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "a"}})
 	if err != nil ||
 		named.Kind != DecisionDefer ||
-		named.Revision != "require-approval:a,b" {
+		named.Revision != "require_approval:a,b" {
 		t.Fatalf("named decision=%+v err=%v", named, err)
 	}
-	other, err := policy.AuthorizeTool(t.Context(), tool.Call{Name: "c"}, TurnView{})
-	if err != nil || other.Kind != DecisionAllow {
+	other, err := hook.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
+	if err != nil || other.Kind != "" || other.Rewrite != nil {
 		t.Fatalf("other decision=%+v err=%v", other, err)
 	}
-	single, _ := RequireApproval("a").AuthorizeTool(
+	single, _ := RequireApproval("a").BeforeTool[0].Func(
 		t.Context(),
-		tool.Call{Name: "a"},
-		TurnView{},
+		ToolPlan{Call: tool.Call{Name: "a"}},
 	)
 	if single.Revision == named.Revision {
 		t.Fatal("different tool lists share a revision")
+	}
+	all := RequireApproval().BeforeTool[0]
+	any, err := all.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
+	if err != nil || all.Name != "require_approval:*" ||
+		any.Kind != DecisionDefer {
+		t.Fatalf("all tools name=%q decision=%+v err=%v", all.Name, any, err)
 	}
 }
 
@@ -673,7 +682,7 @@ func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
 		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", &runs)},
-		Policy: RequireApproval("deploy"),
+		Hooks:  RequireApproval("deploy"),
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -689,13 +698,14 @@ func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
 	return out, client
 }
 
-func TestDenialKeepsPolicyDecisionAndRecordsAnswer(t *testing.T) {
+func TestDenialKeepsHookVerdictAndRecordsAnswer(t *testing.T) {
 	out, _ := deniedDeploy(t, "No.")
 	call := out.Tools["call-1"]
 	if call.Status != ToolDenied ||
-		call.Decision.Kind != DecisionDefer ||
-		call.Decision.Revision != "require-approval:deploy" {
-		t.Fatalf("policy decision changed: %+v", call.Decision)
+		call.Verdict.Kind != DecisionDefer ||
+		call.Verdict.Hook != "require_approval:deploy" ||
+		call.Verdict.Revision != "require_approval:deploy" {
+		t.Fatalf("hook verdict changed: %+v", call.Verdict)
 	}
 	if call.Approval == nil || call.Approval.Approve || call.Approval.Reason != "No." {
 		t.Fatalf("recorded answer=%+v", call.Approval)
@@ -708,7 +718,7 @@ func TestEmptyDenialReasonGivesDefaultText(t *testing.T) {
 		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", new(int))},
-		Policy: RequireApproval("deploy"),
+		Hooks:  RequireApproval("deploy"),
 	}).Run(t.Context(), out.Turn, Continue{CommandID: "c"})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", done.Stop, err)
@@ -728,7 +738,7 @@ func TestReplayRejectsStaleApprovalStep(t *testing.T) {
 		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", new(int))},
-		Policy: RequireApproval("deploy"),
+		Hooks:  RequireApproval("deploy"),
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -791,7 +801,7 @@ func (r wrappingRecorder) Commit(ctx context.Context, req CommitRequest) error {
 
 func TestWrappedRecorderCommitErrorIsNotRepeated(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
-	_, err := start(t, client, nil, wrappingRecorder{NewMemoryRecorder()}, nil)
+	_, err := start(t, client, nil, wrappingRecorder{NewMemoryRecorder()}, Hooks{})
 	if persistence(err) != PersistenceRejected || unacknowledged(err) == nil {
 		t.Fatalf("err=%v", err)
 	}

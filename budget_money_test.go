@@ -142,26 +142,23 @@ func TestLimitDetailJSON(t *testing.T) {
 	}
 }
 
-// creditDenialPolicy denies a call with a host limit that reports money.
-type creditDenialPolicy struct {
-	AllowLocalPolicy
-	currency string
-}
-
-func (p creditDenialPolicy) BeforeSend(
-	_ context.Context,
-	plan SendPlan,
-) (ModelAuthorization, error) {
-	return ModelAuthorization{
-		Reason: "insufficient credits",
-		Limit: &LimitDetail{
-			Kind:       LimitHost,
-			Code:       "insufficient_credits",
-			CostLimit:  amount("0.002"),
-			CostAtRisk: plan.AtRisk.Total,
-			Currency:   p.currency,
+// creditDenialHooks deny a call with a host limit that reports money.
+func creditDenialHooks(currency string) Hooks {
+	return SendHook{
+		Name: "credits",
+		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
+			return SendDecision{
+				Reason: "insufficient credits",
+				Limit: &LimitDetail{
+					Kind:       LimitHost,
+					Code:       "insufficient_credits",
+					CostLimit:  amount("0.002"),
+					CostAtRisk: plan.AtRisk.Total,
+					Currency:   currency,
+				},
+			}, nil
 		},
-	}, nil
+	}.Hooks()
 }
 
 func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
@@ -171,7 +168,7 @@ func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
 		nil,
 		llm.Settings{MaxTokens: 100},
 		nil,
-		creditDenialPolicy{currency: "CREDIT"},
+		creditDenialHooks("CREDIT"),
 	)
 	limit := requireBudgetLimit(t, out, LimitHost)
 	if limit.Currency != "CREDIT" || limit.CostLimit != amount("0.002") ||
@@ -185,9 +182,9 @@ func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
 		nil,
 		llm.Settings{MaxTokens: 100},
 		nil,
-		creditDenialPolicy{},
+		creditDenialHooks(""),
 	)
-	if out.Stop.Kind != StopFailed {
+	if out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonHookFailed {
 		t.Fatalf("host money without a currency was accepted: %+v", out.Stop)
 	}
 }

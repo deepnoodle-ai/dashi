@@ -2,7 +2,6 @@ package dashi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -85,7 +84,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			continue
 		}
 		if v.Status == ToolDenied {
-			reason := v.Decision.Reason
+			reason := v.Verdict.Reason
 			if v.Approval != nil {
 				reason = v.Approval.Reason
 			}
@@ -206,83 +205,43 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 			}
 			call := v.Call.Clone()
-			decision := ToolDecision{}
-			var err error
-			for changes := range 4 {
-				if call.Name == SubmitOutputTool {
-					decision = ToolDecision{Kind: DecisionAllow, Revision: "dashi-output-v1"}
-					break
-				}
-				// A mid-run view: its Stop stays empty, unlike Replay's.
-				view := TurnView{}
-				if current, err := replay(r.turn); err == nil {
-					view = snapshotView(current.TurnView)
-				}
-				decision, err = r.runner.Policy.AuthorizeTool(ctx, call.Clone(), view)
-				if err != nil {
-					return r.failureOrContext(err), true
-				}
-				if ctx.Err() != nil {
-					return r.contextStop(), true
-				}
-				if len(decision.Rewrite) == 0 {
-					break
-				}
-				if !json.Valid(decision.Rewrite) {
-					return r.stop(StopFailed, "policy returned invalid tool JSON"), true
-				}
-				if changes == 3 {
-					return r.stop(StopFailed, "tool rewrite limit"), true
-				}
-				if len(call.RequestedArgs) == 0 {
-					call.RequestedArgs = call.Args
-				}
-				call.Args = append(json.RawMessage(nil), decision.Rewrite...)
-				decision.Rewrite = nil
+			verdict := ToolVerdict{
+				Kind:     DecisionAllow,
+				Revision: "dashi-output-v1",
 			}
-			if decision.Kind != DecisionAllow &&
-				decision.Kind != DecisionDeny &&
-				decision.Kind != DecisionDefer {
-				return r.stop(StopFailed, "invalid tool decision"), true
-			}
-			if err := validateToolCall(v.Definition, call); err != nil {
-				return r.stop(
-					StopFailed,
-					"policy produced invalid arguments: "+err.Error(),
-				), true
-			}
-			if decision.Kind == DecisionDefer && decision.Revision == "" {
-				return r.stop(
-					StopFailed,
-					"deferred approval requires policy revision",
-				), true
+			if call.Name != SubmitOutputTool {
+				var o *Outcome
+				call, verdict, o = r.authorizeTool(ctx, v.Definition, call)
+				if o != nil {
+					return *o, true
+				}
 			}
 			if o := r.commit(Step{
 				Kind: StepToolDecision,
 				Tool: &ToolFact{
 					Call:       call,
 					Definition: v.Definition,
-					Decision:   decision,
+					Verdict:    verdict,
 				},
 			}); o != nil {
 				return *o, true
 			}
 			v.Call = call
-			v.Decision = decision
-			if decision.Kind == DecisionDeny {
+			v.Verdict = verdict
+			if verdict.Kind == DecisionDeny {
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: new(tool.TextOutput(denialText(decision.Reason))),
+					Output: new(tool.TextOutput(denialText(verdict.Reason))),
 				}
 				if o := r.commit(Step{
 					Kind: StepToolSettled,
-					Tool: &ToolFact{Call: call, Outcome: &out, Reason: decision.Reason},
+					Tool: &ToolFact{Call: call, Outcome: &out, Reason: verdict.Reason},
 				}); o != nil {
 					return *o, true
 				}
 				continue
 			}
-			if decision.Kind == DecisionDefer {
+			if verdict.Kind == DecisionDefer {
 				continue
 			}
 		}

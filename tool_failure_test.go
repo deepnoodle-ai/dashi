@@ -368,7 +368,6 @@ func toolRunner(
 		Client:   client,
 		Tools:    tool.List{localTool("remote", executor)},
 		Recorder: rec,
-		Policy:   AllowLocalPolicy{},
 	}
 }
 

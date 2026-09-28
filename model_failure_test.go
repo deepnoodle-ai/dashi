@@ -20,7 +20,7 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopFailed || len(first.Pending) != 0 || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
@@ -44,7 +44,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		errors:  []error{errors.New("connection lost")},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopUncertain || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
@@ -110,7 +110,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 		},
 	}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, nil, rec, nil)
+	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
