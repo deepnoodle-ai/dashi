@@ -1,6 +1,7 @@
 # Hosted tool pricing
 
-**Status:** Proposal · **Date:** 2026-09-28 · **Fixes:** finding 11.1 in
+**Status:** Reporting implemented; bounded admission deferred (see below) ·
+**Date:** 2026-09-28 · **Fixes:** finding 11.1 in
 [gaps/F](gaps/F-example-ports.md) · **Relates to:**
 [pricing](pricing-proposal.md), [model catalog](model-catalog.md),
 [budgets](budgets.md)
@@ -8,157 +9,121 @@
 ## Problem
 
 A **hosted tool** runs at the provider (web search, code execution), and many
-bill per use on top of tokens. Today any hosted use makes the call's cost
-unknown, even though its token cost is known. Three causes:
+bill per use on top of tokens. Before this change, any hosted use made a
+call's cost unknown although its token cost was known. The catalog priced no
+hosted requests; the runner counted `HostedUse` blocks by the name the model
+called (`bash_code_execution`), so a price sheet would have had to know block
+names; it ignored the counters providers report; Gemini search grounding
+produced no block, so a grounded Gemini call looked fully priced when it was
+not; and one unpriced key made `Pricing.Estimate` give up on the whole call.
 
-1. The catalog prices no hosted requests (`Pricing.Requests` is empty).
-2. The runner counts `HostedUse` blocks by the name the model called
-   (`web_search`, `bash_code_execution`), so a price sheet would have to know
-   every provider's block names. It ignores what providers report: Anthropic's
-   `usage.server_tool_use`, xAI's `server_side_tool_usage_details` and billed
-   cost. Gemini search grounding produces no block, so it is never counted and
-   a Gemini call looks fully priced when it is not.
-3. `Pricing.Estimate` returns "unknown" for the whole call when one request
-   key has no rate.
+## Counting: meter keys, filled by adapters
 
-## Proposal
+A **meter key** names one billable unit, independent of block names:
+`web_search`, `web_search_preview`, `grounded_prompt`, `web_fetch`,
+`url_context`, `code_execution`, `file_search`, `image_generation`, `mcp`,
+`x_search_post`, `x_search_profile` (constants in `llm/meter.go`). Each provider
+adapter fills `Usage.Requests` when it decodes a response, preferring the
+provider's counters: Anthropic `usage.server_tool_use`, OpenAI
+`tool_usage.web_search.num_requests`, xAI `server_side_tool_usage_details`.
+Otherwise it counts items: Responses `web_search_call` items with a `search`
+action, not `open_page` or `find_in_page` (our reading of the docs, matched by
+OpenAI's counter in a captured response); the key is `web_search_preview` when
+that tool was declared, alone or with `web_search`, since its rate is never
+lower. Meta counts the queries each search item shows, at least one
+(unverified). Gemini counts every non-empty `webSearchQueries` entry (at least
+one when web sources appear), plus one `grounded_prompt` for a response
+grounded by web search. Gemini fixtures are
+built from the documented response shape, since no key was available; a
+live-tagged test checks them. The runner no longer counts blocks.
 
-**1. Request counts use meter keys that adapters fill.** A **meter key** names
-one billable unit, such as one web search, independent of block names. The
-provider adapter fills `Usage.Requests` when it decodes a response, preferring
-the provider's reported counters over counting blocks. The runner stops
-counting blocks by name. Keys are `llm` constants:
+Two **reserved keys** are never priced (`Pricing.Validate` rejects them):
+`unrecognized:<wire type>` for hosted work an adapter does not recognize, and
+`unreported` for hosted uses in a call whose final usage never arrived (a
+cut-off stream, or a response without usage). The runner records the
+difference between hosted blocks and counted requests under `unreported`, so
+such a call shows as partial, not complete. Anthropic's first streamed usage
+frame has no request counts, so this is the common case there.
 
-| Key | Unit | Set by |
+## Prices
+
+Rates go in each entry's `pricing.requests`, per unit; each entry stays
+complete. `catalog/sources_test.go` has one provenance row per provider and
+key (source, models, rate, date checked, verified or not) and fails when the
+catalog differs; a coverage test requires every key an adapter can emit to be
+priced or listed as unpriced with a reason. Token `updated_at` dates are
+unchanged. Checked 2026-09-28:
+
+| Provider | Priced (USD per unit) | Unpriced, and why |
 | --- | --- | --- |
-| `web_search` | one search (query or call) | Anthropic usage; Responses `web_search_call` items; xAI usage; Gemini 3 unique non-empty `webSearchQueries` |
-| `web_search_preview` | one call of OpenAI's preview tool | Responses, when the request declared that type |
-| `grounded_prompt` | one response grounded by search | Gemini (2.5 bills per prompt) |
-| `web_fetch`, `url_context` | one fetch | Anthropic usage; Gemini URL metadata |
-| `code_execution` | one code run | Anthropic usage; Responses items; xAI usage; Gemini `executableCode` |
-| `file_search`, `image_generation`, `mcp` | one call | Responses items; xAI usage; Anthropic `mcp_tool_use` |
-| `x_search_post`, `x_search_profile` | one fetched item | xAI usage |
+| Anthropic | web_search 0.01; web_fetch 0 | code_execution: container-hours, duration not reported. mcp: no published rate |
+| OpenAI | web_search 0.01; web_search_preview 0.01 reasoning, 0.025 other; file_search 0.0025; mcp 0 | code_execution: container sessions span calls. image_generation: image tokens. web_search on gpt-4.1-mini: fixed 8,000-token block not in usage |
+| Gemini 3.x | web_search 0.014 per query; grounded_prompt, url_context, code_execution, file_search 0 | none |
+| Gemini 2.5 | grounded_prompt 0.035; web_search, url_context, code_execution, file_search 0 | none |
+| xAI | web_search, code_execution 0.005; file_search 0.0025; x_search_post 0.005; x_search_profile 0.01; mcp 0 | image_generation: per-image rates vary |
+| Meta | web_search 0.0025 per query | none |
 
-An unrecognized hosted tool is counted under its wire type, which no sheet
-prices, so its cost shows as unpriced rather than free. If a call's usage never
-arrived (a cut-off stream) but it has hosted blocks, the runner records their
-number under `unreported`, which is never priced.
+Free allowances are ignored, so estimates err high. xAI also reports its billed
+amount (`cost_in_usd_ticks`, 10^10 per dollar, tool charges included); the
+adapter records it as a provider-reported `Result.Cost`, which wins over any
+estimate.
 
-**2. The catalog prices each meter it can confirm.** Rates go in each entry's
-existing `pricing.requests`, in currency per unit. Every entry stays complete;
-nothing is inherited. `catalog/sources_test.go` names the page for each rate,
-and a test requires every key an adapter can emit for a provider to be either
-priced in all its sheets or listed as unpriced with a reason. Sources, fetched
-2026-09-28:
+## Partial cost
 
-| Provider | Priced | Unpriced, and why |
-| --- | --- | --- |
-| Anthropic ([pricing](https://platform.claude.com/docs/en/about-claude/pricing.md)) | web_search $0.01; web_fetch $0 | code_execution: billed per container-hour (5-minute minimum, 1,550 free hours/org/month, then $0.05/h); responses report no duration. mcp: no published rate |
-| OpenAI ([pricing](https://developers.openai.com/api/docs/pricing.md)) | web_search $0.01; web_search_preview $0.01 (reasoning models) or $0.025 (others); file_search $0.0025; mcp $0 ([guide](https://developers.openai.com/api/docs/guides/tools-connectors-mcp.md)) | code_execution: billed per container session by memory size and minutes, and a session spans calls. image_generation: billed as image tokens not in `usage`. web_search on gpt-4.1-mini: billed as a fixed 8,000-token block we cannot see |
-| Gemini ([pricing](https://ai.google.dev/gemini-api/docs/pricing)) | 3.x: web_search $0.014, grounded_prompt $0; 2.5: web_search $0, grounded_prompt $0.035; code_execution, url_context, file_search $0 | none |
-| xAI ([pricing](https://docs.x.ai/developers/pricing)) | web_search, code_execution $0.005; file_search $0.0025; x_search_post $0.005; x_search_profile $0.01; mcp $0 | image_generation: Imagine per-image rates vary by resolution |
-| Meta ([pricing](https://dev.meta.ai/docs/pricing-rate-limits.md)) | web_search $0.0025 | none |
+`Pricing.Estimate` fails only when tokens cannot be priced. Hosted requests
+without a rate are left out of `Hosted` and `Total` and listed in
+`Cost.UnpricedRequests`; `Cost.Partial()` reports that `Total` is a lower
+bound. `Spend.Cost` includes the known part, `Spend.CostPartial` counts such
+calls, and `Spend.UnpricedRequests` sums their counts.
 
-Mistral's hosted connectors exist only in its Conversations API, which Dashi
-does not use. Free allowances (Gemini's monthly and daily free searches,
-Anthropic's free container hours) are ignored: a list-price estimate is an
-upper bound, which is the safe side for budgets. Where a provider reports its
-own counter (Anthropic, xAI), Dashi uses it; xAI's counts only successful
-calls. Counting Responses items includes failed calls, which may overstate.
-
-**3. xAI's billed cost is used directly.** xAI reports `cost_in_usd_ticks`
-(10^10 ticks per dollar), inclusive of tool charges. The Responses adapter
-records it as a provider-reported `Result.Cost` with no breakdown, rounded half
-to even to the nano. Provider-reported cost already wins over estimates.
-
-**4. A partly priced call reports its known cost and marks the rest.**
-
-```go
-type Cost struct {
-    // ...existing fields...
-    // Unpriced counts hosted requests the sheet has no rate for, by meter
-    // key. When it is non-empty, Total is a lower bound.
-    Unpriced map[string]int `json:"unpriced,omitempty"`
-}
-func (c Cost) Partial() bool
-
-type Spend struct {
-    // ...existing fields...
-    CostPartial int            `json:"cost_partial,omitempty"` // calls
-    Unpriced    map[string]int `json:"unpriced,omitempty"`     // by key
-}
-```
-
-`Pricing.Estimate` still returns false when tokens cannot be priced. When only
-hosted keys lack rates, it returns true with `Unpriced` set, `Hosted` holding
-the priced requests, and `Total` the known part. Before, `Spend.Cost` omitted
-such calls entirely and counted them in `CostUnknown`; now their known part
-adds to `Spend.Cost` and they count in `CostPartial`.
-
-**5. Budget rule: a partial cost never counts as verified spend.** A cost cap
-is an upper bound; a partial total is a lower bound, so it cannot prove a cap
-holds. Under `MaxCost`:
-
-- Before dispatch, unchanged: a request that declares hosted tools stops
-  `limited`. Neither the number of hosted requests nor the tokens they inject
-  (search results are billed input) can be bounded, so `MaxCostAtRisk` has no
-  honest worst case. The stop reason is reworded to say so.
-- After a call, a partial charge is treated like an unknown one: its known
-  part counts toward `CostUsed`, the cap is reported as unverifiable, and the
-  turn stops `limited` before the next call. `Continue` cannot clear this by
-  raising the cap, as with an unknown charge today.
-
-So a cap is never silently exceeded by unpriced hosted work. Without a cap,
+**Budget rule.** A cap is an upper bound and a partial total a lower bound,
+so a partial charge never counts as verified spend. Before dispatch, a request
+that declares hosted tools under `MaxCost` still stops `limited`. After a call,
+a partial charge under a cap counts as unknown: its known part is `CostUsed`,
+the turn stops `limited`, and a raise cannot clear it. The reason names the
+unpriced keys and says to start a new turn with the history. Without a cap,
 partial costs are reported and the turn runs normally.
 
-## Example
+## Bounded admission: deferred, with evidence
 
-```go
-view, _ := dashi.Replay(outcome.Turn)
-for currency, amount := range view.Spend.Cost {
-    fmt.Printf("Cost: %s %s\n", amount, currency)
-}
-if view.Spend.CostPartial > 0 {
-    fmt.Printf("  plus unpriced hosted requests: %v\n", view.Spend.Unpriced)
-}
-```
+The review proposed admitting hosted tools under a cap when each has a
+provider-enforced use limit, priced meters, and a per-use token allowance,
+reserving uses × price + uses × allowance × input rate. Live calls
+(claude-haiku-4-5, `web_search_20250305`) show that formula understates the
+worst case:
 
-With Claude, web search, and code execution this now prints a dollar amount
-with `code_execution` marked unpriced, instead of "cost unknown".
+- **Input is billed per internal pass.** Two sequential searches: 27,702
+  input tokens billed, while the final context was 16,037 tokens; the prompt
+  and each result were re-read on every pass.
+- **`max_uses` limits billed uses, not passes.** With `max_uses: 1`, the model
+  tried a second search, got `max_uses_exceeded` (not billed:
+  `web_search_requests` was 1), and ran a third pass: 21,440 input tokens
+  against a final context of 9,762.
+- No provider documents a limit on passes per call, and Anthropic web search
+  documents no per-search token limit.
 
-## Changes
+A safe bound therefore needs a pass limit the provider enforces (xAI's
+`max_turns` is one; OpenAI's `max_tool_calls` says further attempts are
+"ignored" without saying whether they cost a pass). Until then, the
+pre-dispatch stop above is the only rule that cannot be silently exceeded, so
+bounded admission, the default use limit under a cap, and settling at
+max(known, reserved) are left for a follow-up.
 
-- `llm`: meter key constants; `Cost.Unpriced`, `Cost.Partial`, clone and
-  validation; `Estimate` partial rule; doc comments on `Usage.Requests` and
-  `Pricing.Requests`.
-- Adapters: Anthropic usage and `mcp_tool_use`; Responses items and the
-  preview key; xAI usage counters and cost; Gemini grounding, URL context, and
-  code execution in both the REST and streaming paths (separate module).
-- Runner: drop name-based counting in `budget_accounting.go`; `unreported`;
-  `Spend.CostPartial` and `Spend.Unpriced`; `costIn` and `canContinue` treat
-  partial as unverifiable; reworded hosted-tool stop.
-- Catalog JSON for Anthropic, OpenAI, Google, Grok, and Meta; source and
-  coverage tests. `examples/hosted_tools` prints the partial cost. Short
-  updates to the pricing, catalog, and budgets design notes.
+## Changes and tests
 
-**Recorded format:** `Usage.Requests` keys change meaning (meter keys, not
-tool names); `Cost` gains `unpriced`; `Spend` gains `cost_partial` and
-`unpriced`; Grok model facts gain a provider-reported cost. No migration,
-since Dashi has no users yet.
+Recorded format: `Usage.Requests` keys are meter keys; `Cost` gains
+`unpriced_requests`; `Spend` gains `cost_partial` and `unpriced_requests`;
+Grok results gain a provider-reported cost. No migration (no users yet).
+Tests cover: estimates with priced, unpriced, and reserved keys; round trip and
+clone; adapter fixtures per provider (captured for Anthropic, OpenAI, xAI, and
+Meta); partial spend with and without a cap, including a refused raise; a
+cut-off call recording `unreported`; catalog provenance and coverage.
 
-**Tests:** estimate with priced, unpriced, and mixed keys; partial cost JSON
-and clone; adapter fixtures per provider (Anthropic `server_tool_use` counts
-and error exclusion; Responses item keys and preview; xAI counters and tick
-conversion; Gemini 3 unique queries and 2.5 grounded prompt); replay with a
-partial charge with and without a cap, including `Continue`; interrupted call
-with hosted blocks gives `unreported`; catalog key coverage.
+## Follow-ups
 
-## Risks and open questions
-
-- Whether OpenAI bills `open_page` and `find_in_page` actions of a
-  `web_search_call` is not stated; counting every item may overstate.
-- Meta bills per search query; its docs do not say whether one
-  `web_search_call` can hold several queries.
-- A mixed-currency or partial charge now blocks further capped calls, as an
-  unknown charge already does; this is intended but strict.
-- `Spend` gains two fields; the outcome stream exposes `Spend` on `Outcome`.
+- Anthropic code execution is free when `web_search_20260209` or
+  `web_fetch_20260209` (or later) is in the request; Dashi sends older
+  versions. Moving to them would let code execution be priced at zero there.
+  Execution time is billed when files are attached, even if the tool is not
+  called.
+- Bounded admission, once a provider-enforced pass limit is available.
