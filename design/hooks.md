@@ -1,6 +1,6 @@
 # PRD: Hooks
 
-**Status:** Draft, revised after three reviews · **Date:** 2026-09-28 ·
+**Status:** Draft, revised after four reviews · **Date:** 2026-09-28 ·
 **Owner:** Curtis
 
 ## Problem
@@ -21,9 +21,8 @@ a typed decision that Kernel records. Its packaging is not.
   for a call (Pi's plan mode), and hooks cannot keep state of their own.
 - **A nil `Policy` denies all tools,** breaking the zero-value rule.
 
-Most hook bugs elsewhere come from mutable, wrapped state (claude-code #83353,
-opencode #35882, LangChain #40694) or from hooks that skip some paths (ADK
-#1515, Pi #9773, Dive DIVE-11). Kernel avoids the first and closes the second.
+Most hook bugs elsewhere come from mutable, wrapped state or from hooks that
+skip some paths (claude-code #83353, ADK #1515, Pi #9773, Dive DIVE-11).
 
 ## Approach: Pi's hooks, fitted to Kernel
 
@@ -97,7 +96,9 @@ type Hooks struct {
     BeforeFinish []FinishHook
 }
 
-func JoinHooks(hs ...Hooks) Hooks // always allocates new slices
+// JoinHooks always allocates new slices. A name collision between two
+// values is kept in the result and reported by Run.
+func JoinHooks(hs ...Hooks) Hooks
 
 // OnTool decodes a named tool's validated arguments into T. A decode
 // failure is a hook error, so the call is denied.
@@ -123,9 +124,12 @@ gate := kernel.OnTool("gate", "bash",
 runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
 ```
 
-- FR-1: `Runner.Hooks` replaces `Runner.Policy`. `WithHooks(Hooks)` adds hooks
-  for one run, after the runner's. Kernel never appends into caller slices.
-  Names are nonempty and unique within each hook point. A name may repeat across
+- FR-1: `Runner.Hooks` replaces `Runner.Policy`. Like tools and the client, it
+  is configuration the host must supply unchanged on every command for a turn
+  (`Run` with `Start`, `Continue`, `Settle`), because `AfterTool` and resume
+  depend on it. `WithHooks(Hooks)` adds hooks for one command, after the
+  runner's, for extras such as a CLI prompt, never a required redactor.
+  Kernel never appends into caller slices. Names are nonempty and unique within each hook point. A name may repeat across
   points within one `Hooks` value, which shares its state (FR-5), but
   `JoinHooks` and `WithHooks` reject a name that appears in two different
   values, so unrelated hooks cannot collide. Violations make `Run` return an
@@ -142,16 +146,18 @@ runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
   - `ToolDecision{Kind, Reason, Revision, Rewrite, Stop, State}`.
   - `ToolResultDecision{Replace *tool.Output, Failed *bool, Stop, State}`.
   - `FinishDecision{Continue, Deliver, AcceptEmpty, State}`.
-- FR-4: Each step records `Step.Hooks []HookResult{Name, Verdict, Revision,
-  Reason, Error, State}` as provenance. The combined result stays a typed fact:
-  `ToolFact.Decision` records the effective allow, defer or deny after rewrites,
-  and replay reads only that. An explicit allow is recorded but combines as no
+- FR-4: Each step records `Step.Hooks []HookResult{Point, Name, Verdict,
+  Revision, Reason, Error, State}` as provenance; only `ToolDecision` sets
+  `Revision`. The combined result stays a typed fact: `ToolFact.Decision`
+  records the effective allow, defer or deny after rewrites, and replay reads
+  only that. An explicit allow is recorded but combines as no
   opinion. With no opinion at all, the reason is `no hook opinion`.
 - FR-5: **Hook state.** `State json.RawMessage` (at most 16 KiB) is saved with
   the step. `TurnView.HookState(name)` returns the latest value for that name,
   shared across hook points so one bundle keeps one state. A hook sees state
   returned earlier in the same pass (for example, `BeforeSend` sees the same
-  call's `BeforeModel` state), whichever step ends up saving it.
+  call's `BeforeModel` state) through a call-local overlay on the `TurnView`,
+  whichever step saves it; an unacknowledged step discards it.
   `TurnView.Context(origin, name) (ContextItem, bool)` returns the live named
   item, so an injector can tell whether its snapshot is current.
 - FR-6: **Tool visibility.** `ModelDecision.Hide []string` removes application
@@ -172,9 +178,9 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
 | Hook | Combining rule | On error or invalid result |
 |---|---|---|
 | `BeforeModel` | Each hook sees prior settings and builds on `p.Input.Settings` (non-nil replaces the struct); `Deliver` appends; `Hide` unions; the first `Stop` ends the chain. Deliveries commit as one `StepDelivered` | Warning; that hook is skipped |
-| `BeforeSend` | Runs until a denial; the first denial is `StopRefused` (or `StopLimited` with `Limit`) | `StopInterrupted`, reason `hook <name> failed`; resumable, and does not count against `Interruptions` |
+| `BeforeSend` | Runs until a denial; the first denial is `StopRefused` (or `StopLimited` with `Limit`) | `StopInterrupted` with the stable reason `hook_failed` (the hook is named in `Step.Hooks`); resumable, and does not count against `Interruptions` |
 | `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` ignores its `Kind`, is validated, and every hook is asked again (at most 3 rewrites). All-no-opinion allows | Recorded deny; the reason reaches the model and the turn continues |
-| `AfterTool` | Each hook sees the output so far; `Replace` and `Failed` chain; a `Stop` applies after the batch settles | "Result withheld: hook `<name>` failed" and a warning; with `FailOpen`, keep the output and warn |
+| `AfterTool` | Each hook sees the presented output so far; `Replace` and `Failed` chain; a `Stop` applies after the batch settles | "Result withheld: hook `<name>` failed" and a warning; with `FailOpen`, keep the output and warn |
 | `BeforeFinish` | `Continue` and `AcceptEmpty` are true if any hook says so; `Deliver` appends | The answer is not accepted: `StopInterrupted`, as for `BeforeSend`; with `FailOpen`, a warning and no opinion |
 
 - FR-8: **Validate, then hook.** Arguments are checked against the tool schema
@@ -184,17 +190,22 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
 - FR-9: `AfterTool` runs once for every outcome whose content came from a tool
   or the host (executed, failed, or supplied through `Settle`). It does not run
   for denied or not-run outcomes. For `Settle`, it runs inside the command
-  before the commit. `ToolFact.Original` keeps the unmodified outcome; `Outcome`
-  stays what the model sees. `AfterTool` cannot deliver context, which would
+  before the commit. `Outcome` stays the authoritative record of execution
+  state and cost. Changes go to a separate `ToolFact.Presented{Output,
+  IsError}`, which projection uses when set; `ToolView.Presented()` returns
+  what the model sees. A redactor never changes whether a tool ran or its
+  cost. `AfterTool` cannot deliver context, which would
   split a model message's tool calls from their results.
 - FR-10: `BeforeFinish` replaces `OnStop` and runs at every candidate final
   answer, on both the text and `kernel_submit_output` paths. It runs after the
   steering check (design/steering.md FR-7). A `Continue` supersedes a candidate,
   including a submission, under the same rules as a steer (steering FR-7 and
   FR-9). When no model attempt would remain, `Continue` is ignored with a
-  warning; `AcceptEmpty` still applies.
+  warning; `AcceptEmpty` still applies. After a `hook_failed` stop, `Continue`
+  runs `BeforeFinish` again on the recorded candidate, including a successful
+  submission, without another model call or attempt.
 - FR-11: Approval binding is simplified:
-  - Each hook's `Revision` is audit data in `Step.Hooks`.
+  - A `BeforeTool` hook's `Revision` is audit data in `Step.Hooks`.
   - `ApprovalFact.PolicyRevision` becomes an optional `DecisionRevision`, which
     `Settle` checks only when it is set. The approval stays bound to the
     argument digest, as today.
@@ -239,8 +250,8 @@ tool not annotated read-only.
 - `tools_loop.go:199-243` moves schema validation before the hooks. The rewrite
   loop becomes "restart on rewrite", and its `StopFailed` exits become hook
   errors.
-- Replay stops counting `hook <name> failed` interruptions toward
-  `Interruptions`.
+- Replay does not count `hook_failed` stops toward `Interruptions`, and
+  allows a `BeforeFinish` retry on the recorded candidate.
 - Tool definitions are filtered by `Hide` before preparation. The submit-tool
   path gains its `BeforeFinish` call.
 - Update the docs, `design/agent-loop.md`, `design/steering.md`, and

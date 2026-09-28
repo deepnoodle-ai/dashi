@@ -1,6 +1,6 @@
 # PRD: Steering a running turn
 
-**Status:** Draft, revised after three reviews · **Date:** 2026-09-28 ·
+**Status:** Draft, revised after four reviews · **Date:** 2026-09-28 ·
 **Owner:** Curtis
 
 ## Problem
@@ -35,8 +35,8 @@ and each change discards the provider's prompt cache. Dive always sends it.
 2. A precise contract that durable hosts can build on (below), with a stronger,
    clearly scoped guarantee from the built-in inbox.
 3. Steers land only where the transcript stays valid for every provider.
-4. An urgent steer can cut a model response short, but never a running tool and
-   never the turn's last possible answer.
+4. An urgent steer can cut a model response short, but never a running tool,
+   and Kernel never knowingly gives up the turn's last possible answer.
 5. Steering never gets around limits, budgets, deadlines, pause, or cancel.
 6. The system prompt no longer depends on whether reminders are present.
 
@@ -84,7 +84,7 @@ case err != nil:
 case out.RecordingErr() != nil:
     // reload the turn before deciding anything about queued input
 case out.Stop.Final():
-    next := inbox.Leftovers(out.Turn) // drops steers the record already has
+    next, err := inbox.Leftovers(out.Turn) // drops steers already recorded
     // start the next turn with next, if any
 default:
     // stopped but resumable: pass the inbox again on Continue,
@@ -108,8 +108,9 @@ recorder transaction that saves the step, since the step carries the IDs.
   - `Send(Steer) (string, error)` validates and generates a missing ID.
   - `SendText(text string) (string, error)` sends user-origin text.
   - `Cancel(id string) bool` succeeds only while the steer is unclaimed.
-  - `Leftovers(Turn) []Steer` removes steers already in that turn's record,
-    then removes and returns the rest.
+  - `Leftovers(Turn) ([]Steer, error)` removes steers already in that turn's
+    record, then removes and returns the rest. An invalid record returns an
+    error and removes nothing.
 
   `Pending` from a second concurrent run returns an error.
 - FR-4: `ContextItem` gains `ID string`: one delivery, as opposed to `Name`, a
@@ -174,8 +175,9 @@ type Steer struct {
 
   Otherwise steers stay unacknowledged. If the next call is refused anyway (by
   `BeforeSend` or an admission failure), the turn stops with that stop kind.
-  The superseded candidate was never recorded as output, so
-  `StructuredOutput()` reports none; `AnswerText` returns the latest text.
+  Steering can therefore leave a turn without an accepted answer: the
+  superseded candidate was never recorded as output. Only a completed stop
+  means an accepted answer; `AnswerText` alone does not.
 
 **Contract details**
 
