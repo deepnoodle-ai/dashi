@@ -283,11 +283,11 @@ func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
 		return errors.New("completed turn cannot change")
 	}
-	if s.Stop.Kind == StopCanceled {
+	if s.Stop.Terminal {
 		switch step.Kind {
 		case StepModelSettled, StepModelReconciled, StepToolSettled:
 		default:
-			return errors.New("canceled turn only accepts late results")
+			return errors.New("ended turn only accepts late results")
 		}
 	}
 	// Once validated output is recorded, execution has no more work. A
@@ -558,7 +558,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Model.Result != nil {
 			actionable := step.Model.Error == "" && !step.Model.Interrupted &&
-				s.Stop.Kind != StopCanceled
+				!s.Stop.Terminal
 			if err := s.recordResult(
 				step.Model.AttemptID,
 				step.Model.Result,
@@ -595,7 +595,7 @@ func (s *replayState) apply(step Step) error {
 			if err := s.recordResult(
 				step.Model.AttemptID,
 				step.Model.Result,
-				s.Stop.Kind != StopCanceled,
+				!s.Stop.Terminal,
 			); err != nil {
 				return err
 			}
@@ -864,7 +864,21 @@ func (s *replayState) apply(step Step) error {
 			s.Output == nil {
 			return errors.New("completed turn lacks structured output")
 		}
-		if step.Stop.Kind == StopCanceled {
+		s.Stop = *step.Stop
+		if step.Stop.Kind == StopLimited {
+			// A cost stop is terminal when spend includes an unknown cost.
+			if err := s.calculateSpend(); err != nil {
+				return err
+			}
+		}
+		if s.terminal() != step.Stop.Terminal {
+			return fmt.Errorf(
+				"stop terminal=%t, but the turn's state gives %t",
+				step.Stop.Terminal,
+				s.terminal(),
+			)
+		}
+		if step.Stop.Terminal {
 			// The stop is the evidence that calls without a start could not
 			// execute. Started calls remain pending for late reconciliation.
 			for _, id := range s.callOrder {
@@ -1039,8 +1053,7 @@ func (s *replayState) canContinue() bool {
 }
 
 func (s *replayState) canContinueWithBudget(raise *Budget) bool {
-	if s.Revision == 0 || s.Stop.Kind == StopCompleted ||
-		s.Stop.Kind == StopCanceled || s.unresolvedModel != "" ||
+	if s.Revision == 0 || s.terminal() || s.unresolvedModel != "" ||
 		len(s.hosted) > 0 {
 		return false
 	}
@@ -1062,11 +1075,6 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 				return false
 			}
 		}
-	}
-	if s.Stop.Kind == StopLimited &&
-		(s.Stop.Reason == "deadline" || s.Stop.Reason == "interruptions" ||
-			s.ModelAttempts >= s.Agent.Limits.ModelAttempts) {
-		return false
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
 		limit := s.Stop.Limit
@@ -1115,6 +1123,56 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 		}
 	}
 	return true
+}
+
+// terminal reports whether the current stop ends the turn for good: no
+// settlement or raise lets Continue run it again. It reads only the stop,
+// the agent's fixed limits, and counts that never shrink (model attempts
+// and unknown costs), so a recorded answer stays true. Cost stops read
+// Spend, which the caller must have calculated.
+func (s *replayState) terminal() bool {
+	switch s.Stop.Kind {
+	case StopCompleted, StopCanceled:
+		return true
+	case StopLimited:
+	default:
+		return false
+	}
+	if s.ModelAttempts >= s.Agent.Limits.ModelAttempts {
+		return true
+	}
+	if s.Stop.Limit == nil {
+		return false
+	}
+	switch s.Stop.Limit.Kind {
+	case LimitDeadline, LimitInterruptions:
+		return true
+	case LimitCost:
+		return s.Spend.CostUnknown > 0
+	}
+	return false
+}
+
+// acceptsAfterEnd rejects a command on an ended turn unless it is a Settle
+// reporting the result of work that had already started.
+func (s *replayState) acceptsAfterEnd(command Command) error {
+	if !s.Stop.Terminal {
+		return nil
+	}
+	if c, ok := command.(Settle); ok &&
+		c.Approval == nil && c.HostedApproval == nil {
+		if c.ModelResult != nil || c.ModelFailure != nil {
+			if c.CallID != "" &&
+				(c.CallID == s.modelIntent || c.CallID == s.unresolvedModel) {
+				return nil
+			}
+		} else if v, ok := s.Tools[c.CallID]; ok &&
+			(v.Status == ToolStarted || v.Status == ToolWaiting ||
+				v.Status == ToolUncertain) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: turn %s", ErrTurnEnded, s.Stop.Kind)
 }
 
 func (s *replayState) interruptionLimitReached() bool {

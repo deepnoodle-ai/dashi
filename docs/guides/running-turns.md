@@ -196,6 +196,15 @@ results. `Outcome.ReadyToContinue` and the replayed turn's
 `TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
 
+A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
+**waiting on the host** (approvals, results, a budget raise), or **ended**
+(`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
+completed, canceled, or limited by its deadline, its interruptions, its model
+attempts, or a cost cap that can no longer be checked. After that, only
+`Settle` reporting the result of work that had already started is accepted;
+every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
+as not executed, so no approval stays pending on an ended turn.
+
 The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after
 interruption, 3 provider pauses, one tool call at a time, a reserved final
 answer, and no deadline. Set only the fields you want to change; a negative

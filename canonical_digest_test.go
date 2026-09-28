@@ -488,6 +488,20 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	if bytes.Equal(a, b) {
 		t.Fatal("simulation left the history byte-identical")
 	}
+	// A genuinely different history is still rejected.
+	other := append(slices.Clone(stored), llm.UserMessage(llm.Text("extra")))
+	_, err = runner.Run(
+		t.Context(),
+		mustLoad(t, rec),
+		Continue{
+			CommandID:         "continue-2",
+			History:           other,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
+	)
+	if !errors.Is(err, ErrHistoryMismatch) {
+		t.Fatalf("different history err=%v", err)
+	}
 	out, err = runner.Run(
 		t.Context(),
 		mustLoad(t, rec),
@@ -508,19 +522,5 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		if len(step.Warnings) != 0 {
 			t.Fatalf("jsonb history produced warnings: %+v", step.Warnings)
 		}
-	}
-	// A genuinely different history is still rejected.
-	other := append(stored, llm.UserMessage(llm.Text("extra")))
-	_, err = runner.Run(
-		t.Context(),
-		mustLoad(t, rec),
-		Continue{
-			CommandID:         "continue-2",
-			History:           other,
-			OnHistoryMismatch: HistoryMismatchReject,
-		},
-	)
-	if !errors.Is(err, ErrHistoryMismatch) {
-		t.Fatalf("different history err=%v", err)
 	}
 }

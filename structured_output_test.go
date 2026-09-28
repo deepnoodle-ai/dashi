@@ -47,13 +47,13 @@ func TestMustOutputSchema(t *testing.T) {
 
 func TestDecodeOutput(t *testing.T) {
 	ada := &StructuredOutput{Value: json.RawMessage(`{"name":"Ada"}`)}
-	completed := Stop{Kind: StopCompleted}
+	completed := *testStop(StopCompleted, "")
 	person, err := DecodeOutput[testPerson](outcomeOf(completed, ada))
 	if err != nil || person.Name != "Ada" {
 		t.Fatalf("person=%+v err=%v", person, err)
 	}
 
-	limited := Stop{Kind: StopLimited, Reason: "model_attempts"}
+	limited := *testStop(StopLimited, LimitModelAttempts)
 	_, err = DecodeOutput[testPerson](outcomeOf(limited, nil))
 	if !errors.Is(err, ErrNoOutput) ||
 		!strings.Contains(err.Error(), "limited: model_attempts") {

@@ -1,0 +1,296 @@
+package dashi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
+)
+
+// testStop builds a stop the way the runner records it, for records built by
+// hand: a limit kind fills Limit and Reason, and Terminal is set for the
+// stops that end a turn whatever its state (completed, canceled, deadline,
+// interruptions, and model attempts, which the runner records only once
+// they are used up).
+func testStop(kind StopKind, limit LimitKind) *Stop {
+	stop := &Stop{Kind: kind}
+	if limit != "" {
+		stop.Reason = string(limit)
+		stop.Limit = &LimitDetail{Kind: limit}
+	}
+	switch {
+	case kind == StopCompleted, kind == StopCanceled:
+		stop.Terminal = true
+	case limit == LimitDeadline, limit == LimitInterruptions,
+		limit == LimitModelAttempts:
+		stop.Terminal = true
+	}
+	return stop
+}
+
+func TestTerminalStops(t *testing.T) {
+	limited := func(kind LimitKind) Stop {
+		return Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: kind}}
+	}
+	tests := []struct {
+		name        string
+		stop        Stop
+		attempts    int
+		costUnknown int
+		want        bool
+	}{
+		{name: "completed", stop: Stop{Kind: StopCompleted}, want: true},
+		{name: "canceled", stop: Stop{Kind: StopCanceled}, want: true},
+		{name: "waiting", stop: Stop{Kind: StopWaiting}},
+		{name: "interrupted", stop: Stop{Kind: StopInterrupted}},
+		{name: "failed", stop: Stop{Kind: StopFailed}},
+		{name: "hook failed", stop: Stop{Kind: StopFailed, Reason: "hook_failed"}},
+		{name: "refused", stop: Stop{Kind: StopRefused}},
+		{name: "uncertain", stop: Stop{Kind: StopUncertain}},
+		{name: "deadline", stop: limited(LimitDeadline), want: true},
+		{name: "interruptions", stop: limited(LimitInterruptions), want: true},
+		{name: "model attempts", stop: limited(LimitModelAttempts), attempts: 8, want: true},
+		{name: "cost after last attempt", stop: limited(LimitCost), attempts: 8, want: true},
+		{name: "host after last attempt", stop: limited(LimitHost), attempts: 9, want: true},
+		{name: "cost", stop: limited(LimitCost)},
+		{name: "cost with unknown spend", stop: limited(LimitCost), costUnknown: 1, want: true},
+		{name: "unpriced model", stop: Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}}},
+		{name: "output tokens", stop: limited(LimitOutputTokens), attempts: 7},
+		{name: "total tokens", stop: limited(LimitTotalTokens)},
+		{name: "provider pauses", stop: limited(LimitProviderPauses)},
+		{name: "host", stop: limited(LimitHost)},
+		{name: "reason without limit", stop: Stop{Kind: StopLimited, Reason: "deadline"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &replayState{}
+			s.Stop, s.ModelAttempts = tt.stop, tt.attempts
+			s.Agent.Limits.ModelAttempts = 8
+			s.Revision = 2
+			s.Spend.CostUnknown = tt.costUnknown
+			if got := s.terminal(); got != tt.want {
+				t.Fatalf("terminal=%t, want %t", got, tt.want)
+			}
+			if !tt.want {
+				return
+			}
+			// Invariant: a terminal stop cannot continue under any raise.
+			huge := &Budget{
+				MaxOutputTokens: 1 << 40,
+				MaxTotalTokens:  1 << 40,
+				MaxCost:         &Money{Amount: money.Amount(1 << 60), Currency: "USD"},
+			}
+			if s.canContinueWithBudget(huge) || s.canContinue() {
+				t.Fatal("a terminal stop can continue")
+			}
+		})
+	}
+}
+
+func TestRecordedStopsCarryTerminal(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out, err := start(t, client, nil, NewMemoryRecorder(), nil)
+	if err != nil || !out.Stop.Terminal || !out.TurnView.Stop.Terminal {
+		t.Fatalf("completed stop=%+v err=%v", out.Stop, err)
+	}
+	last := out.Turn.Steps[len(out.Turn.Steps)-1]
+	raw, err := json.Marshal(last.Stop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"kind":"completed","terminal":true}` {
+		t.Fatalf("recorded stop=%s", raw)
+	}
+
+	pause := make(chan struct{})
+	close(pause)
+	paused, err := (Runner{Agent: testAgent(), Client: client}).Run(
+		t.Context(), Turn{ID: "p"}, limitsStart(), WithPause(pause),
+	)
+	if err != nil || paused.Stop.Kind != StopInterrupted || paused.Stop.Terminal {
+		t.Fatalf("interrupted stop=%+v err=%v", paused.Stop, err)
+	}
+}
+
+func TestReplayRejectsMisstatedTerminal(t *testing.T) {
+	for _, stop := range []*Stop{
+		{Kind: StopCompleted},
+		{Kind: StopWaiting, Terminal: true},
+		{Kind: StopLimited, Reason: "deadline", Limit: &LimitDetail{Kind: LimitDeadline}},
+	} {
+		turn := interruptionRecord(
+			interruptionStart(testAgent()),
+			Step{Kind: StepStopped, Stop: stop},
+		)
+		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+			t.Fatalf("replay of %+v: err=%v", stop, err)
+		}
+	}
+}
+
+func TestDeadlineStopEndsTurn(t *testing.T) {
+	def := testAgent()
+	def.Limits.Deadline = time.Now().Add(-time.Minute)
+	client := &scriptedClient{results: []llm.Result{final("never")}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Agent: def, Client: client, Recorder: rec}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart())
+	if err != nil || out.Stop.Kind != StopLimited || !out.Stop.Terminal {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	commands := map[string]Command{
+		"continue": Continue{CommandID: "c", Budget: &Budget{MaxOutputTokens: 1 << 20}},
+		"deliver": Deliver{CommandID: "d", Items: []ContextItem{
+			{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
+		}},
+		"cancel": Cancel{CommandID: "x"},
+	}
+	for name, command := range commands {
+		if _, err := runner.Run(t.Context(), out.Turn, command); !errors.Is(err, ErrTurnEnded) {
+			t.Fatalf("%s: err=%v, want ErrTurnEnded", name, err)
+		}
+	}
+	saved, err := rec.Load(t.Context(), "t1")
+	if err != nil || client.sends != 0 || len(saved.Steps) != len(out.Turn.Steps) {
+		t.Fatal("a command on an ended turn ran or recorded")
+	}
+}
+
+// A retried Cancel gets its recorded answer; a new one is refused.
+func TestCancelOnEndedTurn(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, writeTool(), rec, deferredPolicy{})
+	if err != nil || first.Stop.Kind != StopWaiting {
+		t.Fatalf("start=%+v err=%v", first.Stop, err)
+	}
+	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	cancel := Cancel{CommandID: "cancel", Reason: "user"}
+	canceled, err := runner.Run(t.Context(), first.Turn, cancel)
+	if err != nil || !canceled.Stop.Terminal {
+		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
+	}
+	again, err := runner.Run(t.Context(), canceled.Turn, cancel)
+	if err != nil || again.Stop.Kind != StopCanceled {
+		t.Fatalf("retried cancel=%+v err=%v", again.Stop, err)
+	}
+	if _, err := runner.Run(t.Context(), canceled.Turn, Cancel{CommandID: "other"}); !errors.Is(err, ErrTurnEnded) {
+		t.Fatalf("second cancel err=%v", err)
+	}
+	// The unstarted call was settled as not executed, so approving it now
+	// reports the real reason.
+	approve := first.Pending[0].Approve()
+	approve.CommandID = "approve"
+	if _, err := runner.Run(t.Context(), canceled.Turn, approve); !errors.Is(err, ErrTurnEnded) {
+		t.Fatalf("approval err=%v", err)
+	}
+}
+
+// Every terminal stop applies the cancel rules: an approval pending when the
+// deadline stopped the turn is settled as not executed and cannot be given.
+func TestDeadlineStopSettlesPendingApproval(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	first, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredPolicy{})
+	if err != nil || first.Stop.Kind != StopWaiting {
+		t.Fatalf("start=%+v err=%v", first.Stop, err)
+	}
+	turn := cloneTurn(first.Turn)
+	turn.Steps = append(turn.Steps, Step{
+		Version: 1,
+		TurnID:  turn.ID,
+		Seq:     int64(len(turn.Steps) + 1),
+		Kind:    StepStopped,
+		Stop:    testStop(StopLimited, LimitDeadline),
+	})
+	view, err := Replay(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Pending) != 0 ||
+		view.Tools["call-1"].Status != ToolSettled ||
+		view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("pending=%+v tool=%+v", view.Pending, view.Tools["call-1"])
+	}
+	approve := first.Pending[0].Approve()
+	approve.CommandID = "approve"
+	runner := Runner{Agent: testAgent(), Client: client}
+	if _, err := runner.Run(t.Context(), turn, approve); !errors.Is(err, ErrTurnEnded) {
+		t.Fatalf("approval err=%v", err)
+	}
+}
+
+// A started tool's late result is still recorded after the turn ends.
+func TestCanceledTurnRecordsLateToolResult(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+	rec := NewMemoryRecorder()
+	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		panic("boom")
+	})
+	runner := toolRunner(client, rec, panics)
+	first, err := startTurn(testAgent(), runner)
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start=%+v err=%v", first.Stop, err)
+	}
+	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
+	if err != nil || !canceled.Stop.Terminal {
+		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
+	}
+	late, err := runner.Run(t.Context(), canceled.Turn, Settle{
+		CommandID: "late",
+		CallID:    "call-1",
+		Outcome:   new(tool.Succeeded("done late")),
+	})
+	if err != nil || late.Stop.Kind != StopCanceled ||
+		late.Tools["call-1"].Status != ToolSettled {
+		t.Fatalf("late=%+v tool=%+v err=%v", late.Stop, late.Tools["call-1"], err)
+	}
+	if client.sends != 1 {
+		t.Fatalf("sends=%d, want no model call after the late result", client.sends)
+	}
+}
+
+// A late model result on an ended turn is recorded for accounting, but its
+// tool calls never enter the turn.
+func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors:  []error{errors.New("connection lost")},
+	}
+	first, err := start(t, client, writeTool(), NewMemoryRecorder(), nil)
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
+	}
+	turn := cloneTurn(first.Turn)
+	turn.Steps = append(turn.Steps, Step{
+		Version: 1,
+		TurnID:  turn.ID,
+		Seq:     int64(len(turn.Steps) + 1),
+		Kind:    StepStopped,
+		Stop:    testStop(StopLimited, LimitDeadline),
+	})
+	late := callResult("call-1", "write")
+	out, err := (Runner{Agent: testAgent(), Client: client, Tools: writeTool()}).Run(
+		t.Context(),
+		turn,
+		Settle{CommandID: "late", CallID: "t1:model:1", ModelResult: &late},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Tools) != 0 || len(out.Pending) != 0 || out.ReadyToContinue {
+		t.Fatalf("tools=%+v pending=%+v", out.Tools, out.Pending)
+	}
+}
+
+func writeTool() tool.List {
+	return tool.List{tool.Tool{Definition: tool.Definition{
+		Name:   "write",
+		Schema: []byte(`{"type":"object"}`),
+		Kind:   tool.KindLocal,
+	}}}
+}

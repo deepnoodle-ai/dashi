@@ -301,6 +301,11 @@ func (r Runner) apply(
 			}
 		}
 	}
+	// Checked after the retry checks, so a retried command on an ended turn
+	// still gets its recorded answer.
+	if err := state.acceptsAfterEnd(command); err != nil {
+		return Outcome{}, err
+	}
 	runCtx := ctx
 	if !agent.Limits.Deadline.IsZero() {
 		var cancel context.CancelFunc
@@ -367,8 +372,6 @@ func (r Runner) apply(
 		}
 	case Deliver:
 		if len(turn.Steps) == 0 ||
-			state.Stop.Kind == StopCompleted ||
-			state.Stop.Kind == StopCanceled ||
 			state.Output != nil ||
 			len(c.Items) == 0 {
 			return Outcome{}, errors.New("dashi: turn cannot receive context")
@@ -578,10 +581,7 @@ func (r Runner) apply(
 		}
 		return rt.result(rt.current())
 	case Cancel:
-		if len(turn.Steps) == 0 ||
-			state.Stop.Kind == StopCompleted ||
-			state.Stop.Kind == StopCanceled ||
-			state.Output != nil {
+		if len(turn.Steps) == 0 || state.Output != nil {
 			return Outcome{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
@@ -693,6 +693,11 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
+	if step.Kind == StepStopped && step.Stop != nil {
+		stop := *step.Stop
+		stop.Terminal = r.terminalAfter(stop)
+		step.Stop = &stop
+	}
 	if _, err := json.Marshal(step); err != nil {
 		r.err = &CommitError{
 			Persistence: PersistenceRejected,
@@ -731,6 +736,18 @@ func (r *runtime) commit(step Step) *Outcome {
 		r.emit(event)
 	}
 	return nil
+}
+
+// terminalAfter reports whether recording stop would end the turn. A stop
+// changes none of the state terminal reads except the stop itself.
+func (r *runtime) terminalAfter(stop Stop) bool {
+	state, err := replay(r.turn)
+	if err != nil {
+		// The commit's own replay check reports the broken record.
+		return false
+	}
+	state.Stop = stop
+	return state.terminal()
 }
 
 func (r *runtime) emit(event Event) {
@@ -848,7 +865,7 @@ func (r *runtime) run() Outcome {
 		if e != nil {
 			return r.stop(StopFailed, e.Error())
 		}
-		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
+		if s.Stop.Terminal {
 			return r.current()
 		}
 		if s.Interruptions > max(r.agent.Limits.Interruptions, 0) {

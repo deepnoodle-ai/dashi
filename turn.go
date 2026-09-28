@@ -385,6 +385,18 @@ type Stop struct {
 	Reason string   `json:"reason,omitempty"`
 	// Limit enables callers to handle a limited stop without parsing Reason.
 	Limit *LimitDetail `json:"limit,omitempty"`
+	// Terminal means the turn has ended: no command can run it again,
+	// whatever the host settles or raises. It is true for completed and
+	// canceled turns; for a limited turn stopped by its deadline or its
+	// interruptions limit; for any limited turn that has used all its model
+	// attempts; and for a turn limited by cost whose spend includes a cost
+	// that cannot be priced. The runner sets it when it records the stop.
+	//
+	// After a terminal stop the record accepts only late results of work
+	// that had already started, and other commands give ErrTurnEnded. A
+	// live reader that stops at a terminal stop can miss those results; a
+	// reload shows them.
+	Terminal bool `json:"terminal,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool. The reason is a stable
@@ -521,8 +533,13 @@ var (
 	// Nothing is committed; retry with the history the turn started with.
 	ErrHistoryMismatch = errors.New("dashi: history differs from turn start")
 	// ErrNotReady rejects a Continue on a turn that cannot run yet. The
-	// wrapped message names the calls the turn waits on, or its stop.
+	// wrapped message names the calls the turn waits on, or its stop. A
+	// turn that can never run again gives ErrTurnEnded instead.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
+	// ErrTurnEnded rejects a command on a turn whose stop is terminal (see
+	// Stop.Terminal). Only a Settle reporting the result of work that had
+	// already started is accepted after the turn ends.
+	ErrTurnEnded = errors.New("dashi: turn has ended")
 	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug
 	// in the runner or recorder. Unlike a rejected command, something was
 	// recorded. Run wraps it together with ErrInvalidTurn.

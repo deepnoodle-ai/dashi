@@ -35,7 +35,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			name:         "plain error",
 			executor:     failingFunc(t, errors.New("quota exceeded")),
 			results:      []llm.Result{oneCall, final("ok")},
-			stop:         Stop{Kind: StopCompleted},
+			stop:         *testStop(StopCompleted, ""),
 			status:       ToolSettled,
 			state:        tool.StateFailed,
 			reasonPrefix: "quota exceeded",
