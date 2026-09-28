@@ -9,16 +9,58 @@ import (
 
 // CommitRequest proposes one step at an expected turn revision and owner.
 type CommitRequest struct {
+	// Step is the fact to append. Its TurnID names the turn and its Seq is
+	// ExpectedSeq+1.
 	Step Step
-	// ExpectedSeq is the committed sequence immediately before Step.
+	// ExpectedSeq is the committed sequence immediately before Step: the
+	// number of steps the runner believes the turn has.
 	ExpectedSeq int64
-	// Owner is the host lease token checked by recorders that support fencing.
+	// Owner is the lease token passed to Runner.Run with WithOwner, or empty.
+	// A recorder that fences writers accepts a commit only when Owner equals
+	// the token of the turn's latest claim; a turn never claimed accepts any
+	// owner, including an empty one. Claiming is the host's lease operation
+	// and is not part of this interface.
 	Owner string
 }
 
-// Recorder acknowledges each fact before dependent execution. A host recorder
-// can atomically include budget reservations, accounting, and outbox writes.
-// A recorder that can read a turn back should also implement Loader.
+// Recorder is the durable record of turns. The runner commits each step
+// before it acts on it, so a step the recorder acknowledged is the truth that
+// recovery, accounting, and live presentation rebuild from. A host recorder
+// can write its own rows in the same transaction: budget reservations,
+// accounting, projections, or an outbox.
+//
+// Commit must follow these rules, which the runner relies on for recovery:
+//
+//   - Append only at ExpectedSeq+1, and only when the turn has exactly
+//     ExpectedSeq steps; otherwise reject with ErrRevisionConflict.
+//   - A commit at an occupied sequence succeeds without appending when the
+//     recorded step has the same JSON meaning (Step.Equal), because a
+//     commit whose acknowledgement was lost is retried. Any other step there,
+//     even one that differs only in its time, is rejected with
+//     ErrRevisionConflict: it comes from a worker holding an old snapshot.
+//   - A step whose CommandID is already recorded in the turn succeeds without
+//     appending when its Kind and CommandDigest match the recorded step, and
+//     is rejected with ErrCommandConflict when they differ. Check this before
+//     the sequence rules.
+//   - When the host leases turns, reject a commit whose Owner is not the
+//     latest claim's (see CommitRequest.Owner).
+//   - Return a *CommitError with PersistenceRejected only when the step was
+//     certainly not written. Any other error, including a timeout after the
+//     write was sent, is treated as unknown: the runner stops and the host
+//     loads the turn to learn whether it committed.
+//   - Preserve each step's JSON meaning. Key order, whitespace, and number
+//     spelling may change, so a jsonb column works; keep the step's own JSON
+//     as the record rather than rebuilding fields such as At from columns.
+//   - Be safe for concurrent use; of concurrent commits at one sequence,
+//     exactly one succeeds.
+//
+// Validating that the appended steps form a well-formed turn is optional;
+// the runner validates what it loads. A recorder that can read a turn back
+// should also implement Loader, which recovery needs.
+//
+// The dashitest package checks these rules (dashitest.Run) and injects commit
+// faults for recovery tests. MemoryRecorder and the filerecorder package are
+// reference implementations.
 type Recorder interface {
 	Commit(context.Context, CommitRequest) error
 }
@@ -34,17 +76,14 @@ type Recorder interface {
 // error means the record could not be read, and Run returns it without
 // committing, because the caller's snapshot may be stale and acting on it
 // could repeat a model call or tool execution.
-//
-// A recorder should also reject a step at an occupied sequence number that
-// differs from the recorded one, even if only in its time or when it repeats
-// an earlier step's kind and attempt or call ID. That keeps a worker holding
-// an old snapshot from running past the record.
 type Loader interface {
 	Load(ctx context.Context, turnID string) (Turn, error)
 }
 
 // CommitError distinguishes a rejected write from a write whose commit status
-// must be checked by loading the turn. A plain error is treated as unknown.
+// must be checked by loading the turn. A plain error from Commit is treated
+// as PersistenceUnknown. Wrap ErrRevisionConflict or ErrCommandConflict in
+// Err so callers can tell why a commit was rejected.
 type CommitError struct {
 	// Persistence states whether this failed call could have committed a step.
 	Persistence Persistence
@@ -144,7 +183,7 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if int64(len(t.Steps)) >= req.Step.Seq {
 		// A retry of an acknowledged step is a success. Compare by JSON
 		// meaning, since the caller may retry a step it reloaded from storage.
-		if sameJSONValue(t.Steps[req.Step.Seq-1], req.Step) {
+		if t.Steps[req.Step.Seq-1].Equal(req.Step) {
 			return nil
 		}
 		return &CommitError{
