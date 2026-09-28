@@ -1,0 +1,444 @@
+{
+  "provider": "mistral",
+  "source": "https://docs.mistral.ai/models/overview",
+  "default": "mistral-medium-latest",
+  "destinations": [
+    {
+      "api": "openai.completions",
+      "endpoint": "https://api.mistral.ai/v1/chat/completions"
+    }
+  ],
+  "models": [
+    {
+      "model": "mistral-medium-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-15",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 1.5,
+          "output": 7.5,
+          "cache_read": 1.5,
+          "cache_write": 1.5
+        }
+      }
+    },
+    {
+      "model": "magistral-medium-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Alias of mistral-medium-latest.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 1.5,
+          "output": 7.5,
+          "cache_read": 1.5,
+          "cache_write": 1.5
+        }
+      }
+    },
+    {
+      "model": "mistral-small-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-15",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.15,
+          "output": 0.6,
+          "cache_read": 0.15,
+          "cache_write": 0.15
+        }
+      }
+    },
+    {
+      "model": "magistral-small-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Alias of mistral-small-latest.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.15,
+          "output": 0.6,
+          "cache_read": 0.15,
+          "cache_write": 0.15
+        }
+      }
+    },
+    {
+      "model": "mistral-small-2603",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.15,
+          "output": 0.6,
+          "cache_read": 0.15,
+          "cache_write": 0.15
+        }
+      }
+    },
+    {
+      "model": "mistral-large-2512",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      }
+    },
+    {
+      "model": "mistral-large-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-15",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.5,
+          "output": 1.5,
+          "cache_read": 0.5,
+          "cache_write": 0.5
+        }
+      }
+    },
+    {
+      "model": "mistral-large-2411",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2025-10-15",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 2,
+          "output": 6,
+          "cache_read": 2,
+          "cache_write": 2
+        }
+      }
+    },
+    {
+      "model": "glm-5-2",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 1.4,
+          "output": 4.4,
+          "cache_read": 0.14,
+          "cache_write": 1.4
+        }
+      }
+    },
+    {
+      "model": "zai-glm-5-2",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Alias of glm-5-2; Mistral's pricing page lists this id.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 1.4,
+          "output": 4.4,
+          "cache_read": 0.14,
+          "cache_write": 1.4
+        }
+      }
+    },
+    {
+      "model": "ministral-14b-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.2,
+          "output": 0.2,
+          "cache_read": 0.2,
+          "cache_write": 0.2
+        }
+      }
+    },
+    {
+      "model": "ministral-14b-2512",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.2,
+          "output": 0.2,
+          "cache_read": 0.2,
+          "cache_write": 0.2
+        }
+      }
+    },
+    {
+      "model": "ministral-8b-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.15,
+          "output": 0.15,
+          "cache_read": 0.15,
+          "cache_write": 0.15
+        }
+      }
+    },
+    {
+      "model": "ministral-8b-2512",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.15,
+          "output": 0.15,
+          "cache_read": 0.15,
+          "cache_write": 0.15
+        }
+      }
+    },
+    {
+      "model": "ministral-3b-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 131072
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.1,
+          "output": 0.1,
+          "cache_read": 0.1,
+          "cache_write": 0.1
+        }
+      }
+    },
+    {
+      "model": "ministral-3b-2512",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 131072
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.1,
+          "output": 0.1,
+          "cache_read": 0.1,
+          "cache_write": 0.1
+        }
+      }
+    },
+    {
+      "model": "codestral-latest",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 256000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2025-01-15",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": 0.3,
+          "output": 0.9,
+          "cache_read": 0.3,
+          "cache_write": 0.3
+        }
+      }
+    },
+    {
+      "model": "codestral-2508",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 256000
+      }
+    }
+  ]
+}

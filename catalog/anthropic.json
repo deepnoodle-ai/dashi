@@ -1,0 +1,706 @@
+{
+  "provider": "anthropic",
+  "source": "https://platform.claude.com/docs/en/about-claude/models/overview.md",
+  "default": "claude-sonnet-5",
+  "destinations": [
+    {
+      "api": "anthropic.messages",
+      "endpoint": "https://api.anthropic.com/v1/messages"
+    }
+  ],
+  "models": [
+    {
+      "model": "claude-fable-5-1",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-01",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 10,
+          "output": 50,
+          "cache_read": 0.25,
+          "cache_write": 12.5
+        }
+      }
+    },
+    {
+      "model": "claude-mythos-5-1",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model. Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-01",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 10,
+          "output": 50,
+          "cache_read": 0.25,
+          "cache_write": 12.5
+        }
+      }
+    },
+    {
+      "model": "claude-fable-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-06-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        }
+      }
+    },
+    {
+      "model": "claude-mythos-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-06-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        }
+      }
+    },
+    {
+      "model": "claude-opus-5-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-22",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.2,
+          "cache_write": 5
+        }
+      }
+    },
+    {
+      "model": "claude-opus-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "$2/$10 per MTok launched as introductory pricing through 2026-08-31 and is now the standard price; Anthropic cancelled the scheduled increase to $3/$15.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-01",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.2,
+          "cache_write": 2.5
+        }
+      }
+    },
+    {
+      "model": "claude-opus-4-8",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-05-28",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-opus-4-7",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "unsupported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-05-28",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-opus-4-6",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-05-28",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-03-10",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        }
+      }
+    },
+    {
+      "model": "claude-opus-4-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "snapshot": "claude-opus-4-5-20251101",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-opus-4-5-20251101",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "snapshot": "claude-sonnet-4-5-20250929",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "unsupported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-5-20250929",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "unsupported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        }
+      }
+    },
+    {
+      "model": "claude-haiku-4-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "snapshot": "claude-haiku-4-5-20251001",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "unsupported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 1,
+          "output": 5,
+          "cache_read": 0.1,
+          "cache_write": 1.25
+        }
+      }
+    },
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "parallel_tools": "supported",
+          "temperature": "supported",
+          "max_tokens": "supported",
+          "reasoning_effort": "unsupported",
+          "reasoning_budget": "supported",
+          "streaming": "supported"
+        },
+        "max_output_tokens": 64000,
+        "context_window": 200000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-02-09",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": 1,
+          "output": 5,
+          "cache_read": 0.1,
+          "cache_write": 1.25
+        }
+      }
+    }
+  ]
+}
