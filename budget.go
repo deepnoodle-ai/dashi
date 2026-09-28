@@ -18,14 +18,14 @@ type Money struct {
 	Currency string `json:"currency"`
 }
 
-// Budget caps a turn's cumulative model usage and cost. Start sets it; a
-// Continue command may raise existing caps after host authorization.
+// Budget caps a turn's cumulative model usage and model-call charges. Start
+// sets it; Continue may raise existing caps after host authorization.
 type Budget struct {
 	// MaxOutputTokens caps generated tokens across all calls in the turn.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 	// MaxTotalTokens caps disjoint input buckets plus output across calls.
 	MaxTotalTokens int `json:"max_total_tokens,omitempty"`
-	// MaxCost requires every charge to be known in the same currency.
+	// MaxCost requires every model-call charge in the same currency.
 	MaxCost *Money `json:"max_cost,omitempty"`
 }
 
@@ -135,14 +135,17 @@ func (l LimitDetail) Validate() error {
 	return nil
 }
 
-// Spend is reconstructed from committed model and tool settlements. Estimated
-// counts calls whose usage never arrived; CostUnknown counts calls whose charge
-// cannot be expressed in the turn's cost-cap currency (or has no charge).
+// Spend is reconstructed from committed model and tool settlements. MaxCost
+// applies to Cost, while ToolCost is reported separately for host admission.
+// Estimated counts calls whose usage never arrived; CostUnknown counts calls
+// whose model charge is unknown or in another currency.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
-	// Cost contains settled charges by currency, without conversion.
+	// Cost contains model-call charges by currency, without conversion.
 	Cost map[string]float64 `json:"cost,omitempty"`
+	// ToolCost contains local tool charges outside MaxCost.
+	ToolCost map[string]float64 `json:"tool_cost,omitempty"`
 	// Estimated counts calls without provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
 	// CostUnknown counts attempts whose charge cannot enforce a cost cap.
@@ -153,6 +156,7 @@ type Spend struct {
 func (s Spend) Clone() Spend {
 	s.Usage = *s.Usage.Copy()
 	s.Cost = maps.Clone(s.Cost)
+	s.ToolCost = maps.Clone(s.ToolCost)
 	return s
 }
 
@@ -200,12 +204,16 @@ func (s Spend) costIn(currency string) (float64, bool) {
 	return used, true
 }
 
-func (s *Spend) addCost(currency string, amount float64) error {
-	total := s.Cost[currency] + amount
+func addCurrencyCost(
+	totals map[string]float64,
+	currency string,
+	amount float64,
+) error {
+	total := totals[currency] + amount
 	if math.IsNaN(total) || math.IsInf(total, 0) {
 		return errors.New("kernel: cumulative cost overflows")
 	}
-	s.Cost[currency] = total
+	totals[currency] = total
 	return nil
 }
 

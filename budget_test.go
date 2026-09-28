@@ -139,23 +139,28 @@ func TestBudgetCloneCopiesCostCap(t *testing.T) {
 
 func TestSpendCloneCopiesUsageAndCosts(t *testing.T) {
 	spend := Spend{
-		Usage: llm.Usage{Requests: map[string]int{"web_search": 1}},
-		Cost:  map[string]float64{"USD": 1},
+		Usage:    llm.Usage{Requests: map[string]int{"web_search": 1}},
+		Cost:     map[string]float64{"USD": 1},
+		ToolCost: map[string]float64{"EUR": 2},
 	}
 	clone := spend.Clone()
 	clone.Usage.Requests["web_search"] = 2
 	clone.Cost["USD"] = 2
+	clone.ToolCost["EUR"] = 3
 	if spend.Usage.Requests["web_search"] != 1 {
 		t.Fatal("spend clone shared hosted request counts")
 	}
 	if spend.Cost["USD"] != 1 {
-		t.Fatal("spend clone shared currency totals")
+		t.Fatal("spend clone shared model cost totals")
+	}
+	if spend.ToolCost["EUR"] != 2 {
+		t.Fatal("spend clone shared tool cost totals")
 	}
 }
 
 func TestSpendAddCostRejectsOverflow(t *testing.T) {
 	spend := Spend{Cost: map[string]float64{"USD": math.MaxFloat64}}
-	if err := spend.addCost("USD", math.MaxFloat64); err == nil {
+	if err := addCurrencyCost(spend.Cost, "USD", math.MaxFloat64); err == nil {
 		t.Fatal("overflowing cumulative cost was accepted")
 	}
 	if spend.Cost["USD"] != math.MaxFloat64 {
@@ -182,6 +187,80 @@ func TestBudgetStopsUnpricedModelBeforeDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out.Stop.Reason, "supply this model's prices") {
 		t.Fatalf("reason=%q", out.Stop.Reason)
+	}
+}
+
+func TestBudgetStopsWithoutFiniteOutputAllowance(t *testing.T) {
+	client := newPricedClient(final("unused"))
+	out := runBudgetTurn(
+		t,
+		client,
+		&Budget{MaxCost: &Money{Amount: 0.5, Currency: "USD"}},
+		llm.Settings{},
+		nil,
+		nil,
+	)
+	requireBudgetLimit(t, out, LimitCost)
+	if client.sends != 0 {
+		t.Fatalf("unbounded request sent %d calls", client.sends)
+	}
+	if !strings.Contains(out.Stop.Reason, "finite max_tokens") {
+		t.Fatalf("reason=%q", out.Stop.Reason)
+	}
+}
+
+func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
+	client := newPricedClient(final("unused"))
+	out := runBudgetTurn(
+		t,
+		client,
+		&Budget{MaxCost: &Money{Amount: 0.00001, Currency: "USD"}},
+		llm.Settings{MaxTokens: 100},
+		nil,
+		nil,
+	)
+	limit := requireBudgetLimit(t, out, LimitCost)
+	if limit.FitTokens != 0 {
+		t.Fatalf("fit tokens=%d", limit.FitTokens)
+	}
+	if client.sends != 0 {
+		t.Fatalf("unaffordable input sent %d calls", client.sends)
+	}
+	if !strings.Contains(out.Stop.Reason, "reduce input/history") {
+		t.Fatalf("reason=%q", out.Stop.Reason)
+	}
+}
+
+func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
+	client := newPricedClient()
+	input := llm.Input{
+		Model:    "fixture",
+		Settings: llm.Settings{MaxTokens: 100},
+		Tools: []tool.Definition{
+			{
+				Name: "web_search",
+				Kind: tool.KindProviderHosted,
+				Hosted: &tool.HostedSpec{
+					Provider: "test",
+					API:      "test.chat",
+					Type:     "web_search",
+				},
+			},
+		},
+	}
+	request, err := client.Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &replayState{TurnView: TurnView{
+		Budget: &Budget{MaxCost: &Money{Amount: 0.5, Currency: "USD"}},
+	}}
+	_, _, stop := checkSendBudget(state, request, "fixture")
+	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
+		t.Fatalf("hosted cost was admitted: stop=%+v", stop)
+	}
+	if !strings.Contains(stop.Reason, "remove hosted tools") {
+		t.Fatalf("reason=%q", stop.Reason)
 	}
 }
 
@@ -407,7 +486,7 @@ func TestBudgetHostDenialIsResumableLimit(t *testing.T) {
 	}
 }
 
-func TestBudgetToolCostInOtherCurrencyStopsBeforeNextCall(t *testing.T) {
+func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 10}
 	client := newPricedClient(first, final("unused"))
@@ -424,14 +503,19 @@ func TestBudgetToolCostInOtherCurrencyStopsBeforeNextCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireBudgetLimit(t, out, LimitCost)
-	if client.sends != 1 {
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if client.sends != 2 {
 		t.Fatalf("sends=%d", client.sends)
 	}
-	if view.Spend.Cost["EUR"] != 0.5 {
-		t.Fatalf("EUR cost=%g", view.Spend.Cost["EUR"])
+	if view.Spend.ToolCost["EUR"] != 0.5 {
+		t.Fatalf("EUR tool cost=%g", view.Spend.ToolCost["EUR"])
 	}
-	if view.Spend.CostUnknown != 1 {
+	if view.Spend.Cost["USD"] <= 0 {
+		t.Fatalf("USD model cost=%g", view.Spend.Cost["USD"])
+	}
+	if view.Spend.CostUnknown != 0 {
 		t.Fatalf("unknown costs=%d", view.Spend.CostUnknown)
 	}
 }

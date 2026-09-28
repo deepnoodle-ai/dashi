@@ -154,7 +154,10 @@ func replay(t Turn) (*replayState, error) {
 }
 
 func (s *replayState) calculateSpend() error {
-	s.Spend = Spend{Cost: map[string]float64{}}
+	s.Spend = Spend{
+		Cost:     map[string]float64{},
+		ToolCost: map[string]float64{},
+	}
 	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
 		usage, charge, estimated, counted := attemptSpend(
 			s.modelIntents[id], s.modelSettlements[id],
@@ -174,7 +177,7 @@ func (s *replayState) calculateSpend() error {
 			s.Spend.CostUnknown++
 			continue
 		}
-		if err := s.Spend.addCost(charge.Currency, charge.Total); err != nil {
+		if err := addCurrencyCost(s.Spend.Cost, charge.Currency, charge.Total); err != nil {
 			return err
 		}
 		if s.Budget != nil && s.Budget.MaxCost != nil &&
@@ -187,12 +190,8 @@ func (s *replayState) calculateSpend() error {
 		if view.Status == ToolSettled && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
-			if err := s.Spend.addCost(cost.Currency, cost.Amount); err != nil {
+			if err := addCurrencyCost(s.Spend.ToolCost, cost.Currency, cost.Amount); err != nil {
 				return err
-			}
-			if s.Budget != nil && s.Budget.MaxCost != nil &&
-				cost.Currency != s.Budget.MaxCost.Currency {
-				s.Spend.CostUnknown++
 			}
 		}
 	}

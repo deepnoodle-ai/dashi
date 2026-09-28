@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/tool"
 )
 
 func checkSendBudget(
@@ -57,6 +58,23 @@ func checkSendBudget(
 				cap.Currency,
 			)
 			unpriced = model
+		} else if snapshot.Effective.MaxTokens <= 0 {
+			reason = fmt.Sprintf(
+				"cost risk unavailable for model %s: a finite max_tokens "+
+					"allowance is required to enforce the %.6g %s cost cap",
+				model,
+				cap.Amount,
+				cap.Currency,
+			)
+		} else if hasHostedTools(request) {
+			reason = fmt.Sprintf(
+				"cost risk unavailable for model %s: provider-hosted tool "+
+					"request counts are unbounded; remove hosted tools to "+
+					"enforce the %.6g %s cost cap",
+				model,
+				cap.Amount,
+				cap.Currency,
+			)
 		}
 		return atRisk, nil, &Stop{
 			Kind:   StopLimited,
@@ -109,8 +127,8 @@ func costLimitReason(
 	if fit == 0 {
 		return fmt.Sprintf(
 			"next call could cost up to %.6g %s (%d output tokens); "+
-				"%.6g of the %.6g %s cap remains; even zero output "+
-				"tokens would not fit",
+				"%.6g of the %.6g %s cap remains; no positive output-token "+
+				"allowance would fit; raise the cap or reduce input/history",
 			risk,
 			currency,
 			tokens,
@@ -131,6 +149,15 @@ func costLimitReason(
 		currency,
 		fit,
 	)
+}
+
+func hasHostedTools(request llm.Request) bool {
+	for _, def := range request.Input().Tools {
+		if def.Kind == tool.KindProviderHosted {
+			return true
+		}
+	}
+	return false
 }
 
 func budgetSpentStop(s *replayState) *Stop {

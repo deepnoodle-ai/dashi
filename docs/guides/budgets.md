@@ -2,7 +2,9 @@
 
 The application sets a turn's optional budget on `Start`. A definition has no
 budget; it still owns the existing model-attempt, interruption, and deadline
-limits. A zero token cap or nil cost cap means that dimension is uncapped.
+limits. `MaxCost` limits model-call charges. Local tool charges are reported
+separately and need an application-owned ceiling for an all-in price promise.
+A zero token cap or nil cost cap means that dimension is uncapped.
 
 ```go
 start := kernel.Start{
@@ -21,24 +23,28 @@ start := kernel.Start{
 
 Kernel lowers the next request's output allowance to the remaining output
 tokens and records a warning. The total-token cap is checked after each call.
-For a cost cap, the prepared request must carry model prices and an effective
-output allowance. Kernel estimates the full input and output cost before
-`BeforeSend`; if it cannot bound the call, or it would exceed the cap, the turn
-stops `limited` before dispatch. It does not silently shorten an answer to fit
-a cost cap. The stop's `Limit` gives the cap, spent amount, worst case, and the
-output-token allowance that would fit. A model without prices has an explicit
-`UnpricedModel` detail. Provider-hosted tools have no bounded request count,
-so a capped turn cannot dispatch a request offering them.
+For a cost cap, the prepared request must carry model prices and a finite
+effective output allowance. Kernel estimates the full input and output cost
+before `BeforeSend`. If it cannot bound the call or the call would exceed the
+cap, the turn stops `limited` before dispatch. It does not shrink the reply to
+fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case, and
+the output-token allowance that would fit. If input alone consumes the remaining
+cap, no positive allowance fits; raise the cap or reduce input/history.
+A model without prices has an explicit `UnpricedModel` detail. A call without
+a finite `MaxTokens` or with provider-hosted tools also stops before dispatch,
+since its cost cannot be bounded.
 
-`Replay(turn).Spend` contains token totals, costs by currency, the number of
-calls whose usage had to be estimated, and the number with unknown or
-incompatible-currency cost. Each settled model fact records its `Charge`; the
-intent records `AtRisk`. When no usage arrived, Kernel estimates input from
+`Replay(turn).Spend` contains token totals, model costs by currency, counts of
+calls with estimated usage, and counts of calls with unknown or
+incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
+by currency. Each settled model fact records its `Charge`; the intent records
+`AtRisk`. When no usage arrived, Kernel estimates input from
 the prepared request and output from the text observed, then marks the call as
 estimated. This best guess can undercount a cut-off call, so a cost cap is not
-a strict guarantee for that case. A tool may return `tool.Outcome.Cost`; it is
-counted after the tool settles. Tool cost cannot be reserved by Kernel ahead
-of execution.
+a strict charge guarantee for that case. A tool may return
+`tool.Outcome.Cost`; it is counted after the tool settles and does not consume
+`MaxCost`. The application must bound and admit charged tools before execution
+if it promises a cap covering them.
 
 To raise a cap, authorize the increase in the application and pass the full
 new budget to `Continue`. It can raise existing caps but cannot lower them or

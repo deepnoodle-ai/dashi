@@ -142,35 +142,41 @@ Kernel works by default.
 
 Decisions 21–26 answer decision 7; the design is [budgets.md](budgets.md).
 
-**21. A cost cap is hard.** Decided. Kernel never starts a model call whose
-worst case (estimated input plus the full output-token allowance, at the
-model's prices) could push the turn's spend past its cost cap. Rationale: a
-customer's $0.50 cap is a promise an application can print on a pricing page,
-and the worst case is also what an application reserves against a tenant's
-credit. The cost: turns sometimes stop with budget unused.
+**21. A cost cap is a hard model-call admission limit.** Decided. `MaxCost`
+covers model-call charges. Kernel starts a call only when its prepared request
+has prices, a finite output-token allowance, and a worst-case charge that fits
+the remaining cap. Provider-hosted operations with no bounded request count
+cannot run under that cap. Local tool charges are reported separately; an
+application promising an all-in customer ceiling must admit and limit those
+tools itself. Missing usage has the exception in decision 24. Rationale: the
+worst case is what an application can reserve against tenant credit. The cost:
+turns sometimes stop with budget unused.
 
 **22. When the next call does not fit, the turn stops; Kernel does not shrink
 the reply.** Decided. The turn stops as `limited`, and Kernel does not lower
 the output-token allowance to fit a cost shortfall (it still lowers it to fit
 an output-token cap). This departs from decision 4, so the stop explains
 itself: its reason gives the cap, the call's worst case, and the output-token
-allowance that would fit, and the typed detail carries that number, so the
-application can lower the allowance and continue. Rationale: a reply silently
-cut short is worse than a clear stop the application can fix.
+allowance that would fit when one exists. If input alone consumes the
+remaining cap, no positive allowance fits; raise the cap or reduce the input
+or history. Rationale: a reply silently cut short is worse than a clear stop
+the application can fix.
 
-**23. A cost cap on a model with no price stops before the first call.**
-Decided. The turn stops as `limited` with a reason naming the unpriced model
-and saying that supplying its prices lets capped turns run. Rationale: a cap
-must never be silently ignored; applications can supply prices without waiting
-for a catalog update.
+**23. An unbounded call stops before dispatch under a cost cap.** Decided.
+An unpriced model stops `limited` with a reason naming it and asking for its
+prices. A priced call without a finite effective output-token allowance also
+stops `limited` and asks for one. A call offering provider-hosted tools whose
+request count is unbounded stops likewise. Rationale: a cap must never be
+silently ignored; applications can supply prices without a catalog update.
 
 **24. A call whose usage never arrived counts a best guess.** Decided. When a
 worker crashes or a call is cut off before the provider reports usage, the call
 counts its estimated input plus the output text that did arrive, marked as
 estimated in the running total. The consequence, accepted: for such calls the
-cap is no longer a strict guarantee, since the guess can undercount. The hard
-cap holds for every call whose usage Kernel saw. Rationale: charging the worst
-case would stop turns early after a bad day of deploys.
+cap is no longer a strict charge guarantee, since the guess can undercount.
+The admission check also relies on supplied prices and the provider respecting
+its output allowance. Rationale: charging the worst case would stop turns
+early after a bad day of deploys.
 
 **25. The caller sets a turn's budget; the definition carries none.** Decided.
 Cost and token caps are passed on `Start` and raised on `Continue`; there is no

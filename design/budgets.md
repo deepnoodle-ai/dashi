@@ -6,14 +6,13 @@
 Kernel becomes the place where LLM spend is measured and limited. A **turn** is
 one run of an agent answering one input; it may make many model calls and tool
 calls, and it can stop and resume later. The application that starts a turn
-gives it a **budget**: optional caps on output tokens, total tokens, and cost.
-Before each model call Kernel works out the **worst case**, the most that call
-could cost if the model wrote every output token it is allowed. If spent so far
-plus the worst case would pass the cost cap, the turn stops as `limited` (a
-resumable stop meaning "a limit was reached") and the answer so far is kept.
-After each call Kernel records what it actually cost. Applications keep price
-overrides, tenant ledgers, credit reservations, and the policy that decides who
-may spend more.
+gives it a **budget**: optional caps on output tokens, total tokens, and
+model-call cost. Before each model call Kernel works out the **worst case**,
+the most that call could cost under its supplied prices and output allowance.
+If spent model-call cost plus that bound would pass the cap, the turn stops as
+`limited` (a resumable stop) and keeps the answer so far. Local tool charges
+are reported separately; applications own their admission, ledgers, credit
+reservations, price overrides, and decisions about who may spend more.
 
 ## Users and jobs
 
@@ -22,7 +21,9 @@ a $0.50 cap and `max_output_tokens: 4000`. The gateway passes both to `Start`,
 the command that begins a turn. The agent makes several model and tool calls.
 At $0.45 spent, the next call would most likely cost $0.03 but could cost $0.12,
 so the turn stops `limited` before sending it. The stop gives the cap, the
-amount used, and the worst case. The customer is never charged over 50 cents.
+amount used, and the worst case. The gateway can promise a 50-cent model-call
+admission limit. To promise a 50-cent all-in bill, it must also bound and admit
+any charged local tools.
 
 **Caps chosen per caller, not per agent.** A support agent's **definition** (its
 saved configuration: model, instructions, tools) carries no budget. The
@@ -86,8 +87,8 @@ spending limits.
 
 **Where budgets are set.** The caller sets them; the definition does not.
 `Start` takes an optional `Budget` with `MaxOutputTokens` (turn total),
-`MaxTotalTokens` (all input and output across calls), and `MaxCost`. The
-turn-started step records it. The definition's existing limits
+`MaxTotalTokens` (all input and output across calls), and `MaxCost` (model-call
+charges only). The turn-started step records it. Existing definition limits
 (`ModelAttempts`, `Deadline`, `Interruptions`) stay where they are; whether
 they should also move to the caller is not decided.
 
@@ -104,19 +105,29 @@ It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
 - **No price for the model:** the turn stops `limited` before its first call.
   Reason: "no price for model acme-7b; the $0.50 cost cap cannot be enforced;
   supply this model's prices to run capped turns."
+- **No finite output allowance:** the turn stops `limited` before dispatch and
+  asks for a finite effective `MaxTokens`. Zero means the provider chooses the
+  allowance, so it cannot serve as a worst-case bound.
+- **Provider-hosted requests with no count bound:** the turn stops `limited`
+  before dispatch. A hosted operation can add billable requests to the model
+  call; without a count bound its worst case is unknown.
 - **Worst case does not fit:** the turn stops `limited` before the call. The
   reason says what to change: "next call could cost up to $1.02 (64,000 output
   tokens); $0.50 of the $0.50 cap remains; an output-token allowance of about
-  29,000 would fit." `LimitDetail.FitTokens` carries that number.
+  29,000 would fit." `LimitDetail.FitTokens` carries that number. When input
+  alone consumes the remainder, no positive output allowance fits; raise the
+  cap or reduce input/history instead.
 - **It fits:** `BeforeSend` receives the worst case and the remaining budget in
   a `SendPlan`, and the recorded call keeps it as `ModelFact.AtRisk`.
 
-These stops depart from warn-and-adjust (decision 4) on purpose: a cap is a
-promise, and the reason gives the application the fix.
+These stops depart from warn-and-adjust (decision 4) on purpose: a model-call
+admission limit must fail closed, and the reason gives the application the fix.
 
 **The check between steps.** Where the engine checks attempts and the deadline
-(`engine.go:456-461`), it compares recorded totals with each cap. Tools report
-their own costs, which count here; they are never estimated ahead.
+(`engine.go:456-461`), it compares recorded model-call totals with each cap.
+Local tools report their own costs after settlement. Those charges appear in
+`Spend.ToolCost` but do not consume `MaxCost`; an application promising an
+all-in ceiling must bound and admit them before execution.
 
 **How a stop is represented.** `StopLimited` gains a typed `Limit` detail:
 kind, cap, used, worst case. `ModelAuthorization` gains the same detail, so a
@@ -129,10 +140,12 @@ provider-reported cost, else the price sheet applied to reported usage. A call
 whose usage never arrived (a crash, or a cut-off before the provider reported
 it) is charged a best guess: estimated input plus the output text that did
 arrive, marked estimated. The consequence, accepted: for such calls the cap is
-not a strict guarantee, since the guess can undercount. It holds for every call
-whose usage Kernel saw. `TurnView.Spend` replaces the token-only `Usage`
-(`state.go:115-121`): token totals, cost per currency, and counts of estimated
-calls and calls with unknown cost. A cost in another currency counts as unknown.
+not a strict charge guarantee, since the guess can undercount. It also relies
+on the supplied rates and the provider respecting its output allowance.
+`TurnView.Spend` replaces the token-only `Usage` (`state.go:115-121`): token
+totals, model and local-tool cost per currency, and counts of estimated calls
+and calls with unknown model cost. A model charge in another currency counts as
+unknown.
 `llm.Usage` gains hosted-tool request counts (such as web searches) and
 `Pricing` per-request rates; `tool.Outcome` gains an optional `Cost`.
 
@@ -170,7 +183,8 @@ type LimitDetail struct {
 type Stop struct { Kind StopKind; Reason string; Limit *LimitDetail }
 type Spend struct {
     Usage                  llm.Usage
-    Cost                   map[string]float64 // by currency
+    Cost                   map[string]float64 // model calls by currency
+    ToolCost               map[string]float64 // local tools by currency
     Estimated, CostUnknown int
 }
 // Start.Budget, Continue.Budget *Budget; ModelFact.AtRisk, .Charge *llm.Cost;
@@ -202,8 +216,9 @@ definition for life. Rejected ([decision 25](decisions.md)).
    the between-step check. Test a raise after a stop and resume after an
    attempt limit.
 3. **Cost caps.** `MaxCostAtRisk`, `SendPlan`, `ModelFact.AtRisk`, the stop
-   with `FitTokens`, the unpriced stop, hosted request counts, tool cost, and a
-   recorder example that reserves credits.
+   with `FitTokens`, unpriced and unbounded-output stops, a no-feasible-output
+   case, hosted request counts, separately reported tool cost, and a recorder
+   example that reserves credits.
 
 ## Open questions
 
