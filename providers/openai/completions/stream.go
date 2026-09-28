@@ -29,9 +29,11 @@ func (wire codec) readStream(
 	result := initial
 	var text, reasoning strings.Builder
 	calls := map[int]*ToolCall{}
+	callIDs := map[string]int{}
+	callRaw := map[int][]byte{}
 	var reason string
 	seen := false
-	build := func(complete bool) (llm.Result, error) {
+	build := func(complete, unsafeCalls bool) llm.Result {
 		result.Message = llm.Message{Role: llm.RoleAssistant}
 		if reasoning.Len() > 0 {
 			result.Message.Content = append(
@@ -55,19 +57,11 @@ func (wire codec) readStream(
 				Name: call.Function.Name,
 				Args: json.RawMessage(call.Function.Arguments),
 			}
-			if err := v.Validate(); err != nil {
+			if unsafeCalls || v.Validate() != nil {
 				result.Message.Content = append(
 					result.Message.Content,
 					wire.partialToolCall(*call),
 				)
-				if complete {
-					return result, providerhttp.Failure(
-						wire.provider,
-						llm.ErrorProtocol,
-						"invalid streamed tool call: %w",
-						err,
-					)
-				}
 				continue
 			}
 			result.Message.Content = append(
@@ -81,7 +75,15 @@ func (wire codec) readStream(
 		if complete {
 			result.Stop = llm.Stop{Kind: llm.ClassifyStopReason(reason), Raw: reason}
 		}
-		return result, nil
+		return result
+	}
+	protocolError := func(raw []byte, format string, args ...any) (llm.Result, error) {
+		return build(false, true), &llm.Error{
+			Provider: wire.provider,
+			Category: llm.ErrorProtocol,
+			Body:     slices.Clone(raw),
+			Cause:    fmt.Errorf(format, args...),
+		}
 	}
 	for {
 		raw, ok := reader.Next()
@@ -90,13 +92,7 @@ func (wire codec) readStream(
 		}
 		var chunk StreamResponse
 		if err := json.Unmarshal(raw, &chunk); err != nil {
-			partial, _ := build(false)
-			return partial, providerhttp.Failure(
-				wire.provider,
-				llm.ErrorProtocol,
-				"decode stream chunk: %w",
-				err,
-			)
+			return protocolError(raw, "decode stream chunk: %w", err)
 		}
 		// A chunk that carries an error object, or is one (vLLM sends
 		// "object":"error"), ends the call even when it also has a finish
@@ -104,7 +100,7 @@ func (wire codec) readStream(
 		if (len(chunk.Error) > 0 &&
 			string(chunk.Error) != "null") ||
 			chunk.Object == "error" {
-			partial, _ := build(false)
+			partial := build(false, false)
 			cause := errors.New("provider stream error")
 			if message := streamErrorMessage(chunk.Error, raw); message != "" {
 				cause = fmt.Errorf("provider stream error: %s", message)
@@ -145,7 +141,7 @@ func (wire codec) readStream(
 			continue
 		}
 		if len(chunk.Choices) != 1 || chunk.Choices[0].Index != 0 {
-			partial, _ := build(false)
+			partial := build(false, false)
 			return partial, providerhttp.Failure(
 				wire.provider,
 				llm.ErrorProtocol,
@@ -165,7 +161,7 @@ func (wire codec) readStream(
 			)
 		}
 		if len(choice.Delta.ReasoningDetails) > 0 {
-			partial, _ := build(false)
+			partial := build(false, false)
 			return partial, wire.unsupported("structured reasoning details")
 		}
 		if choice.Delta.Content != "" {
@@ -194,41 +190,89 @@ func (wire codec) readStream(
 					},
 				)
 			default:
-				partial, _ := build(false)
+				partial := build(false, false)
 				return partial, wire.unsupported("stream content part %q", part.Type)
 			}
 		}
 		for _, delta := range choice.Delta.ToolCalls {
-			call := calls[delta.Index]
+			if delta.Type != "" && delta.Type != "function" {
+				partial := build(false, false)
+				return partial, wire.unsupported("stream tool call type %q", delta.Type)
+			}
+			index := delta.Index
+			if delta.indexPresent {
+				if index < 0 {
+					return protocolError(raw, "negative stream tool index %d", index)
+				}
+				if prior, ok := callIDs[delta.ID]; delta.ID != "" &&
+					ok && prior != index {
+					return protocolError(
+						raw,
+						"duplicate stream tool ID %q at indices %d and %d",
+						delta.ID,
+						prior,
+						index,
+					)
+				}
+			} else {
+				var ok bool
+				index, ok = callIDs[delta.ID]
+				if delta.ID == "" || !ok {
+					return protocolError(
+						raw,
+						"stream tool fragment has no index or matching ID",
+					)
+				}
+			}
+			call := calls[index]
 			if call == nil {
 				call = &ToolCall{Type: "function"}
-				calls[delta.Index] = call
+				calls[index] = call
 			}
-			if delta.Type != "" && delta.Type != "function" {
-				partial, _ := build(false)
-				return partial, wire.unsupported("stream tool call type %q", delta.Type)
+			if call.ID != "" && delta.ID != "" && call.ID != delta.ID {
+				return protocolError(
+					raw,
+					"stream tool index %d changed ID from %q to %q",
+					index,
+					call.ID,
+					delta.ID,
+				)
+			}
+			if call.Function.Name != "" && delta.Function.Name != "" &&
+				call.Function.Name != delta.Function.Name {
+				return protocolError(
+					raw,
+					"stream tool index %d changed name from %q to %q",
+					index,
+					call.Function.Name,
+					delta.Function.Name,
+				)
 			}
 			if delta.ID != "" {
 				call.ID = delta.ID
+				callIDs[delta.ID] = index
 			}
 			if delta.Function.Name != "" {
 				call.Function.Name = delta.Function.Name
 			}
 			call.Function.Arguments += delta.Function.Arguments
-			providerhttp.Emit(
-				sink,
-				llm.Delta{
-					Kind:  llm.DeltaToolArguments,
-					Index: delta.Index,
-					Text:  delta.Function.Arguments,
-				},
-			)
+			callRaw[index] = slices.Clone(raw)
+			if delta.Function.Arguments != "" {
+				providerhttp.Emit(
+					sink,
+					llm.Delta{
+						Kind:  llm.DeltaToolArguments,
+						Index: index,
+						Text:  delta.Function.Arguments,
+					},
+				)
+			}
 		}
 		if choice.FinishReason != "" {
 			reason = choice.FinishReason
 		}
 	}
-	partial, _ := build(false)
+	partial := build(false, false)
 	if ctx.Err() != nil {
 		return partial, ctx.Err()
 	}
@@ -248,7 +292,31 @@ func (wire codec) readStream(
 			io.ErrUnexpectedEOF,
 		)
 	}
-	return build(true)
+	seenIDs := map[string]bool{}
+	for _, index := range slices.Sorted(maps.Keys(calls)) {
+		call := calls[index]
+		if err := (tool.Call{
+			ID:   call.ID,
+			Name: call.Function.Name,
+			Args: json.RawMessage(call.Function.Arguments),
+		}).Validate(); err != nil {
+			return protocolError(
+				callRaw[index],
+				"invalid streamed tool call at index %d: %w",
+				index,
+				err,
+			)
+		}
+		if seenIDs[call.ID] {
+			return protocolError(
+				callRaw[index],
+				"duplicate streamed tool ID %q",
+				call.ID,
+			)
+		}
+		seenIDs[call.ID] = true
+	}
+	return build(true, false), nil
 }
 
 // streamErrorMessage returns the provider's message from an in-stream error:

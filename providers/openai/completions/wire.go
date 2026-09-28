@@ -304,12 +304,42 @@ func (d *StreamDelta) UnmarshalJSON(data []byte) error {
 	}
 }
 
-// ToolCallDelta represents a partial tool call in a streaming response
+// ToolCallDelta represents a partial tool call in a streaming response.
 type ToolCallDelta struct {
 	Index    int               `json:"index"`
 	ID       string            `json:"id,omitempty"`
 	Type     string            `json:"type,omitempty"`
 	Function ToolFunctionDelta `json:"function"`
+	// An omitted index is not index zero. The stream assembler needs this
+	// distinction to avoid joining fragments for different calls.
+	indexPresent bool
+}
+
+func (d *ToolCallDelta) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Index    json.RawMessage   `json:"index"`
+		ID       string            `json:"id"`
+		Type     string            `json:"type"`
+		Function ToolFunctionDelta `json:"function"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	d.Index = 0
+	d.indexPresent = false
+	if len(wire.Index) > 0 {
+		if bytes.Equal(bytes.TrimSpace(wire.Index), []byte("null")) {
+			return fmt.Errorf("tool call index cannot be null")
+		}
+		if err := json.Unmarshal(wire.Index, &d.Index); err != nil {
+			return fmt.Errorf("decode tool call index: %w", err)
+		}
+		d.indexPresent = true
+	}
+	d.ID = wire.ID
+	d.Type = wire.Type
+	d.Function = wire.Function
+	return nil
 }
 
 // ToolFunctionDelta represents a partial function call in a streaming response

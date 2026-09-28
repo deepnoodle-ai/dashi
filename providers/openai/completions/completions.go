@@ -295,6 +295,16 @@ func (p *Client) Send(
 		Message: llm.Message{Role: llm.RoleAssistant},
 	}
 	defer func() {
+		// Provenance belongs to provider output, including a partial message
+		// returned with an error. An empty response is not a generated message.
+		if len(result.Message.Content) > 0 && result.Message.Source == nil {
+			result.Message.Source = &llm.MessageSource{
+				Requested:  result.Requested,
+				Served:     result.Served,
+				API:        wire.origin.API,
+				ResponseID: result.ID,
+			}
+		}
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
@@ -575,6 +585,9 @@ func (wire codec) decode(
 	}
 	result.ID = response.ID
 	result.Served = llm.ModelRef{Provider: wire.provider, Model: response.Model}
+	if response.Model == "" {
+		result.Served = llm.ModelRef{}
+	}
 	result.ServiceTier = response.ServiceTier
 	if response.Usage.present {
 		usage := response.Usage.toLLMUsage()
@@ -663,6 +676,8 @@ func (wire codec) decode(
 			llm.Text(message.Content),
 		)
 	}
+	validatedCalls := make([]tool.Call, 0, len(message.ToolCalls))
+	seenCallIDs := make(map[string]bool, len(message.ToolCalls))
 	for _, call := range message.ToolCalls {
 		if call.Type != "function" {
 			return result, wire.unsupported("tool call type %q", call.Type)
@@ -684,6 +699,22 @@ func (wire codec) decode(
 				err,
 			)
 		}
+		if seenCallIDs[v.ID] {
+			result.Message.Content = append(
+				result.Message.Content,
+				wire.partialToolCall(call),
+			)
+			return result, providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"duplicate tool call ID %q",
+				v.ID,
+			)
+		}
+		seenCallIDs[v.ID] = true
+		validatedCalls = append(validatedCalls, v)
+	}
+	for _, v := range validatedCalls {
 		result.Message.Content = append(
 			result.Message.Content,
 			llm.Content{
