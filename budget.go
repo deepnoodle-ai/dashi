@@ -88,7 +88,9 @@ const (
 	LimitTotalTokens LimitKind = "total_tokens"
 	// LimitCost is the turn's cumulative cost cap.
 	LimitCost LimitKind = "cost"
-	// LimitHost is an application-owned spending decision.
+	// LimitHost is an application-owned spending decision. A host denial
+	// puts money, such as a balance and the amount the call needs, in the
+	// Cost fields with a Currency, and uses Limit and Used only for counts.
 	LimitHost LimitKind = "host"
 )
 
@@ -97,7 +99,7 @@ const (
 //
 // Counts and money are separate fields so that neither passes through a
 // binary float: Limit and Used hold whole counts, and the Cost fields hold
-// exact amounts in the cost cap's currency.
+// exact amounts in Currency.
 type LimitDetail struct {
 	// Kind identifies the ceiling for programmatic handling.
 	Kind LimitKind `json:"kind"`
@@ -108,12 +110,18 @@ type LimitDetail struct {
 	Limit int64 `json:"limit,omitempty"`
 	// Used is the count already consumed, or the current Unix time.
 	Used int64 `json:"used,omitempty"`
-	// CostLimit is the cost cap for LimitCost.
+	// CostLimit is the cost cap for LimitCost, or a host's money ceiling or
+	// balance for LimitHost.
 	CostLimit money.Amount `json:"cost_limit,omitempty"`
 	// CostUsed is the measured or estimated cost already charged.
 	CostUsed money.Amount `json:"cost_used,omitempty"`
 	// CostAtRisk is the worst-case cost of the proposed next model call.
 	CostAtRisk money.Amount `json:"cost_at_risk,omitempty"`
+	// Currency is the unit of the Cost fields and is required when any of
+	// them is nonzero: an ISO 4217 code, or a host's own code for a credit
+	// unit. Kernel sets the cap's currency on LimitCost. A LimitCost record
+	// written before this field has none; its unit is the turn's cap.
+	Currency string `json:"currency,omitempty"`
 	// FitTokens advises a smaller allowance without changing the request.
 	FitTokens int `json:"fit_tokens,omitempty"`
 	// UnpricedModel identifies the model whose cost could not be bounded.
@@ -142,12 +150,22 @@ func (l LimitDetail) Validate() error {
 	if l.FitTokens < 0 {
 		return errors.New("kernel: fit tokens cannot be negative")
 	}
+	// A legacy LimitCost record carries no currency, and its unit is
+	// recoverable from the turn's budget, so only other kinds require one.
+	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.CostAtRisk != 0
+	if strings.TrimSpace(l.Currency) != l.Currency ||
+		hasMoney && l.Currency == "" && l.Kind != LimitCost {
+		return errors.New("kernel: limit amounts require a currency")
+	}
 	return nil
 }
 
 // UnmarshalJSON also reads records written when every amount was a float in
 // limit, used, and at_risk. A legacy cost limit moves to the Cost fields,
 // rounded half to even at the nano; other legacy values must be whole counts.
+// The cap's currency is not in the detail, and this layer cannot see the
+// turn's budget, so Currency stays empty; Validate accepts that for
+// LimitCost only.
 func (l *LimitDetail) UnmarshalJSON(data []byte) error {
 	type alias LimitDetail
 	var wire struct {

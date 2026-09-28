@@ -36,6 +36,7 @@ func checkSendBudget(
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: cap.Amount,
+				Currency:  cap.Currency,
 				CostUsed:  used,
 			},
 		}
@@ -82,6 +83,7 @@ func checkSendBudget(
 			Limit: &LimitDetail{
 				Kind:          LimitCost,
 				CostLimit:     cap.Amount,
+				Currency:      cap.Currency,
 				CostUsed:      used,
 				UnpricedModel: unpriced,
 			},
@@ -108,6 +110,7 @@ func checkSendBudget(
 			Limit: &LimitDetail{
 				Kind:       LimitCost,
 				CostLimit:  cap.Amount,
+				Currency:   cap.Currency,
 				CostUsed:   used,
 				CostAtRisk: atRisk.Total,
 				FitTokens:  fit,
@@ -213,6 +216,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,
+				Currency:  b.MaxCost.Currency,
 				CostUsed:  used,
 			},
 		}
@@ -225,6 +229,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,
+				Currency:  b.MaxCost.Currency,
 				CostUsed:  used,
 			},
 		}

@@ -69,5 +69,7 @@ that amount, using the attempt ID as the idempotency key. On settlement it
 replaces the hold with `Charge`; on a result with no usage, it may retain the
 hold until its own reconciliation. A credit denial returns a `Limit` of kind
 `host` and an application code such as `insufficient_credits`, yielding a
-resumable `limited` stop. Credit balances and plan ceilings remain with the
+resumable `limited` stop. A denial that reports money puts it in the `Cost`
+fields with a `Currency` (an ISO 4217 code or the host's credit unit) and keeps
+`Limit` and `Used` for counts. Credit balances and plan ceilings remain with the
 application.

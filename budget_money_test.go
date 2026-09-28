@@ -46,7 +46,8 @@ func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
 		t.Fatalf("a call one nano over the cap was admitted: %+v", stop)
 	}
-	if stop.Limit.CostAtRisk != risk.Total || stop.Limit.CostUsed != used {
+	if stop.Limit.CostAtRisk != risk.Total || stop.Limit.CostUsed != used ||
+		stop.Limit.Currency != "USD" {
 		t.Fatalf("limit detail=%+v", stop.Limit)
 	}
 }
@@ -112,6 +113,7 @@ func TestLimitDetailJSON(t *testing.T) {
 		CostLimit:  amount("0.01"),
 		CostUsed:   amount("0.0042"),
 		CostAtRisk: amount("0.006"),
+		Currency:   "USD",
 		FitTokens:  12,
 	}
 	raw, err := json.Marshal(detail)
@@ -129,7 +131,11 @@ func TestLimitDetailJSON(t *testing.T) {
 			`"fit_tokens":12}`),
 		&legacy,
 	)
-	if err != nil || legacy != detail {
+	// The cap's currency is not in a legacy detail; it stays empty and the
+	// record remains valid.
+	want := detail
+	want.Currency = ""
+	if err != nil || legacy != want || legacy.Validate() != nil {
 		t.Fatalf("legacy cost detail = %+v, %v", legacy, err)
 	}
 
@@ -147,5 +153,55 @@ func TestLimitDetailJSON(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("a fractional count was accepted")
+	}
+}
+
+// creditDenialPolicy denies a call with a host limit that reports money.
+type creditDenialPolicy struct {
+	AllowLocalPolicy
+	currency string
+}
+
+func (p creditDenialPolicy) BeforeSend(
+	_ context.Context,
+	plan SendPlan,
+) (ModelAuthorization, error) {
+	return ModelAuthorization{
+		Reason: "insufficient credits",
+		Limit: &LimitDetail{
+			Kind:       LimitHost,
+			Code:       "insufficient_credits",
+			CostLimit:  amount("0.002"),
+			CostAtRisk: plan.AtRisk.Total,
+			Currency:   p.currency,
+		},
+	}, nil
+}
+
+func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
+	out := runBudgetTurn(
+		t,
+		newPricedClient(final("unused")),
+		nil,
+		llm.Settings{MaxTokens: 100},
+		nil,
+		creditDenialPolicy{currency: "CREDIT"},
+	)
+	limit := requireBudgetLimit(t, out, LimitHost)
+	if limit.Currency != "CREDIT" || limit.CostLimit != amount("0.002") ||
+		limit.CostAtRisk <= 0 || limit.Limit != 0 || limit.Used != 0 {
+		t.Fatalf("host limit=%+v", limit)
+	}
+
+	out = runBudgetTurn(
+		t,
+		newPricedClient(final("unused")),
+		nil,
+		llm.Settings{MaxTokens: 100},
+		nil,
+		creditDenialPolicy{},
+	)
+	if out.Stop.Kind != StopFailed {
+		t.Fatalf("host money without a currency was accepted: %+v", out.Stop)
 	}
 }

@@ -178,7 +178,8 @@ type LimitDetail struct {
                                   // output_tokens, total_tokens, cost, host
     Code                string    // application code for a host limit
     Limit, Used         int64     // counts, or Unix seconds for a deadline
-    CostLimit, CostUsed, CostAtRisk money.Amount // exact, in the cap currency
+    CostLimit, CostUsed, CostAtRisk money.Amount // exact amounts
+    Currency            string    // unit of the Cost fields (cap or host unit)
     FitTokens           int       // output allowance that would fit a cost cap
     UnpricedModel       string
 }
