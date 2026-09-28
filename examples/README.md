@@ -16,7 +16,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
 | `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
-| `live_follow`       | Anthropic | Two readers following one running turn by cursor               |
+| `live_follow`       | Anthropic | Two readers following one running turn, with streamed text     |
 | `hosted_tools`      | Anthropic | Provider-hosted web search and code execution, with sources    |
 | `structured_output` | OpenAI    | A final answer that matches a JSON schema, decoded into a type |
 | `providers`         | Any       | The same call on each provider; only the client changes        |

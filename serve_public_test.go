@@ -17,6 +17,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/feed"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -25,6 +26,7 @@ import (
 
 type Server struct {
 	store *dashi.MemoryRecorder
+	hub   *feed.Hub // Runner.Observer = hub.Observe
 }
 
 func (s *Server) canView(*http.Request, string) bool { return true }
@@ -52,8 +54,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	flush := w.(http.Flusher).Flush
+	flush() // the browser sees the stream open before the first event
 
-	for step, err := range dashi.Follow(r.Context(), s.store, id, after) {
+	// Steps come from the record; previews from the hub, each in its place.
+	for e, err := range feed.Follow(r.Context(), s.hub, s.store, id, after) {
 		switch {
 		case errors.Is(err, dashi.ErrCursorAhead):
 			send(w, "", "reset", nil) // the client drops its state, follows from 0
@@ -61,10 +65,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case err != nil:
 			return // the client reconnects from its last id
-		}
-		send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
-		if step.Stop != nil && step.Stop.Terminal {
-			send(w, "", "end", nil) // the page calls EventSource.close
+		case e.Step != nil:
+			send(w, strconv.FormatInt(e.Seq, 10), "step", project(*e.Step))
+			if e.Step.Stop != nil && e.Step.Stop.Terminal {
+				send(w, "", "end", nil) // the page calls EventSource.close
+			}
+		case e.Gap:
+			send(w, "", "gap", e.MessageID) // the page discards that preview
+		default:
+			send(w, "", "preview", projectPreview(e))
 		}
 		flush()
 	}
@@ -88,8 +97,18 @@ func project(step dashi.Step) view {
 	return view{Seq: step.Seq, Kind: string(step.Kind)}
 }
 
-// finalClient answers every call with one final message.
-type finalClient struct{}
+func projectPreview(e dashi.Event) string {
+	if e.Delta != nil {
+		return e.Delta.Text
+	}
+	return e.Progress.Message
+}
+
+// finalClient answers every call with one final message, streamed as three
+// deltas. When set, it streams only once following has begun (a reader that
+// joins mid-message rightly gets a gap), and it returns only once the client
+// has read the deltas (a preview after its settling step is rightly dropped).
+type finalClient struct{ following, read <-chan struct{} }
 
 func (finalClient) Provider() string                       { return "test" }
 func (finalClient) API() string                            { return "test.chat" }
@@ -106,7 +125,14 @@ func (finalClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error)
 	})
 }
 
-func (finalClient) Send(context.Context, llm.Call) (llm.Result, error) {
+func (c finalClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	wait(ctx, c.following)
+	for _, word := range []string{"do", "n", "e"} {
+		if call.Sink != nil {
+			call.Sink(llm.Delta{Kind: llm.DeltaText, Text: word})
+		}
+	}
+	wait(ctx, c.read)
 	return llm.Result{
 		Message:   llm.AssistantMessage(llm.Text("done")),
 		Stop:      llm.Stop{Kind: llm.StopFinished},
@@ -114,10 +140,21 @@ func (finalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	}, nil
 }
 
+func wait(ctx context.Context, ch <-chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
+	}
+}
+
 type sse struct{ id, event, data string }
 
-// readEvents parses a stream until it ends.
-func readEvents(t *testing.T, resp *http.Response) []sse {
+// readEvents parses a stream until it ends, calling onEvent for each.
+func readEvents(t *testing.T, resp *http.Response, onEvent func(sse)) []sse {
 	t.Helper()
 	var events []sse
 	var cur sse
@@ -127,6 +164,9 @@ func readEvents(t *testing.T, resp *http.Response) []sse {
 		switch {
 		case line == "":
 			events = append(events, cur)
+			if onEvent != nil {
+				onEvent(cur)
+			}
 			cur = sse{}
 		case strings.HasPrefix(line, "id: "):
 			cur.id = strings.TrimPrefix(line, "id: ")
@@ -157,7 +197,7 @@ func get(t *testing.T, url, lastID string) *http.Response {
 }
 
 func TestGuideHandlerServesATurn(t *testing.T) {
-	s := &Server{store: dashi.NewMemoryRecorder()}
+	s := &Server{store: dashi.NewMemoryRecorder(), hub: &feed.Hub{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /turns/{id}/events", s.events)
 	srv := httptest.NewServer(mux)
@@ -166,6 +206,8 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 
 	// The client connects before the turn starts and follows it live.
 	got := make(chan []sse, 1)
+	following := make(chan struct{})
+	previewsRead := make(chan struct{})
 	go func() {
 		resp, err := http.Get(url)
 		if err != nil {
@@ -173,12 +215,26 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 			return
 		}
 		defer resp.Body.Close()
-		got <- readEvents(t, resp)
+		steps, previews := 0, 0
+		got <- readEvents(t, resp, func(e sse) {
+			switch e.event {
+			case "step":
+				// A step means Follow has subscribed to the hub.
+				if steps++; steps == 1 {
+					close(following)
+				}
+			case "preview":
+				if previews++; previews == 3 {
+					close(previewsRead)
+				}
+			}
+		})
 	}()
 	runner := dashi.Runner{
 		Agent:    dashi.Agent{Model: "fixture"},
-		Client:   finalClient{},
+		Client:   finalClient{following: following, read: previewsRead},
 		Recorder: s.store,
+		Observer: s.hub.Observe,
 	}
 	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
@@ -193,10 +249,22 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 		t.Fatal("handler did not end after the terminal stop")
 	}
 	var seqs []string
+	var text string
 	for _, e := range events {
-		if e.event == "step" {
+		switch e.event {
+		case "step":
 			seqs = append(seqs, e.id)
+		case "preview":
+			if e.id != "" {
+				t.Fatalf("preview with id %q; only steps are resumable", e.id)
+			}
+			var word string
+			_ = json.Unmarshal([]byte(e.data), &word)
+			text += word
 		}
+	}
+	if text != "done" {
+		t.Fatalf("streamed %q; want done: %+v", text, events)
 	}
 	if len(seqs) != len(out.Turn.Steps) {
 		t.Fatalf("sent %d steps; the turn has %d: %+v", len(seqs), len(out.Turn.Steps), events)
@@ -211,7 +279,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	}
 
 	// A browser reconnecting mid-turn gets the rest.
-	events = readEvents(t, get(t, url, "2"))
+	events = readEvents(t, get(t, url, "2"), nil)
 	if len(events) != len(out.Turn.Steps)-2+1 || events[0].id != "3" {
 		t.Fatalf("resume from 2 got %+v", events)
 	}
@@ -223,7 +291,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	}
 
 	// A cursor from elsewhere resets the client.
-	events = readEvents(t, get(t, url, "99"))
+	events = readEvents(t, get(t, url, "99"), nil)
 	if len(events) != 1 || events[0].event != "reset" {
 		t.Fatalf("foreign cursor got %+v; want one reset", events)
 	}

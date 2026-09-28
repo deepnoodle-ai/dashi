@@ -32,7 +32,7 @@ work". `Runner.Observer` is the in-process, never-blocking view of an
 invocation. `Follow` serves everyone else: it reads the record by cursor, from
 any process, and yields committed steps only. Previews exist only in the
 runner's process, while a follower may be anywhere, so a host merges them
-itself, through a fan-out helper (PR C).
+itself, through a fan-out helper ([live-previews.md](live-previews.md)).
 
 **2. The Observer carries every acknowledged step; previews are lossy with a
 gap.** The emitter keeps one ordered queue. Steps always enter it; only
@@ -199,7 +199,7 @@ stop and answers `204` to a reconnect at one, so `EventSource` stops; and, on
 failed fsync), tells the client to reset rather than retry. `Follow` needs
 the store the `Runner` commits to; the default private recorder cannot be
 followed. Merging live previews needs a fan-out with subtle rules, so it
-becomes a library helper (PR C) rather than guide code.
+becomes a library helper ([live-previews.md](live-previews.md)).
 
 **Recorders.** `MemoryRecorder` implements both (check under its lock, else
 a per-turn channel closed on commit). `filerecorder` implements `StepReader`
