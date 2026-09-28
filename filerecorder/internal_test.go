@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -88,26 +90,188 @@ func TestFailedSyncIsUnknownAndRetiresTheLog(t *testing.T) {
 	}
 }
 
-// TestReplacedLogResetsTheIndex covers a log swapped for another file, such
-// as a restore from backup while no turn runs: the cached index must not
-// outlive the file it described.
+// TestReplacedLogResetsTheIndex swaps the log for another file whose first
+// step differs only in its command ID, so the byte before the indexed offset
+// is still a newline and only the file identity check notices the swap.
 func TestReplacedLogResetsTheIndex(t *testing.T) {
 	r := newTestRecorder(t)
+	first := request(1)
+	first.Step.CommandID = "start"
+	first.Step.CommandDigest = "d1"
+	// The retry is acknowledged from the log and leaves step 1 indexed.
+	for range 2 {
+		if err := r.Commit(t.Context(), first); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := newTestRecorder(t)
+	replaced := request(1)
+	replaced.Step.CommandID = "begin"
+	replaced.Step.CommandDigest = "d1"
+	if err := other.Commit(t.Context(), replaced); err != nil {
+		t.Fatal(err)
+	}
+	commitStep(t, other, 2)
+	commitStep(t, other, 3)
+	data, err := os.ReadFile(other.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	temp := r.Path("turn") + ".new"
+	if err := os.WriteFile(temp, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(temp, r.Path("turn")); err != nil {
+		t.Fatal(err)
+	}
+	// A retry of the replacement's recorded command appends nothing.
+	retry := request(4)
+	retry.Step.CommandID = "begin"
+	retry.Step.CommandDigest = "d1"
+	if err := r.Commit(t.Context(), retry); err != nil {
+		t.Fatal(err)
+	}
+	requireCount(t, r, 3)
+}
+
+// TestShrunkLogResetsTheIndex truncates the log in place below the indexed
+// offset, as restoring a shorter copy into the same file would.
+func TestShrunkLogResetsTheIndex(t *testing.T) {
+	r := newTestRecorder(t)
 	commitStep(t, r, 1)
-	backup, err := os.ReadFile(r.Path("turn"))
+	info, err := os.Stat(r.Path("turn"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	commitStep(t, r, 2)
 	commitStep(t, r, 3)
-	if err := os.Remove(r.Path("turn")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(r.Path("turn"), backup, 0o600); err != nil {
+	if err := os.Truncate(r.Path("turn"), info.Size()); err != nil {
 		t.Fatal(err)
 	}
 	commitStep(t, r, 2)
 	requireCount(t, r, 2)
+}
+
+// TestRewrittenLogResetsTheIndex rewrites the log in place with a longer one
+// whose byte before the indexed offset is not a newline.
+func TestRewrittenLogResetsTheIndex(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	commitStep(t, r, 2)
+	info, err := os.Stat(r.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := newTestRecorder(t)
+	long := request(1)
+	long.Step.CommandID = "a-much-longer-command-id-that-shifts-the-lines"
+	if err := other.Commit(t.Context(), long); err != nil {
+		t.Fatal(err)
+	}
+	commitStep(t, other, 2)
+	data, err := os.ReadFile(other.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) < info.Size() || data[info.Size()-1] == '\n' {
+		t.Fatalf("fixture does not cover the old end mid-line")
+	}
+	if err := os.WriteFile(r.Path("turn"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The rewritten log holds two steps; a stale index would misread it.
+	commitStep(t, r, 3)
+	requireCount(t, r, 3)
+}
+
+// TestFirstWriteSyncsDirectories covers a process that writes to a log
+// another process created and may have crashed before syncing: it must sync
+// the directories that name the log before acknowledging, once.
+func TestFirstWriteSyncsDirectories(t *testing.T) {
+	dir := t.TempDir()
+	creator, err := New(Config{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitStep(t, creator, 1)
+	r, err := New(Config{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var synced []string
+	r.syncFile = func(f *os.File) error {
+		synced = append(synced, f.Name())
+		return f.Sync()
+	}
+	commitStep(t, r, 2)
+	shard := filepath.Dir(r.Path("turn"))
+	want := []string{r.Path("turn"), shard, dir}
+	if !slices.Equal(synced, want) {
+		t.Fatalf("first write synced %q; want %q", synced, want)
+	}
+	synced = nil
+	commitStep(t, r, 3)
+	if want := []string{r.Path("turn")}; !slices.Equal(synced, want) {
+		t.Fatalf("second write synced %q; want %q", synced, want)
+	}
+}
+
+func TestFailedDirectorySyncIsUnknown(t *testing.T) {
+	r := newTestRecorder(t)
+	r.syncFile = func(f *os.File) error {
+		if f.Name() == r.Path("turn") {
+			return f.Sync()
+		}
+		return errors.New("EIO")
+	}
+	err := r.Commit(t.Context(), request(1))
+	requirePersistence(t, err, dashi.PersistenceUnknown)
+	err = r.Commit(t.Context(), request(2))
+	if !errors.Is(err, errLogFailed) {
+		t.Fatalf("commit after a failed directory sync returned %v", err)
+	}
+}
+
+// TestRetiredWhileWaitingForLock retires the log while a commit waits for
+// the lock; the commit must not append after the failed write.
+func TestRetiredWhileWaitingForLock(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	holder, err := os.Open(r.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if err := lock(t.Context(), holder, true); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() {
+		done <- r.Commit(t.Context(), request(2))
+	}()
+	time.Sleep(50 * time.Millisecond)
+	r.retire("turn", errors.New("EIO"))
+	holder.Close()
+	err = <-done
+	requirePersistence(t, err, dashi.PersistenceRejected)
+	if !errors.Is(err, errLogFailed) {
+		t.Fatalf("commit returned %v; want errLogFailed", err)
+	}
+	requireCount(t, r, 1)
+}
+
+func TestClaimReturnsPlainErrors(t *testing.T) {
+	r := newTestRecorder(t)
+	r.writeAt = func(*os.File, []byte, int64) (int, error) {
+		return 0, errors.New("disk full")
+	}
+	err := r.Claim(t.Context(), "turn", "owner")
+	if err == nil {
+		t.Fatal("claim succeeded after a failed write")
+	}
+	if _, ok := errors.AsType[*dashi.CommitError](err); ok {
+		t.Fatalf("claim returned a *dashi.CommitError: %v", err)
+	}
 }
 
 func newTestRecorder(t *testing.T) *Recorder {

@@ -6,9 +6,8 @@
 // step in the same database transaction as its own rows (credit holds, tool
 // jobs, an outbox) under a lease fence. Run checks such a recorder against
 // the contract the runner relies on, which dashi.Recorder documents.
-// FaultRecorder
-// wraps any recorder to fail one chosen commit, so a host can test how its
-// workers recover a turn from the durable record.
+// FaultRecorder wraps any recorder to fail one chosen commit, so a host can
+// test how its workers recover a turn from the durable record.
 //
 // The package depends only on dashi and the standard library, so a host can
 // import it from tests without pulling in a database driver.

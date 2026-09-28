@@ -66,6 +66,9 @@ type turnLog struct {
 	claimed   bool
 	owner     string
 	lines     int
+	// dirsSynced records that this process synced the directories that name
+	// the log, which it does once before its first acknowledged write.
+	dirsSynced bool
 	// end is the offset just past the last complete line; size is the file
 	// size when last scanned. They differ only when a torn line follows.
 	end  int64
@@ -83,9 +86,10 @@ func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
 	}
 	if log.file == nil ||
 		!os.SameFile(log.file, info) ||
-		info.Size() < log.end {
-		// The file was replaced or shrank below what was indexed, which the
-		// log format never does; start over rather than trust the index.
+		!endsLine(f, log.end) {
+		// The file was replaced, shrank, or was rewritten below what was
+		// indexed, which the log format never does; start over rather than
+		// trust the index.
 		log = turnLog{}
 	}
 	log.file = info
@@ -111,11 +115,26 @@ func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
 	return log, data, nil
 }
 
+// endsLine reports whether offset end follows a newline, as the end of an
+// indexed log does. It is false for a file shorter than end, and it catches
+// most logs rewritten in place, which the file identity check misses.
+func endsLine(f *os.File, end int64) bool {
+	if end == 0 {
+		return true
+	}
+	b := make([]byte, 1)
+	_, err := f.ReadAt(b, end-1)
+	return err == nil && b[0] == '\n'
+}
+
 // add indexes one complete line found at offset off.
 func (log *turnLog) add(line []byte, off int64, turnID, path string) error {
 	var record lineRecord
 	if err := json.Unmarshal(line, &record); err != nil {
 		return corrupt(path, log.lines, err.Error())
+	}
+	if record.Step != nil && record.Claim != nil {
+		return corrupt(path, log.lines, "line holds both a step and a claim")
 	}
 	switch {
 	case log.lines == 1:
@@ -210,6 +229,12 @@ func (c *indexCache) get(turnID string) turnLog {
 	}
 	c.order.MoveToFront(e)
 	return e.Value.(*cacheItem).log
+}
+
+func (c *indexCache) markDirsSynced(turnID string) {
+	if e, ok := c.items[turnID]; ok {
+		e.Value.(*cacheItem).log.dirsSynced = true
+	}
 }
 
 func (c *indexCache) put(turnID string, log turnLog) {

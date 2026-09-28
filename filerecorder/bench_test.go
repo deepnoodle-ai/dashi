@@ -10,9 +10,10 @@ import (
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 )
 
-// BenchmarkCommitTurn commits whole turns of 500 steps. Commit reads the
-// whole log, so a turn's cost grows with the square of its size; this
-// measures whether that needs an index. Sync is off to isolate the reads.
+// BenchmarkCommitTurn commits whole turns of 500 steps. Without its index,
+// Commit read the whole log each time, so a turn's cost grew with the square
+// of its size; this keeps that from returning. Sync is off to isolate the
+// reads.
 func BenchmarkCommitTurn(b *testing.B) {
 	for _, size := range []int{1 << 10, 100 << 10} {
 		b.Run(fmt.Sprintf("500x%dKB", size>>10), func(b *testing.B) {

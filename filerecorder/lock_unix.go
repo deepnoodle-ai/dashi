@@ -26,7 +26,9 @@ const (
 // attempt until it succeeds or ctx ends. A flock belongs to the open file
 // description, so two opens of one log exclude each other even within one
 // process; fcntl locks belong to the process and would not. Closing f
-// releases the lock.
+// releases the lock. Polling is not fair: a steady stream of overlapping
+// Loads can hold a writer off until its context ends, which then rejects
+// the commit cleanly.
 func lock(ctx context.Context, f *os.File, exclusive bool) error {
 	how := syscall.LOCK_SH
 	if exclusive {

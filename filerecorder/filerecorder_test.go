@@ -68,13 +68,21 @@ func TestClaimedTurnWithoutStepsIsNotFound(t *testing.T) {
 func TestTornTailIsIgnoredAndReplaced(t *testing.T) {
 	r := newRecorder(t, t.TempDir())
 	commit(t, r, step("turn", 1, "first"), "")
-	appendBytes(t, r.Path("turn"), `{"step":{"version":1,"turn_id":"tu`)
+	// The torn line is longer than the next record, so overwriting it in
+	// place without truncating would leave part of it behind.
+	torn := `{"step":{"version":1,"turn_id":"turn","seq":2,"x":"` +
+		strings.Repeat("x", 4096)
+	appendBytes(t, r.Path("turn"), torn)
 	requireSteps(t, r, "turn", 1)
 	commit(t, r, step("turn", 2, "second"), "")
 	requireSteps(t, r, "turn", 2)
 	data, err := os.ReadFile(r.Path("turn"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(data, []byte("\n")) ||
+		bytes.Contains(data, []byte("xxx")) {
+		t.Fatalf("torn line survived the repair:\n%s", data)
 	}
 	if lines := bytes.Count(data, []byte("\n")); lines != 3 {
 		t.Fatalf(
@@ -108,6 +116,17 @@ func TestCorruptLogsFail(t *testing.T) {
 		"header for another turn": func(t *testing.T, r *filerecorder.Recorder) {
 			commit(t, r, step("other", 1, "first"), "")
 			copyFile(t, r.Path("other"), r.Path("turn"))
+		},
+		"step and claim on one line": func(
+			t *testing.T,
+			r *filerecorder.Recorder,
+		) {
+			commit(t, r, step("turn", 1, "first"), "")
+			appendBytes(
+				t,
+				r.Path("turn"),
+				`{"step":{"turn_id":"turn","seq":2},"claim":{"owner":"x"}}`+"\n",
+			)
 		},
 		"step out of sequence": func(t *testing.T, r *filerecorder.Recorder) {
 			commit(t, r, step("turn", 1, "first"), "")

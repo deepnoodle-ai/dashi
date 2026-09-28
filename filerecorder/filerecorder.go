@@ -57,9 +57,13 @@ import (
 var ErrCorrupt = errors.New("filerecorder: corrupt turn log")
 
 // errLogFailed reports a log whose earlier write or sync failed in this
-// process. The kernel may have dropped the data, so later reads of the file
-// cannot be trusted to match the disk; the log accepts no more commits until
-// the process restarts and reads it afresh.
+// process. After a failed fsync the kernel may have dropped written data
+// while still serving it from the machine-wide page cache, so what the file
+// reads back may not match the disk. Retiring the log only stops this
+// process from appending after a step that may be lost; it does not make
+// the log trustworthy again. Reads, and other processes, may still see the
+// cached data until the machine restarts, so an operator should inspect the
+// log before the turn resumes.
 var errLogFailed = errors.New(
 	"filerecorder: an earlier write to this log failed",
 )
@@ -113,10 +117,11 @@ func New(cfg Config) (*Recorder, error) {
 	if cfg.Dir == "" {
 		return nil, errors.New("filerecorder: Config.Dir is required")
 	}
+	_, statErr := os.Stat(cfg.Dir)
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("filerecorder: create Dir: %w", err)
 	}
-	return &Recorder{
+	r := &Recorder{
 		dir:    cfg.Dir,
 		sync:   !cfg.DisableSync,
 		failed: map[string]error{},
@@ -127,7 +132,15 @@ func New(cfg Config) (*Recorder, error) {
 		syncFile: func(f *os.File) error {
 			return f.Sync()
 		},
-	}, nil
+	}
+	if errors.Is(statErr, fs.ErrNotExist) {
+		// Make the new Dir's own name durable, as each turn's first append
+		// does for the directories below it.
+		if err := r.syncDir(filepath.Dir(cfg.Dir)); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
 }
 
 // Path returns the file that holds turnID's log, whether or not it exists.
@@ -180,7 +193,8 @@ func (r *Recorder) Load(
 // Claim makes owner the only token whose commits the turn accepts, as a lease
 // takeover does. It may be called before the turn has any steps, and it is
 // recorded in the log. Lease policy (who may claim, and when) belongs to the
-// host.
+// host. Its errors are plain errors; a failed Claim may or may not have been
+// recorded, and a later Claim by the same owner is harmless.
 func (r *Recorder) Claim(ctx context.Context, turnID, owner string) error {
 	if err := r.usable(turnID); err != nil {
 		return err
@@ -201,11 +215,22 @@ func (r *Recorder) Claim(ctx context.Context, turnID, owner string) error {
 	if err := lock(ctx, f, true); err != nil {
 		return fmt.Errorf("filerecorder: lock log: %w", err)
 	}
+	// Check again under the lock: another goroutine may have retired the
+	// log while this one waited.
+	if err := r.usable(turnID); err != nil {
+		return err
+	}
 	log, err := r.scan(f, turnID)
 	if err != nil {
 		return err
 	}
-	return r.append(f, turnID, log, record)
+	if err := r.append(f, turnID, log, record); err != nil {
+		if commitErr, ok := errors.AsType[*dashi.CommitError](err); ok {
+			return commitErr.Err
+		}
+		return err
+	}
+	return nil
 }
 
 // Commit appends a step when it extends the turn at the expected sequence and
@@ -236,6 +261,12 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	defer f.Close()
 	if err := lock(ctx, f, true); err != nil {
 		return rejected(fmt.Errorf("filerecorder: lock log: %w", err))
+	}
+	// Check again under the lock: another goroutine may have retired the
+	// log while this one waited, and this step must not follow a line whose
+	// sync failed.
+	if err := r.usable(turnID); err != nil {
+		return rejected(err)
 	}
 	log, err := r.scan(f, turnID)
 	if err != nil {
@@ -310,35 +341,30 @@ func (r *Recorder) retire(turnID string, err error) {
 }
 
 // openForWrite opens the turn's log for reading and writing, creating it and
-// its shard directory if needed. A new directory entry is synced, so a log
-// that later holds acknowledged steps cannot vanish in a crash.
+// its shard directory if needed. It does not sync the new directory entries;
+// append does that before acknowledging the first write this process makes
+// to the log, whichever process created it.
 func (r *Recorder) openForWrite(turnID string) (*os.File, error) {
 	path := r.Path(turnID)
-	shard := filepath.Dir(path)
-	if _, err := os.Stat(shard); errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(shard, 0o700); err != nil {
-			return nil, fmt.Errorf("filerecorder: create shard: %w", err)
-		}
-		if err := r.syncDir(r.dir); err != nil {
-			return nil, err
-		}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("filerecorder: create shard: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if err == nil {
-		if err := r.syncDir(shard); err != nil {
-			f.Close()
-			return nil, err
-		}
-		return f, nil
-	}
-	if !errors.Is(err, fs.ErrExist) {
-		return nil, fmt.Errorf("filerecorder: create log: %w", err)
-	}
-	f, err = os.OpenFile(path, os.O_RDWR, 0)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("filerecorder: open log: %w", err)
 	}
 	return f, nil
+}
+
+// syncDirs makes the log's name durable: its entry in the shard directory
+// and the shard's entry in Dir. A file fsync does not cover them, and the
+// process that created them may have crashed before syncing them, so every
+// process syncs them before its first acknowledged write to a log.
+func (r *Recorder) syncDirs(path string) error {
+	if err := r.syncDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return r.syncDir(r.dir)
 }
 
 func (r *Recorder) syncDir(dir string) error {
@@ -350,7 +376,7 @@ func (r *Recorder) syncDir(dir string) error {
 		return fmt.Errorf("filerecorder: sync directory: %w", err)
 	}
 	defer d.Close()
-	if err := d.Sync(); err != nil {
+	if err := r.syncFile(d); err != nil {
 		return fmt.Errorf("filerecorder: sync directory: %w", err)
 	}
 	return nil
@@ -401,6 +427,15 @@ func (r *Recorder) append(
 		// unknown and this process stops trusting the log.
 		r.retire(turnID, err)
 		return unknown(fmt.Errorf("filerecorder: sync: %w", err))
+	}
+	if !log.dirsSynced {
+		if err := r.syncDirs(f.Name()); err != nil {
+			r.retire(turnID, err)
+			return unknown(err)
+		}
+		r.mu.Lock()
+		r.index.markDirsSynced(turnID)
+		r.mu.Unlock()
 	}
 	return nil
 }

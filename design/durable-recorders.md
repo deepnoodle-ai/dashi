@@ -65,17 +65,24 @@ cancellation to five seconds); a context that ends first gives
 command ID and digest, and claim owners; apply `MemoryRecorder`'s checks
 (owner equals the last claim; command-ID retry or conflict; `ExpectedSeq`
 equals the step count; an occupied sequence matches by `Step.Equal`), then
-append one newline-terminated line in one write and fsync. A failed check,
-or a failed write truncated back, is rejected. A failed fsync, or a write
-that cannot be truncated, is a plain error (unknown), and that log accepts no
-more commits in this process, since the kernel may have dropped the data.
+append one newline-terminated line in one write and fsync. A file fsync
+does not make the log's name durable, and the process that created the file
+or shard may have crashed before syncing them, so each process syncs the
+shard directory and `Dir` before its first acknowledged write to a log
+(`New` also syncs `Dir`'s parent when it creates `Dir`). A failed check,
+or a failed write truncated back, is rejected. A failed file or directory
+sync, or a write that cannot be truncated, is a `*dashi.CommitError` with
+`PersistenceUnknown`, and that log accepts no more commits in this process,
+checked again once the lock is held. This only stops the process building
+on a step that may be lost: the page cache is machine-wide, so an operator
+should inspect the log before the turn resumes.
 Whole-turn validation, which `MemoryRecorder` does with an internal replay,
 is optional; the runner validates what it loads. Load takes a shared lock.
 
 **Corruption.** A final line without a newline is a torn write from a crash
 before acknowledgement: Load ignores it and the next Commit truncates it. A
-complete line that does not decode, a header for another turn, or steps out
-of sequence fail with `ErrCorrupt`, naming the path and line; Run stops on
+complete line that does not decode, a header for another turn, a line with
+both a step and a claim, or steps out of sequence fail with `ErrCorrupt`, naming the path and line; Run stops on
 that Load error. There is no automatic repair. The host must not delete a
 log while its turn may still run.
 
@@ -83,44 +90,37 @@ log while its turn may still run.
 500-step turn took 0.7 s at 1 KB per step and 42 s at 100 KB. So Commit
 keeps a per-turn index (offset past the last complete line, step summaries,
 owner) in a 1,024-turn LRU and reads only what was appended since; the same
-turns take 24 ms and 0.25 s. The index is dropped when the file is not the
-same file (`os.SameFile`) or is shorter than the indexed offset; file size
-alone would not do, since a truncate and equal-length append defeats it.
+turns take about 45 ms and 0.4 s. The index is dropped when the file is not the
+same file (`os.SameFile`) or the byte before the indexed offset is not a
+newline, which also covers a shorter file; file size alone would not do,
+since a truncate and equal-length append defeats it.
 Load still reads the whole log.
 
 **Tests.** Conformance; the fault-recovery matrix; processes racing for one
 sequence and taking over a lease; a claimed turn with no steps; a lock wait
 ended by its context; torn, corrupt, and mismatched logs; injected write and
-fsync failures; `A`/`a` and long IDs. `examples/resume` switches to the
+fsync failures; directory syncs by a process that did not create the log;
+`A`/`a` and long IDs. `examples/resume` switches to the
 package and drops its own recorder.
 
 ## 3. The recorder contract, where authors look
 
-`Recorder`'s doc comment states the rules: append only at `ExpectedSeq+1`; a
-retry equal by `Step.Equal` succeeds; command-ID retry and conflict; owner
-fencing when the host leases; `*CommitError` with `PersistenceRejected`
-only when certainly not written, anything else unknown; safe for concurrent
-use; preserve JSON meaning. It points to `dashitest.Run` as the executable
-contract and to `filerecorder` as a reference. `CommitRequest.Owner`
-explains the empty and unclaimed cases.
+`Recorder`'s doc comment states the rules: the owner fence first; append
+only at `ExpectedSeq+1` unless a retry rule applies; a retry equal by
+`Step.Equal` succeeds; command-ID retry and conflict; `*CommitError` with
+`PersistenceRejected` only when the call certainly wrote nothing, anything
+else unknown; safe for concurrent use; preserve JSON meaning. It points to
+`dashitest.Run` as the executable contract and to `filerecorder` as a
+reference. `CommitRequest.Owner` explains the empty and unclaimed cases.
 
-## 4. What a SQL recorder must guarantee
+## 4. SQL recorders
 
-Commit each step in one transaction with the host's own rows:
-
-- Lock the turn row; reject a different claimed owner; a known command ID
-  succeeds only with the same kind and digest, else `ErrCommandConflict`; an
-  occupied sequence succeeds only if the stored step `Equal`s the new one;
-  otherwise require `seq = ExpectedSeq`, insert, and advance.
-- The stored step JSON is the record. Never rebuild `At` from a timestamp
-  column: the runner stamps nanoseconds, a microsecond column loses them, and
-  a genuine retry would stop being equal and be rejected. A timestamp column
-  is for indexing only.
-- Postgres `jsonb` rejects `\u0000` in strings; store such steps as `json` or
-  text, or reject them explicitly.
-- A fence, conflict, or constraint failure before commit is rejected; a
-  timeout or lost connection after `COMMIT` was sent is a plain error.
-- Load returns `ErrTurnNotFound` for no rows. Prove it with `dashitest`.
+What a SQL recorder must guarantee is written for users in
+[running turns](../docs/guides/running-turns.md): one transaction per step
+with the host's rows, the checks in contract order, the stored step JSON as
+the record (never `At` rebuilt from a microsecond column, which would make a
+genuine retry unequal), `jsonb`'s refusal of `\u0000`, and rejected only
+before `COMMIT` is sent.
 
 **Should it ship?** Not now: a driver does not belong in the core module, and
 hosts want the write inside their own transaction and schema. Revisit as a
