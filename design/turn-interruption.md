@@ -1,222 +1,203 @@
 # Turn interruption and resumption
 
-**Date:** 2026-09-27 · **Status:** Proposal for decision 6 in
-[decisions.md](decisions.md)
+**Date:** 2026-09-28 · **Status:** Decided (decisions 8–17 in
+[decisions.md](decisions.md)); one question open
 
-A host runs a Turn on workers it does not fully control: deploys drain them,
-heartbeats miss, leases expire, timeouts fire, processes die. None of these
-means "the user wants this work to stop", yet Kernel records each as final
-`StopCanceled`, so a deploy destroys the Turn. The owner asked: "Shouldn't the
-backend be able to pause and resume a turn later, without undue hardship?" Yes.
-This document shows how our production hosts do it and proposes the Kernel
-model.
+## The problem
 
-## How the production hosts run a turn today
+An application runs a Turn inside a Go context. That context ends for many
+reasons that have nothing to do with the user: a deploy restarts the server, the
+process crashes, the server loses its claim on the turn (its *lease*, the
+database row saying "this server is working on this turn") because a heartbeat
+missed, or a request timeout fires. Today Kernel records every one of these as
+`StopCanceled`, a final stop. A routine deploy therefore destroys every turn in
+progress.
 
-Neither host keeps a goroutine alive for a turn's life. Each runs one goroutine
-per *claim* for one segment, which exits when the turn waits, finishes, or loses
-its lease. The durable record, not a live process, carries the turn to whichever
-worker claims the next segment.
+These events are common. The work should simply wait to be picked up again, on
+any server, without alarming the user.
 
-**nvoken-cloud (Dive v1.34).** The runner starts a goroutine per claim
-(`internal/engine/runner.go:163-194`); in Cloud Tasks mode an HTTP request plays
-that role (`adapters/executorhttp/server.go:113-115`). Segments are capped at 15
-minutes (`runner.go:44-48`). A host-tool wait parks the turn with its lease
-cleared, and the goroutine returns (`queries/turn_execution.sql:736-741`).
+## How our production hosts handle this today
 
-- *Fence.* A claim increments `attempt` and sets a 30 s lease
-  (`turn_execution.sql:322-365`); every write checks owner, attempt, and an
-  unexpired lease (`turn_execution.sql:700-703`).
-- *Cancel.* A failed heartbeat cancels with a plain `context.Canceled`
-  (`engine/claim.go:100`, `361-377`). Drain waits `DrainGrace` (30 s), then
-  cancels (`runner.go:215-235`). Only the segment deadline has an inspected
-  cause (`claim.go:115-127`). User cancel is a DB write plus a notification
-  (`services/controls.go:271-304`); a user interrupt is a flag honored at the
-  next checkpoint (`adapters/divegen/generator.go:1131-1139`).
-- *Recovery.* The reaper requeues expired running turns, fenced on `attempt`
-  (`turn_execution.sql:922-951`). The next worker rebuilds from transcript and
-  checkpoints (`services/generation_recovery.go:32-250`), reruns open builtins
-  (`generator.go:883-900`) under a newer attempt only (`toolcalls.go:269-276`),
-  retries MCP calls only when annotated safe (`mcp_tool.go:240-245`), and issues
-  an interrupted model call again. Moves are unlimited; only the time budget
-  bounds them (`execution.go:205-210`).
+Neither of our two production applications on Dive keeps a goroutine alive for
+a turn's whole life. A worker runs a turn until it finishes, waits (for an
+approval, say), or loses its lease, then exits; the next worker rebuilds the
+turn from the database record. Both converge on the same practices:
 
-**mobius-cloud (Dive v1.31).** The dispatcher runs a goroutine per claimed turn
-(`internal/daemon/session_runtime.go:417-422`); a wait records a durable wait
-and the goroutine exits (`session_runtime.go:563-576`). A claim increments
-`lease_attempt` (`adapters/postgres/agent_turn_repo.go:1229-1239`); the lease is
-2 min, renewed every 30 s (`session_runtime.go:198-199`).
+1. **Any worker can resume a turn from its record.** A crash and a deploy share
+   one recovery path: a background sweeper requeues turns whose lease expired.
+2. **The context ending is not a user decision.** A user cancel is a separate
+   action. Dive treats a context end as a cancel, and both hosts pay for it:
+   one never cancels on deploy, "because cancelling would terminalize them as
+   `cancelled` instead of leaving them retryable"; the other records lease loss
+   as a user cancel.
+3. **A model call that was cut off is sent again.** It costs money but changes
+   nothing in the outside world. A tool call is rerun only when it is known to
+   be safe to repeat.
+4. **Stale writes are rejected.** Each pickup increments an attempt number, and
+   every write checks both the owner and that attempt number.
+5. **Moves are bounded,** by a requeue count or the turn's time budget.
 
-- *Cancel.* Lease loss calls a cause-less `cancel()` (`session_runtime.go:507`,
-  `939-942`); the executor maps any parent cancel to `cancelled`
-  (`agentruntime/executors/agent.go:414-419`) and writes it through a salvage
-  context (`agent.go:4079-4089`). A lost lease becomes a terminal cancel.
-- *Drain* never cancels, "because cancelling would terminalize them as
-  `cancelled` instead of leaving them retryable" (`session_runtime.go:262-268`,
-  `466-469`): the terminal-cancel workaround in plain form.
-- *Recovery.* The reaper requeues an expired running turn, fenced on
-  `lease_attempt`, up to three times (`session_runtime.go:1339-1343`,
-  `domain/agent_turn.go:78`). The next worker rebuilds from committed messages,
-  adds a synthetic error for each dangling tool call
-  (`services/session_transcript.go:455-463`), and reissues the model call.
+Kernel already meets points 1 and 4 (`Engine.Apply` runs from the record;
+`Recorder.Commit` carries `Owner` and `ExpectedSeq`). The gap is what happens
+when the context ends.
 
-**What they have in common.** These are the requirements Kernel must meet:
+## The rule
 
-1. A turn outlives any goroutine; any claimant resumes it from the record, and a
-   crash and a drain share one recovery path.
-2. The context ends for reasons that are not the user's (drain, lease loss,
-   timeouts). A user cancel is a separate action.
-3. An interrupted model call is issued again: it costs spend but has no external
-   effect. A tool call is rerun only when known to be safe.
-4. Stale writes are rejected by an owner-and-attempt fence. (mobius-cloud's
-   terminal writes check status only, `agent_turn_repo.go:826-830`, so a stale
-   `cancelled` can land on a requeued turn.)
-5. Drain lets in-flight work finish for a grace period, then stops it; the host
-   bounds how often a turn may move.
+**By default, the Go context ending pauses the turn; it does not end it.** The
+engine records the stop `StopInterrupted` ("interrupted"), and `Continue`
+resumes the turn on any worker. A crash is an interruption whose stop was never
+written; `Continue` handles both the same way. The stop's reason is the
+context's cause (`context.Cause(ctx).Error()`), so an application that cancels
+with `context.WithCancelCause(ctx, ErrDeploying)` sees "deploying" in the
+record. Nothing about this status should alarm a user: it means "waiting to be
+rescheduled".
 
-## What Kernel does today
-
-`Engine.Apply` already runs one segment: it takes the recorded Turn and a
-command, runs to a stop, and any process may call it again. Requirements 1 and 4
-are met; `Recorder.Commit` carries `Owner` and `ExpectedSeq`
-(`recorder.go:11-15`). The failure is how Kernel treats the context ending:
-
-- *Between steps* it records `StopCanceled` (`engine.go:422-423`;
-  `tools_loop.go:47-48`, `168-169`, `213-214`), settling unstarted calls as not
-  executed (`state.go:521-533`). The stop is final: `canContinue`, `Deliver`,
-  and `Cancel` reject it (`state.go:604`; `engine.go:162`, `282`); only late
-  results land (`state.go:129-135`).
-- *During a model call*, the attempt settles as uncertain (`engine.go:590-593`),
-  which blocks `Continue` (`state.go:297-298`, `604`) until the host proves
-  non-dispatch (`engine.go:196-199`), a proof no host has for a stream it
-  abandoned. *During a tool call*, started calls block `Continue`
-  (`state.go:614-617`) and each needs an `Accept`. A crash leaves the same
-  blocks without a stop.
-- Breaking `Engine.Stream` cancels its context (`engine.go:42-53`), so a
-  disconnected reader ends the turn (`engine_stream_test.go:98`).
-  `Limits.Deadline` is checked only before a call (`engine.go:459-460`); cutting
-  off a running call needs the host's context, which again cancels.
-
-## Proposal
-
-**Rule.** The `Cancel` command is the only terminal stop a caller causes. When
-the Go context ends, the engine records a resting stop, `StopInterrupted`, and
-the context's cause becomes its reason. `Continue` resumes the turn on any
-owner. A crash is an interruption whose stop was never written.
+Two per-call options on `Bindings` (exact placement left to implementation)
+let the caller say more:
 
 ```go
-const StopInterrupted StopKind = "interrupted" // context ended; resumable
+type Bindings struct {
+    // ...existing fields...
+    Pause         <-chan struct{} // closed: pause at the next safe point
+    OnContextDone ContextDone     // ContextInterrupt (default) or ContextCancel
+}
 
-// ModelFact: the engine stopped reading this attempt. Its output is never
-// acted on; any partial Result and Usage are kept for display and accounting.
-Abandoned bool `json:"abandoned,omitempty"`
+const StopInterrupted StopKind = "interrupted" // resumable
 
-var ErrStreamStopped = errors.New("kernel: stream reader stopped")
-
-func (s Stop) Final() bool // completed or canceled
+// ModelFact.Interrupted: the engine stopped reading this model call before it
+// finished. Partial output and usage are kept for display and accounting;
+// they are never acted on.
+Interrupted bool `json:"interrupted,omitempty"`
 ```
 
-`Stop.Reason` is `context.Cause(ctx).Error()`; hosts cancel with
-`WithCancelCause` (`ErrLeaseLost`, `errDraining`) and already hold the typed
-cause. Typed stop codes belong to theme 2.
+**Pause** is for graceful shutdown. When the channel closes, the engine stops
+at the next safe point, before the next model call or before starting the next
+tool call, and records `interrupted` with reason "pause requested". Work
+already in flight is not cut off; if it outlasts the host's grace period, the
+host cancels the context as before.
 
-**What the engine records**, by where the context ends:
+**OnContextDone** says what an ended context means. A server going down should
+say interrupted, the default. A web handler whose client disconnected knows
+the turn will never resume there, so it sets `ContextCancel`: an ended context,
+including breaking out of `Engine.Stream`, then records a final `StopCanceled`,
+exactly as a `Cancel` command would, with unstarted calls marked not executed.
+Detecting this from the cause alone is not enough: `net/http` cancels a request
+context with a plain `context.Canceled`, so the handler cannot attach a cause.
+The recommended setup for long turns, a worker running the turn while the UI
+follows the saved record (decision 3), keeps the default.
 
-- *Between steps or before a tool starts:* `turn_stopped{interrupted}`.
-  Unstarted calls and pending approvals stay pending.
-- *During a model call:* the attempt settles `Abandoned`, keeping any partial
-  result, and counts toward `ModelAttempts` (before send it settles not
-  dispatched, as today). Then stop interrupted.
-- *During tool execution:* stop waiting, as today; started calls stay `started`,
-  and results arriving later in this process are dropped (an error after
-  cancellation is not a real outcome). Then stop interrupted.
+## What happens to work in progress
 
-**Abandoned is not uncertain.** A model call changes nothing outside the turn
-but spend, and both hosts reissue it; the admission reservation stays the host's
-spend fact. An attempt that advertised an acting provider-hosted tool, such as
-an MCP connector, stays uncertain. **If the stop commit fails** under the
-existing bounded, detached context (`engine.go:315-320`), `Outcome.Persistence`
-says so and the record ends like a crash: correctness never depends on the
-interrupted stop, which only explains the pause.
+A turn alternates between calling the model and running the tools the model
+asked for. What an interruption means depends on where the context ended.
 
-**The next owner** loads the turn; `Replay` shows the stop and pending work.
+**Between steps, or before a tool starts.** The turn records the stop. Tool
+calls that had not started, and approvals still waiting, stay pending and run
+after `Continue`.
 
-- *Continue* works on an interrupted turn and on a crashed record with no stop.
-  It first adopts in-flight work: an open intent settles `Abandoned` (with the
-  hosted-tool exception), and each started local call settles uncertain through
-  the existing path (`tools_loop.go:62-69`). If anything is uncertain, the turn
-  stops `uncertain`. Otherwise it runs unstarted calls, then the model. Limits
-  do not reset. Adopting work is new: `canContinue` currently rejects an open
-  intent and started calls (`state.go:604`, `614-617`).
-- *Accept* records a started call's result when the host knows it, for example
-  from an idempotency key. It also records approvals and model reconciliations.
-  Once nothing blocks the turn, it runs as it would from `waiting`.
-- *Deliver* is valid; *Cancel* is valid and final, leaving started calls open
-  for late results.
+**During a model call.** The call is recorded as interrupted, keeping whatever
+partial text and token usage arrived so the UI can show it and billing counts
+it. On resume the model call is simply sent again.
 
-This refines [turn.md](turn.md)'s "never blindly repeated" rule: it still holds
-for tools, but reissuing a model call without acting hosted tools is the
-recovery.
+One exception: *provider-hosted tools*, tools the provider runs itself during
+the model call, such as web search, code execution, or remote MCP connectors.
+If the interrupted call may have run a hosted tool that is not known to be
+read-only or idempotent (safe to repeat), resending it could repeat a real
+action, so the call is *uncertain* (below) and is not resent. Kernel marks the
+built-in hosted tools it knows are read-only, such as web search; a tool
+definition's annotations can say so for others.
 
-**Deadline.** `Limits.Deadline` is the turn's durable budget, so reaching it is
-a limit. The engine derives `WithDeadlineCause(ctx, deadline, errTurnDeadline)`
-and on that cause records `StopLimited{deadline}` under the same model and tool
-rules. Any other context deadline (request timeout, segment ceiling) is the
-host's and gives `StopInterrupted`. Raising a limit is decision 7.
+**During a tool call.** The engine stops waiting. Any result that arrives after
+the context ended is dropped, because an error caused by the cancellation is not
+a real outcome. The call stays marked as started with no result.
 
-**Stream.** Breaking `Engine.Stream` interrupts the turn with cause
-`ErrStreamStopped`; it does not cancel it. A reader who wants the work stopped
-sends `Cancel`. A reader who may simply disconnect should follow the record by
-cursor while a worker runs `Apply` (decision 3).
+## What `Continue` does after an interruption or crash
 
-**Fencing** is unchanged. On lease loss the host cancels with `ErrLeaseLost`;
-the engine still attempts its bounded commits and the host's recorder rejects
-them if a successor holds the turn. Kernel never skips writes by cause, so the
-fence must check owner and attempt, not status.
+`Continue` first resolves anything left in flight, then carries on:
 
-**What a host does.**
+- An interrupted model call is sent again, unless a hosted tool makes it
+  uncertain.
+- A local tool call that started but has no saved result is rerun if its
+  definition is annotated `ReadOnly` or `Idempotent` (`tool/tool.go:33-43`).
+- Any other such call is **uncertain**: the tool started but no result was
+  saved, so Kernel cannot tell whether it ran. Running it again might send a
+  second email or charge a card twice. The turn stops `uncertain`, and the
+  application must report what happened.
 
-- *Drain* is deliberate. Stop claiming; have `Policy.BeforeModel` return
-  `Stop{Kind: StopInterrupted, Reason: "drain"}`, which already works
-  (`engine.go:516-517`) and yields at the next model boundary with nothing in
-  flight; after a grace period, cancel with `errDraining`; release the lease.
-- *Crash* is involuntary: after the lease expires, the reaper requeues the turn
-  and the next claimant calls `Continue`.
-- *Moves.* Kernel counts nothing, but abandoned attempts consume
-  `ModelAttempts`, so a turn that keeps crashing in model calls ends `limited`.
-  Requeue caps stay in the host.
+The application reports with `Accept`: the tool's result if it can find it (for
+example by looking up an idempotency key in the downstream system), or a
+failure; for an uncertain model call, the result or evidence that it never ran.
+Or it can `Cancel` the turn. On an interrupted turn, `Accept` only records the
+report; `Continue` resumes the turn. Asking for `Continue` to resume an
+interrupted turn is always consistent. (An approval delivered with `Accept` on
+a *waiting* turn still carries on immediately today; see Open questions.)
+
+This refines [turn.md](turn.md)'s rule that work is "never blindly repeated": it
+still holds for actions with uncertain effects, but repeating a model call, or
+a tool declared safe to repeat, is the normal recovery.
+
+## Limits and deadlines
+
+**Interruptions have their own limit.** A new `Limits.Interruptions` counts
+resumes after an interruption or crash, with a default of 10. Interruptions are
+usually the hosting's fault, not the model's, so they do not consume
+`ModelAttempts`; a day of deploys cannot exhaust a turn's model budget. When a
+`Continue` would exceed the limit, the turn stops as `limited` instead of
+resuming, so a turn that crashes its worker every time cannot loop forever.
+
+**The turn's deadline is a limit, not an interruption.** `Limits.Deadline` is
+the turn's own time budget. The engine derives its context with a distinct
+cause, so reaching the deadline stops the turn as `limited`. Any other context
+deadline (a request timeout, a per-run time cap) belongs to the host and
+interrupts the turn.
+
+**If writing the stop fails,** the record looks like a crash, and `Continue`
+recovers it the same way.
+
+## What an application does
+
+- **Deploy.** Stop picking up new turns, close each running turn's `Pause`
+  channel, and after a grace period cancel the contexts of turns still busy.
+- **Crash.** Nothing special: the sweeper requeues it; the next worker calls
+  `Continue`.
+- **Lease loss.** Cancel the context with a cause such as `ErrLeaseLost`. The
+  engine still tries its final writes; the application's recorder rejects them
+  if another worker already holds the turn. The store must check owner and
+  attempt, not the turn's status.
+- **Client disconnect in a request handler** that runs the turn itself: set
+  `OnContextDone: ContextCancel`.
 
 ## Alternatives considered
 
-**A `Pause` command.** A crashed worker cannot submit one, so the crash path is
-needed anyway and `Pause` would be a second route to the same state; a draining
-worker already yields through policy. **Keeping cancel terminal** forces hosts
-never to cancel the context (mobius-cloud's drain) or to rewrite a final stop,
-leaves timeouts destroying turns, and records lease loss as a user cancel.
-**Waiting for in-flight tools in the engine** duplicates the grace period the
-host already sets by delaying its cancel.
+**A `Pause` command.** A crashed worker cannot send one, so the crash path is
+needed anyway. **Draining through `Policy.BeforeModel`**, which can already
+return an interrupted stop: `Policy` is a four-method interface, so every app
+would wrap whatever policy it has, and the hook fires only before model calls,
+so a turn in a long tool loop would not pause until the grace period expired.
+It still works but is not the documented path. **Keeping cancel final** forces
+hosts never to cancel the context and records lease loss as a user cancel.
+**Accepting late tool results for a short window** adds timing-dependent
+behavior for little gain; rerunning safe tools covers the common case.
 
 ## Open questions
 
-1. Should `Continue` rerun a started call annotated read-only or idempotent, as
-   nvoken does for safe MCP tools? This needs theme 3's execution identity.
-2. Should abandoned attempts count toward `ModelAttempts` or a separate
-   interruption allowance, so a deploy storm cannot exhaust the model budget?
-3. Which hosted tools count as acting, and can the definition say so?
-4. Should `Accept` on an interrupted turn run the loop or await `Continue`?
+1. **Should `Accept` ever run the turn?** On an interrupted turn it only
+   records; on a waiting turn, an approval delivered with `Accept` carries on
+   immediately today. Should both require `Continue`, or is the difference
+   intended?
 
 ## Migration
 
-**Tests.** Context-cancel tests move from `StopCanceled` to `StopInterrupted`,
-with unstarted calls left pending and a mid-stream partial settled `Abandoned`.
-They are `cancellation_test.go:13`, `71`, `141`, and `160`, and
-`engine_stream_test.go:98`, `145`, and `176`. The explicit `Cancel` tests
-(`cancellation_test.go:124`, `hosted_recovery_test.go:42`) are unchanged. New
-tests: `Continue` after an interrupt and after a crash with an open intent or a
-started call, drain through `BeforeModel`, a fenced lease loss, and
-`Limits.Deadline` cutting off a running call.
+**Tests.** Context-cancel tests in `cancellation_test.go` and
+`engine_stream_test.go` move from `StopCanceled` to `StopInterrupted`, with
+unstarted calls left pending and a cut-off model call recorded as interrupted.
+Explicit `Cancel` tests are unchanged. New tests: `Continue` after an
+interruption and after a crash, with an interrupted model call, a started safe
+tool, and a started unsafe tool; a hosted tool of unknown safety; the `Pause`
+channel during a model call and during a tool loop; `ContextCancel` with a
+broken `Stream`; `Accept` on an interrupted turn; the interruption limit; a
+deadline cutting off a running call; and a lease loss rejected by the store.
 
-**Docs.** Update the `Stream` comment (`engine.go:30-34`),
-`docs/agent-turns.md:140`, `docs/guides/running-turns.md:38`, and
-`design/agent-loop.md:25` and `109-112`. In `design/turn.md`, update the
-cancellation sentence and the rule against blind repetition.
+**Docs.** Update the `Engine.Stream` comment, `docs/agent-turns.md`,
+`docs/guides/running-turns.md`, `design/agent-loop.md`, and the cancellation
+and repetition rules in `design/turn.md`.

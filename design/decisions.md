@@ -55,3 +55,63 @@ propose the Kernel model from that.
 product-level document should define where limits are declared, how they are
 checked and reserved, how a budget stop is represented and resumed, and what
 stays in the application.
+
+## 2026-09-28
+
+These refine decision 6; the design is
+[turn-interruption.md](turn-interruption.md).
+
+**8. The context ending pauses the turn; only `Cancel` ends it.** Decided. The
+engine records a resumable stop, and `Continue` resumes the turn on any worker.
+A crash is a pause whose stop was never written. Rationale: deploys, crashes,
+and lease loss are common and recoverable, not user decisions.
+
+**9. A cut-off model call is sent again on resume.** Decided. It is recorded as
+interrupted (`ModelFact.Interrupted`, not `Abandoned`); partial output and usage
+are kept for display and accounting, never acted on. Rationale: a model call
+costs money but changes nothing outside the turn, and our production hosts
+already resend it.
+
+**10. Provider-hosted tools follow the local-tool rule.** Decided. If a cut-off
+call may have run a hosted tool not known to be read-only or idempotent, resume
+does not resend it and the application decides; otherwise it is resent. Kernel
+marks built-in hosted tools it knows are read-only, such as web search;
+definitions can say so for others.
+
+**11. Safe local tools are rerun on resume.** Decided. A started call with no
+recorded result is rerun when annotated `ReadOnly` or `Idempotent`; otherwise
+it is uncertain and the application reports it. This does not wait for
+execution-identity work.
+
+**12. Interruptions have their own limit.** Decided. A new
+`Limits.Interruptions` (default 10) counts resumes; exceeding it stops the turn
+as `limited`. Interruptions do not consume `ModelAttempts`. Rationale: they are
+usually the hosting's fault, a different budget from model retries.
+
+**13. Tool results arriving after the context ends are dropped.** Decided. No
+late-result window. Rationale: rerunning safe tools covers the common case
+without timing-dependent behavior.
+
+**14. Names: `interrupted` and `uncertain`.** Decided. The resumable stop is
+`StopInterrupted`. A call that started with no saved result, so Kernel cannot
+tell whether it ran, stays `uncertain`.
+
+**15. Graceful shutdown uses a built-in pause signal.** Decided. A per-call
+input (such as `Bindings.Pause`) makes the engine stop before the next model
+call or tool call and record `interrupted` ("pause requested"); in-flight work
+is not cut off. Rationale: `Policy` is a four-method interface every app would
+have to wrap, and `BeforeModel` does not fire during a long tool loop.
+
+**16. `Accept` on an interrupted turn only records.** Decided. `Continue`
+resumes the turn. Rationale: `Continue` resuming an interrupted turn is always
+consistent.
+
+**17. The caller can declare that an ended context means cancel.** Decided.
+Interrupted is the default; a per-call option (such as
+`Bindings.OnContextDone`) set to cancel makes a context end, including leaving
+`Engine.Stream`, record a final `StopCanceled`. Rationale: a web handler whose
+client disconnected knows the turn will not resume, and `net/http` cancels
+without a cause, so the cause alone cannot say so.
+
+Still open: whether `Accept` should ever run the turn, given that an approval
+accepted on a waiting turn carries on immediately today.
