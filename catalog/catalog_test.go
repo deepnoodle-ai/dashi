@@ -158,6 +158,19 @@ func TestSmallModelIsCurrentEntry(t *testing.T) {
 		if !ok || e.Lifecycle == LifecycleDeprecated {
 			t.Fatalf("%s small %q is not a current entry", name, model)
 		}
+		// Small exists to be inexpensive, so it must not cost more to send
+		// than the default.
+		def, _ := Default(name)
+		d, _ := Find(name, def)
+		if e.Pricing == nil || d.Pricing == nil {
+			t.Fatalf("%s small %q or default %q has no price", name, model, def)
+		}
+		if e.Pricing.Base.Input.Nanos() > d.Pricing.Base.Input.Nanos() {
+			t.Errorf(
+				"%s small %q input %s costs more than default %q input %s",
+				name, model, e.Pricing.Base.Input, def, d.Pricing.Base.Input,
+			)
+		}
 	}
 	if model, ok := Small("meta"); ok {
 		t.Fatalf("meta small = %q, want none", model)

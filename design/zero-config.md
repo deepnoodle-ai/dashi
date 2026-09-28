@@ -83,12 +83,14 @@ model nothing the host does not run itself. Provider-hosted tools never reach
 ## 1.2 Default model
 
 The runner resolves an empty `Agent.Model` to `catalog.Default(provider)`
-when the client's API is one of that provider's catalog destinations. Other
-providers (OpenRouter, DeepInfra, Ollama, custom endpoints) need `Model`, and
-the error says so. The runner picks the general-purpose model, not a cheap
-one. `catalog.Small(provider) (string, bool)` reads a new optional `"small"`
-field, for examples and tests; it returns false where a catalog names none
-(Meta). Nothing selects it implicitly. The `llm` layer does not default: an
+when the client knows that model (its `ModelInfo` reports it). Other providers
+(OpenRouter, DeepInfra, Ollama, custom endpoints) need `Model`, and the error
+says so. The runner picks the general-purpose model, not a cheap one.
+`catalog.Small(provider) (string, bool)` reads a new optional `"small"` field,
+for examples and tests; it returns false where a catalog names none (Meta). A
+test keeps its input price at or below the default's; for OpenAI the two are
+the same model, since `gpt-6-luna` is already the cheapest current one. Nothing
+selects it implicitly. The `llm` layer does not default: an
 empty `Input.Model` is an error that points to `catalog.Default`.
 
 ## 1.3 Missing API key
