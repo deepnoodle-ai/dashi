@@ -72,6 +72,11 @@ func (wire codec) hostedRequests(
 	webSearch := webSearchMeter(declared)
 	wire.countToolUsage(requests, reported, fields.ToolUsage, webSearch)
 	countXAIDetails(requests, reported, fields.Usage)
+	// A billed total that includes tool charges accounts for X search items
+	// too; it becomes Result.Cost, which wins over any estimate.
+	if reportedCost(fields.Usage) != nil {
+		reported[xSearchItemMeter] = true
+	}
 	xSearch := slices.Contains(declared, "x_search")
 	for _, raw := range output {
 		meter, count := wire.itemRequests(raw, webSearch, xSearch)
@@ -156,10 +161,6 @@ func countXAIDetails(
 		switch {
 		case !ok:
 			meter = llm.UnrecognizedMeter(name)
-		case meter == llm.MeterXSearchPost || meter == llm.MeterXSearchProfile:
-			// X search counters bill the custom_tool_call items X search
-			// arrives as.
-			reported[xSearchItemMeter] = true
 		case meter == "":
 			reported[llm.UnrecognizedMeter("x_search_call")] = true
 			continue
@@ -168,6 +169,13 @@ func countXAIDetails(
 		if count > 0 {
 			requests[meter] += count
 		}
+	}
+	// X search items bill posts and profiles separately, so they are
+	// accounted for only when both counters are present. With one missing,
+	// the known counter's count stays and the items still count as unpriced.
+	// Captured responses (2026-09-28) list both counters even when zero.
+	if reported[llm.MeterXSearchPost] && reported[llm.MeterXSearchProfile] {
+		reported[xSearchItemMeter] = true
 	}
 }
 
