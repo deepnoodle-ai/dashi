@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -71,8 +72,12 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		// reason: OpenRouter pairs its error with finish_reason "error".
 		if (len(chunk.Error) > 0 && string(chunk.Error) != "null") || chunk.Object == "error" {
 			partial, _ := build(false)
+			cause := errors.New("provider stream error")
+			if message := streamErrorMessage(chunk.Error, raw); message != "" {
+				cause = fmt.Errorf("provider stream error: %s", message)
+			}
 			return partial, &llm.Error{Provider: wire.provider, Category: llm.ErrorProtocol,
-				Body: slices.Clone(raw), Cause: errors.New("provider stream error")}
+				Body: slices.Clone(raw), Cause: cause}
 		}
 		if chunk.ID != "" {
 			result.ID = chunk.ID
@@ -158,6 +163,26 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		return partial, providerhttp.Failure(wire.provider, llm.ErrorTransport, "stream ended without finish reason: %w", io.ErrUnexpectedEOF)
 	}
 	return build(true)
+}
+
+// streamErrorMessage returns the provider's message from an in-stream error:
+// the nested {"error":{"message":...}} shape, a bare {"error":"..."}, or the
+// flat {"object":"error","message":...} shape. It is empty when none decodes.
+func streamErrorMessage(nested json.RawMessage, raw []byte) string {
+	var v struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(nested, &v) == nil && v.Message != "" {
+		return v.Message
+	}
+	var s string
+	if json.Unmarshal(nested, &s) == nil && s != "" {
+		return s
+	}
+	if json.Unmarshal(raw, &v) == nil {
+		return v.Message
+	}
+	return ""
 }
 
 func (wire codec) partialToolCall(call ToolCall) llm.Content {
