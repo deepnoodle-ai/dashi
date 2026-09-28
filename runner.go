@@ -30,10 +30,10 @@ type Runner struct {
 	// Policy decides model calls and tool calls. When nil, every bound local
 	// and external tool is allowed; supply a policy to deny or defer calls.
 	Policy Policy
-	// Observer receives committed steps, provisional deltas, and tool
-	// progress. When it is set, Run requests streamed model output and
-	// delivers tool.Report snapshots so the Observer sees work as it happens;
-	// Stream always does.
+	// Observer receives every committed step, plus provisional deltas and
+	// tool progress, which it may drop (see Observer). When it is set, Run
+	// requests streamed model output and delivers tool.Report snapshots so
+	// the Observer sees work as it happens; Stream always does.
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
@@ -301,6 +301,11 @@ func (r Runner) apply(
 			}
 		}
 	}
+	// Checked after the retry checks, so a retried command on an ended turn
+	// still gets its recorded answer.
+	if err := state.acceptsAfterEnd(command); err != nil {
+		return Outcome{}, err
+	}
 	runCtx := ctx
 	if !agent.Limits.Deadline.IsZero() {
 		var cancel context.CancelFunc
@@ -367,8 +372,6 @@ func (r Runner) apply(
 		}
 	case Deliver:
 		if len(turn.Steps) == 0 ||
-			state.Stop.Kind == StopCompleted ||
-			state.Stop.Kind == StopCanceled ||
 			state.Output != nil ||
 			len(c.Items) == 0 {
 			return Outcome{}, errors.New("dashi: turn cannot receive context")
@@ -508,12 +511,16 @@ func (r Runner) apply(
 				fact.Evidence = c.ModelFailure.Evidence
 			}
 			setSettlementCharge(state.modelIntents[c.CallID], fact)
-			if o := rt.commit(Step{
+			step := Step{
 				Kind:          kind,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Model:         fact,
-			}); o != nil {
+			}
+			if err := checkLateModelStep(turn, state, step); err != nil {
+				return Outcome{}, err
+			}
+			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
 			}
 		} else if c.HostedApproval != nil {
@@ -578,10 +585,7 @@ func (r Runner) apply(
 		}
 		return rt.result(rt.current())
 	case Cancel:
-		if len(turn.Steps) == 0 ||
-			state.Stop.Kind == StopCompleted ||
-			state.Stop.Kind == StopCanceled ||
-			state.Output != nil {
+		if len(turn.Steps) == 0 || state.Output != nil {
 			return Outcome{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
@@ -693,6 +697,11 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
+	if step.Kind == StepStopped && step.Stop != nil {
+		stop := *step.Stop
+		stop.Terminal = r.terminalAfter(stop)
+		step.Stop = &stop
+	}
 	if _, err := json.Marshal(step); err != nil {
 		r.err = &CommitError{
 			Persistence: PersistenceRejected,
@@ -731,6 +740,18 @@ func (r *runtime) commit(step Step) *Outcome {
 		r.emit(event)
 	}
 	return nil
+}
+
+// terminalAfter reports whether recording stop would end the turn. A stop
+// changes none of the state terminal reads except the stop itself.
+func (r *runtime) terminalAfter(stop Stop) bool {
+	state, err := replay(r.turn)
+	if err != nil {
+		// The commit's own replay check reports the broken record.
+		return false
+	}
+	state.Stop = stop
+	return state.terminal()
 }
 
 func (r *runtime) emit(event Event) {
@@ -791,33 +812,36 @@ func hasStartedTool(s *replayState) bool {
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	stop := &Stop{Kind: kind, Reason: reason}
 	if kind == StopLimited {
+		// A limit kind is recorded even when the counts are unavailable,
+		// since whether the stop ends the turn depends on it.
 		state, err := replay(r.turn)
-		if err == nil {
-			switch reason {
-			case "model_attempts":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitModelAttempts,
-					Limit: int64(r.agent.Limits.ModelAttempts),
-					Used:  int64(state.ModelAttempts),
-				}
-			case "interruptions":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitInterruptions,
-					Limit: int64(max(r.agent.Limits.Interruptions, 0)),
-					Used:  int64(state.Interruptions),
-				}
-			case "provider_pauses":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitProviderPauses,
-					Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
-					Used:  int64(state.ProviderPauses),
-				}
-			case "deadline":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitDeadline,
-					Limit: r.agent.Limits.Deadline.Unix(),
-					Used:  time.Now().Unix(),
-				}
+		if err != nil {
+			state = &replayState{}
+		}
+		switch reason {
+		case "model_attempts":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitModelAttempts,
+				Limit: int64(r.agent.Limits.ModelAttempts),
+				Used:  int64(state.ModelAttempts),
+			}
+		case "interruptions":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitInterruptions,
+				Limit: int64(max(r.agent.Limits.Interruptions, 0)),
+				Used:  int64(state.Interruptions),
+			}
+		case "provider_pauses":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitProviderPauses,
+				Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
+				Used:  int64(state.ProviderPauses),
+			}
+		case "deadline":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitDeadline,
+				Limit: r.agent.Limits.Deadline.Unix(),
+				Used:  time.Now().Unix(),
 			}
 		}
 	}
@@ -848,7 +872,7 @@ func (r *runtime) run() Outcome {
 		if e != nil {
 			return r.stop(StopFailed, e.Error())
 		}
-		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
+		if s.Stop.Terminal {
 			return r.current()
 		}
 		if s.Interruptions > max(r.agent.Limits.Interruptions, 0) {

@@ -42,6 +42,7 @@ turn.
 | `*CommitError`, `PersistenceRejected`         | The run executed, but `CommitError.Step` was not saved. Recover as after a crash.              |
 | `*CommitError`, `PersistenceUnknown`          | The write may have committed. Reload the turn before any retry.                                |
 | `ErrRecordInvalid`                            | Steps this run recorded fail replay: a runner or recorder bug. Something was recorded.        |
+| `ErrTurnEnded`                                | The turn has ended; only late results of started work are accepted. Reload for its final state. |
 | any other error                               | The command was rejected and nothing was recorded. The outcome is the caller's turn.          |
 
 Check the conflicts with `errors.Is` first; they may arrive inside a
@@ -54,15 +55,19 @@ Check the conflicts with `errors.Is` first; they may arrive inside a
 | `StopInterrupted` | Call `Continue` with the saved record and earlier history, on any worker.               |
 | `StopUncertain`   | Reconcile the identified model or tool effect with `Settle`, then `Continue`.            |
 | `StopCompleted`   | No further execution is allowed.                                                        |
+| any, `Terminal`   | The turn has ended. Record late results of started work with `Settle`; nothing else.    |
 
 `StopFailed`, `StopRefused`, and `StopLimited` keep their reason and record.
 `Settle` records a result, approval, or reconciliation; it never runs the turn.
 `Continue` resumes a stopped turn and returns `ErrNotReady`, naming what the
 turn waits on, when it cannot. `Outcome.ReadyToContinue`, and the same flag on
 a replayed turn, tells a host's sweeper when to schedule `Continue`. `Deliver`
-records context without running. `Cancel` ends the turn: unstarted calls
-become known not executed, while started effects can still receive late
-results.
+records context without running. `Cancel` ends the turn. `Stop.Terminal`
+marks every stop that ends a turn: completed, canceled, a deadline or
+interruptions limit, any limit reached after the last model attempt, or a cost
+cap over an unknown cost. At any terminal stop, unstarted calls become known
+not executed, while started effects can still receive late results; other
+commands return `ErrTurnEnded`.
 
 An ended Go context records `StopInterrupted` with its cause; a crash may leave
 no stop, and `Continue` recovers that too. `dashi.WithPause(ch)` requests a
@@ -152,7 +157,9 @@ origin. A local executor's Go error settles the call as
 uncertain. [Runtime reminders](../design/runtime-reminders.md) describes
 recorded, typed context.
 
-`Observer` receives bounded, lossy display events. `Runner.Stream` is a
+`Observer` receives every acknowledged step in order, plus model deltas and
+tool progress that it may drop when it falls behind, reporting dropped deltas
+with an `Event.Gap` that names the message. `Runner.Stream` is a
 backpressured iterator over acknowledged steps, provisional deltas, and tool
 progress, ending with one `Event.Outcome`. Leaving the range interrupts the
 turn by default; do not range it in an HTTP handler for a durable turn (see

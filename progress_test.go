@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -552,56 +553,22 @@ func TestRunWithObserverDeliversProgress(t *testing.T) {
 	}
 }
 
-// Progress fills at most half of a parked Observer's queue, and steps then
-// evict it, so every step that fits the full queue still arrives.
-func TestObserverStepsEvictQueuedProgress(t *testing.T) {
-	entered := make(chan struct{}, 1)
-	release := make(chan struct{})
-	var mu sync.Mutex
-	steps, progress := 0, 0
-	allSteps := make(chan struct{})
-	e := newEmitter(func(event Event) {
-		select {
-		case entered <- struct{}{}:
-		default:
-		}
-		<-release
-		mu.Lock()
-		defer mu.Unlock()
-		if event.Progress != nil {
-			progress++
-			return
-		}
-		steps++
-		if steps == observerQueue+1 {
-			close(allSteps)
-		}
-	})
-	// Park the observer so the queue only fills from here on.
-	e.send(Event{Step: &Step{}})
-	<-entered
+// Progress fills at most half of a parked Observer's queue, and deltas then
+// evict it, so every delta that fits the full queue still arrives.
+func TestObserverDeltasEvictQueuedProgress(t *testing.T) {
+	e, drain := parkedEmitter(t)
 	for range 1000 {
 		e.sendProgress(Event{Progress: &ToolProgress{CallID: "c"}})
 	}
 	if n := e.len(); n != observerQueue/2 {
 		t.Fatalf("progress queued=%d, want %d", n, observerQueue/2)
 	}
-	for range observerQueue {
-		e.send(Event{Step: &Step{}})
+	for i := range observerQueue {
+		e.send(delta(i))
 	}
-	close(release)
-	e.close()
-	select {
-	case <-allSteps:
-	case <-time.After(5 * time.Second):
-		mu.Lock()
-		defer mu.Unlock()
-		t.Fatalf("steps=%d progress=%d", steps, progress)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if progress != 0 {
-		t.Fatalf("progress=%d survived a full queue of steps", progress)
+	got := kinds(drain())
+	if want := slices.Repeat([]string{"d"}, observerQueue); !slices.Equal(got, want) {
+		t.Fatalf("events=%v, want only the %d deltas", got, observerQueue)
 	}
 }
 

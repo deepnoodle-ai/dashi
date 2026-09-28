@@ -494,7 +494,7 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
 			Kind:    StepStopped,
-			Stop:    &Stop{Kind: StopCanceled},
+			Stop:    testStop(StopCanceled, ""),
 		},
 	}
 	for _, step := range forged {

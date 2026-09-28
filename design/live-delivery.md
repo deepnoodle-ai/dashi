@@ -1,167 +1,231 @@
 # Live delivery: committed steps, previews, and cursors
 
-**Status:** Proposal · **Date:** 2026-09-27 · **Brief:** decision 3 in
-[decisions.md](decisions.md)
+**Status:** Decided-pending-review · **Date:** 2026-09-28 · **Brief:** decision
+3 in [decisions.md](decisions.md)
 
 ## Problem
 
-A UI host needs several readers on one turn, each replaying from its own cursor,
-reconnecting without loss or duplication, and never cancelling work by
-disconnecting. Dashi offers two things. `Runner.Stream` is one backpressured
-reader for the caller that runs the turn; it is single-use, and breaking the
-range cancels the turn (engine.go:30-34, 46-53). `Runner.Observer` is a
-64-slot channel that drops any event when full, committed steps included, with
-no signal (observer.go:11, 19-26). That contradicts agent-loop.md:99-100 and
-leaves every host to rebuild the reader, gap handling, and preview bookkeeping
-(gap-analysis themes 1 and 6; gaps/D top gaps 1-3).
+Decision 3 names three delivery classes. A **step** is a committed fact with a
+gap-free, per-turn `Seq`; it must never be dropped. A **preview** (model delta,
+tool progress) is live-only and superseded by a later step; it may be dropped,
+but the consumer must learn that it was. A **cursor** is the last `Seq` a reader
+applied; with it, any number of readers replay and follow a turn independently,
+and a disconnect never cancels work.
 
-## How the gateway does it
+Today `Runner.Observer` drops any event when its 64-slot queue is full, steps
+included, with no signal. There is no read-after-`Seq` path, so a UI host
+rebuilds paging, waking, and "is it over" itself. `Runner.Stream` is one
+backpressured reader whose range break ends the context (decision 17): right
+for the owner of the work, wrong for a browser tab.
 
-nvoken-cloud meets the same properties with a database and a lossy bus.
+Our production gateway meets the same properties with a database and a lossy
+bus: a connection pages committed rows after its cursor and pages again on a
+data-free wake or a poll; previews travel on a bounded bus whose overflow
+becomes one resync frame; committed data never travels on the bus. Dashi
+adopts that shape and ships only the parts every host would otherwise write.
 
-- **Storage and cursor.** Messages and lifecycle changes are Postgres rows; each
-  commit bumps two gap-free counters in the same transaction
-  (queries/execution_commit.sql:46-60). A cursor is an opaque, scope-bound
-  encoding of that position (services/target_streams.go:221-233).
-- **Replay then live.** A connection subscribes to the bus first, then reads
-  pages after its cursor until caught up, and drains again on every wake and on
-  a 2 s poll (httpapi/target_streams.go:232-254, 274, 349-392; spec §6.1-6.3).
-  Readers are independent and none affects the turn (R45).
-- **Wakes.** After a commit the store publishes a payload-free wake
-  (postgres/stream_commits.go:10-33). Wakes are a latency hint and the poll is
-  the correctness path (R38); a dropped wake is not a gap
-  (liveevents/inprocess.go:46-54).
-- **Previews.** The executor numbers each fragment's byte offset and publishes
-  it (services/generation.go:881-931) to an in-process or Redis bus behind one
-  port (ports/streaming.go:22-50). Overflow becomes one `stream.resync` and a
-  drain (target_streams.go:399-404; R39). The bus exists because previews are
-  produced in one process and served from another; committed data never travels
-  on it.
+## Decisions
 
-## Proposal
+**1. Three readers, one per need.** `Runner.Stream` stays the owner's
+backpressured, single-use view of one invocation; breaking it means "stop this
+work". `Runner.Observer` is the in-process, never-blocking view of an
+invocation. `Follow` serves everyone else: it reads the record by cursor, from
+any process, and yields committed steps only. Previews exist only in the
+runner's process, while a follower may be anywhere, so a host merges them
+itself (see the handler below).
 
-**(a) Owner and readers.** `Runner.Stream` stays what it is: the owner's
-backpressured view of one invocation, where breaking means "stop this work".
-Everyone else reads the record. A UI host runs the turn detached (a worker calls
-`Run` or `Stream` under its own context) and each HTTP connection follows the
-record by `Seq` under the request context, so a disconnect ends only the follow.
-Guides should steer hosts away from ranging `Stream` in a request handler.
+**2. The Observer carries every acknowledged step; previews are lossy with a
+gap.** The emitter keeps one ordered queue. Steps always enter it; only
+previews count against the 64-slot bound. A preview that does not fit, after
+evicting the oldest queued progress as today, is dropped and sets a flag. The
+next event *enqueued*, or `close`, first enqueues one `Event{TurnID,
+AttemptID, MessageID, Gap: true}` naming the message that lost deltas;
+markers do not count against the bound, and consecutive drops make one
+marker. Evicted progress sets no gap: each snapshot replaces the last and the
+settled step follows (tool-progress.md). Consumer rules: after a gap, discard
+that message's preview and ignore its later deltas until its `model_settled`
+step arrives; a gap with no such step after it (only when a commit failed and
+the run ended) means load the turn. A step whose commit ended with unknown
+persistence is only in the record. `Stream` never drops, so it never yields a gap.
 
-**(b) Dashi owns the contract; the host owns the store.** The read path is an
-optional interface the host implements over the table its `Recorder` already
-writes. Dashi ships `MemoryRecorder`'s implementation, a small `Follow` loop,
-and a conformance test (`dashitest.StepReader`): exact paging ("repeats
-nothing, skips nothing"), ascending `Seq`, the limit honored, and a cursor past
-the head rejected. Dashi's case is simpler than nvoken's. `Seq` is assigned by
-the single owner (engine.go:306) and the recorder enforces `ExpectedSeq`
-(recorder.go:85), so a turn's commits are serial and a reader can never see
-`Seq` 6 before 5. A plain `WHERE turn_id = $1 AND seq > $2 ORDER BY seq LIMIT
-$3` is exact.
+*Order.* Events from one invocation arrive in order. Each `Run` or `Stream`
+has its own delivery goroutine that keeps draining after the call returns, so
+`Run` returning does not mean the Observer has everything, and invocations
+that overlap (a `Continue` issued before the previous backlog drains) may
+deliver concurrently. Order steps by `Seq`.
 
-**(c) Wake by poll, optionally hinted.** `Follow` drains, then waits for either
-a poll tick (default 1 s) or an optional `Waiter` hint, then drains again.
-Correctness comes from the drain, as in nvoken R38. `MemoryRecorder` wakes
-waiters by closing a per-turn channel on commit. A Postgres host can call
-`pg_notify` inside the commit transaction and `LISTEN` in the reader, or reuse
-whatever bus carries its previews. No broker is needed: the only state a reader
-needs is its cursor, and the database already serializes and stores every step.
+*Memory.* The Observer must return promptly. A blocked Observer holds one
+goroutine plus a copy of the steps of each invocation it has not received,
+tool outputs and raw model results included, until it returns; across many
+invocations that is unbounded. Dropping steps breaks decision 3 and blocking
+the commit path breaks "never blocks work", so there is no cap.
 
-**(d) Committed steps are lossless to the Observer.** Stop copying steps into
-the lossy channel. The observer goroutine instead walks the runtime's own
-`turn.Steps` from its last delivered `Seq`; the runner already holds that slice
-for the invocation (engine.go:334). Previews stay in the bounded channel, each
-tagged with the `Seq` current at emission, so steps through that `Seq` are
-delivered first and the original order survives. This never blocks and adds no
-queue. Tradeoff: a stuck observer pins a goroutine and the turn's steps after
-`Run` returns. Rejected: blocking the commit path (design-pitfalls item 10);
-an unbounded channel (a second copy of the same data); dropping steps from the
-observer (breaks agent-loop.md:99-100 and pushes in-process loggers to the
-store).
+*Why not previews-only, with the cursor as the only lossless route?* A runner
+with no `Recorder` uses a private in-memory one the host cannot read, so the
+simplest program would lose its only step feed, and an in-process logger would
+need a second reader and a poll loop for data the runner already holds.
 
-**(e) Previews: a gap signal and enough identity to resync.** When the preview
-channel overflows, the goroutine delivers one `Event{Gap: true}` before the next
-preview. The consumer discards previews for the turn and relies on the record,
-where `model_settled` carries the whole result. Two additions are needed.
-`Offset` is the UTF-8 byte count already emitted for the same `(MessageID,
-Index)`; the runner sees every delta before the lossy buffer, so it can number
-them, as nvoken does. `ToolCallID` and `Name` on every `tool_arguments` delta
-come from a normalized block start in each provider adapter; only Anthropic
-emits one today (providers/anthropic/messages/stream.go:151). An execution epoch
-is not needed. `MessageID` derives from the attempt counter (engine.go:564-565),
-a recovering owner settles the old attempt before starting a new one, and a
-client drops previews for any `MessageID` whose `model_settled` it has seen.
+**3. Readers follow the record through a small optional interface.** The host
+implements `StepReader` over the table its recorder writes. Paging is exact
+because the owner commits one step at a time, the recorder enforces
+`ExpectedSeq`, and `(turn, seq)` is unique: no reader sees `Seq` 6 before 5. A
+cursor is owner-independent: a `Claim` or a new worker continues the same
+`Seq`, and claims never appear as steps. `Follow`:
 
-**(f) A reconnecting client, end to end.**
+- treats a negative cursor as 0;
+- checks each step has the requested `TurnID` and `Seq == cursor+1`, and
+  otherwise yields an error matching `ErrRecordInvalid` (a lagging replica, a
+  table without the unique key);
+- drains pages until a short page, then waits;
+- waits on the reader's `StepWaiter` when present, with a 15 s backstop poll,
+  or polls every second without one; a `Wait` error is a hint failure and
+  falls back to polling;
+- polls every 30 s while the last step is a non-terminal stop, so a turn
+  waiting days for approval does not cost a query per second per tab;
+- ends when ctx ends, after a terminal stop (decision 4), or after yielding a
+  read error. Ending never affects the turn.
 
-1. The client posts a message. The host commits `turn_started` in a worker and
-   returns the turn ID.
-2. The client opens `GET /turns/{id}/events?after=N`, with `N` the last `Seq` it
-   applied (0 at first).
-3. The handler subscribes to its preview fan-out, then calls `Follow` from `N`.
-   Subscribing first means a racing wake is either buffered or already readable
-   (nvoken spec §6.1 step 2).
-4. Steps go out as durable frames with `id: Seq`; previews go out without an id;
-   a `Gap` goes out as a resync frame.
-5. The connection drops. The request context ends, `Follow` returns, and the
-   worker keeps going.
-6. The client reconnects with its last `Seq`. Replay delivers everything it
-   missed, including the settled messages that supersede lost previews, then
-   follows live. Once stops say whether they are final, the handler closes on
-   one.
+Correctness comes from paging, never from the wake. The intervals are
+constants.
+
+**4. A terminal stop means the turn is over.** `Stop.Terminal` (recorded as
+`"terminal"`, omitted when false) is set in one place, `rt.commit` of a
+`StepStopped` step, from `replayState.terminal()` on the state after that step.
+That covers `stop`, `stopWith`, `Cancel`, the interruptions stop inside
+`Continue`, and stops the hooks work adds. Replay recomputes it after each stop
+and rejects a recorded value that differs (`ErrRecordInvalid`). It is not
+`canContinue`, which asks whether `Continue` can run *now* and is false while
+waiting on approvals, reconciliation, or a raise. The terminal cases, checked
+against the code:
+
+- `completed` and `canceled`;
+- `limited` with `Limit.Kind` `deadline` or `interruptions` (keyed on the
+  kind, not the reason string);
+- any `limited` stop once `ModelAttempts` reaches the agent's limit;
+- `limited` by `cost` when spend includes an unknown cost.
+
+Not terminal: `waiting`, `interrupted`, `failed` (including reason
+`hook_failed` from hooks, which is not counted as an interruption),
+`refused`, `uncertain`, and `limited` by `provider_pauses`, `output_tokens`,
+`total_tokens`, `host`, or cost with an unpriced model or no raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
+any raise. Every input only grows (attempts, unknown cost) or is fixed at
+Start (agent limits, deadline), so a recorded `true` stays true. A recorded
+`false` stays accurate because a turn becomes non-continuable only through a
+recorded stop: only model results raise those counts, and replay rejects one
+that would make an open limited stop terminal; `Settle` checks this before
+saving. Cost of a field over a method: if decision 25 later lets `Continue`
+raise agent limits, old records carry a stale value; acceptable before
+release.
+
+*After a terminal stop the record accepts only late results of work that had
+already started* (`StepModelSettled`, `StepModelReconciled`,
+`StepToolSettled`), as a canceled turn does today. Replay applies the cancel
+rules to every terminal stop: unstarted calls settle as not executed and
+pending hosted approvals clear, so no UI offers "Approve" on a dead turn; a
+late model result's tool calls never enter the turn (the two replay checks
+and the top of `run()` that test "canceled" today test "terminal"). After the
+idempotent-retry check, so a retried `Cancel` still gets its recorded answer,
+the runner rejects `Deliver`, approvals, `Cancel`, raises, new work, and a
+`Settle` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
+turn has ended"). `canContinue` also keys on `Limit.Kind`, so the two checks
+cannot disagree. Late results may therefore follow a
+terminal stop: `Follow` ending there is a display convenience; a reload or a
+later read from the same cursor shows them. A reader that must see every step
+(accounting, mirroring) keeps its cursor.
+
+**5. Reasoning is never altered in the record; previews are tagged by kind.**
+Every delta carries `Delta.Kind`, and progress is its own field. Reasoning
+previews stay on by default: the Observer and `Stream` feed trusted
+application code, and the record holds the same reasoning for provider
+replay, so hiding previews alone protects nothing. A `Step` is the internal
+record: project it, never send it verbatim. The projection removes
+`ModelFact.Result.Raw`, encrypted or signed reasoning, the `StartFact` agent
+(instructions, tool definitions), command digests, and owners.
+
+**6. Scope is one turn.** A cursor is a turn's `Seq`. A conversation-wide
+cursor belongs to the host (decision 19); no helper.
+
+**7. Deferred.** A byte `Offset` on deltas and a call ID on every
+`tool_arguments` delta only help resume previews, which may be lossy.
+
+## API
 
 ```go
-// StepReader is optional; a host implements it over its recorder's table.
+// observer.go (Event and Observer move here from policy.go, unchanged,
+// in their own commit). Event gains:
+Gap bool // MessageID lost deltas here; ignore it until its step
+
+// Stop, "a turn's terminal or resumable condition", gains:
+// Terminal means the turn is over: no command can run it again.
+Terminal bool `json:"terminal,omitempty"`
+var ErrTurnEnded = errors.New("dashi: turn has ended")
+
+// StepReader is an optional Recorder capability for live readers.
 type StepReader interface {
-	// StepsAfter returns up to limit steps with Seq > after, ascending; an
-	// after past the last committed Seq returns ErrCursorAhead.
+	// StepsAfter returns up to limit committed steps with Seq > after, in
+	// ascending order; limit <= 0 means 100. after == 0 on a turn with no
+	// steps, or after == the last Seq, gives none. An after past the last
+	// Seq gives an error matching ErrCursorAhead.
 	StepsAfter(ctx context.Context, turnID string, after int64,
 		limit int) ([]Step, error)
 }
-// Waiter is an optional latency hint for Follow; a lost wake costs one poll.
-type Waiter interface {
+// StepWaiter is optional on a StepReader. Wait returns at once when a step
+// after the cursor exists, otherwise when one may have been committed or
+// ctx ends. It is a latency hint: a missed wake costs one poll.
+type StepWaiter interface {
 	Wait(ctx context.Context, turnID string, after int64) error
 }
-// Follow replays steps after the cursor, then follows until ctx ends.
-func Follow(ctx context.Context, r StepReader, turnID string, after int64,
-	poll time.Duration) iter.Seq2[Step, error]
-
-type Event struct {
-	// ...existing fields...
-	Gap bool // previews were dropped here; discard them, trust the record
-}
-// llm.Delta gains Offset int64 (bytes already emitted for this MessageID and
-// Index), and ToolCallID and Name on tool_arguments.
+func Follow(ctx context.Context, r StepReader, turnID string,
+	after int64) iter.Seq2[Step, error]
+var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 ```
+
+**The web handler** in the guide is complete, not a sketch. It authorizes the
+turn and checks it exists (`Follow` on an unknown turn waits forever); reads
+the cursor from `Last-Event-ID`, falling back to `?after=`; subscribes to the
+host's preview fan-out (bounded channels fed by `Runner.Observer`) before
+following, when the runner is in-process; merges steps and previews with
+`iter.Pull2` and a goroutine, dropping any preview whose `MessageID` or
+`CallID` already has a settled step sent; sends steps with `id: Seq` and
+previews and gaps without one; projects every step; and, on `ErrCursorAhead`
+(a wrong turn, a replica read, a filerecorder line lost to a failed fsync),
+tells the client to reset and reconnect from 0 rather than retry. `Follow`
+needs the store the `Runner` commits to; the default private recorder cannot
+be followed.
+
+**Recorders.** `MemoryRecorder` implements both (check under its lock, else
+a per-turn channel closed on commit). `filerecorder` implements `StepReader`
+over its line index, and a `StepWaiter` for this process's commits. A Postgres
+recorder needs a unique `(turn_id, seq)`, reads the primary, selects `seq >=
+after LIMIT limit+1` to detect `ErrCursorAhead` in one query (special-casing
+`after == 0`), and may wake via `pg_notify` and one shared `LISTEN`.
+`dashitest.Run` checks any store that implements `StepReader` (and
+`StepWaiter`) against these rules.
+
+## Plan and tests
+
+**PR A (small, lands first).** Move `Event`/`Observer` to `observer.go`
+(own commit); lossless steps and the gap; `Stop.Terminal`, `terminal()`, the
+replay check, and the terminal-stop tightening. `runner.go` changes are the
+commit hook and the command guards. Tests: a blocked-then-released Observer
+and thousands of deltas lose no step; one gap per run of drops, placed after
+earlier events, and one at close; evicted progress alone gives none; a slow
+Observer with a back-to-back `Continue` still gets every step; a table over
+every stop and limit kind for `Terminal`, with `Continue` refused under any
+raise when terminal; replay rejects a mismatched `terminal`; cancel with a
+started tool then a late settle is accepted; `Deliver`, approval, `Cancel`,
+and a raise after a terminal `limited` stop give `ErrTurnEnded`.
+
+**PR B.** `StepReader`, `StepWaiter`, `Follow`, memory and file
+implementations, conformance, the guide ("Serving live updates", with ready,
+waiting on the host, and terminal side by side) and an example with two
+followers on one turn. Tests: replay then live; two cursors; a follower's
+cancel leaves the run untouched; ends on a terminal stop; `Follow` from a
+cancel's `Seq` yields a late settle; poll path without a waiter; waiter error
+falls back; `Seq` discontinuity errors.
 
 ## What not to build
 
-- **An in-process broadcast bus.** Any multi-instance host already needs a
-  cross-process one for previews (Redis, `NOTIFY`, its queue), and a Dashi bus
-  would be the wrong one there. A single-process host fans out with a map of
-  bounded channels (nvoken's is 131 lines, liveevents/inprocess.go). Reconsider
-  if two hosts write the same one.
-- **A multi-reader `Runner.Stream`.** It would buffer per reader or block on the
-  slowest, serve only readers in the owning process, and end when the invocation
-  ends, so a late or reconnecting reader gets nothing. The record already serves
-  any number of readers across processes and restarts.
-- **A Dashi-owned event store.** The `Recorder` already writes each step to the
-  host's database, atomically with budget and outbox writes (recorder.go:17-18).
-  A second store duplicates that data and can diverge from it. Dashi's job is
-  the read contract and its conformance test.
-
-## Open questions
-
-- **Reasoning.** The record keeps reasoning blocks for provider replay (gaps/D,
-  redaction row). Should Dashi's per-step projection helper redact by default,
-  and should reasoning previews be suppressed when reasoning is not meant for
-  display, as nvoken does (generation.go:888-891)?
-- **Tool progress.** Decided in [tool-progress.md](tool-progress.md):
-  `tool.Report` snapshots are previews delivered as `Event.Progress`. A
-  snapshot replaces the last, so it needs neither `(CallID, Offset)` keys nor
-  the gap signal; those remain for appended tool output, added later.
-- **Ending a follow.** `Follow` ends only with its context until stops carry a
-  final flag (`Stop.Final`, gap-analysis theme 1). Should it end on one?
-- **Conversation scope.** `Seq` is per turn; a cursor across a conversation's
-  turns is the host's, like nvoken's execution stream. Is a helper warranted?
-- **Observer role.** With `Follow` available, does any in-process consumer still
-  need committed steps on the observer, or should it become previews-only later?
+- **An in-process broadcast bus:** multi-instance hosts need their own anyway.
+- **A multi-reader `Stream`:** it would buffer or block per reader.
+- **A Dashi-owned event store:** it would duplicate the recorder's rows.

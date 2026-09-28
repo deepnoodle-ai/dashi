@@ -180,11 +180,11 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	}{
 		{
 			name: "model attempts without final attempt",
-			stop: Stop{Kind: StopLimited, Reason: "model_attempts"},
+			stop: *testStop(StopLimited, LimitModelAttempts),
 		},
 		{
 			name:    "deadline",
-			stop:    Stop{Kind: StopLimited, Reason: "deadline"},
+			stop:    *testStop(StopLimited, LimitDeadline),
 			allowed: true,
 		},
 	}

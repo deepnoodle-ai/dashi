@@ -90,7 +90,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 			TurnID:  turn.ID,
 			Seq:     int64(len(turn.Steps) + 1),
 			Kind:    StepStopped,
-			Stop:    &Stop{Kind: StopLimited, Reason: "interruptions"},
+			Stop:    testStop(StopLimited, LimitInterruptions),
 		},
 	)
 	view, err := Replay(turn)
@@ -398,7 +398,7 @@ func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 		interruptionStart(testAgent()),
 		Step{
 			Kind: StepStopped,
-			Stop: &Stop{Kind: StopLimited, Reason: "deadline"},
+			Stop: testStop(StopLimited, LimitDeadline),
 		},
 	)
 	view, err := Replay(turn)
