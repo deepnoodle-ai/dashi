@@ -690,22 +690,6 @@
       }
     },
     {
-      "model": "gpt-5.3-chat-latest",
-      "apis": [
-        "openai.responses",
-        "openai.completions"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 16384,
-        "context_window": 1000000
-      }
-    },
-    {
       "model": "gpt-5.2",
       "apis": [
         "openai.responses",
@@ -719,7 +703,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "none",
           "low",
@@ -753,7 +737,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "medium",
           "high",
@@ -786,7 +770,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "none",
           "low",
@@ -820,7 +804,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "minimal",
           "low",
@@ -853,7 +837,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 272000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "high"
         ]
@@ -872,7 +856,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000
+        "context_window": 400000
       },
       "pricing": {
         "currency": "USD",
@@ -899,7 +883,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000
+        "context_window": 400000
       },
       "pricing": {
         "currency": "USD",
@@ -1085,38 +1069,6 @@
       }
     },
     {
-      "model": "o3-deep-research",
-      "apis": [
-        "openai.responses",
-        "openai.completions"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 100000,
-        "context_window": 200000
-      }
-    },
-    {
-      "model": "o4-mini-deep-research",
-      "apis": [
-        "openai.responses",
-        "openai.completions"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 100000,
-        "context_window": 200000
-      }
-    },
-    {
       "model": "gpt-5.3-codex",
       "apis": [
         "openai.responses"
@@ -1129,95 +1081,13 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1000000,
+        "context_window": 400000,
         "reasoning_efforts": [
           "low",
           "medium",
           "high",
           "xhigh"
         ]
-      }
-    },
-    {
-      "model": "gpt-5.2-codex",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "reasoning_effort": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 128000,
-        "context_window": 1000000,
-        "reasoning_efforts": [
-          "low",
-          "medium",
-          "high",
-          "xhigh"
-        ]
-      }
-    },
-    {
-      "model": "gpt-5.1-codex-max",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 128000,
-        "context_window": 1000000
-      }
-    },
-    {
-      "model": "gpt-5.1-codex",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 128000,
-        "context_window": 1000000
-      }
-    },
-    {
-      "model": "gpt-5.1-codex-mini",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 128000,
-        "context_window": 400000
-      }
-    },
-    {
-      "model": "gpt-5-codex",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 128000,
-        "context_window": 1000000
       }
     },
     {
@@ -1230,23 +1100,7 @@
         "features": {
           "text": "supported",
           "max_tokens": "supported"
-        },
-        "context_window": 1000000
-      }
-    },
-    {
-      "model": "codex-mini-latest",
-      "apis": [
-        "openai.responses"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 100000,
-        "context_window": 200000
+        }
       }
     }
   ]

@@ -176,31 +176,6 @@
       }
     },
     {
-      "model": "mistral-large-2411",
-      "apis": [
-        "openai.completions"
-      ],
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "context_window": 128000
-      },
-      "pricing": {
-        "currency": "USD",
-        "updated_at": "2025-10-15",
-        "reference": "https://mistral.ai/pricing/api/",
-        "base": {
-          "input": "2",
-          "output": "6",
-          "cache_read": "2",
-          "cache_write": "2"
-        }
-      }
-    },
-    {
       "model": "glm-5-2",
       "apis": [
         "openai.completions"
