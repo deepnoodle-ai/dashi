@@ -23,7 +23,8 @@ func TestJoinCombinesToolsets(t *testing.T) {
 	if _, err := Join(a, a).Tools(context.Background()); err == nil {
 		t.Fatal("a duplicate name was accepted")
 	}
-	if _, err := Join(a, failingSet{}).Tools(context.Background()); err == nil {
-		t.Fatal("a failing set's error was dropped")
+	_, err = Join(a, failingSet{}).Tools(context.Background())
+	if err == nil || err.Error() != "tool: set 1: registry down" {
+		t.Fatalf("err = %v", err)
 	}
 }

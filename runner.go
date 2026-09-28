@@ -1118,8 +1118,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	deliver, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly)
-	// The intent records the tools offered, after any hides.
+	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly)
+	// The intent records the tools offered, after any hides, and the names
+	// hidden, so a call to a hidden tool resolves from the record.
 	defs = input.Tools
 	if ctxStop != nil {
 		return *ctxStop, false
@@ -1226,6 +1227,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		CapabilityPolicy:     snapshot.CapabilityPolicy,
 		Unverified:           snapshot.Unverified,
 		Tools:                defs,
+		Hidden:               hidden,
 	}
 	if o := r.commit(Step{
 		Kind:     StepModelIntent,

@@ -136,7 +136,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				// A bound tool the call did not offer, such as one a hook
 				// hid, is unavailable rather than unknown.
 				text, reason := "Unknown tool.", "unknown tool"
-				if r.bound(ctx, v.Call.Name) {
+				if state.hiddenAt(id, v.Call.Name) {
 					text, reason = "This tool is not available now.", "tool unavailable"
 				}
 				o := tool.Outcome{
@@ -374,20 +374,6 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		return r.pauseStop(), true
 	}
 	return Outcome{}, false
-}
-
-// bound reports whether the Runner's tools include name.
-func (r *runtime) bound(ctx context.Context, name string) bool {
-	if r.runner.Tools == nil {
-		return false
-	}
-	tools, err := r.runner.Tools.Tools(ctx)
-	if err != nil {
-		return false
-	}
-	return slices.ContainsFunc(tools, func(t tool.Tool) bool {
-		return t.Definition.Name == name
-	})
 }
 
 // execute runs one call and always yields a result, so a panicking executor

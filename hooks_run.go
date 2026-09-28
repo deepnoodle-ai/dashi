@@ -27,34 +27,50 @@ const maxHookReason = 1 << 10
 // denied; rewrites must converge.
 const maxRewrites = 3
 
-// beforeModel runs the BeforeModel chain, applying each hook's settings to
-// input. It returns the items to deliver or a hook's stop. A hook that fails
-// or answers invalidly is skipped with a warning, since BeforeModel only
-// shapes the request. The returned Outcome is set when the run's context
-// ended during a hook.
+// beforeModel runs the BeforeModel chain, applying each hook's settings and
+// hides to input. It returns the items to deliver, the tools hidden from
+// this call in the order they were first hidden, or a hook's stop. A hook
+// that fails or answers invalidly is skipped with a warning, since
+// BeforeModel only shapes the request. The returned Outcome is set when the
+// run's context ended during a hook.
 func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
 	finalAnswerOnly bool,
-) ([]ContextItem, *Stop, *Outcome) {
+) ([]ContextItem, []string, *Stop, *Outcome) {
 	var deliver []ContextItem
+	var hidden []string
+	ignored := hideIgnored{}
+	bound := map[string]bool{}
+	for _, def := range input.Tools {
+		bound[def.Name] = true
+	}
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeModel {
 		d, err := callHook(r.ctx, h, ModelPlan{
 			Input: cloneInput(*input),
 			Turn:  snapshotView(s.TurnView),
 		})
-		// The candidate input is this hook's settings and hides applied, so
-		// validation sees what the call would send.
+		// The candidate input is this hook's settings and hides applied on
+		// top of every earlier hook's, so validation sees what the call
+		// would send whatever the hooks' order.
 		candidate := cloneInput(*input)
+		candidateHidden := hidden
 		var warnings []Warning
-		hid := false
+		hookIgnored := hideIgnored{}
 		if err == nil {
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
 			}
 			if !finalAnswerOnly {
-				hid, warnings = applyHide(&candidate, h.Name, d.Hide)
+				candidateHidden = hideTools(
+					&candidate,
+					hidden,
+					d.Hide,
+					bound,
+					&hookIgnored,
+				)
+				warnings = keepToolChoiceOffered(&candidate, h.Name, candidateHidden)
 			}
 			err = validModelDecision(d, candidate)
 		}
@@ -62,7 +78,7 @@ func (r *runtime) beforeModel(
 			if r.ctx.Err() != nil {
 				r.dropHooks(mark)
 				o := r.contextStop()
-				return nil, nil, &o
+				return nil, nil, nil, &o
 			}
 			r.hookFailed(HookBeforeModel, h.Name, err, true)
 			continue
@@ -79,15 +95,17 @@ func (r *runtime) beforeModel(
 				limit := *stop.Limit
 				stop.Limit = &limit
 			}
-			return nil, &stop, nil
+			return nil, nil, &stop, nil
 		}
+		ignored.merge(hookIgnored)
+		r.pendingWarnings = append(r.pendingWarnings, warnings...)
+		hid := len(candidateHidden) > len(hidden)
 		if d.Settings == nil && len(d.Deliver) == 0 && !hid {
-			r.pendingWarnings = append(r.pendingWarnings, warnings...)
 			continue
 		}
-		r.pendingWarnings = append(r.pendingWarnings, warnings...)
 		input.Settings = candidate.Settings
 		input.Tools = candidate.Tools
+		hidden = candidateHidden
 		for _, item := range d.Deliver {
 			deliver = append(deliver, cloneContextItem(item))
 		}
@@ -97,29 +115,38 @@ func (r *runtime) beforeModel(
 			Verdict: VerdictChange,
 		})
 	}
-	return deliver, nil, nil
+	if w, ok := ignored.warning(); ok {
+		r.pendingWarnings = append(r.pendingWarnings, w)
+	}
+	return deliver, hidden, nil, nil
 }
 
-// applyHide removes the named tools from in.Tools and reports whether any
-// was removed. It never hides dashi_submit_output, ignores names the call
-// does not offer, and clears a forced tool choice the hide leaves without
-// its tool, since the hide wins.
-func applyHide(in *llm.Input, hook string, names []string) (bool, []Warning) {
-	var warnings []Warning
+// hideTools removes names from in.Tools and returns the hidden names so
+// far, earlier hides first. dashi_submit_output is never hidden, and a name
+// no tool of this call has is noted in ignored; a name an earlier hook
+// already hid is not.
+func hideTools(
+	in *llm.Input,
+	hidden []string,
+	names []string,
+	bound map[string]bool,
+	ignored *hideIgnored,
+) []string {
+	out := slices.Clone(hidden)
 	hide := map[string]bool{}
 	for _, name := range names {
-		if name == SubmitOutputTool {
-			warnings = append(warnings, Warning{
-				Code: WarningHookFailed,
-				Message: fmt.Sprintf(
-					"before_model hook %q cannot hide %s; the name was ignored",
-					hook,
-					SubmitOutputTool,
-				),
-			})
-			continue
+		switch {
+		case name == SubmitOutputTool:
+			ignored.submit = true
+		case !bound[name]:
+			ignored.add(name)
+		case !slices.Contains(out, name):
+			out = append(out, name)
+			hide[name] = true
 		}
-		hide[name] = true
+	}
+	if len(hide) == 0 {
+		return out
 	}
 	kept := make([]tool.Definition, 0, len(in.Tools))
 	for _, def := range in.Tools {
@@ -127,26 +154,88 @@ func applyHide(in *llm.Input, hook string, names []string) (bool, []Warning) {
 			kept = append(kept, def)
 		}
 	}
-	if len(kept) == len(in.Tools) {
-		return false, warnings
-	}
 	in.Tools = kept
-	if choice := in.Settings.ToolChoice; choice != nil {
-		named := choice.Mode == llm.ToolChoiceTool && hide[choice.Name]
-		empty := choice.Mode == llm.ToolChoiceAny && len(kept) == 0
-		if named || empty {
+	return out
+}
+
+// keepToolChoiceOffered clears a forced tool choice that names a hidden
+// tool, whichever hook hid it: the hide wins. When no tools remain, the tool
+// choice and ParallelTools are cleared, as on the reserved final-answer
+// call, since providers reject them without tools. Only losing a forced
+// choice warns.
+func keepToolChoiceOffered(
+	in *llm.Input,
+	hook string,
+	hidden []string,
+) []Warning {
+	choice := in.Settings.ToolChoice
+	forced := false
+	if choice != nil {
+		named := choice.Mode == llm.ToolChoiceTool &&
+			slices.Contains(hidden, choice.Name)
+		forced = named ||
+			len(in.Tools) == 0 && len(hidden) > 0 &&
+				(choice.Mode == llm.ToolChoiceAny || choice.Mode == llm.ToolChoiceTool)
+		if forced {
 			in.Settings.ToolChoice = nil
-			warnings = append(warnings, Warning{
-				Code: WarningToolChoiceCleared,
-				Message: fmt.Sprintf(
-					"before_model hook %q hid the tools the forced tool "+
-						"choice needed; the choice was cleared for this call",
-					hook,
-				),
-			})
 		}
 	}
-	return true, warnings
+	if len(in.Tools) == 0 && len(hidden) > 0 {
+		in.Settings.ToolChoice = nil
+		in.Settings.ParallelTools = nil
+	}
+	if !forced {
+		return nil
+	}
+	return []Warning{{
+		Code: WarningToolChoiceCleared,
+		Message: fmt.Sprintf(
+			"after before_model hook %q, the forced tool choice named a "+
+				"hidden tool or no tools remained; it was cleared for this call",
+			hook,
+		),
+	}}
+}
+
+// hideIgnored collects the hide names a call could not apply, for one
+// warning per call.
+type hideIgnored struct {
+	submit  bool
+	unknown []string
+}
+
+func (h *hideIgnored) add(name string) {
+	if !slices.Contains(h.unknown, name) {
+		h.unknown = append(h.unknown, name)
+	}
+}
+
+func (h *hideIgnored) merge(o hideIgnored) {
+	h.submit = h.submit || o.submit
+	for _, name := range o.unknown {
+		h.add(name)
+	}
+}
+
+func (h hideIgnored) warning() (Warning, bool) {
+	var parts []string
+	if h.submit {
+		parts = append(parts, SubmitOutputTool+" cannot be hidden")
+	}
+	if len(h.unknown) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"no tool is named %s",
+			strings.Join(h.unknown, ", "),
+		))
+	}
+	if len(parts) == 0 {
+		return Warning{}, false
+	}
+	return Warning{
+		Code: WarningHideIgnored,
+		Message: "before_model hide names were ignored: " +
+			strings.Join(parts, "; "),
+	}, true
 }
 
 // validModelDecision checks a BeforeModel answer before any of it applies,
@@ -155,7 +244,7 @@ func applyHide(in *llm.Input, hook string, names []string) (bool, []Warning) {
 func validModelDecision(d ModelDecision, input llm.Input) error {
 	if d.Settings != nil || len(d.Hide) > 0 {
 		if err := input.Validate(); err != nil {
-			return fmt.Errorf("invalid settings: %w", err)
+			return fmt.Errorf("invalid settings or hide: %w", err)
 		}
 	}
 	if d.Stop != nil && !validHookStop(*d.Stop) {
