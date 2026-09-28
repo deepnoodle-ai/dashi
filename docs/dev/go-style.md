@@ -35,12 +35,12 @@ ref := llm.ModelRef{Provider: "grok", Model: model}
 
 // The full literal would be too long, so each field gets a line.
 client, err := responses.New(responses.Config{
-	Provider:            "grok",
-	APIKey:              config.APIKey,
-	Endpoint:            config.Endpoint,
-	Client:              config.Client,
-	Models:              config.Models,
-	UnknownCapabilities: config.UnknownCapabilities,
+	Provider:         "grok",
+	APIKey:           config.APIKey,
+	Endpoint:         config.Endpoint,
+	Client:           config.Client,
+	Models:           config.Models,
+	CapabilityPolicy: config.CapabilityPolicy,
 })
 ```
 

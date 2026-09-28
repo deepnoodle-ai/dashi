@@ -20,7 +20,7 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	client, err := responses.New(responses.Config{UnknownCapabilities: llm.UnknownAllow})
+	client, err := responses.New(responses.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
