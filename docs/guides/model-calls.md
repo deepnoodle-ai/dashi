@@ -173,7 +173,11 @@ calls.
 Missing usage is nil. `Result.Cost` holds a provider-reported amount when
 available; list-price estimates require an explicitly selected `llm.Pricing`
 sheet and complete usage. A catalog sheet applies when `Entry.Serves` accepts
-`Result.Served`. Prices and costs are exact `money.Amount` values: rates per
+`Result.Served`. Provider-hosted work is counted in `Usage.Requests` by meter
+key, such as `llm.MeterWebSearch`, and priced by `Pricing.Requests`. When the
+sheet lacks a rate for a key, `Estimate` still prices the rest and lists those
+counts in `Cost.UnpricedRequests`; `Cost.Partial` reports that `Total` is then
+a lower bound. Prices and costs are exact `money.Amount` values: rates per
 million tokens and charges in nano-units, never binary floats.
 
 ## Further reading

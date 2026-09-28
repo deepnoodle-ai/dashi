@@ -2,6 +2,9 @@ package dashi
 
 import (
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -27,9 +30,8 @@ func checkSendBudget(
 	used, known := s.Spend.costIn(cap.Currency)
 	if !known {
 		return atRisk, nil, &Stop{
-			Kind: StopLimited,
-			Reason: "cost cannot be checked: an earlier charge is unknown " +
-				"or in another currency",
+			Kind:   StopLimited,
+			Reason: uncheckableCostReason(s.Spend),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: cap.Amount,
@@ -66,9 +68,11 @@ func checkSendBudget(
 			)
 		} else if hasHostedTools(request) {
 			reason = fmt.Sprintf(
-				"cost risk unavailable for model %s: provider-hosted tool "+
-					"request counts are unbounded; remove hosted tools to "+
-					"enforce the %s %s cost cap",
+				"cost risk unavailable for model %s: provider-hosted tools "+
+					"can bill an unbounded number of requests and add "+
+					"unbounded input tokens within one call; remove hosted "+
+					"tools to enforce the %s %s cost cap, or run the turn "+
+					"without a cost cap",
 				model,
 				cap.Amount,
 				cap.Currency,
@@ -148,6 +152,25 @@ func costLimitReason(
 	)
 }
 
+// uncheckableCostReason explains why recorded spend cannot be compared with
+// the cost cap, and what the caller can do about it.
+func uncheckableCostReason(spend Spend) string {
+	if len(spend.UnpricedRequests) > 0 {
+		keys := slices.Sorted(maps.Keys(spend.UnpricedRequests))
+		return fmt.Sprintf(
+			"cost cannot be checked: a model call billed hosted requests "+
+				"with no price (%s), so spend is only known to be at least "+
+				"the recorded cost; this turn cannot continue under its cost "+
+				"cap; start a new turn with this turn's history, and supply "+
+				"prices for these requests or remove the tools that cause them",
+			strings.Join(keys, ", "),
+		)
+	}
+	return "cost cannot be checked: an earlier charge is unknown or in " +
+		"another currency; this turn cannot continue under its cost cap; " +
+		"start a new turn with this turn's history"
+}
+
 func hasHostedTools(request llm.Request) bool {
 	for _, def := range request.Input().Tools {
 		if def.Kind == tool.KindProviderHosted {
@@ -203,9 +226,8 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 	used, known := s.Spend.costIn(b.MaxCost.Currency)
 	if !known {
 		return &Stop{
-			Kind: StopLimited,
-			Reason: "cost cannot be checked: an earlier charge is unknown " +
-				"or in another currency",
+			Kind:   StopLimited,
+			Reason: uncheckableCostReason(s.Spend),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,

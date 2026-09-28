@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"math"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -44,22 +45,8 @@ func attemptSpend(
 			)
 		}
 	}
-	if settlement != nil && settlement.Result != nil {
-		observed := map[string]int{}
-		for _, part := range settlement.Result.Message.Content {
-			if part.Kind != llm.ContentHostedUse ||
-				part.HostedUse == nil {
-				continue
-			}
-			name := part.HostedUse.Name
-			observed[name]++
-		}
-		if len(observed) > 0 && usage.Requests == nil {
-			usage.Requests = map[string]int{}
-		}
-		for name, count := range observed {
-			usage.Requests[name] = max(usage.Requests[name], count)
-		}
+	if estimated && settlement != nil && settlement.Result != nil {
+		addUnreportedRequests(usage, settlement.Result)
 	}
 	if settlement != nil && settlement.Charge != nil {
 		return usage, settlement.Charge, estimated, true
@@ -73,6 +60,32 @@ func attemptSpend(
 		}
 	}
 	return usage, nil, estimated, true
+}
+
+// addUnreportedRequests covers hosted uses whose billing the provider never
+// reported. Adapters count hosted requests from the final usage, so a call
+// cut off before it (or one with no usage at all) can show hosted activity
+// with fewer counted requests. The difference is recorded under
+// llm.MeterUnreported, which no sheet prices, so the cost shows as partial
+// rather than complete.
+func addUnreportedRequests(usage *llm.Usage, result *llm.Result) {
+	uses := 0
+	for _, part := range result.Message.Content {
+		if part.Kind == llm.ContentHostedUse && part.HostedUse != nil {
+			uses++
+		}
+	}
+	counted := 0
+	for _, count := range usage.Requests {
+		counted += max(count, 0)
+	}
+	if uses <= counted {
+		return
+	}
+	if usage.Requests == nil {
+		usage.Requests = map[string]int{}
+	}
+	usage.Requests[llm.MeterUnreported] += uses - counted
 }
 
 func estimatedOutputTokens(result *llm.Result) int {
@@ -89,4 +102,12 @@ func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
 		settlement.Charge = charge
 		settlement.EstimatedUsage = estimated
 	}
+}
+
+// sumCounts adds two nonnegative counts, reporting overflow.
+func sumCounts(a, b int) (int, bool) {
+	if a < 0 || b < 0 || a > math.MaxInt-b {
+		return 0, false
+	}
+	return a + b, true
 }

@@ -34,13 +34,22 @@ fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case
 would fit. A call whose worst case reaches the cap exactly is admitted. If input alone consumes the remaining
 cap, no positive allowance fits; raise the cap or reduce input/history.
 A model without prices has an explicit `UnpricedModel` detail. A call with
-provider-hosted tools also stops before dispatch, since its cost cannot be
-bounded; so does one without an output limit, which happens only under the
+provider-hosted tools also stops before dispatch: within one call the provider
+may bill an unbounded number of hosted requests and re-read their results as
+input, so no worst case exists. Remove the hosted tools or run without a cost
+cap. So does a call without an output limit, which happens only under the
 strict capability policy when the model's `max_tokens` support is unknown.
 
 `Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token
-totals, model costs by currency, counts of calls with estimated usage, and
-counts of calls with unknown or incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
+totals, model costs by currency, counts of calls with estimated usage, and counts of calls with unknown or
+incompatible-currency model cost. A call that billed hosted requests with no
+list price (Anthropic code execution, for example) is **partial**: its known
+cost is in `Spend.Cost`, it counts in `Spend.CostPartial`, and the unpriced
+counts are in `Spend.UnpricedRequests` by meter key. `Spend.Cost` is then a
+lower bound. Under a cost cap a partial charge also counts as unknown, since
+a lower bound cannot show the cap holds: the turn stops `limited`, and raising
+the cap does not clear it. The stop reason names the unpriced requests; start
+a new turn with the history to go on. `Spend.ToolCost` reports local tool charges
 by currency. Each settled model fact records its `Charge`; the intent records
 `AtRisk`. When final usage is missing, Dashi preserves streamed counts,
 fills absent input from the prepared request, and counts the greater of

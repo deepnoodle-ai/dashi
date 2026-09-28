@@ -89,13 +89,22 @@ func run(ctx context.Context, prompt string) error {
 		spend.Usage.OutputTokens,
 		spend.Usage.Requests,
 	)
-	// The catalog prices tokens but not hosted requests, so a call that used
-	// hosted tools has an unknown charge rather than an understated one.
+	// The catalog prices tokens and the hosted requests it has list prices
+	// for, such as web searches. Anthropic bills code execution by container
+	// time, which responses do not report, so it stays unpriced: the cost
+	// printed is then the known part, and the rest is listed.
 	if spend.CostUnknown > 0 {
 		fmt.Printf("Cost: unknown for %d model call(s)\n", spend.CostUnknown)
 	}
 	for currency, amount := range spend.Cost {
+		if spend.CostPartial > 0 {
+			fmt.Printf("Cost: at least %s %s\n", amount, currency)
+			continue
+		}
 		fmt.Printf("Cost: %s %s\n", amount, currency)
+	}
+	if spend.CostPartial > 0 {
+		fmt.Printf("Unpriced hosted requests: %v\n", spend.UnpricedRequests)
 	}
 	return nil
 }

@@ -165,7 +165,9 @@ balance, denies with a host limit when short, and returns `Admission` naming the
 account and amount. The recorder reserves that amount in the same transaction
 as the call's intent and rejects the write if it cannot. Recording the result
 turns the hold into the charge. The application may keep a hold on a call whose
-usage never arrived until it learns the real bill. The attempt ID is the
+usage never arrived, or whose charge is partial (`Cost.Partial`: hosted
+requests without a price make `Total` a lower bound), until it learns the real
+bill. The attempt ID is the
 idempotency key.
 
 ```go

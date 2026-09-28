@@ -159,19 +159,29 @@ func (l LimitDetail) Validate() error {
 // applies to Cost, while ToolCost is reported separately for host admission.
 // Estimated counts calls without final usage, including partial streamed
 // frames; CostUnknown counts calls whose model charge is unknown or in another
-// currency.
+// currency. CostPartial counts calls whose charge is known except for hosted
+// requests without a price.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
 	// Cost contains exact model-call charges by currency, without
-	// conversion.
+	// conversion. It is a lower bound when CostPartial is nonzero, because
+	// UnpricedRequests are not in it.
 	Cost map[string]money.Amount `json:"cost,omitempty"`
 	// ToolCost contains exact local tool charges outside MaxCost.
 	ToolCost map[string]money.Amount `json:"tool_cost,omitempty"`
 	// Estimated counts calls without complete provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
-	// CostUnknown counts attempts whose charge cannot enforce a cost cap.
+	// CostUnknown counts attempts whose charge cannot enforce a cost cap. Under
+	// a cost cap it includes partial charges, since their full amount is
+	// unknown.
 	CostUnknown int `json:"cost_unknown,omitempty"`
+	// CostPartial counts calls whose known charge is in Cost but whose hosted
+	// requests were partly unpriced.
+	CostPartial int `json:"cost_partial,omitempty"`
+	// UnpricedRequests sums, by meter key, the hosted requests of partial
+	// charges that had no price.
+	UnpricedRequests map[string]int `json:"unpriced_requests,omitempty"`
 }
 
 // Clone copies the mutable usage and currency totals for independent use.
@@ -179,6 +189,7 @@ func (s Spend) Clone() Spend {
 	s.Usage = *s.Usage.Copy()
 	s.Cost = maps.Clone(s.Cost)
 	s.ToolCost = maps.Clone(s.ToolCost)
+	s.UnpricedRequests = maps.Clone(s.UnpricedRequests)
 	return s
 }
 

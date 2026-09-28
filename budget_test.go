@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -631,30 +632,38 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	}
 }
 
-func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
-	client := newPricedClient()
-	client.pricing.Requests = map[string]money.Amount{
-		"web_search": amount("0.01"),
-	}
-	result := final("answer")
-	result.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 10}
-	result.Message.Content = append(
-		[]llm.Content{
-			{
-				Kind: llm.ContentHostedUse,
-				HostedUse: &llm.HostedUse{
-					ID:   "search-1",
-					Name: "web_search",
-					Type: "web_search_call",
-					Origin: content.Origin{
-						Provider: "test",
-						API:      "test.chat",
-						Model:    "fixture",
-						Scope:    "fixture",
-					},
-				},
+func hostedUse(id string) llm.Content {
+	return llm.Content{
+		Kind: llm.ContentHostedUse,
+		HostedUse: &llm.HostedUse{
+			ID:   id,
+			Name: "web_search",
+			Type: "web_search_call",
+			Origin: content.Origin{
+				Provider: "test",
+				API:      "test.chat",
+				Model:    "fixture",
+				Scope:    "fixture",
 			},
 		},
+	}
+}
+
+func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
+	client := newPricedClient()
+	client.pricing.Requests = map[string]money.Amount{
+		llm.MeterWebSearch: amount("0.01"),
+	}
+	result := final("answer")
+	// The adapter reports one billed search; the block count (two, one of
+	// them a failed attempt) does not override it.
+	result.Usage = &llm.Usage{
+		InputTokens:  10,
+		OutputTokens: 10,
+		Requests:     map[string]int{llm.MeterWebSearch: 1},
+	}
+	result.Message.Content = append(
+		[]llm.Content{hostedUse("search-1"), hostedUse("search-2")},
 		result.Message.Content...,
 	)
 	client.results = []llm.Result{result}
@@ -663,11 +672,113 @@ func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Spend.Usage.Requests["web_search"] != 1 {
-		t.Fatalf("web searches=%d", view.Spend.Usage.Requests["web_search"])
+	if !reflect.DeepEqual(
+		view.Spend.Usage.Requests,
+		map[string]int{llm.MeterWebSearch: 1},
+	) {
+		t.Fatalf("requests=%v", view.Spend.Usage.Requests)
 	}
-	if view.Spend.Cost["USD"] != amount("0.01002") {
-		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
+	if view.Spend.Cost["USD"] != amount("0.01002") ||
+		view.Spend.CostPartial != 0 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
+func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
+	client := newPricedClient()
+	client.pricing.Requests = map[string]money.Amount{
+		llm.MeterWebSearch: amount("0.01"),
+	}
+	result := final("answer")
+	result.Usage = &llm.Usage{
+		InputTokens:  10,
+		OutputTokens: 10,
+		Requests: map[string]int{
+			llm.MeterWebSearch:     1,
+			llm.MeterCodeExecution: 2,
+		},
+	}
+	client.results = []llm.Result{result}
+	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, nil)
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spend := view.Spend
+	if spend.Cost["USD"] != amount("0.01002") || spend.CostUnknown != 0 ||
+		spend.CostPartial != 1 ||
+		!reflect.DeepEqual(
+			spend.UnpricedRequests,
+			map[string]int{llm.MeterCodeExecution: 2},
+		) {
+		t.Fatalf("spend=%+v", spend)
+	}
+	var charge *llm.Cost
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelSettled && step.Model != nil {
+			charge = step.Model.Charge
+		}
+	}
+	if charge == nil || !charge.Partial() {
+		t.Fatalf("settled charge=%+v", charge)
+	}
+	clone := spend.Clone()
+	clone.UnpricedRequests[llm.MeterCodeExecution] = 9
+	if spend.UnpricedRequests[llm.MeterCodeExecution] != 2 {
+		t.Fatal("spend clone shares unpriced requests")
+	}
+}
+
+func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
+	first := callResult("lookup-1", "lookup")
+	first.Usage = &llm.Usage{
+		InputTokens:  10,
+		OutputTokens: 10,
+		Requests:     map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
+	}
+	client := newPricedClient(first, final("done"))
+	def := testAgent()
+	def.Settings.MaxTokens = 100
+	runner := Runner{
+		Agent:  def,
+		Client: client,
+		Tools:  fixedTools{budgetLookup(nil)},
+		Policy: AllowLocalPolicy{},
+	}
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "unforeseen"},
+		Start{
+			CommandID: "start",
+			Budget:    &Budget{MaxCost: &Money{Amount: amount("1"), Currency: "USD"}},
+			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := requireBudgetLimit(t, out, LimitCost)
+	if limit.CostUsed != amount("0.00002") {
+		t.Fatalf("known part used=%s", limit.CostUsed)
+	}
+	for _, want := range []string{"unrecognized:mystery_call", "start a new turn"} {
+		if !strings.Contains(out.Stop.Reason, want) {
+			t.Fatalf("reason %q lacks %q", out.Stop.Reason, want)
+		}
+	}
+	if client.sends != 1 || out.ReadyToContinue {
+		t.Fatalf("sends=%d ready=%v", client.sends, out.ReadyToContinue)
+	}
+	_, err = runner.Run(
+		t.Context(),
+		out.Turn,
+		Continue{
+			CommandID: "raise",
+			Budget:    &Budget{MaxCost: &Money{Amount: amount("5"), Currency: "USD"}},
+		},
+	)
+	if err == nil {
+		t.Fatal("a raise must not clear a charge whose amount is unknown")
 	}
 }
 
@@ -885,5 +996,59 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	}
 	if view.Spend.Usage.OutputTokens != 0 {
 		t.Fatalf("overflowing output recorded=%d", view.Spend.Usage.OutputTokens)
+	}
+}
+
+type hostedCancelClient struct {
+	*pricedClient
+	cancel context.CancelFunc
+}
+
+func (c *hostedCancelClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	// Anthropic's message_start frame reports input usage with no request
+	// counts; the stream is cut off before the final usage arrives.
+	call.Sink(llm.Delta{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 100}})
+	for _, id := range []string{"search-1", "search-2"} {
+		use := hostedUse(id)
+		call.Sink(llm.Delta{Content: &use})
+	}
+	c.cancel()
+	return llm.Result{}, ctx.Err()
+}
+
+func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &hostedCancelClient{pricedClient: newPricedClient(), cancel: cancel}
+	client.pricing.Requests = map[string]money.Amount{
+		llm.MeterWebSearch: amount("0.01"),
+	}
+	def := testAgent()
+	def.Settings.MaxTokens = 100
+	out, err := (Runner{Agent: def, Client: client, Policy: AllowLocalPolicy{}}).Run(
+		ctx,
+		Turn{ID: "cut"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("search"))},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopInterrupted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.Usage.Requests[llm.MeterUnreported] != 2 ||
+		view.Spend.CostPartial != 1 ||
+		view.Spend.UnpricedRequests[llm.MeterUnreported] != 2 {
+		t.Fatalf("spend=%+v", view.Spend)
 	}
 }

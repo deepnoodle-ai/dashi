@@ -150,5 +150,15 @@ func cost(client llm.Client, model string, result llm.Result) string {
 	if !ok {
 		return "unknown (usage not reported)"
 	}
+	if c.Partial() {
+		// Hosted requests without a list price are left out of Total.
+		return fmt.Sprintf(
+			"at least %s %s (%s; unpriced hosted requests %v)",
+			c.Total,
+			c.Currency,
+			c.Source,
+			c.UnpricedRequests,
+		)
+	}
 	return fmt.Sprintf("%s %s (%s)", c.Total, c.Currency, c.Source)
 }
