@@ -106,13 +106,17 @@ runner.Hooks = gate.Hooks()
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. `BeforeFinish` turns an answer down with
-`Deliver` items, or, for submitted output, with a `Reason` alone, which the
-model sees as "Not accepted: …" and then submits again. It can do so only
-while a further normal model call is possible: not on the reserved
-final-answer call or the one before it, past the deadline, or when the next
-call would exceed a cost cap. Then its answer is dropped with a warning and
-the candidate stands.
+item that is already current. `BeforeFinish` vetoes an answer with a
+`Reason`, which the model sees as "Not accepted: …" before it answers again,
+or nudges with `Deliver` items alone. When no further normal model call is
+possible (on the reserved final-answer call or the one before it, past the
+deadline, or when the next call would exceed a cost cap), a nudge is dropped
+with a warning and the answer stands, but a veto stops the turn failed with
+`dashi.StopReasonOutputRejected` and no answer; `Continue` after raising the
+limit lets the model try again.
+
+`out.Answer` is the latest assistant text, even when the turn did not
+complete. Check `out.Stop` before showing it.
 
 ## Approving tool calls
 
