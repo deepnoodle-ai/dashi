@@ -45,6 +45,8 @@ type TurnView struct {
 	Stop           Stop
 	Output         *StructuredOutput
 	Pending        []string
+	// Warnings includes nonfatal conditions from acknowledged steps.
+	Warnings []Warning
 	// ReadyToContinue means a Continue command can pick up this record.
 	ReadyToContinue bool
 	Tools           map[string]ToolView
@@ -119,6 +121,7 @@ func replay(t Turn) (*replayState, error) {
 		if err := s.apply(step); err != nil {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
+		s.Warnings = append(s.Warnings, step.Warnings...)
 		s.Revision = step.Seq
 	}
 	s.Pending = s.pending()
@@ -191,11 +194,6 @@ func (s *replayState) apply(step Step) error {
 		}
 		if origin != StartUser && origin != StartScheduled && origin != StartOperator {
 			return errors.New("invalid start origin")
-		}
-		for _, m := range step.Started.History {
-			if err := validateMessage(m); err != nil {
-				return err
-			}
 		}
 		for _, m := range step.Started.Input {
 			if origin != StartOperator && m.Role != llm.RoleUser {
@@ -698,6 +696,14 @@ func (s *replayState) interruptionLimitReached() bool {
 }
 
 func validateStepPayload(step Step) error {
+	if len(step.Warnings) > 0 && step.Kind != StepContinued {
+		return errors.New("warnings require a continuation step")
+	}
+	for _, warning := range step.Warnings {
+		if warning.Code != WarningHistoryMismatch || warning.Message == "" {
+			return errors.New("invalid warning")
+		}
+	}
 	count := 0
 	for _, present := range []bool{step.Started != nil, step.Context != nil, step.Model != nil, step.Tool != nil, step.Approval != nil, step.HostedApproval != nil, step.Output != nil, step.Stop != nil} {
 		if present {

@@ -7,10 +7,19 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// Project builds the next model-facing history without modifying the record.
-// Earlier session history is pinned in the start fact. Unsettled client calls
-// and model intents cannot be projected into a new request.
+// Project returns this turn's own model messages without modifying the record.
+// It excludes prior conversation history, which the application owns. Unsettled
+// client calls and model intents cannot be projected into a new request.
 func Project(t Turn) ([]llm.Message, error) {
+	return projectWithHistory(t, nil)
+}
+
+// projectWithHistory assembles one model request from the current call's prior
+// history and this turn's recorded messages. It never stores that history.
+func projectWithHistory(
+	t Turn,
+	history []llm.Message,
+) ([]llm.Message, error) {
 	state, err := replay(t)
 	if err != nil {
 		return nil, err
@@ -26,7 +35,10 @@ func Project(t Turn) ([]llm.Message, error) {
 	if len(state.hosted) > 0 {
 		return nil, errors.New("kernel: hosted approval is unresolved")
 	}
-	out := make([]llm.Message, 0, len(t.Steps))
+	out := make([]llm.Message, 0, len(history)+len(t.Steps))
+	for _, m := range history {
+		out = append(out, m.Clone())
+	}
 	type position struct {
 		seq   int64
 		index int
@@ -54,9 +66,6 @@ func Project(t Turn) ([]llm.Message, error) {
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepStarted:
-			for _, m := range step.Started.History {
-				out = append(out, m.Clone())
-			}
 			for _, m := range step.Started.Input {
 				out = append(out, m.Clone())
 			}

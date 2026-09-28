@@ -42,6 +42,16 @@ func NewMemoryRecorder() *MemoryRecorder {
 	return &MemoryRecorder{turns: map[string]Turn{}, owners: map[string]string{}}
 }
 
+// newMemoryRecorderForTurn lets an unbound call extend its supplied record.
+// The returned Turn is the only copy the caller can carry to another call.
+func newMemoryRecorderForTurn(turn Turn) *MemoryRecorder {
+	recorder := NewMemoryRecorder()
+	if len(turn.Steps) > 0 {
+		recorder.turns[turn.ID] = cloneTurn(turn)
+	}
+	return recorder
+}
+
 // Claim changes the in-memory owner token. Production lease policy belongs to
 // the host; this method provides a deterministic recorder fixture.
 func (r *MemoryRecorder) Claim(turnID, owner string) {
