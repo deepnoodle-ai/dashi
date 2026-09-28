@@ -181,7 +181,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	if body.Tools[0]["mcp_server_name"] != "docs" {
 		t.Fatal("MCP toolset lost its server name")
 	}
-	if _, err := client.Send(context.Background(), request, nil); err != nil {
+	if _, err := client.Send(context.Background(), llm.Call{Request: request}); err != nil {
 		t.Fatalf("send MCP toolset request: %v", err)
 	}
 	if beta != "mcp-client-2025-11-20" {

@@ -873,11 +873,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			})
 		}
 	}
-	// The ID is fixed by the recorded call count, so Prepare sees the ID that
-	// the intent below records; see llm.Attempt for what it guarantees.
-	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
-	callCtx := llm.WithAttempt(r.ctx, llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt})
-	req, err := r.b.Client.Prepare(callCtx, input)
+	req, err := r.b.Client.Prepare(r.ctx, input)
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
@@ -928,6 +924,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if r.pauseRequested() {
 		return r.pauseStop(), false
 	}
+	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
 	fact := &ModelFact{
 		AttemptID:            attempt,
@@ -981,7 +978,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var partialText strings.Builder
 	var partialContent []llm.Content
 	var observedUsage *llm.Usage
-	for item, err := range llm.Stream(callCtx, r.b.Client, req) {
+	for item, err := range llm.Stream(r.ctx, r.b.Client, llm.Call{
+		Request: req,
+		// The client may key durable work by this ID; see llm.Attempt.
+		Attempt: llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt},
+	}) {
 		if item.Delta != nil {
 			if item.Delta.Usage != nil {
 				if observedUsage == nil {

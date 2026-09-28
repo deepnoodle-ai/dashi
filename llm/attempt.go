@@ -1,12 +1,26 @@
 package llm
 
-import "context"
+// Call is one dispatch of a prepared request, the argument to Client.Send.
+//
+// Attempt is an explicit field rather than a context value because a client
+// may depend on it for correctness, as an idempotency key for durable work.
+// In the signature it is visible to every implementation and cannot be
+// silently dropped by a wrapper that replaces the context.
+type Call struct {
+	// Request is the prepared request to send.
+	Request Request
+	// Attempt is the caller's identity for this dispatch. It is zero when the
+	// caller records no attempts, as for a direct Send or Generate.
+	Attempt Attempt
+	// Sink observes provisional deltas. It may be nil.
+	Sink Sink
+}
 
-// Attempt is the caller's identity for one model call. A caller that records
-// model calls, such as Kernel's turn engine, puts it on the context passed to
-// Client.Prepare and Client.Send so a client can tie the call to its own
-// durable work: a queued job, an idempotency key, or a credit hold. Calls made
-// outside such a caller carry no Attempt, and a client must still work.
+// Attempt is the caller's identity for one model dispatch. A caller that
+// records model calls, such as Kernel's turn engine, sets it on Call so a
+// client can tie the dispatch to its own durable work: a queued job, an
+// idempotency key, or a credit hold. A client must still work when it is
+// zero.
 //
 // Kernel's engine sets AttemptID to the ModelFact.AttemptID it records in the
 // turn's StepModelIntent step and repeats in StepModelSettled or
@@ -18,9 +32,6 @@ import "context"
 //     idempotency key: if a job with this ID already exists (for example
 //     after the client's own lost acknowledgement), join or reuse it instead
 //     of dispatching again.
-//   - Prepare receives the ID the intent will carry if Kernel records it.
-//     Preparation has no effect; when the turn stops before recording, a
-//     later Prepare may see the same ID again.
 //   - Recovery never reuses an ID. An interrupted call is settled under its
 //     own ID (Interrupted is set), and the resend is a new intent with a new
 //     ID. Work still running under the old ID is stale: Kernel will not act on
@@ -32,20 +43,9 @@ import "context"
 type Attempt struct {
 	// TurnID identifies the caller's unit of work, such as a Kernel turn.
 	TurnID string
-	// AttemptID identifies this model call. It is unique within the turn.
+	// AttemptID identifies this dispatch. It is unique within the turn.
 	AttemptID string
 }
 
-type attemptKey struct{}
-
-// WithAttempt returns a context carrying attempt identity for a model call.
-func WithAttempt(ctx context.Context, attempt Attempt) context.Context {
-	return context.WithValue(ctx, attemptKey{}, attempt)
-}
-
-// AttemptFrom returns the attempt identity on ctx. False means the caller
-// supplied none, as for a direct Prepare or Send outside Kernel.
-func AttemptFrom(ctx context.Context) (Attempt, bool) {
-	attempt, ok := ctx.Value(attemptKey{}).(Attempt)
-	return attempt, ok
-}
+// IsZero reports whether the caller supplied no attempt identity.
+func (a Attempt) IsZero() bool { return a == Attempt{} }

@@ -362,7 +362,8 @@ func hasClientFunctionCalls(input llm.Input) bool {
 
 // Send uses the Google SDK and guards its final HTTP request against the frozen
 // body. A sink observes provisional stream deltas; the final Result is authoritative.
-func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
+func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+	prepared, sink := call.Request, call.Sink
 	model := prepared.Input().Model
 	httpClient, err := p.httpClient(model)
 	if err != nil {

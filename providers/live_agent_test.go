@@ -53,7 +53,7 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 				request, err := client.Prepare(ctx, input)
 				if err == nil {
 					var result llm.Result
-					result, err = client.Send(ctx, request, nil)
+					result, err = client.Send(ctx, llm.Call{Request: request})
 					if err == nil && (result.Stop.Kind != llm.StopFinished || result.Message.Text() == "" || result.Requested.Model != tc.model) {
 						t.Errorf("stream=%t incomplete final facts: %+v", stream, result)
 					}

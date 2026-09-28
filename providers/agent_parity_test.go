@@ -95,7 +95,7 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 				var result llm.Result
 				if stream {
 					deltas, terminals := 0, 0
-					for event, err := range llm.Stream(context.Background(), client, request) {
+					for event, err := range llm.Stream(context.Background(), client, llm.Call{Request: request}) {
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -111,7 +111,7 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 						t.Fatalf("stream events: deltas=%d terminals=%d", deltas, terminals)
 					}
 				} else {
-					result, err = client.Send(context.Background(), request, nil)
+					result, err = client.Send(context.Background(), llm.Call{Request: request})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -150,7 +150,7 @@ func TestIteratorBreakCancelsProviderHTTPRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	seen := false
-	for event, err := range llm.Stream(context.Background(), client, request) {
+	for event, err := range llm.Stream(context.Background(), client, llm.Call{Request: request}) {
 		if err != nil {
 			t.Fatal(err)
 		}

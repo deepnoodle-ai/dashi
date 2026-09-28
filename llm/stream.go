@@ -18,13 +18,14 @@ type StreamEvent struct {
 	Result *Result
 }
 
-// Stream dispatches one prepared request when iteration begins. It yields
+// Stream dispatches one call when iteration begins. It yields
 // deltas with backpressure, then exactly one terminal result when fully read.
 // Breaking the range cancels the request and suppresses the terminal event.
 // The sequence is single-use: a second range yields ErrStreamConsumed instead
 // of dispatching another paid request.
-// The client must stop invoking its sink before Send returns.
-func Stream(ctx context.Context, client Client, request Request) iter.Seq2[StreamEvent, error] {
+// The client must stop invoking its sink before Send returns. A non-nil
+// call.Sink also observes each delta before it is yielded.
+func Stream(ctx context.Context, client Client, call Call) iter.Seq2[StreamEvent, error] {
 	var started atomic.Bool
 	return func(yield func(StreamEvent, error) bool) {
 		if !started.CompareAndSwap(false, true) {
@@ -39,7 +40,8 @@ func Stream(ctx context.Context, client Client, request Request) iter.Seq2[Strea
 		defer cancel()
 		var mu sync.Mutex
 		stopped := false
-		result, err := client.Send(callCtx, request, func(delta Delta) {
+		observe := call.Sink
+		call.Sink = func(delta Delta) {
 			mu.Lock()
 			defer mu.Unlock()
 			if stopped {
@@ -52,11 +54,15 @@ func Stream(ctx context.Context, client Client, request Request) iter.Seq2[Strea
 			if delta.Usage != nil {
 				delta.Usage = delta.Usage.Copy()
 			}
+			if observe != nil {
+				observe(delta)
+			}
 			if !yield(StreamEvent{Delta: &delta}, nil) {
 				stopped = true
 				cancel()
 			}
-		})
+		}
+		result, err := client.Send(callCtx, call)
 		mu.Lock()
 		wasStopped := stopped
 		mu.Unlock()

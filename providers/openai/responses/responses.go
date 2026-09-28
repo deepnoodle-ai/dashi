@@ -248,7 +248,8 @@ var apiLimits = llm.Capabilities{
 // Prepare; a nil sink discards previews while still accumulating the result.
 // Whenever an error is returned, the result's stop kind is incomplete and the
 // result may still carry the content received before the failure.
-func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
+func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+	prepared, sink := call.Request, call.Sink
 	wire := codec{origin: p.client.Origin(prepared.Input().Model)}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed

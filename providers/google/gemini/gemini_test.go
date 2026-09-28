@@ -84,7 +84,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	if attempts.Load() != 0 || !strings.Contains(string(prepared.Body()), `"functionDeclarations"`) {
 		t.Fatalf("preparation sent or lost tools: %s", prepared.Body())
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestStreamCollectsTextSignatureAndUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
-	result, err := p.Send(context.Background(), prepared, func(d llm.Delta) { deltas = append(deltas, d) })
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(d llm.Delta) { deltas = append(deltas, d) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestVertexUsesSDKRouteAndFrozenBody(t *testing.T) {
 	if sent != nil {
 		t.Fatal("Vertex preparation made a real request")
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestSDKAPIErrorPreservesStatusAndBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	var failure *llm.Error
 	if !errors.As(err, &failure) || failure.Category != llm.ErrorRateLimited || failure.Status != 429 ||
 		!failure.Retryable || !bytes.Contains(failure.Body, []byte("slow down")) || result.Stop.Kind != llm.StopIncomplete {

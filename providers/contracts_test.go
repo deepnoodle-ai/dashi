@@ -81,7 +81,7 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 						seen++
 					}
 				}
-				result, err := p.Send(context.Background(), prep, sink)
+				result, err := p.Send(context.Background(), llm.Call{Request: prep, Sink: sink})
 				if err != nil || result.Message.Text() == "" {
 					t.Fatal("collection depended on observation", err)
 				}
@@ -283,7 +283,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 			base := clientConfig{id: "shared-name", endpoint: server.URL, key: "credential-one"}
 			p := configured(t, tc, base)
 			prep := preparedRequest(t, p)
-			result, err := p.Send(context.Background(), prep, nil)
+			result, err := p.Send(context.Background(), llm.Call{Request: prep})
 			if err != nil {
 				t.Fatalf("collect response for replay checks: %v", err)
 			}
@@ -326,7 +326,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 						}
 					}
 					if variant != "same" && variant != "model" {
-						if _, err := other.Send(context.Background(), prep, nil); err == nil {
+						if _, err := other.Send(context.Background(), llm.Call{Request: prep}); err == nil {
 							t.Fatal("prepared request crossed destination boundary")
 						}
 					}
@@ -355,7 +355,7 @@ func TestSendDoesNotFollowRedirects(t *testing.T) {
 				http.Redirect(w, r, "/second", http.StatusTemporaryRedirect)
 			})
 			p := tc.new(server.URL)
-			_, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+			_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 			var failure *llm.Error
 			if !errors.As(err, &failure) || failure.Status != 307 || failure.Retryable || calls.Load() != 1 {
 				t.Fatal("redirect hid a second dispatch", err, calls.Load())
@@ -375,7 +375,7 @@ func TestRequestAndReplayRejectOtherAPI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("construct prepared request for API mismatch check: %v", err)
 			}
-			if _, err := p.Send(context.Background(), foreign, nil); err == nil {
+			if _, err := p.Send(context.Background(), llm.Call{Request: foreign}); err == nil {
 				t.Fatal("prepared request crossed API boundary")
 			}
 			for _, part := range result.Message.Content {
@@ -408,7 +408,7 @@ func TestRetryHintsPreserveRateLimitAndQuotaMeaning(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code}})
 				})
 				p := tc.new(server.URL)
-				_, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+				_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 				var failure *llm.Error
 				if !errors.As(err, &failure) || failure.Code != code || failure.RetryAfter != 7*time.Second || failure.Retryable != (code == "slow_down") || calls.Load() != 1 {
 					t.Fatal("retry hint lost provider meaning or triggered retry", err)

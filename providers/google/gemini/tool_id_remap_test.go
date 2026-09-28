@@ -77,7 +77,7 @@ func TestPrepareRemapsToolIDAndSendsFrozenBody(t *testing.T) {
 				t.Fatal("preparation changed original tool identity")
 			}
 			input.Messages[1].Content[0].ToolCall.ID = "mutated"
-			if _, err := client.Send(context.Background(), request, nil); err != nil {
+			if _, err := client.Send(context.Background(), llm.Call{Request: request}); err != nil {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(sent, request.Body()) {

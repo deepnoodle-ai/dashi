@@ -100,7 +100,7 @@ func TestPrepareOmitsOnlyIncompatibleKnownReasoning(t *testing.T) {
 					}
 					input.Messages[1].Content[reasoningIndices[0]].Reasoning.Text = "mutated"
 					changes[0].Reason = "mutated"
-					if _, err := client.Send(context.Background(), restored, nil); err != nil {
+					if _, err := client.Send(context.Background(), llm.Call{Request: restored}); err != nil {
 						t.Fatal(err)
 					}
 					if calls.Load() != 1 || !bytes.Equal(<-sent, request.Body()) ||
@@ -249,7 +249,7 @@ func generatedReasoningHistory(t *testing.T, tc providerCase) (llm.Client, llm.R
 		io.WriteString(w, fixture)
 	})
 	client := tc.new(server.URL)
-	result, err := client.Send(context.Background(), preparedRequest(t, client), nil)
+	result, err := client.Send(context.Background(), llm.Call{Request: preparedRequest(t, client)})
 	if err != nil {
 		t.Fatalf("decode %s reasoning fixture: %v", tc.name, err)
 	}

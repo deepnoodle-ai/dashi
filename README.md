@@ -36,7 +36,7 @@ request, err := client.Prepare(ctx, llm.Input{
     },
 })
 var result llm.Result
-for event, err := range llm.Stream(ctx, client, request) {
+for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
     if event.Delta != nil { /* show progress */ }
     if event.Result != nil { result = *event.Result }
     if err != nil { log.Fatal(err) }

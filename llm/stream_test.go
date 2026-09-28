@@ -8,6 +8,7 @@ import (
 
 type iteratorClient struct {
 	sends int
+	last  Call
 	send  func(context.Context, Sink) (Result, error)
 }
 
@@ -15,9 +16,10 @@ func (*iteratorClient) Provider() string                                { return
 func (*iteratorClient) API() string                                     { return "test" }
 func (*iteratorClient) ModelInfo(string) (ModelInfo, bool)              { return ModelInfo{}, false }
 func (*iteratorClient) Prepare(context.Context, Input) (Request, error) { return Request{}, nil }
-func (c *iteratorClient) Send(ctx context.Context, _ Request, sink Sink) (Result, error) {
+func (c *iteratorClient) Send(ctx context.Context, call Call) (Result, error) {
 	c.sends++
-	return c.send(ctx, sink)
+	c.last = call
+	return c.send(ctx, call.Sink)
 }
 
 func TestStreamIsLazyBackpressuredAndTerminal(t *testing.T) {
@@ -28,7 +30,7 @@ func TestStreamIsLazyBackpressuredAndTerminal(t *testing.T) {
 		sink(Delta{Kind: DeltaText, Text: "two"})
 		return Result{ID: "result", Stop: Stop{Kind: StopFinished}}, nil
 	}}
-	sequence := Stream(context.Background(), client, Request{})
+	sequence := Stream(context.Background(), client, Call{})
 	if client.sends != 0 {
 		t.Fatal("constructing iterator dispatched request")
 	}
@@ -73,7 +75,7 @@ func TestStreamBreakCancelsWithoutTerminal(t *testing.T) {
 		return Result{ID: "partial"}, ctx.Err()
 	}}
 	seen := 0
-	for event, err := range Stream(context.Background(), client, Request{}) {
+	for event, err := range Stream(context.Background(), client, Call{}) {
 		if err != nil || event.Delta == nil {
 			t.Fatalf("unexpected event=%+v err=%v", event, err)
 		}
@@ -93,7 +95,7 @@ func TestStreamReturnsPartialResultWithError(t *testing.T) {
 	}}
 	var final StreamEvent
 	var finalErr error
-	for event, err := range Stream(context.Background(), client, Request{}) {
+	for event, err := range Stream(context.Background(), client, Call{}) {
 		if event.Result != nil {
 			final, finalErr = event, err
 		}

@@ -200,5 +200,5 @@ func Generate(ctx context.Context, client Client, input Input, sink Sink) (Resul
 	if err != nil {
 		return Result{}, err
 	}
-	return client.Send(ctx, request, sink)
+	return client.Send(ctx, Call{Request: request, Sink: sink})
 }

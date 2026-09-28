@@ -9,33 +9,22 @@ import (
 	"github.com/deepnoodle-ai/kernel/llm"
 )
 
-// attemptClient records the attempt identity each Prepare and Send receives.
+// attemptClient records the attempt identity each Send receives.
 type attemptClient struct {
 	*scriptedClient
-	prepared []llm.Attempt
-	sent     []llm.Attempt
-	onSend   func()
+	sent   []llm.Attempt
+	onSend func(llm.Attempt)
 }
 
-func (c *attemptClient) Prepare(ctx context.Context, in llm.Input) (llm.Request, error) {
-	a, ok := llm.AttemptFrom(ctx)
-	if !ok {
-		return llm.Request{}, errors.New("prepare without attempt identity")
-	}
-	c.prepared = append(c.prepared, a)
-	return c.scriptedClient.Prepare(ctx, in)
-}
-
-func (c *attemptClient) Send(ctx context.Context, req llm.Request, sink llm.Sink) (llm.Result, error) {
-	a, ok := llm.AttemptFrom(ctx)
-	if !ok {
+func (c *attemptClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	if call.Attempt.IsZero() {
 		return llm.Result{}, errors.New("send without attempt identity")
 	}
-	c.sent = append(c.sent, a)
+	c.sent = append(c.sent, call.Attempt)
 	if c.onSend != nil {
-		c.onSend()
+		c.onSend(call.Attempt)
 	}
-	return c.scriptedClient.Send(ctx, req, sink)
+	return c.scriptedClient.Send(ctx, call)
 }
 
 func stepAttempts(turn Turn, kind StepKind) []string {
@@ -61,19 +50,28 @@ func attemptIDs(t *testing.T, attempts []llm.Attempt) []string {
 }
 
 func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
+	rec := NewMemoryRecorder()
 	client := &attemptClient{scriptedClient: &scriptedClient{results: []llm.Result{final("done")}}}
+	client.onSend = func(a llm.Attempt) {
+		// The intent carrying this ID is durable before Send is called.
+		saved, err := rec.Load("t1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := saved.Steps[len(saved.Steps)-1]
+		if last.Kind != StepModelIntent || last.Model.AttemptID != a.AttemptID {
+			t.Fatalf("send %q before its intent was recorded: last step %s", a.AttemptID, last.Kind)
+		}
+	}
 	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{Client: client, Recorder: NewMemoryRecorder()})
+		Bindings{Client: client, Recorder: rec})
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	intents := stepAttempts(out.Turn, StepModelIntent)
 	if want := []string{"t1:model:1"}; !slices.Equal(intents, want) {
 		t.Fatalf("intents=%v", intents)
-	}
-	if got := attemptIDs(t, client.prepared); !slices.Equal(got, intents) {
-		t.Fatalf("prepared=%v intents=%v", got, intents)
 	}
 	if got := attemptIDs(t, client.sent); !slices.Equal(got, intents) {
 		t.Fatalf("sent=%v intents=%v", got, intents)
@@ -88,7 +86,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 	client := &attemptClient{scriptedClient: &scriptedClient{
 		results: []llm.Result{{}, final("done")},
 	}}
-	client.onSend = func() {
+	client.onSend = func(llm.Attempt) {
 		if len(client.sent) == 1 {
 			cancel(errors.New("deploying"))
 		}

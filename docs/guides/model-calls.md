@@ -25,7 +25,7 @@ request, err := client.Prepare(ctx, llm.Input{
 })
 // Handle err and record request.Snapshot() if needed, then:
 var result llm.Result
-for event, err := range llm.Stream(ctx, client, request) {
+for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
     if event.Delta != nil { /* show provisional progress */ }
     if event.Result != nil { result = *event.Result }
     if err != nil { log.Fatal(err) }
@@ -80,9 +80,12 @@ The snapshot always records the resolved `capability_policy`, `adjust` or
 
 ## Send, Stream, and Generate
 
-`Input.Stream` selects streaming; a sink observes deltas without changing the
-request. A nil sink still collects a streaming result. Each `Send` makes at
-most one HTTP dispatch; the caller handles recording, admission, and any retry.
+`Send` takes an `llm.Call`: the prepared `Request`, an optional `Sink`, and an
+`Attempt` that a recording caller such as a Kernel turn sets and a direct call
+leaves zero. `Input.Stream` selects streaming; a sink observes deltas without
+changing the request. A nil sink still collects a streaming result. Each `Send`
+makes at most one HTTP dispatch; the caller handles recording, admission, and
+any retry.
 
 `llm.Stream` starts that dispatch when ranged, yields deltas with backpressure,
 then yields one final result. Breaking the range cancels the request. The

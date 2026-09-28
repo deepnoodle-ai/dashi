@@ -127,7 +127,7 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 					if !reflect.DeepEqual(body, want) {
 						t.Fatalf("encoded controls = %s, want %s", mustJSON(body), mustJSON(want))
 					}
-					if _, err := p.Send(context.Background(), prep, nil); err != nil {
+					if _, err := p.Send(context.Background(), llm.Call{Request: prep}); err != nil {
 						t.Fatal(err)
 					}
 					if !bytes.Equal(sent, prep.Body()) {
@@ -342,13 +342,13 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			if _, err := p.Send(ctx, first, nil); !errors.Is(err, context.Canceled) || len(bodies) != 0 {
+			if _, err := p.Send(ctx, llm.Call{Request: first}); !errors.Is(err, context.Canceled) || len(bodies) != 0 {
 				t.Fatal("preparation or Send invocation was mistaken for dispatch", err)
 			}
-			if _, err := p.Send(context.Background(), first, nil); err == nil {
+			if _, err := p.Send(context.Background(), llm.Call{Request: first}); err == nil {
 				t.Fatal("failed dispatch lost its error")
 			}
-			result, err := p.Send(context.Background(), second, nil)
+			result, err := p.Send(context.Background(), llm.Call{Request: second})
 			if err != nil {
 				t.Fatal(err)
 			}

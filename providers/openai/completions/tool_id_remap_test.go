@@ -141,7 +141,7 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 			input.Messages[1].Content[0].ToolCall.ID = "mutated"
 			input.Messages[2].Content[1].ToolResult.CallID = "mutated"
 			changes[0].ToID = "mutated"
-			if _, err := client.Send(context.Background(), restored, nil); err != nil {
+			if _, err := client.Send(context.Background(), llm.Call{Request: restored}); err != nil {
 				t.Fatal(err)
 			}
 			if attempts.Load() != 1 {

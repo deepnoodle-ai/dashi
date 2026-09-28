@@ -427,7 +427,7 @@ type liveCountingClient struct {
 	sends int
 }
 
-func (c *liveCountingClient) Send(ctx context.Context, request llm.Request, sink llm.Sink) (llm.Result, error) {
+func (c *liveCountingClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	c.sends++
-	return c.Client.Send(ctx, request, sink)
+	return c.Client.Send(ctx, call)
 }

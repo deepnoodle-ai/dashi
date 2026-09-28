@@ -73,7 +73,7 @@ func TestCompleteAndStreamingAgree(t *testing.T) {
 			var text strings.Builder
 			// The sink mutates every delta to prove deltas do not alias the
 			// streamed result.
-			streamed, err := p.Send(context.Background(), req, func(d llm.Delta) {
+			streamed, err := p.Send(context.Background(), llm.Call{Request: req, Sink: func(d llm.Delta) {
 				if d.Kind == llm.DeltaText {
 					text.WriteString(d.Text)
 				}
@@ -88,7 +88,7 @@ func TestCompleteAndStreamingAgree(t *testing.T) {
 				if d.Usage != nil {
 					d.Usage.OutputTokens = 99999
 				}
-			})
+			}})
 			if err != nil {
 				t.Fatalf("streamed fixture call failed: %v", err)
 			}
@@ -272,13 +272,13 @@ func TestCallerOwnsEachRetryAttempt(t *testing.T) {
 			})
 			p := tc.new(server.URL)
 			req := preparedRequest(t, p)
-			_, err := p.Send(context.Background(), req, nil)
+			_, err := p.Send(context.Background(), llm.Call{Request: req})
 			var failure *llm.Error
 			if !errors.As(err, &failure) || !failure.Retryable || attempts.Load() != 1 {
 				t.Fatalf("first attempt was hidden or retry hint lost: %v (%d)", err, attempts.Load())
 			}
 			// The caller can now record failure and another intent before dispatch.
-			_, err = p.Send(context.Background(), req, nil)
+			_, err = p.Send(context.Background(), llm.Call{Request: req})
 			if err != nil || attempts.Load() != 2 {
 				t.Fatalf("caller retry failed: error=%v attempts=%d, want 2", err, attempts.Load())
 			}
@@ -336,7 +336,7 @@ func TestHTTPFailuresAreNotRetried(t *testing.T) {
 					sink = func(llm.Delta) {
 					}
 				}
-				_, err := p.Send(context.Background(), preparedRequest(t, p, f.stream), sink)
+				_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p, f.stream), Sink: sink})
 				var e *llm.Error
 				if !errors.As(err, &e) || attempts.Load() != 1 {
 					t.Fatalf("err=%v attempts=%d", err, attempts.Load())
@@ -364,8 +364,8 @@ func TestInterruptedToolArgumentsRemainPartial(t *testing.T) {
 				io.WriteString(w, tc.partialToolStream)
 			})
 			p := tc.new(server.URL)
-			result, err := p.Send(context.Background(), preparedRequest(t, p, true), func(llm.Delta) {
-			})
+			result, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p, true), Sink: func(llm.Delta) {
+			}})
 			if err == nil ||
 				attempts.Load() != 1 ||
 				result.Stop.Kind != llm.StopIncomplete ||
@@ -405,7 +405,7 @@ func TestSendHonorsCanceledContext(t *testing.T) {
 			req := preparedRequest(t, p)
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			if _, err := p.Send(ctx, req, nil); !errors.Is(err, context.Canceled) {
+			if _, err := p.Send(ctx, llm.Call{Request: req}); !errors.Is(err, context.Canceled) {
 				t.Fatalf("canceled call did not return context cancellation: %v", err)
 			}
 			if attempts.Load() != 0 {
@@ -428,7 +428,7 @@ func TestCallRejectsForeignPreparedRequest(t *testing.T) {
 			if err != nil {
 				t.Fatalf("construct foreign preparation for rejection check: %v", err)
 			}
-			if _, err := p.Send(context.Background(), foreign, nil); err == nil {
+			if _, err := p.Send(context.Background(), llm.Call{Request: foreign}); err == nil {
 				t.Fatal("accepted foreign prepared request")
 			}
 			if attempts.Load() != 0 {
@@ -452,7 +452,7 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 		io.WriteString(w, response)
 	})
 	p := newResponses(t, responses.Config{Provider: "openai", Endpoint: server.URL, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
-	result, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 	if err != nil {
 		t.Fatalf("collect response with private fields: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestEmptyOutputsAndUnknownUsageAreValid(t *testing.T) {
 				io.WriteString(w, tc.empty)
 			})
 			p := tc.new(server.URL)
-			r, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+			r, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 			if err != nil ||
 				r.Usage != nil ||
 				r.Stop.Kind != llm.StopFinished ||
@@ -528,7 +528,7 @@ func TestMalformedTerminalResponsesFail(t *testing.T) {
 				io.WriteString(w, tc.invalidToolCall)
 			})
 			p := tc.new(server.URL)
-			_, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+			_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol {
 				t.Fatalf("malformed response did not return a protocol error: %v", err)
@@ -552,11 +552,11 @@ func TestCancellationDuringStreamReturnsPartialText(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			p := tc.new(server.URL)
-			result, err := p.Send(ctx, preparedRequest(t, p, true), func(d llm.Delta) {
+			result, err := p.Send(ctx, llm.Call{Request: preparedRequest(t, p, true), Sink: func(d llm.Delta) {
 				if d.Kind == llm.DeltaText {
 					cancel()
 				}
-			})
+			}})
 			if !errors.Is(err, context.Canceled) ||
 				result.Message.Text() != "partial" ||
 				result.Stop.Kind != llm.StopIncomplete ||
@@ -675,7 +675,7 @@ func completeCall(t *testing.T, tc providerCase) (llm.Client, llm.Result) {
 		}
 	})
 	p := tc.new(server.URL)
-	complete, err := p.Send(context.Background(), preparedRequest(t, p), nil)
+	complete, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
 	if err != nil {
 		t.Fatalf("collect complete fixture response: %v", err)
 	}
