@@ -33,3 +33,6 @@ go.work.sum
 
 # Temporary research snapshot
 /tmp/research/
+
+# Claude Code agent worktrees
+.claude/worktrees/
