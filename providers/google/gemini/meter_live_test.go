@@ -51,7 +51,9 @@ func TestLiveGroundedSearchMeters(t *testing.T) {
 							"bbc.com? Answer in one sentence.",
 					)),
 				},
-				Tools: []tool.Definition{NewGoogleSearchTool("")},
+				Tools: []tool.Definition{
+					NewGoogleSearchTool(GoogleSearchToolOptions{}).Definition,
+				},
 			})
 			if err != nil {
 				t.Fatal(err)
