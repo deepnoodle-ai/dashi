@@ -26,9 +26,13 @@ type Recorder interface {
 // an old turn snapshot after a lost acknowledgement, and answers from the
 // stored record instead of applying the command again. When Load fails for a
 // command the snapshot does not contain, Apply proceeds with the caller's
-// snapshot; the commit's ExpectedSeq check still protects the record. A turn
-// with no steps may be reported as an error or as an empty turn with the
-// requested ID.
+// snapshot. That is safe when the record has moved on: the recorder
+// acknowledges the duplicate command step, but the next step Apply commits
+// sits at an occupied sequence number with different content, so it is
+// rejected before any model call or tool execution depends on it. A recorder
+// must therefore reject such a step even when it repeats an earlier step's
+// kind and attempt or call ID. A turn with no steps may be reported as an
+// error or as an empty turn with the requested ID.
 type Loader interface {
 	Load(ctx context.Context, turnID string) (Turn, error)
 }

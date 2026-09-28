@@ -1,9 +1,11 @@
 package kerneltest
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -20,18 +22,23 @@ import (
 // Each check follows from the engine's use of the recorder:
 //
 //   - Steps append in sequence, and Load returns each one with the JSON
-//     encoding it was committed with, including the key order of raw JSON
-//     fields. The engine digests tool schemas and call arguments from the
-//     loaded record, so a store that normalizes JSON (as a Postgres jsonb
-//     column does) breaks recovery. Step times use microsecond precision.
+//     meaning it was committed with. Key order, whitespace, string escaping,
+//     and the spelling of numerically equal numbers may change, and a
+//     duplicate key resolves to its last value, so a Postgres jsonb column
+//     conforms; the engine compares recorded values by canonical JSON. Step
+//     times use microsecond precision, which timestamp columns preserve.
 //   - Load of a turn with no steps returns an error or an empty turn with the
 //     requested ID.
 //   - A commit whose ExpectedSeq is not the turn's current revision is
 //     rejected with kernel.ErrRevisionConflict, including a different step
-//     at an occupied sequence number.
+//     at an occupied sequence number. A step that differs only in its time
+//     is different: a worker retrying from an old snapshot builds new steps,
+//     and this rejection is what stops it before it repeats a model call or
+//     tool execution.
 //   - A commit from an owner other than the one last claimed is rejected.
-//   - A byte-identical retry of an acknowledged step succeeds without adding
-//     a step, so a commit whose acknowledgement was lost can be retried.
+//   - A retry of an acknowledged step with the same JSON meaning succeeds
+//     without adding a step, so a commit whose acknowledgement was lost can
+//     be retried.
 //   - A step with an already recorded command ID succeeds without adding a
 //     step when its kind and digest match, and is rejected with
 //     kernel.ErrCommandConflict when they differ. Command IDs are scoped to
@@ -52,6 +59,7 @@ func Run(t *testing.T, newStore func(t *testing.T) Store) {
 		{"AppendsInOrder", testAppendsInOrder},
 		{"LoadWithoutSteps", testLoadWithoutSteps},
 		{"RejectsStaleRevision", testRejectsStaleRevision},
+		{"RejectsRetimedStep", testRejectsRetimedStep},
 		{"RejectsRevisionGap", testRejectsRevisionGap},
 		{"RejectsStaleOwner", testRejectsStaleOwner},
 		{"RetriesIdenticalStep", testRetriesIdenticalStep},
@@ -96,6 +104,15 @@ func testRejectsStaleRevision(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 2)
 	stale := contextStep(turnID, 2, "a different second step")
 	err := commit(t, s, stale, owner)
+	requireRejected(t, err, kernel.ErrRevisionConflict)
+	requireRecord(t, s, turnID, steps)
+}
+
+func testRejectsRetimedStep(t *testing.T, s Store) {
+	steps := seed(t, s, turnID, 2)
+	retimed := steps[1]
+	retimed.At = retimed.At.Add(time.Second)
+	err := commit(t, s, retimed, owner)
 	requireRejected(t, err, kernel.ErrRevisionConflict)
 	requireRecord(t, s, turnID, steps)
 }
@@ -243,12 +260,13 @@ func startStep(id string) kernel.Step {
 		CommandDigest: "kerneltest-digest",
 		Started: &kernel.StartFact{
 			Definition: def,
-			// Keys are out of the order jsonb stores them in, so a store
-			// that normalizes raw JSON fails the fidelity check.
+			// Raw JSON that a meaning-preserving store may respell: keys out
+			// of jsonb order, extra whitespace, and an exponent number.
 			OutputSchema: json.RawMessage(
-				`{"required": ["z"], "type": "object", "properties": {"z": {}}}`,
+				`{"required": ["z"], "type": "object", ` +
+					`"properties": {"z": {"maxLength": 1e2}}}`,
 			),
-			Input: []llm.Message{llm.UserMessage(llm.Text("begin"))},
+			Input: []llm.Message{llm.UserMessage(llm.Text("begin <now> & go"))},
 		},
 	}
 }
@@ -305,13 +323,82 @@ func requireRecord(t *testing.T, s Store, id string, want []kernel.Step) {
 		if err != nil {
 			t.Fatalf("encode committed seq %d: %v", i+1, err)
 		}
-		if string(got) != string(expected) {
+		same, err := sameJSON(got, expected)
+		if err != nil {
+			t.Fatalf("decode seq %d: %v", i+1, err)
+		}
+		if !same {
 			t.Fatalf(
-				"loaded seq %d differs from the committed step:\n got %s\nwant %s",
+				"loaded seq %d differs in meaning from the committed step:\n got %s\nwant %s",
 				i+1,
 				got,
 				expected,
 			)
 		}
+	}
+}
+
+// sameJSON reports whether a and b have the same JSON meaning: the same
+// structure, names, strings, and literals, with numerically equal numbers.
+// It matches Kernel's canonical JSON comparison without importing it.
+func sameJSON(a, b []byte) (bool, error) {
+	x, err := decodeJSON(a)
+	if err != nil {
+		return false, err
+	}
+	y, err := decodeJSON(b)
+	if err != nil {
+		return false, err
+	}
+	return sameValue(x, y), nil
+}
+
+// decodeJSON keeps numbers as their literal text so no precision is lost;
+// Go's decoder already resolves a duplicate name to its last value.
+func decodeJSON(data []byte) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func sameValue(a, b any) bool {
+	switch x := a.(type) {
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for k, v := range x {
+			w, ok := y[k]
+			if !ok || !sameValue(v, w) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !sameValue(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	case json.Number:
+		y, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		p, okP := new(big.Rat).SetString(string(x))
+		q, okQ := new(big.Rat).SetString(string(y))
+		return okP && okQ && p.Cmp(q) == 0
+	default:
+		return a == b
 	}
 }

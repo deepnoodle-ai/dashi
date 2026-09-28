@@ -170,7 +170,7 @@ func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
 	if len(client.inputs) != 0 {
 		t.Fatal("rejected continue called the model")
 	}
-	saved, err := recorder.Load(first.Turn.ID)
+	saved, err := recorder.Load(context.Background(), first.Turn.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func interruptionLimitedHistoryTurn(
 
 func assertSavedSteps(t *testing.T, recorder *MemoryRecorder, want Turn) {
 	t.Helper()
-	saved, err := recorder.Load(want.ID)
+	saved, err := recorder.Load(context.Background(), want.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

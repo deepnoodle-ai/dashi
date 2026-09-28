@@ -44,27 +44,49 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 		kerneltest.LoseWrite,
 		kerneltest.LoseAck,
 	}
-	for _, target := range targets {
-		for _, fault := range faults {
-			name := fmt.Sprintf("%s/%s", target.kind, fault)
-			if target.seq != 0 {
-				name = fmt.Sprintf("%s@%d/%s", target.kind, target.seq, fault)
-			}
-			t.Run(name, func(t *testing.T) {
-				rec := &kerneltest.FaultRecorder{
-					Recorder: kernel.NewMemoryRecorder(),
-					Kind:     target.kind,
-					Seq:      target.seq,
-					Fault:    fault,
+	// The jsonb store returns every reloaded step respelled, so recovery must
+	// not depend on the bytes the engine wrote.
+	stores := map[string]func() kerneltest.Store{
+		"memory": func() kerneltest.Store {
+			return kernel.NewMemoryRecorder()
+		},
+		"jsonb": func() kerneltest.Store {
+			return newJSONBStore()
+		},
+	}
+	for storeName, newStore := range stores {
+		for _, target := range targets {
+			for _, fault := range faults {
+				name := fmt.Sprintf("%s/%s/%s", storeName, target.kind, fault)
+				if target.seq != 0 {
+					name = fmt.Sprintf(
+						"%s/%s@%d/%s",
+						storeName,
+						target.kind,
+						target.seq,
+						fault,
+					)
 				}
-				testRecovery(t, rec)
-			})
+				t.Run(name, func(t *testing.T) {
+					store := newStore()
+					rec := &kerneltest.FaultRecorder{
+						Recorder: store,
+						Kind:     target.kind,
+						Seq:      target.seq,
+						Fault:    fault,
+					}
+					testRecovery(t, store, rec)
+				})
+			}
 		}
 	}
 }
 
-func testRecovery(t *testing.T, rec *kerneltest.FaultRecorder) {
-	store := rec.Recorder.(*kernel.MemoryRecorder)
+func testRecovery(
+	t *testing.T,
+	store kerneltest.Store,
+	rec *kerneltest.FaultRecorder,
+) {
 	fault := rec.Fault
 	model := &scriptedModel{}
 	work := &countingTool{}
@@ -195,6 +217,93 @@ func testRecovery(t *testing.T, rec *kerneltest.FaultRecorder) {
 		t.Fatalf("tool ran %d times; want %d", work.calls(), wantRuns)
 	}
 	requireEveryIntentSettled(t, final)
+}
+
+// TestStaleRetryAfterFailedLoadRepeatsNothing retries a command with an old
+// snapshot while Load fails, so Apply cannot see that the command is already
+// recorded. The recorder acknowledges the duplicate command step, and the
+// engine continues from the old snapshot, but the next step it commits
+// conflicts with the record, so no model call or tool execution repeats.
+func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
+	tests := []struct {
+		name string
+		kind kernel.StepKind
+	}{
+		{name: "completed"},
+		{name: "after model intent", kind: kernel.StepModelIntent},
+		{name: "after tool start", kind: kernel.StepToolStarted},
+	}
+	begin := kernel.Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := kernel.NewMemoryRecorder()
+			model := &scriptedModel{}
+			work := &countingTool{}
+			var rec kernel.Recorder = store
+			if tc.kind != "" {
+				// A lost acknowledgement stops the first worker right
+				// after the step is recorded.
+				rec = &kerneltest.FaultRecorder{
+					Recorder: store,
+					Kind:     tc.kind,
+					Fault:    kerneltest.LoseAck,
+				}
+			}
+			b := kernel.Bindings{
+				Client:   model,
+				Tools:    work,
+				Recorder: rec,
+				Policy:   kernel.AllowLocalPolicy{},
+			}
+			apply(t, kernel.Turn{ID: "t1"}, begin, b)
+			before, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			sends, runs := model.calls(), work.calls()
+
+			b.Recorder = &failingLoad{MemoryRecorder: store}
+			out := apply(t, kernel.Turn{ID: "t1"}, begin, b)
+			if out.Persistence != kernel.PersistenceRejected ||
+				!errors.Is(out.WriteError, kernel.ErrRevisionConflict) {
+				t.Fatalf(
+					"stale retry reported %q (%v); want a revision conflict",
+					out.Persistence,
+					out.WriteError,
+				)
+			}
+			if model.calls() != sends {
+				t.Fatalf("stale retry called the model %d more times", model.calls()-sends)
+			}
+			if work.calls() != runs {
+				t.Fatalf("stale retry ran the tool %d more times", work.calls()-runs)
+			}
+			after, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(after.Steps) != len(before.Steps) {
+				t.Fatalf(
+					"stale retry changed the record from %d to %d steps",
+					len(before.Steps),
+					len(after.Steps),
+				)
+			}
+		})
+	}
+}
+
+// failingLoad is a recorder whose reads fail, as during a database outage
+// that still lets the commit path through.
+type failingLoad struct {
+	*kernel.MemoryRecorder
+}
+
+func (failingLoad) Load(context.Context, string) (kernel.Turn, error) {
+	return kernel.Turn{}, errors.New("kerneltest: read unavailable")
 }
 
 // resume continues the turn from its reloaded record, or retries the start
