@@ -7,7 +7,9 @@
 Dashi's one `Policy` interface has the right contract (read-only views in,
 recorded decisions out) but the wrong packaging: "policy" suggests allow/deny
 rules, only one is allowed, and every error ends the turn. Default allow
-shipped in #46; this replaces `Policy` with hooks.
+shipped in #46; this replaces `Policy` with hooks. PR 1a replaced `Policy`;
+PR 1b adds the submission path and vetoes; PR 2 adds `AfterTool` with
+`FailOpen`, `ModelDecision.Hide`, hook state, `tool.Join` and recipes.
 
 ## Approach
 
@@ -84,7 +86,7 @@ runner.Hooks = ask.Hooks()
 - `ModelDecision{Settings, Deliver, Stop}`;
   `SendDecision{Deny, Reason, Limit, Admission}` (a `Limit` implies `Deny`);
   `ToolDecision{Kind, Reason, Revision, Rewrite}`;
-  `FinishDecision{Deliver, AcceptEmpty}`, plus `Reason` in PR 1b.
+  `FinishDecision{Deliver, AcceptEmpty, Reason}`.
 - `ToolVerdict{Kind, Reason, Hook, Revision}` is the combined result for a
   call, recorded as `ToolFact.Verdict` and shown as `ToolView.Verdict`. An
   allow takes the name and reason of the first hook that returned `Allow`;
@@ -105,7 +107,7 @@ nothing is recorded for that hook.
 | `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `Deliver` appends; the first `Stop` ends the chain and no deliveries commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that answer is dropped |
 | `BeforeSend` | The first `Deny` stops: `StopRefused`, or `StopLimited` with `Limit`. `Admission` is kept per hook name, 16 KiB in total | `StopFailed`, reason `hook_failed` |
 | `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed` |
-| `BeforeFinish` | `Deliver` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept (PR 1b) | `StopFailed`, reason `hook_failed` |
+| `BeforeFinish` | `Deliver` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
 
 - **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.
   It does not count toward `Interruptions`, so auto-resuming hosts do not loop.
@@ -132,29 +134,37 @@ nothing is recorded for that hook.
 A *candidate* is a model answer that would end the turn: final text, or a
 schema-valid `dashi_submit_output` call. One function handles both, in order:
 steering's check, the output parse, `BeforeFinish`, then the empty-answer and
-schema checks, unless a hook rejected the answer. A hook rejects with
-`Deliver` items or, on the submission path, a `Reason` alone.
+schema checks, unless a hook rejected the answer. A `Reason` is a *veto*
+(the answer is unacceptable); `Deliver` alone is a *nudge*. The model sees
+"Not accepted: <reason>" on either path.
 
-- **Text path.** Deliveries are recorded in a `StepLoopContinued`, whose
-  position says which answer it replaced.
+- **Text path.** The reason and the items are recorded in a
+  `StepLoopContinued`, whose position says which answer it replaced.
 - **Submission path.** A submission skips `BeforeTool` (the runner records
   its allow), so it goes requested, allowed, started. The finish point runs
   after `tool_started` and the schema check. `rejectSubmission(call, reason,
-  items)` settles it as `tool.StateFailed` with the output `Not accepted:
-  <reason>`, `ToolFact.Reason` naming the source, and the items in the same
-  step's `Context`, so a crash cannot separate them. Schema rejections use
-  this transition already. `BeforeFinish` defaults the reason to "a check did
-  not accept this output"; steering passes its own.
-- **No further call.** Deliveries are dropped with a warning unless
-  `nextCallPossible` holds.
+  source, items)` settles it as `tool.StateFailed` with that output,
+  `ToolFact.Reason` naming the source, and the items in the same step's
+  `Context`, so a crash cannot separate them.
+- **No further call.** A nudge never spends the reserved call: without a
+  normal call it is dropped with `WarningDeliveryDropped` and the answer
+  stands. A veto may use the reserved call; when no call fits at all, or the
+  reserved answer is vetoed, it is still recorded and the turn stops
+  `StopFailed` with `output_rejected` and no output. A vetoed answer never
+  shows in `Answer` until a new one arrives (`ContextFact.Vetoed`).
+- **After `hook_failed`.** Context delivered since turns the kept answer
+  down at `Continue` when a further call fits; otherwise it is dropped with a
+  warning and the hooks run again on the kept answer.
 
-`nextCallPossible(s, extraInputTokens)`, shared with steering, is true when a
-further non-final call can happen: it leaves the reserved final-answer call
-available, the deadline, pause and context allow it, and every `Budget` cap
-holds for its worst case (projection plus `extraInputTokens`, priced like
-`checkSendBudget`). A call in flight counts as used. With the defaults, a
+`nextCallFits(s, extraInputTokens)` is true when a further non-final call
+can happen: it leaves the reserved final-answer call available, the deadline
+and context allow it, and every `Budget` cap holds for its worst case (the
+latest real request, plus twice what it would add, priced like
+`checkSendBudget`; a call in flight counts at its worst case and as used).
+Steering's `nextCallPossible` also refuses on a pause; the finish point does
+not, since the run pauses before the next call anyway. With the defaults, a
 candidate from call 7 cannot continue, since call 8 is the reserved final
-answer; a finish hook never spends the last answer, deliberately.
+answer.
 
 ## Recording
 
@@ -162,21 +172,11 @@ answer; a finish hook never spends the last answer, deliberately.
   Error}` holds every non-zero or failed answer, on the next committed step of
   any kind. `Pass` counts rewrite restarts. `Verdict`: `allow`, `deny`,
   `defer`, `rewrite` (tool); `deny`, `limit`, `admit` (send); `change`, `stop`
-  (model); `deliver`, `accept_empty`, and `reject` in PR 1b (finish); `failed`
-  (any). Replay checks each against its point.
+  (model); `deliver`, `reject`, `accept_empty` (finish); `failed` (any).
+  Replay checks each against its point.
 - The first step of each `Start` and `Continue`, the commands that run hooks,
   records `ActiveHooks`, the `Runner.Hooks` names per point; `WithHooks` extras
   are left out. `WarningHooksChanged` notes a change from the previous one.
 - `ModelFact.Admission` becomes a map by hook name.
 - Warnings, buffered by the runtime, ride on the next step of any kind.
   `TurnView.Context(origin, name)` returns a live named item.
-
-## Plan
-
-- **PR 1a** replaces `Policy`: the API above, `BeforeModel`, `BeforeSend`,
-  `BeforeTool`, recording, and `BeforeFinish` on the text path, with the parse
-  before the hook and the retry after `hook_failed`. Steering seams 1, 5 and 6.
-- **PR 1b:** the submission path, `rejectSubmission`, `nextCallPossible`
-  (seams 2 to 4).
-- **PR 2:** `AfterTool` with `FailOpen`, `ModelDecision.Hide`, hook state,
-  `tool.Join`, recipes.

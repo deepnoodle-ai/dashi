@@ -1248,13 +1248,13 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 		CommandID: "note",
 		Items:     []ContextItem{{Message: llm.UserMessage(llm.Text("more"))}},
 	})
-	if err != nil || !hasWarning(out, WarningDeliveryDropped) {
-		t.Fatalf("warnings=%+v err=%v", out.Warnings, err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
 	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "second" ||
-		client.sends != 2 {
-		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+		client.sends != 2 || !hasWarning(out, WarningDeliveryDropped) {
+		t.Fatalf("stop=%+v answer=%q sends=%d warnings=%+v err=%v", out.Stop, out.Answer, client.sends, out.Warnings, err)
 	}
 }
 

@@ -290,6 +290,10 @@ const (
 // ContextFact records context delivered to an existing turn.
 type ContextFact struct {
 	Items []ContextItem `json:"items"`
+	// Vetoed marks a loop continuation that records a BeforeFinish veto of
+	// the latest answer. Until a new model result arrives, that answer never
+	// reaches the host through TurnView.Answer, whatever the stop.
+	Vetoed bool `json:"vetoed,omitempty"`
 }
 
 // ModelFact records intent without persisting the potentially secret-bearing
@@ -353,8 +357,12 @@ type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
 	Verdict    ToolVerdict     `json:"verdict,omitzero"`
-	Outcome    *tool.Outcome   `json:"outcome,omitempty"`
-	Reason     string          `json:"reason,omitempty"`
+	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
+	// veto. Until a new model result arrives, the text of the message that
+	// made the call never reaches the host through TurnView.Answer.
+	Vetoed  bool          `json:"vetoed,omitempty"`
+	Outcome *tool.Outcome `json:"outcome,omitempty"`
+	Reason  string        `json:"reason,omitempty"`
 }
 
 // ApprovalFact answers a deferred tool call. Settle accepts it only while
@@ -438,6 +446,15 @@ const (
 	// Fix the cause, then Continue: the turn resumes where it stopped. A
 	// failed stop does not count toward Limits.Interruptions.
 	StopReasonHookFailed = "hook_failed"
+
+	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
+	// answer with a Reason when no further model call could happen, or
+	// vetoed the reserved final answer itself. The
+	// rejection is recorded and no output is accepted; Outcome.Answer is
+	// empty. Continue after raising the limit that stopped it (such as the
+	// Budget) lets the model see the rejection and answer again; with no
+	// model attempts left, Continue ends the turn limited.
+	StopReasonOutputRejected = "output_rejected"
 )
 
 // Persistence classifies a step write the recorder did not acknowledge.

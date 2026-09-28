@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -17,6 +18,10 @@ import (
 // maxHookError bounds the hook error text, including a panic's stack, kept
 // on the record and in warnings, which are persisted with every turn.
 const maxHookError = 4 << 10
+
+// maxHookReason bounds a BeforeFinish reason, which the model sees and the
+// record keeps.
+const maxHookReason = 1 << 10
 
 // maxRewrites is how many BeforeTool rewrites one call may take before it is
 // denied; rewrites must converge.
@@ -327,10 +332,19 @@ func validToolDecision(
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
 }
 
-// finishResult is the combined BeforeFinish answer.
+// finishResult is the combined BeforeFinish answer. A reason is a veto: the
+// answer is unacceptable. Items alone are a nudge: try once more.
 type finishResult struct {
 	deliver     []ContextItem
 	acceptEmpty bool
+	// reason is the first nonempty Reason, bounded; hook is the first hook
+	// that turned the answer down.
+	reason string
+	hook   string
+	// noCall means the hooks vetoed the answer and no further model call can
+	// happen: the caller records the rejection and stops the turn with
+	// StopReasonOutputRejected.
+	noCall bool
 }
 
 // beforeFinish runs the BeforeFinish chain for a candidate answer. A failing
@@ -362,14 +376,26 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			o := r.stopWith(hookFailedStop())
 			return finishResult{}, &o
 		}
-		if len(d.Deliver) > 0 {
+		if len(d.Deliver) > 0 || d.Reason != "" {
+			reason := boundedReason(d.Reason)
 			for _, item := range d.Deliver {
 				out.deliver = append(out.deliver, cloneContextItem(item))
+			}
+			if out.hook == "" {
+				out.hook = h.Name
+			}
+			if out.reason == "" {
+				out.reason = reason
+			}
+			verdict := VerdictDeliver
+			if reason != "" {
+				verdict = VerdictReject
 			}
 			r.addHookResult(HookResult{
 				Point:   HookBeforeFinish,
 				Name:    h.Name,
-				Verdict: VerdictDeliver,
+				Verdict: verdict,
+				Reason:  reason,
 			})
 		}
 		if d.AcceptEmpty {
@@ -382,6 +408,126 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		}
 	}
 	return out, nil
+}
+
+// finishPoint is the one place a candidate final answer is decided, on both
+// the final-text path and the dashi_submit_output path. Steering's check for
+// waiting steers belongs first here, before the BeforeFinish hooks: a steer
+// supersedes a candidate without asking the hooks about it, recorded with
+// source sourceSteering.
+//
+// When the hooks turn the candidate down, the caller records the rejection
+// and the model is asked again. When no further normal model call can
+// happen, a nudge (items alone) is dropped with a warning and the candidate
+// stands, since a finish hook never spends the last answer; a veto (a
+// reason) is still recorded, and the turn stops with
+// StopReasonOutputRejected instead of accepting the answer.
+func (r *runtime) finishPoint(
+	s *replayState,
+	plan FinishPlan,
+) (finishResult, *Outcome) {
+	mark := r.hookMark()
+	finish, o := r.beforeFinish(plan)
+	if o != nil {
+		return finishResult{}, o
+	}
+	if r.ctx.Err() != nil {
+		r.dropHooks(mark)
+		o := r.contextStop()
+		return finishResult{}, &o
+	}
+	if !finish.rejects() {
+		return finish, nil
+	}
+	extra := estimatedItemTokens(finish.deliver) + len(finish.reason)
+	if finish.reason != "" {
+		// Once the answer is vetoed, the reserve protects nothing, so the
+		// reserved final-answer call may answer again.
+		finish.noCall = !r.callFits(s, extra, true)
+		return finish, nil
+	}
+	if r.nextCallFits(s, extra) {
+		return finish, nil
+	}
+	r.pendingWarnings = append(r.pendingWarnings, Warning{
+		Code: WarningDeliveryDropped,
+		Message: fmt.Sprintf(
+			"BeforeFinish hook %s asked for another model call, but none "+
+				"can happen before the reserved final answer or a limit; "+
+				"the answer stands",
+			finish.hook,
+		),
+	})
+	return finishResult{acceptEmpty: finish.acceptEmpty}, nil
+}
+
+// rejects reports whether the hooks turned the candidate down.
+func (f finishResult) rejects() bool {
+	return len(f.deliver) > 0 || f.reason != ""
+}
+
+// notAccepted is the model-visible text of a turned-down answer.
+func notAccepted(reason string) string {
+	return "Not accepted: " + reason
+}
+
+// sourceSteering is the source a steer records when it turns a submission
+// down through rejectSubmission.
+const sourceSteering = "steering"
+
+// deliveryDropped warns that context delivered while an answer was kept
+// cannot reach the model, because no further model call can happen.
+func (r *runtime) deliveryDropped() {
+	r.pendingWarnings = append(r.pendingWarnings, Warning{
+		Code: WarningDeliveryDropped,
+		Message: "context delivered after the answer was kept cannot " +
+			"reach the model: no further model call can happen, so the " +
+			"answer is checked again",
+	})
+}
+
+// rejectSubmission settles a started dashi_submit_output call that a hook
+// or a steer turned down, as failed with the model-visible output
+// "Not accepted: <reason>". The items to deliver ride on the same step, so
+// a crash cannot record the rejection without them; projection places them
+// after the call's result. source names who rejected it for the record,
+// such as "hook <name>" or "steering". It is the same started-to-settled
+// transition a schema rejection uses, so the next successful submission is
+// the one recorded as output.
+//
+// vetoed records a BeforeFinish veto, which keeps the text of the model
+// message that made the call out of TurnView.Answer until a new model result
+// arrives.
+func (r *runtime) rejectSubmission(
+	call tool.Call,
+	reason string,
+	source string,
+	items []ContextItem,
+	vetoed bool,
+) *Outcome {
+	out := tool.Outcome{
+		State:  tool.StateFailed,
+		Output: new(tool.TextOutput(notAccepted(reason))),
+	}
+	step := Step{
+		Kind: StepToolSettled,
+		Tool: &ToolFact{
+			Call:    call,
+			Outcome: &out,
+			Reason:  "not accepted: " + source,
+			Vetoed:  vetoed,
+		},
+	}
+	if len(items) > 0 {
+		step.Context = &ContextFact{Items: items}
+	}
+	return r.commit(step)
+}
+
+// nextCallPossible is nextCallFits with a pause also refusing: steering
+// uses it, since a steer not delivered stays with its source.
+func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
+	return !r.pauseRequested() && r.nextCallFits(s, extraInputTokens)
 }
 
 // nextCallFits reports whether a further normal model call can happen: one
@@ -399,7 +545,21 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 // extraInputTokens, priced like BeforeSend's check; a cost cap that cannot
 // be priced fails it, since that call would stop anyway.
 func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
-	if !s.roomForNormalCall() {
+	return r.callFits(s, extraInputTokens, false)
+}
+
+// callFits is nextCallFits, with the reserved final-answer call counted as
+// available when reserved is true: any call that fits ModelAttempts.
+func (r *runtime) callFits(
+	s *replayState,
+	extraInputTokens int,
+	reserved bool,
+) bool {
+	if reserved {
+		if !s.roomForAnyCall() {
+			return false
+		}
+	} else if !s.roomForNormalCall() {
 		return false
 	}
 	if d := r.agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
@@ -581,6 +741,20 @@ func (r *runtime) hookFailed(
 
 func hookFailedStop() *Stop {
 	return &Stop{Kind: StopFailed, Reason: StopReasonHookFailed}
+}
+
+// boundedReason makes a reason valid UTF-8, then cuts it at a rune boundary
+// so it never exceeds maxHookReason bytes.
+func boundedReason(reason string) string {
+	reason = strings.ToValidUTF8(reason, "\uFFFD")
+	if len(reason) <= maxHookReason {
+		return reason
+	}
+	cut := maxHookReason
+	for cut > 0 && !utf8.RuneStart(reason[cut]) {
+		cut--
+	}
+	return reason[:cut]
 }
 
 func boundedHookError(err error) string {

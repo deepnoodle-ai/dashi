@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -140,6 +141,12 @@ type replayState struct {
 	failedModel            string
 	// activeHooks is the ActiveHooks of the latest command.
 	activeHooks *ActiveHooks
+	// answerVetoed is set while the latest answer is one a BeforeFinish hook
+	// vetoed; see ContextFact.Vetoed.
+	answerVetoed bool
+	// deliveredOnKept sizes the context delivered while a BeforeFinish
+	// failure kept a final text answer; see keptFinishCandidate.
+	deliveredOnKept int
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -221,6 +228,9 @@ func replay(t Turn) (*replayState, error) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
+		if !s.awaitingClassification {
+			s.deliveredOnKept = 0
+		}
 		s.Revision = step.Seq
 	}
 	// Derive ArgsDigest from the final status, so no transition out of
@@ -234,6 +244,10 @@ func replay(t Turn) (*replayState, error) {
 	}
 	s.Pending = s.pendingItems()
 	s.Answer = answerText(t.Steps)
+	// A vetoed answer never reaches the host through Answer.
+	if s.answerVetoed {
+		s.Answer = ""
+	}
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
@@ -413,8 +427,8 @@ func (s *replayState) apply(step Step) error {
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
-		if s.deliverySupersedesCandidate() {
-			s.awaitingClassification = false
+		if s.keptFinishCandidate() {
+			s.deliveredOnKept += estimatedItemTokens(step.Context.Items)
 		}
 		for _, item := range step.Context.Items {
 			if err := validateContext(item); err != nil {
@@ -466,6 +480,9 @@ func (s *replayState) apply(step Step) error {
 				if err := validateContext(item); err != nil {
 					return err
 				}
+			}
+			if step.Context.Vetoed {
+				s.answerVetoed = true
 			}
 		}
 	case StepModelIntent:
@@ -739,6 +756,31 @@ func (s *replayState) apply(step Step) error {
 		s.awaitingClassification = false
 		if step.Tool == nil {
 			return errors.New("missing tool settlement")
+		}
+		if step.Tool.Vetoed {
+			if step.Tool.Call.Name != SubmitOutputTool ||
+				s.Tools[step.Tool.Call.ID].Status != ToolStarted ||
+				!strings.HasPrefix(step.Tool.Reason, "not accepted: ") ||
+				step.Tool.Outcome == nil ||
+				step.Tool.Outcome.State != tool.StateFailed {
+				return errors.New("only a turned-down submission records a veto")
+			}
+			s.answerVetoed = true
+		}
+		if step.Context != nil {
+			started := s.Tools[step.Tool.Call.ID].Status == ToolStarted
+			if step.Tool.Call.Name != SubmitOutputTool || !started ||
+				!strings.HasPrefix(step.Tool.Reason, "not accepted: ") ||
+				step.Tool.Outcome == nil ||
+				step.Tool.Outcome.State != tool.StateFailed ||
+				len(step.Context.Items) == 0 {
+				return errors.New("only a turned-down submission carries context")
+			}
+			for _, item := range step.Context.Items {
+				if err := validateContext(item); err != nil {
+					return err
+				}
+			}
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
 		if !ok || v.Status == ToolSettled || !sameJSONValue(v.Call, step.Tool.Call) {
@@ -1039,6 +1081,7 @@ func (s *replayState) recordResult(
 	if !actionable {
 		return nil
 	}
+	s.answerVetoed = false
 	if err := validateModelResult(*result, s.Agent); err != nil {
 		return err
 	}
@@ -1297,7 +1340,7 @@ func validateModelAccounting(fact *ModelFact) error {
 // has been requested after them.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepDelivered, StepLoopContinued:
+	case StepDelivered, StepLoopContinued, StepToolSettled:
 		if step.Context == nil {
 			return
 		}
@@ -1319,19 +1362,23 @@ func (s *replayState) trackContext(step Step) {
 	}
 }
 
-// deliverySupersedesCandidate reports whether context delivered now replaces
-// the answer a BeforeFinish failure kept: Continue then asks the model again
-// instead of re-checking the old answer. That needs room for one more normal
-// model call; otherwise the old answer is re-checked and the delivery is not
-// seen, which Deliver records as WarningDeliveryDropped.
-func (s *replayState) deliverySupersedesCandidate() bool {
-	return s.keptFinishCandidate() && s.roomForNormalCall()
-}
-
+// keptFinishCandidate reports a final text answer kept by a BeforeFinish
+// failure. Context delivered while it is kept is counted in deliveredOnKept,
+// and Continue decides at run time whether the model can be asked again.
 func (s *replayState) keptFinishCandidate() bool {
 	return s.awaitingClassification &&
 		s.Stop.Kind == StopFailed &&
 		s.Stop.Reason == StopReasonHookFailed
+}
+
+// roomForAnyCall reports whether one more model call fits ModelAttempts,
+// the reserved final-answer call included. A call in flight counts as used.
+func (s *replayState) roomForAnyCall() bool {
+	used := s.ModelAttempts
+	if s.modelIntent != "" {
+		used++
+	}
+	return used < s.Agent.Limits.ModelAttempts
 }
 
 // roomForNormalCall reports whether one more model call fits before the
@@ -1361,7 +1408,12 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 		VerdictRewrite,
 		VerdictFailed,
 	},
-	HookBeforeFinish: {VerdictDeliver, VerdictAcceptEmpty, VerdictFailed},
+	HookBeforeFinish: {
+		VerdictDeliver,
+		VerdictReject,
+		VerdictAcceptEmpty,
+		VerdictFailed,
+	},
 }
 
 func validateHookResult(result HookResult) error {
@@ -1445,6 +1497,10 @@ func validateStepPayload(step Step) error {
 			return err
 		}
 	}
+	if step.Kind != StepLoopContinued && step.Context != nil &&
+		step.Context.Vetoed {
+		return errors.New("only a loop continuation records a veto")
+	}
 	if step.ActiveHooks != nil {
 		if step.Kind != StepStarted && step.Kind != StepContinued {
 			return errors.New("active hooks require a start or continuation step")
@@ -1475,6 +1531,11 @@ func validateStepPayload(step Step) error {
 	case StepLoopContinued:
 		if step.Context == nil {
 			expected = 0
+		}
+	case StepToolSettled:
+		// A turned-down submission carries the items to deliver.
+		if step.Context != nil {
+			expected = 2
 		}
 	}
 	if count != expected {

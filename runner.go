@@ -388,14 +388,6 @@ func (r Runner) apply(
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
 		}
-		if state.keptFinishCandidate() && !state.roomForNormalCall() {
-			step.Warnings = []Warning{{
-				Code: WarningDeliveryDropped,
-				Message: "no model call remains before the reserved final " +
-					"answer, so Continue re-checks the kept answer and the " +
-					"model does not see this context",
-			}}
-		}
 		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
 		}
@@ -1450,31 +1442,44 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
 		}
 	}
-	mark := r.hookMark()
-	finish, o := r.beforeFinish(plan)
-	if o != nil {
-		return *o, false
-	}
-	if r.ctx.Err() != nil {
-		r.dropHooks(mark)
-		return r.contextStop(), false
-	}
-	if len(finish.deliver) > 0 {
-		if r.nextCallFits(state, estimatedItemTokens(finish.deliver)) {
-			step := Step{
-				Kind:    StepLoopContinued,
-				Context: &ContextFact{Items: finish.deliver},
-			}
-			if o := r.commit(step); o != nil {
+	// Context delivered after a BeforeFinish failure kept this answer
+	// supersedes it, when the model can still be asked again.
+	if state.deliveredOnKept > 0 {
+		if r.nextCallFits(state, state.deliveredOnKept) {
+			if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 				return *o, false
 			}
 			return Outcome{}, true
 		}
-		r.pendingWarnings = append(r.pendingWarnings, Warning{
-			Code: WarningDeliveryDropped,
-			Message: "BeforeFinish items dropped: no further model call " +
-				"can run within the turn's limits",
-		})
+		r.deliveryDropped()
+	}
+	finish, o := r.finishPoint(state, plan)
+	if o != nil {
+		return *o, false
+	}
+	if finish.rejects() {
+		var items []ContextItem
+		if finish.reason != "" {
+			items = append(items, ContextItem{
+				Origin:  ContextRuntime,
+				Message: llm.UserMessage(llm.Text(notAccepted(finish.reason))),
+			})
+		}
+		items = append(items, finish.deliver...)
+		step := Step{
+			Kind: StepLoopContinued,
+			Context: &ContextFact{
+				Items:  items,
+				Vetoed: finish.reason != "",
+			},
+		}
+		if o := r.commit(step); o != nil {
+			return *o, false
+		}
+		if finish.noCall {
+			return r.stop(StopFailed, StopReasonOutputRejected), false
+		}
+		return Outcome{}, true
 	}
 	if !structured {
 		if !useful && !finish.acceptEmpty {

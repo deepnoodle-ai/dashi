@@ -69,7 +69,9 @@ func projectWithHistory(
 			for _, m := range step.Started.Input {
 				out = append(out, m.Clone())
 			}
-		case StepDelivered, StepLoopContinued:
+		case StepDelivered, StepLoopContinued, StepToolSettled:
+			// A turned-down submission's items follow its result, which is
+			// projected with the model message that made the call.
 			if step.Context == nil {
 				continue
 			}

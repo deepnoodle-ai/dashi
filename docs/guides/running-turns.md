@@ -68,7 +68,7 @@ on `Runner.Hooks`; any number run at each point, in order:
 | `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
-| `BeforeFinish` | on each final text answer (not yet on output submitted with `dashi_submit_output`) | ask the model to continue, accept an empty answer | the turn stops failed |
+| `BeforeFinish` | on each final answer: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty answer | the turn stops failed |
 
 A zero answer means no opinion. Each hook's answer is saved in the turn record
 with the step it leads to (`Step.HookResults`), and replay never calls hooks.
@@ -106,9 +106,19 @@ runner.Hooks = gate.Hooks()
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. `BeforeFinish` can ask the model to continue
-only while a further model call is possible; on the reserved final-answer call
-its items are dropped with a warning.
+item that is already current. `BeforeFinish` vetoes an answer with a
+`Reason`, which the model sees as "Not accepted: …" before it answers again,
+or nudges with `Deliver` items alone. A nudge never spends the reserved
+final-answer call: when no normal model call is possible (on the reserved
+call or the one before it, past the deadline, or when the next call would
+exceed a cost cap), it is dropped with a warning and the answer stands. A
+veto may use the reserved call. When no call fits at all, or the reserved
+answer is vetoed too, the turn stops failed with
+`dashi.StopReasonOutputRejected` and no answer; `Continue` after raising the
+limit lets the model try again. A vetoed answer never shows in `out.Answer`.
+
+`out.Answer` is the latest assistant text, even when the turn did not
+complete. Check `out.Stop` before showing it.
 
 ## Approving tool calls
 
