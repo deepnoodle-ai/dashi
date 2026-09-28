@@ -144,7 +144,9 @@ failure is recorded as known; ambiguous transport and protocol failures remain
 uncertain. Never infer nonexecution from an unclassified transport error.
 Provider-hosted tools follow the same safety rule as local tools. A durable
 host also needs downstream idempotency or reconciliation for effects that
-cannot be queried.
+cannot be queried. `llm.AttemptFrom` gives a client the recorded attempt ID
+on `Prepare` and `Send`; Kernel sends each ID at most once and resends an
+interrupted call under a new ID, so a client can key durable jobs by it.
 
 ## Tool and policy boundaries
 

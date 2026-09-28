@@ -524,7 +524,8 @@ type Delta struct {
 type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.
-// Its caller owns attempt identity, recording, and retry decisions. Deltas are
+// Its caller owns attempt identity, recording, and retry decisions, and may
+// pass that identity on the context (see Attempt and AttemptFrom). Deltas are
 // provisional; inspect the final result and stop before executing tool calls.
 // An error may accompany partial data or leave provider receipt uncertain.
 type Client interface {
