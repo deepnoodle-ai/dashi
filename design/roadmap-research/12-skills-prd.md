@@ -1,55 +1,51 @@
 # Draft PRD: optional skill catalog and loader
 
-**Roadmap item 12 · Draft · 2026-09-28.** Grounded in [comparative research](12-skills-research.md). No approved implementation design yet.
+**Roadmap item 12 · Draft · 2026-09-28.** Based on [source research](12-skills-research.md). This is a proposal for independent review, not an approved implementation contract.
 
 ## User problem
 
-An application that already has named task instructions must currently hand-build a model-visible catalog, a load tool, and the mapping between them. Mobius Cloud does this for assigned org skills today. Repeating that glue in each Dashi host invites catalog/body mismatch and weak errors. Developers need a small way to let an agent discover **which approved skills are available this turn**, then load one into its recorded conversation. They should still own where skills come from and which tools an agent may run.
+An app with approved task instructions must hand-build a short catalog, a matching load tool, and recovery rules around both. Mobius Cloud already does this for skills assigned to an org's agent; its current Dive integration maintains a separate mutable tracker and suspension checkpoint for action focus. A Dashi developer should be able to give the model a clear list of the skills available **this turn**, let it load one body, and understand what was recorded. App owners must keep control of selection, trust, and executable actions.
 
 ## Goals and non-goals
 
-- **Goal:** A portable, explicit catalog/load flow for host-selected skills, with stable per-turn contents and a normal recorded tool result.
-- **Goal:** Predictable setup, validation, duplicate handling, and unknown-skill errors. No catalog/tool is offered for an empty set.
-- **Goal:** Keep skill content at tool-result authority; a skill cannot grant tools, change policy, or impersonate operator instructions.
-- **Non-goal:** Org storage/assignment, marketplace install/update, shell or script execution, skill-driven MCP registration, automatic keyword triggers, slash commands, child turns, or action-scope enforcement. Those are host features or separate roadmap items.
+- **Goals:** One optional in-memory catalog/load component; progressive disclosure; model-facing errors that help recovery; deterministic ordering and versioning; a loaded body recorded as an ordinary tool result. Mobius's assigned-skill flow must map without forcing its DB, assignment, or policy model into Dashi.
+- **Non-goals:** Automatic project/home scanning, AgentSkills file parsing, resource reads, shell or script execution, marketplace management, slash commands, keyword triggers, action authorization, child turns, and core Turn changes.
+- **Success evidence:** A compile-tested Mobius-style fixture can convert assigned skills, advertise a catalog, load a body, and keep action focus in host code. A local example is an integration proof of the API shape, not production migration proof.
 
-## Smallest cohesive API direction
+## Proposed smallest API and flow
 
-Add an **optional** `skill` package, outside Dashi's turn core. Its first consumer should be a Mobius-style host adapter. The host passes already-authorized definitions; the package validates and freezes their name, description, and body into an immutable bundle. It returns (1) catalog text to compose into the host's `Agent.Instructions`, (2) a fixed read-only `load_skill` tool, and (3) a digest the host can include in `Agent.Revision`. Exact names remain a design choice; the intended use is:
+Add an optional skill package. The host supplies a filtered, immutable list of definitions with display name, optional description, and required instructions. Construction trims names, checks the raw description byte limit **before** folding its whitespace to one line, rejects blank names/bodies and remaining control characters in catalog metadata, and uses strings.EqualFold for both duplicate detection and lookup; it preserves readable names with spaces. Limits are 256 skills, 80 bytes/name (Mobius's limit), 1,024 raw bytes/description (a conservative byte cap), 64 KiB/body, and 64 KiB/rendered catalog; construction reports the offending field and limit. Mobius's checked-in document playbooks are below 6.4 KiB, but stored assigned-skill sizes remain a migration check. A stable sort makes the catalog and digest independent of input order. The bundle exposes Catalog() and Digest() and implements tool.Toolset with one read-only named loader, or no tool for an empty bundle. The default tool name is load_skill; an explicit option permits Mobius's invoke_skill name. Exact Go names are provisional:
 
 ```go
-bundle, err := skill.New([]skill.Definition{
-    {Name: "triage", Description: "Investigate a customer incident", Instructions: triageText},
-})
+bundle, err := skill.New(defs, skill.Options{ToolName: "invoke_skill"})
 if err != nil { return err }
 
 runner := dashi.Runner{
     Agent: dashi.Agent{
-        Revision:     agentRevision + ":" + bundle.Digest(),
+        Revision:     appRevision + ":" + bundle.Digest() + ":" + focusRevision,
         Instructions: baseInstructions + "\n\n" + bundle.Catalog(),
     },
-    Tools:  tool.List{bundle.LoadTool(), existingTool},
-    Hooks:  hostHooks,
+    Tools: tool.Join(tool.List{existingTool}, bundle),
+    Hooks: hostHooks,
 }
 ```
 
-The example shows composition, not a promise of these exact method signatures. `load_skill(name)` returns the pinned body, identifies the loaded skill, and gives a useful error for unknown or unavailable names. The tool does no filesystem I/O or command execution. A host may omit `LoadTool` and show no catalog when its selected set is empty. Host code still filters skill assignments before `New` and enforces any action restrictions through `Runner.Hooks.BeforeTool` or its tool dispatch. If explicit user invocation is desired, the host can call a read-only `bundle.Lookup(name)` and deliver that content with an appropriate recorded origin; Dashi need not parse `/skill:`.
+The host explicitly chooses to place the catalog in Agent.Instructions. That is appropriate only when it treats the selected catalog metadata as operator-approved; lower-trust catalogs should be delivered as lower-trust ContextRuntime/user-role content instead. The package neither injects prompts through hooks nor raises a skill body to operator authority. The load tool accepts a name, matches case-insensitively, and returns the pinned body under a clear heading as tool output. Unknown names produce a bounded model-facing error and available names; no body leaks. The tool performs no I/O and no command execution. Empty input yields an empty catalog and no loader tool.
 
-**Trust and lifecycle:** Only the host chooses whether the **catalog** is operator-approved material suitable for `Agent.Instructions`. The loaded **body** is a tool result and cannot elevate itself. The bundle is frozen before `Start`; resumed turns use the same revision and body snapshot. If the host cannot retrieve that snapshot on Continue, it fails visibly rather than silently substituting changed instructions. Never place credentials in a catalog or skill body. The package must not interpret prose such as `allowed-tools` as an authorization grant.
+Mobius keeps assignment and org checks before construction, plus its required/recommended-action checks, focus policy, and focus checkpoint in application code. A host that enforces focus may append a human-readable scope notice to the body it supplies. The package does not derive focus from Turn facts: BeforeTool may authorize a later call in the same batch before the load settles, even with serial execution. Skill prose, including allowed-tools or allowed_actions, never grants a tool. The host binds tools and makes authorization decisions independently.
 
 ## Acceptance criteria
 
-1. A host can construct the bundle from in-memory definitions without adopting filesystem layout or storage interfaces. Names and descriptions validate before a turn; duplicate names fail with a source-independent diagnostic. Catalog order is deterministic.
-2. The catalog exposes only name and concise description, plus an instruction to call the bundled loader. Full instructions appear only after an explicit load call, as a recorded tool result. Unknown names return a clear, bounded error and available names without leaking bodies.
-3. Empty bundles add neither catalog nor tool. The host can compose the loader with existing tools without replacing its `Toolset` or `Hooks`.
-4. A skill body containing a command, relative path, prompt-injection text, or `allowed-tools` metadata cannot itself execute code, read files, register tools, or change permissions.
-5. A stopped and continued turn receives the same skill content when the host uses the pinned bundle. Changing the bundle changes its digest and the host's explicit agent revision; a mismatched revision is surfaced by existing Dashi continuation checks.
-6. One realistic Mobius-style example loads assigned skills, advertises them, and keeps its action constraints in host code. It demonstrates correct results and errors without porting Mobius's database layer.
+1. The package works from in-memory definitions with no filesystem or storage dependency. It accepts Mobius-valid display names and empty descriptions, rejects collisions after trim/case-fold, and produces deterministic catalog/digest output across input order. Errors identify the offending name without exposing instructions.
+2. The catalog contains only names, optional concise descriptions, and the correct loader name; the body appears only after load. A successful load is a settled, recorded tool result. Unknown names yield a useful model-facing failure. The host can omit an unavailable skill before bundle creation; the package does not infer action availability.
+3. An empty bundle advertises nothing and contributes no tool. The loader composes with an existing Toolset through tool.Join and leaves Hooks alone. A loader-name collision with host tools returns tool.Join's configuration error before model dispatch; neither tool is silently renamed.
+4. A body containing shell syntax, relative paths, prompt-injection text, or permissions metadata cannot by itself execute a command, read a file, register a tool, or change authorization. The load result stays at tool-result authority. Catalog placement is a visible host decision.
+5. Digest input includes canonical name, description, body, and loader name; body changes change the digest. The Mobius-style example sets an explicit Agent.Revision containing that digest and a separate host focus-policy revision. Tests show a changed explicit revision is rejected on Continue and a zero Agent does not verify a separately supplied tool bundle. The host must rebind the **same immutable bundle snapshot** when resuming a real turn.
+6. The consumer fixture exercises case-insensitive lookup, blank description, unknown name, and required-action exclusion while retaining focus selectors in host data. Tests establish the same-batch authorization boundary. A documented migration gate covers persisted selector recovery and changed focus policy on Continue; neither is guaranteed by the package.
 
 ## Risks and open decisions
 
-- **Consumer gate:** Implement after validating the proposed composition against Mobius's current `invoke_skill` and assignment flow. That app still runs Dive; the PRD alone is not evidence of a Dashi integration request.
-- **Filesystem format:** An explicit `SKILL.md` reader may later be useful for Dive/pi compatibility. Defer it until a Dashi consumer needs it; automatic home/project scanning brings precedence and trust questions. If added, loading must reject path escape/symlink escape and cap file sizes.
-- **References:** First slice returns only the body. Relative references require either a host file tool or a later scoped `read_skill_resource` tool. Avoid displaying unusable file paths in catalog; test with a real skill before adding resources.
-- **Catalog authority:** A host-managed catalog may be operator text, while user/project/marketplace skill metadata may be less trusted. Keep origin choice explicit in examples and never let the package mutate the system prompt behind the host's back.
-- **Revision ergonomics:** Manual digest composition is correct but may be awkward. Confirm whether a helper can pin tool-backed behavior without broadening the core `Agent` API.
+- **Recovery ownership:** Dashi records the load output, but it does not persist the host's bundle source. Mobius must retain an immutable skill snapshot or versioned lookup for continued turns and fail the host migration visibly when that snapshot is missing. A fresh bundle plus a zero Runner.Agent can bypass revision comparison; document this prominently.
+- **Mobius behavior change:** Mobius currently accepts skill ID as a loader alias and lists skills that later fail required-action checks. The minimal package matches names only and lets the host exclude unavailable skills. Review actual ID-call usage and desired unavailability UX before migration; add aliases or unavailable-reason metadata only if usage evidence requires them.
+- **Focus migration:** Mobius's checkpoint includes action selectors, which are outside the bundle digest. The host must own their version, recovery, same-batch ordering, and dispatch policy. Changing focus policy during Continue is a separate host migration gate. Focus is not security containment.
+- **Size and references:** Validate stored Mobius assigned-skill sizes against the proposed construction limits before migration; checked-in document playbooks are only a sample. Dashi still has an open tool-result projection item. Relative references remain plain text until a host provides a file tool or a later scoped resource feature.
