@@ -1,6 +1,6 @@
 # 20. Model HTTP response and stream timeouts — PRD
 
-**Status:** Reviewed for the first implementation slice, 2026-09-28. **Size/difficulty:** M / Medium. **Research:** [comparative findings](20-stream-timeouts-research.md). **Reference:** [roadmap item](../remaining-work.md#20-connection-and-idle-stream-timeouts), [Turn interruption](../turn-interruption.md). No prior dedicated timeout proposal exists.
+**Status:** First slice merged in PR #61, 2026-09-28. **Size/difficulty:** M / Medium. **Research:** [comparative findings](20-stream-timeouts-research.md). **Reference:** [roadmap item](../remaining-work.md#20-connection-and-idle-stream-timeouts), [Turn interruption](../turn-interruption.md). No prior dedicated timeout proposal exists.
 
 ## Problem and intended user outcome
 
