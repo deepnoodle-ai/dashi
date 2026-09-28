@@ -20,13 +20,14 @@ itself.
 
 ## Approach
 
-Pi's named hooks, fitted to Dashi: one input and one result type per hook
-point; any number of hooks per point in an immutable `Hooks` value; a pure,
-documented combining rule; gatekeeping points fail closed and shaping points
-fail open; every hook result recorded with the step it enables and never
-re-run on replay. Arguments are re-checked by every hook after a rewrite. No
-middleware, request-only transforms, raw payload edits, or hooks for
-provider-hosted tools.
+Named hooks, as in the best-regarded coding-agent harnesses, fitted to Dashi:
+one input and one result type per hook point; any number of hooks per point in
+an immutable `Hooks` value; a pure, documented combining rule; gatekeeping
+points fail closed and shaping points fail open; every hook result recorded with
+the step it enables and never re-run on replay. `Observer` stays separate and
+read-only; previews are lossy, committed steps are not (see live-delivery.md).
+Arguments are re-checked by every hook after a rewrite. No middleware,
+request-only transforms, raw payload edits, or hooks for provider-hosted tools.
 
 ## API
 
@@ -217,7 +218,8 @@ the submission path, `WithHooks`); `tools_loop.go` (the tool chain); `turn.go`,
 that say "needs no Policy"; `examples/approval`, `durable_approval`, `tools`;
 `docs/guides/running-turns.md`, `tools.md`, `docs/agent-turns.md`;
 `design/agent-loop.md`, `ubiquitous-language.md`, `decisions.md` if the
-decision text changes.
+decision text changes. Live delivery also edits stop recording (a recorded
+`Stop.Final`), so the `OnStop` replacement rebases carefully onto it.
 
 **Tests.** Every combining rule and failure mode per point, including panics;
 the rewrite restart and limit; validation errors; `OnTool` decode failures;
@@ -231,20 +233,28 @@ tests the runner, not a host's recorder. The ~20 test policies port to
 hooks. Guardrail: turns with no hooks record the same steps as today, apart
 from the verdict shape. PR 2 adds short examples of a context injector, a
 result redactor, test-until-green, and plan-mode tool hiding, each as short
-as Pi's.
+as its counterpart in other harnesses.
 
-**What steering needs.** Steering (design/steering.md) builds on PR 1:
+**What steering needs.** Steering (design/steering.md) builds on PR 1,
+which provides all seven seams it lists; steering itself is not built here.
 
-- `model()` has one place, before the `BeforeModel` chain, where steering
-  commits its `StepDelivered`; the plan's input and view are built after it,
-  so hooks see steers in `Input.Messages` (FR-6).
-- A single candidate-finish function serves both final-answer paths. Steering
-  inserts its check before the `BeforeFinish` chain and reuses
-  `StepLoopContinued.Supersedes` and the replay rule for superseded
-  submissions (FR-7).
-- A shared `nextCallPossible` check serves ignored `Continue` and steering
-  FR-9.
-- Pending warnings ride on the next committed step, as steering FR-12 needs.
+1. **Model path order.** `run` checks limits, budget, deadline and pause;
+   `model()` then has an empty slot where steering commits its
+   `StepDelivered`; the `BeforeModel` plan is built from a fresh replay after
+   it, so hooks see steers in `Input.Messages`; hook deliveries commit as
+   their own `StepDelivered`.
+2. **One finish point**, `finishCandidate`, serves the text and submission
+   paths before `StepOutputRecorded`. Steering's check goes first in it.
+3. **`Step.Supersedes`** and the replay rule for superseded submissions.
+4. **`nextCallPossible(state)`** with the reserve, attempt, budget, deadline
+   and pause terms, used by `BeforeFinish.Continue`.
+5. **Warnings on any step kind** (replay allows only some today), buffered in
+   the runtime and attached to the next committed step.
+6. **One `validateContext` check** on every delivered item before commit. An
+   invalid `BeforeModel` item skips that hook with a warning; an invalid
+   `BeforeFinish` item is a hook error.
+7. **A pre-decision point** in the tools loop, before each call's
+   `BeforeTool` chain, where steering can check its flag.
 
 **Changes from the reviewed draft.**
 
