@@ -137,8 +137,9 @@ type Steer struct {
   holds. It covers attempts with the reserve, deadline, pause and context,
   and every cap, with a worked example in hooks.md; steering passes the
   waiting steers' estimated input tokens and adds no checks of its own. An
-  in-flight call already counts as used: attempts are counted from recorded
-  `model_requested` steps, committed before dispatch (hooks.md).
+  in-flight call already counts as used: replay's `ModelAttempts` counts
+  settled calls that were not interrupted, and `nextCallPossible` also counts
+  a `model_requested` step not yet settled (hooks.md).
   Otherwise steers wait, and Dashi records `WarningSteering`
   naming the limit, once per candidate. Only hooks and unpredictable failures
   can still refuse the next call; then the turn stops with that stop kind and
@@ -210,8 +211,8 @@ type Steer struct {
    through it too.
 3. `rejectSubmission(call, reason)`: started to settled as `StateFailed`,
    "Not accepted: <reason>"; steering supplies only the reason.
-4. `nextCallPossible(extraInputTokens)` with every check (FR-9), counting
-   attempts from `model_requested` steps.
+4. `nextCallPossible(extraInputTokens)` with every check (FR-9), counting a
+   call in flight (a `model_requested` step not yet settled) as used.
 5. Warnings on any step kind, buffered onto the next committed step.
 6. A point in the tools loop, before `BeforeTool`, for steering's check.
 
