@@ -143,8 +143,10 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if err != nil {
 		return Outcome{}, err
 	}
+	// Stored command digests may predate canonical hashing, so they are
+	// compared with digestMatches rather than to d.
 	if old, ok := state.commandDigests[command.commandID()]; ok {
-		if old != d {
+		if !digestMatches(old, command) {
 			return Outcome{}, ErrCommandConflict
 		}
 		if loader, ok := b.Recorder.(interface{ Load(string) (Turn, error) }); ok {
@@ -159,7 +161,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !sameDefinition(def, current.Definition) {
 				return Outcome{}, ErrDefinitionChanged
 			}
-			if current.commandDigests[command.commandID()] != d {
+			if !digestMatches(current.commandDigests[command.commandID()], command) {
 				return Outcome{}, ErrRevisionConflict
 			}
 			return outcome(saved, current, PersistenceAcknowledged), nil
@@ -178,7 +180,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				if !sameDefinition(def, current.Definition) {
 					return Outcome{}, ErrDefinitionChanged
 				}
-				if old != d {
+				if !digestMatches(old, command) {
 					return Outcome{}, ErrCommandConflict
 				}
 				return outcome(saved, current, PersistenceAcknowledged), nil
@@ -277,7 +279,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return Outcome{}, err
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
-		mismatch := stored != "" && fingerprint != stored
+		mismatch := stored != "" && !historyMatches(stored, fingerprint, c.History)
 		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
 			return Outcome{}, ErrHistoryMismatch
 		}
@@ -383,7 +385,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
 				return Outcome{}, errors.New("kernel: tool approval is not pending")
 			}
-			if digest(v.Call.Args) != c.Approval.ArgsDigest || v.Decision.Revision != c.Approval.PolicyRevision {
+			if !digestMatches(c.Approval.ArgsDigest, v.Call.Args) || v.Decision.Revision != c.Approval.PolicyRevision {
 				return Outcome{}, errors.New("kernel: stale tool approval")
 			}
 			if o := rt.commit(Step{Kind: StepApproval, CommandID: c.ID, CommandDigest: d, Approval: c.Approval}); o != nil {
@@ -507,7 +509,7 @@ func sameDefinition(a, b Definition) bool {
 	// current default at runtime, so use that same meaning for revision checks.
 	a.Limits.Interruptions = a.Limits.interruptionLimit()
 	b.Limits.Interruptions = b.Limits.interruptionLimit()
-	return digest(a) == digest(b)
+	return sameJSONValue(a, b)
 }
 
 func (r *runtime) commit(step Step) *Outcome {
@@ -881,7 +883,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, "prepared request changed destination"), false
 	}
 	snapshot := req.Snapshot()
-	if digest(snapshot.Input) != digest(input) {
+	if !sameJSONValue(snapshot.Input, input) {
 		return r.stop(StopFailed, "prepared request changed original model input"), false
 	}
 	atRisk, remainingCost, costStop := checkSendBudget(

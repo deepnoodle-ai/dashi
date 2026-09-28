@@ -96,10 +96,9 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
 	}
 	if int64(len(t.Steps)) >= req.Step.Seq {
-		old := t.Steps[req.Step.Seq-1]
-		a, _ := json.Marshal(old)
-		b, _ := json.Marshal(req.Step)
-		if string(a) == string(b) {
+		// A retry of an acknowledged step is a success. Compare by JSON
+		// meaning, since the caller may retry a step it reloaded from storage.
+		if sameJSONValue(t.Steps[req.Step.Seq-1], req.Step) {
 			return nil
 		}
 		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}

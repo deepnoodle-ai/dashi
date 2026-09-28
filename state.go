@@ -488,10 +488,10 @@ func (s *replayState) apply(step Step) error {
 		if err := step.Tool.Call.Validate(); err != nil {
 			return err
 		}
-		if digest(step.Tool.Call.Args) != digest(v.Call.Args) && digest(step.Tool.Call.RequestedArgs) != digest(v.Call.Args) {
+		if !sameJSONValue(step.Tool.Call.Args, v.Call.Args) && !sameJSONValue(step.Tool.Call.RequestedArgs, v.Call.Args) {
 			return errors.New("tool rewrite lost requested arguments")
 		}
-		if step.Tool.Definition.Name != "" && digest(step.Tool.Definition) != digest(v.Definition) {
+		if step.Tool.Definition.Name != "" && !sameJSONValue(step.Tool.Definition, v.Definition) {
 			return errors.New("tool decision changed definition")
 		}
 		if v.Call.Name == SubmitOutputTool && (v.Decision.Kind != DecisionAllow || v.Decision.Revision != "kernel-output-v1" || len(v.Decision.Rewrite) != 0 || len(step.Tool.Call.RequestedArgs) != 0 || !sameJSON(v.Call.Args, step.Tool.Call.Args)) {
@@ -515,7 +515,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool start")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status != ToolAllowed || digest(v.Call) != digest(step.Tool.Call) || (step.Tool.Definition.Name != "" && digest(step.Tool.Definition) != digest(v.Definition)) {
+		if !ok || v.Status != ToolAllowed || !sameJSONValue(v.Call, step.Tool.Call) || (step.Tool.Definition.Name != "" && !sameJSONValue(step.Tool.Definition, v.Definition)) {
 			return errors.New("tool start without allowance")
 		}
 		v.Status = ToolStarted
@@ -526,7 +526,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool wait")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || digest(v.Call) != digest(step.Tool.Call) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
+		if !ok || !sameJSONValue(v.Call, step.Tool.Call) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
 			return errors.New("tool wait without allowance")
 		}
 		if step.Tool.Outcome.State != tool.StateWaiting && step.Tool.Outcome.State != tool.StateDetached {
@@ -547,7 +547,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool settlement")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status == ToolSettled || digest(v.Call) != digest(step.Tool.Call) {
+		if !ok || v.Status == ToolSettled || !sameJSONValue(v.Call, step.Tool.Call) {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
@@ -603,7 +603,7 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if digest(v.Call.Args) != step.Approval.ArgsDigest || v.Decision.Revision != step.Approval.PolicyRevision {
+		if !digestMatches(step.Approval.ArgsDigest, v.Call.Args) || v.Decision.Revision != step.Approval.PolicyRevision {
 			return errors.New("stale approval")
 		}
 		if step.Approval.Approve {

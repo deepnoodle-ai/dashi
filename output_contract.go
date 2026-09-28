@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/deepnoodle-ai/kernel/internal/canonjson"
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -113,16 +114,8 @@ func parseOutputText(text string, schema *jsonschema.Schema) (json.RawMessage, e
 	return raw, nil
 }
 
+// sameJSON reports whether a and b are single JSON values with the same
+// meaning; see package canonjson.
 func sameJSON(a, b json.RawMessage) bool {
-	var x, y any
-	left := json.NewDecoder(bytes.NewReader(a))
-	left.UseNumber()
-	right := json.NewDecoder(bytes.NewReader(b))
-	right.UseNumber()
-	if left.Decode(&x) != nil || left.Decode(new(any)) != io.EOF || right.Decode(&y) != nil || right.Decode(new(any)) != io.EOF {
-		return false
-	}
-	xb, _ := json.Marshal(x)
-	yb, _ := json.Marshal(y)
-	return bytes.Equal(xb, yb)
+	return canonjson.Equal(a, b)
 }

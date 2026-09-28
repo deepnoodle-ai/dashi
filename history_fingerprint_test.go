@@ -19,7 +19,7 @@ func TestHistoryFingerprintTreatsNoHistoryConsistently(t *testing.T) {
 	if withoutHistory != emptyHistory {
 		t.Fatalf("nil and empty history differ: %q, %q", withoutHistory, emptyHistory)
 	}
-	const want = "v1:sha256:45534b2b2de441698879afa92a091595118dbeddc6096be5d6fa63efb8f69287"
+	const want = "v2:sha256:cebd6398674617d53df5b037c36f04f78241ec59ea669e892cf19ec1c5dbe736"
 	if withoutHistory != want {
 		t.Fatalf("empty history fingerprint = %q, want %q", withoutHistory, want)
 	}
@@ -32,7 +32,7 @@ func TestHistoryFingerprintTracksMessageFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc"
+	const want = "v2:sha256:5e8edb9a6ec6af53b6fa2c0e9263e6eb624d32018b122e60103b95db35ea6638"
 	if base != want {
 		t.Fatalf("single-message fingerprint = %q, want %q", base, want)
 	}
@@ -163,5 +163,55 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 	turn.Steps[1].Kind = StepDelivered
 	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("warning outside continuation replayed: %v", err)
+	}
+}
+
+// Fingerprints written before v2 were pinned by earlier tests; turns carrying
+// them must keep matching the same history.
+func TestHistoryMatchesLegacyV1Fingerprints(t *testing.T) {
+	cases := []struct {
+		history []llm.Message
+		v1      string
+	}{
+		{nil, "v1:sha256:45534b2b2de441698879afa92a091595118dbeddc6096be5d6fa63efb8f69287"},
+		{[]llm.Message{llm.UserMessage(llm.Text("earlier"))}, "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc"},
+	}
+	for _, c := range cases {
+		current, err := historyFingerprint(c.history)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !historyMatches(c.v1, current, c.history) {
+			t.Fatalf("v1 fingerprint %q no longer matches its history", c.v1)
+		}
+		other := []llm.Message{llm.UserMessage(llm.Text("other"))}
+		otherCurrent, _ := historyFingerprint(other)
+		if historyMatches(c.v1, otherCurrent, other) {
+			t.Fatalf("v1 fingerprint %q matched different history", c.v1)
+		}
+	}
+}
+
+// A v1-started turn continued with the same history gets no mismatch warning.
+func TestContinueAcceptsLegacyV1HistoryFingerprint(t *testing.T) {
+	history := []llm.Message{llm.UserMessage(llm.Text("earlier"))}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	turn := Turn{ID: "t1", Steps: []Step{{
+		Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted,
+		CommandID: "start", CommandDigest: "legacy",
+		Started: &StartFact{
+			Definition:         definition(),
+			HistoryFingerprint: "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc",
+			Input:              []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+	}}}
+	out, err := (Engine{}).Apply(t.Context(), turn, definition(), Continue{ID: "continue", History: history}, Bindings{Client: client})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("continue=%+v err=%v", out.Stop, err)
+	}
+	for _, step := range out.Turn.Steps {
+		if len(step.Warnings) != 0 {
+			t.Fatalf("legacy fingerprint produced warnings: %+v", step.Warnings)
+		}
 	}
 }
