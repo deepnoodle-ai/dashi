@@ -578,6 +578,25 @@ const (
 	ErrorProtocol ErrorCategory = "protocol"
 )
 
+// ErrorReason names a specific, actionable cause within an ErrorCategory. It
+// refines Category rather than replacing it, so code that switches on Category
+// is unaffected. The empty reason means the failure was not classified.
+type ErrorReason string
+
+// Error reasons.
+const (
+	// ReasonContextWindowExceeded identifies a request whose input, together
+	// with any requested output budget, does not fit the model's context
+	// window. Shortening the history, for example by compacting it, and
+	// sending again may succeed.
+	ReasonContextWindowExceeded ErrorReason = "context_window_exceeded"
+	// ReasonMediaRejected identifies attached media the provider would not
+	// accept: an unsupported type, a file or image that is too large or
+	// cannot be decoded, or too many items. Removing or converting the media
+	// and sending again may succeed.
+	ReasonMediaRejected ErrorReason = "media_rejected"
+)
+
 // Error is a categorized provider failure. Status, Code, and Body carry the
 // provider's response when there was one; RetryAfter is the provider's hint,
 // or zero.
@@ -587,6 +606,13 @@ type Error struct {
 
 	// Category allows decisions without parsing provider-specific error text.
 	Category ErrorCategory
+	// Reason refines Category when a provider reports a failure Kernel
+	// recognizes; such failures keep the category the provider's response
+	// implies, usually ErrorInvalidRequest. Classification is best effort:
+	// empty means unclassified, not that a reason is ruled out. Which
+	// provider codes, statuses, and messages are recognized is an
+	// implementation detail that may change as providers change.
+	Reason ErrorReason
 	// Disposition records what is known about this attempt's remote effect.
 	// An absent value is unknown and must not authorize a retry.
 	Disposition FailureDisposition
@@ -621,12 +647,34 @@ const (
 	FailureUnknown       FailureDisposition = "unknown"
 )
 
-// Error includes provider identity and category while retaining cause text.
+// Error includes provider identity, category, and any reason while retaining
+// cause text.
 func (e *Error) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("llm: %s: %s: %v", e.Provider, e.Category, e.Cause)
+	category := string(e.Category)
+	if e.Reason != "" {
+		category += " (" + string(e.Reason) + ")"
 	}
-	return fmt.Sprintf("llm: %s: %s (HTTP %d, %s)", e.Provider, e.Category, e.Status, e.Code)
+	if e.Cause != nil {
+		return fmt.Sprintf("llm: %s: %s: %v", e.Provider, category, e.Cause)
+	}
+	return fmt.Sprintf("llm: %s: %s (HTTP %d, %s)", e.Provider, category, e.Status, e.Code)
+}
+
+// IsContextWindowExceeded reports whether err wraps an *Error whose Reason is
+// ReasonContextWindowExceeded.
+func IsContextWindowExceeded(err error) bool {
+	return hasReason(err, ReasonContextWindowExceeded)
+}
+
+// IsMediaRejected reports whether err wraps an *Error whose Reason is
+// ReasonMediaRejected.
+func IsMediaRejected(err error) bool {
+	return hasReason(err, ReasonMediaRejected)
+}
+
+func hasReason(err error, reason ErrorReason) bool {
+	var e *Error
+	return errors.As(err, &e) && e.Reason == reason
 }
 
 // Unwrap exposes the original failure to errors.Is and errors.As.

@@ -1,0 +1,246 @@
+package providers_test
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"testing"
+
+	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/kernel/providers/deepinfra"
+	"github.com/deepnoodle-ai/kernel/providers/grok"
+	"github.com/deepnoodle-ai/kernel/providers/meta"
+	"github.com/deepnoodle-ai/kernel/providers/mistral"
+	"github.com/deepnoodle-ai/kernel/providers/ollama"
+	"github.com/deepnoodle-ai/kernel/providers/openai/completions"
+	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/kernel/providers/openrouter"
+)
+
+// TestProviderRejectionsCarryReasons sends each provider a realistic
+// rejection and checks the reason integrators act on, while the category
+// that existing callers switch on stays unchanged.
+func TestProviderRejectionsCarryReasons(t *testing.T) {
+	must := func(c llm.Client, err error) llm.Client {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	clients := map[string]func(url string) llm.Client{
+		"anthropic": func(url string) llm.Client {
+			return must(messages.New(messages.Config{Provider: "anthropic", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"openai-responses": func(url string) llm.Client {
+			return must(responses.New(responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"openai-completions": func(url string) llm.Client {
+			return must(completions.New(completions.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"mistral": func(url string) llm.Client {
+			return must(mistral.New(mistral.Config{APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"openrouter": func(url string) llm.Client {
+			return must(openrouter.New(openrouter.Config{APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"deepinfra": func(url string) llm.Client {
+			return must(deepinfra.New(deepinfra.Config{APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"grok": func(url string) llm.Client {
+			return must(grok.New(grok.Config{APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"meta": func(url string) llm.Client {
+			return must(meta.New(meta.Config{APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+		"ollama": func(url string) llm.Client {
+			return must(ollama.New(ollama.Config{Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
+		},
+	}
+	tests := []struct {
+		name, client string
+		status       int
+		body         string
+		media        bool
+		category     llm.ErrorCategory
+		want         llm.ErrorReason
+	}{
+		{
+			name: "anthropic prompt too long", client: "anthropic", status: 400,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 208310 tokens > 200000 maximum"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "anthropic image too large", client: "anthropic", status: 400, media: true,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "anthropic request too large with media", client: "anthropic", status: 413, media: true,
+			body:     `{"type":"error","error":{"type":"request_too_large","message":"Request exceeds the maximum allowed number of bytes."}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "anthropic request too large without media", client: "anthropic", status: 413,
+			body:     `{"type":"error","error":{"type":"request_too_large","message":"Request exceeds the maximum allowed number of bytes."}}`,
+			category: llm.ErrorInvalidRequest,
+		},
+		{
+			name: "anthropic overloaded", client: "anthropic", status: 529,
+			body:     `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
+			category: llm.ErrorOverloaded,
+		},
+		{
+			name: "openai responses context", client: "openai-responses", status: 400,
+			body:     `{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"invalid_request_error","param":"input","code":"context_length_exceeded"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "openai responses invalid image", client: "openai-responses", status: 400, media: true,
+			body:     `{"error":{"message":"Invalid image data.","type":"invalid_request_error","param":"input","code":"invalid_image_format"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "openai completions context", client: "openai-completions", status: 400,
+			body:     `{"error":{"message":"This model's maximum context length is 128000 tokens. However, your messages resulted in 130412 tokens. Please reduce the length of the messages.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "openai tokens per minute", client: "openai-completions", status: 429,
+			body:     `{"error":{"message":"Request too large for gpt-4o in organization org-x on tokens per min (TPM): Limit 30000, Requested 50000.","type":"tokens","param":null,"code":"rate_limit_exceeded"}}`,
+			category: llm.ErrorRateLimited,
+		},
+		{
+			name: "mistral context", client: "mistral", status: 400,
+			body:     `{"object":"error","message":"Prompt contains 40011 tokens and 0 draft tokens, too large for model with 32768 maximum context length","type":"invalid_request_error","param":null,"code":null}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "openrouter context", client: "openrouter", status: 400,
+			body:     `{"error":{"message":"This endpoint's maximum context length is 200000 tokens. However, you requested about 250123 tokens (250123 of text input). Please reduce the length of either one, or use the \"middle-out\" transform to compress your prompt automatically.","code":400,"metadata":{"provider_name":null}}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "deepinfra context", client: "deepinfra", status: 400,
+			body:     `{"error":{"message":"This model's maximum context length is 131072 tokens. However, you requested 140000 tokens (139000 in the messages, 1000 in the completion). Please reduce the length of the messages or completion."}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "deepinfra too many images", client: "deepinfra", status: 400, media: true,
+			body:     `{"error":{"message":"At most 1 image(s) may be provided in one request."}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "grok context", client: "grok", status: 400,
+			body:     `{"code":"Client specified an invalid argument","error":"This model's maximum prompt length is 131072 but the request contains 136157 tokens."}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "meta context", client: "meta", status: 400,
+			body:     `{"error":{"message":"This model's maximum context length is 128000 tokens.","type":"invalid_request_error"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "ollama unclassified", client: "ollama", status: 400,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"model is required"}}`,
+			category: llm.ErrorInvalidRequest,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				io.WriteString(w, tt.body)
+			})
+			p := clients[tt.client](server.URL)
+			input := modelInput()
+			if tt.media {
+				input.Messages[0].Content = append(input.Messages[0].Content,
+					llm.Block(content.ImageBlock(content.Source{Data: []byte{1, 2}, MIMEType: "image/png"})))
+			}
+			prepared, err := p.Prepare(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.Send(context.Background(), prepared, nil)
+			var e *llm.Error
+			if !errors.As(err, &e) {
+				t.Fatalf("err = %v, want *llm.Error", err)
+			}
+			if e.Category != tt.category || e.Reason != tt.want {
+				t.Fatalf("category, reason = %s, %q; want %s, %q", e.Category, e.Reason, tt.category, tt.want)
+			}
+			if llm.IsContextWindowExceeded(err) != (tt.want == llm.ReasonContextWindowExceeded) ||
+				llm.IsMediaRejected(err) != (tt.want == llm.ReasonMediaRejected) {
+				t.Fatalf("helpers disagree with reason %q", e.Reason)
+			}
+		})
+	}
+}
+
+// TestInStreamRejectionsCarryReasons covers failures reported after a
+// successful HTTP response, inside the event stream.
+func TestInStreamRejectionsCarryReasons(t *testing.T) {
+	tests := []struct {
+		name   string
+		client func(url string) llm.Client
+		stream string
+		want   llm.ErrorReason
+	}{
+		{
+			name: "anthropic error event",
+			client: func(url string) llm.Client {
+				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 208310 tokens > 200000 maximum"}}`),
+			want:   llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "anthropic overloaded event",
+			client: func(url string) llm.Client {
+				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`),
+		},
+		{
+			name: "responses error event",
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","code":"context_length_exceeded","message":"Your input exceeds the context window of this model.","param":null,"sequence_number":1}`),
+			want:   llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "responses failed response",
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"response.failed","response":{"object":"response","id":"r","model":"served","status":"failed","output":[],"error":{"code":"invalid_base64_image","message":"Invalid base64 image data."}}}`),
+			want:   llm.ReasonMediaRejected,
+		},
+		{
+			name: "responses server error",
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"response.failed","response":{"object":"response","id":"r","model":"served","status":"failed","output":[],"error":{"code":"server_error","message":"The server had an error."}}}`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				io.WriteString(w, tt.stream)
+			})
+			p := tt.client(server.URL)
+			_, err := p.Send(context.Background(), preparedRequest(t, p, true), func(llm.Delta) {})
+			var e *llm.Error
+			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol || e.Reason != tt.want {
+				t.Fatalf("err = %v, want protocol error with reason %q", err, tt.want)
+			}
+		})
+	}
+}

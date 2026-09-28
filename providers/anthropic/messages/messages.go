@@ -94,6 +94,7 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Classify = errorReason
 	return &Client{client: client, defaultMaxTokens: config.DefaultMaxTokens}, nil
 }
 

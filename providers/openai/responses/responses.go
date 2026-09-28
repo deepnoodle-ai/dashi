@@ -84,6 +84,7 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Classify = providerhttp.OpenAIReason
 	return &Client{client: client}, nil
 }
 
@@ -534,12 +535,12 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(stop), Raw: rawStop}
 	if v.Status == "failed" || (len(v.Error) > 0 && string(v.Error) != "null") {
 		r.Stop.Kind = llm.StopIncomplete
-		return r, &llm.Error{
+		return r, providerhttp.Classify(&llm.Error{
 			Provider: wire.origin.Provider,
 			Category: llm.ErrorProtocol,
 			Body:     slices.Clone(v.Error),
 			Cause:    errors.New("responses: provider reported response failure"),
-		}
+		}, providerhttp.OpenAIReason)
 	}
 	return r, nil
 }

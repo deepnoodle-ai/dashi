@@ -394,7 +394,7 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 		var streamErr error
 		for chunk, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
 			if err != nil {
-				streamErr = sdkError(p.Provider(), err, guard.responseBytes())
+				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), providerhttp.HasMedia(prepared.Input()))
 				break
 			}
 			emitSDKChunk(sink, chunk)
@@ -407,7 +407,7 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 	}
 	_, err = client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
-		return result, sdkError(p.Provider(), err, guard.responseBytes())
+		return result, sdkError(p.Provider(), err, guard.responseBytes(), providerhttp.HasMedia(prepared.Input()))
 	}
 	return wire.decode(guard.responseBytes(), result.Requested)
 }
