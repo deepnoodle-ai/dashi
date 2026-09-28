@@ -75,7 +75,10 @@ what a past request sent. Each position is recorded as a `detect_mime_type`
 content change on every call; the caller's input and the recorded turn keep the
 empty value. One change covers a whole tool result, so two documents in one
 result do not collide. When detection finds only `application/octet-stream`, a
-second change, `unknown_mime_type`, becomes a `mime_type_unknown` warning.
+second change, `unknown_mime_type`, becomes a `mime_type_unknown` warning. Media
+preparation (OpenAI Images, Grok Imagine, Gemini media) detects the same way on
+its own copy through `Source.WithDetectedMIMEType`, and rejects a type its API
+does not accept.
 
 Anthropic then encodes inline documents by type: `application/pdf` as `base64`,
 any `text/*` type, and JSON, XML, and YAML, as a `text` source with `media_type:

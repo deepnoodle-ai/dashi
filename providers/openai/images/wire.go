@@ -36,8 +36,8 @@ func encodeImage(input media.ImageInput, prompt string,
 		return nil, "", errors.New("images: edit mask does not accept image detail")
 	}
 	if input.Mask != nil {
-		first := input.ReferenceImages[0].Image.Source
-		mask := input.Mask.Image.Source
+		first := input.ReferenceImages[0].Image.Source.WithDetectedMIMEType("")
+		mask := input.Mask.Image.Source.WithDetectedMIMEType("")
 		if first.MIMEType != "" && mask.MIMEType != "" &&
 			first.MIMEType != mask.MIMEType {
 			return nil, "", errors.New("images: mask format must match the first image")
@@ -274,6 +274,7 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 
 func writeImagePart(writer *multipart.Writer, name string, index int,
 	source content.Source) error {
+	source = source.WithDetectedMIMEType("")
 	if !supportedInputMIME(source.MIMEType) {
 		return fmt.Errorf("images: unsupported input MIME type %q", source.MIMEType)
 	}
@@ -300,7 +301,7 @@ func writeImagePart(writer *multipart.Writer, name string, index int,
 }
 
 func jsonReference(block content.Block) (map[string]string, error) {
-	source := block.Image.Source
+	source := block.Image.Source.WithDetectedMIMEType("")
 	switch {
 	case source.Data != nil:
 		if !supportedInputMIME(source.MIMEType) {

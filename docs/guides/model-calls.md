@@ -131,12 +131,14 @@ then the bytes, and records a `detect_mime_type` content change. Bytes it
 cannot identify are sent as `application/octet-stream` with a
 `mime_type_unknown` warning. Anthropic receives text documents as text and
 PDFs as base64, and rejects other document and image types at preparation.
+Image and video generation detect the MIME type of inline inputs the same way.
 
 Set `Settings.Citations` to have the model cite passages of the request's
 documents. Citations arrive on the answer's text blocks, which a cited answer
 splits one per passage; `Citation.Location` gives the page or character range.
-Anthropic supports citations; other APIs omit the setting with a warning when
-the request carries a document. See the [documents
+Anthropic supports citations, and the catalog records that for its models, so
+strict preparation accepts them; other APIs omit the setting with a warning
+when the request carries a document. See the [documents
 example](../../examples/documents/main.go) and
 [document citations](../../design/document-citations.md).
 

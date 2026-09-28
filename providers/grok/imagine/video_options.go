@@ -111,7 +111,7 @@ func videoInputSource(
 		block.Validate() != nil {
 		return nil, errors.New("imagine: source video requires a valid video block")
 	}
-	source := block.Video.Source
+	source := block.Video.Source.WithDetectedMIMEType("")
 	if source.MIMEType != "" && source.MIMEType != "video/mp4" {
 		return nil, errors.New("imagine: source video requires video/mp4 MIME type when specified")
 	}

@@ -33,7 +33,8 @@ const (
 
 // Source contains exactly one of inline bytes, a URL, a provider file ID, or
 // a provider-managed URI. It never fetches external data. Inline bytes may
-// omit MIMEType; preparation then detects it with DetectMIMEType.
+// omit MIMEType: every model and media preparation path that sends them
+// detects it with DetectMIMEType on its own copy.
 type Source struct {
 	// Data holds inline bytes; it excludes URL, ID, and URI.
 	Data []byte `json:"data,omitempty"`
@@ -54,8 +55,8 @@ type Source struct {
 	Origin Origin `json:"origin,omitzero"`
 
 	// MIMEType describes the content. It is required with URI. For inline
-	// bytes it is optional: when empty, preparation detects it from the bytes
-	// and, for a document, its title's file extension.
+	// bytes it is optional: when empty, model and media preparation detect it
+	// from the bytes and, for a document, its title's file extension.
 	MIMEType string `json:"mime_type,omitempty"`
 
 	// ExpiresAt reports a known expiration of a remote reference. Inline bytes
@@ -92,6 +93,17 @@ func (s Source) Validate() error {
 func (s Source) Clone() Source {
 	s.Data = slices.Clone(s.Data)
 	s.ExpiresAt = cloneTime(s.ExpiresAt)
+	return s
+}
+
+// WithDetectedMIMEType returns s with MIMEType set by DetectMIMEType when s
+// holds inline bytes without one, and s unchanged otherwise. name is an
+// optional file name whose extension guides detection. The result is a copy,
+// so the caller's source keeps its empty type.
+func (s Source) WithDetectedMIMEType(name string) Source {
+	if s.Data != nil && s.MIMEType == "" {
+		s.MIMEType = DetectMIMEType(s.Data, name)
+	}
 	return s
 }
 

@@ -28,7 +28,7 @@ func detectMIMETypes(c *llm.Content) (reason string, unknown bool) {
 		if source == nil {
 			continue
 		}
-		source.MIMEType = content.DetectMIMEType(source.Data, name)
+		*source = source.WithDetectedMIMEType(name)
 		unknown = unknown || source.MIMEType == content.UnknownMIMEType
 		label := string(blocks[i].Kind)
 		if c.ToolResult != nil {
