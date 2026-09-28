@@ -103,8 +103,8 @@ against the code:
 - any `limited` stop once `ModelAttempts` reaches the agent's limit;
 - `limited` by `cost` when spend includes an unknown cost.
 
-Not terminal: `waiting`, `interrupted` (including `hook_failed`, when hooks
-lands), `failed`, `refused`, `uncertain`, and `limited` by `provider_pauses`,
+Not terminal: `waiting`, `interrupted`, `failed` (including reason
+`hook_failed` from hooks, which is not counted as an interruption), `refused`, `uncertain`, and `limited` by `provider_pauses`,
 `output_tokens`, `total_tokens`, `host`, or cost with an unpriced model or no
 raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
 any raise. Every input only grows (attempts, unknown cost) or is fixed at
@@ -119,7 +119,7 @@ already started* (`StepModelSettled`, `StepModelReconciled`,
 rules to every terminal stop: unstarted calls settle as not executed and
 pending hosted approvals clear, so no UI offers "Approve" on a dead turn. The
 runner rejects `Deliver`, approvals, `Cancel`, raises, and new work with
-`ErrTurnOver` ("dashi: turn is over"). Late results may therefore follow a
+`ErrTurnEnded` ("dashi: turn has ended"). Late results may therefore follow a
 terminal stop: `Follow` ending there is a display convenience; a reload or a
 later read from the same cursor shows them. A reader that must see every step
 (accounting, mirroring) keeps its cursor.
@@ -149,7 +149,7 @@ Gap bool // previews were dropped here; discard in-flight previews
 // Stop, "a turn's terminal or resumable condition", gains:
 // Terminal means the turn is over: no command can run it again.
 Terminal bool `json:"terminal,omitempty"`
-var ErrTurnOver = errors.New("dashi: turn is over")
+var ErrTurnEnded = errors.New("dashi: turn has ended")
 
 // StepReader is an optional Recorder capability for live readers.
 type StepReader interface {
@@ -211,7 +211,7 @@ Observer with a back-to-back `Continue` still gets every step; a table over
 every stop and limit kind for `Terminal`, with `Continue` refused under any
 raise when terminal; replay rejects a mismatched `terminal`; cancel with a
 started tool then a late settle is accepted; `Deliver`, approval, `Cancel`,
-and a raise after a terminal `limited` stop give `ErrTurnOver`.
+and a raise after a terminal `limited` stop give `ErrTurnEnded`.
 
 **PR B.** `StepReader`, `StepWaiter`, `Follow`, memory and file
 implementations, conformance, the guide ("Serving live updates", with ready,
