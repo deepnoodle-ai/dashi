@@ -351,24 +351,105 @@ request to `Stream`: leaving the range interrupts the turn, and a closed tab
 must not control agent work.
 
 Instead, run the turn in your own background execution (a queue worker or job)
-under a context you control, using `Runner.Run` or `Stream`. Your
-`Recorder.Commit` is the natural place to write what clients read: in the same
-transaction that appends the step, write your projection or outbox row. Clients
-then follow your committed record, not the runner. Each step carries a gap-free
+under a context you control, using `Runner.Run` or `Stream`. Each browser
+connection then follows the turn's record with `dashi.Follow`, which reads
+committed steps after a cursor from any process. Each step carries a gap-free
 `Seq` per turn, so a client reconnects with the last `Seq` it applied and
-receives everything after it. A disconnect ends only that follow.
+receives everything after it, exactly once. A disconnect ends only that
+follow; any number of clients can follow one turn.
+
+`Follow` reads through the recorder's optional `dashi.StepReader`.
+`MemoryRecorder` and `filerecorder` implement it; a host recorder implements
+`StepsAfter` as one range query on the table it commits to. To tell a
+cursor at the last step (an empty page) from one past it
+(`dashi.ErrCursorAhead`), a positive cursor also selects its own row:
+
+```sql
+-- $2 is after; $3 is limit, plus 1 when after > 0 for the cursor's row
+SELECT seq, step FROM turn_steps
+WHERE turn_id = $1 AND seq >= $2 ORDER BY seq LIMIT $3
+```
+
+When `after > 0`, the first row must be `seq = after`; if it is missing,
+return `dashi.ErrCursorAhead`, and otherwise drop it, leaving at most
+`limit` steps. At `after = 0` there is no such row, so the query asks for
+`limit` rows (`seq >= 0` is every step). Read from the primary and keep
+`(turn_id, seq)` unique; `dashitest.Run` checks these rules.
+`Follow` pages until it catches up, then
+polls every second, or every 30 seconds while the turn rests at a stop that
+is not terminal. For faster updates, also implement `dashi.StepWaiter`: for
+example, `pg_notify` in the commit transaction and one shared `LISTEN`
+connection that wakes waiting readers. With a waiter, `Follow` still reads
+every 15 seconds, so a missed wake delays a step by up to that long.
+
+`Follow` ends when the request ends, or after a terminal stop (see
+[the three turn states](#ids-and-recovery)); from a cursor that is already
+the terminal stop, it ends at once. A late result of work started before the
+stop can still be recorded after it; a reload, or `StepsAfter` from the
+stop's `Seq`, shows it.
+
+The handler serves committed steps:
 
 ```go
-func (r *pgRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	return r.db.InTx(ctx, func(tx Tx) error {
-		// Check ExpectedSeq and Owner, append req.Step, then in the same tx:
-		return tx.InsertEvent(req.Step.TurnID, req.Step.Seq, project(req.Step))
-	})
-}
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	// Authorize first: Follow waits forever on a turn that does not exist.
+	if !s.canView(r, id) {
+		http.NotFound(w, r)
+		return
+	}
+	// EventSource resends the last id it received as Last-Event-ID.
+	after, _ := strconv.ParseInt(cmp.Or(
+		r.Header.Get("Last-Event-ID"), r.URL.Query().Get("after"),
+	), 10, 64)
+	// A client reconnecting after the end gets 204, which tells
+	// EventSource to stop reconnecting.
+	if after > 0 {
+		last, err := s.store.StepsAfter(r.Context(), id, after-1, 1)
+		if err == nil && len(last) == 1 && last[0].Stop != nil &&
+			last[0].Stop.Terminal {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	flush := w.(http.Flusher).Flush
 
-// GET /turns/{id}/events?after=N: replay rows with seq > N, then poll
-// (optionally woken by a notify) until the request context ends.
+	for step, err := range dashi.Follow(r.Context(), s.store, id, after) {
+		switch {
+		case errors.Is(err, dashi.ErrCursorAhead):
+			send(w, "", "reset", nil) // the client drops its state, follows from 0
+			flush()
+			return
+		case err != nil:
+			return // the client reconnects from its last id
+		}
+		send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
+		if step.Stop != nil && step.Stop.Terminal {
+			send(w, "", "end", nil) // the page calls EventSource.close
+		}
+		flush()
+	}
+}
 ```
+
+Steps go out with an SSE `id`, so the browser resumes from them. At a
+terminal stop the handler sends `end`, so the page calls
+`EventSource.close()`; a browser that reconnects anyway gets `204 No
+Content`, which stops `EventSource` from reconnecting. This handler runs in
+Dashi's tests (`serve_public_test.go`).
+
+Live previews (token streaming and tool progress) never enter the record;
+they come from `Runner.Observer` in the runner's process. A tested fan-out
+helper that merges them into this stream is coming.
+
+**Never send a `Step` to a browser as it is.** A step is the internal record:
+it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
+signed reasoning, the agent's instructions and tool definitions (the
+`turn_started` step), command digests, and lease owners. `project` builds the
+client's view from the fields it needs, and is the one place to hide
+reasoning if your product does not show it. `examples/live_follow` runs two
+followers on one turn.
 
 ## Observing a run in process
 
@@ -401,8 +482,8 @@ runner.Observer = func(e dashi.Event) {
 		holed[e.MessageID] = true
 		ui.DiscardPreview(e.MessageID) // or show a placeholder
 	case e.Step != nil:
-		if e.Step.Model != nil {
-			delete(holed, e.MessageID)
+		if id := e.Step.Settles(); id != "" {
+			delete(holed, id)
 		}
 		ui.ApplyStep(*e.Step) // supersedes previews for its message or call
 	case e.Delta != nil && !holed[e.MessageID]:

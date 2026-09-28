@@ -14,6 +14,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
+| `live_follow`       | Anthropic | Two readers following one running turn by cursor               |
 | `hosted_tools`      | Anthropic | Provider-hosted web search and code execution, with sources    |
 | `structured_output` | OpenAI    | A final answer that matches a JSON schema, decoded into a type |
 | `providers`         | Any       | The same call on each provider; only the client changes        |
