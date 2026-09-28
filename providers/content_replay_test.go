@@ -126,10 +126,9 @@ func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 						) {
 							t.Fatal("adaptation lost canonical content or retained source item metadata")
 						}
-						if target.name == "anthropic" &&
-							(request.Effective().MaxTokens != 1024 ||
-								len(request.Adjustments()) == 0) {
-							t.Fatal("content adaptation lost configured setting defaults")
+						if request.Effective().MaxTokens != llm.DefaultMaxTokens ||
+							len(request.Adjustments()) == 0 {
+							t.Fatal("content adaptation lost setting defaults")
 						}
 					},
 				)

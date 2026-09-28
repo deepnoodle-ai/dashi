@@ -79,11 +79,10 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 						p = newMessages(
 							t,
 							messages.Config{
-								Provider:         tc.name,
-								APIKey:           "test",
-								Endpoint:         server.URL,
-								DefaultMaxTokens: 8192,
-								Models:           catalog,
+								Provider: tc.name,
+								APIKey:   "test",
+								Endpoint: server.URL,
+								Models:   catalog,
 							},
 						)
 					} else {
@@ -112,15 +111,17 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 						t.Fatal("preparation dispatched or changed requested controls")
 					}
 					want := map[string]any{"stream": mode.stream}
+					// The unset limit defaults to the model's 8192 limit,
+					// which is below llm.DefaultMaxTokens.
+					limit := r.Settings.MaxTokens
+					if limit == 0 {
+						limit = 8192
+					}
+					if prep.Effective().MaxTokens != limit {
+						t.Fatal("effective limit differs from the default or explicit setting")
+					}
 					if tc.name == "anthropic" {
-						limit := r.Settings.MaxTokens
-						if limit == 0 {
-							limit = 8192
-						}
 						want["max_tokens"] = float64(limit)
-						if prep.Effective().MaxTokens != limit {
-							t.Fatal("effective limit differs from configured default or explicit setting")
-						}
 						if r.Settings.Reasoning != nil {
 							if r.Settings.Reasoning.BudgetTokens > 0 {
 								want["thinking"] = map[string]any{
@@ -148,9 +149,7 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 					} else {
 						want["store"] = false
 						want["include"] = []any{"reasoning.encrypted_content"}
-						if r.Settings.MaxTokens > 0 {
-							want["max_output_tokens"] = float64(r.Settings.MaxTokens)
-						}
+						want["max_output_tokens"] = float64(limit)
 						if r.Settings.Reasoning != nil {
 							want["reasoning"] = map[string]any{"effort": "low"}
 						}
@@ -160,8 +159,10 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 						if r.Settings.ToolChoice != nil {
 							want["tool_choice"] = map[string]any{"type": "function", "name": "act"}
 						}
-						if len(prep.Adjustments()) != 0 || !reflect.DeepEqual(
-							prep.Effective(),
+						effective := prep.Effective()
+						effective.MaxTokens = r.Settings.MaxTokens
+						if len(prep.Warnings()) != 0 || !reflect.DeepEqual(
+							effective,
 							r.Settings,
 						) {
 							t.Fatal("Responses adjusted supported settings")
@@ -241,12 +242,6 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 					settings: llm.Settings{
 						MaxTokens: 4096,
 						Reasoning: &llm.ReasoningSettings{BudgetTokens: 1023},
-					},
-				},
-				{
-					name: "budget equals default limit",
-					settings: llm.Settings{
-						Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024},
 					},
 				},
 				{
@@ -343,45 +338,62 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 	}
 }
 
-func TestPrepareFitsBudgetBelowConfiguredDefault(t *testing.T) {
+func TestPrepareFitsBudgetBelowDefaultMaxTokens(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		limit    int
-		budget   int
-		accepted bool
+		name      string
+		modelMax  int
+		budget    int
+		maxTokens int
+		sent      int
 	}{
-		{name: "package default leaves no room"},
-		{name: "configured small", limit: 1500, budget: 1499, accepted: true},
-		{name: "configured sufficient", limit: 4096, budget: 2048, accepted: true},
+		{
+			name:      "default leaves room",
+			budget:    2048,
+			maxTokens: llm.DefaultMaxTokens,
+			sent:      2048,
+		},
+		{
+			name:      "budget above default",
+			budget:    40_000,
+			maxTokens: llm.DefaultMaxTokens,
+			sent:      llm.DefaultMaxTokens - 1,
+		},
+		{
+			name:      "small model limit",
+			modelMax:  1500,
+			budget:    2048,
+			maxTokens: 1500,
+			sent:      1499,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			const endpoint = "https://api.anthropic.com/v1/messages"
+			tc := providerCase{name: "anthropic"}
+			info := textModel(tc, endpoint)
+			info.Capabilities.MaxOutputTokens = test.modelMax
 			p := newMessages(
 				t,
 				messages.Config{
-					APIKey:           "test",
-					DefaultMaxTokens: test.limit,
+					APIKey: "test",
+					Models: map[string]llm.ModelInfo{"requested": info},
 				},
 			)
 			r := modelInput()
-			r.Settings.Reasoning = &llm.ReasoningSettings{BudgetTokens: 2048}
+			r.Settings.Reasoning = &llm.ReasoningSettings{
+				BudgetTokens: test.budget,
+			}
 			prep, err := p.Prepare(t.Context(), r)
-			if (err == nil) != test.accepted {
-				t.Fatalf("configured default was not used to fit budget: %v", err)
+			if err != nil {
+				t.Fatalf("budget did not fit below the default limit: %v", err)
 			}
-			if !test.accepted {
-				return
+			if got := prep.Effective().MaxTokens; got != test.maxTokens {
+				t.Fatalf("max tokens = %d, want %d", got, test.maxTokens)
 			}
-			if prep.Effective().Reasoning.BudgetTokens != test.budget {
-				t.Fatalf(
-					"budget = %d, want %d",
-					prep.Effective().Reasoning.BudgetTokens,
-					test.budget,
-				)
+			if got := prep.Effective().Reasoning.BudgetTokens; got != test.sent {
+				t.Fatalf("budget = %d, want %d", got, test.sent)
 			}
-			if prep.Effective().MaxTokens != test.limit {
-				t.Fatal("configured default was not applied")
-			}
-			if clamped := test.budget != 2048; clamped != (len(prep.Warnings()) == 1) {
+			clamped := test.sent != test.budget
+			if clamped != (len(prep.Warnings()) == 1) {
 				t.Fatalf("budget warnings = %+v", prep.Warnings())
 			}
 		})
@@ -592,45 +604,43 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 
 func TestPrepareFitsDefaultToModelLimit(t *testing.T) {
 	for _, tc := range cases(t) {
-		if tc.name != "anthropic" {
-			continue
+		endpoint := "https://api.openai.com/v1/responses"
+		if tc.name == "anthropic" {
+			endpoint = "https://api.anthropic.com/v1/messages"
 		}
-		info := textModel(tc, "https://api.anthropic.com/v1/messages")
+		info := textModel(tc, endpoint)
 		info.Capabilities.MaxOutputTokens = 2048
 		models := map[string]llm.ModelInfo{"requested": info}
-		strict := newMessages(
-			t,
-			messages.Config{
-				APIKey:           "test",
-				DefaultMaxTokens: 4096,
-				Models:           models,
-				CapabilityPolicy: llm.CapabilityStrict,
-			},
-		)
-		if _, err := strict.Prepare(t.Context(), modelInput()); err == nil {
-			t.Fatal("strict policy let a default bypass the model limit")
-		}
-		p := newMessages(
-			t,
-			messages.Config{
-				APIKey:           "test",
-				DefaultMaxTokens: 4096,
-				Models:           models,
-			},
-		)
-		prep, err := p.Prepare(t.Context(), modelInput())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if prep.Effective().MaxTokens != 2048 {
-			t.Fatalf("default max tokens = %d, want 2048", prep.Effective().MaxTokens)
-		}
-		adjustments := prep.Adjustments()
-		if len(adjustments) != 1 || adjustments[0].Action != llm.AdjustmentDefault {
-			t.Fatalf("fitted default recorded as %+v", adjustments)
-		}
-		if len(prep.Warnings()) != 0 {
-			t.Fatal("a default the caller never set produced a warning")
+		for _, policy := range []llm.CapabilityPolicy{
+			llm.CapabilityAdjust,
+			llm.CapabilityStrict,
+		} {
+			t.Run(tc.name+"/"+string(policy), func(t *testing.T) {
+				p := configured(
+					t,
+					tc,
+					clientConfig{
+						endpoint: endpoint,
+						models:   models,
+						policy:   policy,
+					},
+				)
+				prep, err := p.Prepare(t.Context(), modelInput())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := prep.Effective().MaxTokens; got != 2048 {
+					t.Fatalf("default max tokens = %d, want 2048", got)
+				}
+				adjustments := prep.Adjustments()
+				if len(adjustments) != 1 ||
+					adjustments[0].Action != llm.AdjustmentDefault {
+					t.Fatalf("fitted default recorded as %+v", adjustments)
+				}
+				if len(prep.Warnings()) != 0 {
+					t.Fatal("a default the caller never set produced a warning")
+				}
+			})
 		}
 	}
 }

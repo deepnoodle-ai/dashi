@@ -333,11 +333,21 @@ type ToolChoice struct {
 	Name string `json:"name,omitempty"`
 }
 
+// DefaultMaxTokens is the output allowance preparation sends when
+// Settings.MaxTokens is zero, for every provider. A model with a smaller known
+// MaxOutputTokens gets that limit instead. The default is recorded as an
+// AdjustmentDefault on the prepared request, not as a warning. Budget checks
+// reserve cost against this allowance, so it bounds the worst-case cost of a
+// call whose settings leave MaxTokens unset.
+const DefaultMaxTokens = 32_768
+
 // Settings are generation controls for one call. Pointer fields distinguish
 // "not set, use the provider default" from an explicit zero or false.
 type Settings struct {
-	// MaxTokens limits output; zero leaves the limit to preparation or the
-	// service.
+	// MaxTokens limits output tokens, including any reasoning tokens the
+	// provider counts as output. Zero selects DefaultMaxTokens during
+	// preparation, lowered to the model's known output limit, so every call
+	// has a finite allowance that a cost cap can bound.
 	MaxTokens int `json:"max_tokens,omitempty"`
 
 	// Temperature distinguishes an explicit zero from an omitted sampling

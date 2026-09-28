@@ -20,7 +20,8 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1048576,
         "reasoning_efforts": [
@@ -55,7 +56,8 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1048576,
         "reasoning_efforts": [
@@ -88,7 +90,8 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1048576,
         "reasoning_efforts": [
@@ -122,7 +125,8 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1048576,
         "reasoning_efforts": [
@@ -155,7 +159,8 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1048576,
         "reasoning_efforts": [

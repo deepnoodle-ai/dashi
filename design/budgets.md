@@ -106,8 +106,10 @@ It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
   Reason: "no price for model acme-7b; the $0.50 cost cap cannot be enforced;
   supply this model's prices to run capped turns."
 - **No finite output allowance:** the turn stops `limited` before dispatch and
-  asks for a finite effective `MaxTokens`. Zero means the provider chooses the
-  allowance, so it cannot serve as a worst-case bound.
+  asks for a finite effective `MaxTokens`. Preparation fills an unset value
+  with `llm.DefaultMaxTokens`, so this arises only when that default is
+  skipped: the model rejects an output limit, or strict policy lacks evidence
+  of support.
 - **Provider-hosted requests with no count bound:** the turn stops `limited`
   before dispatch. A hosted operation can add billable requests to the model
   call; without a count bound its worst case is unknown.

@@ -23,8 +23,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "low",
@@ -67,8 +69,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -112,8 +116,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -158,8 +164,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -204,8 +212,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -250,8 +260,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -296,8 +308,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -340,8 +354,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       },
       "pricing": {
@@ -365,8 +381,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000
       },
       "pricing": {
@@ -401,8 +419,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       },
       "pricing": {
@@ -428,8 +448,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -472,8 +494,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "medium",
@@ -515,8 +539,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -559,8 +585,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "medium",
@@ -601,8 +629,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000,
         "reasoning_efforts": [
           "none",
@@ -634,8 +664,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000,
         "reasoning_efforts": [
           "none",
@@ -666,8 +698,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 16384,
         "context_window": 1000000
       }
     },
@@ -681,8 +715,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "none",
@@ -713,8 +749,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "medium",
@@ -744,8 +782,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "none",
@@ -776,8 +816,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "minimal",
@@ -807,8 +849,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 272000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "high"
@@ -824,8 +868,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       },
       "pricing": {
@@ -849,8 +895,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       },
       "pricing": {
@@ -875,8 +923,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "unsupported"
+          "reasoning_effort": "unsupported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -901,8 +951,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "unsupported"
+          "reasoning_effort": "unsupported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -927,8 +979,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "unsupported"
+          "reasoning_effort": "unsupported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -952,8 +1006,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 16384,
         "context_window": 128000
       },
       "pricing": {
@@ -976,8 +1032,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -989,8 +1047,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1002,8 +1062,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1015,8 +1077,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1029,8 +1093,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1043,8 +1109,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1057,8 +1125,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "low",
@@ -1077,8 +1147,10 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "low",
@@ -1096,8 +1168,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1109,8 +1183,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1122,8 +1198,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       }
     },
@@ -1135,8 +1213,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1148,7 +1228,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1000000
       }
@@ -1161,8 +1242,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     }

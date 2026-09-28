@@ -341,3 +341,86 @@ func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 		t.Fatalf("unfinished tool call was lost: result=%+v err=%v", result, err)
 	}
 }
+
+func TestPrepareNamesOutputLimitForEachDestination(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		provider string
+		endpoint string
+		model    string
+		field    string
+	}{
+		{
+			name:     "OpenAI non-reasoning model",
+			endpoint: openAIEndpoint,
+			model:    "gpt-4.1",
+			field:    "max_completion_tokens",
+		},
+		{
+			name:     "OpenAI reasoning model",
+			endpoint: openAIEndpoint,
+			model:    "o3",
+			field:    "max_completion_tokens",
+		},
+		{
+			name:     "proxy serving a reasoning model",
+			provider: "proxy",
+			endpoint: "https://proxy.example/v1/chat/completions",
+			model:    "gpt-5",
+			field:    "max_completion_tokens",
+		},
+		{
+			name:     "OpenRouter OpenAI model",
+			provider: "openrouter",
+			endpoint: "https://openrouter.ai/api/v1/chat/completions",
+			model:    "openai/gpt-4o",
+			field:    "max_tokens",
+		},
+		{
+			name:     "Mistral model starting with o",
+			provider: "mistral",
+			endpoint: "https://api.mistral.ai/v1/chat/completions",
+			model:    "open-mistral-nemo",
+			field:    "max_tokens",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p, err := New(Config{
+				Provider: test.provider,
+				Endpoint: test.endpoint,
+				APIKey:   "test",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := p.Prepare(
+				t.Context(),
+				llm.Input{
+					Model:    test.model,
+					Messages: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(request.Body(), &body); err != nil {
+				t.Fatal(err)
+			}
+			want := float64(request.Effective().MaxTokens)
+			if want == 0 || body[test.field] != want {
+				t.Fatalf(
+					"body = %s, want %s = %v",
+					request.Body(),
+					test.field,
+					want,
+				)
+			}
+			_, legacy := body["max_tokens"]
+			_, current := body["max_completion_tokens"]
+			if legacy && current {
+				t.Fatal("both output limit fields were sent")
+			}
+		})
+	}
+}

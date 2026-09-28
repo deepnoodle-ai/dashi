@@ -45,7 +45,8 @@ type WebSearchToolOptions struct {
 	Provider string
 	// Type selects the wire tool version; empty selects WebSearchType.
 	Type string
-	// MaxUses caps searches in one request; zero selects five.
+	// MaxUses caps searches in one request; zero leaves the cap to the
+	// provider and sends no max_uses.
 	MaxUses int
 	// AllowedDomains limits retrieval to the listed domains.
 	AllowedDomains []string
@@ -68,9 +69,6 @@ func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
 		return tool.Definition{}, errors.New(
 			"messages: unsupported web search tool version",
 		)
-	}
-	if opts.MaxUses == 0 {
-		opts.MaxUses = 5
 	}
 	if opts.MaxUses < 0 ||
 		(len(opts.AllowedDomains) > 0 && len(opts.BlockedDomains) > 0) {
@@ -130,8 +128,9 @@ func NewCodeExecutionTool(provider string) tool.Definition {
 	}
 }
 
-// NewWebFetchTool declares Anthropic's server-side page fetch tool. MaxUses
-// limits work performed by the provider during one request.
+// NewWebFetchTool declares Anthropic's server-side page fetch tool. maxUses
+// limits fetches in one request; zero leaves the cap to the provider and sends
+// no max_uses.
 func NewWebFetchTool(provider string, maxUses int) (tool.Definition, error) {
 	if maxUses < 0 {
 		return tool.Definition{}, errors.New(

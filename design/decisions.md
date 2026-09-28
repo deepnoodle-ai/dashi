@@ -168,7 +168,8 @@ the application can fix.
 **23. An unbounded call stops before dispatch under a cost cap.** Decided.
 An unpriced model stops `limited` with a reason naming it and asking for its
 prices. A priced call without a finite effective output-token allowance also
-stops `limited` and asks for one. A call offering provider-hosted tools whose
+stops `limited` and asks for one; since preparation defaults `MaxTokens` to
+`llm.DefaultMaxTokens`, that is rare. A call offering provider-hosted tools whose
 request count is unbounded stops likewise. Rationale: a cap must never be
 silently ignored; applications can supply prices without a catalog update.
 

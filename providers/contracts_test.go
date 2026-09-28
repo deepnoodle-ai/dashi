@@ -129,7 +129,7 @@ func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
 	}
 	if r.Settings.MaxTokens != 0 ||
 		prep.Input().Settings.MaxTokens != 0 ||
-		prep.Effective().MaxTokens != 1024 ||
+		prep.Effective().MaxTokens != llm.DefaultMaxTokens ||
 		len(prep.Adjustments()) != 1 {
 		t.Fatal("preparation lost original omission or effective default")
 	}

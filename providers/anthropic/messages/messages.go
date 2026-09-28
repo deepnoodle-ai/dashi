@@ -38,10 +38,6 @@ type Config struct {
 	// Endpoint defaults to the public API URL.
 	Endpoint string
 
-	// DefaultMaxTokens supplies the output limit when Request omits it. Zero
-	// selects 1024. Prepare records this default before checking model limits.
-	DefaultMaxTokens int
-
 	// Client is shared and supplies transport and timeout behavior. Redirects
 	// are disabled; its transport must not retry requests internally.
 	Client *http.Client
@@ -62,8 +58,7 @@ type Config struct {
 // It holds no per-call state and is safe for concurrent calls. Model knowledge
 // is owned; the configured HTTP client and transport remain shared.
 type Client struct {
-	client           providerhttp.Client
-	defaultMaxTokens int
+	client providerhttp.Client
 }
 
 var _ llm.Client = (*Client)(nil)
@@ -72,12 +67,6 @@ var _ llm.Client = (*Client)(nil)
 // Sharing a name never authorizes replay across endpoints or credentials.
 func New(config Config) (*Client, error) {
 	const endpoint = "https://api.anthropic.com/v1/messages"
-	if config.DefaultMaxTokens < 0 {
-		return nil, errors.New("messages: default max tokens cannot be negative")
-	}
-	if config.DefaultMaxTokens == 0 {
-		config.DefaultMaxTokens = 1024
-	}
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
@@ -107,7 +96,7 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	client.Classify = errorReason
-	return &Client{client: client, defaultMaxTokens: config.DefaultMaxTokens}, nil
+	return &Client{client: client}, nil
 }
 
 // Provider identifies the configured destination in model references and
@@ -153,24 +142,18 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
-	var adjustments []llm.Adjustment
-	if r.Settings.MaxTokens == 0 {
-		r.Settings.MaxTokens = p.defaultMaxTokens
-		value, _ := json.Marshal(r.Settings.MaxTokens)
-		adjustments = append(
-			adjustments,
-			llm.Adjustment{
-				Field:     llm.SettingMaxTokens,
-				Action:    llm.AdjustmentDefault,
-				Requested: json.RawMessage("null"),
-				Effective: value,
-				Reason:    "Messages requires an output limit; using the configured default",
-			},
-		)
-	}
-	r, adjustments, err = p.client.Fit(r, p.limits(r), adjustments)
+	r, adjustments, err := p.client.Fit(r, p.limits(r), nil)
 	if err != nil {
 		return llm.Request{}, err
+	}
+	// Fit leaves MaxTokens unset only when the model rejects an output limit
+	// or, under the strict policy, when support for one is unknown.
+	if r.Settings.MaxTokens == 0 {
+		return llm.Request{}, wire.unsupported(
+			"Messages requires max_tokens and model support for it is not " +
+				"known; add ModelInfo evidence of max_tokens support " +
+				"or use the adjust capability policy",
+		)
 	}
 	body := map[string]any{
 		"model":      r.Model,
@@ -372,10 +355,14 @@ func (p *Client) Prepare(
 }
 
 // limits states what the Messages API accepts from any model, so Fit can
-// adjust a request toward it. Temperature is rejected alongside thinking; the
-// adjust policy omits it there, and strict keeps the specific error below.
+// adjust a request toward it. Every model takes, and requires, max_tokens.
+// Temperature is rejected alongside thinking; the adjust policy omits it
+// there, and strict keeps the specific error below.
 func (p *Client) limits(r llm.Input) llm.Capabilities {
 	maxTokens := r.Settings.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = llm.DefaultMaxTokens
+	}
 	info, _ := p.client.ModelInfo(r.Model)
 	if limit := info.Capabilities.MaxOutputTokens; limit > 0 {
 		maxTokens = min(maxTokens, limit)
@@ -386,11 +373,12 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		// The thinking budget must stay below max_tokens.
 		MaxReasoningBudget: max(maxTokens-1, 1),
 		MaxTemperature:     1,
+		Features: map[llm.Feature]llm.Support{
+			llm.FeatureMaxTokens: llm.SupportSupported,
+		},
 	}
 	if r.Settings.Reasoning != nil && p.client.Policy() == llm.CapabilityAdjust {
-		api.Features = map[llm.Feature]llm.Support{
-			llm.FeatureTemperature: llm.SupportUnsupported,
-		}
+		api.Features[llm.FeatureTemperature] = llm.SupportUnsupported
 	}
 	return api
 }

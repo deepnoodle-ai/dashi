@@ -18,8 +18,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -43,8 +45,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -68,8 +72,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -92,8 +98,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -116,8 +124,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -142,8 +152,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -179,8 +191,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -215,8 +229,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -248,8 +264,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -273,8 +291,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -306,8 +326,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -341,8 +363,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -373,8 +397,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {

@@ -17,7 +17,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -42,7 +43,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -66,7 +68,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -91,7 +94,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -115,7 +119,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -139,7 +144,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       }
@@ -152,7 +158,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -176,7 +183,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 128000
       },
@@ -200,8 +208,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1048576
       },
       "pricing": {
@@ -225,8 +235,10 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1048576
       },
       "pricing": {
@@ -249,7 +261,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -273,7 +286,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -297,7 +311,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -321,7 +336,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 262144
       },
@@ -345,7 +361,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 131072
       },
@@ -369,7 +386,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 131072
       },
@@ -393,7 +411,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 256000
       },
@@ -417,7 +436,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 256000
       }

@@ -281,6 +281,100 @@ func TestFitKeepsFittedDefaultSilent(t *testing.T) {
 	}
 }
 
+func TestFitDefaultsUnsetMaxTokens(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		support Support
+		limit   int
+		policy  CapabilityPolicy
+		want    int
+	}{
+		{
+			name:   "unknown support under adjust",
+			policy: CapabilityAdjust,
+			want:   DefaultMaxTokens,
+		},
+		{
+			name:   "lowered to a smaller model limit",
+			limit:  8192,
+			policy: CapabilityAdjust,
+			want:   8192,
+		},
+		{
+			name:   "larger model limit keeps the default",
+			limit:  128_000,
+			policy: CapabilityAdjust,
+			want:   DefaultMaxTokens,
+		},
+		{
+			name:    "known support under strict",
+			support: SupportSupported,
+			limit:   8192,
+			policy:  CapabilityStrict,
+			want:    8192,
+		},
+		{
+			name:   "unknown support under strict",
+			policy: CapabilityStrict,
+		},
+		{
+			name:    "known rejection",
+			support: SupportUnsupported,
+			policy:  CapabilityAdjust,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := Capabilities{
+				Features:        map[Feature]Support{},
+				MaxOutputTokens: test.limit,
+			}
+			if test.support != SupportUnknown {
+				c.Features[FeatureMaxTokens] = test.support
+			}
+			r := Input{Model: "m"}
+			fitted, adjustments, err := c.Fit(r, test.policy, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := fitted.Settings.MaxTokens; got != test.want {
+				t.Fatalf("max tokens = %d, want %d", got, test.want)
+			}
+			if test.want == 0 {
+				if len(adjustments) != 0 {
+					t.Fatalf("skipped default was recorded: %+v", adjustments)
+				}
+				return
+			}
+			if len(adjustments) != 1 ||
+				adjustments[0].Action != AdjustmentDefault {
+				t.Fatalf("default recorded as %+v", adjustments)
+			}
+			if len(Warnings(adjustments)) != 0 {
+				t.Fatal("a default the caller never set produced a warning")
+			}
+			if err := validateAdjustments(
+				r.Settings,
+				fitted.Settings,
+				adjustments,
+			); err != nil {
+				t.Fatalf("default disagrees with settings: %v", err)
+			}
+		})
+	}
+}
+
+func TestFitKeepsExplicitMaxTokens(t *testing.T) {
+	c := Capabilities{MaxOutputTokens: 128_000}
+	r := Input{Model: "m", Settings: Settings{MaxTokens: 100}}
+	fitted, adjustments, err := c.Fit(r, CapabilityAdjust, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fitted.Settings.MaxTokens != 100 || len(adjustments) != 0 {
+		t.Fatal("an explicit max tokens was replaced by the default")
+	}
+}
+
 func TestFitOmitsOnlyParallelRequests(t *testing.T) {
 	c := Capabilities{
 		Features: map[Feature]Support{

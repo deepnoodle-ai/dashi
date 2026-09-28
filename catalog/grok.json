@@ -18,7 +18,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 500000,
         "reasoning_efforts": [
@@ -60,7 +61,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 500000,
         "reasoning_efforts": [
@@ -101,7 +103,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 500000
       },
@@ -137,7 +140,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "reasoning_effort": "supported"
+          "reasoning_effort": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1000000,
         "reasoning_efforts": [
@@ -179,7 +183,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1000000
       },
@@ -214,7 +219,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1000000
       },
@@ -249,7 +255,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 1000000
       },
@@ -284,7 +291,8 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported"
+          "text": "supported",
+          "max_tokens": "supported"
         },
         "context_window": 256000
       },

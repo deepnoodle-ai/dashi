@@ -22,6 +22,18 @@ type claimSource struct {
 	efforts []string
 }
 
+// outputLimitSource is one provider documentation page that states the
+// maximum output tokens for the listed models. Every max_output_tokens in the
+// catalog must appear here, because Fit lowers the default output allowance
+// to it and clamps larger requests: a wrong value truncates responses or
+// sends a limit the endpoint rejects. A model whose provider documents no
+// limit has no row and no value.
+type outputLimitSource struct {
+	url    string
+	models []string
+	limit  int
+}
+
 const (
 	anthropicOverview = "https://platform.claude.com/docs/en/about-claude/" +
 		"models/overview"
@@ -313,9 +325,152 @@ func openAIModelPage(model string) string {
 	return "https://developers.openai.com/api/docs/models/" + model
 }
 
-// allClaimSources expands the per-model OpenAI tables into rows.
+// maxTokensReference is each provider's API reference, which documents an
+// output limit parameter for every model the API serves: max_tokens
+// (required) on Messages, max_output_tokens on Responses, maxOutputTokens on
+// generateContent, and max_tokens on Mistral's chat completions.
+var maxTokensReference = map[string]string{
+	"anthropic": "https://platform.claude.com/docs/en/api/messages",
+	"google":    "https://ai.google.dev/api/generate-content",
+	"grok": "https://docs.x.ai/developers/rest-api-reference/" +
+		"inference/responses",
+	"meta":    "https://dev.meta.ai/docs/protocols/responses",
+	"mistral": "https://docs.mistral.ai/api/",
+	"openai": "https://developers.openai.com/api/reference/resources/" +
+		"responses/methods/create",
+}
+
+// outputLimitSources lists the output limits stated on pages other than the
+// per-model OpenAI and Google pages, which openAIOutputLimits and
+// googleOutputLimits cover. xAI and Meta publish no per-model maximum: the
+// Grok 4.7 page states "No text output limit", and Meta's protocol pages
+// refer only to "the model's configured maximum".
+var outputLimitSources = []outputLimitSource{
+	{
+		// The model comparison table's "Max output" row.
+		url: anthropicOverview,
+		models: slices.Concat(
+			claudeAdaptiveOnly,
+			[]string{"claude-opus-4-6", "claude-sonnet-4-6"},
+		),
+		limit: 128_000,
+	},
+	{
+		url: anthropicOverview,
+		models: []string{
+			"claude-opus-4-5",
+			"claude-opus-4-5-20251101",
+			"claude-sonnet-4-5",
+			"claude-sonnet-4-5-20250929",
+			"claude-haiku-4-5",
+			"claude-haiku-4-5-20251001",
+		},
+		limit: 64_000,
+	},
+	{
+		// The page's model details table lists both IDs under Versions and
+		// states one "Output token limit" for them.
+		url: googleModelPage("gemini-3.1-pro-preview"),
+		models: []string{
+			"gemini-3.1-pro-preview",
+			"gemini-3.1-pro-preview-customtools",
+		},
+		limit: 65_536,
+	},
+	{
+		// "Max output 128k"; the catalog reads k as 1,000, the lower of the
+		// two readings. glm-5-2 is the unprefixed alias of the page's ID.
+		url:    "https://docs.mistral.ai/models/zai-glm-5-2",
+		models: []string{"glm-5-2", "zai-glm-5-2"},
+		limit:  128_000,
+	},
+}
+
+// openAIOutputLimits lists the "max output tokens" each OpenAI model page
+// states. gpt-5-codex-mini has no model page, so it has no limit.
+var openAIOutputLimits = map[string]int{
+	"gpt-6-astra":              128_000,
+	"gpt-6-sol":                128_000,
+	"gpt-6-luna":               128_000,
+	"gpt-5.6":                  128_000,
+	"gpt-5.6-sol":              128_000,
+	"gpt-5.6-terra":            128_000,
+	"gpt-5.6-luna":             128_000,
+	"gpt-5.6-cyber":            128_000,
+	"gpt-daybreak-blue-latest": 128_000,
+	"gpt-daybreak-red-latest":  128_000,
+	"gpt-5.5":                  128_000,
+	"gpt-5.5-pro":              128_000,
+	"gpt-5.4":                  128_000,
+	"gpt-5.4-pro":              128_000,
+	"gpt-5.4-mini":             128_000,
+	"gpt-5.4-nano":             128_000,
+	"gpt-5.3-chat-latest":      16_384,
+	"gpt-5.2":                  128_000,
+	"gpt-5.2-pro":              128_000,
+	"gpt-5.1":                  128_000,
+	"gpt-5":                    128_000,
+	"gpt-5-pro":                272_000,
+	"gpt-5-mini":               128_000,
+	"gpt-5-nano":               128_000,
+	"gpt-4.1":                  32_768,
+	"gpt-4.1-mini":             32_768,
+	"gpt-4.1-nano":             32_768,
+	"gpt-4o":                   16_384,
+	"o3":                       100_000,
+	"o3-pro":                   100_000,
+	"o3-mini":                  100_000,
+	"o4-mini":                  100_000,
+	"o3-deep-research":         100_000,
+	"o4-mini-deep-research":    100_000,
+	"gpt-5.3-codex":            128_000,
+	"gpt-5.2-codex":            128_000,
+	"gpt-5.1-codex-max":        128_000,
+	"gpt-5.1-codex":            128_000,
+	"gpt-5.1-codex-mini":       128_000,
+	"gpt-5-codex":              128_000,
+	"codex-mini-latest":        100_000,
+}
+
+// googleOutputLimits lists the "Output token limit" each Gemini model page
+// states in its model details table.
+var googleOutputLimits = map[string]int{
+	"gemini-3.8-flash":              65_536,
+	"gemini-3.7-flash":              65_536,
+	"gemini-3.6-flash":              65_536,
+	"gemini-3.5-flash":              65_536,
+	"gemini-3.5-flash-lite":         65_536,
+	"gemini-3.1-flash-lite":         65_536,
+	"gemini-3.1-flash-lite-preview": 65_536,
+	"gemini-3-flash-preview":        65_536,
+	"gemini-2.5-pro":                65_536,
+	"gemini-2.5-flash":              65_536,
+	"gemini-2.5-flash-lite":         65_536,
+}
+
+func googleModelPage(model string) string {
+	return "https://ai.google.dev/gemini-api/docs/models/" + model
+}
+
+// allClaimSources expands the per-model OpenAI tables and the API-wide
+// output limit claim into rows.
 func allClaimSources() []claimSource {
 	sources := slices.Clone(claimSources)
+	for _, provider := range Providers() {
+		var models []string
+		for _, e := range Entries(provider) {
+			models = append(models, e.Model)
+		}
+		sources = append(
+			sources,
+			claimSource{
+				url:     maxTokensReference[provider],
+				models:  models,
+				feature: llm.FeatureMaxTokens,
+				support: llm.SupportSupported,
+			},
+		)
+	}
 	for _, model := range slices.Sorted(maps.Keys(openAIEfforts)) {
 		sources = append(
 			sources,
@@ -336,6 +491,33 @@ func allClaimSources() []claimSource {
 				models:  []string{model},
 				feature: llm.FeatureReasoningEffort,
 				support: llm.SupportUnsupported,
+			},
+		)
+	}
+	return sources
+}
+
+// allOutputLimitSources expands the per-model OpenAI and Google tables into
+// rows.
+func allOutputLimitSources() []outputLimitSource {
+	sources := slices.Clone(outputLimitSources)
+	for _, model := range slices.Sorted(maps.Keys(openAIOutputLimits)) {
+		sources = append(
+			sources,
+			outputLimitSource{
+				url:    openAIModelPage(model),
+				models: []string{model},
+				limit:  openAIOutputLimits[model],
+			},
+		)
+	}
+	for _, model := range slices.Sorted(maps.Keys(googleOutputLimits)) {
+		sources = append(
+			sources,
+			outputLimitSource{
+				url:    googleModelPage(model),
+				models: []string{model},
+				limit:  googleOutputLimits[model],
 			},
 		)
 	}
@@ -410,6 +592,37 @@ func TestEveryClaimNamesTheProviderPageThatStatesIt(t *testing.T) {
 					e.Model,
 					efforts,
 					wantEfforts[k],
+				)
+			}
+		}
+	}
+}
+
+func TestEveryOutputLimitNamesTheProviderPageThatStatesIt(t *testing.T) {
+	type key struct{ provider, model string }
+	want := map[key]int{}
+	for _, s := range allOutputLimitSources() {
+		if s.url == "" || s.limit <= 0 {
+			t.Fatalf("output limit %d has no source page", s.limit)
+		}
+		for _, model := range s.models {
+			k := key{providerOf(t, model), model}
+			if _, dup := want[k]; dup {
+				t.Fatalf("%s output limit is sourced twice", model)
+			}
+			want[k] = s.limit
+		}
+	}
+	for _, provider := range Providers() {
+		for _, e := range Entries(provider) {
+			got := e.Capabilities.MaxOutputTokens
+			if w := want[key{provider, e.Model}]; got != w {
+				t.Fatalf(
+					"%s %s max_output_tokens = %d, sourced %d",
+					provider,
+					e.Model,
+					got,
+					w,
 				)
 			}
 		}
