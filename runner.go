@@ -1460,7 +1460,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		return r.contextStop(), false
 	}
 	if len(finish.deliver) > 0 {
-		if !state.finalAnswerOnly {
+		if r.finishCanContinue(state) {
 			step := Step{
 				Kind:    StepLoopContinued,
 				Context: &ContextFact{Items: finish.deliver},
@@ -1472,8 +1472,8 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		}
 		r.pendingWarnings = append(r.pendingWarnings, Warning{
 			Code: WarningDeliveryDropped,
-			Message: "BeforeFinish items dropped: the reserved final answer " +
-				"allows no further model call",
+			Message: "BeforeFinish items dropped: no further model call " +
+				"can run within the turn's limits",
 		})
 	}
 	if !structured {

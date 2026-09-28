@@ -37,7 +37,7 @@ func (r *runtime) beforeModel(
 			Turn:  snapshotView(s.TurnView),
 		})
 		if err == nil {
-			err = validModelDecision(d)
+			err = validModelDecision(d, *input)
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
@@ -80,7 +80,16 @@ func (r *runtime) beforeModel(
 	return deliver, nil, nil
 }
 
-func validModelDecision(d ModelDecision) error {
+// validModelDecision checks a BeforeModel answer before any of it applies,
+// including its settings against the rest of the input, so an invalid
+// answer skips the hook instead of failing request preparation.
+func validModelDecision(d ModelDecision, input llm.Input) error {
+	if d.Settings != nil {
+		input.Settings = *d.Settings
+		if err := input.Validate(); err != nil {
+			return fmt.Errorf("invalid settings: %w", err)
+		}
+	}
 	if d.Stop != nil && !validHookStop(*d.Stop) {
 		return errors.New(
 			"invalid stop: a hook may refuse, fail, or report a host, cost, " +
@@ -314,6 +323,15 @@ func validToolDecision(
 		return nil
 	}
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
+}
+
+// finishCanContinue reports whether a BeforeFinish delivery can reach the
+// model: the candidate is not the reserved final answer, one more call fits
+// in ModelAttempts, and no budget cap is already spent.
+func (r *runtime) finishCanContinue(s *replayState) bool {
+	return !s.finalAnswerOnly &&
+		s.ModelAttempts < r.agent.Limits.ModelAttempts &&
+		budgetSpentStop(s) == nil
 }
 
 // finishResult is the combined BeforeFinish answer.

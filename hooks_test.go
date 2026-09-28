@@ -700,6 +700,57 @@ func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 	}
 }
 
+func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
+	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		return FinishDecision{Deliver: []ContextItem{{
+			Message: llm.UserMessage(llm.Text("keep going")),
+		}}}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 1
+	agent.Limits.NoReservedFinalAnswer = true
+	client := &scriptedClient{results: []llm.Result{final("only")}}
+	out, err := (Runner{Agent: agent, Client: client, Hooks: more.Hooks()}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "only" ||
+		!hasWarning(out, WarningDeliveryDropped) {
+		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepLoopContinued {
+			t.Fatal("recorded a continuation no model call could use")
+		}
+	}
+}
+
+func TestBeforeModelInvalidSettingsAreSkipped(t *testing.T) {
+	hooks := Hooks{BeforeModel: []ModelHook{
+		{Name: "first", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+			s := p.Input.Settings
+			s.MaxTokens = 50
+			return ModelDecision{Settings: &s}, nil
+		}},
+		{Name: "broken", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+			s := p.Input.Settings
+			s.MaxTokens = -1
+			return ModelDecision{Settings: &s}, nil
+		}},
+	}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out, err := runHooked(t, client, nil, hooks)
+	if err != nil || out.Stop.Kind != StopCompleted ||
+		client.inputs[0].Settings.MaxTokens != 50 ||
+		!hasWarning(out, WarningHookFailed) {
+		t.Fatalf("stop=%+v sent=%d warnings=%+v err=%v", out.Stop, client.inputs[0].Settings.MaxTokens, out.Warnings, err)
+	}
+}
+
 func TestHooksValidation(t *testing.T) {
 	noop := func(context.Context, ToolPlan) (ToolDecision, error) {
 		return ToolDecision{}, nil
