@@ -12,8 +12,8 @@ printed each citation. Dashi cannot do this today:
   document citations only when a document enables them. Supplying the flag
   through replay data needs the destination's private scope hash, so a caller
   cannot do it either.
-- Inline documents are always sent to Anthropic as base64, which it accepts
-  only for PDFs. A text document fails at send, not at prepare.
+- Inline documents are always sent to Anthropic as base64, which it accepts only
+  for PDFs. A text document fails at send, not at prepare.
 - Decoding reads a citation's `title`, but document citations carry
   `document_title`, so their titles come back empty. Where a citation points
   (page or character range) is only in `Raw`.
@@ -53,20 +53,20 @@ type Citation struct {
 }
 ```
 
-**Anthropic** sends `"citations": {"enabled": true}` on each requesting
-document and decodes `document_title`, `cited_text`, and the location of
-`char_location`, `page_location`, and `content_block_location` citations.
-Anthropic requires citations on all documents in a request or none. When some
-documents request them and others do not (common once a conversation adds a
-second document), Dashi enables them on all and records each promoted document
-as a content change (`enable_citations`), without a warning, since nothing the
-caller asked for is lost.
+**Anthropic** sends `"citations": {"enabled": true}` on each requesting document
+and decodes `document_title`, `cited_text`, and the location of `char_location`,
+`page_location`, and `content_block_location` citations. Anthropic requires
+citations on all documents in a request or none. When some documents request
+them and others do not (common once a conversation adds a second document),
+Dashi enables them on all and records each promoted document as a content change
+(`enable_citations`), without a warning, since nothing the caller asked for is
+lost.
 
 **Every other API** (Responses, Chat Completions, Gemini) drops the request.
 `providercontent.Adapt` does this for all of them, controlled by a new
 `AdaptOptions.DocumentCitations` that only Anthropic sets. Each dropped request
-is a content change (`omit_citations`) at the document's original position,
-and a warning. Under `CapabilityStrict` it is an Unsupported error instead.
+is a content change (`omit_citations`) at the document's original position, and
+a warning. Under `CapabilityStrict` it is an Unsupported error instead.
 
 **Warnings from content changes.** Today warnings come only from setting
 adjustments. `ContentChange` gains a `Warning()` method like
@@ -107,15 +107,15 @@ documented precisely enough to check. Responses stops naming every inline file
 ### MIME detection for inline bytes (9.8)
 
 `Source.MIMEType` becomes optional for inline bytes. When it is empty,
-preparation detects it (`content.DetectMIMEType(data, name)`: a document
-title's file extension first, then `http.DetectContentType`, parameters
-stripped) on the adapted copy and records a content change (`detect_mime_type`,
-reason naming the type). The caller's input and the recorded turn keep the empty
-value; detection is deterministic, so a replayed request matches. If detection
-finds nothing better than `application/octet-stream`, the request warns
-(`mime_type_unknown`) and sends that type, and APIs with a known list (above)
-fail at prepare with a message saying to set `MIMEType`.
-`content.DetectMIMEType` is exported for callers who want the value up front.
+preparation detects it (`content.DetectMIMEType(data, name)`: a document title's
+file extension first, then `http.DetectContentType`, parameters stripped) on the
+adapted copy and records a content change (`detect_mime_type`, reason naming the
+type). The caller's input and the recorded turn keep the empty value; detection
+is deterministic, so a replayed request matches. If detection finds nothing
+better than `application/octet-stream`, the request warns (`mime_type_unknown`)
+and sends that type, and APIs with a known list (above) fail at prepare with a
+message saying to set `MIMEType`. `content.DetectMIMEType` is exported for
+callers who want the value up front.
 
 ### Flat constructors (9.3, 9.7)
 
@@ -155,8 +155,8 @@ func DecodeOutput[T any](out *StructuredOutput) (T, error)
 required unless `omitempty`; `description` and `enum` tags are read; extra
 properties are disallowed). It panics only when the type cannot be expressed as
 a schema, a programming error found on first run, like `regexp.MustCompile`; a
-non-object type is still rejected by agent validation. `DecodeOutput` returns
-an error for a nil output. Both live in the root package because
+non-object type is still rejected by agent validation. `DecodeOutput` returns an
+error for a nil output. Both live in the root package because
 `Agent.OutputSchema` does, and they leave `tool` untouched (another stream owns
 it); sharing the generator between the two is a later cleanup.
 
@@ -181,17 +181,17 @@ const (
 `ContextItem.Origin` changes from `string` to `ContextOrigin` (one line in
 `turn.go`; constants in a new file). The names parallel `StartUser` and
 `StartOperator`. [gaps/B](gaps/B-developer-experience.md) suggests one
-`Authority` type for both; the two sets differ (`scheduled` versus `library`
-and `tool`), and one type would let each field accept the other's values, so
-this keeps two typed sets.
+`Authority` type for both; the two sets differ (`scheduled` versus `library` and
+`tool`), and one type would let each field accept the other's values, so this
+keeps two typed sets.
 
 ## Recorded format
 
-New optional JSON fields: `document.citations`, `citation.location`. New
-content change actions `enable_citations`, `omit_citations`,
-`detect_mime_type`, and warning codes `citations_omitted`,
-`mime_type_unknown`. Inline sources may omit `mime_type`. Context origin
-strings are unchanged. No migration: Dashi has no users.
+New optional JSON fields: `document.citations`, `citation.location`. New content
+change actions `enable_citations`, `omit_citations`, `detect_mime_type`, and
+warning codes `citations_omitted`, `mime_type_unknown`. Inline sources may omit
+`mime_type`. Context origin strings are unchanged. No migration: Dashi has no
+users.
 
 ## Tests
 
@@ -207,15 +207,15 @@ strings are unchanged. No migration: Dashi has no users.
 - `llm.Image`, `Document`, `CitedDocument`; `MustOutputSchema` and
   `DecodeOutput`; `validateContext` with the constants.
 - Examples: `documents` requests and prints citations (with an embedded text
-  default so it shows character ranges; `-pdf` still works); `vision` drops
-  its own MIME sniffing;
-  `structured_output` uses the two helpers. Run live with a cheap model.
+  default so it shows character ranges; `-pdf` still works); `vision` drops its
+  own MIME sniffing; `structured_output` uses the two helpers. Run live with a
+  cheap model.
 
 ## Risks
 
-- Promoting citations to all documents changes output format for a
-  conversation whose later document asked for them. It is recorded; the
-  alternative, failing or dropping, loses more.
+- Promoting citations to all documents changes output format for a conversation
+  whose later document asked for them. It is recorded; the alternative, failing
+  or dropping, loses more.
 - Relaxing `Source.Validate` means an inline source without a type is no longer
   caught at construction; preparation catches it for APIs with a known list.
 - `turn.go` is shared: only the `ContextItem.Origin` type changes there.
@@ -227,4 +227,5 @@ strings are unchanged. No migration: Dashi has no users.
 `internal/providercontent/adapt.go`; `providers/anthropic/messages/messages.go`,
 `providers/openai/responses/responses.go`; new `structured.go` and
 `context_origin.go`; one line in `turn.go`; `state.go` (`validateContext`);
-`examples/documents`, `vision`, `structured_output`; `docs/guides/model-calls.md`.
+`examples/documents`, `vision`, `structured_output`;
+`docs/guides/model-calls.md`.
