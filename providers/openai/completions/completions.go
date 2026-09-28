@@ -295,6 +295,16 @@ func (p *Client) Send(
 		Message: llm.Message{Role: llm.RoleAssistant},
 	}
 	defer func() {
+		// Provenance belongs to provider output, including a partial message
+		// returned with an error. An empty response is not a generated message.
+		if len(result.Message.Content) > 0 && result.Message.Source == nil {
+			result.Message.Source = &llm.MessageSource{
+				Requested:  result.Requested,
+				Served:     result.Served,
+				API:        wire.origin.API,
+				ResponseID: result.ID,
+			}
+		}
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
@@ -577,12 +587,6 @@ func (wire codec) decode(
 	result.Served = llm.ModelRef{Provider: wire.provider, Model: response.Model}
 	if response.Model == "" {
 		result.Served = llm.ModelRef{}
-	}
-	result.Message.Source = &llm.MessageSource{
-		Requested:  requested,
-		Served:     result.Served,
-		API:        wire.origin.API,
-		ResponseID: result.ID,
 	}
 	result.ServiceTier = response.ServiceTier
 	if response.Usage.present {

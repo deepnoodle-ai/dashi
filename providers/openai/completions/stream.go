@@ -75,14 +75,6 @@ func (wire codec) readStream(
 		if complete {
 			result.Stop = llm.Stop{Kind: llm.ClassifyStopReason(reason), Raw: reason}
 		}
-		if len(result.Message.Content) > 0 {
-			result.Message.Source = &llm.MessageSource{
-				Requested:  result.Requested,
-				Served:     result.Served,
-				API:        wire.origin.API,
-				ResponseID: result.ID,
-			}
-		}
 		return result
 	}
 	protocolError := func(raw []byte, format string, args ...any) (llm.Result, error) {

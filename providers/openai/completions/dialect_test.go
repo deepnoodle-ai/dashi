@@ -328,7 +328,69 @@ func TestDialectInvalidCallReportsItsOwnFragment(t *testing.T) {
 		providerErr.Category != llm.ErrorProtocol ||
 		!strings.Contains(string(providerErr.Body), "call-a") ||
 		strings.Contains(string(providerErr.Body), "call-b") ||
+		result.Message.Source == nil ||
+		result.Message.Source.API != API ||
 		len(dialectCalls(t, result)) != 0 {
 		t.Fatalf("completions/invalid-call-own-fragment/stream: result=%+v err=%v", result, err)
+	}
+}
+
+func TestDialectEmptySuccessHasNoMessageSource(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		stream   bool
+	}{
+		{
+			name:     "blocking",
+			response: `{"id":"chat-1","model":"served","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}]}`,
+		},
+		{
+			name: "stream",
+			response: dialectEvents(
+				`{"id":"chat-1","model":"served","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			),
+			stream: true,
+		},
+	} {
+		t.Run("completions/empty-success/"+tc.name, func(t *testing.T) {
+			result, err := dialectSend(t, tc.response, tc.stream)
+			if err != nil || result.Stop.Kind != llm.StopFinished ||
+				result.ID != "chat-1" || result.Served.Model != "served" ||
+				len(result.Message.Content) != 0 || result.Message.Source != nil {
+				t.Fatalf("empty success has unexpected message provenance: result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestDialectNoOutputProtocolErrorHasNoMessageSource(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		stream   bool
+	}{
+		{
+			name:     "blocking",
+			response: `{"id":"chat-1","model":"served","choices":[]}`,
+		},
+		{
+			name: "stream",
+			response: dialectEvents(
+				`{"id":"chat-1","model":"served","choices":[{"index":1,"delta":{}}]}`,
+			),
+			stream: true,
+		},
+	} {
+		t.Run("completions/no-output-protocol-error/"+tc.name, func(t *testing.T) {
+			result, err := dialectSend(t, tc.response, tc.stream)
+			var providerErr *llm.Error
+			if !errors.As(err, &providerErr) ||
+				providerErr.Category != llm.ErrorProtocol ||
+				result.Stop.Kind != llm.StopIncomplete ||
+				len(result.Message.Content) != 0 || result.Message.Source != nil {
+				t.Fatalf("no-output error has unexpected message provenance: result=%+v err=%v", result, err)
+			}
+		})
 	}
 }
