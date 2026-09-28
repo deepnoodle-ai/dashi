@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; independently reviewed; PR open, 2026-09-28 |
+| Status | Implemented and independently reviewed; merged in [PR #66](https://github.com/deepnoodle-ai/dashi/pull/66), 2026-09-28 |
 | Roadmap | [Item 10](../remaining-work.md), S / medium difficulty |
 | Evidence | [Source survey](10-extra-tool-args-research.md), [tools guide](../../docs/guides/tools.md), [Pi edit-call report](https://github.com/earendil-works/pi/issues/6278) |
 
