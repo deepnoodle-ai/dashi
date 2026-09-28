@@ -63,11 +63,10 @@ example sends lines starting with `!` as urgent.
   `classifySteers(record, steers) (fresh, again, invalid)` serves FR-6 and the
   listener. The listener holds a snapshot of recorded IDs, refreshed after
   each commit. A separate state lock, never held while calling the source,
-  guards what the run and the listener share: the snapshot, the urgent set,
-  the registered call, and the reason the listener last declined to
-  interrupt. Commits take only the state lock. The listener writes no warnings;
-  the run attaches that reason to the call's `StepModelSettled`, or at the
-  latest to the stop step, never after the join.
+  guards the snapshot, the urgent set, the registered call, and the reason
+  the listener last declined to interrupt; commits take only it. The
+  listener writes no warnings; the run attaches that reason to the call's
+  `StepModelSettled`, or at the latest to the stop step.
 - **U-3. What a signal does.** The listener calls `Steers`. For a fresh
   urgent steer, it adds the ID to the run's *urgent set* and cancels the
   registered model call if eligible (U-4). Each ID causes at most one
@@ -79,15 +78,14 @@ example sends lines starting with `!` as urgent.
   unsafe to repeat (decision 10) is never cut, and otherwise a replacement
   must fit: the run hands the listener a private replay taken at the
   hand-off, and `replacementFits` is `nextCallPossible` without the attempt
-  term (U-8). Token caps use recorded spend, since the output cap already
-  clamps `max_tokens` to the remainder. The cost cap also counts the call in
-  flight at its worst case, so a call whose worst case is unknown (`AtRisk`
-  is nil) is ineligible. At signal time the listener adds the size of the
-  steers and the reminder, and rechecks pause, deadline, and context. The
-  partial is not measured: the next-request estimate already adds the call's
-  `max_tokens`. An ineligible call is not cut; the steer waits for FR-6, and
-  the run records one `WarningSteering` per run naming the reason, unless
-  the run is ending.
+  term (U-8). Token caps use recorded spend (the output cap already clamps
+  `max_tokens`). The cost cap also counts the call in flight at its worst
+  case, so a call with unknown worst case (`AtRisk` nil) is ineligible. At
+  signal time the listener adds the size of the steers and the reminder, and
+  rechecks pause, deadline, and context; the partial is covered by the
+  call's `max_tokens`. An ineligible call is not cut; the steer waits for
+  FR-6, with one `WarningSteering` per run naming the reason, unless the run
+  is ending.
 - **U-5. Before dispatch.** After `BeforeModel` and request preparation, but
   before `BeforeSend` admits the call, the run reads the urgent set. The run
   also keeps a *loop-back set*: IDs that already caused a loop-back. If the
@@ -123,14 +121,13 @@ example sends lines starting with `!` as urgent.
   unchanged.
 - **U-9. Billing.** The settlement keeps the response ID, partial output, and
   observed usage. The output estimate counts every streamed delta (text,
-  reasoning, tool arguments), not only text. Under a `MaxCost` cap, every
-  sent call cut off by a steer is charged the worst case reserved at
-  admission, without inspecting usage, written into the settlement's `Charge`
-  (which `attemptSpend` prefers, so replay needs no cap logic). Without a
-  cap, decision 24's estimate applies. For every interrupt cause, the run
-  records as `Result.Usage.OutputTokens` the larger of the reported count
-  and the delta estimate, the estimate capped at the call's `max_tokens`,
-  so token caps and replay see it with no new field; the settlement is
+  reasoning, tool arguments). Under a `MaxCost` cap, every sent call cut off
+  by a steer is charged the worst case reserved at admission, written into
+  the settlement's `Charge` (which `attemptSpend` prefers, so replay needs no
+  cap logic). Without a cap, decision 24's estimate applies. For every
+  interrupt cause, `Result.Usage.OutputTokens` records the larger of the
+  reported count and the delta estimate (capped at `max_tokens`), so token
+  caps and replay see it with no new field; the settlement is
   `EstimatedUsage`. Crash recovery keeps decision 24's rule.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
@@ -199,40 +196,29 @@ pending.
 
 ## Plan and tests
 
-One PR, in commits: the cause type; the listener, eligibility, and settlement;
-billing; projection; docs and the example.
-
-- A client blocking until cancelled, streamed and collected: cause
-  `steering`; the next call sees partial, reminder, and steer, in order.
-  Whitespace-only and trailing-newline partials; citations stripped.
-- A result completing as the cancel arrives stands. A cancel before hand-off
-  settles `NoDispatch`. A buffered signal skips the request before
-  `BeforeSend`; a steer the source drops loops back only once.
-- Counting: `ModelAttempts` and `Interruptions` unchanged, spend grows; the
-  final-answer call can be cut; one ID interrupts at most once.
-- Billing: reasoning deltas raise the estimate; under a `MaxCost` cap,
-  `Charge` is the worst case, also after an Anthropic-style early usage
-  frame, and the cap holds across many interrupts; a cut collected call is
-  charged, not `NoDispatch`.
-- No interrupt from unsafe hosted tools, a non-urgent steer, or a source
-  without a notifier; each warning once. `NextCallOnly` items survive; vetoes
-  hold.
-- Faults: a crash after the cancel (recovered as `worker`, steer delivered
-  once); rejected and unknown settlement writes; a `Steers` that blocks until
-  its context ends (the run still ends and releases).
-- `-race` on the listener, the source mutex, and `Inbox.Ready`, including
-  `var in Inbox; in.Ready()`.
+- Cut calls, streamed and collected: cause `steering`; the next call sees
+  partial, reminder, and steer, in order; blank partials add nothing;
+  citations stripped.
+- A result completing as the cancel arrives stands; a cancel before hand-off
+  is `NoDispatch`; a buffered signal skips the request before `BeforeSend`;
+  a dropped steer loops back once.
+- Counting and billing: attempts unchanged, spend grows; the final-answer
+  call can be cut; one interrupt per ID; reasoning deltas raise the
+  estimate; under `MaxCost`, `Charge` is the worst case and the cap holds.
+- No interrupt from unsafe hosted tools, a paused hosted call, a non-urgent
+  steer, or a source without a notifier; each warning once. `NextCallOnly`
+  items survive; vetoes hold.
+- Faults: a crash after the cancel; rejected and unknown settlement writes;
+  a `Steers` that blocks. `-race` on the listener, source lock, and `Inbox`.
 - Live (Anthropic, OpenAI Responses, Gemini, one Chat Completions route): cut
-  a long streamed answer, including after an Anthropic `pause_turn`; the
-  provider accepts the partial, reminder, and steer. On Anthropic, also a
-  partial ending in whitespace.
+  a long streamed answer; the provider accepts partial, reminder, and steer.
+  After an Anthropic `pause_turn` with an unfinished search, the cut is
+  declined with a warning and the steer lands after the continuation.
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Interrupts waste tokens | Opt in per steer; charged and capped |
-| A client keeps generating after the cancel | U-10; worst case under a cap |
+| Wasted tokens; generation continues after cancel | Opt-in; U-10; charged, capped |
 | A provider rejects partial text | U-11's trimming; live tests |
-| A slow `Steers` | Own lock; cancelled when the call settles or run ends |
-| A flood of urgent steers | One interrupt per ID; else user input, deadline |
+| Slow `Steers` or a flood of urgent steers | Own lock; one interrupt per ID |

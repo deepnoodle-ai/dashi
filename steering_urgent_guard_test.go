@@ -667,3 +667,74 @@ func TestUrgentSteerDoesNotCutAPausedHostedCall(t *testing.T) {
 		t.Fatal("the steer did not reach the call after the continuation")
 	}
 }
+
+// pausedWithFinishedSearch is a pause whose hosted search has its result in
+// the same message, so nothing is left for the continuation to finish.
+func pausedWithFinishedSearch() llm.Result {
+	result := pausedMidSearch()
+	result.Message.Content = append(
+		result.Message.Content,
+		searchFinished("").Message.Content[0],
+	)
+	return result
+}
+
+func TestPausedMidHostedCall(t *testing.T) {
+	withStatus := func(status string) llm.Result {
+		result := pausedMidSearch()
+		for _, part := range result.Message.Content {
+			if part.HostedUse != nil {
+				part.HostedUse.Status = status
+			}
+		}
+		return result
+	}
+	notPaused := pausedMidSearch()
+	notPaused.Stop = llm.Stop{Kind: llm.StopFinished}
+	cases := []struct {
+		name   string
+		result llm.Result
+		want   bool
+	}{
+		{"unfinished search", pausedMidSearch(), true},
+		{"result in the same message", pausedWithFinishedSearch(), false},
+		{"completed status", withStatus("completed"), false},
+		{"failed status", withStatus("failed"), false},
+		{"not a pause", notPaused, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pausedMidHostedCall(c.result); got != c.want {
+				t.Fatalf("pausedMidHostedCall = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSteerIsDeliveredAfterAPauseWithFinishedSearch(t *testing.T) {
+	inbox := newWatchedInbox()
+	client := adaptingClient{newUrgentClient(
+		urgentCall{
+			during: func(context.Context) {
+				if _, err := inbox.SendText("use staging"); err != nil {
+					t.Error(err)
+				}
+			},
+			result: pausedWithFinishedSearch(),
+		},
+		urgentCall{result: final("Found it on staging")},
+	)}
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Tools = tool.List{searchTool()}
+		r.Agent.Limits.ModelAttempts = 4
+	})
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if hasText(client.inputs()[1].Messages, "use staging") < 0 {
+		t.Fatal("the steer was held after a pause whose search finished")
+	}
+	if warnings := warningsOf(out.Turn, WarningSteering); len(warnings) != 0 {
+		t.Fatalf("unexpected steering warnings: %+v", warnings)
+	}
+}

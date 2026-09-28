@@ -791,10 +791,10 @@ func (c *whitespaceCutClient) Send(
 // it costs about $1.30 on claude-haiku-4-5. The first call must end in a
 // provider pause (Anthropic's pause_turn after ten server iterations); it
 // skips when the model finishes without pausing. An urgent steer then
-// arrives during the continuation. When the pause left a hosted call unfinished, as a pause
-// during web search does, the continuation must not be cut: the steer
-// lands after it. Otherwise the continuation is cut. Either way the
-// provider must accept the request that carries the steer.
+// arrives during the continuation. When the pause left a hosted call
+// unfinished, as a pause during web search does, the continuation must not
+// be cut: the steer lands after it. Otherwise the continuation is cut.
+// Either way the provider must accept the request that carries the steer.
 func UrgentSteerAfterPause(
 	t *testing.T,
 	client llm.Client,
