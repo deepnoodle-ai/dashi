@@ -1,8 +1,9 @@
 // Command steering is a small chat CLI in which you can type while the agent
 // works. A line typed during a turn is a steer: Dashi delivers it before the
 // agent's next model call, or, if the agent was about to answer, asks it
-// again with the new message. A line typed too late for the turn starts the
-// next one. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
+// again with the new message. A line starting with ! is urgent: it also cuts
+// short the answer being written. A line typed too late for the turn starts
+// the next one. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
 // optionally overrides the catalog's default model.
 //
 // Try it interactively, or pipe a question and a correction:
@@ -18,6 +19,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,7 +85,8 @@ func run(ctx context.Context) error {
 
 	inbox := dashi.NewInbox()
 	var history, input []llm.Message
-	fmt.Println("Ask something. Type while the agent works to steer it.")
+	fmt.Println("Ask something. Type while the agent works to steer it; " +
+		"start a line with ! to interrupt the answer.")
 	for {
 		if len(input) == 0 {
 			line, ok := <-lines
@@ -102,8 +105,13 @@ func run(ctx context.Context) error {
 					if !ok {
 						return
 					}
-					if _, err := inbox.SendText(line); err == nil {
-						fmt.Println("  (steer queued)")
+					send, note := inbox.SendText, "  (steer queued)"
+					if text, ok := strings.CutPrefix(line, "!"); ok {
+						line = text
+						send, note = inbox.SendUrgent, "  (urgent steer sent)"
+					}
+					if _, err := send(line); err == nil {
+						fmt.Println(note)
 					}
 				case <-done:
 					return

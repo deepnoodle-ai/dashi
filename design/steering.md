@@ -1,6 +1,7 @@
 # PRD: Steering a running turn
 
-**Status:** Part 1 merged (#52); part 2 (urgent steers) in approach review ·
+**Status:** Part 1 merged (#52); part 2 (urgent steers) implemented, except
+skipping tools not yet started ·
 **Date:** 2026-09-28 · **Owner:** Curtis · **Decision:** 32 · **Builds on:**
 [hooks](hooks.md)
 
@@ -132,9 +133,11 @@ example sends lines starting with `!` as urgent.
 - **U-11. Partial text.** Projection includes a steering-interrupted call's
   partial as one assistant text block: text parts joined, trailing whitespace
   trimmed, with no citations, tool calls, reasoning, or replay data. An empty
-  or whitespace-only partial adds nothing (Anthropic rejects it). A projected,
-  unrecorded reminder named `steering_interrupted` follows ("The user
-  interrupted your previous response."), then the steer as a user message.
+  or whitespace-only partial adds nothing, reminder included (Anthropic
+  rejects a blank message, and the reminder would describe nothing). A
+  projected, unrecorded contextual reminder named `steering-interrupted`
+  follows ("The user interrupted your previous response."; reminder names
+  allow no underscore), then the steer as a user message.
   This refines decision 9 for steering only. Other interrupted calls stay out
   of projection.
 - **U-12. `NextCallOnly`.** A steering-interrupted call does not expire
@@ -143,6 +146,21 @@ example sends lines starting with `!` as urgent.
 - **U-13. Answers and vetoes.** An interrupted call is never an answer:
   `Answer` and the finish point ignore it, and a veto that hides an earlier
   answer stays in force. No hook runs for the interrupt itself.
+
+### Choices made in the code
+
+- The call is registered after preparation, before `BeforeSend`, and U-5's
+  check runs there. A cut before the request is recorded goes back to FR-6
+  and records nothing; a cut before the hand-off costs nothing, so it skips
+  the budget check.
+- `replacementFits` puts the in-flight call at its worst case against the
+  cost cap only. Token caps use recorded spend, as `nextCallPossible` does:
+  the output cap clamps `max_tokens` to the remainder, so a worst case would
+  make every call under it ineligible, and only the cost cap charges it.
+- The partial's size at signal time is bounded by the in-flight call's
+  `max_tokens`, which the next-request estimate already adds, not measured.
+- U-9's fold applies to steering interrupts only; `run` interrupts keep the
+  observed counts, as before.
 
 ### Recovery and record format
 

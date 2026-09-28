@@ -613,6 +613,13 @@ if out.Stop.Terminal {
   for the next turn, and a `WarningSteering` on the record says why.
   Interactive agents should raise `Limits.ModelAttempts` from its default
   of 8.
+- **Urgent steers.** `inbox.SendUrgent(text)` also cuts short the model call
+  in flight, when a replacement call fits the turn's limits. The next call
+  sees the partial text, a reminder that the user interrupted it, and the
+  steer. The cut call is recorded with `Interrupted: "steering"`; it does not
+  count toward `ModelAttempts`, but its cost counts, and under a `MaxCost`
+  cap it is charged its worst case. A durable source signals urgent steers
+  by implementing `dashi.SteeringNotifier`.
 
 A durable host implements `dashi.Steering` over its own table, keyed by turn:
 `Steers` returns the rows not yet acknowledged, and `Delivered` consumes them.
