@@ -30,7 +30,8 @@ it; one with no opinion leaves none. When a `BeforeTool` hook fails, the model
 sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
 `Continue` that raises the `Budget`; a limit the host owns, such as prepaid
-credits, uses `dashi.LimitHost`.
+credits, uses `dashi.LimitHost`. See [turn budgets](budgets.md) for raises
+and host limits.
 
 ## Hiding tools
 
@@ -85,34 +86,23 @@ Supply the same `Runner.Hooks` on every command for a turn: each command runs
 only the hooks it is given, and a change is recorded as a warning.
 `dashi.WithHooks` adds hooks for one call, for extras such as a terminal
 prompt. Hook names must be unique within a point; reusable packages should
-prefix theirs. `dashi.JoinHooks` combines hook sets.
-
-A hook that defers every tool not marked read-only:
-
-```go
-gate := dashi.ToolHook{Name: "read-only-gate", Func: func(
-	_ context.Context, p dashi.ToolPlan) (dashi.ToolDecision, error) {
-	if ro := p.Definition.Annotations.ReadOnly; ro != nil && *ro {
-		return dashi.ToolDecision{}, nil
-	}
-	return dashi.Defer("changes something"), nil
-}}
-runner.Hooks = gate.Hooks()
-```
+prefix theirs. `dashi.JoinHooks` combines hook sets. For a hook that defers every
+tool not marked read-only, see
+[deferring for later](approvals.md#deferring-for-later).
 
 ## Delivering context and vetoing answers
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
 item that is already current. It may run more than once for one reply, and
-`BeforeSend` may be asked again for the same reply, when an urgent steer
+`BeforeSend` may be asked again for the same reply, when an [urgent steer](steering.md)
 sends the run back before the request is sent. Deliver a value that must
 reflect each call as a named `Snapshot` item, and reserve spending in the
 recorder with the model intent, not in the hook.
 
 `BeforeFinish` vetoes an answer with a `Reason`, which the model sees as "Not
-accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the reserved
-final-answer call: when no normal model call is possible (on the reserved
+accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the
+[reserved final-answer call](recovering-turns.md#turn-states-and-limits): when no normal model call is possible (on the reserved
 call or the one before it, past the deadline, or when the next call would
 exceed a cost cap), it is dropped with a warning and the answer stands. A
 veto may use the reserved call. When no call fits at all, or the reserved

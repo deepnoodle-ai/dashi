@@ -2,7 +2,10 @@
 
 An approval is a [hook](hooks.md) on `BeforeTool` that allows, denies, or
 defers a tool call. Ask inline when the program can wait for a person; defer
-when it cannot.
+when it cannot. [Running turns](running-turns.md) covers `Run` and
+`Continue`; [recovering turns](recovering-turns.md) covers `Settle` and the
+[turn states](recovering-turns.md#turn-states-and-limits), including
+`StopWaiting`.
 
 ## Asking inline
 
@@ -46,6 +49,20 @@ for _, p := range out.Pending {
 	}
 }
 out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
+```
+
+To defer by what a tool does rather than by its name, write the hook
+yourself. This one defers every tool not marked read-only:
+
+```go
+gate := dashi.ToolHook{Name: "read-only-gate", Func: func(
+	_ context.Context, p dashi.ToolPlan) (dashi.ToolDecision, error) {
+	if ro := p.Definition.Annotations.ReadOnly; ro != nil && *ro {
+		return dashi.ToolDecision{}, nil
+	}
+	return dashi.Defer("changes something"), nil
+}}
+runner.Hooks = gate.Hooks()
 ```
 
 `Approve` and `Deny` bind the answer to the call and the exact arguments

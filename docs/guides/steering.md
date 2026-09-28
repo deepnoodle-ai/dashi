@@ -5,7 +5,8 @@ file". Pass a steering source to the run, and each message reaches the turn
 at a safe point: before the next model call, or, when the model has just
 answered, as a reason to ask it again. A steer never lands between a tool
 call and its result, and never stops a running tool.
-[Running turns](running-turns.md) covers the basics.
+[Running turns](running-turns.md) covers the basics. To add context while
+no run is active, use [`Deliver`](#delivering-context).
 
 ```go
 inbox := dashi.NewInbox()
@@ -35,11 +36,11 @@ if out.Stop.Terminal {
   even when no model call saw them. Pass a freshly loaded turn.
 - **A steer may cost a model call.** A steer that supersedes an answer needs
   another call; several steers share one, and a steer that arrives before a
-  planned call adds none. Steering never spends the reserved final-answer
-  call or goes past a limit, the deadline, or a pause: the steer then waits
+  planned call adds none. Steering never spends the
+  [reserved final-answer call](recovering-turns.md#turn-states-and-limits) or goes past a limit, the deadline, or a pause: the steer then waits
   for the next turn, and a `WarningSteering` on the record says why.
-  Interactive agents should raise `Limits.ModelAttempts` from its default
-  of 8.
+  Interactive agents should raise `Limits.ModelAttempts` from its
+  [default of 8](recovering-turns.md#turn-states-and-limits).
 - **Urgent steers.** `inbox.SendUrgent(text)` also cuts short the model call
   in flight, when a replacement call fits the turn's limits. The next call
   sees the partial text, a reminder that the user interrupted it, and the
@@ -62,6 +63,8 @@ rows in the recorder transaction that saves the step, reading the IDs from
 `Step.Items()` of a step whose `Context.Steering` is set. After a
 `*CommitError` whose persistence is unknown, reload the turn before deciding
 what happened to its steers.
+
+## Delivering context
 
 `Deliver` adds context to a turn that is not running. Its items may carry IDs
 too; a repeat with the same content is skipped. Context items, from steers,

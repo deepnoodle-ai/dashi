@@ -85,7 +85,7 @@ the call, `InterruptWorker` when recovery settles a call left open by a
 worker that stopped. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
-`Continue`. `Settle` only records, including for approvals and external tool
+`Continue`. `Settle` only records, including for [approvals](approvals.md) and external tool
 results. `Outcome.ReadyToContinue` and the replayed turn's
 `TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
@@ -93,7 +93,7 @@ should pick up ready turns with no active worker.
 ## Turn states and limits
 
 A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
-**waiting on the host** (approvals, results, a budget raise), or **ended**
+**waiting on the host** ([approvals](approvals.md), results, a [budget raise](budgets.md)), or **ended**
 (`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
 completed, canceled, limited by its deadline or its interruptions, any limit
 reached after its last model attempt, or a cost cap that can no longer be

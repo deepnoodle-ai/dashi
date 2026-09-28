@@ -1,17 +1,18 @@
 # Guides
 
-Task-oriented guides for building with Dashi.
+Task-oriented guides for building with Dashi. To build an agent, start with
+[Running turns](running-turns.md).
 
 ## Guides
 
+- [Running turns](running-turns.md): running an agent turn, reading the
+  result, prior conversation, structured output, and streaming.
 - [Packages](packages.md): the foundation packages, dependency direction, and
   media and speech client status.
 - [Model calls](model-calls.md): preparing, sending, and streaming one model
   call, with validation, replay, tools, and cost.
 - [Tools](tools.md): defining typed tools, returning outcomes, reporting
   progress, and adding provider-hosted tools.
-- [Running turns](running-turns.md): start here. Running an agent turn,
-  reading the result, prior conversation, structured output, and streaming.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final
   answers.
 - [Approving tool calls](approvals.md): asking a person inline, or deferring

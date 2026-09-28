@@ -11,7 +11,8 @@ results. The focused guides cover the rest:
   turn states, and limits.
 - [Live updates](live-updates.md): serving a turn to browsers and observing a
   run in process.
-- [Steering](steering.md): messages from people while a turn runs.
+- [Steering](steering.md): messages from people while a turn runs, and
+  adding context with `Deliver`.
 
 [Agent turns and recovery](../agent-turns.md) is the detailed contract.
 
@@ -133,12 +134,9 @@ same turn sequence again returns `dashi.ErrStreamConsumed`.
 For serving browsers and the `Observer`, see [live updates](live-updates.md);
 for tool progress, see [tools](tools.md#tool-progress).
 
-## Runtime reminders
+## See also
 
-For typed recorded context, see
-[runtime reminders](../../design/runtime-reminders.md).
-
-## Open gates
-
-The [Dive comparison and open gates](../agent-loop-review.md) record what
-remains to prove before stabilizing the loop API.
+- [Runtime reminders](../../design/runtime-reminders.md): typed recorded
+  context.
+- [Dive comparison and open gates](../agent-loop-review.md): what remains to
+  prove before stabilizing the loop API.
