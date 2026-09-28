@@ -72,9 +72,10 @@ if rest, ok := strings.CutPrefix(line, "!"); ok { // "!stop, wrong file"
 - **U-1. One listener per run.** When the source is a notifier with a non-nil
   `Ready`, the run starts one goroutine, the only reader of `Ready`. The run
   serializes all its calls to the source with a mutex, so FR-6 and the
-  listener never call `Steers` at once. The listener's `Steers` context ends
-  with the run. The run joins it on every exit path before `Release`, and
-  merges the IDs it saw into the run's claims, so `Release` covers them.
+  listener never call `Steers` at once. On every exit path the run cancels
+  the listener's context, then joins it, so a stuck `Steers` cannot hold up a
+  finish; then it merges the IDs the listener saw into its claims, before
+  `Release`.
 - **U-2. One definition of "waiting".** A pure function
   `classifySteers(record, steers) (fresh, again, invalid)` serves FR-6 and the
   listener, so both agree on "valid and not in the record". The listener
@@ -82,23 +83,26 @@ if rest, ok := strings.CutPrefix(line, "!"); ok { // "!stop, wrong file"
   commit. It never writes run state or warnings; it returns what it saw, and
   the run records warnings after joining.
 - **U-3. What a signal does.** On a signal, the listener calls `Steers`. For
-  a fresh urgent steer whose ID has not already caused an interrupt in this
-  run, it sets an *urgent* flag that the run reads, and cancels the model
-  call in flight if one is registered and eligible (U-4). Each ID causes at
-  most one interrupt, so a flaky durable source cannot repeat one.
-- **U-4. Eligibility.** Before a call starts, the run registers it with its
-  cancel function and a precomputed verdict from the record:
-  `replacementFits`, a variant of hooks' `nextCallPossible` whose attempt
-  term is skipped (U-8: an interrupted call uses no attempt), while the call
-  in flight counts at its worst case against every cap; and the call offers
-  no provider-hosted tool unsafe to repeat (decision 10). The extra input it
-  prices is the waiting steers, the reminder, and the partial output so far.
-  At signal time the listener rechecks only pause, deadline, and context. An
+  a fresh urgent steer, it adds the ID to the run's *urgent set* and cancels
+  the registered model call if it is eligible (U-4). Each ID causes at most
+  one interrupt. FR-6 removes an ID from the set when it records the steer or
+  when the source no longer returns it.
+- **U-4. Eligibility.** A call offering a provider-hosted tool unsafe to
+  repeat (decision 10) is never cut. Otherwise, before the call starts, the
+  run registers its cancel function and captures from the record the inputs
+  of `replacementFits`: spend so far, each cap, the call's worst case, and
+  prices. `replacementFits` is hooks' `nextCallPossible` without the attempt
+  term (U-8), with the call in flight at its worst case against every cap.
+  At signal time the listener does plain arithmetic on those inputs plus the
+  actual size of the steers, the reminder, and the partial so far, and
+  rechecks pause, deadline, and context; it never reads replay state. An
   ineligible call is not cut; the steer waits for FR-6, and the run records
   one `WarningSteering` per run naming the reason.
-- **U-5. Before dispatch.** Just before recording a model request, the run
-  reads the flag. If a fresh urgent steer is waiting, it loops back to FR-6
-  instead, so no call starts that the user has already overtaken.
+- **U-5. Before dispatch.** After `BeforeModel` and request preparation, but
+  before `BeforeSend` admits the call (an admission may hold outside budget),
+  the run reads the urgent set. If it holds an ID that has not yet caused a
+  loop-back, the run drops the pass's hook results (`dropHooks(mark)`) and
+  loops back to FR-6. Each ID loops back at most once.
 
 ### Interrupting a model call
 
@@ -115,25 +119,31 @@ if rest, ok := strings.CutPrefix(line, "!"); ok { // "!stop, wrong file"
      that stops the turn (an `output` or `context` limit) ends it `limited`,
      and the steer goes to `Leftovers`.
   3. The call context's cause is `errSteered`: cause `steering`, whatever the
-     error. With no evidence of dispatch (a `FailureNotDispatched` report, or
-     no response at all), it settles `NoDispatch`.
+     error. It is `NoDispatch` only if the client reports
+     `FailureNotDispatched` or the cancel preceded the hand-off to the client;
+     a missing response proves nothing (a collected call has none until it
+     ends). Any other cut call counts as sent (U-9). The settlement never sets
+     `Failure: FailureNotDispatched`: replay rejects that when interrupted.
   4. Otherwise, today's error path.
 - **U-8. Counting.** A call cut off by a steer does **not** count toward the
   `ModelAttempts` cap. It counts toward spend and every cost cap, and it is
-  recorded as an attempt (request and settlement steps). Each interrupt needs
-  a new, unrecorded urgent steer, so the user's input bounds how many happen,
-  and cost caps still apply. With the defaults (8 attempts, the last
-  reserved), a user who interrupts three times still leaves the agent all six
-  tool rounds. Since the call uses no attempt, even the reserved final-answer
-  call may be cut and asked again. This amends decision 32, which counted
-  steering interrupts as attempts. `Interruptions` is unchanged.
+  recorded as an attempt (request and settlement steps). Replay needs no
+  change: it already leaves interrupted calls out of `ModelAttempts`. Each
+  interrupt needs a new urgent steer, so the user's input bounds them. With
+  the defaults (8 attempts, the last reserved), three interrupts still leave
+  the agent all six tool rounds. Since the call uses no attempt, even the
+  reserved final-answer call may be cut and asked again. This amends decision
+  32, which counted steering interrupts as attempts. `Interruptions` is
+  unchanged.
 - **U-9. Billing.** The settlement keeps what the provider returned: response
   ID, partial output, observed usage. The output estimate counts the
   characters of every streamed delta (text, reasoning, tool arguments), not
-  only text; this helps every interrupted call. When the request recorded a
-  worst case (`AtRisk`, set under a cost cap) and the provider reported no
-  output usage, a steering interrupt is charged that worst case, which was
-  already reserved at admission, so a cap stays hard however often the user
+  only text; this helps every interrupted call. Under a `MaxCost` cap, a
+  sent steering interrupt with no *final* usage is charged the worst case
+  reserved at admission, written into the settlement's `Charge` (which
+  `attemptSpend` prefers, so replay needs no cap logic). Early frames are not
+  final (Anthropic reports about one output token up front), and a cut stream
+  never has final usage, so the cap stays hard however often the user
   interrupts. Without a cap, decision 24's estimate applies. Crash recovery
   keeps decision 24's rule; this exemption is for steering interrupts only.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
@@ -176,13 +186,12 @@ its cause tells a UI why the text stopped.
 
 ### Recorded-format changes
 
-- `ModelFact.Interrupted` becomes `InterruptCause` (`json:"interrupted,omitempty"`),
-  a string type with constants `InterruptWorker` (recovered after a crash),
+- `ModelFact.Interrupted` becomes `InterruptCause`
+  (`json:"interrupted,omitempty"`), a string type with constants
+  `InterruptNone` (`""`), `InterruptWorker` (recovered after a crash),
   `InterruptRun` (the run stopped the call: its context ended, the turn
-  deadline passed, or a pause arrived before dispatch), and
-  `InterruptSteering`. Replay rejects an unknown cause. Code comparing the bool
-  compares against `""`: `runner.go`, `state.go`, `project.go`,
-  `budget_accounting.go`, `turn_content.go`, and six test files.
+  deadline passed, or a pause arrived before dispatch), and, with the
+  listener, `InterruptSteering`. Replay rejects an unknown cause.
 - `Steer.Urgent` is not recorded; the record shows the effect.
 - At merge, `decisions.md` 32 says steering interrupts count toward spend and
   cost caps but not `ModelAttempts`, are charged the reserved worst case under
@@ -191,13 +200,13 @@ its cause tells a UI why the text stopped.
 ### Next PR: tools not yet started
 
 Running tools are never interrupted. In a PR right after this one, the tool
-loop reads the listener's urgent flag (never `Ready` or `Steers`) before each
-call's `BeforeTool` and start. Once set, no later call in the batch starts:
-requested calls settle not executed (an existing transition), and allowed
-calls gain a new transition from `allowed` to `not_executed`, both with reason
-`steering` and output "Not run: the user sent new input." Running calls
-finish; approvals and external waits stay pending. `nextCallPossible` does not
-gate this, since a model call follows the batch anyway.
+loop reads the run's urgent set (never `Ready` or `Steers`) before each
+call's `BeforeTool` and start. Once it is non-empty, no later call in the
+batch starts: requested calls settle not executed (an existing transition),
+and allowed calls gain a new transition from `allowed` to `not_executed`, both
+with reason `steering` and output "Not run: the user sent new input." Running
+calls finish; approvals and external waits stay pending. `nextCallPossible`
+does not gate this, since a model call follows the batch anyway.
 
 ## Plan and tests
 
@@ -210,13 +219,15 @@ the example (`!` for urgent).
   text, the reminder, and the steer, in order. Whitespace-only and
   trailing-newline partials; citations stripped.
 - A result that completes as the cancel arrives stands. A cancel before
-  dispatch settles `NoDispatch`. A buffered signal skips the request (U-5).
+  dispatch settles `NoDispatch`. A buffered signal skips the request before
+  `BeforeSend` runs (U-5); a steer the source drops loops back only once.
 - Counting: interrupts leave `ModelAttempts` and `Interruptions` unchanged and
   add to spend; the reserved final-answer call can be cut and asked again;
   one ID interrupts at most once.
-- Billing: reasoning deltas raise the estimate; under a cost cap with no
-  output usage, the charge is `AtRisk` and the cap holds across many
-  interrupts.
+- Billing: reasoning deltas raise the estimate; under a `MaxCost` cap with no
+  final usage (also after an Anthropic-style early usage frame), `Charge` is
+  the worst case and the cap holds across many interrupts; a cut collected
+  call is charged, not `NoDispatch`.
 - No interrupt from unsafe hosted tools, a non-urgent steer, or a source
   without a notifier; each warning appears once.
 - `NextCallOnly` items survive an interrupt; vetoes stay in force.
@@ -229,7 +240,8 @@ the example (`!` for urgent).
 - Live (Anthropic, OpenAI Responses, Gemini, and one Chat Completions route):
   interrupt a long streamed answer, including after an Anthropic
   `pause_turn`, and check that the provider accepts the partial text, the
-  reminder, and the steer, and that the answer follows the steer.
+  reminder, and the steer, and that the answer follows the steer. On
+  Anthropic, also cut a call whose partial ends in whitespace.
 
 ## Risks
 
@@ -238,4 +250,5 @@ the example (`!` for urgent).
 | Interrupts waste tokens | Opt in per steer; charged, and capped by cost caps |
 | A client keeps generating after the cancel | U-10's client contract; worst-case charge under a cap |
 | A provider rejects partial assistant text | U-11's trimming; live tests per provider |
-| A slow `Steers` delays each call | Documented: must be cheap; the listener's calls end with the run |
+| A slow `Steers` delays each call | Documented: must be cheap; cancelled when the run ends |
+| A flood of urgent steers | One interrupt per ID; without a cost cap, only user input and the turn deadline limit them |
