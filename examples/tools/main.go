@@ -71,24 +71,16 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tools: run start: %w", err)
 	}
-	if err := outcome.RecordingErr(); err != nil {
-		return fmt.Errorf("tools: %w", err)
-	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
+	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
 
-	// Spend is rebuilt from the recorded steps, so replay the turn to read it.
-	view, err := dashi.Replay(outcome.Turn)
-	if err != nil {
-		return fmt.Errorf("tools: replay: %w", err)
-	}
-	usage := view.Spend.Usage
+	usage := outcome.Spend.Usage
 	fmt.Printf(
 		"Model calls: %d; tokens: %d in, %d out\n",
-		view.ModelAttempts,
+		outcome.ModelAttempts,
 		usage.InputTokens,
 		usage.OutputTokens,
 	)
-	for currency, amount := range view.Spend.Cost {
+	for currency, amount := range outcome.Spend.Cost {
 		fmt.Printf("Cost: %s %s\n", amount, currency)
 	}
 	return nil

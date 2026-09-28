@@ -73,9 +73,6 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("structured_output: run start: %w", err)
 	}
-	if err := outcome.RecordingErr(); err != nil {
-		return fmt.Errorf("structured_output: %w", err)
-	}
 	if outcome.Stop.Kind != dashi.StopCompleted || outcome.Output == nil {
 		return fmt.Errorf(
 			"structured_output: turn stopped %s: %s",

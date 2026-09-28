@@ -12,7 +12,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"slices"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -66,17 +65,24 @@ func run(ctx context.Context, prompt string) error {
 	if err != nil {
 		return fmt.Errorf("hosted_tools: run start: %w", err)
 	}
-	if err := outcome.RecordingErr(); err != nil {
-		return fmt.Errorf("hosted_tools: %w", err)
-	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
-	printActivity(outcome.Turn)
+	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
 
-	view, err := dashi.Replay(outcome.Turn)
-	if err != nil {
-		return fmt.Errorf("hosted_tools: replay: %w", err)
+	// The provider may split hosted work across several model calls, so
+	// these read every call in the turn, not only the last message.
+	fmt.Println("\nHosted tool calls:")
+	for _, use := range outcome.Turn.HostedUses() {
+		fmt.Printf("  %s %s\n", use.Name, use.Input)
 	}
-	spend := view.Spend
+	fmt.Println("\nSources:")
+	seen := map[string]bool{}
+	for _, citation := range outcome.Turn.Citations() {
+		if !seen[citation.URL] {
+			seen[citation.URL] = true
+			fmt.Printf("  %s <%s>\n", citation.Title, citation.URL)
+		}
+	}
+
+	spend := outcome.Spend
 	fmt.Printf(
 		"\nTokens: %d in, %d out; hosted requests: %v\n",
 		spend.Usage.TotalInputTokens(),
@@ -92,36 +98,4 @@ func run(ctx context.Context, prompt string) error {
 		fmt.Printf("Cost: %s %s\n", amount, currency)
 	}
 	return nil
-}
-
-// printActivity lists the hosted tool calls and cited sources from every
-// settled model call in the turn. The provider may split hosted work across
-// several calls, so the last message alone can miss some of it.
-func printActivity(turn dashi.Turn) {
-	var sources []string
-	fmt.Println("\nHosted tool calls:")
-	for _, step := range turn.Steps {
-		if step.Kind != dashi.StepModelSettled || step.Model == nil ||
-			step.Model.Result == nil {
-			continue
-		}
-		for _, part := range step.Model.Result.Message.Content {
-			switch {
-			case part.HostedUse != nil:
-				use := part.HostedUse
-				fmt.Printf("  %s %s\n", use.Name, use.Input)
-			case part.Block != nil && part.Block.Text != nil:
-				for _, citation := range part.Block.Text.Citations {
-					source := citation.Title + " <" + citation.URL + ">"
-					if !slices.Contains(sources, source) {
-						sources = append(sources, source)
-					}
-				}
-			}
-		}
-	}
-	fmt.Println("\nSources:")
-	for _, source := range sources {
-		fmt.Printf("  %s\n", source)
-	}
 }

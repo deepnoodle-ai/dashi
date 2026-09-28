@@ -54,6 +54,6 @@ func run(ctx context.Context) error {
 			outcome.Stop.Reason,
 		)
 	}
-	fmt.Println(outcome.Turn.AnswerText())
+	fmt.Println(outcome.Answer)
 	return nil
 }
