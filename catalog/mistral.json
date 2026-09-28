@@ -20,7 +20,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -46,7 +46,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -71,7 +71,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -97,7 +97,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -122,7 +122,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -147,7 +147,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       }
     },
     {
@@ -161,7 +161,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -212,7 +212,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1048576
+        "context_window": 1000000
       },
       "pricing": {
         "currency": "USD",
@@ -239,7 +239,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1048576
+        "context_window": 1000000
       },
       "pricing": {
         "currency": "USD",
@@ -264,7 +264,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -289,7 +289,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -314,7 +314,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -339,7 +339,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -364,7 +364,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 131072
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -389,7 +389,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 131072
+        "context_window": 256000
       },
       "pricing": {
         "currency": "USD",
@@ -414,7 +414,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 256000
+        "context_window": 128000
       },
       "pricing": {
         "currency": "USD",
@@ -439,7 +439,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 256000
+        "context_window": 128000
       }
     }
   ]

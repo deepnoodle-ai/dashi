@@ -22,7 +22,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -49,7 +49,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -76,7 +76,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -102,7 +102,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -128,7 +128,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -156,7 +156,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -195,7 +195,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -233,7 +233,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -256,33 +256,6 @@
       }
     },
     {
-      "model": "gemini-3.1-flash-lite-preview",
-      "apis": [
-        "google.generate_content"
-      ],
-      "lifecycle": "preview",
-      "qualified_at": "2026-09-27",
-      "capabilities": {
-        "features": {
-          "text": "supported",
-          "max_tokens": "supported"
-        },
-        "max_output_tokens": 65536,
-        "context_window": 1000000
-      },
-      "pricing": {
-        "currency": "USD",
-        "updated_at": "2026-03-10",
-        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
-        "base": {
-          "input": "0.1",
-          "output": "0.4",
-          "cache_read": "0.1",
-          "cache_write": "0.1"
-        }
-      }
-    },
-    {
       "model": "gemini-3-flash-preview",
       "apis": [
         "google.generate_content"
@@ -295,7 +268,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -330,7 +303,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -367,7 +340,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
@@ -401,7 +374,7 @@
           "max_tokens": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1000000
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",

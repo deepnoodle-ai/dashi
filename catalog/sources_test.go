@@ -3,6 +3,7 @@ package catalog
 import (
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
@@ -32,6 +33,17 @@ type outputLimitSource struct {
 	url    string
 	models []string
 	limit  int
+}
+
+// contextWindowSource is one provider documentation page that states the
+// context window for the listed models. Every context_window in the catalog
+// must appear here, because callers size input against it: a value larger
+// than the provider's window invites requests the endpoint rejects. A model
+// whose provider documents no window has no row and no value.
+type contextWindowSource struct {
+	url    string
+	models []string
+	window int
 }
 
 const (
@@ -314,7 +326,6 @@ var openAIEfforts = map[string][]string{
 	"gpt-5":         {"minimal", "low", "medium", "high"},
 	"gpt-5-pro":     {"high"},
 	"gpt-5.3-codex": {"low", "medium", "high", "xhigh"},
-	"gpt-5.2-codex": {"low", "medium", "high", "xhigh"},
 }
 
 // openAINonReasoning names models whose page says they have no reasoning
@@ -405,7 +416,6 @@ var openAIOutputLimits = map[string]int{
 	"gpt-5.4-pro":              128_000,
 	"gpt-5.4-mini":             128_000,
 	"gpt-5.4-nano":             128_000,
-	"gpt-5.3-chat-latest":      16_384,
 	"gpt-5.2":                  128_000,
 	"gpt-5.2-pro":              128_000,
 	"gpt-5.1":                  128_000,
@@ -421,35 +431,211 @@ var openAIOutputLimits = map[string]int{
 	"o3-pro":                   100_000,
 	"o3-mini":                  100_000,
 	"o4-mini":                  100_000,
-	"o3-deep-research":         100_000,
-	"o4-mini-deep-research":    100_000,
 	"gpt-5.3-codex":            128_000,
-	"gpt-5.2-codex":            128_000,
-	"gpt-5.1-codex-max":        128_000,
-	"gpt-5.1-codex":            128_000,
-	"gpt-5.1-codex-mini":       128_000,
-	"gpt-5-codex":              128_000,
-	"codex-mini-latest":        100_000,
 }
 
 // googleOutputLimits lists the "Output token limit" each Gemini model page
 // states in its model details table.
 var googleOutputLimits = map[string]int{
-	"gemini-3.8-flash":              65_536,
-	"gemini-3.7-flash":              65_536,
-	"gemini-3.6-flash":              65_536,
-	"gemini-3.5-flash":              65_536,
-	"gemini-3.5-flash-lite":         65_536,
-	"gemini-3.1-flash-lite":         65_536,
-	"gemini-3.1-flash-lite-preview": 65_536,
-	"gemini-3-flash-preview":        65_536,
-	"gemini-2.5-pro":                65_536,
-	"gemini-2.5-flash":              65_536,
-	"gemini-2.5-flash-lite":         65_536,
+	"gemini-3.8-flash":       65_536,
+	"gemini-3.7-flash":       65_536,
+	"gemini-3.6-flash":       65_536,
+	"gemini-3.5-flash":       65_536,
+	"gemini-3.5-flash-lite":  65_536,
+	"gemini-3.1-flash-lite":  65_536,
+	"gemini-3-flash-preview": 65_536,
+	"gemini-2.5-pro":         65_536,
+	"gemini-2.5-flash":       65_536,
+	"gemini-2.5-flash-lite":  65_536,
 }
 
 func googleModelPage(model string) string {
 	return "https://ai.google.dev/gemini-api/docs/models/" + model
+}
+
+// contextWindowSources lists the context windows stated on pages other than
+// the per-model OpenAI, Google, Anthropic, and xAI pages, which the tables
+// below cover. Mistral's pages state rounded sizes ("256k", "1M"); the
+// catalog reads k as 1,000 and M as 1,000,000, the lower of the two
+// readings.
+var contextWindowSources = []contextWindowSource{
+	{
+		// The page's model details table lists both IDs under Versions and
+		// states one "Input token limit" for them.
+		url: googleModelPage("gemini-3.1-pro-preview"),
+		models: []string{
+			"gemini-3.1-pro-preview",
+			"gemini-3.1-pro-preview-customtools",
+		},
+		window: 1_048_576,
+	},
+	{
+		// The "Available Muse Spark models" table's "Context window" column.
+		url: "https://dev.meta.ai/docs/models",
+		models: []string{
+			"muse-spark-1.3",
+			"muse-spark-1.3-contributor",
+			"muse-spark-1.2",
+			"muse-spark-1.2-contributor",
+			"muse-spark-1.1",
+		},
+		window: 1_048_576,
+	},
+	{
+		// The Magistral aliases resolve to Mistral Medium and Small, as the
+		// catalog notes say. The retired Magistral 1.2 pages still list them
+		// at "128k".
+		url: "https://docs.mistral.ai/models/mistral-medium-3-5-26-04",
+		models: []string{
+			"mistral-medium-latest",
+			"magistral-medium-latest",
+		},
+		window: 256_000,
+	},
+	{
+		url: "https://docs.mistral.ai/models/mistral-small-4-0-26-03",
+		models: []string{
+			"mistral-small-latest",
+			"magistral-small-latest",
+			"mistral-small-2603",
+		},
+		window: 256_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/mistral-large-3-25-12",
+		models: []string{"mistral-large-2512", "mistral-large-latest"},
+		window: 256_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/mistral-large-2-1-24-11",
+		models: []string{"mistral-large-2411"},
+		window: 128_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/zai-glm-5-2",
+		models: []string{"glm-5-2", "zai-glm-5-2"},
+		window: 1_000_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/ministral-3-14b-25-12",
+		models: []string{"ministral-14b-latest", "ministral-14b-2512"},
+		window: 256_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/ministral-3-8b-25-12",
+		models: []string{"ministral-8b-latest", "ministral-8b-2512"},
+		window: 256_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/ministral-3-3b-25-12",
+		models: []string{"ministral-3b-latest", "ministral-3b-2512"},
+		window: 256_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/codestral-25-08",
+		models: []string{"codestral-latest", "codestral-2508"},
+		window: 128_000,
+	},
+}
+
+// openAIContextWindows lists the "context window" each OpenAI model page
+// states. gpt-5-codex-mini has no model page, so it has no window.
+var openAIContextWindows = map[string]int{
+	"gpt-6-astra":              1_050_000,
+	"gpt-6-sol":                1_050_000,
+	"gpt-6-luna":               1_050_000,
+	"gpt-5.6":                  1_050_000,
+	"gpt-5.6-sol":              1_050_000,
+	"gpt-5.6-terra":            1_050_000,
+	"gpt-5.6-luna":             1_050_000,
+	"gpt-5.6-cyber":            400_000,
+	"gpt-daybreak-blue-latest": 1_050_000,
+	"gpt-daybreak-red-latest":  400_000,
+	"gpt-5.5":                  1_050_000,
+	"gpt-5.5-pro":              1_050_000,
+	"gpt-5.4":                  1_050_000,
+	"gpt-5.4-pro":              1_050_000,
+	"gpt-5.4-mini":             400_000,
+	"gpt-5.4-nano":             400_000,
+	"gpt-5.2":                  400_000,
+	"gpt-5.2-pro":              400_000,
+	"gpt-5.1":                  400_000,
+	"gpt-5":                    400_000,
+	"gpt-5-pro":                400_000,
+	"gpt-5-mini":               400_000,
+	"gpt-5-nano":               400_000,
+	"gpt-4.1":                  1_047_576,
+	"gpt-4.1-mini":             1_047_576,
+	"gpt-4.1-nano":             1_047_576,
+	"gpt-4o":                   128_000,
+	"o3":                       200_000,
+	"o3-pro":                   200_000,
+	"o3-mini":                  200_000,
+	"o4-mini":                  200_000,
+	"gpt-5.3-codex":            400_000,
+}
+
+// googleContextWindows lists the "Input token limit" each Gemini model page
+// states in its model details table.
+var googleContextWindows = map[string]int{
+	"gemini-3.8-flash":       1_048_576,
+	"gemini-3.7-flash":       1_048_576,
+	"gemini-3.6-flash":       1_048_576,
+	"gemini-3.5-flash":       1_048_576,
+	"gemini-3.5-flash-lite":  1_048_576,
+	"gemini-3.1-flash-lite":  1_048_576,
+	"gemini-3-flash-preview": 1_048_576,
+	"gemini-2.5-pro":         1_048_576,
+	"gemini-2.5-flash":       1_048_576,
+	"gemini-2.5-flash-lite":  1_048_576,
+}
+
+// anthropicContextWindows lists the "Context window" each Claude model page
+// states ("1M tokens", "200K tokens").
+var anthropicContextWindows = map[string]int{
+	"claude-fable-5-1":           1_000_000,
+	"claude-mythos-5-1":          1_000_000,
+	"claude-fable-5":             1_000_000,
+	"claude-mythos-5":            1_000_000,
+	"claude-opus-5-5":            1_000_000,
+	"claude-opus-5":              1_000_000,
+	"claude-sonnet-5":            1_000_000,
+	"claude-opus-4-8":            1_000_000,
+	"claude-opus-4-7":            1_000_000,
+	"claude-opus-4-6":            1_000_000,
+	"claude-sonnet-4-6":          1_000_000,
+	"claude-opus-4-5":            200_000,
+	"claude-opus-4-5-20251101":   200_000,
+	"claude-sonnet-4-5":          200_000,
+	"claude-sonnet-4-5-20250929": 200_000,
+	"claude-haiku-4-5":           200_000,
+	"claude-haiku-4-5-20251001":  200_000,
+}
+
+// anthropicModelPage derives a Claude model's overview page from its ID,
+// dropping the "claude-" prefix and any snapshot date.
+func anthropicModelPage(model string) string {
+	slug := strings.TrimPrefix(model, "claude-")
+	if i := strings.LastIndex(slug, "-20"); i > 0 {
+		slug = slug[:i]
+	}
+	return "https://platform.claude.com/docs/en/models/" + slug + "/overview"
+}
+
+// grokContextWindows lists the "Context window" each xAI model page states.
+var grokContextWindows = map[string]int{
+	"grok-4.7":                     500_000,
+	"grok-4.6":                     500_000,
+	"grok-4.5":                     500_000,
+	"grok-4.3":                     1_000_000,
+	"grok-4.20-0309-reasoning":     1_000_000,
+	"grok-4.20-0309-non-reasoning": 1_000_000,
+	"grok-4.20-multi-agent-0309":   1_000_000,
+	"grok-build-0.1":               256_000,
+}
+
+func grokModelPage(model string) string {
+	return "https://docs.x.ai/developers/models/" + model
 }
 
 // allClaimSources expands the per-model OpenAI tables and the API-wide
@@ -520,6 +706,32 @@ func allOutputLimitSources() []outputLimitSource {
 				limit:  googleOutputLimits[model],
 			},
 		)
+	}
+	return sources
+}
+
+// allContextWindowSources expands the per-model tables into rows.
+func allContextWindowSources() []contextWindowSource {
+	sources := slices.Clone(contextWindowSources)
+	for _, table := range []struct {
+		windows map[string]int
+		page    func(string) string
+	}{
+		{openAIContextWindows, openAIModelPage},
+		{googleContextWindows, googleModelPage},
+		{anthropicContextWindows, anthropicModelPage},
+		{grokContextWindows, grokModelPage},
+	} {
+		for _, model := range slices.Sorted(maps.Keys(table.windows)) {
+			sources = append(
+				sources,
+				contextWindowSource{
+					url:    table.page(model),
+					models: []string{model},
+					window: table.windows[model],
+				},
+			)
+		}
 	}
 	return sources
 }
@@ -619,6 +831,37 @@ func TestEveryOutputLimitNamesTheProviderPageThatStatesIt(t *testing.T) {
 			if w := want[key{provider, e.Model}]; got != w {
 				t.Fatalf(
 					"%s %s max_output_tokens = %d, sourced %d",
+					provider,
+					e.Model,
+					got,
+					w,
+				)
+			}
+		}
+	}
+}
+
+func TestEveryContextWindowNamesTheProviderPageThatStatesIt(t *testing.T) {
+	type key struct{ provider, model string }
+	want := map[key]int{}
+	for _, s := range allContextWindowSources() {
+		if s.url == "" || s.window <= 0 {
+			t.Fatalf("context window %d has no source page", s.window)
+		}
+		for _, model := range s.models {
+			k := key{providerOf(t, model), model}
+			if _, dup := want[k]; dup {
+				t.Fatalf("%s context window is sourced twice", model)
+			}
+			want[k] = s.window
+		}
+	}
+	for _, provider := range Providers() {
+		for _, e := range Entries(provider) {
+			got := e.Capabilities.ContextWindow
+			if w := want[key{provider, e.Model}]; got != w {
+				t.Fatalf(
+					"%s %s context_window = %d, sourced %d",
 					provider,
 					e.Model,
 					got,
