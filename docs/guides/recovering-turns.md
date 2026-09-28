@@ -1,0 +1,111 @@
+# Recovering turns
+
+This guide covers turn and command IDs, recorders, recovery after a crash or
+interruption, the three turn states, and limits.
+[Running turns](running-turns.md) covers the basics;
+[agent turns and recovery](../agent-turns.md) is the detailed contract.
+
+## IDs and commands
+
+A turn ID lets any worker find the turn again, and a `CommandID` lets Dashi
+recognize a repeated command: the same ID with the same content returns the
+recorded result instead of running again. Generated IDs are fine in one
+process. For retries across restarts, choose the turn ID and each
+`CommandID` yourself (`dashi.NewID()` makes one), save them before the call,
+and reuse them on retry; nobody can reuse an ID generated inside a call that
+crashed. Without that, a retry from an old turn snapshot is still refused by
+the recorder, because its step numbers are taken, so no model call or tool
+runs twice. What can happen is a second turn from a `Start` retried with no
+turn ID, or a `Deliver` recorded twice when its items carry no IDs.
+
+On an existing turn, a zero `Agent` runs with the turn's recorded agent, which
+suits commands such as `Settle` and `Cancel`. Setting any field, even only
+`Limits.Deadline`, makes the agent partly set: it takes its empty `ID`,
+`Model`, and `Revision` from the record, and any other difference fails with
+`ErrAgentChanged`, whose message names the fields. A zero `Agent` trusts the
+agent recorded in the turn you pass in, so load that turn from your own store.
+When the recorder implements `Loader`, Dashi checks the snapshot's agent
+against the stored record and returns `ErrAgentChanged` if they differ.
+
+## Resuming after a stop or crash
+
+A turn can span workers; its saved record holds the steps needed to resume its
+own work. When the running Go context ends, Dashi normally records
+`StopInterrupted` with the context cause. Reload the record and call `Continue`
+with the earlier conversation on any worker. `Continue` also recovers a crash
+that happened before the stop was written. Close the channel passed with
+`dashi.WithPause` for a graceful stop before the next model or tool call. Work
+already running finishes.
+
+A command is applied once per recorder. Running the same command again, with
+the same `CommandID` and content against the same recorder, returns the
+recorded result without calling the model or running tools again; this is how
+a restarted process safely repeats its `Start`. A new `CommandID` is a new
+command, and a new recorder (such as the default in-memory one) knows nothing
+of earlier runs.
+
+## Recorders
+
+`Runner.Recorder` may be omitted. Dashi uses a fresh in-memory recorder
+for that call, and you can pass the returned `Outcome.Turn` to a later call in
+the same process. Bind a durable recorder when turns must resume across
+processes. `filerecorder` keeps each turn in an append-only file on local
+disk and is safe for several processes sharing the directory:
+
+```go
+recorder, err := filerecorder.New(filerecorder.Config{Dir: "var/turns"})
+runner := dashi.Runner{Agent: agent, Client: client, Recorder: recorder}
+```
+
+To keep turns in your database instead, implement `dashi.Recorder` and
+`dashi.Loader`; the `Recorder` doc comment states the rules, and
+`dashitest.Run` checks them. In a SQL store, commit each step in one
+transaction with your own rows:
+
+- Lock the turn's row. Reject a commit from an owner other than the latest
+  claim. A known command ID succeeds only with the same kind and digest.
+  At an occupied sequence, succeed only if the stored step `Equal`s the new
+  one; otherwise require `seq = ExpectedSeq`, insert, and advance.
+- Keep the step's own JSON as the record. Do not rebuild `At` from a
+  timestamp column: steps carry nanoseconds, a microsecond column drops
+  them, and a genuine retry would then be rejected.
+- Postgres `jsonb` rejects `\u0000` in strings; store such steps as `json`
+  or text, or reject them explicitly.
+- Return a `*dashi.CommitError` with `PersistenceRejected` only when the
+  transaction certainly wrote nothing. A timeout or lost connection after
+  `COMMIT` was sent must be a plain error, which Dashi treats as unknown.
+- `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.
+
+## Unfinished work
+
+An interrupted model call is sent again; its partial output is display-only,
+while its usage still counts toward spend. Its settlement's
+`ModelFact.Interrupted` names the cause: `InterruptRun` when the run stopped
+the call, `InterruptWorker` when recovery settles a call left open by a
+worker that stopped. A started tool without a result is
+rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
+uncertain: check the outside system, report the result with `Settle`, and call
+`Continue`. `Settle` only records, including for [approvals](approvals.md) and external tool
+results. `Outcome.ReadyToContinue` and the replayed turn's
+`TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
+should pick up ready turns with no active worker.
+
+## Turn states and limits
+
+A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
+**waiting on the host** ([approvals](approvals.md), results, a [budget raise](budgets.md)), or **ended**
+(`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
+completed, canceled, limited by its deadline or its interruptions, any limit
+reached after its last model attempt, or a cost cap that can no longer be
+checked. Raising a budget does not revive such a turn. After that, only
+`Settle` reporting the result of work that had already started is accepted;
+every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
+as not executed, so no approval stays pending on an ended turn.
+
+The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after
+interruption, 3 provider pauses, one tool call at a time, a reserved final
+answer, and no deadline. Set only the fields you want to change; a negative
+`Interruptions` or `ProviderPauses` allows none. Dashi records the resolved
+numbers at `Start`, so a saved turn keeps its limits if the defaults change.
+Resumes after interruption do not consume `ModelAttempts`. The turn's
+`Limits.Deadline` stops it as limited; a host context deadline interrupts it.

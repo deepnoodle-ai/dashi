@@ -142,7 +142,7 @@ func (t Turn) HostedUses() []llm.HostedUse   // each with its paired result
 `IsError`. `Citations` does not deduplicate: one source may carry two
 excerpts.
 
-**7. Restart deduplication is documented (4.3)** in the running-turns guide:
+**7. Restart deduplication is documented (4.3)** in the recovering-turns guide:
 a repeated command returns the recorded result without repeating work only
 when the same recorder holds the turn and the command has the same `CommandID`
 and content.

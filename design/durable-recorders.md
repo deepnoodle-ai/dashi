@@ -118,7 +118,7 @@ reference. `CommitRequest.Owner` explains the empty and unclaimed cases.
 ## 4. SQL recorders
 
 What a SQL recorder must guarantee is written for users in
-[running turns](../docs/guides/running-turns.md): one transaction per step
+[recovering turns](../docs/guides/recovering-turns.md#recorders): one transaction per step
 with the host's rows, the checks in contract order, the stored step JSON as
 the record (never `At` rebuilt from a microsecond column, which would make a
 genuine retry unequal), `jsonb`'s refusal of `\u0000`, and rejected only
