@@ -5,7 +5,7 @@
 // Set the chosen provider's key: ANTHROPIC_API_KEY, OPENAI_API_KEY,
 // OPENROUTER_API_KEY, XAI_API_KEY, MISTRAL_API_KEY, DEEPINFRA_API_KEY, or
 // META_API_KEY. Ollama needs no key but must be running locally. Use -model
-// to override the provider's default model.
+// to override the provider's small default model.
 //
 // Gemini is left out: providers/google/gemini is a separate Go module, so
 // importing it would add a dependency to this one.
@@ -16,13 +16,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"maps"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/providers/deepinfra"
@@ -34,15 +33,19 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openrouter"
 )
 
-// defaultModels holds an inexpensive model for each provider. Model IDs are
-// the provider's native names; Dashi does not translate them.
-var defaultModels = map[string]string{
-	"anthropic":  "claude-haiku-4-5",
-	"openai":     "gpt-5.4-mini",
+// providers lists the supported names. Where the catalog knows a provider,
+// catalog.Small picks its inexpensive model; otherwise smallModels does.
+var providers = []string{
+	"anthropic", "deepinfra", "grok", "meta", "mistral", "ollama", "openai",
+	"openrouter",
+}
+
+// smallModels holds an inexpensive model for providers whose catalog names
+// none. Model IDs are the provider's native names; Dashi does not translate
+// them.
+var smallModels = map[string]string{
 	"openrouter": "openai/gpt-5-nano",
 	"ollama":     "llama3.2",
-	"grok":       "grok-4.20-0309-non-reasoning",
-	"mistral":    "mistral-small-latest",
 	"deepinfra":  "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 	"meta":       "muse-spark-1.3",
 }
@@ -50,7 +53,7 @@ var defaultModels = map[string]string{
 func main() {
 	log.SetFlags(0)
 	provider := flag.String("provider", "anthropic", "provider: "+
-		strings.Join(slices.Sorted(maps.Keys(defaultModels)), ", "))
+		strings.Join(providers, ", "))
 	model := flag.String("model", "", "model ID (default: per provider)")
 	prompt := flag.String(
 		"prompt",
@@ -67,7 +70,10 @@ func main() {
 
 func run(ctx context.Context, provider, model, prompt string) error {
 	if model == "" {
-		model = defaultModels[provider]
+		var ok bool
+		if model, ok = catalog.Small(provider); !ok {
+			model = smallModels[provider]
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -97,32 +103,33 @@ func run(ctx context.Context, provider, model, prompt string) error {
 }
 
 // newClient is the only provider-specific code. Each constructor reads its
-// key from the environment when Config leaves it empty.
+// key from the environment when Config leaves it empty; a missing key is
+// reported by the first call. Assigning each constructor's result to an
+// llm.Client variable, and returning it only when err is nil, keeps a nil
+// client pointer out of the interface.
 func newClient(provider string) (llm.Client, error) {
+	var client llm.Client
+	var err error
 	switch provider {
 	case "anthropic":
-		return asClient(messages.New(messages.Config{}))
+		client, err = messages.New(messages.Config{})
 	case "openai":
-		return asClient(responses.New(responses.Config{}))
+		client, err = responses.New(responses.Config{})
 	case "openrouter":
-		return asClient(openrouter.New(openrouter.Config{}))
+		client, err = openrouter.New(openrouter.Config{})
 	case "ollama":
-		return asClient(ollama.New(ollama.Config{}))
+		client, err = ollama.New(ollama.Config{})
 	case "grok":
-		return asClient(grok.New(grok.Config{}))
+		client, err = grok.New(grok.Config{})
 	case "mistral":
-		return asClient(mistral.New(mistral.Config{}))
+		client, err = mistral.New(mistral.Config{})
 	case "deepinfra":
-		return asClient(deepinfra.New(deepinfra.Config{}))
+		client, err = deepinfra.New(deepinfra.Config{})
 	case "meta":
-		return asClient(meta.New(meta.Config{}))
+		client, err = meta.New(meta.Config{})
+	default:
+		return nil, fmt.Errorf("unknown provider %q", provider)
 	}
-	return nil, fmt.Errorf("unknown provider %q", provider)
-}
-
-// asClient adapts a constructor's concrete client to llm.Client without
-// wrapping a nil pointer in a non-nil interface.
-func asClient[C llm.Client](client C, err error) (llm.Client, error) {
 	if err != nil {
 		return nil, err
 	}

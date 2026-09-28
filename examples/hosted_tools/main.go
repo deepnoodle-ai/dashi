@@ -1,12 +1,12 @@
 // Command hosted_tools runs one agent turn in which Claude uses tools that
 // Anthropic runs on its own servers: web search and a code execution sandbox.
 // It prints the answer, the hosted tool calls, the cited sources, and the
-// turn's usage. Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// turn's usage. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
+// optionally overrides the catalog's default model.
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -37,10 +37,6 @@ func main() {
 }
 
 func run(ctx context.Context, prompt string) error {
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New("hosted_tools: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
-	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
@@ -54,14 +50,8 @@ func run(ctx context.Context, prompt string) error {
 	if err != nil {
 		return fmt.Errorf("hosted_tools: create client: %w", err)
 	}
-	// Hosted tools need no Policy: the runner never dispatches them, so
-	// there is no local call to authorize.
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			ID:       "researcher",
-			Revision: "1",
-			Model:    model,
-		},
+		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client: client,
 		// Hosted tools have no executor: Anthropic runs them inside the
 		// model call.
@@ -69,18 +59,10 @@ func run(ctx context.Context, prompt string) error {
 			search,
 			messages.NewCodeExecutionTool(messages.CodeExecutionToolOptions{}),
 		},
-		Recorder: dashi.NewMemoryRecorder(),
 	}
-	outcome, err := runner.Run(
-		ctx,
-		dashi.NewTurn("research-turn"),
-		dashi.Start{
-			CommandID: "research-start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text(prompt)),
-			},
-		},
-	)
+	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
+	})
 	if err != nil {
 		return fmt.Errorf("hosted_tools: run start: %w", err)
 	}

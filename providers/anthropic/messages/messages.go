@@ -44,7 +44,10 @@ type Config struct {
 	// require an explicit name.
 	Provider string
 
-	// APIKey defaults to ANTHROPIC_API_KEY at construction time.
+	// APIKey defaults to ANTHROPIC_API_KEY, read only when Provider is
+	// "anthropic" so the key never reaches another destination. With no key
+	// for the public endpoint, New and Prepare still succeed and Send fails
+	// before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint defaults to the public API URL.
@@ -79,17 +82,20 @@ var _ llm.Client = (*Client)(nil)
 // Sharing a name never authorizes replay across endpoints or credentials.
 func New(config Config) (*Client, error) {
 	const endpoint = "https://api.anthropic.com/v1/messages"
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
 	if config.Endpoint == "" {
 		config.Endpoint = endpoint
 	}
+	public := config.Endpoint == endpoint && config.Client == nil
 	if config.Provider == "" {
 		if config.Endpoint != endpoint {
 			return nil, errors.New("messages: custom endpoint requires provider identity")
 		}
 		config.Provider = "anthropic"
+	}
+	// The anthropic key is read only for the anthropic destination, so a
+	// client for another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "anthropic" {
+		config.APIKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	client, err := providerhttp.NewClient(
 		config.Provider,
@@ -108,6 +114,12 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	client.Classify = errorReason
+	client.NoKey = providerhttp.NoAPIKey(
+		config.Provider,
+		config.APIKey,
+		public,
+		"ANTHROPIC_API_KEY",
+	)
 	return &Client{client: client}, nil
 }
 

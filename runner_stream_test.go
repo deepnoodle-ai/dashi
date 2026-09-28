@@ -94,7 +94,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 	}).Stream(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Start{CommandID: "start"}, // no input
 	) {
 		if err == nil || event.Step != nil || event.Outcome != nil {
 			t.Fatalf("validation event=%+v err=%v", event, err)

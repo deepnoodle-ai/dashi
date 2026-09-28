@@ -2,6 +2,7 @@
   "provider": "anthropic",
   "source": "https://platform.claude.com/docs/en/about-claude/models/overview.md",
   "default": "claude-sonnet-5",
+  "small": "claude-haiku-4-5",
   "destinations": [
     {
       "api": "anthropic.messages",

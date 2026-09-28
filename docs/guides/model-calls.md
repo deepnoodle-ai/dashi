@@ -5,7 +5,8 @@ agent or session.
 
 ## Try it
 
-Requires Go 1.26. Set `OPENAI_API_KEY` and `OPENAI_MODEL`, then run:
+Requires Go 1.26. Set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`), then
+run:
 
 ```sh
 go run ./examples/basic
@@ -71,6 +72,45 @@ in `Config.Models` replaces it. Custom endpoints, Vertex, Ollama, OpenRouter,
 and DeepInfra get no catalog facts by default; bind an entry to your endpoint
 with `catalog.Find` and `Entry.Bind` to adopt one. See the
 [catalog design](../../design/model-catalog.md).
+
+`llm.Input.Model` is always required; the llm layer never picks a model.
+`catalog.Default(provider)` names a provider's general-purpose model, which a
+`dashi.Runner` uses when its agent names none, and `catalog.Small(provider)`
+names an inexpensive one for examples and tests (false where the catalog
+names none, as for Meta).
+
+## Clients and keys
+
+Each provider's `New` reads its key from the environment when `Config.APIKey`
+is empty. Construction and `Prepare` work without a key, so tests, dry runs,
+and cost estimates need none. `Send` then fails before dispatch with an
+authentication `llm.Error` matching `llm.ErrNoAPIKey`, naming the variable to
+set. A custom endpoint or `Config.Client` skips the check, since a proxy or
+transport may supply credentials; Ollama and Gemini on Vertex need no key.
+
+Constructors return concrete types. To choose a provider at runtime, assign
+the result to an `llm.Client` variable and return it only when `err` is nil,
+so a failed constructor's nil pointer never becomes a non-nil interface:
+
+```go
+var client llm.Client
+var err error
+switch name {
+case "anthropic":
+	client, err = messages.New(messages.Config{})
+case "openai":
+	client, err = responses.New(responses.Config{})
+default:
+	return nil, fmt.Errorf("unknown provider %q", name)
+}
+if err != nil {
+	return nil, err
+}
+return client, nil
+```
+
+[`examples/providers`](../../examples/providers/main.go) covers every
+provider this way.
 
 ## Prepare, Request, and RequestSnapshot
 

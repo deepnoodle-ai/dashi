@@ -2,6 +2,7 @@
   "provider": "openai",
   "source": "https://developers.openai.com/api/docs/models/all.md",
   "default": "gpt-6-luna",
+  "small": "gpt-6-luna",
   "destinations": [
     {
       "api": "openai.responses",

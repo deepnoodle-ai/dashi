@@ -1,7 +1,8 @@
 // Command documents asks a model a question about a PDF, given by URL or as a
 // local file, and prints the answer with any citations it carries. Requesting
 // citations on a document is not supported yet, so a PDF answer has none.
-// Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally
+// overrides the catalog's small model.
 //
 //	go run ./examples/documents
 //	go run ./examples/documents -pdf ./report.pdf -prompt "List the risks."
@@ -9,7 +10,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
@@ -45,8 +46,8 @@ func run(ctx context.Context) error {
 	flag.Parse()
 
 	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New("documents: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
+	if model == "" {
+		model, _ = catalog.Small("anthropic")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()

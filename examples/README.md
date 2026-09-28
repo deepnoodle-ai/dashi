@@ -3,7 +3,7 @@
 Small programs that each show one part of Dashi. Run them from the repository
 root with `go run ./examples/<name>`. Every example makes paid requests; the
 package comment at the top of each `main.go` names the environment variables
-it needs.
+it needs, and which of them are optional. Every example needs a provider key.
 
 | Example             | Provider  | Shows                                                          |
 | ------------------- | --------- | -------------------------------------------------------------- |
@@ -22,7 +22,7 @@ it needs.
 For example:
 
 ```sh
-export ANTHROPIC_API_KEY=... ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+export ANTHROPIC_API_KEY=...
 go run ./examples/tools
 go run ./examples/resume -mode=start
 go run ./examples/resume -mode=resume

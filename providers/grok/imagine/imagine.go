@@ -4,6 +4,7 @@
 package imagine
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/media"
 	"github.com/deepnoodle-ai/dashi/model"
 )
@@ -39,7 +41,10 @@ type Config struct {
 	// "grok" only for DefaultEndpoint; custom endpoints require a name.
 	Provider string
 
-	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY.
+	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY, read only when
+	// Provider is "grok" so the key never reaches another destination. With
+	// no key for the public endpoint, New and Prepare still succeed and each
+	// send fails before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint is the base URL shared by image and video routes.
@@ -61,6 +66,7 @@ type Client struct {
 	provider string
 	endpoint string
 	apiKey   string
+	noKey    error
 	http     *http.Client
 	models   map[string]media.ModelInfo
 	unknown  model.CapabilityPolicy
@@ -74,12 +80,6 @@ type Client struct {
 func New(config Config) (*Client, error) {
 	if config.Endpoint == "" {
 		config.Endpoint = DefaultEndpoint
-	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("XAI_API_KEY")
-	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GROK_API_KEY")
 	}
 	u, err := url.Parse(config.Endpoint)
 	if err != nil ||
@@ -98,6 +98,11 @@ func New(config Config) (*Client, error) {
 	}
 	if strings.TrimSpace(config.Provider) == "" {
 		return nil, errors.New("imagine: provider identity is required")
+	}
+	// The xAI key is read only for the grok destination, so a client for
+	// another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "grok" {
+		config.APIKey = cmp.Or(os.Getenv("XAI_API_KEY"), os.Getenv("GROK_API_KEY"))
 	}
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("imagine: invalid capability policy")
@@ -133,9 +138,13 @@ func New(config Config) (*Client, error) {
 		provider: config.Provider,
 		endpoint: endpoint,
 		apiKey:   config.APIKey,
-		http:     config.Client,
-		models:   models,
-		unknown:  config.CapabilityPolicy.Resolved(),
+		noKey: noAPIKey(
+			config.APIKey,
+			endpoint == DefaultEndpoint && config.Client == nil,
+		),
+		http:    config.Client,
+		models:  models,
+		unknown: config.CapabilityPolicy.Resolved(),
 		image: content.Origin{
 			Provider: config.Provider,
 			API:      ImageAPI,
@@ -182,4 +191,16 @@ func (c *Client) origin(api, name string) content.Origin {
 	origin := c.video
 	origin.Model = name
 	return origin
+}
+
+// noAPIKey returns the error each send reports when the public endpoint has
+// no key, or nil.
+func noAPIKey(key string, public bool) error {
+	if key != "" || !public {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: set XAI_API_KEY or GROK_API_KEY or Config.APIKey",
+		llm.ErrNoAPIKey,
+	)
 }

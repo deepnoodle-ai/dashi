@@ -1,14 +1,13 @@
 // Command tool_progress runs one agent turn in which a slow tool reports its
 // progress with tool.Report, and renders each snapshot as a live status line
 // while the turn streams. Progress is live-only: it is never recorded and
-// never reaches the model. Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL before
-// running it.
+// never reaches the model. Set ANTHROPIC_API_KEY before running it;
+// ANTHROPIC_MODEL optionally overrides the catalog's default model.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -36,12 +35,6 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New(
-			"tool_progress: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY",
-		)
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -55,19 +48,14 @@ func run(ctx context.Context) error {
 	}
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			ID:       "data-assistant",
-			Revision: "1",
-			Model:    model,
+			Model: os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "You are a data assistant. Use process_dataset " +
 				"when asked to process a dataset.",
 		},
 		Client: client,
 		Tools:  tool.List{process},
-		// A nil Policy denies every tool call, so allow the local tool.
-		Policy: dashi.AllowLocalPolicy{},
 	}
 	start := dashi.Start{
-		CommandID: "process-start",
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text(
 				`Process the dataset named "events-2026" and tell me ` +
@@ -77,8 +65,7 @@ func run(ctx context.Context) error {
 	}
 
 	fmt.Println("Asking the agent to process a dataset...")
-	turn := dashi.NewTurn("progress-turn")
-	for event, err := range runner.Stream(ctx, turn, start) {
+	for event, err := range runner.Stream(ctx, dashi.Turn{}, start) {
 		if err != nil {
 			return fmt.Errorf("tool_progress: %w", err)
 		}

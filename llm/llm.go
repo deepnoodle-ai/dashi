@@ -396,7 +396,7 @@ type Input struct {
 // checked by Client.Prepare.
 func (r Input) Validate() error {
 	if r.Model == "" {
-		return errors.New("llm: model is required")
+		return errors.New("llm: model is required; catalog.Default names a provider's general-purpose model")
 	}
 	if err := r.ContentPolicy.Validate(); err != nil {
 		return err
@@ -630,6 +630,13 @@ const (
 	// and sending again may succeed.
 	ReasonMediaRejected ErrorReason = "media_rejected"
 )
+
+// ErrNoAPIKey reports a client built without an API key for an endpoint that
+// needs one. Construction and Prepare still succeed, so offline work such as
+// tests and cost estimates needs no key; Send fails before dispatch with an
+// *Error of category ErrorAuthentication that wraps ErrNoAPIKey and names the
+// environment variables the constructor read.
+var ErrNoAPIKey = errors.New("llm: no API key")
 
 // Error is a categorized provider failure. Status, Code, and Body carry the
 // provider's response when there was one; RetryAfter is the provider's hint,

@@ -187,15 +187,26 @@ func Find(provider, model string) (Entry, bool) {
 	return p.entries[i].Clone(), true
 }
 
-// Default returns the provider's documented general-purpose model. Nothing
-// in Dashi selects it implicitly; an application may use it when it has no
-// configured model.
+// Default returns the provider's documented general-purpose model. A
+// dashi.Runner uses it when its agent names no model and the client knows
+// the model; the llm layer never selects it.
 func Default(provider string) (string, bool) {
 	p, ok := find(provider)
 	if !ok {
 		return "", false
 	}
 	return p.defaultModel, true
+}
+
+// Small returns an inexpensive current model for the provider, suited to
+// examples, tests, and simple tasks. False means the provider is unknown or
+// its catalog names no small model. Nothing in Dashi selects it implicitly.
+func Small(provider string) (string, bool) {
+	p, ok := find(provider)
+	if !ok || p.smallModel == "" {
+		return "", false
+	}
+	return p.smallModel, true
 }
 
 // Destinations returns the public APIs and endpoints a provider's file
@@ -239,6 +250,7 @@ func (d Destination) resolve(model string) string {
 type provider struct {
 	name         string
 	defaultModel string
+	smallModel   string
 	destinations []Destination
 	entries      []Entry
 	index        map[string]int
@@ -305,6 +317,7 @@ type fileJSON struct {
 	Provider     string        `json:"provider"`
 	Source       string        `json:"source"`
 	Default      string        `json:"default"`
+	Small        string        `json:"small,omitempty"`
 	Destinations []Destination `json:"destinations"`
 	Models       []entryJSON   `json:"models"`
 }
@@ -339,6 +352,7 @@ func parse(data []byte) (provider, error) {
 	p := provider{
 		name:         f.Provider,
 		defaultModel: f.Default,
+		smallModel:   f.Small,
 		destinations: f.Destinations,
 		index:        make(map[string]int, len(f.Models)),
 	}
@@ -381,6 +395,15 @@ func parse(data []byte) (provider, error) {
 			"default %q must be a current catalog model",
 			p.defaultModel,
 		)
+	}
+	if p.smallModel != "" {
+		i, ok := p.index[p.smallModel]
+		if !ok || p.entries[i].Lifecycle == LifecycleDeprecated {
+			return provider{}, fmt.Errorf(
+				"small %q must be a current catalog model",
+				p.smallModel,
+			)
+		}
 	}
 	return p, nil
 }

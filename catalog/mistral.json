@@ -2,6 +2,7 @@
   "provider": "mistral",
   "source": "https://docs.mistral.ai/models/overview",
   "default": "mistral-medium-latest",
+  "small": "mistral-small-latest",
   "destinations": [
     {
       "api": "openai.completions",

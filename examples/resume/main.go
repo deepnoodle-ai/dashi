@@ -6,7 +6,7 @@
 // filerecorder, a durable recorder that keeps each turn in a file, which is
 // what lets the turn outlive the process.
 //
-// Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL, then run:
+// Set ANTHROPIC_API_KEY (and optionally ANTHROPIC_MODEL), then run:
 //
 //	go run ./examples/resume -mode=start
 //	go run ./examples/resume -mode=resume
@@ -56,9 +56,6 @@ func run(ctx context.Context) error {
 	flag.Parse()
 
 	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New("resume: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -81,7 +78,9 @@ func run(ctx context.Context) error {
 
 // newRunner builds the same agent and tools in both processes. A turn
 // records its agent and tool definitions, and Continue refuses a turn whose
-// agent has changed.
+// agent has changed. Bound tools are allowed by default. This example sets
+// the turn ID and every CommandID itself, because a durable turn needs IDs
+// that a retry after a crash can reuse.
 func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -103,14 +102,12 @@ func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 	return dashi.Runner{
 		Agent: dashi.Agent{
 			ID:           "ops-bot",
-			Revision:     "1",
 			Instructions: "You are an ops bot. Use send_email to notify people.",
 			Model:        model,
 		},
 		Client:   client,
 		Tools:    tool.List{sendEmail},
 		Recorder: recorder,
-		Policy:   dashi.AllowLocalPolicy{},
 	}, nil
 }
 

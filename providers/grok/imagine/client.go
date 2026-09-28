@@ -394,6 +394,9 @@ func (c *Client) do(
 	body []byte,
 	contentType string,
 ) ([]byte, error) {
+	if c.noKey != nil {
+		return nil, c.failure(media.ErrorAuthentication, c.noKey)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

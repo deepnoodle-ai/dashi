@@ -32,6 +32,11 @@ model history; projection decisions are explicit and leave facts intact.
 | Agent revision | Pin accepted behavior; each model request also captures its resolved tools and effective settings. |
 | Ownership token | Fence a host's stale writer separately from step revision. |
 
+The runner generates an empty turn ID (on `Start`) and an empty command ID, and
+derives an empty agent revision from the agent's behavior fields; see
+[zero-config.md](zero-config.md). A generated ID cannot deduplicate a retry, so
+durable hosts choose and save their IDs.
+
 All mutating commands carry a stable command ID and payload digest. Repeating the
 same ID and content acknowledges the prior application; changing the content
 conflicts. A different ID cannot settle an already settled subject again. The

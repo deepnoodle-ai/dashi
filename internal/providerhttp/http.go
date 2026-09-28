@@ -42,9 +42,12 @@ type Client struct {
 	// Classify refines rejected responses with an llm.ErrorReason. Nil
 	// applies only the provider-independent rules.
 	Classify Classifier
-	scope    string
-	models   map[string]llm.ModelInfo
-	policy   llm.CapabilityPolicy
+	// NoKey, when set, is returned by Post before dispatch. Constructors set
+	// it with NoAPIKey when the public endpoint has no key.
+	NoKey  error
+	scope  string
+	models map[string]llm.ModelInfo
+	policy llm.CapabilityPolicy
 }
 
 // NewClient snapshots configuration and derives a replay namespace from the
@@ -204,6 +207,9 @@ func (c Client) Post(
 	ctx context.Context,
 	p llm.Request,
 ) (*http.Response, error) {
+	if c.NoKey != nil {
+		return nil, c.NoKey
+	}
 	request := p.Input()
 	if p.Origin() != c.Origin(request.Model) {
 		return nil, NotDispatched(
@@ -295,6 +301,27 @@ func (c Client) Post(
 		RetryAfter:  pe.retryAfter,
 		Retryable:   shouldRetry(pe.statusCode, pe.code),
 		Cause:       pe,
+	}
+}
+
+// NoAPIKey returns the not-dispatched authentication error for a client with
+// no key, or nil when none is needed. A key is needed only when key is empty
+// and the destination is the provider's public one: a custom endpoint or a
+// custom HTTP client may supply credentials itself. env names the variables
+// the constructor read, such as "ANTHROPIC_API_KEY".
+func NoAPIKey(provider, key string, public bool, env string) error {
+	if key != "" || !public {
+		return nil
+	}
+	return &llm.Error{
+		Provider:    provider,
+		Category:    llm.ErrorAuthentication,
+		Disposition: llm.FailureNotDispatched,
+		Cause: fmt.Errorf(
+			"%w: set %s or Config.APIKey",
+			llm.ErrNoAPIKey,
+			env,
+		),
 	}
 }
 

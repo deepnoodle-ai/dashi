@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -45,6 +46,7 @@ type InteractionsMediaConfig struct {
 // neither.
 type InteractionsMediaClient struct {
 	config      InteractionsMediaConfig
+	noKey       error
 	imageModels map[string]media.ModelInfo
 	videoModels map[string]media.ModelInfo
 }
@@ -58,15 +60,6 @@ var (
 func NewInteractionsMedia(
 	config InteractionsMediaConfig,
 ) (*InteractionsMediaClient, error) {
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GEMINI_API_KEY")
-	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GOOGLE_API_KEY")
-	}
-	if config.APIKey == "" {
-		return nil, errors.New("gemini: Interactions API key is required")
-	}
 	if config.Endpoint == "" {
 		config.Endpoint = DefaultInteractionsEndpoint
 	}
@@ -75,6 +68,14 @@ func NewInteractionsMedia(
 			return nil, errors.New("gemini: custom Interactions endpoint requires provider identity")
 		}
 		config.Provider = "google"
+	}
+	// The Gemini key is read only for the "google" destination, so a client
+	// for another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "google" {
+		config.APIKey = cmp.Or(
+			os.Getenv("GEMINI_API_KEY"),
+			os.Getenv("GOOGLE_API_KEY"),
+		)
 	}
 	u, err := url.Parse(config.Endpoint)
 	if err != nil ||
@@ -95,7 +96,12 @@ func NewInteractionsMedia(
 		config.Client = &client
 	}
 	p := &InteractionsMediaClient{
-		config:      config,
+		config: config,
+		noKey: mediaNoKey(
+			config.APIKey,
+			config.Endpoint == DefaultInteractionsEndpoint &&
+				config.Client == nil,
+		),
 		imageModels: make(map[string]media.ModelInfo, len(config.ImageModels)),
 		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels)),
 	}
@@ -205,6 +211,9 @@ func (p *InteractionsMediaClient) do(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
+	if p.noKey != nil {
+		return nil, p.noKey
+	}
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),

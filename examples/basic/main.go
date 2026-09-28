@@ -1,5 +1,6 @@
 // Command basic makes one model call without an agent or session. Set
-// OPENAI_API_KEY and OPENAI_MODEL before running it.
+// OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
+// catalog's small OpenAI model.
 package main
 
 import (
@@ -9,14 +10,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 func main() {
+	// The llm layer never picks a model; the catalog names one per provider.
 	model := os.Getenv("OPENAI_MODEL")
-	if model == "" || os.Getenv("OPENAI_API_KEY") == "" {
-		log.Fatal("set OPENAI_MODEL and OPENAI_API_KEY")
+	if model == "" {
+		model, _ = catalog.Small("openai")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

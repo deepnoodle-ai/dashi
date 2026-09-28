@@ -30,6 +30,10 @@ const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
 // supply their own stable Provider name and Endpoint.
 type Config struct {
 	Provider string
+	// APIKey defaults to OPENAI_API_KEY, read only when Provider is "openai"
+	// so the key never reaches another destination. With no key
+	// for the public endpoint, New and Prepare still succeed and Send fails
+	// before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey   string
 	Endpoint string
 	Client   *http.Client
@@ -61,17 +65,20 @@ var _ llm.Client = (*Client)(nil)
 // New snapshots destination identity and model evidence. Custom endpoints
 // require a provider name so replay cannot confuse separate services.
 func New(config Config) (*Client, error) {
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("OPENAI_API_KEY")
-	}
 	if config.Endpoint == "" {
 		config.Endpoint = openAIEndpoint
 	}
+	public := config.Endpoint == openAIEndpoint && config.Client == nil
 	if config.Provider == "" {
 		if config.Endpoint != openAIEndpoint {
 			return nil, errors.New("completions: custom endpoint requires provider identity")
 		}
 		config.Provider = "openai"
+	}
+	// The openai key is read only for the openai destination, so a
+	// client for another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "openai" {
+		config.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
 	if config.SystemRole == "" {
 		config.SystemRole = llm.RoleDeveloper
@@ -105,6 +112,12 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	client.Classify = providerhttp.OpenAIReason
+	client.NoKey = providerhttp.NoAPIKey(
+		config.Provider,
+		config.APIKey,
+		public,
+		"OPENAI_API_KEY",
+	)
 	return &Client{
 		client:       client,
 		systemRole:   config.SystemRole,

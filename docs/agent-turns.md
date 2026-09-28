@@ -8,14 +8,19 @@ The root `dashi` package runs one identified turn at a time. An `Agent` pins
 reusable behavior and limits as plain JSON data. A `Runner` holds the agent and
 its long-lived services: the model client, tool source, policy, and optional
 recorder and observer. An empty `Agent.Provider` or `Agent.API` is filled from
-the runner's client; a value that differs from the client's is an error. The
-caller supplies a stable turn ID (`dashi.NewTurn(id)`) and a unique `CommandID`
-for each `Start`, `Deliver`, `Continue`, `Settle`, or `Cancel` command. The
-command ID is an idempotency key: repeating it with the same payload
-acknowledges the recorded step without repeating an effect. Pass the returned
-`Outcome.Turn` to the next call, or reload it from a durable recorder. When the
-recorder implements `Loader`, Dashi can refresh a stale turn snapshot on a
-retried command. Reusing a command ID with different content fails. `Start`
+the runner's client; a value that differs from the client's is an error. An
+empty `Model` is the provider's `catalog.Default`, and an empty `Revision` is
+derived from the agent's behavior fields. On an existing turn, a zero `Agent` is
+the recorded one, and a partly set agent takes its empty `ID`, `Model`, and
+`Revision` from the record. The turn ID (`dashi.NewTurn(id)`) and each command's
+`CommandID` are generated when empty (`dashi.NewID`), but a durable host should
+choose and save them before the call. The command ID is an idempotency key:
+repeating it with the same payload acknowledges the recorded step without
+repeating an effect, which a generated ID cannot do for a retry. Pass the
+returned `Outcome.Turn` to the next call, or reload it from a durable recorder.
+When the recorder implements `Loader`, Dashi can refresh a stale turn snapshot
+on a retried command, and rejects a snapshot whose recorded agent differs from
+the stored one. Reusing a command ID with different content fails. `Start`
 records its origin and own input, plus a fingerprint of `Start.History`. Pass
 the earlier conversation again in `Continue.History` on every resume, including
 after a crash. Dashi uses it for that call's model requests; the saved turn
@@ -182,9 +187,10 @@ digest, and policy revision. Copy the digest from the pending call's
 `ToolView.ArgsDigest` (from `Replay`), or compute it with `dashi.ArgsDigest`
 from the arguments shown; it binds the answer to the arguments' JSON meaning,
 so it survives a store that respells them. Provider-hosted approval is a
-separate response; it never becomes a locally executable tool call. The
-default policy denies client tools. Use `AllowLocalPolicy` only when that
-permission is intended.
+separate response; it never becomes a locally executable tool call. A nil
+`Runner.Policy` allows every bound local and external tool and records
+decision revision `default-v1`; binding a tool is the app's statement that the
+model may use it. Supply a policy to deny or defer calls.
 Context from a user, library, or tool uses the user message role; only
 operator-sourced context may use a system or developer role. The host must
 authorize who can submit operator context.
