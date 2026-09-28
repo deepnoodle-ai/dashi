@@ -396,7 +396,7 @@ type Input struct {
 // checked by Client.Prepare.
 func (r Input) Validate() error {
 	if r.Model == "" {
-		return errors.New("llm: model is required")
+		return errors.New("llm: model is required; catalog.Default names a provider's general-purpose model")
 	}
 	if err := r.ContentPolicy.Validate(); err != nil {
 		return err

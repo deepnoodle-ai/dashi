@@ -148,6 +148,25 @@ func TestDefaultModelIsCurrentEntry(t *testing.T) {
 	}
 }
 
+func TestSmallModelIsCurrentEntry(t *testing.T) {
+	for _, name := range []string{"anthropic", "google", "grok", "mistral", "openai"} {
+		model, ok := Small(name)
+		if !ok {
+			t.Fatalf("%s has no small model", name)
+		}
+		e, ok := Find(name, model)
+		if !ok || e.Lifecycle == LifecycleDeprecated {
+			t.Fatalf("%s small %q is not a current entry", name, model)
+		}
+	}
+	if model, ok := Small("meta"); ok {
+		t.Fatalf("meta small = %q, want none", model)
+	}
+	if _, ok := Small("no-such-provider"); ok {
+		t.Fatal("unknown provider has a small model")
+	}
+}
+
 func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
 	// Dashi's Messages client sends no cache_control, so every write it can
 	// cause is a 5-minute write at 1.25x input. Adding TTL control must add a

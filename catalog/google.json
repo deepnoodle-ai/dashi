@@ -2,6 +2,7 @@
   "provider": "google",
   "source": "https://ai.google.dev/api/models",
   "default": "gemini-3.8-flash",
+  "small": "gemini-3.5-flash-lite",
   "destinations": [
     {
       "api": "google.generate_content",

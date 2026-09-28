@@ -2,6 +2,7 @@
   "provider": "grok",
   "source": "https://docs.x.ai/developers/models",
   "default": "grok-4.7",
+  "small": "grok-4.20-0309-non-reasoning",
   "destinations": [
     {
       "api": "openai.responses",
