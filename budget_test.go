@@ -80,21 +80,24 @@ func runBudgetTurn(
 	policy Policy,
 ) Outcome {
 	t.Helper()
-	def := definition()
+	def := testAgent()
 	def.Settings = settings
 	if policy == nil {
 		policy = AllowLocalPolicy{}
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:  def,
+		Client: client,
+		Tools:  tools,
+		Policy: policy,
+	}).Run(
 		t.Context(),
 		Turn{ID: "budget"},
-		def,
 		Start{
-			ID:     "start",
-			Budget: budget,
-			Input:  []llm.Message{llm.UserMessage(llm.Text("answer"))},
+			CommandID: "start",
+			Budget:    budget,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
-		Bindings{Client: client, Tools: tools, Policy: policy},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -353,25 +356,24 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	client := newPricedClient(first, second)
 	lookup := budgetLookup(nil)
 	initial := &Budget{MaxCost: &Money{Amount: amount("0.0016"), Currency: "USD"}}
-	def := definition()
+	def := testAgent()
 	def.Settings.MaxTokens = 500
 	rec := NewMemoryRecorder()
-	b := Bindings{
+	runner := Runner{
+		Agent:    def,
 		Client:   client,
 		Tools:    fixedTools{lookup},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "raise"},
-		def,
 		Start{
-			ID:     "start",
-			Budget: initial,
-			Input:  []llm.Message{llm.UserMessage(llm.Text("lookup"))},
+			CommandID: "start",
+			Budget:    initial,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
 		},
-		b,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -384,12 +386,10 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 		t.Fatalf("first phase sent %d calls", client.sends)
 	}
 	raised := &Budget{MaxCost: &Money{Amount: amount("0.003"), Currency: "USD"}}
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		out.Turn,
-		def,
-		Continue{ID: "raise", Budget: raised},
-		b,
+		Continue{CommandID: "raise", Budget: raised},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -534,23 +534,22 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 	second.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 20}
 	client := newPricedClient(first, second)
 	lookup := budgetLookup(nil)
-	def := definition()
+	def := testAgent()
 	def.Settings.MaxTokens = 100
-	b := Bindings{
+	runner := Runner{
+		Agent:  def,
 		Client: client,
 		Tools:  fixedTools{lookup},
 		Policy: AllowLocalPolicy{},
 	}
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "tokens"},
-		def,
 		Start{
-			ID:     "start",
-			Budget: &Budget{MaxOutputTokens: 50},
-			Input:  []llm.Message{llm.UserMessage(llm.Text("lookup"))},
+			CommandID: "start",
+			Budget:    &Budget{MaxOutputTokens: 50},
+			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
 		},
-		b,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -562,12 +561,10 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 	if client.inputs[0].Settings.MaxTokens != 50 {
 		t.Fatalf("first allowance=%d", client.inputs[0].Settings.MaxTokens)
 	}
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		out.Turn,
-		def,
-		Continue{ID: "raise", Budget: &Budget{MaxOutputTokens: 100}},
-		b,
+		Continue{CommandID: "raise", Budget: &Budget{MaxOutputTokens: 100}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -599,20 +596,22 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	def := definition()
+	def := testAgent()
 	def.Settings.MaxTokens = 100
-	_, err := (Engine{}).Apply(
+	_, err := (Runner{
+		Agent:  def,
+		Client: client,
+		Policy: AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		out.Turn,
-		def,
 		Continue{
-			ID: "lower",
+			CommandID: "lower",
 			Budget: &Budget{
 				MaxOutputTokens: 40,
 				MaxCost:         &Money{Amount: amount("0.001"), Currency: "USD"},
 			},
 		},
-		Bindings{Client: client, Policy: AllowLocalPolicy{}},
 	)
 	if err == nil {
 		t.Fatal("decreasing a cap should fail before a write")
@@ -690,21 +689,23 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 		cancel:       cancel,
 		usage:        usage,
 	}
-	def := definition()
+	def := testAgent()
 	def.Settings.MaxTokens = 100
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:  def,
+		Client: client,
+		Policy: AllowLocalPolicy{},
+	}).Run(
 		ctx,
 		Turn{ID: "partial"},
-		def,
 		Start{
-			ID: "start",
+			CommandID: "start",
 			Budget: &Budget{
 				MaxOutputTokens: 2,
 				MaxCost:         &Money{Amount: amount("0.01"), Currency: "USD"},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
-		Bindings{Client: client, Policy: AllowLocalPolicy{}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -781,16 +782,14 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if settled.Charge.Total != amount("0.000102") {
 				t.Fatalf("estimated charge=%s", settled.Charge.Total)
 			}
-			def := definition()
+			def := testAgent()
 			def.Settings.MaxTokens = 100
 			client := newPricedClient(final("unused"))
-			continued, err := (Engine{}).Apply(
-				t.Context(),
-				out.Turn,
-				def,
-				Continue{ID: "resume"},
-				Bindings{Client: client, Policy: AllowLocalPolicy{}},
-			)
+			continued, err := (Runner{
+				Agent:  def,
+				Client: client,
+				Policy: AllowLocalPolicy{},
+			}).Run(t.Context(), out.Turn, Continue{CommandID: "resume"})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -16,18 +16,16 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		llm.AssistantMessage(llm.Text("earlier answer")),
 	}
 	start := Start{
-		ID:      "start",
-		Origin:  StartScheduled,
-		History: history,
-		Input:   []llm.Message{llm.UserMessage(llm.Text("scheduled report"))},
+		CommandID: "start",
+		Origin:    StartScheduled,
+		History:   history,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("scheduled report"))},
 	}
-	first, err := (Engine{}).Apply(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		start,
-		Bindings{Client: client, Recorder: rec},
-	)
+	first, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), Turn{ID: "t1"}, start)
 	if err != nil || first.Stop.Kind != StopCompleted {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
@@ -49,17 +47,15 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		t.Fatalf("projected=%+v err=%v", projected, err)
 	}
 	again := Start{
-		ID:      "start",
-		Origin:  StartScheduled,
-		History: history,
-		Input:   start.Input,
+		CommandID: "start",
+		Origin:    StartScheduled,
+		History:   history,
+		Input:     start.Input,
 	}
-	_, err = (Engine{}).Apply(
+	_, err = (Runner{Agent: testAgent(), Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
 		again,
-		Bindings{Client: client, Recorder: rec},
 	)
 	if err != ErrCommandConflict {
 		t.Fatalf("changed accepted history did not conflict: %v", err)
@@ -78,12 +74,14 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 		{StartUser, false},
 	} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
-		out, err := (Engine{}).Apply(
+		out, err := (Runner{
+			Agent:    testAgent(),
+			Client:   client,
+			Recorder: NewMemoryRecorder(),
+		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
-			definition(),
-			Start{ID: "start", Origin: tc.origin, Input: []llm.Message{message}},
-			Bindings{Client: client, Recorder: NewMemoryRecorder()},
+			Start{CommandID: "start", Origin: tc.origin, Input: []llm.Message{message}},
 		)
 		if tc.valid && (err != nil || out.Stop.Kind != StopCompleted) {
 			t.Fatalf("origin %q rejected: out=%+v err=%v", tc.origin, out, err)

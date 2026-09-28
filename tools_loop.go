@@ -203,7 +203,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					break
 				}
 				view, _ := Replay(r.turn)
-				decision, err = r.b.Policy.AuthorizeTool(ctx, call.Clone(), view)
+				decision, err = r.runner.Policy.AuthorizeTool(ctx, call.Clone(), view)
 				if err != nil {
 					return r.failureOrContext(err), true
 				}
@@ -302,10 +302,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if v.Definition.Kind == tool.KindProviderHosted {
 			return r.stop(StopFailed, "hosted tool cannot execute locally"), true
 		}
-		if r.b.Tools == nil {
+		if r.runner.Tools == nil {
 			return r.stop(StopFailed, "tool binding unavailable"), true
 		}
-		bound, err := r.b.Tools.Tools(ctx)
+		bound, err := r.runner.Tools.Tools(ctx)
 		if err != nil {
 			return r.failureOrContext(err), true
 		}
@@ -325,7 +325,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if ex == nil {
 			return r.stop(StopFailed, "tool binding changed or unavailable"), true
 		}
-		if running >= r.def.Limits.ToolConcurrency {
+		if running >= r.agent.Limits.ToolConcurrency {
 			if o := drainOne(); o != nil {
 				cancel()
 				return *o, true
@@ -394,7 +394,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 // cannot leave the dispatcher waiting on results with running overcounted.
 // This single dispatch path serves both sequential and parallel calls. A
 // panic is recovered, not re-raised: the call may have taken effect before it
-// panicked, so its result is unknown and the engine records it as uncertain
+// panicked, so its result is unknown and the runner records it as uncertain
 // rather than running it again.
 func execute(
 	ctx context.Context,
@@ -415,7 +415,7 @@ func execute(
 // and, when the result ends the turn, the StopFailed reason. It applies the
 // contract in design/decisions.md entry 1: an error is a failure the model
 // sees, tool.ErrFatal also stops the turn, and uncertainty is reserved for a
-// result the engine did not observe. An invalid outcome was observed, so it is
+// result the runner did not observe. An invalid outcome was observed, so it is
 // a fatal executor bug, not uncertainty.
 func toolSettlement(v toolResult) (Step, string) {
 	fact := &ToolFact{Call: v.call}

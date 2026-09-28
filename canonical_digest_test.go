@@ -268,7 +268,8 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 			}, nil
 		},
 	)
-	bindings := Bindings{
+	runner := Runner{
+		Agent:    testAgent(),
 		Client:   client,
 		Tools:    fixedTools{binding},
 		Recorder: rec,
@@ -276,16 +277,14 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	}
 	history := messyHistory()
 
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
-		bindings,
 	)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
@@ -301,16 +300,14 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	}
 
 	// A retried Start on the reloaded turn is the same command.
-	again, err := (Engine{}).Apply(
+	again, err := runner.Run(
 		t.Context(),
 		turn,
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
-		bindings,
 	)
 	if err != nil || again.Stop.Kind != StopWaiting {
 		t.Fatalf("retried start=%+v err=%v", again.Stop, err)
@@ -331,28 +328,24 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		ArgsDigest:     digest(messyArgs),
 		PolicyRevision: "policy-v1",
 	}
-	accept := Accept{ID: "approve", CallID: "call-1", Approval: &approval}
-	out, err = (Engine{}).Apply(t.Context(), turn, definition(), accept, bindings)
+	settle := Settle{CommandID: "approve", CallID: "call-1", Approval: &approval}
+	out, err = runner.Run(t.Context(), turn, settle)
 	if err != nil || !out.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", out, err)
 	}
 	turn = reload(t, rec, "t1")
-	if _, err := (Engine{}).Apply(
+	if _, err := runner.Run(
 		t.Context(),
 		turn,
-		definition(),
-		accept,
-		bindings,
+		settle,
 	); err != nil {
 		t.Fatalf("retried approval: %v", err)
 	}
 
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		turn,
-		definition(),
-		Continue{ID: "continue", History: jsonbRoundTrip(history)},
-		bindings,
+		Continue{CommandID: "continue", History: jsonbRoundTrip(history)},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || runs != 1 {
 		t.Fatalf("continue=%+v err=%v runs=%d", out.Stop, err, runs)
@@ -397,7 +390,8 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 			}, nil
 		},
 	)
-	bindings := Bindings{
+	runner := Runner{
+		Agent:    testAgent(),
 		Client:   client,
 		Tools:    fixedTools{binding},
 		Recorder: rec,
@@ -405,16 +399,14 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	}
 	history := messyHistory()
 
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		ctx,
 		Turn{ID: "t1"},
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
-		bindings,
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
@@ -427,12 +419,10 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	}
 
 	turn := reload(t, rec, "t1")
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		turn,
-		definition(),
-		Continue{ID: "resume", History: stored},
-		bindings,
+		Continue{CommandID: "resume", History: stored},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || runs != 2 {
 		t.Fatalf("resume=%+v err=%v runs=%d", out.Stop, err, runs)
@@ -475,21 +465,19 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		},
 	}
 	history := messyHistory()
-	bindings := Bindings{
-		Client:            client,
-		Recorder:          rec,
-		OnHistoryMismatch: HistoryMismatchReject,
+	runner := Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
 	}
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		ctx,
 		Turn{ID: "t1"},
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
-		bindings,
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
@@ -500,12 +488,14 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	if bytes.Equal(a, b) {
 		t.Fatal("simulation left the history byte-identical")
 	}
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		mustLoad(t, rec),
-		definition(),
-		Continue{ID: "continue", History: stored},
-		bindings,
+		Continue{
+			CommandID:         "continue",
+			History:           stored,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf(
@@ -521,12 +511,14 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	}
 	// A genuinely different history is still rejected.
 	other := append(stored, llm.UserMessage(llm.Text("extra")))
-	_, err = (Engine{}).Apply(
+	_, err = runner.Run(
 		t.Context(),
 		mustLoad(t, rec),
-		definition(),
-		Continue{ID: "continue-2", History: other},
-		bindings,
+		Continue{
+			CommandID:         "continue-2",
+			History:           other,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
 	)
 	if !errors.Is(err, ErrHistoryMismatch) {
 		t.Fatalf("different history err=%v", err)

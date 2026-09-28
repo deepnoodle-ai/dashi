@@ -13,8 +13,8 @@ import (
 
 var answerSchema = json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`)
 
-func structuredDefinition() Definition {
-	d := definition()
+func structuredAgent() Agent {
+	d := testAgent()
 	d.OutputSchema = append(json.RawMessage(nil), answerSchema...)
 	return d
 }
@@ -38,19 +38,18 @@ func applyStructured(
 	rec Recorder,
 ) Outcome {
 	t.Helper()
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    structuredAgent(),
+		Client:   client,
+		Tools:    tools,
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		structuredDefinition(),
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    tools,
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
 	if err != nil {
@@ -104,19 +103,18 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	if string(out.Output.Value) != `{"answer":42}` {
 		t.Fatal("structured output shares mutable bytes")
 	}
-	again, err := (Engine{}).Apply(
+	again, err := (Runner{
+		Agent:    structuredAgent(),
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		out.Turn,
-		structuredDefinition(),
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
 	if err != nil || again.Stop.Kind != StopCompleted || client.sends != 2 || runs != 1 {
@@ -206,13 +204,12 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 	if err != nil || view.Tools["submission"].Status != ToolStarted {
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
-	second, err := (Engine{}).Apply(
-		t.Context(),
-		saved,
-		structuredDefinition(),
-		Continue{ID: "recover"},
-		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}},
-	)
+	second, err := (Runner{
+		Agent:    structuredAgent(),
+		Client:   client,
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || second.Stop.Kind != StopCompleted || second.Output == nil || client.sends != 1 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
 	}
@@ -236,26 +233,21 @@ func TestStructuredOutputRecordRejectsForgedValue(t *testing.T) {
 
 func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	const schema = `{"type":"object","properties":{"label":{"type":"string"}},"required":["label"],"additionalProperties":false}`
-	def := structuredDefinition()
+	def := structuredAgent()
 	client := &scriptedClient{
 		results: []llm.Result{submitResult("submission", `{"label":"ready"}`)},
 	}
 	start := Start{
-		ID:           "start",
+		CommandID:    "start",
 		Input:        []llm.Message{llm.UserMessage(llm.Text("status"))},
 		OutputSchema: json.RawMessage(schema),
 	}
-	out, err := (Engine{}).Apply(
-		t.Context(),
-		Turn{ID: "t1"},
-		def,
-		start,
-		Bindings{
-			Client:   client,
-			Recorder: NewMemoryRecorder(),
-			Policy:   AllowLocalPolicy{},
-		},
-	)
+	out, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), Turn{ID: "t1"}, start)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"label":"ready"}` {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
@@ -263,7 +255,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 		t.Fatalf("submitted schema=%+v", client.inputs)
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || string(view.OutputSchema) != schema || string(view.Definition.OutputSchema) != string(answerSchema) {
+	if err != nil || string(view.OutputSchema) != schema || string(view.Agent.OutputSchema) != string(answerSchema) {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 	// The admitted request is part of the record; altering it invalidates the
@@ -289,19 +281,18 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 		`{`,
 	} {
 		client := &scriptedClient{}
-		out, err := (Engine{}).Apply(
+		out, err := (Runner{
+			Agent:    testAgent(),
+			Client:   client,
+			Recorder: NewMemoryRecorder(),
+			Policy:   AllowLocalPolicy{},
+		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
-			definition(),
 			Start{
-				ID:           "start",
+				CommandID:    "start",
 				Input:        []llm.Message{llm.UserMessage(llm.Text("answer"))},
 				OutputSchema: json.RawMessage(schema),
-			},
-			Bindings{
-				Client:   client,
-				Recorder: NewMemoryRecorder(),
-				Policy:   AllowLocalPolicy{},
 			},
 		)
 		if err == nil || len(out.Turn.Steps) != 0 || client.sends != 0 {
@@ -351,15 +342,18 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := tool.Outcome{State: tool.StateSucceeded}
-	_, err = (Engine{}).Apply(
+	_, err = (Runner{
+		Agent:    structuredAgent(),
+		Client:   client,
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		saved,
-		structuredDefinition(),
-		Accept{ID: "host-result", CallID: "submission", Outcome: &result},
-		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}},
+		Settle{CommandID: "host-result", CallID: "submission", Outcome: &result},
 	)
 	if err == nil {
-		t.Fatal("host settled an engine-owned output submission")
+		t.Fatal("host settled a runner-owned output submission")
 	}
 }
 
@@ -397,46 +391,41 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		t.Fatalf("stop=%q", view.Stop.Kind)
 	}
 
-	def := structuredDefinition()
-	bindings := Bindings{
+	def := structuredAgent()
+	runner := Runner{
+		Agent:    def,
 		Client:   client,
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}
 	deliver := Deliver{
-		ID: "nudge",
+		CommandID: "nudge",
 		Items: []ContextItem{
 			{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
 		},
 	}
-	if _, err := (Engine{}).Apply(
+	if _, err := runner.Run(
 		t.Context(),
 		saved,
-		def,
 		deliver,
-		bindings,
 	); err == nil {
 		t.Fatal("deliver accepted after recorded output")
 	}
 	assertStepCount(t, base, len(saved.Steps))
 
-	if _, err := (Engine{}).Apply(
+	if _, err := runner.Run(
 		t.Context(),
 		saved,
-		def,
-		Cancel{ID: "cancel"},
-		bindings,
+		Cancel{CommandID: "cancel"},
 	); err == nil {
 		t.Fatal("cancel accepted after recorded output")
 	}
 	assertStepCount(t, base, len(saved.Steps))
 
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		saved,
-		def,
-		Continue{ID: "recover"},
-		bindings,
+		Continue{CommandID: "recover"},
 	)
 	if err != nil {
 		t.Fatal(err)

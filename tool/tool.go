@@ -246,7 +246,7 @@ func (o Output) Clone() Output {
 type State string
 
 // Outcome states. StateFailed is a known failure the model sees, whether the
-// executor returned it or the engine derived it from an executor's error.
+// executor returned it or the runner derived it from an executor's error.
 const (
 	// StateSucceeded requires output from a completed call.
 	StateSucceeded State = "succeeded"
@@ -356,12 +356,12 @@ func (o Outcome) Validate() error {
 }
 
 // Executor runs one call. A returned error is a failure the model sees: the
-// engine records the call as StateFailed with the error text and continues the
+// runner records the call as StateFailed with the error text and continues the
 // turn, ignoring any Outcome returned with it. Returning an Outcome with
 // StateFailed and nil error does the same with content the tool chooses. Wrap
 // the error with Fatal when continuing the turn would be wrong.
 //
-// An executor never reports uncertainty. The engine alone decides that a
+// An executor never reports uncertainty. The runner alone decides that a
 // result was not observed: after a panic, or when a recorded start has no
 // recorded result after a crash.
 type Executor interface {
@@ -382,7 +382,7 @@ var ErrInvalidOutcome = errors.New("tool: invalid outcome")
 // errors.Is and errors.As still see err and the recorded text is unchanged.
 // Use it for faults the model cannot correct and should not be told to work
 // around: an infrastructure outage, lost or revoked credentials, a broken
-// dependency, or any state in which continuing the turn is wrong. The engine
+// dependency, or any state in which continuing the turn is wrong. The runner
 // records the call as failed and stops the turn; the host can fix the fault
 // and continue it. Fatal(nil) returns ErrFatal, so a fatal marker is never
 // lost.

@@ -85,19 +85,21 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &sendPlans{}
-	out, err := (kernel.Engine{}).Apply(
-		t.Context(),
-		kernel.Turn{ID: "capped"},
-		kernel.Definition{
+	out, err := (kernel.Runner{
+		Agent: kernel.Agent{
 			ID:       "agent",
 			Revision: "r1",
 			Provider: "router",
 			API:      completions.API,
 			Model:    "priced",
-			Limits:   kernel.DefaultLimits(),
 		},
+		Client: client,
+		Policy: policy,
+	}).Run(
+		t.Context(),
+		kernel.Turn{ID: "capped"},
 		kernel.Start{
-			ID: "start",
+			CommandID: "start",
 			Budget: &kernel.Budget{
 				MaxCost: &kernel.Money{
 					Amount:   money.MustParseAmount("1"),
@@ -106,7 +108,6 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
 		},
-		kernel.Bindings{Client: client, Policy: policy},
 	)
 	if err != nil {
 		t.Fatal(err)

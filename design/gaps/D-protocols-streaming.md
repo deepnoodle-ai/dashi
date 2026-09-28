@@ -3,6 +3,10 @@
 Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
+**Names:** written before [decision 30](../decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 Kernel's record model is already the right source for both protocols. It has a
 gap-free per-turn `Seq`, steps emitted only after the recorder acknowledges
 them, a message ID reserved before the model call, a separate step kind for each

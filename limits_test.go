@@ -11,7 +11,7 @@ import (
 )
 
 func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits = Limits{}
 	want := Limits{
 		ModelAttempts:   8,
@@ -28,7 +28,7 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 }
 
 func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits = Limits{
 		ModelAttempts:         2,
 		Interruptions:         4,
@@ -42,7 +42,7 @@ func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 }
 
 func TestLimitsNegativeCountResolvesToNone(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits = Limits{Interruptions: -5, ProviderPauses: -2}
 	if err := def.Validate(); err != nil {
 		t.Fatalf("negative none counts were rejected: %v", err)
@@ -66,7 +66,7 @@ func TestLimitsRejectNegativeAttemptsAndConcurrency(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := definition()
+			def := testAgent()
 			def.Limits = tt.limits
 			if err := def.Validate(); err == nil {
 				t.Fatal("negative limit was accepted")
@@ -76,19 +76,17 @@ func TestLimitsRejectNegativeAttemptsAndConcurrency(t *testing.T) {
 }
 
 func TestNegativeProviderPausesAllowsNone(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.ProviderPauses = -1
 	paused := llm.Result{
 		Message: llm.AssistantMessage(llm.Text("working")),
 		Stop:    llm.Stop{Kind: llm.StopPause},
 	}
 	client := &scriptedClient{results: []llm.Result{paused, final("done")}}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{Agent: def, Client: client}).Run(
 		t.Context(),
 		Turn{ID: "pauses"},
-		def,
 		limitsStart(),
-		Bindings{Client: client},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -105,18 +103,17 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 }
 
 func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.Interruptions = -1
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	close(pause)
-	first, err := (Engine{}).Apply(
+	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "interruptions"},
-		def,
 		limitsStart(),
-		Bindings{Client: client, Recorder: rec, Pause: pause},
+		WithPause(pause),
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
@@ -124,12 +121,10 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	if first.ReadyToContinue {
 		t.Fatal("interrupted turn is ready to continue with no resumes allowed")
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
-		def,
-		Continue{ID: "resume"},
-		Bindings{Client: client, Recorder: rec},
+		Continue{CommandID: "resume"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +141,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 }
 
 func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalAnswer: true}
 	client := &scriptedClient{
 		results: []llm.Result{callResult("lookup-1", "lookup"), final("42")},
@@ -159,17 +154,12 @@ func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 		},
 		Executor: execFunc(lookup42),
 	}
-	out, err := (Engine{}).Apply(
-		t.Context(),
-		Turn{ID: "no-reserve"},
-		def,
-		limitsStart(),
-		Bindings{
-			Client: client,
-			Tools:  fixedTools{binding},
-			Policy: AllowLocalPolicy{},
-		},
-	)
+	out, err := (Runner{
+		Agent:  def,
+		Client: client,
+		Tools:  fixedTools{binding},
+		Policy: AllowLocalPolicy{},
+	}).Run(t.Context(), Turn{ID: "no-reserve"}, limitsStart())
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v, want completed", out.Stop, err)
 	}
@@ -178,19 +168,18 @@ func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 	}
 }
 
-func TestRecordedDefinitionKeepsResolvedLimits(t *testing.T) {
-	def := definition()
+func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
+	def := testAgent()
 	def.Limits = Limits{}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	close(pause)
-	first, err := (Engine{}).Apply(
+	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "recorded"},
-		def,
 		limitsStart(),
-		Bindings{Client: client, Recorder: rec, Pause: pause},
+		WithPause(pause),
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
@@ -198,7 +187,7 @@ func TestRecordedDefinitionKeepsResolvedLimits(t *testing.T) {
 	var record struct {
 		Limits map[string]any `json:"limits"`
 	}
-	raw, err := json.Marshal(first.Turn.Steps[0].Started.Definition)
+	raw, err := json.Marshal(first.Turn.Steps[0].Started.Agent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,35 +211,31 @@ func TestRecordedDefinitionKeepsResolvedLimits(t *testing.T) {
 	old := first.Turn
 	old.Steps = cloneTurn(first.Turn).Steps
 	older := *old.Steps[0].Started
-	older.Definition.Limits.Interruptions = 7
+	older.Agent.Limits.Interruptions = 7
 	old.Steps[0].Started = &older
 	view, err := Replay(old)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Definition.Limits.Interruptions != 7 {
+	if view.Agent.Limits.Interruptions != 7 {
 		t.Fatalf(
 			"replayed interruptions=%d, want recorded 7",
-			view.Definition.Limits.Interruptions,
+			view.Agent.Limits.Interruptions,
 		)
 	}
-	if _, err := (Engine{}).Apply(
+	if _, err := (Runner{Agent: def, Client: client}).Run(
 		t.Context(),
 		old,
-		def,
-		Continue{ID: "resume"},
-		Bindings{Client: client},
-	); !errors.Is(err, ErrDefinitionChanged) {
+		Continue{CommandID: "resume"},
+	); !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("zero limits matched a record with other values: %v", err)
 	}
 	pinned := def
-	pinned.Limits = view.Definition.Limits
-	out, err := (Engine{}).Apply(
+	pinned.Limits = view.Agent.Limits
+	out, err := (Runner{Agent: pinned, Client: client}).Run(
 		t.Context(),
 		old,
-		pinned,
-		Continue{ID: "resume"},
-		Bindings{Client: client},
+		Continue{CommandID: "resume"},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("pinned continue: stop=%+v err=%v", out.Stop, err)
@@ -259,8 +244,8 @@ func TestRecordedDefinitionKeepsResolvedLimits(t *testing.T) {
 
 func limitsStart() Start {
 	return Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	}
 }
 

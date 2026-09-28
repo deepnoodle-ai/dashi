@@ -16,7 +16,7 @@ func limitedForAttempts(stop Stop) bool {
 }
 
 func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits = Limits{ModelAttempts: 2}
 	def.Settings.ToolChoice = &llm.ToolChoice{Mode: llm.ToolChoiceAny}
 	client := &scriptedClient{
@@ -41,19 +41,18 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		}),
 	}
 	rec := NewMemoryRecorder()
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
 	if err != nil || !limitedForAttempts(out.Stop) ||
@@ -81,19 +80,18 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	if err != nil || view.ModelAttempts != 2 || view.Stop.Kind != StopLimited {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
-	again, err := (Engine{}).Apply(
+	again, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		out.Turn,
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
 	if err != nil || again.Stop.Kind != StopLimited || client.sends != 2 || runs != 1 {
@@ -105,24 +103,19 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 			runs,
 		)
 	}
-	if _, err := (Engine{}).Apply(
-		t.Context(),
-		out.Turn,
-		def,
-		Continue{ID: "too-late"},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
-	); err == nil {
+	if _, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), out.Turn, Continue{CommandID: "too-late"}); err == nil {
 		t.Fatal("exhausted turn accepted a continuation")
 	}
 }
 
 func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
-	def := structuredDefinition()
+	def := structuredAgent()
 	def.Limits.ModelAttempts = 2
 	client := &scriptedClient{
 		results: []llm.Result{
@@ -131,19 +124,18 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 		},
 	}
 	binding := answerLookup()
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: NewMemoryRecorder(),
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: NewMemoryRecorder(),
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
 	if err != nil || !limitedForAttempts(out.Stop) ||
@@ -218,7 +210,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 		})
 	}
 
-	def := structuredDefinition()
+	def := structuredAgent()
 	def.Limits.ModelAttempts = 2
 	final := &scriptedClient{
 		results: []llm.Result{
@@ -227,21 +219,20 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 		},
 	}
 	start := Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 	}
-	bindings := Bindings{
+	runner := Runner{
+		Agent:    def,
 		Client:   final,
 		Tools:    fixedTools{answerLookup()},
 		Recorder: NewMemoryRecorder(),
 		Policy:   AllowLocalPolicy{},
 	}
-	limited, err := (Engine{}).Apply(
+	limited, err := runner.Run(
 		t.Context(),
 		Turn{ID: "limit"},
-		def,
 		start,
-		bindings,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +247,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 }
 
 func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.ModelAttempts = 2
 	client := &scriptedClient{
 		results: []llm.Result{
@@ -279,19 +270,18 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 			}, nil
 		}),
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: NewMemoryRecorder(),
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("look up"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: NewMemoryRecorder(),
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
 	if err != nil || out.Stop.Kind != StopLimited || client.sends != 2 || runs != 1 {
@@ -305,7 +295,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 }
 
 func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.ModelAttempts = 2
 	client := &scriptedClient{
 		results: []llm.Result{callResult("first", "lookup"), final("42")},
@@ -325,19 +315,18 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
-	first, err := (Engine{}).Apply(
+	first, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "limit"},
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("look up"))},
-		},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
 	if err != nil || first.Persistence != PersistenceRejected || client.sends != 2 {
@@ -347,18 +336,13 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := (Engine{}).Apply(
-		t.Context(),
-		saved,
-		def,
-		Continue{ID: "recover"},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
-	)
+	second, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || !limitedForAttempts(second.Stop) ||
 		second.Turn.AnswerText() != "42" || client.sends != 2 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)

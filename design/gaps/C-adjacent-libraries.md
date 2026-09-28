@@ -3,6 +3,10 @@
 Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
+**Names:** written before [decision 30](../decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 Kernel already adopts the survey's hardest-won structural ideas. Its turn record
 acknowledges each step before execution continues. Approvals are made per call
 and bound to the recorded arguments. Limits stop the turn gracefully and do not

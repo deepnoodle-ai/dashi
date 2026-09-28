@@ -1,6 +1,6 @@
 # Turn budgets
 
-The application sets a turn's optional budget on `Start`. A definition has no
+The application sets a turn's optional budget on `Start`. An agent has no
 budget; it still owns the existing model-attempt, interruption, and deadline
 limits. `MaxCost` limits model-call charges. Local tool charges are reported
 separately and need an application-owned ceiling for an all-in price promise.
@@ -8,8 +8,8 @@ A zero token cap or nil cost cap means that dimension is uncapped.
 
 ```go
 start := kernel.Start{
-	ID: "start-123",
-	Input: input,
+	CommandID: "start-123",
+	Input:     input,
 	Budget: &kernel.Budget{
 		MaxOutputTokens: 4_000,
 		MaxTotalTokens:  12_000,

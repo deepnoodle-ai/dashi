@@ -108,20 +108,19 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 		balance: amount("0.01"),
 		holds:   map[string]money.Amount{},
 	}
-	def := definition()
+	def := testAgent()
 	def.Settings.MaxTokens = 100
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Recorder: recorder,
+		Policy:   creditPolicy{recorder: recorder},
+	}).Run(
 		t.Context(),
 		Turn{ID: "credit"},
-		def,
 		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
-		},
-		Bindings{
-			Client:   client,
-			Recorder: recorder,
-			Policy:   creditPolicy{recorder: recorder},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
 	if err != nil {

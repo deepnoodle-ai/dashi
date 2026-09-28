@@ -37,9 +37,9 @@ var ErrInjected = errors.New("kerneltest: injected fault")
 // worker that resumes the turn.
 //
 // Load passes through to the wrapped recorder, including its errors, so
-// Engine.Apply treats the wrapper as it would the recorder. The wrapped
+// Runner.Run treats the wrapper as it would the recorder. The wrapped
 // recorder should be a kernel.Loader; otherwise Load returns an error that is
-// not kernel.ErrTurnNotFound, and Apply returns it.
+// not kernel.ErrTurnNotFound, and Run returns it.
 type FaultRecorder struct {
 	Recorder kernel.Recorder
 	Kind     kernel.StepKind

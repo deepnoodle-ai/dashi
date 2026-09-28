@@ -15,7 +15,7 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// The live agent checks make paid calls through Engine against one provider
+// The live agent checks make paid calls through Runner against one provider
 // client. Callers gate them behind the live build tag, and AgentCredentials
 // skips them unless KERNEL_LIVE_AGENT_TEST=1.
 
@@ -39,7 +39,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:       "reminder-live",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -51,13 +51,16 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			ProviderPauses: 1,
 		},
 	}
-	out, err := (kernel.Engine{}).Apply(
+	out, err := (kernel.Runner{
+		Agent:    def,
+		Client:   client,
+		Recorder: kernel.NewMemoryRecorder(),
+	}).Run(
 		ctx,
 		kernel.Turn{ID: "reminder-live"},
-		def,
 		kernel.Start{
-			ID:     "start",
-			Origin: kernel.StartOperator,
+			CommandID: "start",
+			Origin:    kernel.StartOperator,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder.")),
 				llm.ReminderMessage(llm.Reminder{
@@ -67,7 +70,6 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 				}),
 			},
 		},
-		kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()},
 	)
 	if err != nil || out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted || !strings.Contains(
 		strings.ToLower(out.Turn.AnswerText()),
@@ -97,12 +99,12 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	}
 }
 
-// IteratorTurn makes one paid streamed model call through Engine.Stream.
+// IteratorTurn makes one paid streamed model call through Runner.Stream.
 func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:       "iterator-live",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -112,17 +114,19 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	}
 	var outcome *kernel.Outcome
 	previews, committed := 0, 0
-	for event, err := range (kernel.Engine{}).Stream(
+	for event, err := range (kernel.Runner{
+		Agent:    def,
+		Client:   client,
+		Recorder: kernel.NewMemoryRecorder(),
+	}).Stream(
 		ctx,
 		kernel.Turn{ID: "iterator-live"},
-		def,
 		kernel.Start{
-			ID: "start",
+			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
 			},
 		},
-		kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()},
 	) {
 		if err != nil {
 			t.Fatal(err)
@@ -182,7 +186,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 	}
 	counted := &countingClient{Client: client}
 	limits := kernel.Limits{ModelAttempts: 2}
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:           "limit-live",
 		Revision:     "1",
 		Provider:     client.Provider(),
@@ -195,21 +199,20 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		},
 		Limits: limits,
 	}
-	out, err := (kernel.Engine{}).Apply(
+	out, err := (kernel.Runner{
+		Agent:    def,
+		Client:   counted,
+		Tools:    toolset{typed},
+		Recorder: kernel.NewMemoryRecorder(),
+		Policy:   kernel.AllowLocalPolicy{},
+	}).Run(
 		ctx,
 		kernel.Turn{ID: "limit-live"},
-		def,
 		kernel.Start{
-			ID: "start",
+			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8, then answer with the result.")),
 			},
-		},
-		kernel.Bindings{
-			Client:   counted,
-			Tools:    toolset{typed},
-			Recorder: kernel.NewMemoryRecorder(),
-			Policy:   kernel.AllowLocalPolicy{},
 		},
 	)
 	if err != nil || out.Stop.Kind != kernel.StopLimited || out.Stop.Reason != "model_attempts" ||
@@ -252,7 +255,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:       "live-structured",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -262,19 +265,17 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 		Limits:   kernel.Limits{ModelAttempts: 1},
 	}
 	start := kernel.Start{
-		ID:           "start",
+		CommandID:    "start",
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Call kernel_submit_output with answer equal to 42. Do not write a final text answer.")),
 		},
 	}
-	out, err := (kernel.Engine{}).Apply(
-		ctx,
-		kernel.Turn{ID: "live-structured"},
-		def,
-		start,
-		kernel.Bindings{Client: client, Recorder: kernel.NewMemoryRecorder()},
-	)
+	out, err := (kernel.Runner{
+		Agent:    def,
+		Client:   client,
+		Recorder: kernel.NewMemoryRecorder(),
+	}).Run(ctx, kernel.Turn{ID: "live-structured"}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +311,7 @@ func AgentTurn(
 	modelName string,
 ) {
 	t.Helper()
-	definition := kernel.Definition{
+	agent := kernel.Agent{
 		ID:       provider + "-live",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -324,17 +325,16 @@ func AgentTurn(
 		defer cancel()
 		recorder := kernel.NewMemoryRecorder()
 		start := kernel.Start{
-			ID: "start",
+			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
 			},
 		}
-		out, err := (kernel.Engine{}).Apply(
+		out, err := streamOutcome(
 			ctx,
+			kernel.Runner{Agent: agent, Client: client, Recorder: recorder},
 			kernel.Turn{ID: provider + "-live-stream"},
-			definition,
 			start,
-			kernel.Bindings{Client: client, Recorder: recorder, Stream: true},
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -396,26 +396,25 @@ func AgentTurn(
 			if err != nil {
 				t.Fatal(err)
 			}
-			definition.Instructions = "For multiplication, use multiply_numbers. After the tool result, answer with only the product."
+			agent.Instructions = "For multiplication, use multiply_numbers. After the tool result, answer with only the product."
 			start := kernel.Start{
-				ID: "start",
+				CommandID: "start",
 				Input: []llm.Message{
 					llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8. Answer with the result.")),
 				},
 			}
 			counted := &countingClient{Client: client}
-			bindings := kernel.Bindings{
+			runner := kernel.Runner{
+				Agent:    agent,
 				Client:   counted,
 				Tools:    toolset{typed},
 				Recorder: recorder,
 				Policy:   kernel.AllowLocalPolicy{},
 			}
-			out, err := (kernel.Engine{}).Apply(
+			out, err := runner.Run(
 				ctx,
 				kernel.Turn{ID: turnID},
-				definition,
 				start,
-				bindings,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -474,12 +473,10 @@ func AgentTurn(
 					t.Fatalf("model step %d lost %s message provenance", index+1, provider)
 				}
 			}
-			duplicate, err := (kernel.Engine{}).Apply(
+			duplicate, err := runner.Run(
 				ctx,
 				kernel.Turn{ID: turnID},
-				definition,
 				start,
-				bindings,
 			)
 			if err != nil || duplicate.Stop.Kind != kernel.StopCompleted ||
 				len(duplicate.Turn.Steps) != len(out.Turn.Steps) || runs != 1 || counted.sends != 2 {
@@ -519,4 +516,25 @@ func (c *countingClient) Send(
 ) (llm.Result, error) {
 	c.sends++
 	return c.Client.Send(ctx, call)
+}
+
+// streamOutcome runs command through Runner.Stream and returns its final
+// Outcome, so a check can exercise a streamed model request.
+func streamOutcome(
+	ctx context.Context,
+	runner kernel.Runner,
+	turn kernel.Turn,
+	command kernel.Command,
+) (kernel.Outcome, error) {
+	for event, err := range runner.Stream(ctx, turn, command) {
+		if err != nil {
+			return kernel.Outcome{}, err
+		}
+		if event.Outcome != nil {
+			return *event.Outcome, nil
+		}
+	}
+	return kernel.Outcome{}, errors.New(
+		"providertest: stream ended without an outcome",
+	)
 }

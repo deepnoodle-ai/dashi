@@ -9,7 +9,7 @@ import (
 )
 
 func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.Interruptions = 3
 	partial := callResult("call-1", "lookup")
 	partial.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 2}
@@ -104,7 +104,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 
 func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 	)
 	view, err := Replay(turn)
@@ -139,7 +139,7 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 }
 
 func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.Interruptions = 1
 	steps := []Step{
 		interruptionStart(def),
@@ -199,7 +199,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 
 func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
 			Kind: StepStopped,
@@ -218,7 +218,7 @@ func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 	answer := final("finished before pause")
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
 			Kind: StepModelSettled,
@@ -249,7 +249,7 @@ func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 
 func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
 			Kind: StepModelSettled,
@@ -302,7 +302,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 
 func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
 			Kind: StepModelSettled,
@@ -352,7 +352,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
 	}
 	base := []Step{
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		intent,
 		Step{
 			Kind: StepModelSettled,
@@ -395,7 +395,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 
 func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 	turn := interruptionRecord(
-		interruptionStart(definition()),
+		interruptionStart(testAgent()),
 		Step{
 			Kind: StepStopped,
 			Stop: &Stop{Kind: StopLimited, Reason: "deadline"},
@@ -421,12 +421,12 @@ func interruptionRecord(steps ...Step) Turn {
 	return turn
 }
 
-func interruptionStart(def Definition) Step {
+func interruptionStart(def Agent) Step {
 	return Step{
 		Kind: StepStarted,
 		Started: &StartFact{
-			Definition: def,
-			Input:      []llm.Message{llm.UserMessage(llm.Text("answer"))},
+			Agent: def,
+			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	}
 }

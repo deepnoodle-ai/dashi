@@ -3,6 +3,10 @@
 Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
+**Names:** written before [decision 30](../decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 Kernel keeps Dive's four wire implementations and the same thin wrappers:
 Messages (with Ollama), Responses (with Grok and Meta), Chat Completions (with
 OpenRouter, Mistral, DeepInfra), and Gemini/Vertex. It is ahead of Dive on

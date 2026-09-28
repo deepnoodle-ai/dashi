@@ -25,8 +25,8 @@ amount used, and the worst case. The gateway can promise a 50-cent model-call
 admission limit. To promise a 50-cent all-in bill, it must also bound and admit
 any charged local tools.
 
-**Caps chosen per caller, not per agent.** A support agent's **definition** (its
-saved configuration: model, instructions, tools) carries no budget. The
+**Caps chosen per caller, not per agent.** A support **agent** (its
+saved configuration: model, instructions, limits) carries no budget. The
 application's handler sets $2 on `Start` for a paid user and $0.10 for a free
 user. Plan and tenant ceilings live in the application, which applies them
 before calling `Start`. A turn started with no budget has no token or cost cap.
@@ -85,10 +85,10 @@ spending limits.
 
 ## Proposal for Kernel
 
-**Where budgets are set.** The caller sets them; the definition does not.
+**Where budgets are set.** The caller sets them; the agent does not.
 `Start` takes an optional `Budget` with `MaxOutputTokens` (turn total),
 `MaxTotalTokens` (all input and output across calls), and `MaxCost` (model-call
-charges only). The turn-started step records it. Existing definition limits
+charges only). The turn-started step records it. Existing agent limits
 (`ModelAttempts`, `Deadline`, `Interruptions`) stay where they are; whether
 they should also move to the caller is not decided.
 
@@ -125,7 +125,7 @@ It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
 These stops depart from warn-and-adjust (decision 4) on purpose: a model-call
 admission limit must fail closed, and the reason gives the application the fix.
 
-**The check between steps.** Where the engine checks attempts and the deadline
+**The check between steps.** Where the runner checks attempts and the deadline
 (`engine.go:456-461`), it compares recorded model-call totals with each cap.
 Local tools report their own costs after settlement. Those charges appear in
 `Spend.ToolCost` but do not consume `MaxCost`; an application promising an
@@ -153,7 +153,7 @@ unknown.
 `Pricing` per-request rates; `tool.Outcome` gains an optional `Cost`.
 
 **Raising a budget and resuming.** `Continue` takes an optional `Budget` that
-raises caps. Nothing bounds a raise, since there is no definition ceiling; who
+raises caps. Nothing bounds a raise, since there is no agent ceiling; who
 may raise, and by how much, is the application's authorization. The saved turn
 records every raise, with the new amounts and when it happened, so raises show
 up in an audit. `canContinue` (`state.go:603-609`) lets a limited turn continue
@@ -204,11 +204,11 @@ application would still write the estimator, the totals, the unseen-usage rule,
 and typed reasons. That is Dive's position and the work our production hosts
 each repeated.
 
-**A definition ceiling that `Start` may only lower.** The first proposal. It
+**An agent ceiling that `Start` may only lower.** The first proposal. It
 gives a reusable agent a safe default, but budgets are a property of who is
 calling and what they paid for, which the application already knows. A ceiling
 would also block finishing a nearly done turn, since a turn keeps its
-definition for life. Rejected ([decision 25](decisions.md)).
+agent for life. Rejected ([decision 25](decisions.md)).
 
 ## Staged plan
 
@@ -228,7 +228,7 @@ definition for life. Rejected ([decision 25](decisions.md)).
 ## Open questions
 
 - Should `ModelAttempts`, `Deadline`, and `Interruptions` also move from the
-  definition to the caller?
+  agent to the caller?
 - May `Continue` lower a budget, or only raise it?
 - Child turns: how their spend rolls up to a parent waits until Kernel has
   child turns.

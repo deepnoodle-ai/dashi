@@ -19,8 +19,8 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		CommandID:     "start",
 		CommandDigest: "digest",
 		Started: &StartFact{
-			Definition: definition(),
-			Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
+			Agent: testAgent(),
+			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	}
 	if err := rec.Commit(

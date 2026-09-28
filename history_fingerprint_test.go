@@ -85,7 +85,7 @@ func TestProjectUsesCallHistoryWithoutSavingIt(t *testing.T) {
 				Seq:     1,
 				Kind:    StepStarted,
 				Started: &StartFact{
-					Definition:         definition(),
+					Agent:              testAgent(),
 					HistoryFingerprint: fingerprint,
 					Input:              []llm.Message{input},
 				},
@@ -126,8 +126,8 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 				Seq:     1,
 				Kind:    StepStarted,
 				Started: &StartFact{
-					Definition: definition(),
-					Input:      []llm.Message{llm.UserMessage(llm.Text("current"))},
+					Agent: testAgent(),
+					Input: []llm.Message{llm.UserMessage(llm.Text("current"))},
 				},
 			},
 			{

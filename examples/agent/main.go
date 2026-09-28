@@ -37,38 +37,33 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("agent: create client: %w", err)
 	}
-	def := kernel.Definition{
-		ID:       "example",
-		Revision: "1",
-		Provider: client.Provider(),
-		API:      client.API(),
-		Model:    model,
-	}
-	start := kernel.Start{
-		ID: "example-start",
-		Input: []llm.Message{
-			llm.UserMessage(llm.Text("Say hello in one sentence.")),
+	// Provider and API are left empty; the runner fills them from client.
+	runner := kernel.Runner{
+		Agent: kernel.Agent{
+			ID:       "example",
+			Revision: "1",
+			Model:    model,
 		},
-	}
-	bindings := kernel.Bindings{
 		Client:   client,
 		Recorder: kernel.NewMemoryRecorder(),
 	}
-
-	var engine kernel.Engine
-	turn := kernel.Turn{ID: "example-turn"}
-	outcome, err := engine.Apply(ctx, turn, def, start, bindings)
+	outcome, err := runner.Run(
+		ctx,
+		kernel.NewTurn("example-turn"),
+		kernel.Start{
+			CommandID: "example-start",
+			Input: []llm.Message{
+				llm.UserMessage(llm.Text("Say hello in one sentence.")),
+			},
+		},
+	)
 	if err != nil {
-		return fmt.Errorf("agent: apply start: %w", err)
+		return fmt.Errorf("agent: run start: %w", err)
 	}
-	// Apply returns an error only for an invalid command. A failed recorder
+	// Run returns an error only for an invalid command. A failed recorder
 	// write is reported in the outcome, so check it separately.
-	if outcome.Persistence != kernel.PersistenceAcknowledged {
-		return fmt.Errorf(
-			"agent: recording %s: %v",
-			outcome.Persistence,
-			outcome.WriteError,
-		)
+	if err := outcome.RecordingErr(); err != nil {
+		return fmt.Errorf("agent: %w", err)
 	}
 	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
 	return nil

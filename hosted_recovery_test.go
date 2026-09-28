@@ -43,26 +43,26 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		Approve:   true,
 		Origin:    origin,
 	}
-	if _, err := (Engine{}).Apply(
+	if _, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Accept{
-			ID:             "approve",
+		Settle{
+			CommandID:      "approve",
 			CallID:         request.ID,
 			HostedApproval: &response,
 		},
-		Bindings{Client: client, Recorder: rec},
 	); err == nil {
 		t.Fatal("incomplete hosted approval was accepted")
 	}
-	second, err := (Engine{}).Apply(
-		t.Context(),
-		first.Turn,
-		definition(),
-		Continue{ID: "resume"},
-		Bindings{Client: client, Recorder: rec},
-	)
+	second, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
 	if err != nil || second.Stop.Kind != StopCompleted || len(client.inputs) != 2 {
 		t.Fatalf(
 			"second: stop=%+v inputs=%d err=%v",
@@ -109,13 +109,11 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	canceled, err := (Engine{}).Apply(
-		t.Context(),
-		first.Turn,
-		definition(),
-		Cancel{ID: "cancel"},
-		Bindings{Client: client, Recorder: rec},
-	)
+	canceled, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
 	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
 		t.Fatalf("canceled=%+v err=%v", canceled, err)
 	}

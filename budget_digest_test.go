@@ -56,24 +56,23 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	answer := final("done")
 	answer.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 40}
 	rec := jsonbRecorder{NewMemoryRecorder()}
-	bindings := Bindings{
+	def := testAgent()
+	def.Settings.MaxTokens = 100
+	runner := Runner{
+		Agent:    def,
 		Client:   newPricedClient(answer),
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}
-	def := definition()
-	def.Settings.MaxTokens = 100
 	start := Start{
-		ID:     "start",
-		Input:  []llm.Message{llm.UserMessage(llm.Text("go"))},
-		Budget: &Budget{MaxCost: &Money{Amount: amount("0.50"), Currency: "USD"}},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		Budget:    &Budget{MaxCost: &Money{Amount: amount("0.50"), Currency: "USD"}},
 	}
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		def,
 		start,
-		bindings,
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
@@ -103,7 +102,7 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	for _, budget := range []*Budget{start.Budget, &numeric} {
 		retry := start
 		retry.Budget = budget
-		again, err := (Engine{}).Apply(t.Context(), turn, def, retry, bindings)
+		again, err := runner.Run(t.Context(), turn, retry)
 		if err != nil || again.Stop.Kind != StopCompleted {
 			t.Fatalf("retried start=%+v err=%v", again.Stop, err)
 		}

@@ -14,21 +14,21 @@ import (
 	"github.com/deepnoodle-ai/kernel/llm"
 )
 
-// Run checks a recorder against the commit contract Engine.Apply relies on.
+// Run checks a recorder against the commit contract Runner.Run relies on.
 // newStore must return an empty store for each subtest; subtests do not share
 // turns. Every commit in the suite carries an owner token claimed first, so a
 // recorder that requires a lease for every write can still be tested.
 //
-// Each check follows from the engine's use of the recorder:
+// Each check follows from the runner's use of the recorder:
 //
 //   - Steps append in sequence, and Load returns each one with the JSON
 //     meaning it was committed with. Key order, whitespace, string escaping,
 //     and the spelling of numerically equal numbers may change, and a
 //     duplicate key resolves to its last value, so a Postgres jsonb column
-//     conforms; the engine compares recorded values by canonical JSON. Step
+//     conforms; the runner compares recorded values by canonical JSON. Step
 //     times use microsecond precision, which timestamp columns preserve.
 //   - Load of a turn with no steps returns an error matching
-//     kernel.ErrTurnNotFound or an empty turn with the requested ID. Apply
+//     kernel.ErrTurnNotFound or an empty turn with the requested ID. Run
 //     treats any other Load error as an unreadable record and stops.
 //   - A commit whose ExpectedSeq is not the turn's current revision is
 //     rejected with kernel.ErrRevisionConflict, including a different step
@@ -93,7 +93,7 @@ func testLoadWithoutSteps(t *testing.T, s Store) {
 	case err != nil:
 		t.Fatalf(
 			"load of a turn without steps returned %v; want "+
-				"kernel.ErrTurnNotFound, or Apply cannot start the turn",
+				"kernel.ErrTurnNotFound, or Run cannot start the turn",
 			err,
 		)
 	case turn.ID != "kerneltest-missing" || len(turn.Steps) != 0:
@@ -251,7 +251,7 @@ func commit(t *testing.T, s Store, step kernel.Step, by string) error {
 var stepTime = time.Date(2026, 1, 2, 3, 4, 5, 678901000, time.UTC)
 
 func startStep(id string) kernel.Step {
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:       "kerneltest",
 		Revision: "r1",
 		Provider: "test",
@@ -267,7 +267,7 @@ func startStep(id string) kernel.Step {
 		CommandID:     "start",
 		CommandDigest: "kerneltest-digest",
 		Started: &kernel.StartFact{
-			Definition: def,
+			Agent: def,
 			// Raw JSON that a meaning-preserving store may respell: keys out
 			// of jsonb order, extra whitespace, and an exponent number.
 			OutputSchema: json.RawMessage(

@@ -16,8 +16,8 @@ available from a fresh checkout.
 | Unit of work | Response creation owns the loop and session behavior. | An identified `Turn` advances through commands; a session can sit above it. | Addresses the central organizing problem. |
 | Durable authority | Transcript and callbacks carry much of the lifecycle. | Versioned steps are authoritative; `Project` derives model history. | Better recovery boundary, subject to a durable host test. |
 | Effects | Hooks mix control and observation. | Typed policy, acknowledged intent and result steps, and a lossy observer have distinct roles. | Prevents many invisible effects; does not guarantee remote exactly-once behavior. |
-| Late work | Background and external outcomes use separate paths. | `Accept` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
-| Integration | Dive owns much session and tool coordination. | `Bindings` supplies clients, tools, policy, and recorder; external tools can run in a host worker. | Keeps the core small, but the host seam is not proven in Nvoken. |
+| Late work | Background and external outcomes use separate paths. | `Settle` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
+| Integration | Dive owns much session and tool coordination. | `Runner` holds the agent, clients, tools, policy, and recorder; external tools can run in a host worker. | Keeps the core small, but the host seam is not proven in Nvoken. |
 | Structured result | Dive has provider-level response formatting without a turn result contract. | A per-turn schema yields a validated, recorded value with tool-call or text provenance. | Matches the result shape applications consume; native constrained generation remains provider-specific. |
 
 The two Dive v2 proposals agree on this direction but differ on dispatch:
@@ -37,7 +37,7 @@ reducer should follow evidence of need rather than precede it.
    submit a verified nonexecution fact, with an evidence reference, before a
    new attempt.
 3. `Start` pins origin and prior history in the turn. Scheduled work retains
-   its origin; a changed definition or duplicate command with changed history
+   its origin; a changed agent or duplicate command with changed history
    conflicts. Only an operator-origin start may carry privileged roles.
 4. A host-shaped fixture atomically reserves budget from prepared-request
    admission metadata, loses an acknowledgement, changes configuration and
@@ -62,7 +62,7 @@ six-call final-result probe in `providers/live_agent_test.go` passed on
 Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`), each with
 blocking and streaming calls. The three-call-per-provider
 `agent_live_test.go` exercise also passed for those models: streamed
-`Engine.Apply` final answer, local tool execution and second model call, step
+`Runner.Run` final answer, local tool execution and second model call, step
 replay, and duplicate-start suppression. Hosted-tool behavior,
 other models and routes, and Vertex ADC still need live qualification. The
 engine-dispatch decision stays provisional until durable consumer proof exists.

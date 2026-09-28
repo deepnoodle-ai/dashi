@@ -5,7 +5,7 @@ other.
 
 ## Foundation packages
 
-- `kernel`: Agent definitions, identified turn records, an acknowledged
+- `kernel`: Agents, runners, identified turn records, an acknowledged
   recorder, and the execution loop.
 - `content`: Shared text, media, resources, citations, and replay origins.
 - `money`: Exact monetary amounts in nano-units, shared by prices, charges,

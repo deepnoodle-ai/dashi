@@ -44,10 +44,10 @@ func projectWithHistory(
 		index int
 	}
 	latest := map[string]position{}
-	acceptedHosted := map[string]bool{}
+	settledHosted := map[string]bool{}
 	for _, step := range t.Steps {
-		if step.Kind == StepHostedApproval && step.HostedApproval != nil {
-			acceptedHosted[step.HostedApproval.RequestID] = true
+		if step.Kind == StepHostedApprovalSettled && step.HostedApproval != nil {
+			settledHosted[step.HostedApproval.RequestID] = true
 		}
 		if step.Context != nil {
 			for index, item := range step.Context.Items {
@@ -102,7 +102,7 @@ func projectWithHistory(
 						continue
 					}
 					if part.HostedApprovalRequest == nil ||
-						!acceptedHosted[part.HostedApprovalRequest.ID] {
+						!settledHosted[part.HostedApprovalRequest.ID] {
 						continue
 					}
 				}
@@ -162,7 +162,7 @@ func projectWithHistory(
 					},
 				)
 			}
-		case StepHostedApproval:
+		case StepHostedApprovalSettled:
 			response := *step.HostedApproval
 			out = append(
 				out,

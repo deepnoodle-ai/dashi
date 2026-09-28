@@ -3,6 +3,10 @@
 Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
+**Names:** written before [decision 30](../decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 Kernel's model-call layer (`llm`, `tool`, `content`) is already a clear DX
 improvement over Dive (see "Already strong"). The agent layer (the root `kernel`
 package) is where the stated goals are not met yet. It exposes the engine's
