@@ -211,6 +211,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1048576
       },
       "pricing": {
@@ -237,6 +238,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1048576
       },
       "pricing": {

@@ -21,6 +21,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -47,6 +48,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -73,6 +75,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -98,6 +101,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -123,6 +127,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -150,6 +155,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -188,6 +194,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -225,6 +232,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -259,6 +267,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -285,6 +294,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -319,6 +329,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -355,6 +366,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {
@@ -388,6 +400,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 65536,
         "context_window": 1000000
       },
       "pricing": {

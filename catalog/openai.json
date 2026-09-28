@@ -26,6 +26,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "low",
@@ -71,6 +72,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -117,6 +119,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -164,6 +167,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -211,6 +215,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -258,6 +263,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -305,6 +311,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -350,6 +357,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       },
       "pricing": {
@@ -376,6 +384,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000
       },
       "pricing": {
@@ -413,6 +422,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       },
       "pricing": {
@@ -441,6 +451,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -486,6 +497,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "medium",
@@ -530,6 +542,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "none",
@@ -575,6 +588,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1050000,
         "reasoning_efforts": [
           "medium",
@@ -618,6 +632,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000,
         "reasoning_efforts": [
           "none",
@@ -652,6 +667,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000,
         "reasoning_efforts": [
           "none",
@@ -685,6 +701,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 16384,
         "context_window": 1000000
       }
     },
@@ -701,6 +718,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "none",
@@ -734,6 +752,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "medium",
@@ -766,6 +785,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "none",
@@ -799,6 +819,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "minimal",
@@ -831,6 +852,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 272000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "high"
@@ -849,6 +871,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       },
       "pricing": {
@@ -875,6 +898,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       },
       "pricing": {
@@ -902,6 +926,7 @@
           "reasoning_effort": "unsupported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -929,6 +954,7 @@
           "reasoning_effort": "unsupported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -956,6 +982,7 @@
           "reasoning_effort": "unsupported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 32768,
         "context_window": 1047576
       },
       "pricing": {
@@ -982,6 +1009,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 16384,
         "context_window": 128000
       },
       "pricing": {
@@ -1007,6 +1035,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1021,6 +1050,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1035,6 +1065,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1049,6 +1080,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1064,6 +1096,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1079,6 +1112,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     },
@@ -1094,6 +1128,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "low",
@@ -1115,6 +1150,7 @@
           "reasoning_effort": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000,
         "reasoning_efforts": [
           "low",
@@ -1135,6 +1171,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1149,6 +1186,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1163,6 +1201,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 400000
       }
     },
@@ -1177,6 +1216,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 128000,
         "context_window": 1000000
       }
     },
@@ -1205,6 +1245,7 @@
           "text": "supported",
           "max_tokens": "supported"
         },
+        "max_output_tokens": 100000,
         "context_window": 200000
       }
     }

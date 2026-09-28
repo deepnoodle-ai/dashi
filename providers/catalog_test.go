@@ -1,6 +1,7 @@
 package providers_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/kernel/catalog"
 	"github.com/deepnoodle-ai/kernel/internal/providertest"
 	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/kernel/money"
 	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/kernel/providers/grok"
 	"github.com/deepnoodle-ai/kernel/providers/meta"
@@ -159,6 +161,54 @@ func TestStrictPolicyDefaultsMaxTokensForCatalogModels(t *testing.T) {
 	}
 	if got := prep.Effective().MaxTokens; got != llm.DefaultMaxTokens {
 		t.Fatalf("max tokens = %d, want %d", got, llm.DefaultMaxTokens)
+	}
+}
+
+// GPT-4o's model page documents 16,384 max output tokens, below the shared
+// default. An unset MaxTokens must be fitted to that limit on the wire, or the
+// endpoint may reject the default and a cost cap reserves twice the real
+// worst case. The expected values are written out rather than read from the
+// catalog, so a lost or wrong catalog limit fails here.
+func TestCatalogOutputLimitLowersDefaultForGPT4o(t *testing.T) {
+	p, err := completions.New(completions.Config{APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prep, err := p.Prepare(
+		t.Context(),
+		llm.Input{
+			Model:    "gpt-4o",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prep.Effective().MaxTokens; got != 16_384 {
+		t.Fatalf("effective max tokens = %d, want 16384", got)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(prep.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got := body["max_completion_tokens"]; got != float64(16_384) {
+		t.Fatalf("max_completion_tokens = %v, want 16384", got)
+	}
+	pricing := llm.Pricing{
+		Currency:  "USD",
+		UpdatedAt: "2026-09-28",
+		Base: llm.Rates{
+			Input:  money.MustParseAmount("2.5"),
+			Output: money.MustParseAmount("10"),
+		},
+	}
+	risk, ok := llm.MaxCostAtRisk(prep, pricing)
+	if !ok {
+		t.Fatal("cost risk was not bounded")
+	}
+	// 16,384 tokens at $10 per million.
+	if want := money.MustParseAmount("0.16384"); risk.Output != want {
+		t.Fatalf("output at risk = %s, want %s", risk.Output, want)
 	}
 }
 
