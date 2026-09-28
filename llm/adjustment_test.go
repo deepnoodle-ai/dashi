@@ -24,8 +24,8 @@ func TestRequestRejectsUnaccountedSettingChanges(t *testing.T) {
 		{name: "unknown field", edit: func(p *RequestSnapshot) {
 			p.Adjustments[0].Field = "invented"
 		}},
-		{name: "unimplemented clamp policy", edit: func(p *RequestSnapshot) {
-			p.Adjustments[0].Action = "clamp"
+		{name: "clamp without requested value", edit: func(p *RequestSnapshot) {
+			p.Adjustments[0].Action = AdjustmentClamp
 		}},
 		{name: "duplicate decision", edit: func(p *RequestSnapshot) {
 			p.Adjustments = append(p.Adjustments, p.Adjustments[0])
@@ -37,7 +37,8 @@ func TestRequestRejectsUnaccountedSettingChanges(t *testing.T) {
 			p.Input.Settings.MaxTokens, p.Effective.MaxTokens = 2048, 0
 			p.Adjustments = nil
 		}},
-		{name: "unknown without explicit policy", edit: func(p *RequestSnapshot) {
+		{name: "unverified under strict policy", edit: func(p *RequestSnapshot) {
+			p.CapabilityPolicy = CapabilityStrict
 			p.Unverified = []Feature{FeatureText}
 		}},
 	} {

@@ -13,8 +13,8 @@ import (
 
 func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +82,8 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 
 func TestHostedDefinitionsRequestResults(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 }
 
 func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
-	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,8 +164,8 @@ func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
 
 func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,8 +235,8 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 		"authorization":"secret"
 	}`)
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

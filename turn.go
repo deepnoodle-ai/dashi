@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/internal/policyrecord"
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
@@ -195,27 +196,53 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
-	AttemptID           string                 `json:"attempt_id"`
-	MessageID           string                 `json:"message_id,omitempty"`
-	RequestDigest       string                 `json:"request_digest,omitempty"`
-	FinalAnswerOnly     bool                   `json:"final_answer_only,omitempty"`
-	Admission           json.RawMessage        `json:"admission,omitempty"`
-	Provider            string                 `json:"provider,omitempty"`
-	API                 string                 `json:"api,omitempty"`
-	Model               string                 `json:"model,omitempty"`
-	Effective           llm.Settings           `json:"effective,omitzero"`
-	Origin              content.Origin         `json:"origin,omitzero"`
-	Adjustments         []llm.Adjustment       `json:"adjustments,omitempty"`
-	ContentChanges      []llm.ContentChange    `json:"content_changes,omitempty"`
-	ModelInfo           *llm.ModelInfo         `json:"model_info,omitempty"`
-	UnknownCapabilities llm.UnknownPolicy      `json:"unknown_capabilities,omitempty"`
-	Unverified          []llm.Feature          `json:"unverified,omitempty"`
-	Tools               []tool.Definition      `json:"tools,omitempty"`
-	Result              *llm.Result            `json:"result,omitempty"`
-	Error               string                 `json:"error,omitempty"`
-	Failure             llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence            string                 `json:"evidence,omitempty"`
-	Uncertain           bool                   `json:"uncertain,omitempty"`
+	AttemptID        string                 `json:"attempt_id"`
+	MessageID        string                 `json:"message_id,omitempty"`
+	RequestDigest    string                 `json:"request_digest,omitempty"`
+	FinalAnswerOnly  bool                   `json:"final_answer_only,omitempty"`
+	Admission        json.RawMessage        `json:"admission,omitempty"`
+	Provider         string                 `json:"provider,omitempty"`
+	API              string                 `json:"api,omitempty"`
+	Model            string                 `json:"model,omitempty"`
+	Effective        llm.Settings           `json:"effective,omitzero"`
+	Origin           content.Origin         `json:"origin,omitzero"`
+	Adjustments      []llm.Adjustment       `json:"adjustments,omitempty"`
+	ContentChanges   []llm.ContentChange    `json:"content_changes,omitempty"`
+	ModelInfo        *llm.ModelInfo         `json:"model_info,omitempty"`
+	CapabilityPolicy llm.CapabilityPolicy   `json:"capability_policy"`
+	Unverified       []llm.Feature          `json:"unverified,omitempty"`
+	Tools            []tool.Definition      `json:"tools,omitempty"`
+	Result           *llm.Result            `json:"result,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Failure          llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence         string                 `json:"evidence,omitempty"`
+	Uncertain        bool                   `json:"uncertain,omitempty"`
+}
+
+// UnmarshalJSON reads capability_policy, or maps the legacy
+// unknown_capabilities field it replaced: "allow" is adjust and "reject" is
+// strict. A fact with neither field predates both and decodes as strict,
+// because the legacy zero value rejected unknown support; reading it as the
+// current default would change what the recorded intent says.
+func (f *ModelFact) UnmarshalJSON(data []byte) error {
+	type plain ModelFact
+	var raw struct {
+		plain
+		CapabilityPolicy    *llm.CapabilityPolicy `json:"capability_policy"`
+		UnknownCapabilities *string               `json:"unknown_capabilities"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	policy, err := policyrecord.Decode(
+		raw.CapabilityPolicy, raw.UnknownCapabilities,
+	)
+	if err != nil {
+		return fmt.Errorf("kernel: model fact: %w", err)
+	}
+	*f = ModelFact(raw.plain)
+	f.CapabilityPolicy = policy
+	return nil
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

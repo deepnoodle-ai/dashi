@@ -46,9 +46,10 @@ type Config struct {
 	// ID. New validates scope and snapshots these values.
 	Models map[string]llm.ModelInfo
 
-	// UnknownCapabilities defaults to strict rejection. UnknownAllow delegates
-	// unknown features to the API and records them in prepared evidence.
-	UnknownCapabilities llm.UnknownPolicy
+	// CapabilityPolicy defaults to adjust: unknown features are sent and
+	// recorded, and values beyond known limits are fitted with a warning.
+	// CapabilityStrict rejects both instead.
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client implements llm.Client for a configured Responses destination.
@@ -77,7 +78,7 @@ func New(config Config) (*Client, error) {
 		config.Provider = "openai"
 	}
 	client, err := providerhttp.NewClient(config.Provider, API, config.Endpoint, config.APIKey,
-		config.Client, http.Header{"Authorization": {"Bearer " + config.APIKey}}, config.Models, config.UnknownCapabilities)
+		config.Client, http.Header{"Authorization": {"Bearer " + config.APIKey}}, config.Models, config.CapabilityPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -100,8 +101,10 @@ func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 }
 
 // Prepare validates r and encodes it as a Responses request without contacting
-// the API. Settings and content the API cannot express are rejected as
-// Unsupported rather than dropped.
+// the API. Under the default capability policy, settings beyond the API's or
+// model's known limits are fitted to the nearest accepted value and recorded
+// as warnings; content the API cannot express is rejected as Unsupported
+// rather than dropped.
 func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) {
 	wire := codec{origin: p.client.Origin(r.Model)}
 	requested := r
@@ -112,6 +115,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		return llm.Request{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorInvalidRequest, "%w", err)
 	}
 	r, changes, err := providercontent.Adapt(r, wire.origin)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	r, adjustments, err := p.client.Fit(r, apiLimits, nil)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -136,7 +143,7 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.BudgetTokens > 0 {
-			return llm.Request{}, wire.unsupported("reasoning token budget; use effort")
+			return llm.Request{}, wire.unsupported("reasoning token budget; use a reasoning effort")
 		}
 		switch s.Effort {
 		case "none", "minimal", "low", "medium", "high", "xhigh":
@@ -222,7 +229,17 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		}
 	}
 	body["input"] = input
-	return p.client.Prepare(requested, r, body, nil, changes)
+	return p.client.Prepare(requested, r, body, adjustments, changes)
+}
+
+// apiLimits states what the Responses API accepts from any model. It takes
+// effort levels, not token budgets.
+var apiLimits = llm.Capabilities{
+	Features: map[llm.Feature]llm.Support{
+		llm.FeatureReasoningBudget: llm.SupportUnsupported,
+	},
+	ReasoningEfforts: []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+	MaxTemperature:   2,
 }
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
@@ -232,6 +249,9 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
 	wire := codec{origin: p.client.Origin(prepared.Input().Model)}
 	defer func() {
+		// Warnings ride on every result, including partial ones, so a failed
+		// call still explains how its request differed from the input.
+		result.Warnings = prepared.Warnings()
 		if callErr != nil {
 			result.Stop.Kind = llm.StopIncomplete
 		}

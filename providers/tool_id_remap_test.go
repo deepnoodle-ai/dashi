@@ -127,7 +127,6 @@ func TestPrepareRemapIsDeterministicAcrossTransportSettingsAndScope(t *testing.T
 				config := clientConfig{
 					endpoint: "https://unused.invalid/api",
 					key:      "key-one",
-					unknown:  llm.UnknownAllow,
 				}
 				if variant == "credential" {
 					config.key = "key-two"

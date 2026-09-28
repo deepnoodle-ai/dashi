@@ -43,10 +43,11 @@ can be re-encoded with an explicit recorded replay strip.
 
 `ModelInfo` contains application-supplied capability facts. Its `ModelEvidence`
 scopes them to an exact model, API, and endpoint with owner, source, date, and
-evidence method; pricing is separate. Known unsupported features fail preparation.
-Unknown support fails unless `UnknownAllow` is explicit, in which case the
-prepared snapshot records the policy and unverified features. Typed adjustments
-account for defaults; replacing or omitting explicit controls is unsupported.
+evidence method; pricing is separate. Known unsupported features without a safe
+substitute fail preparation. By default ([decision 4](decisions.md)), unknown
+support is sent and recorded as unverified, and out-of-range values are fitted
+with a typed adjustment that is also a warning. The strictness argued here
+remains available as `CapabilityStrict`, which rejects both.
 Preparation does not prove dispatch or receipt, and these facts do not guarantee
 API acceptance. See [model controls](model-controls.md) for the contract.
 

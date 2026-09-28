@@ -131,7 +131,7 @@ func TestPrepareChecksFileOriginsAtEveryContentLocation(t *testing.T) {
 					case "api":
 						origin.API = "other.api"
 					case "endpoint", "credential":
-						config := clientConfig{endpoint: "https://unused.invalid/api", key: "test", unknown: llm.UnknownAllow}
+						config := clientConfig{endpoint: "https://unused.invalid/api", key: "test"}
 						if variant == "endpoint" {
 							config.endpoint += "/other"
 						} else {

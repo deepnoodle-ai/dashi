@@ -19,7 +19,7 @@ import (
 func newInteractionsJobFixture(t *testing.T, server *httptest.Server) *InteractionsVideoJobClient {
 	t.Helper()
 	p, err := NewInteractionsVideoJobs(InteractionsMediaConfig{Provider: "google-test", APIKey: "fixture-key",
-		Endpoint: server.URL + "/v1beta/interactions", UnknownCapabilities: model.UnknownAllow})
+		Endpoint: server.URL + "/v1beta/interactions", CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestInteractionsURIJobDestinationBinding(t *testing.T) {
 	defer server.Close()
 	first := newInteractionsJobFixture(t, server)
 	second, err := NewInteractionsVideoJobs(InteractionsMediaConfig{Provider: "google-test", APIKey: "different-key",
-		Endpoint: server.URL + "/v1beta/interactions", UnknownCapabilities: model.UnknownAllow})
+		Endpoint: server.URL + "/v1beta/interactions", CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

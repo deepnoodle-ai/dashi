@@ -29,8 +29,8 @@ const hostedWebSearchResponse = `{
 
 func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -90,8 +90,8 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 
 func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,10 +145,10 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	}))
 	defer server.Close()
 	client, err := New(Config{
-		Provider:            "anthropic",
-		APIKey:              "test",
-		Endpoint:            server.URL,
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "anthropic",
+		APIKey:           "test",
+		Endpoint:         server.URL,
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

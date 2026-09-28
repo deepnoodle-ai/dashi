@@ -12,8 +12,8 @@ import (
 
 func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,10 +54,10 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 		t.Fatal(err)
 	}
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		Endpoint:            strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		Endpoint:         strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	if _, err := client.Prepare(context.Background(), input); err == nil {
 		t.Fatal("file search used v1 without evidence")
 	}
-	beta, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	beta, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +81,8 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 
 func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

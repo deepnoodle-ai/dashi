@@ -563,7 +563,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.ModelAttempts+1)
 	messageID := attempt + ":message"
-	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), FinalAnswerOnly: finalAnswerOnly, Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, UnknownCapabilities: snapshot.UnknownCapabilities, Unverified: snapshot.Unverified, Tools: defs}
+	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), FinalAnswerOnly: finalAnswerOnly, Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, CapabilityPolicy: snapshot.CapabilityPolicy, Unverified: snapshot.Unverified, Tools: defs}
 	if o := r.commit(Step{Kind: StepModelIntent, Model: fact}); o != nil {
 		return *o, false
 	}

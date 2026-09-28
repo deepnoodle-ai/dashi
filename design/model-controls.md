@@ -18,17 +18,22 @@ have a different default and therefore a different thinking-budget clamp
 
 - `Client.ModelInfo(model)` returns exact-ID facts supplied to that client
   instance. `ModelEvidence` names the model, API, exact endpoint, owner, source,
-  date, and method: live probe, documentation, inference, or fixture. Construction
-  rejects mismatched scope; supplied facts are not automatically verified.
+  date, and method: live probe, documentation, inference, or fixture.
+  Construction rejects mismatched scope; supplied facts are not automatically
+  verified.
 - `Client.Prepare(ctx, input)` checks the **whole input** and encodes it
   offline. Its snapshot contains requested and effective settings, adjustments,
   model evidence, content changes, and the exact body `Send` will send. Record
   dispatch separately; preparation does not prove provider receipt.
-- Reject known unsupported settings and unknown capabilities by default.
-  `UnknownAllow` is explicit and records the policy and unverified features,
-  including output-limit support. If Kernel later
-  clamps, emulates, or omits a control, that behavior needs explicit policy and
-  a machine-readable decision.
+- Work by default ([decision 4](decisions.md)). Under the default
+  `CapabilityAdjust` policy, unknown support is sent and recorded as
+  unverified, and a value beyond a known limit is clamped to the nearest
+  accepted value or, where the model default keeps the meaning, omitted. Each
+  change is a machine-readable `Adjustment` and a caller-facing `Warning`.
+  `CapabilityStrict` restores fail-closed preparation. Known unsupported
+  features with no safe substitute fail under both policies. An effort fits to
+  the nearest accepted level but never down to `none`, and the spellings
+  `extra-high`, `extra_high`, and `extra high` rank as `xhigh`.
 - Keep effective settings with each model attempt. Aggregate token usage cannot
   truthfully represent a run that used different settings. The result records
   the served model when the provider reports it.
@@ -39,15 +44,22 @@ catalog can be added when needed without becoming a second request planner.
 ## Defaults and evidence
 
 `Adjustment` records a typed field and action plus requested/effective JSON
-values. `null` means omitted. Only filling an omitted setting is implemented;
-an explicit value cannot be replaced or dropped. `NewRequest` checks that
-every setting change has a matching decision.
+values. `null` means omitted. Actions are `default` (fills an omission, no
+warning), `clamp`, and `omit`; the last two replace caller intent and always
+project to a `Warning` on the request, its snapshot, and the result. `Fit`
+applies API-wide limits intersected with model evidence before encoding.
+Emulation is not implemented. `NewRequest` checks that every setting change has
+a matching decision. Snapshots and model facts always record the resolved
+policy; a record written before the policy existed decodes as strict, which was
+its default then.
 
 Messages applies its configured `DefaultMaxTokens` (1024 when unset) and an
 automatic tool choice when parallel-tool controls require one. Both appear in
 effective settings and decisions. Reasoning budgets are checked against that
-same output limit. Conflicting controls are rejected. Wire-name translations
-preserve canonical meaning; they are not reasoning emulation.
+same output limit, and a budget beyond it is clamped below it. Temperature with
+thinking is omitted with a warning; other conflicting controls are rejected.
+Wire-name translations preserve canonical meaning; they are not reasoning
+emulation.
 
 Effective settings describe the controls Kernel encodes, not undisclosed server
 defaults or proof that the model honored them. Unknown numerical bounds remain

@@ -16,11 +16,11 @@ const DefaultEndpoint = "https://api.mistral.ai/v1/chat/completions"
 
 // Config supplies credentials, endpoint, and application-owned model evidence.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client uses the Chat Completions format with Mistral's destination identity.
@@ -40,7 +40,7 @@ func New(config Config) (*Client, error) {
 	}
 	client, err := completions.New(completions.Config{Provider: "mistral", APIKey: config.APIKey,
 		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		UnknownCapabilities: config.UnknownCapabilities, SystemRole: llm.RoleSystem})
+		CapabilityPolicy: config.CapabilityPolicy, SystemRole: llm.RoleSystem})
 	if err != nil {
 		return nil, err
 	}

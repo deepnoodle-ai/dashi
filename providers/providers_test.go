@@ -451,7 +451,7 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 	server := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, response)
 	})
-	p := newResponses(t, responses.Config{Provider: "openai", Endpoint: server.URL, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	p := newResponses(t, responses.Config{Provider: "openai", Endpoint: server.URL, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	result, err := p.Send(context.Background(), preparedRequest(t, p), nil)
 	if err != nil {
 		t.Fatalf("collect response with private fields: %v", err)
@@ -589,7 +589,7 @@ func cases(t *testing.T) []providerCase {
 			name: "anthropic",
 			new: func(url string) llm.Client {
 				return newMessages(t, messages.Config{
-					Provider: "anthropic", UnknownCapabilities: llm.UnknownAllow,
+					Provider: "anthropic", CapabilityPolicy: llm.CapabilityAdjust,
 					APIKey:   "test",
 					Endpoint: url,
 				})
@@ -633,7 +633,7 @@ func cases(t *testing.T) []providerCase {
 			name: "openai",
 			new: func(url string) llm.Client {
 				return newResponses(t, responses.Config{
-					Provider: "openai", UnknownCapabilities: llm.UnknownAllow,
+					Provider: "openai", CapabilityPolicy: llm.CapabilityAdjust,
 					APIKey:   "test",
 					Endpoint: url,
 				})

@@ -41,17 +41,17 @@ const (
 
 // MediaConfig describes a Gemini API-key destination for image calls and Veo
 // jobs. ImageModels and VideoModels contain application-owned evidence; an
-// absent model follows UnknownCapabilities. Custom endpoints need an explicit
+// absent model follows CapabilityPolicy. Custom endpoints need an explicit
 // Provider identity so their outputs cannot be confused with Google's service.
 type MediaConfig struct {
-	Provider            string
-	APIKey              string
-	ImageEndpoint       string
-	VideoEndpoint       string
-	Client              *http.Client
-	ImageModels         map[string]media.ModelInfo
-	VideoModels         map[string]media.ModelInfo
-	UnknownCapabilities model.UnknownPolicy
+	Provider         string
+	APIKey           string
+	ImageEndpoint    string
+	VideoEndpoint    string
+	Client           *http.Client
+	ImageModels      map[string]media.ModelInfo
+	VideoModels      map[string]media.ModelInfo
+	CapabilityPolicy model.CapabilityPolicy
 }
 
 // MediaClient owns destination configuration, not job state or downloaded
@@ -98,7 +98,7 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 	if err := validateMediaEndpoint(config.VideoEndpoint, ":predictLongRunning"); err != nil {
 		return nil, err
 	}
-	if config.UnknownCapabilities != model.UnknownReject && config.UnknownCapabilities != model.UnknownAllow {
+	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid unknown media capability policy")
 	}
 	if config.Client != nil {

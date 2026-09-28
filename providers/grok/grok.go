@@ -15,11 +15,11 @@ const DefaultEndpoint = "https://api.x.ai/v1/responses"
 
 // Config supplies destination credentials and application-owned model evidence.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client uses the Responses wire format with Grok's destination identity.
@@ -42,7 +42,7 @@ func New(config Config) (*Client, error) {
 	}
 	client, err := responses.New(responses.Config{Provider: "grok", APIKey: config.APIKey,
 		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		UnknownCapabilities: config.UnknownCapabilities})
+		CapabilityPolicy: config.CapabilityPolicy})
 	if err != nil {
 		return nil, err
 	}

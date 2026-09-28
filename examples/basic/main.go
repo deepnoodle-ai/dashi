@@ -20,8 +20,7 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	// This example delegates unknown model capabilities to the API.
-	client, err := responses.New(responses.Config{UnknownCapabilities: llm.UnknownAllow})
+	client, err := responses.New(responses.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -48,4 +47,7 @@ func main() {
 	}
 	fmt.Println()
 	fmt.Printf("Stop: %s; served model: %s\n", result.Stop.Kind, result.Served.Model)
+	for _, warning := range result.Warnings {
+		fmt.Printf("Warning (%s): %s\n", warning.Code, warning.Message)
+	}
 }

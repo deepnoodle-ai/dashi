@@ -38,14 +38,14 @@ type Config struct {
 	// Vertex selects Google's Vertex AI backend. Project and Location are
 	// resolved at construction; CredentialScope identifies the credential
 	// principal for private replay without storing the credential itself.
-	Vertex              bool
-	Project             string
-	Location            string
-	CredentialScope     string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
+	Vertex           bool
+	Project          string
+	Location         string
+	CredentialScope  string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client owns model evidence and configuration, not per-call state.
@@ -114,8 +114,8 @@ func New(config Config) (*Client, error) {
 			return nil, errors.New("gemini: Vertex endpoint does not match project and location")
 		}
 	}
-	if config.UnknownCapabilities != llm.UnknownReject && config.UnknownCapabilities != llm.UnknownAllow {
-		return nil, errors.New("gemini: invalid unknown capability policy")
+	if !config.CapabilityPolicy.Valid() {
+		return nil, errors.New("gemini: invalid capability policy")
 	}
 	p := &Client{config: config, models: make(map[string]llm.ModelInfo, len(config.Models))}
 	for model, info := range config.Models {
@@ -163,11 +163,13 @@ func (p *Client) httpClient(model string) (providerhttp.Client, error) {
 		headers.Set("X-Goog-Api-Key", credential)
 	}
 	return providerhttp.NewClient(p.Provider(), API, p.endpoint(model), credential,
-		p.config.Client, headers, models, p.config.UnknownCapabilities)
+		p.config.Client, headers, models, p.config.CapabilityPolicy)
 }
 
 // Prepare validates conversion, then captures the SDK's serialized body with
-// an in-memory transport. Unsupported content fails before real dispatch.
+// an in-memory transport. Under the default capability policy, settings
+// beyond known limits are fitted and recorded as warnings; unsupported content
+// fails before real dispatch.
 func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.Request{}, err
@@ -192,6 +194,10 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	if err != nil {
 		return llm.Request{}, err
 	}
+	input, adjustments, err := httpClient.Fit(input, apiLimits, nil)
+	if err != nil {
+		return llm.Request{}, err
+	}
 	contents, err := wire.encodeMessages(input.Messages)
 	if err != nil {
 		return llm.Request{}, err
@@ -209,7 +215,10 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	}
 	if reasoning := input.Settings.Reasoning; reasoning != nil {
 		if reasoning.Effort != "" {
-			return llm.Request{}, wire.unsupported("reasoning effort requires model-specific Gemini level evidence")
+			return llm.Request{}, wire.unsupported(
+				"reasoning effort requires model-specific Gemini level evidence; " +
+					"use a reasoning budget",
+			)
 		}
 		config["thinkingConfig"] = map[string]any{"thinkingBudget": reasoning.BudgetTokens, "includeThoughts": true}
 	}
@@ -217,7 +226,7 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 		body["generationConfig"] = config
 	}
 	if input.Settings.ParallelTools != nil {
-		return llm.Request{}, wire.unsupported("parallel tool setting")
+		return llm.Request{}, wire.unsupported("parallel tool setting; remove ParallelTools")
 	}
 	if len(input.Tools) > 0 {
 		declarations := make([]any, 0, len(input.Tools))
@@ -288,7 +297,7 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 		body["toolConfig"] = map[string]any{"functionCallingConfig": calling}
 	}
 	info, known := p.ModelInfo(input.Model)
-	unverified, err := info.Capabilities.Check(input, p.config.UnknownCapabilities)
+	unverified, err := info.Capabilities.Check(input, p.config.CapabilityPolicy)
 	if err != nil {
 		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorUnsupported, "%w", err)
 	}
@@ -305,15 +314,28 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 		evidence = &info
 	}
 	return llm.NewRequest(llm.RequestSnapshot{
-		Origin:              wire.origin,
-		Input:               requested,
-		Effective:           input.Settings,
-		Body:                raw,
-		ContentChanges:      changes,
-		ModelInfo:           evidence,
-		UnknownCapabilities: p.config.UnknownCapabilities,
-		Unverified:          unverified,
+		Origin:           wire.origin,
+		Input:            requested,
+		Effective:        input.Settings,
+		Body:             raw,
+		Adjustments:      adjustments,
+		ContentChanges:   changes,
+		ModelInfo:        evidence,
+		CapabilityPolicy: p.config.CapabilityPolicy,
+		Unverified:       unverified,
 	})
+}
+
+// apiLimits states what this Gemini encoding accepts from any model. It has
+// no parallel tool control, since Gemini decides that itself, and it maps
+// reasoning only from token budgets. The API documents temperature as 0 to 2
+// (https://ai.google.dev/api/generate-content).
+var apiLimits = llm.Capabilities{
+	Features: map[llm.Feature]llm.Support{
+		llm.FeatureParallelTools:   llm.SupportUnsupported,
+		llm.FeatureReasoningEffort: llm.SupportUnsupported,
+	},
+	MaxTemperature: 2,
 }
 
 func hasClientFunctionCalls(input llm.Input) bool {
@@ -343,6 +365,9 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 	wire := codec{origin: httpClient.Origin(model)}
 	result = llm.Result{Requested: llm.ModelRef{Provider: p.Provider(), Model: model}, Message: llm.Message{Role: llm.RoleAssistant}}
 	defer func() {
+		// Warnings ride on every result, including partial ones, so a failed
+		// call still explains how its request differed from the input.
+		result.Warnings = prepared.Warnings()
 		if callErr != nil {
 			result.Stop.Kind = llm.StopIncomplete
 		}

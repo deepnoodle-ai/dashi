@@ -27,9 +27,7 @@ around when building durable agent runtimes on Dive.
 ## Quick look
 
 ```go
-client, err := responses.New(responses.Config{
-    UnknownCapabilities: llm.UnknownAllow,
-})
+client, err := responses.New(responses.Config{})
 request, err := client.Prepare(ctx, llm.Input{
     Model:  model,
     Stream: true,

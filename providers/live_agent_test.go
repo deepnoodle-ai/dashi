@@ -29,13 +29,13 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 	}
 	cases := []fixture{
 		{"anthropic", os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("ANTHROPIC_MODEL"), func(key string) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"openai", os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"), func(key string) (llm.Client, error) {
-			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"gemini", os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL"), func(key string) (llm.Client, error) {
-			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 	}
 	for _, tc := range cases {

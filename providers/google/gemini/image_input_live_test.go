@@ -29,7 +29,7 @@ func TestLiveImageInput(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_MODEL are required")
 	}
-	client, err := New(Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := New(Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

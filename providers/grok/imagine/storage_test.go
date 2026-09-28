@@ -43,7 +43,7 @@ func TestImageStoragePreservesEachOutputAndPublicURLFailure(t *testing.T) {
 			`"public_url_error":"Public URL quota reached; file stored."}}]}`)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	request, err := client.PrepareImageWithOptions(context.Background(), media.ImageInput{
 		Model: "grok-imagine-image-2.0", Operation: media.ImageGenerate,
 		Prompt:   []content.Block{content.TextBlock("Two quiet scenes")},
@@ -100,7 +100,7 @@ func TestVideoStorageSurvivesPollAndFetch(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	request, err := client.PrepareVideoWithOptions(context.Background(), media.VideoInput{
 		Model: "grok-imagine-video-1.5", Prompt: []content.Block{content.TextBlock("A ball bouncing")},
 	}, VideoOptions{Storage: &StorageOptions{Filename: "clip.mp4"}})

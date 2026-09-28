@@ -482,6 +482,10 @@ type Result struct {
 	// it does not identify a proxy's upstream.
 	Served ModelRef `json:"served"`
 
+	// Warnings repeats the prepared request's warnings, so a caller holding
+	// only the result can still report what was not sent as asked.
+	Warnings []Warning `json:"warnings,omitempty"`
+
 	// Raw is the provider's response body, kept for debugging and fidelity.
 	Raw json.RawMessage `json:"raw,omitempty"`
 }

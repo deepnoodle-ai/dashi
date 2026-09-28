@@ -13,8 +13,8 @@ import (
 
 func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	client, err := grok.New(grok.Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +82,8 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 
 func TestMetaHostedWebSearchIncludesResults(t *testing.T) {
 	client, err := meta.New(meta.Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

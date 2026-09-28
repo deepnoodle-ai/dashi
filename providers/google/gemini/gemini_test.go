@@ -20,7 +20,7 @@ import (
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
 	client, err := New(Config{Provider: "google", APIKey: "test", Endpoint: server.URL + "/v1beta/models/{model}:generateContent",
-		UnknownCapabilities: llm.UnknownAllow})
+		CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,8 +35,8 @@ func sampleInput(stream bool) llm.Input {
 
 func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
 	stable, err := New(Config{Provider: "google", APIKey: "test",
-		Endpoint:            strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
-		UnknownCapabilities: llm.UnknownAllow})
+		Endpoint:         strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
+		CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
 		!strings.Contains(err.Error(), "v1beta") {
 		t.Fatalf("v1 client function history was not rejected before dispatch: %v", err)
 	}
-	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestVertexUsesSDKRouteAndFrozenBody(t *testing.T) {
 	defer server.Close()
 	p, err := New(Config{Provider: "vertex-test", Vertex: true, Project: "project", Location: "global",
 		CredentialScope: "test-principal", Endpoint: server.URL + "/v1/projects/project/locations/global/publishers/google/models/{model}:generateContent",
-		Client: &http.Client{Transport: http.DefaultTransport}, UnknownCapabilities: llm.UnknownAllow})
+		Client: &http.Client{Transport: http.DefaultTransport}, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

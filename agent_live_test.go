@@ -24,7 +24,7 @@ import (
 // Each streamed final turn makes one paid call; each tool turn makes two.
 func TestLiveGeminiAgentTurn(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "GEMINI")
-	client, err := gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestLiveGeminiAgentTurn(t *testing.T) {
 
 func TestLiveOpenAIAgentTurn(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "OPENAI")
-	client, err := responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestLiveOpenAIAgentTurn(t *testing.T) {
 
 func TestLiveAnthropicAgentTurn(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "ANTHROPIC")
-	client, err := messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +56,13 @@ func TestLiveRecordedReminders(t *testing.T) {
 		new  func(string) (llm.Client, error)
 	}{
 		{"gemini", func(key string) (llm.Client, error) {
-			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"openai", func(key string) (llm.Client, error) {
-			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"anthropic", func(key string) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestLiveRecordedReminders(t *testing.T) {
 // turn probes with KERNEL_LIVE_AGENT_TEST=1.
 func TestLiveGeminiStructuredOutput(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "GEMINI")
-	client, err := gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestLiveGeminiStructuredOutput(t *testing.T) {
 
 func TestLiveOpenAIStructuredOutput(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "OPENAI")
-	client, err := responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestLiveOpenAIStructuredOutput(t *testing.T) {
 
 func TestLiveAnthropicStructuredOutput(t *testing.T) {
 	key, modelName := liveAgentCredentials(t, "ANTHROPIC")
-	client, err := messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+	client, err := messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,13 +139,13 @@ func TestLiveIteratorAgentTurns(t *testing.T) {
 		new  func(string) (llm.Client, error)
 	}{
 		{"gemini", func(key string) (llm.Client, error) {
-			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"openai", func(key string) (llm.Client, error) {
-			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"anthropic", func(key string) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,13 +192,13 @@ func TestLiveReservedFinalAnswer(t *testing.T) {
 		new  func(string) (llm.Client, error)
 	}{
 		{"gemini", func(key string) (llm.Client, error) {
-			return gemini.New(gemini.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"openai", func(key string) (llm.Client, error) {
-			return responses.New(responses.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 		{"anthropic", func(key string) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: key, UnknownCapabilities: llm.UnknownAllow})
+			return messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

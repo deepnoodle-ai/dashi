@@ -19,15 +19,15 @@ func TestCapabilitiesCheckIncludesToolResultMedia(t *testing.T) {
 	c := Capabilities{Features: map[Feature]Support{
 		FeatureText: SupportSupported, FeatureTools: SupportSupported,
 	}}
-	if _, err := c.Check(r, UnknownReject); err == nil {
+	if _, err := c.Check(r, CapabilityStrict); err == nil {
 		t.Fatal("tool output image bypassed capability validation")
 	}
-	unverified, err := c.Check(r, UnknownAllow)
+	unverified, err := c.Check(r, CapabilityAdjust)
 	if err != nil || !slices.Equal(unverified, []Feature{FeatureImage}) {
 		t.Fatal("tool output media was not reported as unverified", err)
 	}
 	c.Features[FeatureImage] = SupportUnsupported
-	if _, err := c.Check(r, UnknownAllow); err == nil {
+	if _, err := c.Check(r, CapabilityAdjust); err == nil {
 		t.Fatal("passthrough permitted known unsupported media")
 	}
 }
@@ -51,16 +51,16 @@ func TestCapabilitiesCheckScopesHostedToolType(t *testing.T) {
 			FeatureTools: SupportSupported,
 		},
 	}
-	if _, err := capabilities.Check(input, UnknownReject); err == nil {
+	if _, err := capabilities.Check(input, CapabilityStrict); err == nil {
 		t.Fatal("unknown hosted tool support was accepted")
 	}
 	feature := HostedToolFeature("web_search_20250305")
-	unverified, err := capabilities.Check(input, UnknownAllow)
+	unverified, err := capabilities.Check(input, CapabilityAdjust)
 	if err != nil || !slices.Equal(unverified, []Feature{feature}) {
 		t.Fatalf("hosted type evidence was not reported: %v, %v", unverified, err)
 	}
 	capabilities.Features[feature] = SupportUnsupported
-	if _, err := capabilities.Check(input, UnknownAllow); err == nil {
+	if _, err := capabilities.Check(input, CapabilityAdjust); err == nil {
 		t.Fatal("known unsupported hosted tool was accepted")
 	}
 }
@@ -85,7 +85,7 @@ func TestCapabilitiesCheckReasoningConstraints(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := Input{Model: "m", Settings: Settings{Reasoning: &tt.settings}}
-			_, err := c.Check(r, UnknownAllow)
+			_, err := c.Check(r, CapabilityAdjust)
 			if (err == nil) != tt.accepted {
 				t.Fatal("model constraints were not enforced", err)
 			}

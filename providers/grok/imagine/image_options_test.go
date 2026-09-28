@@ -33,7 +33,7 @@ func TestImageBase64OptionReturnsInlineBytesWithoutResponseMIME(t *testing.T) {
 		_, _ = io.WriteString(w, `{"data":[{"b64_json":"`+base64.StdEncoding.EncodeToString(encoded.Bytes())+`"}]}`)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	input := media.ImageInput{
 		Model: "grok-imagine-image-2.0", Operation: media.ImageGenerate,
 		Prompt: []content.Block{content.TextBlock("A green hill")},
@@ -60,7 +60,7 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 		t.Fatal("preparation unexpectedly made a network request")
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownAllow)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityAdjust)
 	file := content.Source{ID: "file_123", Origin: client.FileOrigin(), MIMEType: "image/png"}
 	imageInput := media.ImageInput{
 		Model: "grok-imagine-image-2.0", Operation: media.ImageEdit,
@@ -93,7 +93,7 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 	}
 	other, err := New(Config{
 		Provider: "test-grok", Endpoint: server.URL + "/v1", APIKey: "other-key",
-		UnknownCapabilities: model.UnknownAllow,
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

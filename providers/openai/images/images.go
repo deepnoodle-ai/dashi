@@ -50,9 +50,9 @@ type Config struct {
 	// validates and copies it; empty means support is unknown.
 	Models map[string]media.ModelInfo
 
-	// UnknownCapabilities requires explicit opt-in before unknown support can
-	// reach the provider. Known rejection is never overridden.
-	UnknownCapabilities model.UnknownPolicy
+	// CapabilityPolicy defaults to sending unknown support and recording it;
+	// CapabilityStrict rejects it. Known rejection is never overridden.
+	CapabilityPolicy model.CapabilityPolicy
 }
 
 // Client is safe for concurrent calls. It owns model evidence and the
@@ -64,7 +64,7 @@ type Client struct {
 	http     *http.Client
 	scope    string
 	models   map[string]media.ModelInfo
-	unknown  model.UnknownPolicy
+	unknown  model.CapabilityPolicy
 }
 
 var _ media.ImageClient = (*Client)(nil)
@@ -97,9 +97,8 @@ func New(config Config) (*Client, error) {
 		parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
 		return nil, errors.New("images: invalid API base endpoint")
 	}
-	if config.UnknownCapabilities != model.UnknownReject &&
-		config.UnknownCapabilities != model.UnknownAllow {
-		return nil, errors.New("images: invalid unknown capability policy")
+	if !config.CapabilityPolicy.Valid() {
+		return nil, errors.New("images: invalid capability policy")
 	}
 	catalog := make(map[string]media.ModelInfo, len(config.Models))
 	for name, info := range config.Models {
@@ -120,7 +119,7 @@ func New(config Config) (*Client, error) {
 		http:     config.Client,
 		scope:    fmt.Sprintf("%x", sha256.Sum256(scopeBytes)),
 		models:   catalog,
-		unknown:  config.UnknownCapabilities,
+		unknown:  config.CapabilityPolicy.Resolved(),
 	}, nil
 }
 
@@ -189,15 +188,15 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context,
 		return media.ImageRequest{}, c.failure(media.ErrorInvalidRequest, err)
 	}
 	snapshot := media.ImageRequestSnapshot{
-		Origin:              c.origin(input.Model),
-		Input:               input,
-		Effective:           effective.Settings,
-		Body:                body,
-		ContentType:         contentType,
-		ProviderOptions:     optionBytes,
-		Adjustments:         adjustments,
-		UnknownCapabilities: c.unknown,
-		Unverified:          unverified,
+		Origin:           c.origin(input.Model),
+		Input:            input,
+		Effective:        effective.Settings,
+		Body:             body,
+		ContentType:      contentType,
+		ProviderOptions:  optionBytes,
+		Adjustments:      adjustments,
+		CapabilityPolicy: c.unknown,
+		Unverified:       unverified,
 	}
 	if known {
 		snapshot.ModelInfo = &info

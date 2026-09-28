@@ -14,9 +14,7 @@ go run ./examples/basic
 The [example](../../examples/basic/main.go) uses the Responses client:
 
 ```go
-client, err := responses.New(responses.Config{
-    UnknownCapabilities: llm.UnknownAllow,
-})
+client, err := responses.New(responses.Config{})
 // Handle err, then:
 request, err := client.Prepare(ctx, llm.Input{
     Model:  model,
@@ -32,27 +30,40 @@ for event, err := range llm.Stream(ctx, client, request) {
     if event.Result != nil { result = *event.Result }
     if err != nil { log.Fatal(err) }
 }
-// Inspect result.Stop before acting on tool calls.
+// Inspect result.Stop before acting on tool calls; pass result.Warnings on.
 ```
 
-Running the example makes a paid request. It explicitly lets the API validate
-unknown model capabilities.
+Running the example makes a paid request.
 
 ## Validation and model evidence
 
-Strict validation is the default: supply dated `llm.ModelInfo` entries in
-`Config.Models` or select `llm.UnknownAllow`. Each entry's `ModelEvidence` must
-match the exact model, API, and endpoint and identify its source, owner, date,
-and method. Local fixtures do not imply live qualification. Known unsupported
-features are always rejected. Explicitly allowed unknown features are recorded
-in the preparation. No built-in model catalog is supplied yet.
+Requests work by default. With no `llm.ModelInfo` for a model, preparation
+sends the request and records the features whose support is unknown in
+`RequestSnapshot.Unverified`. When a value exceeds a known limit, such as an
+effort level the API lacks, a temperature above its range, or `MaxTokens` above
+the model's output limit, preparation sends the nearest accepted value instead.
+An effort is never lowered to `none`, and `extra-high`, `extra_high`, and
+`extra high` are treated as `xhigh` when fitting.
+Each such change is a typed `Adjustment` and appears as an `llm.Warning` on the
+`Request`, its snapshot, and the `Result`, so an application can pass warnings
+on in its own responses. Requests fail only where no safe substitute exists,
+such as image input to a model known to lack vision; the error names the fix.
+
+Set `Config.CapabilityPolicy` to `llm.CapabilityStrict` to reject unknown
+support and out-of-range values instead. Dated `llm.ModelInfo` entries in
+`Config.Models` supply known limits; each entry's `ModelEvidence` must match the
+exact model, API, and endpoint and identify its source, owner, date, and method.
+Local fixtures do not imply live qualification. No built-in model catalog is
+supplied yet. See [decision 4](../../design/decisions.md) for the rationale.
 
 ## Prepare, Request, and RequestSnapshot
 
 `Prepare` validates and encodes without network access. Its immutable `Request`
 and recordable `RequestSnapshot` preserve the original input, effective
-settings, typed adjustments, content changes, model evidence, and one exact
-body. Preparation is not proof of dispatch or receipt.
+settings, typed adjustments and their warnings, content changes, model
+evidence, and one exact body. Preparation is not proof of dispatch or receipt.
+The snapshot always records the resolved `capability_policy`, `adjust` or
+`strict`.
 
 ## Send, Stream, and Generate
 

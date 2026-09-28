@@ -29,13 +29,13 @@ const maxInteractionsResponseBytes = 64 << 20
 // InteractionsMediaConfig describes a single API-key destination. Model evidence
 // belongs to this endpoint; GenerateContent and Veo evidence is not portable.
 type InteractionsMediaConfig struct {
-	Provider            string
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	ImageModels         map[string]media.ModelInfo
-	VideoModels         map[string]media.ModelInfo
-	UnknownCapabilities model.UnknownPolicy
+	Provider         string
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	ImageModels      map[string]media.ModelInfo
+	VideoModels      map[string]media.ModelInfo
+	CapabilityPolicy model.CapabilityPolicy
 }
 
 // InteractionsMediaClient makes synchronous image and Omni video calls. The
@@ -76,7 +76,7 @@ func NewInteractionsMedia(config InteractionsMediaConfig) (*InteractionsMediaCli
 		u.User != nil || u.RawQuery != "" || u.Fragment != "" || !strings.HasSuffix(u.Path, "/interactions") {
 		return nil, errors.New("gemini: invalid Interactions endpoint")
 	}
-	if config.UnknownCapabilities != model.UnknownReject && config.UnknownCapabilities != model.UnknownAllow {
+	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid unknown Interactions capability policy")
 	}
 	if config.Client != nil {

@@ -49,9 +49,10 @@ type Config struct {
 	// ID. New validates scope and snapshots these values.
 	Models map[string]llm.ModelInfo
 
-	// UnknownCapabilities defaults to strict rejection. UnknownAllow delegates
-	// unknown features to the API and records them in prepared evidence.
-	UnknownCapabilities llm.UnknownPolicy
+	// CapabilityPolicy defaults to adjust: unknown features are sent and
+	// recorded, and values beyond known limits are fitted with a warning.
+	// CapabilityStrict rejects both instead.
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client implements llm.Client for a configured Messages destination.
@@ -87,7 +88,7 @@ func New(config Config) (*Client, error) {
 		config.Provider = "anthropic"
 	}
 	client, err := providerhttp.NewClient(config.Provider, API, config.Endpoint, config.APIKey,
-		config.Client, http.Header{"X-Api-Key": {config.APIKey}, "Anthropic-Version": {"2023-06-01"}}, config.Models, config.UnknownCapabilities)
+		config.Client, http.Header{"X-Api-Key": {config.APIKey}, "Anthropic-Version": {"2023-06-01"}}, config.Models, config.CapabilityPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -110,9 +111,11 @@ func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 }
 
 // Prepare validates r and encodes it as a Messages request without contacting
-// the API. Settings and content the API cannot express are rejected as
-// Unsupported rather than dropped. Defaults and content adaptations are
-// recorded on the request.
+// the API. Under the default capability policy, settings beyond the API's or
+// model's known limits are fitted to the nearest accepted value and recorded
+// as warnings; content the API cannot express is rejected as Unsupported
+// rather than dropped. Defaults and content adaptations are recorded on the
+// request.
 func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) {
 	wire := codec{origin: p.client.Origin(r.Model)}
 	requested := r
@@ -136,6 +139,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 			Reason: "Messages requires an output limit; using the configured default",
 		})
 	}
+	r, adjustments, err = p.client.Fit(r, p.limits(r), adjustments)
+	if err != nil {
+		return llm.Request{}, err
+	}
 	body := map[string]any{
 		"model":      r.Model,
 		"max_tokens": r.Settings.MaxTokens,
@@ -152,16 +159,24 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 				continue
 			}
 			if r.Messages[i].Role == llm.RoleAssistant {
-				return llm.Request{}, wire.unsupported("assistant prefill with reasoning")
+				return llm.Request{}, wire.unsupported(
+					"assistant prefill with reasoning; " +
+						"end the history with a user message or remove Reasoning",
+				)
 			}
 			break
 		}
 		if r.Settings.Temperature != nil {
-			return llm.Request{}, wire.unsupported("temperature with reasoning")
+			return llm.Request{}, wire.unsupported(
+				"temperature with reasoning; remove Temperature or Reasoning",
+			)
 		}
 		if s.BudgetTokens > 0 {
 			if s.BudgetTokens < 1024 || s.BudgetTokens >= r.Settings.MaxTokens {
-				return llm.Request{}, wire.unsupported("reasoning budget must be at least 1024 and below max tokens")
+				return llm.Request{}, wire.unsupported(
+					"reasoning budget must be at least 1024 and below max tokens; " +
+						"raise max_tokens above 1024",
+				)
 			}
 			body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": s.BudgetTokens}
 		} else {
@@ -223,7 +238,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 			}
 		}
 		if r.Settings.Reasoning != nil && (c.Mode == llm.ToolChoiceAny || c.Mode == llm.ToolChoiceTool) {
-			return llm.Request{}, wire.unsupported("forced tool choice with reasoning")
+			return llm.Request{}, wire.unsupported(
+				"forced tool choice with reasoning; " +
+					"use auto or none tool choice, or remove Reasoning",
+			)
 		}
 		choice := map[string]any{"type": c.Mode}
 		if c.Name != "" {
@@ -291,6 +309,30 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	return p.client.Prepare(requested, r, body, adjustments, changes)
 }
 
+// limits states what the Messages API accepts from any model, so Fit can
+// adjust a request toward it. Temperature is rejected alongside thinking; the
+// adjust policy omits it there, and strict keeps the specific error below.
+func (p *Client) limits(r llm.Input) llm.Capabilities {
+	maxTokens := r.Settings.MaxTokens
+	info, _ := p.client.ModelInfo(r.Model)
+	if limit := info.Capabilities.MaxOutputTokens; limit > 0 {
+		maxTokens = min(maxTokens, limit)
+	}
+	api := llm.Capabilities{
+		ReasoningEfforts:   []string{"low", "medium", "high", "max"},
+		MinReasoningBudget: 1024,
+		// The thinking budget must stay below max_tokens.
+		MaxReasoningBudget: max(maxTokens-1, 1),
+		MaxTemperature:     1,
+	}
+	if r.Settings.Reasoning != nil && p.client.Policy() == llm.CapabilityAdjust {
+		api.Features = map[llm.Feature]llm.Support{
+			llm.FeatureTemperature: llm.SupportUnsupported,
+		}
+	}
+	return api
+}
+
 // Send dispatches at most one Messages request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
 // Whenever an error is returned, the result's stop kind is incomplete and the
@@ -298,6 +340,9 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
 	wire := codec{origin: p.client.Origin(prepared.Input().Model)}
 	defer func() {
+		// Warnings ride on every result, including partial ones, so a failed
+		// call still explains how its request differed from the input.
+		result.Warnings = prepared.Warnings()
 		if callErr != nil {
 			result.Stop.Kind = llm.StopIncomplete
 		}

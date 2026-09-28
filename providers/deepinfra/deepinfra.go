@@ -18,11 +18,11 @@ const DefaultEndpoint = "https://api.deepinfra.com/v1/openai/chat/completions"
 
 // Config supplies destination credentials and application-owned model evidence.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
 }
 
 // Client reports DeepInfra's usage.estimated_cost as a provider estimate.
@@ -48,7 +48,7 @@ func New(config Config) (*Client, error) {
 	}
 	client, err := completions.New(completions.Config{Provider: "deepinfra", APIKey: config.APIKey,
 		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		UnknownCapabilities: config.UnknownCapabilities, SystemRole: llm.RoleSystem,
+		CapabilityPolicy: config.CapabilityPolicy, SystemRole: llm.RoleSystem,
 		ReportedCostField: "estimated_cost", CostCurrency: "USD"})
 	if err != nil {
 		return nil, err

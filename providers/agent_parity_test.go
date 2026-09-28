@@ -36,7 +36,7 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 				`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`,
 				`{"type":"message_stop"}`),
 			new: func(url string) llm.Client {
-				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "test", Endpoint: url, UnknownCapabilities: llm.UnknownAllow})
+				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "test", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
 			},
 		},
 		{
@@ -49,7 +49,7 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 				`{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}`,
 				`{"type":"response.completed","response":{"id":"r1","object":"response","model":"served","status":"completed","output":[{"id":"m1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}`),
 			new: func(url string) llm.Client {
-				return newResponses(t, responses.Config{Provider: "openai", APIKey: "test", Endpoint: url, UnknownCapabilities: llm.UnknownAllow})
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "test", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
 			},
 		},
 		{
@@ -57,7 +57,7 @@ func TestAgentFinalFactsAgreeAcrossProviderTransports(t *testing.T) {
 			complete: `{"responseId":"r1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}`,
 			stream:   events(`{"responseId":"r1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}`),
 			new: func(url string) llm.Client {
-				client, err := gemini.New(gemini.Config{Provider: "google", APIKey: "test", Endpoint: url + "/v1/models/{model}:generateContent", UnknownCapabilities: llm.UnknownAllow})
+				client, err := gemini.New(gemini.Config{Provider: "google", APIKey: "test", Endpoint: url + "/v1/models/{model}:generateContent", CapabilityPolicy: llm.CapabilityAdjust})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -143,7 +143,7 @@ func TestIteratorBreakCancelsProviderHTTPRequest(t *testing.T) {
 			canceled <- false
 		}
 	})
-	client := newResponses(t, responses.Config{Provider: "openai", APIKey: "test", Endpoint: server.URL, UnknownCapabilities: llm.UnknownAllow})
+	client := newResponses(t, responses.Config{Provider: "openai", APIKey: "test", Endpoint: server.URL, CapabilityPolicy: llm.CapabilityAdjust})
 	request, err := client.Prepare(context.Background(), llm.Input{Model: "requested", Stream: true,
 		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))}})
 	if err != nil {
