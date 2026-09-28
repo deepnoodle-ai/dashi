@@ -534,10 +534,10 @@ if out.Stop.Terminal {
 - **One active run per inbox.** An inbox can serve many turns, one at a time.
 - **Claims.** A steer the inbox hands to a run is claimed: `Cancel` returns
   false from then on. Claims the run did not record are released when it ends.
-- **Leftovers.** `Leftovers(turn)` returns, once, the steers no model call of
-  that turn saw: those still queued, and those recorded with no later model
-  request (for example, when a hook refused the call). Pass a freshly loaded
-  turn.
+- **Leftovers.** `Leftovers(turn)` returns, once, the steers not recorded in
+  that turn: those still queued or never written. Recorded steers are part of
+  the turn's history, so they reach the next turn through `Project(turn)`,
+  even when no model call saw them. Pass a freshly loaded turn.
 - **A steer may cost a model call.** A steer that supersedes an answer needs
   another call; several steers share one, and a steer that arrives before a
   planned call adds none. Steering never spends the reserved final-answer

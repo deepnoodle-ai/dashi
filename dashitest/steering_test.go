@@ -152,8 +152,8 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 // TestInboxKeepsInDoubtSteersForTheirTurn fails the write that records a
 // steer so its outcome is unknown. The steer is in doubt: it cannot be
 // cancelled and no other turn receives it. Leftovers on the reloaded turn
-// resolves it: returned once whether or not the write landed, since no
-// model call saw it.
+// resolves it: returned once when the write did not land, and not at all
+// when it did, since the turn's history carries it.
 func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 	for _, fault := range []dashitest.Fault{dashitest.LoseWrite, dashitest.LoseAck} {
 		t.Run(string(fault), func(t *testing.T) {
@@ -194,17 +194,17 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 				t.Fatal(err)
 			}
 			left, err := inbox.Leftovers(saved)
-			if err != nil || len(left) != 1 || left[0].Item.ID != id {
-				t.Fatalf("leftovers = %+v err=%v", left, err)
+			if err != nil {
+				t.Fatal(err)
 			}
-			// A queued steer leaves the inbox; a recorded one is read from
-			// the record again on every call.
-			again, _ := inbox.Leftovers(saved)
-			want := 0
 			if fault == dashitest.LoseAck {
-				want = 1
+				if len(left) != 0 {
+					t.Fatalf("a recorded steer was returned: %+v", left)
+				}
+			} else if len(left) != 1 || left[0].Item.ID != id {
+				t.Fatalf("leftovers = %+v", left)
 			}
-			if len(again) != want {
+			if again, _ := inbox.Leftovers(saved); len(again) != 0 {
 				t.Fatalf("second leftovers = %+v", again)
 			}
 		})

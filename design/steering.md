@@ -36,10 +36,11 @@ result. What works: IDs, safe delivery points, and one fate per message.
   doubt*. It stays claimed and is offered only to runs of the same turn, where
   the record removes duplicates, until `Leftovers` resolves it on the reloaded
   turn.
-- **Leftovers.** When a turn ends, its *leftovers* are the steers the model
-  never saw: those still in the inbox, plus those recorded with no later
-  `model_requested` step (a dispatched call counts as seen, even if it was
-  interrupted). `Leftovers` returns them once so the app can start the next turn.
+- **Leftovers.** When a turn ends, its *leftovers* are the steers it did not
+  record: queued, claimed but unwritten, or in doubt and not in the reloaded
+  record. `Leftovers` returns them once so the app can start the next turn.
+  Recorded steers reach the next turn through `Project`, like the rest of the
+  turn's history (decision 19), whether or not a model call saw them.
 - **Reconcile.** To *reconcile* is to compare steers against the saved record;
   after an unknown write, reload the turn first.
 
@@ -88,8 +89,10 @@ unknown, it reloads the turn before reconciling.
   in doubt; `Leftovers(Turn) ([]Steer, error)` resolves that turn's in-doubt
   steers and returns its leftovers. Its doc comment says to pass a freshly
   loaded turn: a stale one makes recorded steers look unrecorded. An invalid
-  turn changes nothing. The record marks steers (`ContextFact.Steering`), so
-  the inbox keeps nothing per turn beyond claimed and in-doubt steers.
+  turn changes nothing. A queued steer counts as recorded only when the turn
+  records it as a steer (`ContextFact.Steering`) with the same content; an
+  unrelated item sharing its ID does not hide it. The inbox keeps nothing per
+  turn beyond claimed and in-doubt steers.
 - FR-4: `ContextItem` gains `ID`: one delivery, unlike `Name`, a slot a later
   snapshot replaces. Optional for `Deliver` and hooks, required for steers.
   `Step.Items() []ContextItem` returns a step's context items.

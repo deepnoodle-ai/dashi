@@ -100,8 +100,8 @@ func (in *Inbox) Steers(_ context.Context, turnID string) ([]Steer, error) {
 	return out, nil
 }
 
-// Delivered removes steers the turn recorded. The record keeps them, marked
-// as steers, so Leftovers can still return any no model call saw.
+// Delivered removes steers the turn recorded. From then on they belong to
+// the turn's history, which reaches the next turn through Project.
 func (in *Inbox) Delivered(_ context.Context, _ string, ids []string) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
@@ -131,55 +131,46 @@ func (in *Inbox) Release(_ context.Context, turnID string, unrecorded, inDoubt [
 	}
 }
 
-// Leftovers returns the steers no model call of turn saw, oldest first, so
-// the app can start its next turn with them. They are the steers the turn
-// records with no later model_requested step, read from the record, followed
-// by those still queued that the turn did not record, which the inbox
-// forgets. Steers claimed by another turn stay queued.
+// Leftovers returns, oldest first, the steers not recorded in turn, and
+// removes them from the inbox, so the app can start its next turn with
+// them: those still queued, those the turn claimed but did not record, and
+// in-doubt steers the reloaded turn shows were never written. Recorded
+// steers are never returned: they reach the next turn through Project, with
+// the rest of the turn's history, whether or not a model call saw them.
+// Steers claimed by another turn stay queued.
 //
-// Call it once per turn, when the turn will not run again or to abandon it:
-// the recorded steers come from the record on every call, so not sending
-// them twice is the caller's job. Pass a freshly loaded turn: in a stale
-// copy, recorded steers look unrecorded and would be delivered twice. An
-// invalid turn returns an error and changes nothing.
+// A queued steer counts as recorded only when the turn records the same
+// steer, with the same content, as a steer; an unrelated item that happens
+// to share its ID does not hide it. Pass a freshly loaded turn: in a stale
+// copy, recorded steers look unrecorded and would be sent twice. An invalid
+// turn returns an error and changes nothing.
 func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 	if _, err := Replay(turn); err != nil {
 		return nil, err
 	}
-	// recorded holds every recorded item ID; unseen lists the steers no
-	// later model call saw, in order.
-	recorded := map[string]bool{}
-	var unseen []ContextItem
+	recorded := map[string]ContextItem{}
 	for _, step := range turn.Steps {
-		if step.Kind == StepModelIntent {
-			unseen = unseen[:0]
+		if step.Context == nil || !step.Context.Steering {
 			continue
 		}
-		for _, item := range step.Items() {
-			if item.ID == "" {
-				continue
-			}
-			recorded[item.ID] = true
-			if step.Context.Steering {
-				unseen = append(unseen, item)
-			}
+		for _, item := range step.Context.Items {
+			recorded[item.ID] = item
 		}
 	}
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	var out []Steer
-	for _, item := range unseen {
-		out = append(out, Steer{Item: cloneContextItem(item)})
-	}
 	kept := in.entries[:0]
 	for _, e := range in.entries {
 		if e.turn != "" && e.turn != turn.ID {
 			kept = append(kept, e)
 			continue
 		}
-		if !recorded[e.steer.Item.ID] {
-			out = append(out, Steer{Item: cloneContextItem(e.steer.Item)})
+		item := e.steer.Item
+		if old, ok := recorded[item.ID]; ok && sameJSONValue(old, item) {
+			continue
 		}
+		out = append(out, Steer{Item: cloneContextItem(item)})
 	}
 	clear(in.entries[len(kept):])
 	in.entries = kept

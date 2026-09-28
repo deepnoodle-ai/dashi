@@ -74,6 +74,8 @@ type steerState struct {
 	// durable source that keeps returning an invalid steer is reported
 	// once, not before every model call.
 	warned map[string]bool
+	// sourceFailed records that a failing source was already reported.
+	sourceFailed bool
 }
 
 func (st *steerState) claim(id string) {
@@ -98,7 +100,10 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	}
 	steers, err := source.Steers(r.ctx, r.turn.ID)
 	if err != nil {
-		if r.ctx.Err() == nil {
+		// Reported once per run: the source is asked before every model
+		// call and at every answer.
+		if r.ctx.Err() == nil && !r.steers.sourceFailed {
+			r.steers.sourceFailed = true
 			r.warnSteering(fmt.Sprintf("steering source failed: %v", err))
 		}
 		return nil

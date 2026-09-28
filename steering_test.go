@@ -372,9 +372,14 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	out, err = (Runner{Agent: testAgent(), Client: client}).Run(
 		t.Context(), Turn{ID: "t2"}, startInput(), WithSteering(failing),
 	)
+	// The source is asked before the call and at the answer, and its
+	// failure is reported once.
 	if err != nil || out.Stop.Kind != StopCompleted ||
-		len(warningsOf(out.Turn, WarningSteering)) == 0 {
+		len(warningsOf(out.Turn, WarningSteering)) != 1 {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+	if failing.steersCalls != 2 {
+		t.Fatalf("source asked %d times", failing.steersCalls)
 	}
 }
 
@@ -470,30 +475,99 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 	}
 }
 
-func TestLeftoversReturnsRecordedButUnseenSteers(t *testing.T) {
-	inbox := NewInbox()
-	id := mustSend(t, inbox, "hold on")
-	deny := SendHook{Name: "deny", Func: func(context.Context, SendPlan) (SendDecision, error) {
-		return SendDecision{Deny: true, Reason: "closed"}, nil
-	}}
-	client := &scriptedClient{}
-	out, err := (Runner{Agent: testAgent(), Client: client, Hooks: deny.Hooks()}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
-	)
-	if err != nil || out.Stop.Kind != StopRefused {
-		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+// pauseOnIntent closes pause when the runner records a model request, so
+// the call is recorded but never dispatched.
+type pauseOnIntent struct {
+	*MemoryRecorder
+	pause chan struct{}
+}
+
+func (p pauseOnIntent) Commit(ctx context.Context, req CommitRequest) error {
+	if req.Step.Kind == StepModelIntent {
+		close(p.pause)
 	}
-	if len(stepsOf(out.Turn, StepDelivered)) != 1 {
-		t.Fatal("the steer was not recorded")
+	return p.MemoryRecorder.Commit(ctx, req)
+}
+
+// TestRecordedSteerReachesNextTurnThroughHistory records a steer and then
+// pauses before its model call is dispatched. The host gives the turn up:
+// Leftovers returns nothing, because the steer is in the turn's record, and
+// the steer reaches the next turn exactly once through Project.
+func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
+	inbox := NewInbox()
+	mustSend(t, inbox, "use the staging database")
+	pause := make(chan struct{})
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	runner := Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: pauseOnIntent{NewMemoryRecorder(), pause},
+	}
+	out, err := runner.Run(
+		t.Context(), Turn{ID: "t1"}, startInput(),
+		WithSteering(inbox), WithPause(pause),
+	)
+	if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 0 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
 	}
 	left, err := inbox.Leftovers(out.Turn)
-	if err != nil || len(left) != 1 || left[0].Item.ID != id {
+	if err != nil || len(left) != 0 {
 		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
-	// A recorded steer is read from the record on every call; the caller
-	// calls Leftovers once per turn.
-	if again, _ := inbox.Leftovers(out.Turn); len(again) != 1 {
-		t.Fatalf("second leftovers = %+v", again)
+	history, err := Project(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.Recorder = nil
+	next, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go on"))},
+		History:   history,
+	}, WithSteering(inbox))
+	if err != nil || next.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", next.Stop, err)
+	}
+	count := 0
+	for _, m := range client.inputs[0].Messages {
+		if strings.Contains(m.Text(), "staging") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("the steer appears %d times in the next request", count)
+	}
+}
+
+// TestLeftoversKeepsSteerWithCollidingID queues a steer whose ID a Deliver
+// item already uses with other content. It was never recorded as a steer,
+// so Leftovers returns it rather than dropping it.
+func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "wait")}}
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "wait",
+		Schema: json.RawMessage(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	note := ContextItem{ID: "x", Message: llm.UserMessage(llm.Text("A"))}
+	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d", Items: []ContextItem{note}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox := NewInbox()
+	if _, err := inbox.Send(Steer{Item: ContextItem{
+		ID:      "x",
+		Message: llm.UserMessage(llm.Text("B")),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	left, err := inbox.Leftovers(out.Turn)
+	if err != nil || len(left) != 1 || left[0].Item.Message.Text() != "B" {
+		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
 }
 

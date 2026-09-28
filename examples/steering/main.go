@@ -137,7 +137,8 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("steering: %w", err)
 		}
 		history = append(history, turn...)
-		// Messages the model never saw start the next turn.
+		// Recorded steers are in that history already; only steers the turn
+		// never recorded start the next one.
 		left, err := inbox.Leftovers(out.Turn)
 		if err != nil {
 			return fmt.Errorf("steering: %w", err)
