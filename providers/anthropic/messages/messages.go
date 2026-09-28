@@ -642,7 +642,7 @@ func (wire codec) decode(
 		API:        wire.origin.API,
 		ResponseID: r.ID,
 	}
-	usage, tier, err := decodeUsage(v.Usage)
+	usage, tier, reported, err := decodeUsage(v.Usage)
 	if err != nil {
 		return r, providerhttp.Failure(
 			wire.origin.Provider,
@@ -663,36 +663,62 @@ func (wire codec) decode(
 		}
 		r.Message.Content = append(r.Message.Content, c)
 	}
+	// A response without usage gets no counts; the runner accounts for its
+	// hosted uses.
+	if r.Usage != nil {
+		if r.Usage.Requests == nil {
+			r.Usage.Requests = map[string]int{}
+		}
+		countHostedBlocks(r.Usage.Requests, reported, v.Content)
+		if len(r.Usage.Requests) == 0 {
+			r.Usage.Requests = nil
+		}
+	}
 	return r, nil
 }
 
-// Anthropic reports service_tier inside usage. Dashi records it on Result,
-// where callers can select the applicable price sheet, while Usage keeps only
-// token measurements. Keep the original response separately in Result.Raw.
-func decodeUsage(raw json.RawMessage) (*llm.Usage, string, error) {
+// decodeUsage converts a Messages usage object. Anthropic reports
+// service_tier inside usage; Dashi records it on Result, where callers can
+// select the applicable price sheet. Fields are decoded from Anthropic's own
+// names rather than through llm.Usage's JSON tags, which describe Dashi's
+// encoding. It also returns the meters usage has a counter for, so block
+// counting can skip them. Keep the original response separately in
+// Result.Raw.
+func decodeUsage(
+	raw json.RawMessage,
+) (*llm.Usage, string, map[string]bool, error) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, "", nil
+		return nil, "", nil, nil
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, "", err
+	var v struct {
+		InputTokens              int             `json:"input_tokens"`
+		OutputTokens             int             `json:"output_tokens"`
+		CacheCreationInputTokens int             `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int             `json:"cache_read_input_tokens"`
+		ServiceTier              string          `json:"service_tier"`
+		ServerToolUse            json.RawMessage `json:"server_tool_use"`
 	}
-	var tier string
-	if value, ok := fields["service_tier"]; ok {
-		if err := json.Unmarshal(value, &tier); err != nil {
-			return nil, "", err
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, "", nil, err
+	}
+	usage := &llm.Usage{
+		InputTokens:              v.InputTokens,
+		OutputTokens:             v.OutputTokens,
+		CacheCreationInputTokens: v.CacheCreationInputTokens,
+		CacheReadInputTokens:     v.CacheReadInputTokens,
+	}
+	var reported map[string]bool
+	if len(v.ServerToolUse) > 0 && string(v.ServerToolUse) != "null" {
+		requests, counters, err := serverToolRequests(v.ServerToolUse)
+		if err != nil {
+			return nil, "", nil, err
 		}
-		delete(fields, "service_tier")
+		reported = counters
+		if len(requests) > 0 {
+			usage.Requests = requests
+		}
 	}
-	tokens, err := json.Marshal(fields)
-	if err != nil {
-		return nil, "", err
-	}
-	var usage llm.Usage
-	if err := json.Unmarshal(tokens, &usage); err != nil {
-		return nil, "", err
-	}
-	return &usage, tier, nil
+	return usage, v.ServiceTier, reported, nil
 }
 
 // decodeContent converts one Messages content block. Every block keeps its
