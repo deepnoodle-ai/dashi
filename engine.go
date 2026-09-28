@@ -980,7 +980,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var partialText strings.Builder
 	var partialContent []llm.Content
 	var observedUsage *llm.Usage
-	for item, err := range llm.Stream(r.ctx, r.b.Client, req) {
+	for item, err := range llm.Stream(r.ctx, r.b.Client, llm.Call{
+		Request: req,
+		// The client may key durable work by this ID; see llm.Attempt.
+		Attempt: llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt},
+	}) {
 		if item.Delta != nil {
 			if item.Delta.Usage != nil {
 				if observedUsage == nil {

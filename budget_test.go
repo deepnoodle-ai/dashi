@@ -668,9 +668,9 @@ type cancelingPricedClient struct {
 
 func (c *cancelingPricedClient) Send(
 	ctx context.Context,
-	_ llm.Request,
-	sink llm.Sink,
+	call llm.Call,
 ) (llm.Result, error) {
+	sink := call.Sink
 	if c.usage != nil {
 		sink(llm.Delta{Kind: llm.DeltaUsage, Usage: c.usage})
 	}

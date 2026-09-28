@@ -135,9 +135,9 @@ func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 
 type cancelAfterDeltaClient struct{ *scriptedClient }
 
-func (c *cancelAfterDeltaClient) Send(ctx context.Context, _ llm.Request, sink llm.Sink) (llm.Result, error) {
+func (c *cancelAfterDeltaClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	c.sends++
-	sink(llm.Delta{Kind: llm.DeltaText, Text: "partial"})
+	call.Sink(llm.Delta{Kind: llm.DeltaText, Text: "partial"})
 	<-ctx.Done()
 	return llm.Result{ID: "partial", Message: llm.AssistantMessage(llm.Text("partial")),
 		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},

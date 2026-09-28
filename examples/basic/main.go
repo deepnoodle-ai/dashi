@@ -33,7 +33,7 @@ func main() {
 		log.Fatal(err)
 	}
 	var result llm.Result
-	for event, err := range llm.Stream(ctx, client, request) {
+	for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 		if event.Delta != nil && event.Delta.Kind == llm.DeltaText {
 			fmt.Print(event.Delta.Text)
 		}

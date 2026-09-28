@@ -84,7 +84,7 @@ func TestDiveDestinationAdapters(t *testing.T) {
 			if len(sent) != 0 {
 				t.Fatal("Prepare dispatched")
 			}
-			result, err := client.Send(context.Background(), prepared, nil)
+			result, err := client.Send(context.Background(), llm.Call{Request: prepared})
 			if err != nil || result.Message.Text() != "ok" || result.Requested.Provider != tt.name ||
 				result.Served.Provider != tt.name || result.Stop.Kind != llm.StopFinished {
 				t.Fatalf("destination lost response: result=%+v err=%v", result, err)

@@ -213,7 +213,8 @@ var apiLimits = llm.Capabilities{
 
 // Send performs at most one dispatch. A stream sink observes provisional data;
 // the returned Result is authoritative and may be partial on an error.
-func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) (result llm.Result, callErr error) {
+func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+	prepared, sink := call.Request, call.Sink
 	wire := codec{origin: p.client.Origin(prepared.Input().Model), provider: p.Provider(),
 		costField: p.costField, costCurrency: p.costCurrency}
 	result = llm.Result{Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},

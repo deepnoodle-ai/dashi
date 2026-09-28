@@ -37,7 +37,7 @@ func TestPrepareSendsUnknownModelByDefault(t *testing.T) {
 			if len(snapshot.Warnings) != 0 {
 				t.Fatal("unknown support alone produced a warning")
 			}
-			if _, err := p.Send(context.Background(), prep, nil); err != nil {
+			if _, err := p.Send(context.Background(), llm.Call{Request: prep}); err != nil {
 				t.Fatalf("send unknown model: %v", err)
 			}
 		})
@@ -137,7 +137,7 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 					}
 					var result llm.Result
 					if stream {
-						for event, err := range llm.Stream(context.Background(), p, prep) {
+						for event, err := range llm.Stream(context.Background(), p, llm.Call{Request: prep}) {
 							if err != nil {
 								t.Fatalf("stream adjusted request: %v", err)
 							}
@@ -146,7 +146,7 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 							}
 						}
 					} else {
-						result, err = p.Send(context.Background(), prep, nil)
+						result, err = p.Send(context.Background(), llm.Call{Request: prep})
 						if err != nil {
 							t.Fatalf("send adjusted request: %v", err)
 						}

@@ -74,7 +74,7 @@ func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 					input.Messages[1].Content[0].Block.Text.Text = "mutated"
 					input.Messages[1].Source.ResponseID = "mutated"
 					changes[0].Reason = "mutated"
-					if _, err := client.Send(context.Background(), restored, nil); err != nil {
+					if _, err := client.Send(context.Background(), llm.Call{Request: restored}); err != nil {
 						t.Fatal(err)
 					}
 					if calls.Load() != 1 || !bytes.Equal(<-sent, request.Body()) || request.ContentChanges()[0].Reason == "mutated" {
@@ -256,7 +256,7 @@ func TestResultProvenanceSurvivesDetachedMessageAndPartialOutput(t *testing.T) {
 					}
 				})
 				client := tc.new(server.URL)
-				result, err := client.Send(context.Background(), preparedRequest(t, client, partial), nil)
+				result, err := client.Send(context.Background(), llm.Call{Request: preparedRequest(t, client, partial)})
 				if (err != nil) != partial {
 					t.Fatalf("unexpected fixture outcome: %v", err)
 				}
@@ -293,7 +293,7 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 				if variant == "cancelled" {
 					cancel()
 				}
-				result, err := client.Send(ctx, preparedRequest(t, client, variant == "empty-stream"), nil)
+				result, err := client.Send(ctx, llm.Call{Request: preparedRequest(t, client, variant == "empty-stream")})
 				if err == nil || result.Requested.Model != "requested" || result.Message.Source != nil {
 					t.Fatal("failure lost attempt facts or invented provider message provenance", err)
 				}
@@ -340,7 +340,7 @@ func portableHistory(t *testing.T, tc providerCase) (llm.Client, llm.Result) {
 		io.WriteString(w, body)
 	})
 	client := tc.new(server.URL)
-	result, err := client.Send(context.Background(), preparedRequest(t, client), nil)
+	result, err := client.Send(context.Background(), llm.Call{Request: preparedRequest(t, client)})
 	if err != nil {
 		t.Fatal(err)
 	}

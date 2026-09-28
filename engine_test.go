@@ -27,10 +27,10 @@ func (c *scriptedClient) Prepare(_ context.Context, in llm.Input) (llm.Request, 
 	c.inputs = append(c.inputs, in)
 	return llm.NewRequest(llm.RequestSnapshot{Origin: content.Origin{Provider: "test", API: "test.chat", Model: in.Model, Scope: "fixture"}, Input: in, Effective: in.Settings, Body: []byte(`{"ok":true}`)})
 }
-func (c *scriptedClient) Send(_ context.Context, _ llm.Request, sink llm.Sink) (llm.Result, error) {
+func (c *scriptedClient) Send(_ context.Context, call llm.Call) (llm.Result, error) {
 	for _, delta := range c.deltas {
-		if sink != nil {
-			sink(delta)
+		if call.Sink != nil {
+			call.Sink(delta)
 		}
 	}
 	if c.sends >= len(c.results) {

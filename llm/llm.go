@@ -524,7 +524,8 @@ type Delta struct {
 type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.
-// Its caller owns attempt identity, recording, and retry decisions. Deltas are
+// Its caller owns attempt identity, recording, and retry decisions, and passes
+// that identity to Send in Call.Attempt. Deltas are
 // provisional; inspect the final result and stop before executing tool calls.
 // An error may accompany partial data or leave provider receipt uncertain.
 type Client interface {
@@ -543,9 +544,11 @@ type Client interface {
 	// access. Preparation does not establish dispatch or provider receipt.
 	Prepare(context.Context, Input) (Request, error)
 
-	// Send performs at most one dispatch and collects a result. Calling Send
-	// again is a new attempt; a failure may occur before dispatch.
-	Send(context.Context, Request, Sink) (Result, error)
+	// Send performs at most one dispatch of call.Request and collects a
+	// result, reporting deltas to call.Sink. Calling Send again is a new
+	// attempt; a failure may occur before dispatch. See Attempt for what
+	// call.Attempt guarantees when it is set.
+	Send(context.Context, Call) (Result, error)
 }
 
 // ErrorCategory classifies provider failures so callers can decide whether to

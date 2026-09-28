@@ -60,7 +60,7 @@ func TestPrepareSendsFrozenBodyOnce(t *testing.T) {
 	if attempts.Load() != 0 || !strings.Contains(string(prepared.Body()), `"parameters":{"type":"object"}`) {
 		t.Fatalf("preparation dispatched or lost schema: %s", prepared.Body())
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestStreamAccumulatesFinalUsageAndToolCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
-	result, err := p.Send(context.Background(), prepared, func(d llm.Delta) { deltas = append(deltas, d) })
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(d llm.Delta) { deltas = append(deltas, d) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,11 +155,7 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 				t.Fatal(err)
 			}
 			var deltas []llm.Delta
-			result, err := client.Send(
-				context.Background(),
-				prepared,
-				func(delta llm.Delta) { deltas = append(deltas, delta) },
-			)
+			result, err := client.Send(context.Background(), llm.Call{Request: prepared, Sink: func(delta llm.Delta) { deltas = append(deltas, delta) }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,7 +232,7 @@ func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +258,7 @@ func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), prepared, nil)
+	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err == nil || result.Stop.Kind != llm.StopIncomplete || len(result.Message.Content) != 1 ||
 		result.Message.Content[0].Opaque == nil || !result.Message.Content[0].Opaque.Partial ||
 		!strings.Contains(string(result.Message.Content[0].Opaque.Raw), `{\"q\":`) {

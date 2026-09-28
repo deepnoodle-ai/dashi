@@ -17,12 +17,11 @@ type interruptionClient struct {
 
 func (c *interruptionClient) Send(
 	ctx context.Context,
-	_ llm.Request,
-	sink llm.Sink,
+	call llm.Call,
 ) (llm.Result, error) {
 	index := c.sends
 	c.sends++
-	return c.onSend(ctx, sink, index)
+	return c.onSend(ctx, call.Sink, index)
 }
 
 func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
