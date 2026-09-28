@@ -135,17 +135,264 @@ func TestReplayAllowsContextOnlyOnATurnedDownSubmission(t *testing.T) {
 	}
 }
 
-func TestFinishKeepsSubmissionWhenNoNormalCallRemains(t *testing.T) {
-	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
-		return FinishDecision{Reason: "try again"}, nil
+func TestFinishNudgeIsDroppedWhenNoNormalCallRemains(t *testing.T) {
+	nudge := FinishHook{Name: "nudge", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		return FinishDecision{Deliver: []ContextItem{{
+			Message: llm.UserMessage(llm.Text("maybe double-check")),
+		}}}, nil
 	}}
 	agent := structuredAgent()
 	agent.Limits.ModelAttempts = 2
 	client := &scriptedClient{results: []llm.Result{submitResult("out-1", `{"answer":1}`)}}
-	_, out, err := runStructured(t, agent, client, guard.Hooks())
+	_, out, err := runStructured(t, agent, client, nudge.Hooks())
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
 		!hasWarning(out, WarningDeliveryDropped) {
 		t.Fatalf("stop=%+v output=%+v warnings=%+v err=%v", out.Stop, out.Output, out.Warnings, err)
+	}
+}
+
+func TestFinishVetoStopsWhenNoNormalCallRemains(t *testing.T) {
+	veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		return FinishDecision{Reason: "contains PII"}, nil
+	}}
+	t.Run("submission", func(t *testing.T) {
+		agent := structuredAgent()
+		agent.Limits.ModelAttempts = 2
+		client := &scriptedClient{results: []llm.Result{
+			submitResult("out-1", `{"answer":1}`),
+			submitResult("out-2", `{"answer":2}`),
+		}}
+		runner, out, err := runStructured(t, agent, client, veto.Hooks())
+		if err != nil || out.Stop.Kind != StopFailed ||
+			out.Stop.Reason != StopReasonOutputRejected || out.Output != nil ||
+			out.Stop.Terminal {
+			t.Fatalf("stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
+		}
+		if seen := toolResultText(t, out.Turn, "out-1"); seen != "Not accepted: contains PII" {
+			t.Fatalf("model would see %q", seen)
+		}
+		// Continue spends the reserved final answer, which the hook vetoes
+		// again; with no attempts left, the next Continue ends the turn
+		// limited, never with a vetoed output.
+		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
+		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
+			client.sends != 2 || out.Output != nil {
+			t.Fatalf("resumed stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+		}
+		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "again"})
+		if err != nil || out.Stop.Kind != StopLimited || out.Output != nil ||
+			client.sends != 2 {
+			t.Fatalf("final stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
+		}
+	})
+	t.Run("text", func(t *testing.T) {
+		agent := testAgent()
+		agent.Limits.ModelAttempts = 2
+		client := &scriptedClient{results: []llm.Result{final("ssn 123")}}
+		out, err := (Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}).Run(
+			t.Context(),
+			Turn{ID: "t1"},
+			Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+			},
+		)
+		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
+			out.Answer != "" {
+			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+	})
+}
+
+func TestFinishVetoResumesAfterABudgetRaise(t *testing.T) {
+	asked := 0
+	veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		asked++
+		if asked == 1 {
+			return FinishDecision{Reason: "contains PII"}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	client := newPricedClient(final("ssn 123"), final("redacted"))
+	agent := testAgent()
+	agent.Settings = llm.Settings{MaxTokens: 100}
+	runner := Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Budget:    &Budget{MaxCost: &Money{Amount: amount("0.0013"), Currency: "USD"}},
+		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+	})
+	if err != nil || out.Stop.Reason != StopReasonOutputRejected || out.Answer != "" {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID: "raise",
+		Budget:    &Budget{MaxCost: &Money{Amount: amount("1"), Currency: "USD"}},
+	})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "redacted" {
+		t.Fatalf("resumed stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+	last := client.inputs[len(client.inputs)-1].Messages
+	if last[len(last)-1].Text() != "Not accepted: contains PII" {
+		t.Fatalf("the model did not see the rejection: %+v", last[len(last)-1])
+	}
+}
+
+func TestFinishReasonAloneRejectsText(t *testing.T) {
+	asked := 0
+	veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		asked++
+		if asked == 1 {
+			return FinishDecision{Reason: "contains PII"}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("ssn 123"), final("redacted")}}
+	out, err := runHooked(t, client, nil, veto.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "redacted" ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+	last := client.inputs[1].Messages
+	if last[len(last)-1].Text() != "Not accepted: contains PII" {
+		t.Fatalf("second request tail = %+v", last[len(last)-1])
+	}
+}
+
+func TestFinishReasonIsBounded(t *testing.T) {
+	long := strings.Repeat("x", 5000)
+	veto := FinishHook{Name: "long", Func: func(_ context.Context, p FinishPlan) (FinishDecision, error) {
+		if p.CallID == "out-1" {
+			return FinishDecision{Reason: long}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{
+		submitResult("out-1", `{"answer":1}`),
+		submitResult("out-2", `{"answer":2}`),
+	}}
+	_, out, err := runStructured(t, structuredAgent(), client, veto.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if seen := toolResultText(t, out.Turn, "out-1"); len(seen) != len("Not accepted: ")+maxHookReason {
+		t.Fatalf("model saw %d bytes", len(seen))
+	}
+}
+
+func TestSubmissionRejectionSurvivesCrashes(t *testing.T) {
+	for _, kind := range []StepKind{StepToolSettled, StepModelIntent} {
+		t.Run(string(kind), func(t *testing.T) {
+			asked := 0
+			guard := FinishHook{Name: "tests", Func: func(
+				_ context.Context,
+				p FinishPlan,
+			) (FinishDecision, error) {
+				asked++
+				if p.CallID == "out-1" {
+					return FinishDecision{Deliver: []ContextItem{{
+						Origin:  ContextRuntime,
+						Message: llm.UserMessage(llm.Text("ITEM")),
+					}}}, nil
+				}
+				return FinishDecision{}, nil
+			}}
+			client := &scriptedClient{results: []llm.Result{
+				submitResult("out-1", `{"answer":1}`),
+				submitResult("out-2", `{"answer":2}`),
+			}}
+			base := NewMemoryRecorder()
+			// The first model intent is the first call; crash on the second.
+			rec := &failNthKind{base: base, kind: kind, n: 1}
+			if kind == StepModelIntent {
+				rec.n = 2
+			}
+			runner := Runner{
+				Agent:    structuredAgent(),
+				Client:   client,
+				Recorder: rec,
+				Hooks:    guard.Hooks(),
+			}
+			_, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+			})
+			if persistence(err) != PersistenceRejected {
+				t.Fatalf("err = %v", err)
+			}
+			saved, err := base.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := runner.Run(t.Context(), saved, Continue{CommandID: "recover"})
+			if err != nil || out.Stop.Kind != StopCompleted ||
+				string(out.Output.Value) != `{"answer":2}` {
+				t.Fatalf("stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
+			}
+			rejections := 0
+			for _, step := range out.Turn.Steps {
+				if step.Kind == StepToolSettled && step.Tool.Call.ID == "out-1" {
+					rejections++
+				}
+			}
+			sent := client.inputs[len(client.inputs)-1].Messages
+			items := 0
+			for _, m := range sent {
+				if m.Text() == "ITEM" {
+					items++
+				}
+			}
+			if rejections != 1 || items != 1 {
+				t.Fatalf("rejections=%d items seen=%d", rejections, items)
+			}
+		})
+	}
+}
+
+// failNthKind rejects the n-th commit of one step kind.
+type failNthKind struct {
+	base *MemoryRecorder
+	kind StepKind
+	n    int
+	seen int
+}
+
+func (f *failNthKind) Commit(ctx context.Context, req CommitRequest) error {
+	if req.Step.Kind == f.kind {
+		f.seen++
+		if f.seen == f.n {
+			return &CommitError{
+				Persistence: PersistenceRejected,
+				Err:         errors.New("injected failure"),
+			}
+		}
+	}
+	return f.base.Commit(ctx, req)
+}
+
+func (f *failNthKind) Load(ctx context.Context, id string) (Turn, error) {
+	return f.base.Load(ctx, id)
+}
+
+func TestReplayRejectsContextOnASchemaRejection(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{
+		submitResult("out-1", `{"answer":"x"}`),
+		submitResult("out-2", `{"answer":2}`),
+	}}
+	_, out, err := runStructured(t, structuredAgent(), client, Hooks{})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	turn := cloneTurn(out.Turn)
+	for i, step := range turn.Steps {
+		if step.Kind == StepToolSettled && step.Tool.Call.ID == "out-1" {
+			turn.Steps[i].Context = &ContextFact{Items: []ContextItem{{
+				Message: llm.UserMessage(llm.Text("smuggled")),
+			}}}
+		}
+	}
+	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("replay err = %v", err)
 	}
 }
 

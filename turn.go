@@ -438,6 +438,14 @@ const (
 	// Fix the cause, then Continue: the turn resumes where it stopped. A
 	// failed stop does not count toward Limits.Interruptions.
 	StopReasonHookFailed = "hook_failed"
+
+	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
+	// answer with a Reason when no further model call could happen. The
+	// rejection is recorded and no output is accepted; Outcome.Answer is
+	// empty. Continue after raising the limit that stopped it (such as the
+	// Budget) lets the model see the rejection and answer again; with no
+	// model attempts left, Continue ends the turn limited.
+	StopReasonOutputRejected = "output_rejected"
 )
 
 // Persistence classifies a step write the recorder did not acknowledge.

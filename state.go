@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -140,6 +141,9 @@ type replayState struct {
 	failedModel            string
 	// activeHooks is the ActiveHooks of the latest command.
 	activeHooks *ActiveHooks
+	// deliveredOnKept sizes the context delivered while a BeforeFinish
+	// failure kept a final text answer; see keptFinishCandidate.
+	deliveredOnKept int
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -221,6 +225,9 @@ func replay(t Turn) (*replayState, error) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
+		if !s.awaitingClassification {
+			s.deliveredOnKept = 0
+		}
 		s.Revision = step.Seq
 	}
 	// Derive ArgsDigest from the final status, so no transition out of
@@ -234,6 +241,10 @@ func replay(t Turn) (*replayState, error) {
 	}
 	s.Pending = s.pendingItems()
 	s.Answer = answerText(t.Steps)
+	// A vetoed answer never reaches the host through Answer.
+	if s.Stop.Kind == StopFailed && s.Stop.Reason == StopReasonOutputRejected {
+		s.Answer = ""
+	}
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
@@ -413,8 +424,8 @@ func (s *replayState) apply(step Step) error {
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
-		if s.deliverySupersedesCandidate() {
-			s.awaitingClassification = false
+		if s.keptFinishCandidate() {
+			s.deliveredOnKept += estimatedItemTokens(step.Context.Items)
 		}
 		for _, item := range step.Context.Items {
 			if err := validateContext(item); err != nil {
@@ -741,7 +752,9 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool settlement")
 		}
 		if step.Context != nil {
-			if step.Tool.Call.Name != SubmitOutputTool ||
+			started := s.Tools[step.Tool.Call.ID].Status == ToolStarted
+			if step.Tool.Call.Name != SubmitOutputTool || !started ||
+				!strings.HasPrefix(step.Tool.Reason, "not accepted: ") ||
 				step.Tool.Outcome == nil ||
 				step.Tool.Outcome.State != tool.StateFailed ||
 				len(step.Context.Items) == 0 {
@@ -1332,34 +1345,13 @@ func (s *replayState) trackContext(step Step) {
 	}
 }
 
-// deliverySupersedesCandidate reports whether context delivered now replaces
-// the answer a BeforeFinish failure kept: Continue then asks the model again
-// instead of re-checking the old answer. That needs room for one more normal
-// model call; otherwise the old answer is re-checked and the delivery is not
-// seen, which Deliver records as WarningDeliveryDropped.
-func (s *replayState) deliverySupersedesCandidate() bool {
-	return s.keptFinishCandidate() && s.roomForNormalCall()
-}
-
+// keptFinishCandidate reports a final text answer kept by a BeforeFinish
+// failure. Context delivered while it is kept is counted in deliveredOnKept,
+// and Continue decides at run time whether the model can be asked again.
 func (s *replayState) keptFinishCandidate() bool {
 	return s.awaitingClassification &&
 		s.Stop.Kind == StopFailed &&
 		s.Stop.Reason == StopReasonHookFailed
-}
-
-// keptSubmission returns the started dashi_submit_output call that a
-// BeforeFinish failure stopped on, if any.
-func (s *replayState) keptSubmission() (tool.Call, bool) {
-	if s.Stop.Kind != StopFailed || s.Stop.Reason != StopReasonHookFailed {
-		return tool.Call{}, false
-	}
-	for _, id := range s.callOrder {
-		v := s.Tools[id]
-		if v.Call.Name == SubmitOutputTool && v.Status == ToolStarted {
-			return v.Call, true
-		}
-	}
-	return tool.Call{}, false
 }
 
 // roomForNormalCall reports whether one more model call fits before the

@@ -309,11 +309,14 @@ type FinishDecision struct {
 	// happen, such as on the reserved final-answer call, the items are
 	// dropped with a warning and the candidate stands.
 	Deliver []ContextItem
-	// Reason says why the candidate is not accepted. It is recorded, and on
-	// a submitted output it is what the model sees ("Not accepted: " and the
-	// reason); a Reason alone turns a submission down. The first hook's
-	// reason is used. An empty reason on a turned-down submission gives
-	// "a check did not accept this output".
+	// Reason vetoes the candidate: it is unacceptable. The model sees "Not
+	// accepted: " and the reason, on either path, and answers again. When no
+	// further model call can happen, the veto still holds: the rejection is
+	// recorded and the turn stops as StopFailed with
+	// StopReasonOutputRejected, instead of accepting the answer. Deliver
+	// alone is a nudge, which is dropped in that case. The first hook's
+	// reason is used, bounded to 1 KiB. An empty reason on a submission
+	// turned down by items gives "a check did not accept this output".
 	Reason string
 	// AcceptEmpty accepts a candidate with no text, which otherwise fails the
 	// turn as empty_response.
@@ -524,7 +527,8 @@ func validHookLimit(limit LimitDetail) bool {
 // a host branching on them never mistakes a hook's stop for one.
 func reservedStopReason(reason string) bool {
 	switch reason {
-	case StopReasonHookFailed, StopReasonToolFatal, StopReasonToolOutcomeInvalid:
+	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
+		StopReasonToolOutcomeInvalid:
 		return true
 	}
 	return false

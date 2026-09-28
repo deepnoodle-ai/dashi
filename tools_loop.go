@@ -480,13 +480,16 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	}
 	// Context delivered while a BeforeFinish failure kept this submission
 	// supersedes it, when the model can still be asked again.
-	if deliveredSinceStart(r.turn, call.ID) && r.nextCallPossible(state, 0) {
-		return r.rejectSubmission(
-			call,
-			"new context arrived. Read it, then submit again.",
-			"delivered context",
-			nil,
-		)
+	if since := deliveredSinceStart(r.turn, call.ID); len(since) > 0 {
+		if r.nextCallFits(state, estimatedItemTokens(since)) {
+			return r.rejectSubmission(
+				call,
+				"new context arrived. Read it, then submit again.",
+				"delivered context",
+				nil,
+			)
+		}
+		r.deliveryDropped()
 	}
 	plan := FinishPlan{
 		Turn:      snapshotView(state.TurnView),
@@ -497,17 +500,21 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	if state.latestResult != nil {
 		plan.Answer = state.latestResult.Message.Text()
 	}
-	finish, o := r.finishPoint(state, plan, true)
+	finish, o := r.finishPoint(state, plan)
 	if o != nil {
 		return o
 	}
-	if finish.rejects(true) {
-		return r.rejectSubmission(
+	if finish.rejects() {
+		if o := r.rejectSubmission(
 			call,
 			cmp.Or(finish.reason, "a check did not accept this output"),
 			"hook "+finish.hook,
 			finish.deliver,
-		)
+		); o != nil || !finish.noCall {
+			return o
+		}
+		o := r.stop(StopFailed, StopReasonOutputRejected)
+		return &o
 	}
 	out := tool.Outcome{
 		State:  tool.StateSucceeded,
@@ -519,21 +526,21 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	})
 }
 
-// deliveredSinceStart reports whether context was delivered after the call
-// started.
-func deliveredSinceStart(t Turn, callID string) bool {
+// deliveredSinceStart returns the context delivered after the call started.
+func deliveredSinceStart(t Turn, callID string) []ContextItem {
 	started := false
+	var items []ContextItem
 	for _, step := range t.Steps {
 		if step.Kind == StepToolStarted && step.Tool != nil &&
 			step.Tool.Call.ID == callID {
 			started = true
 			continue
 		}
-		if started && step.Kind == StepDelivered {
-			return true
+		if started && step.Kind == StepDelivered && step.Context != nil {
+			items = append(items, step.Context.Items...)
 		}
 	}
-	return false
+	return items
 }
 
 func boundedOutputError(err error) string {

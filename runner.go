@@ -388,16 +388,6 @@ func (r Runner) apply(
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
 		}
-		_, submission := state.keptSubmission()
-		if (state.keptFinishCandidate() || submission) &&
-			!state.roomForNormalCall() {
-			step.Warnings = []Warning{{
-				Code: WarningDeliveryDropped,
-				Message: "no model call remains before the reserved final " +
-					"answer, so Continue re-checks the kept answer and the " +
-					"model does not see this context",
-			}}
-		}
 		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
 		}
@@ -1452,17 +1442,36 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
 		}
 	}
-	finish, o := r.finishPoint(state, plan, false)
+	// Context delivered after a BeforeFinish failure kept this answer
+	// supersedes it, when the model can still be asked again.
+	if state.deliveredOnKept > 0 {
+		if r.nextCallFits(state, state.deliveredOnKept) {
+			if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
+				return *o, false
+			}
+			return Outcome{}, true
+		}
+		r.deliveryDropped()
+	}
+	finish, o := r.finishPoint(state, plan)
 	if o != nil {
 		return *o, false
 	}
-	if finish.rejects(false) {
-		step := Step{
-			Kind:    StepLoopContinued,
-			Context: &ContextFact{Items: finish.deliver},
+	if finish.rejects() {
+		var items []ContextItem
+		if finish.reason != "" {
+			items = append(items, ContextItem{
+				Origin:  ContextRuntime,
+				Message: llm.UserMessage(llm.Text(notAccepted(finish.reason))),
+			})
 		}
+		items = append(items, finish.deliver...)
+		step := Step{Kind: StepLoopContinued, Context: &ContextFact{Items: items}}
 		if o := r.commit(step); o != nil {
 			return *o, false
+		}
+		if finish.noCall {
+			return r.stop(StopFailed, StopReasonOutputRejected), false
 		}
 		return Outcome{}, true
 	}
