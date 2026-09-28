@@ -1,6 +1,6 @@
 # Hooks after tools, hiding, and state
 
-**Status:** 2a in progress; 2b and 2c planned (decision 31) · **Date:**
+**Status:** 2a (#55) and 2b in review; 2c planned (decision 31) · **Date:**
 2026-09-28 · **Owner:** Curtis · **Builds on:** [hooks.md](hooks.md)
 
 ## Plan
@@ -106,11 +106,17 @@ non-text blocks; and the redactor example run live.
 
 ## 2b and 2c
 
-- **2b, `Hide`:** hooks' lists union; the submit tool cannot be hidden; the
-  hide clears a forced tool choice naming a hidden tool, with a warning; a
-  hidden tool is not guaranteed unused, since `BeforeModel` fails open; and
-  changing the offered tools resets the provider's prompt cache. Plus
-  `tool.Join`, which fails `Tools` on a duplicate name.
+- **2b, `ModelDecision.Hide`:** hooks' lists union; names the call does not
+  offer are ignored; the submit tool cannot be hidden (ignored with a
+  warning); no effect on the reserved final-answer call. The hide clears a
+  forced tool choice naming a hidden tool, or `any` with no tools left, with
+  `WarningToolChoiceCleared`. Each hook's candidate input is validated, so an
+  invalid answer skips that hook. The intent's `Tools` records what was
+  offered; a call to a hidden bound tool settles as not run, "This tool is
+  not available now.", without hooks. A hidden tool is not guaranteed
+  unused, since `BeforeModel` fails open, and changing the offered tools
+  resets the provider's prompt cache. Plus `tool.Join`, which fails `Tools`
+  on a duplicate name.
 - **2c, state:** recorded only when it changes, keyed by hook name and shared
   across a bundle's points, with a typed accessor.
 
