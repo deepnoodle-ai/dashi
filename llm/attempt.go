@@ -34,12 +34,13 @@ type Call struct {
 //     of dispatching again.
 //   - Recovery never reuses an ID. An interrupted call is settled under its
 //     own ID (dashi.ModelFact.Interrupted names the cause), and the resend is
-//     a new intent with a new ID. Work still running under the old ID is stale: Dashi will not act on
-//     its output, though its usage is the application's to account. After a
-//     worker crash leaves the intent unsettled, a host that finds the old job
-//     finished can record it with Settle{CallID: id, ModelResult: ...} before
-//     Continue, and Dashi will not send again. The same Settle settles an
-//     attempt left uncertain, for example by a provider-hosted tool.
+//     a new intent with a new ID. Work still running under the old ID is
+//     stale: Dashi will not act on its output, though its usage is the
+//     application's to account. After a worker crash leaves the intent
+//     unsettled, a host that finds the old job finished can record it with
+//     Settle{CallID: id, ModelResult: ...} before Continue, and Dashi will
+//     not send again. The same Settle settles an attempt left uncertain, for
+//     example by a provider-hosted tool.
 type Attempt struct {
 	// TurnID identifies the caller's unit of work, such as a Dashi turn.
 	TurnID string

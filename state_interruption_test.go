@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -122,6 +123,31 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 	_, err := Replay(turn)
 	if err == nil || !strings.Contains(err.Error(), "interrupt cause") {
 		t.Fatalf("replay of an unknown interrupt cause: err=%v", err)
+	}
+}
+
+func TestInterruptCauseSurvivesJSONRoundTrip(t *testing.T) {
+	fact := ModelFact{AttemptID: "model-1", Interrupted: InterruptWorker}
+	data, err := json.Marshal(fact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"interrupted":"worker"`) {
+		t.Fatalf("encoded cause is missing: %s", data)
+	}
+	var decoded ModelFact
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Interrupted != InterruptWorker {
+		t.Fatalf("decoded cause = %q, want worker", decoded.Interrupted)
+	}
+	none, err := json.Marshal(ModelFact{AttemptID: "model-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(none), "interrupted") {
+		t.Fatalf("an uninterrupted call encodes a cause: %s", none)
 	}
 }
 
