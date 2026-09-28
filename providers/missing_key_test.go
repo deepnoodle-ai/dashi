@@ -221,6 +221,30 @@ func TestProviderKeysNeverReachOtherDestinations(t *testing.T) {
 			}
 		})
 	}
+	t.Run("images gateway", func(t *testing.T) {
+		var headers []http.Header
+		client, err := images.New(images.Config{
+			Provider: "gateway",
+			Endpoint: "https://gateway.example/v1",
+			Client:   &http.Client{Transport: recordingTransport{&headers}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := client.PrepareImage(t.Context(), media.ImageInput{
+			Model:     "gpt-image-1",
+			Operation: media.ImageGenerate,
+			Prompt:    []content.Block{content.TextBlock("a cat")},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = client.SendImage(t.Context(), request)
+		if len(headers) != 1 ||
+			strings.Contains(headers[0].Get("Authorization"), openAIKey) {
+			t.Fatalf("gateway headers = %v", headers)
+		}
+	})
 	// The OpenAI and Anthropic destinations still read their own keys.
 	var headers []http.Header
 	custom := &http.Client{Transport: recordingTransport{&headers}}

@@ -4,6 +4,7 @@
 package imagine
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -40,9 +41,10 @@ type Config struct {
 	// "grok" only for DefaultEndpoint; custom endpoints require a name.
 	Provider string
 
-	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY. With no key for the
-	// public endpoint, New and Prepare still succeed and each send fails
-	// before dispatch with an error wrapping llm.ErrNoAPIKey.
+	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY, read only when
+	// Provider is "grok" so the key never reaches another destination. With
+	// no key for the public endpoint, New and Prepare still succeed and each
+	// send fails before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint is the base URL shared by image and video routes.
@@ -79,12 +81,6 @@ func New(config Config) (*Client, error) {
 	if config.Endpoint == "" {
 		config.Endpoint = DefaultEndpoint
 	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("XAI_API_KEY")
-	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GROK_API_KEY")
-	}
 	u, err := url.Parse(config.Endpoint)
 	if err != nil ||
 		u.Host == "" ||
@@ -102,6 +98,11 @@ func New(config Config) (*Client, error) {
 	}
 	if strings.TrimSpace(config.Provider) == "" {
 		return nil, errors.New("imagine: provider identity is required")
+	}
+	// The xAI key is read only for the grok destination, so a client for
+	// another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "grok" {
+		config.APIKey = cmp.Or(os.Getenv("XAI_API_KEY"), os.Getenv("GROK_API_KEY"))
 	}
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("imagine: invalid capability policy")
