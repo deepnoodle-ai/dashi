@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,10 +276,11 @@ func TestNewRetriesAFailedDirectorySync(t *testing.T) {
 	}
 }
 
-// TestNewSkipsAnUnreadableExistingAncestor covers a directory the process may
-// search and write but not read, such as a shared drop directory: New cannot
-// sync it and must not fail because of it.
-func TestNewSkipsAnUnreadableExistingAncestor(t *testing.T) {
+// TestNewRejectsAnUnreadableAncestor covers a directory the process may
+// search and write but not read. New cannot sync it, and it may hold the
+// entry that names Dir, so New must fail rather than return a recorder that
+// acknowledges commits it cannot make durable.
+func TestNewRejectsAnUnreadableAncestor(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can read any directory")
 	}
@@ -289,8 +291,12 @@ func TestNewSkipsAnUnreadableExistingAncestor(t *testing.T) {
 	t.Cleanup(func() {
 		os.Chmod(locked, 0o700)
 	})
-	if _, err := New(Config{Dir: filepath.Join(locked, "turns")}); err != nil {
-		t.Fatalf("New failed on an unreadable existing ancestor: %v", err)
+	r, err := New(Config{Dir: filepath.Join(locked, "turns")})
+	if err == nil || r != nil {
+		t.Fatalf("New returned %v, %v; want no recorder and an error", r, err)
+	}
+	if !strings.Contains(err.Error(), locked) {
+		t.Fatalf("error %v does not name %s", err, locked)
 	}
 }
 
