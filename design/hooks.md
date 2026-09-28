@@ -239,9 +239,10 @@ A reusable package exports a type with `Hooks() kernel.Hooks` and
 durably through `HookState`. No new "extension" concept is needed.
 
 **Tools work by default.** With no hook opinion, local and external tools are
-allowed: binding a tool enables it. This is a deliberate decision, matching Pi
-and the zero-value rule. The guide includes a five-line hook that defers any
-tool not annotated read-only.
+allowed: binding a tool enables it. This is a deliberate decision (decision
+31), matching Pi and the zero-value rule. A conformance case shows a bound tool
+running with no hooks, and not running under a deny or defer hook. The guide
+includes a five-line hook that defers any tool not annotated read-only.
 
 ## Internal alignment
 

@@ -217,14 +217,18 @@ same PR)
   provider-hosted tool that is unsafe to repeat. The steer waits, with a
   warning.
 - FR-19: An urgent steer during a tool batch stops new calls from starting.
-  Unstarted allowed calls settle as `StateNotExecuted` with the output "Not run:
-  the user sent new input." This is a new replay transition, from allowed to not
-  executed, with the reason `steering`. Running calls finish. Calls awaiting
+  The FR-17 listener also runs while a batch drains. When `Pending` confirms
+  an urgent steer, it sets a flag that the runner checks before committing
+  each `ToolStarted`; once set, no later call starts, at any concurrency.
+  Tests cover `Ready` firing between sibling tools at concurrency 1 and
+  above. Unstarted allowed calls settle as `StateNotExecuted` with the output
+  "Not run: the user sent new input." This is a new replay transition, from
+  allowed to not executed, with the reason `steering`. Running calls finish. Calls awaiting
   approval and waiting external calls stay pending.
 - FR-20: An attempt actually cancelled for a steer counts toward `ModelAttempts`
-  and the budget. That changes today's documented rule, so replay counts only
-  `InterruptedBy: "steering"`. Update the `Limits.ModelAttempts` comment and
-  `docs/agent-turns.md`. It does not count toward `Limits.Interruptions`.
+  and the budget. This supersedes part of decision 12 (decision 32), so
+  replay counts only `InterruptedBy: "steering"`. Update the
+  `Limits.ModelAttempts` comment and `docs/agent-turns.md`. It does not count toward `Limits.Interruptions`.
 
 **Reminder instruction**
 
