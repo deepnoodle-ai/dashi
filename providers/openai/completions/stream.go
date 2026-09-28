@@ -30,7 +30,7 @@ func (wire codec) readStream(
 	var text, reasoning strings.Builder
 	calls := map[int]*ToolCall{}
 	callIDs := map[string]int{}
-	var lastToolRaw []byte
+	callRaw := map[int][]byte{}
 	var reason string
 	seen := false
 	build := func(complete, unsafeCalls bool) llm.Result {
@@ -264,7 +264,7 @@ func (wire codec) readStream(
 				call.Function.Name = delta.Function.Name
 			}
 			call.Function.Arguments += delta.Function.Arguments
-			lastToolRaw = slices.Clone(raw)
+			callRaw[index] = slices.Clone(raw)
 			if delta.Function.Arguments != "" {
 				providerhttp.Emit(
 					sink,
@@ -309,7 +309,7 @@ func (wire codec) readStream(
 			Args: json.RawMessage(call.Function.Arguments),
 		}).Validate(); err != nil {
 			return protocolError(
-				lastToolRaw,
+				callRaw[index],
 				"invalid streamed tool call at index %d: %w",
 				index,
 				err,
@@ -317,7 +317,7 @@ func (wire codec) readStream(
 		}
 		if seenIDs[call.ID] {
 			return protocolError(
-				lastToolRaw,
+				callRaw[index],
 				"duplicate streamed tool ID %q",
 				call.ID,
 			)

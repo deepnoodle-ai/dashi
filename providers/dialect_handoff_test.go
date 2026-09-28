@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -79,14 +80,20 @@ func TestCompletionsTwoToolHistoryPreparesForOtherRoutes(t *testing.T) {
 			}
 			body := request.Body()
 			for _, fragment := range []string{
-				"call-a", "call-b", "search", "lookup", "yes",
 				"search-hit", "lookup-row",
 			} {
 				if !strings.Contains(string(body), fragment) {
 					t.Fatalf("prepared body lost %q: %s", fragment, body)
 				}
 			}
-			results := handoffWireResults(t, body)
+			calls, results := handoffWireFacts(t, body)
+			wantCalls := map[string]handoffCall{
+				"call-a": {Name: "search", Args: map[string]any{"q": "yes"}},
+				"call-b": {Name: "lookup", Args: map[string]any{"x": float64(1)}},
+			}
+			if !reflect.DeepEqual(calls, wantCalls) {
+				t.Fatalf("tool calls changed during handoff: got=%+v want=%+v", calls, wantCalls)
+			}
 			if !strings.Contains(results["call-a"], "search-hit") ||
 				!strings.Contains(results["call-b"], "lookup-row") ||
 				len(results) != 2 {
@@ -106,12 +113,18 @@ func TestCompletionsTwoToolHistoryPreparesForOtherRoutes(t *testing.T) {
 	}
 }
 
-func handoffWireResults(t *testing.T, body []byte) map[string]string {
+type handoffCall struct {
+	Name string
+	Args any
+}
+
+func handoffWireFacts(t *testing.T, body []byte) (map[string]handoffCall, map[string]string) {
 	t.Helper()
 	var decoded any
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatal(err)
 	}
+	calls := map[string]handoffCall{}
 	results := map[string]string{}
 	var walk func(any)
 	walk = func(value any) {
@@ -119,6 +132,19 @@ func handoffWireResults(t *testing.T, body []byte) map[string]string {
 		case map[string]any:
 			var id string
 			switch value["type"] {
+			case "tool_use":
+				id, _ := value["id"].(string)
+				name, _ := value["name"].(string)
+				calls[id] = handoffCall{Name: name, Args: value["input"]}
+			case "function_call":
+				id, _ := value["call_id"].(string)
+				name, _ := value["name"].(string)
+				arguments, _ := value["arguments"].(string)
+				var args any
+				if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+					t.Fatalf("decode prepared arguments for %q: %v", id, err)
+				}
+				calls[id] = handoffCall{Name: name, Args: args}
 			case "tool_result":
 				id, _ = value["tool_use_id"].(string)
 			case "function_call_output":
@@ -138,5 +164,5 @@ func handoffWireResults(t *testing.T, body []byte) map[string]string {
 		}
 	}
 	walk(decoded)
-	return results
+	return calls, results
 }

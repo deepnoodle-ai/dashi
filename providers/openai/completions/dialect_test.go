@@ -50,6 +50,7 @@ func dialectSend(
 	t *testing.T,
 	response string,
 	stream bool,
+	sink ...llm.Sink,
 ) (llm.Result, error) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +65,11 @@ func dialectSend(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return client.Send(t.Context(), llm.Call{Request: request})
+	call := llm.Call{Request: request}
+	if len(sink) > 0 {
+		call.Sink = sink[0]
+	}
+	return client.Send(t.Context(), call)
 }
 
 func dialectCalls(t *testing.T, result llm.Result) []string {
@@ -147,14 +152,25 @@ func TestDialectMissingIndexResolvesOnlyByExistingID(t *testing.T) {
 		`{"choices":[{"index":0,"delta":{"tool_calls":[{"id":"call-b","function":{"arguments":""}}]}}]}`,
 		`{"choices":[{"index":0,"delta":{"tool_calls":[{"id":"call-b","function":{"arguments":"1}"}}]},"finish_reason":"tool_calls"}]}`,
 	)
-	result, err := dialectSend(t, stream, true)
+	var argumentIndices []int
+	result, err := dialectSend(t, stream, true, func(delta llm.Delta) {
+		if delta.Kind == llm.DeltaToolArguments {
+			argumentIndices = append(argumentIndices, delta.Index)
+		}
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{`call-b/lookup/{"x":1}`}
 	if got := dialectCalls(t, result); !reflect.DeepEqual(got, want) ||
-		result.Usage != nil {
-		t.Fatalf("completions/missing-index-resolved/stream: calls=%v usage=%+v", got, result.Usage)
+		result.Usage != nil ||
+		!reflect.DeepEqual(argumentIndices, []int{1, 1}) {
+		t.Fatalf(
+			"completions/missing-index-resolved/stream: calls=%v usage=%+v indices=%v",
+			got,
+			result.Usage,
+			argumentIndices,
+		)
 	}
 }
 
@@ -297,5 +313,22 @@ func TestDialectInterruptedArgumentsRemainPartial(t *testing.T) {
 		result.Message.Content[0].Opaque == nil ||
 		!result.Message.Content[0].Opaque.Partial {
 		t.Fatalf("completions/interrupted-arguments/stream: result=%+v err=%v", result, err)
+	}
+}
+
+func TestDialectInvalidCallReportsItsOwnFragment(t *testing.T) {
+	stream := dialectEvents(
+		dialectTool(0, "call-a", "search", "{"),
+		dialectTool(1, "call-b", "lookup", `{}`),
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+	)
+	result, err := dialectSend(t, stream, true)
+	var providerErr *llm.Error
+	if !errors.As(err, &providerErr) ||
+		providerErr.Category != llm.ErrorProtocol ||
+		!strings.Contains(string(providerErr.Body), "call-a") ||
+		strings.Contains(string(providerErr.Body), "call-b") ||
+		len(dialectCalls(t, result)) != 0 {
+		t.Fatalf("completions/invalid-call-own-fragment/stream: result=%+v err=%v", result, err)
 	}
 }
