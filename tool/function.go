@@ -139,7 +139,8 @@ func (e typedExecutor[T]) Execute(
 // time.Time: providers need an input schema with named properties, and strict
 // modes reject open objects such as maps. It also refuses the json ",string"
 // option at any depth, because the schema describes the plain value while
-// decoding would expect it quoted, so every call would fail.
+// decoding would expect it quoted, so every call would fail, and recursion
+// that does not pass through a struct, which has no finite schema.
 func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -147,19 +148,43 @@ func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
 		return fmt.Errorf("arguments type %s must be a struct", t)
 	}
-	return checkStringOption(t, map[reflect.Type]bool{})
+	return checkFieldTypes(
+		t,
+		map[reflect.Type]bool{},
+		map[reflect.Type]bool{},
+	)
 }
 
-func checkStringOption(t reflect.Type, seen map[reflect.Type]bool) error {
-	for {
-		switch t.Kind() {
-		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
-			t = t.Elem()
-			continue
+// checkFieldTypes refuses what the schema cannot describe. It records every
+// type it visits, so recursive types terminate. Recursion through a struct,
+// such as type Node struct{ Children []Node }, is supported. Recursion only
+// through pointers, slices, arrays, or maps, such as type Nodes []Nodes, has
+// no finite schema, so it is refused: chain holds the collection types seen
+// since the last struct.
+func checkFieldTypes(
+	t reflect.Type,
+	seen map[reflect.Type]bool,
+	chain map[reflect.Type]bool,
+) error {
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		if chain[t] {
+			return fmt.Errorf(
+				"recursive type %s must recurse through a struct",
+				t,
+			)
 		}
-		break
+		chain[t] = true
+		if seen[t] {
+			return nil
+		}
+		seen[t] = true
+		return checkFieldTypes(t.Elem(), seen, chain)
+	case reflect.Struct:
+	default:
+		return nil
 	}
-	if t.Kind() != reflect.Struct || seen[t] {
+	if seen[t] {
 		return nil
 	}
 	seen[t] = true
@@ -172,7 +197,8 @@ func checkStringOption(t reflect.Type, seen map[reflect.Type]bool) error {
 				field.Name,
 			)
 		}
-		if err := checkStringOption(field.Type, seen); err != nil {
+		err := checkFieldTypes(field.Type, seen, map[reflect.Type]bool{})
+		if err != nil {
 			return err
 		}
 	}

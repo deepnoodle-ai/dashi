@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -381,5 +382,58 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 	}
 	if err := buildFunc[*searchInput](); err != nil {
 		t.Fatalf("pointer to struct: %v", err)
+	}
+}
+
+type (
+	recursiveSlice []recursiveSlice
+	recursiveMap   map[string]recursiveMap
+	treeNode       struct {
+		Name     string     `json:"name"`
+		Children []treeNode `json:"children,omitempty"`
+	}
+	listThroughStruct []wrapsList
+	wrapsList         struct {
+		Next listThroughStruct `json:"next,omitempty"`
+	}
+)
+
+// buildFuncWithin fails the test instead of hanging if construction does not
+// return promptly.
+func buildFuncWithin[T any](t *testing.T) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- buildFunc[T]() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool.Func did not return")
+		return nil
+	}
+}
+
+func TestFuncRecursiveArgumentTypes(t *testing.T) {
+	refused := map[string]error{
+		"recursive slice": buildFuncWithin[struct {
+			Items recursiveSlice `json:"items"`
+		}](t),
+		"recursive map": buildFuncWithin[struct {
+			Items recursiveMap `json:"items"`
+		}](t),
+	}
+	for name, err := range refused {
+		if err == nil || !strings.Contains(err.Error(), "recursive type") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	allowed := map[string]error{
+		"struct":               buildFuncWithin[treeNode](t),
+		"slice through struct": buildFuncWithin[wrapsList](t),
+	}
+	for name, err := range allowed {
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

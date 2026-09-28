@@ -57,6 +57,9 @@ function runs. The rules:
   `any` or `json.RawMessage` accept any value. Maps need string keys;
   channels, functions, complex numbers, and the `json` `,string` option fail
   when the tool is built.
+- A recursive type must recurse through a struct, as in
+  `type Node struct{ Children []Node }`; `type Nodes []Nodes` fails when the
+  tool is built.
 
 The runner checks every call's arguments against the schema before the
 `Policy` sees it. A call that does not match is not run: it is recorded as
