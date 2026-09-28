@@ -166,6 +166,20 @@
     border: 1px solid var(--rule-strong); border-radius: 4px; padding: 8px 10px;
     field-sizing: content;
   }
+  .flags { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 8px; }
+  .flag {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 500; color: var(--label);
+    border: 1px dashed var(--rule-strong); border-radius: 999px;
+    padding: 4px 11px;
+  }
+  .flag:hover { background: var(--hover); }
+  .flag input { margin: 0; accent-color: var(--rec); }
+  .flag:has(input:checked) {
+    color: var(--rec); background: var(--rec-wash);
+    border-style: solid; border-color: var(--rec);
+  }
+  .flag:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   textarea::placeholder { color: var(--label); }
   textarea:focus-visible, button:focus-visible, summary:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px;
@@ -301,6 +315,13 @@ __DATA__
   }
   if (!(data.context || []).length) ctx.parentNode.hidden = true;
 
+  var FLAGS = [
+    { key: 'unclear', label: 'Question doesn\u2019t make sense',
+      text: 'question does not make sense' },
+    { key: 'analysis', label: 'Needs its own analysis',
+      text: 'needs dedicated analysis' }
+  ];
+
   var qwrap = document.getElementById('questions');
   data.questions.forEach(function (q, i) {
     var n = i + 1;
@@ -350,11 +371,40 @@ __DATA__
     });
     card.appendChild(opts);
 
+    // Flags question the question itself; they sit beside any choice.
+    st.flags = st.flags || [];
+    var flags = el('div', 'flags');
+    flags.setAttribute('role', 'group');
+    flags.setAttribute('aria-label', 'Flag this question');
+    var ta = document.createElement('textarea');
+    function placeholder() {
+      if (st.flags.indexOf('unclear') >= 0) return 'What is wrong with the question?';
+      if (st.flags.indexOf('analysis') >= 0) return 'What should the analysis cover?';
+      return 'Add, change, or push back';
+    }
+    FLAGS.forEach(function (f) {
+      var id = 'q' + n + 'f' + f.key;
+      var lab = el('label', 'flag');
+      lab.setAttribute('for', id);
+      var inp = document.createElement('input');
+      inp.type = 'checkbox'; inp.id = id;
+      inp.checked = st.flags.indexOf(f.key) >= 0;
+      inp.addEventListener('change', function () {
+        st.flags = st.flags.filter(function (k) { return k !== f.key; });
+        if (inp.checked) st.flags.push(f.key);
+        ta.placeholder = placeholder();
+        save(); render();
+      });
+      lab.appendChild(inp);
+      lab.appendChild(document.createTextNode(f.label));
+      flags.appendChild(lab);
+    });
+    card.appendChild(flags);
+
     var cl = el('label', 'field-label', 'Note');
     cl.setAttribute('for', 'c' + n);
-    var ta = document.createElement('textarea');
     ta.id = 'c' + n; ta.value = st.comment; ta.rows = 1;
-    ta.placeholder = 'Add, change, or push back';
+    ta.placeholder = placeholder();
     ta.addEventListener('input', function () { st.comment = ta.value; save(); render(); });
     card.appendChild(cl); card.appendChild(ta);
     qwrap.appendChild(card);
@@ -369,6 +419,8 @@ __DATA__
     data.questions.forEach(function (q, i) {
       var n = i + 1, st = state[n];
       lines.push(n + '. ' + (q.topic ? q.topic + ' — ' : '') + q.question);
+      var fl = FLAGS.filter(function (f) { return (st.flags || []).indexOf(f.key) >= 0; });
+      if (fl.length) lines.push('   Flag: ' + fl.map(function (f) { return f.text; }).join('; '));
       lines.push('   Choice: ' + (st.choices.length ? st.choices.join('; ') : '(none)'));
       if (st.comment.trim()) lines.push('   Comment: ' + st.comment.trim().replace(/\n/g, '\n            '));
       lines.push('');
@@ -378,7 +430,8 @@ __DATA__
   function render() {
     out.value = compile();
     var answered = data.questions.filter(function (q, i) {
-      var st = state[i + 1]; return st.choices.length || st.comment.trim();
+      var st = state[i + 1];
+      return st.choices.length || st.comment.trim() || (st.flags || []).length;
     }).length;
     status.textContent = answered + ' of ' + data.questions.length + ' answered';
   }

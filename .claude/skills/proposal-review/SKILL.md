@@ -8,7 +8,9 @@ argument-hint: <path to proposal or topic>
 
 Build a review page from a proposal so Curtis can give direction quickly. The
 page presents the context he needs, then numbered questions, each with a topic,
-the question, options to pick from, and a comment box. A copy button compiles
+the question, options to pick from, and a comment box. Every card also has two
+fixed flags, "Question doesn't make sense" and "Needs its own analysis", which
+the template adds; do not put them in `options`. A copy button compiles
 every numbered answer with comments into plain text he pastes back to an agent.
 
 ## Steps
@@ -104,9 +106,20 @@ every numbered answer with comments into plain text he pastes back to an agent.
 
 ## When Curtis pastes responses back
 
-The pasted text lists each question as `N. Topic — Question`, then `Choice:`
-and an optional `Comment:`. Treat a choice as a decision unless the comment
-says otherwise; treat a comment as direction that outranks the chosen option.
-Update the proposal document to reflect the decisions, record any settled
-items in `design/decisions.md` under a dated heading, and list what remains
-open. Do not ask the same question again on a later review page.
+The pasted text lists each question as `N. Topic — Question`, then an optional
+`Flag:` line, `Choice:`, and an optional `Comment:`. Handle flags first:
+
+- **`question does not make sense`**: ignore any choice on that question. Use
+  the comment to find what was wrong (a false premise, a missing option, the
+  wrong framing, a question already settled), fix the proposal where the
+  confusion came from, and rewrite or drop the question.
+- **`needs dedicated analysis`**: leave the question open. Brief an agent to
+  write a focused analysis in `design/` covering what the comment asks for,
+  or add a section to the proposal if it is small. Then build a new review
+  page for that question alone.
+
+Otherwise treat a choice as a decision unless the comment says otherwise; a
+comment is direction that outranks the chosen option. Update the proposal to
+reflect the decisions, record settled items in `design/decisions.md` under a
+dated heading, and list what remains open, including flagged questions and
+what happens to each. Do not ask a settled question again on a later page.
