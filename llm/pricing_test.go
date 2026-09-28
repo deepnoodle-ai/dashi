@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -382,7 +383,7 @@ func TestCostStoredJSONRequiresCurrentAttemptShape(t *testing.T) {
 	}
 	var restored Cost
 	if err := json.Unmarshal(raw, &restored); err != nil ||
-		restored != knownZero {
+		!reflect.DeepEqual(restored, knownZero) {
 		t.Fatalf(
 			"known zero cost did not round trip: %+v, %v",
 			restored,

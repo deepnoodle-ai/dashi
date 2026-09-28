@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -106,11 +108,71 @@ func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
 	if cost.Total != amt("0.0201") {
 		t.Fatalf("total cost=%s", cost.Total)
 	}
-	if _, ok := p.Estimate(&Usage{
+}
+
+func TestPricingEstimateMarksUnpricedRequests(t *testing.T) {
+	p := pricedSheet()
+	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
+	cost, ok := p.Estimate(&Usage{
+		InputTokens: 100,
 		Requests: map[string]int{
-			"unknown": 1,
+			"web_search":     1,
+			"code_execution": 2,
+			"file_search":    0,
 		},
-	}); ok {
-		t.Fatal("missing hosted request price must not count as free")
+	})
+	if !ok {
+		t.Fatal("token cost is known, so the estimate must be available")
+	}
+	if !cost.Partial() ||
+		!reflect.DeepEqual(cost.UnpricedRequests, map[string]int{"code_execution": 2}) {
+		t.Fatalf("unpriced=%v", cost.UnpricedRequests)
+	}
+	if cost.Hosted != amt("0.01") || cost.Total != amt("0.0101") {
+		t.Fatalf("hosted=%s total=%s", cost.Hosted, cost.Total)
+	}
+	complete, ok := p.Estimate(&Usage{
+		InputTokens: 100,
+		Requests:    map[string]int{"web_search": 1},
+	})
+	if !ok || complete.Partial() {
+		t.Fatalf("fully priced cost marked partial: %+v", complete)
+	}
+	clone := cost.Clone()
+	clone.UnpricedRequests["code_execution"] = 9
+	if cost.UnpricedRequests["code_execution"] != 2 {
+		t.Fatal("clone shares unpriced counts")
+	}
+	raw, err := json.Marshal(cost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Cost
+	if err := json.Unmarshal(raw, &restored); err != nil ||
+		!reflect.DeepEqual(restored, cost) {
+		t.Fatalf("partial cost did not round trip: %+v, %v", restored, err)
+	}
+	if err := (Cost{
+		Currency:         "USD",
+		Source:           CostSourceListPriceEstimate,
+		UnpricedRequests: map[string]int{"web_search": 0},
+	}).Validate(); err == nil {
+		t.Fatal("zero unpriced count must be rejected")
+	}
+}
+
+func TestPricingRejectsReservedMeterKeys(t *testing.T) {
+	for _, key := range []string{
+		MeterUnreported,
+		UnrecognizedMeter("mystery_call"),
+	} {
+		p := pricedSheet()
+		p.Requests = map[string]money.Amount{key: amt("0.01")}
+		if err := p.Validate(); err == nil {
+			t.Fatalf("sheet priced reserved key %q", key)
+		}
+	}
+	if !IsReservedMeter(UnrecognizedMeter("x")) || IsReservedMeter(MeterWebSearch) {
+		t.Fatal("reserved meter classification is wrong")
 	}
 }
