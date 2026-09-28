@@ -42,23 +42,24 @@ under the strict capability policy when the model's `max_tokens` support is
 unknown.
 
 `Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token
-totals, model costs by currency, counts of calls with estimated usage, and counts of calls with unknown or
-incompatible-currency model cost. A call that billed hosted requests with no
-list price (Anthropic code execution, for example) is **partial**: its known
-cost is in `Spend.Cost`, it counts in `Spend.CostPartial`, and the unpriced
-counts are in `Spend.UnpricedRequests` by meter key. `Spend.Cost` is then a
-lower bound. Under a cost cap a partial charge also counts as unknown, since a
-lower bound cannot show the cap holds: the turn stops `limited`, and raising the
-cap does not clear it. The stop reason names the unpriced requests; start a new
-turn with the history to go on. `Spend.ToolCost` reports local tool charges by
-currency. Each settled model fact records its `Charge`; the intent records
-`AtRisk`. When final usage is missing, Dashi preserves streamed counts, fills
-absent input from the prepared request, and counts the greater of streamed
-output and a visible-text estimate. It marks the call estimated. This best guess
-can undercount a cut-off call, so a cost cap is not a strict charge guarantee
-for that case. A tool may return `tool.Outcome.Cost`; it is counted after the
-tool settles and does not consume `MaxCost`. The application must bound and
-admit charged tools before execution if it promises a cap covering them.
+totals, model costs by currency, counts of calls with estimated usage, and
+counts of calls with unknown or incompatible-currency model cost. A call that
+billed hosted requests with no list price (Anthropic code execution, for
+example) is **partial**: its known cost is in `Spend.Cost`, it counts in
+`Spend.CostPartial`, and the unpriced counts are in `Spend.UnpricedRequests` by
+meter key. `Spend.Cost` is then a lower bound. Under a cost cap a partial charge
+also counts as unknown, since a lower bound cannot show the cap holds: the turn
+stops `limited`, and raising the cap does not clear it. The stop reason names
+the unpriced requests; start a new turn with the history to go on.
+`Spend.ToolCost` reports local tool charges by currency. Each settled model fact
+records its `Charge`; the intent records `AtRisk`. When final usage is missing,
+Dashi preserves streamed counts, fills absent input from the prepared request,
+and counts the greater of streamed output and a visible-text estimate. It marks
+the call estimated. This best guess can undercount a cut-off call, so a cost cap
+is not a strict charge guarantee for that case. A tool may return
+`tool.Outcome.Cost`; it is counted after the tool settles and does not consume
+`MaxCost`. The application must bound and admit charged tools before execution
+if it promises a cap covering them.
 
 Amounts are exact. `money.Amount` counts nano-units (1e-9) of the currency in
 an int64 and encodes in JSON as a decimal string such as `"0.5"`; it also reads
