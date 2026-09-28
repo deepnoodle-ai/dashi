@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,6 +13,30 @@ import (
 
 type extraRunnerInput struct {
 	Query string `json:"query"`
+}
+
+type duplicateRunnerChild struct {
+	Label  string `json:"label"`
+	Region string `json:"region,omitempty" enum:"us,eu"`
+}
+
+type duplicateRunnerInput struct {
+	Query string               `json:"query" enum:"yes,no"`
+	Child duplicateRunnerChild `json:"child"`
+}
+
+type guardedToolset struct {
+	tool     tool.Tool
+	calls    int
+	executed *bool
+}
+
+func (s *guardedToolset) Tools(context.Context) ([]tool.Tool, error) {
+	s.calls++
+	if s.calls > 2 && !*s.executed {
+		return nil, errors.New("third lookup before execution")
+	}
+	return []tool.Tool{s.tool}, nil
 }
 
 func extraCallResult(args string) llm.Result {
@@ -115,7 +140,7 @@ func TestRunnerStrictTypedToolRejectsExtrasBeforeHook(t *testing.T) {
 	}
 }
 
-func TestRunnerRejectsAmbiguousTypedArgumentsBeforeHook(t *testing.T) {
+func TestRunnerRejectsCaseAliasesBeforeHook(t *testing.T) {
 	for _, tc := range []struct {
 		args string
 		want string
@@ -124,8 +149,6 @@ func TestRunnerRejectsAmbiguousTypedArgumentsBeforeHook(t *testing.T) {
 		{`{"QUERY":"evil","query":"yes"}`, "differs only in case"},
 		{`{"query":"yes","QUERY":"no"}`, "differs only in case"},
 		{`{"QUERY":"no","query":"yes"}`, "differs only in case"},
-		{`{"query":"yes","query":"no"}`, "duplicate JSON object key"},
-		{`{"query":"yes","extra":{"k":1,"k":2}}`, "duplicate JSON object key"},
 	} {
 		t.Run(tc.args, func(t *testing.T) {
 			runs, hooks := 0, 0
@@ -166,10 +189,9 @@ func TestRunnerRejectsAmbiguousTypedArgumentsBeforeHook(t *testing.T) {
 	}
 }
 
-func TestRunnerRejectsAmbiguousHookRewrite(t *testing.T) {
+func TestRunnerRejectsCaseAliasHookRewrite(t *testing.T) {
 	for _, rewritten := range []string{
 		`{"query":"yes","QUERY":"evil"}`,
-		`{"query":"yes","query":"evil"}`,
 	} {
 		t.Run(rewritten, func(t *testing.T) {
 			runs, hooks := 0, 0
@@ -203,6 +225,163 @@ func TestRunnerRejectsAmbiguousHookRewrite(t *testing.T) {
 					out.Stop, err, runs, hooks)
 			}
 		})
+	}
+}
+
+func TestRunnerDuplicateKeysAgreeWithNormalizedReplay(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want duplicateRunnerInput
+	}{
+		{
+			name: "root",
+			raw: `{"query":"evil","query":"yes",` +
+				`"child":{"label":"a","region":"us"}}`,
+			want: duplicateRunnerInput{
+				Query: "yes",
+				Child: duplicateRunnerChild{Label: "a", Region: "us"},
+			},
+		},
+		{
+			name: "nested",
+			raw: `{"query":"yes",` +
+				`"child":{"label":"a","region":"evil"},` +
+				`"child":{"label":"b","region":"us"}}`,
+			want: duplicateRunnerInput{
+				Query: "yes",
+				Child: duplicateRunnerChild{Label: "b", Region: "us"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var meaning any
+			if err := json.Unmarshal([]byte(tc.raw), &meaning); err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := json.Marshal(meaning)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, args := range []string{tc.raw, string(replayed)} {
+				runs, hooks := 0, 0
+				var received duplicateRunnerInput
+				lookup, err := tool.Func(
+					"lookup",
+					"",
+					func(
+						_ context.Context,
+						_ tool.Call,
+						in duplicateRunnerInput,
+					) (tool.Outcome, error) {
+						runs++
+						received = in
+						return tool.Succeeded("found"), nil
+					},
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := &scriptedClient{results: []llm.Result{
+					extraCallResult(args),
+					final("done"),
+				}}
+				gate := toolHook(
+					"inspect",
+					func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
+						hooks++
+						if string(plan.Call.Args) != args {
+							t.Errorf("hook raw arguments = %s", plan.Call.Args)
+						}
+						return Allow("seen"), nil
+					},
+				)
+				out, err := runHooked(t, client, tool.List{lookup}, gate.Hooks())
+				if err != nil || out.Stop.Kind != StopCompleted ||
+					runs != 1 || hooks != 1 || received != tc.want {
+					t.Fatalf("args=%s stop=%+v err=%v runs=%d hooks=%d received=%+v",
+						args, out.Stop, err, runs, hooks, received)
+				}
+			}
+		})
+	}
+}
+
+func TestRunnerReusesPrehookTypedToolBinding(t *testing.T) {
+	executed := false
+	var set *guardedToolset
+	lookup, err := tool.Func(
+		"lookup",
+		"",
+		func(context.Context, tool.Call, extraRunnerInput) (tool.Outcome, error) {
+			if set.calls != 2 {
+				t.Errorf("toolset calls before callback = %d, want 2", set.calls)
+			}
+			executed = true
+			return tool.Succeeded("found"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set = &guardedToolset{tool: lookup, executed: &executed}
+	client := &scriptedClient{results: []llm.Result{
+		extraCallResult(`{"query":"yes"}`),
+		final("done"),
+	}}
+	gate := toolHook(
+		"inspect",
+		func(context.Context, ToolPlan) (ToolDecision, error) {
+			return Allow("seen"), nil
+		},
+	)
+	out, err := runHooked(t, client, set, gate.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted || !executed {
+		t.Fatalf("stop=%+v err=%v calls=%d executed=%v",
+			out.Stop, err, set.calls, executed)
+	}
+}
+
+func TestRunnerDuplicateKeyHookRewriteUsesLastValue(t *testing.T) {
+	const requested = `{"query":"no"}`
+	const rewritten = `{"query":"evil","query":"yes"}`
+	var received extraRunnerInput
+	var callbackCall tool.Call
+	lookup, err := tool.Func(
+		"lookup",
+		"",
+		func(
+			_ context.Context,
+			call tool.Call,
+			in extraRunnerInput,
+		) (tool.Outcome, error) {
+			received, callbackCall = in, call
+			return tool.Succeeded("found"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedClient{results: []llm.Result{
+		extraCallResult(requested),
+		final("done"),
+	}}
+	gate := toolHook(
+		"rewrite",
+		func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
+			if len(plan.Call.RequestedArgs) != 0 {
+				return ToolDecision{}, nil
+			}
+			return Rewrite(json.RawMessage(rewritten))
+		},
+	)
+	out, err := runHooked(t, client, tool.List{lookup}, gate.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted ||
+		received.Query != "yes" ||
+		string(callbackCall.Args) != rewritten ||
+		string(callbackCall.RequestedArgs) != requested {
+		t.Fatalf("stop=%+v err=%v input=%+v callback=%+v",
+			out.Stop, err, received, callbackCall)
 	}
 }
 

@@ -92,10 +92,11 @@ deploy, err := tool.Func("deploy", "Deploy a version", deployFn,
 
 Case-only aliases of declared names are rejected even in default mode:
 `{"query":"yes","QUERY":"evil"}` could otherwise validate `query` as
-`"yes"` but decode `"evil"` into the Go field. Duplicate object keys are
-also rejected for typed tools, including in nested values. Ordinary surplus
-keys are still accepted. When the matching typed executor is bound, these
-checks run before `BeforeTool` hooks and after hook rewrites. A definition
+`"yes"` but decode `"evil"` into the Go field. Duplicate object keys keep
+their last value, including when a nested object repeats. The typed callback
+decodes that same last-key JSON meaning, while `Call.Args` stays raw. Ordinary
+surplus keys are still accepted. When the matching typed executor is bound,
+case-alias checks run before `BeforeTool` hooks and after hook rewrites. A definition
 advertised without its executor can still reach a deferred approval; the
 executor checks again before its callback runs when it is later bound.
 

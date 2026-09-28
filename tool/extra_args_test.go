@@ -83,7 +83,7 @@ func TestFuncRejectsCaseFoldAliasesInRecursiveAndEmbeddedStructs(t *testing.T) {
 	}
 }
 
-func TestFuncRejectsDuplicateObjectKeys(t *testing.T) {
+func TestFuncDuplicateKeysUseLastJSONMeaning(t *testing.T) {
 	type child struct {
 		Label  string `json:"label"`
 		Region string `json:"region,omitempty" enum:"us,eu"`
@@ -93,42 +93,81 @@ func TestFuncRejectsDuplicateObjectKeys(t *testing.T) {
 		Child child  `json:"child"`
 	}
 	calls := 0
+	var received input
+	var callbackCall Call
 	fn, err := Func(
 		"lookup",
 		"",
-		func(_ context.Context, _ Call, in input) (Outcome, error) {
+		func(_ context.Context, call Call, in input) (Outcome, error) {
 			calls++
-			if in.Query != "yes" || in.Child.Region != "us" {
-				t.Fatalf("unexpected callback input: %+v", in)
-			}
+			received, callbackCall = in, call
 			return Succeeded("ok"), nil
 		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range []string{
-		`{"query":"evil","query":"yes","child":{"label":"a"}}`,
-		`{"query":"yes","child":{"label":"a","region":"evil"},` +
-			`"child":{"label":"b"}}`,
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want input
+		pass bool
+	}{
+		{
+			name: "root last valid",
+			raw: `{"query":"evil","query":"yes",` +
+				`"child":{"label":"a","region":"us"}}`,
+			want: input{Query: "yes", Child: child{Label: "a", Region: "us"}},
+			pass: true,
+		},
+		{
+			name: "root last invalid",
+			raw: `{"query":"yes","query":"evil",` +
+				`"child":{"label":"a","region":"us"}}`,
+		},
+		{
+			name: "nested last valid",
+			raw: `{"query":"yes","child":{"label":"a","region":"evil"},` +
+				`"child":{"label":"b","region":"us"}}`,
+			want: input{Query: "yes", Child: child{Label: "b", Region: "us"}},
+			pass: true,
+		},
+		{
+			name: "nested last invalid",
+			raw: `{"query":"yes","child":{"label":"a","region":"us"},` +
+				`"child":{"label":"b","region":"evil"}}`,
+		},
 	} {
-		out, err := fn.Executor.Execute(t.Context(), Call{
-			ID: "call-1", Name: "lookup", Args: []byte(args),
+		t.Run(tc.name, func(t *testing.T) {
+			var meaning any
+			if err := json.Unmarshal([]byte(tc.raw), &meaning); err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := json.Marshal(meaning) // JSONB-like normalization.
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, args := range []string{tc.raw, string(replayed)} {
+				calls = 0
+				out, err := fn.Executor.Execute(t.Context(), Call{
+					ID: "call-1", Name: "lookup", Args: []byte(args),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !tc.pass {
+					if out.State != StateNotExecuted || calls != 0 {
+						t.Fatalf("%s: out=%+v calls=%d", args, out, calls)
+					}
+					continue
+				}
+				if out.State != StateSucceeded || calls != 1 ||
+					received != tc.want || string(callbackCall.Args) != args {
+					t.Fatalf("%s: out=%+v calls=%d received=%+v raw=%s",
+						args, out, calls, received, callbackCall.Args)
+				}
+			}
 		})
-		if err != nil || out.State != StateNotExecuted || calls != 0 {
-			t.Fatalf("%s: out=%+v err=%v calls=%d", args, out, err, calls)
-		}
-		message := out.Output.Content[0].Text.Text
-		if !strings.Contains(message, "duplicate JSON object key") {
-			t.Fatalf("reason = %q", message)
-		}
-	}
-	valid := `{"query":"yes","child":{"label":"a","region":"us"},"extra":1}`
-	out, err := fn.Executor.Execute(t.Context(), Call{
-		ID: "call-1", Name: "lookup", Args: []byte(valid),
-	})
-	if err != nil || out.State != StateSucceeded || calls != 1 {
-		t.Fatalf("valid call: out=%+v err=%v calls=%d", out, err, calls)
 	}
 }
 
