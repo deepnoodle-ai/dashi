@@ -192,9 +192,19 @@ calls.
 ## Usage and cost
 
 Missing usage is nil. `Result.Cost` holds a provider-reported amount when
-available; list-price estimates require an explicitly selected `llm.Pricing`
-sheet and complete usage. A catalog sheet applies when `Entry.Serves` accepts
-`Result.Served`. Provider-hosted work is counted in `Usage.Requests` by meter
+available; display its `Source` and check `Partial()` before presenting its
+`Total` as a complete charge. List-price estimates require an explicitly
+qualified `llm.Pricing` sheet and sufficient usage. For a built-in catalog
+sheet, check that `client.ModelInfo(requestedModel)` matches
+`catalog.Lookup` at its evidence API and endpoint, including its owner, model,
+and pricing; then require the provider and `Entry.Serves(Result.Served.Model)`
+to match. A blank or different served model means the requested model's price
+cannot be used. The [provider example](../../examples/providers/main.go)
+shows this flow, including a default-tier check and an unknown-cost message.
+It constructs default public clients. With a custom transport, proxy, or other
+destination, `llm.Client` does not prove where the request actually ran;
+qualify that routing and its price independently before using a catalog sheet.
+Provider-hosted work is counted in `Usage.Requests` by meter
 key, such as `llm.MeterWebSearch`, and priced by `Pricing.Requests`. When the
 sheet lacks a rate for a key, `Estimate` still prices the rest and lists those
 counts in `Cost.UnpricedRequests`; `Cost.Partial` reports that `Total` is then
