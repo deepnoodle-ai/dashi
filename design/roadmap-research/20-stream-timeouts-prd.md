@@ -1,6 +1,6 @@
 # 20. Model HTTP response and stream timeouts — PRD
 
-**Status:** Draft for independent review, 2026-09-28. **Size/difficulty:** M / Medium. **Research:** [comparative findings](20-stream-timeouts-research.md). **Reference:** [roadmap item](../remaining-work.md#20-connection-and-idle-stream-timeouts), [Turn interruption](../turn-interruption.md). No prior dedicated timeout proposal exists.
+**Status:** Reviewed for the first implementation slice, 2026-09-28. **Size/difficulty:** M / Medium. **Research:** [comparative findings](20-stream-timeouts-research.md). **Reference:** [roadmap item](../remaining-work.md#20-connection-and-idle-stream-timeouts), [Turn interruption](../turn-interruption.md). No prior dedicated timeout proposal exists.
 
 ## Problem and intended user outcome
 
@@ -17,7 +17,7 @@ This slice does not add retries, TCP/DNS/TLS-specific knobs, a Turn reaper, or a
 ## Proposed developer API and behavior
 
 ```go
-// Public shared value, tentatively in llm; names need Go API review.
+// Public shared value in llm.
 type HTTPTimeouts struct {
     ResponseStart time.Duration  // dispatch through response headers
     StreamIdle    time.Duration  // time blocked in each stream body read
@@ -36,7 +36,7 @@ Zero `ResponseStart` and `StreamIdle` leave those bounds off; negative durations
 
 `ResponseStart` starts just before HTTP dispatch and ends at response headers. It includes DNS, TCP, TLS, upload, and provider header wait as one budget; the result cannot identify which subphase stalled. `StreamIdle` covers each blocking raw response-body `Read` after headers for streaming calls. It re-arms on every nonempty byte read, including SSE comments and heartbeats. Processing a chunk in the application does not consume idle time. `Total` includes response startup and body consumption, including an otherwise active stream. Each expired Dashi timer cancels that one call and closes its response body. A timer must not leak or relabel an earlier parent-context cancellation. A caller-supplied client's own shorter timeout remains a transport error unless Dashi can establish its source without guessing.
 
-On an owned expiry, direct `llm.Client.Send` returns `*llm.Error` with `ErrorTransport`, the original cause preserved for `errors.Is` / `errors.As`, and a distinct reason: `ReasonResponseStartTimeout`, `ReasonStreamIdleTimeout`, or `ReasonCallTimeout`. The Runner stores that reason in a new optional `ModelFact.ErrorReason` on the existing `StepModelSettled` record; older records simply lack the field. It records `StopUncertain` when dispatch or effects remain unknown, as it does for other transport failures. A response-start timeout does not prove that no request reached the provider; a stream-idle timeout proves receipt of headers, not that provider-hosted actions finished. No timeout alone supplies `FailureNotDispatched` or `FailureRejected` evidence.
+On an owned expiry, direct `llm.Client.Send` returns `*llm.Error` with `ErrorTransport`, the original cause preserved for `errors.Is` / `errors.As`, and a distinct reason: `ReasonResponseStartTimeout`, `ReasonStreamIdleTimeout`, or `ReasonCallTimeout`. After headers, each OpenAI Responses, Chat Completions, and Anthropic stream decoder normalizes only a Dashi-owned timeout read cause while retaining its partial `Result`; a protocol error stays a protocol error. Parent cancellation takes priority when it happens first. The Runner stores that reason in a new optional `ModelFact.ErrorReason` on the existing `StepModelSettled` record; older records simply lack the field. It records `StopUncertain` when dispatch or effects remain unknown, as it does for other transport failures. A response-start timeout does not prove that no request reached the provider; a stream-idle timeout proves receipt of headers, not that provider-hosted actions finished. No timeout alone supplies `FailureNotDispatched` or `FailureRejected` evidence.
 
 When a stream fails, the settlement keeps the provider's partial `Result` where available; if it lacks content or usage, the Runner fills those gaps from observed deltas without overriding more complete provider data. The saved result is incomplete and never becomes an actionable final answer or tool call. Accounting marks usage estimated when the call ended before final usage, even if an earlier usage frame exists, and includes visible output where provider usage omitted it. The intent and attempt ID remain stable and visible. A host can then display “model stream stopped receiving data,” keep the provisional answer, and reconcile any uncertain effect before choosing another attempt.
 
@@ -46,8 +46,8 @@ When a stream fails, the settlement keeps the provider's partial `Result` where 
 2. With a controllable HTTP test server, startup expiry occurs before headers, read-idle expiry occurs only during a blocked stream body read, raw heartbeat bytes reset idle, and slow consumer processing does not cause an idle expiry. Total expiry can end an active stream.
 3. Nil, positive, zero, and invalid duration values behave as specified for both the default and a supplied `http.Client`. Redirect and no-hidden-retry behavior remain unchanged; the supplied client is not mutated.
 4. Direct calls expose the right typed reason for a Dashi-owned expiry. The Runner persists that reason on `ModelFact` without changing old-record replay, and records parent cancellation or `Limits.Deadline` as their existing stop kinds when those contexts win.
-5. A midstream failure with partial deltas or usage settles those facts once, marks incomplete accounting conservatively, closes resources, and never replays incomplete content as an actionable final result. Unknown dispatch and hosted effects remain uncertain, with no automatic resend.
-6. Focused tests cover response startup, idle body, heartbeat, slow consumer, active-stream total expiry, parent cancellation, Turn deadline, late terminal data, partial usage, and the shorter timeout of a supplied client. Shared transport tests and one public adapter/wrapper test demonstrate end-to-end reachability.
+5. A midstream failure with mixed text and structured content deltas plus partial usage settles observed content in order without duplication, marks accounting estimated, closes resources, and never replays incomplete content as an actionable final result. Unknown dispatch and hosted effects remain uncertain, with no automatic resend.
+6. Focused tests cover response startup, idle body, heartbeat, slow consumer, active-stream total expiry, parent cancellation, Turn deadline, late terminal data, partial usage, and the shorter timeout of a supplied client. Each of the three base adapters has a direct `Send` idle-timeout test asserting its typed reason and partial result; shared transport tests cover the remaining mechanics. A timer firing after successful terminal data cannot overwrite success.
 
 ## Risks and review questions
 

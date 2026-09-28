@@ -599,6 +599,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
 		}
+		if step.Model.ErrorReason != "" && step.Model.Error == "" {
+			return errors.New("model error reason without error")
+		}
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}

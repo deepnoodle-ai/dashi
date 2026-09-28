@@ -19,9 +19,11 @@ const DefaultEndpoint = "https://api.meta.ai/v1/responses"
 // Config supplies destination credentials and application-owned model
 // evidence.
 type Config struct {
-	APIKey           string
-	Endpoint         string
-	Client           *http.Client
+	APIKey   string
+	Endpoint string
+	Client   *http.Client
+	// Timeouts bounds this client's HTTP model calls.
+	Timeouts         llm.HTTPTimeouts
 	Models           map[string]llm.ModelInfo
 	CapabilityPolicy llm.CapabilityPolicy
 }
@@ -50,6 +52,7 @@ func New(config Config) (*Client, error) {
 		APIKey:           config.APIKey,
 		Endpoint:         config.Endpoint,
 		Client:           config.Client,
+		Timeouts:         config.Timeouts,
 		Models:           config.Models,
 		CapabilityPolicy: config.CapabilityPolicy,
 	})

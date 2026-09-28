@@ -32,7 +32,8 @@ func attemptSpend(
 	} else {
 		usage = usage.Copy()
 	}
-	if settlement != nil && settlement.Interrupted {
+	if settlement != nil &&
+		(settlement.Interrupted || settlement.Error != "") {
 		// Streamed usage may describe only the input or an earlier output
 		// frame. Keep reported counts and include later visible output.
 		estimated = true

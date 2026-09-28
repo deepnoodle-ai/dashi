@@ -236,12 +236,7 @@ func (wire codec) readStream(
 	if err == nil {
 		err = io.ErrUnexpectedEOF
 	}
-	return build(), providerhttp.Failure(
-		wire.origin.Provider,
-		llm.ErrorTransport,
-		"stream interrupted: %w",
-		err,
-	)
+	return build(), providerhttp.ReadFailure(wire.origin.Provider, err)
 }
 
 // appendString appends s to the string stored under key in m, treating a

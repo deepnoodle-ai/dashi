@@ -156,6 +156,9 @@ then yields one final result. Breaking the range cancels the request. The
 sequence is single-use; ranging it again returns `llm.ErrStreamConsumed`.
 `Send` remains available when one collected result is simpler.
 
+For response-start, stream-idle, and total HTTP bounds, see
+[model HTTP timeouts](model-http-timeouts.md).
+
 `llm.Generate` combines preparation and sending for simple use.
 
 ## Custom endpoints and ModelRef

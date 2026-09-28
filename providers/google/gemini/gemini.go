@@ -221,6 +221,7 @@ func (p *Client) httpClient(model string) (providerhttp.Client, error) {
 		headers,
 		models,
 		p.config.CapabilityPolicy,
+		llm.HTTPTimeouts{},
 	)
 }
 

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
@@ -36,6 +37,8 @@ type Client struct {
 
 	// HTTP supplies transport behavior; its transport must not hide retries.
 	HTTP *http.Client
+	// timeouts is an owned snapshot of the model-call timeout policy.
+	timeouts llm.HTTPTimeouts
 
 	// Headers is an owned template cloned for each dispatch.
 	Headers http.Header
@@ -59,6 +62,7 @@ func NewClient(
 	headers http.Header,
 	models map[string]llm.ModelInfo,
 	policy llm.CapabilityPolicy,
+	timeouts llm.HTTPTimeouts,
 ) (Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil ||
@@ -76,6 +80,14 @@ func NewClient(
 	}
 	if !policy.Valid() {
 		return Client{}, errors.New("providerhttp: invalid capability policy")
+	}
+	if timeouts.ResponseStart < 0 || timeouts.StreamIdle < 0 ||
+		(timeouts.Total != nil && *timeouts.Total < 0) {
+		return Client{}, errors.New("providerhttp: timeouts must be nonnegative")
+	}
+	if timeouts.Total != nil {
+		total := *timeouts.Total
+		timeouts.Total = &total
 	}
 	catalog := make(map[string]llm.ModelInfo, len(models))
 	for model, info := range models {
@@ -106,6 +118,7 @@ func NewClient(
 		API:      api,
 		Endpoint: endpoint,
 		HTTP:     httpClient,
+		timeouts: timeouts,
 		Headers:  headers.Clone(),
 		scope:    scope,
 		models:   catalog,
@@ -226,7 +239,7 @@ func (c Client) Post(
 			err,
 		)
 	}
-	client := http.Client{Timeout: 5 * time.Minute}
+	client := http.Client{}
 	if c.HTTP != nil {
 		client = *c.HTTP
 	}
@@ -255,9 +268,62 @@ func (c Client) Post(
 	if request.Stream {
 		r.Header.Set("Accept", "text/event-stream")
 	}
+	total := time.Duration(0)
+	if c.timeouts.Total != nil {
+		total = *c.timeouts.Total
+	} else if c.HTTP == nil {
+		total = 5 * time.Minute
+	}
+	callCtx, cancel := context.WithCancelCause(ctx)
+	r = r.WithContext(callCtx)
+	stopTotal := func() {}
+	if total > 0 {
+		timer := time.AfterFunc(total, func() { cancel(callTotalCause) })
+		stopTotal = func() { timer.Stop() }
+	}
+	var startTimer *time.Timer
+	var waiting atomic.Bool
+	if c.timeouts.ResponseStart > 0 {
+		waiting.Store(true)
+		startTimer = time.AfterFunc(
+			c.timeouts.ResponseStart,
+			func() {
+				if waiting.CompareAndSwap(true, false) {
+					cancel(responseStartCause)
+				}
+			},
+		)
+	}
 	resp, err := client.Do(r)
+	if startTimer != nil {
+		waiting.Store(false)
+		startTimer.Stop()
+	}
 	if err != nil {
-		return nil, Failure(c.Provider, llm.ErrorTransport, "%w", err)
+		stopTotal()
+		cause := context.Cause(callCtx)
+		cancel(nil)
+		if timeoutReason(cause) != "" {
+			err = fmt.Errorf("%w: %w", cause, err)
+		}
+		return nil, ReadFailure(c.Provider, err)
+	}
+	if cause := context.Cause(callCtx); timeoutReason(cause) != "" {
+		resp.Body.Close()
+		stopTotal()
+		cancel(nil)
+		return nil, ReadFailure(c.Provider, cause)
+	}
+	idle := time.Duration(0)
+	if request.Stream {
+		idle = c.timeouts.StreamIdle
+	}
+	resp.Body = &timeoutBody{
+		ReadCloser: resp.Body,
+		ctx:        callCtx,
+		cancel:     cancel,
+		stopTotal:  stopTotal,
+		idle:       idle,
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
@@ -265,7 +331,7 @@ func (c Client) Post(
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, Failure(c.Provider, llm.ErrorTransport, "%w", err)
+		return nil, ReadFailure(c.Provider, err)
 	}
 	pe := NewError(
 		resp.StatusCode,
