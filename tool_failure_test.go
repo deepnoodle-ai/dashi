@@ -290,13 +290,16 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		forged.Steps = append(forged.Steps, step)
 	}
 	call := tool.Call{ID: "call-1", Name: "remote", Args: []byte(`{"value":1}`)}
-	forged.Steps = append(forged.Steps, Step{
-		Version: 1,
-		TurnID:  forged.ID,
-		Seq:     int64(len(forged.Steps) + 1),
-		Kind:    StepToolSettled,
-		Tool:    &ToolFact{Call: call, Reason: "connection lost"},
-	})
+	forged.Steps = append(
+		forged.Steps,
+		Step{
+			Version: 1,
+			TurnID:  forged.ID,
+			Seq:     int64(len(forged.Steps) + 1),
+			Kind:    StepToolSettled,
+			Tool:    &ToolFact{Call: call, Reason: "connection lost"},
+		},
+	)
 	rec := NewMemoryRecorder()
 	for _, step := range forged.Steps {
 		req := CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}
@@ -344,12 +347,21 @@ func startTurn(def Definition, b Bindings) (Outcome, error) {
 	return apply(Turn{ID: "t1"}, def, command, b)
 }
 
-func apply(turn Turn, def Definition, command Command, b Bindings) (Outcome, error) {
+func apply(
+	turn Turn,
+	def Definition,
+	command Command,
+	b Bindings,
+) (Outcome, error) {
 	return (Engine{}).Apply(context.Background(), turn, def, command, b)
 }
 
 // toolBindings binds executor as the "remote" tool and allows local calls.
-func toolBindings(client *scriptedClient, rec Recorder, executor tool.Executor) Bindings {
+func toolBindings(
+	client *scriptedClient,
+	rec Recorder,
+	executor tool.Executor,
+) Bindings {
 	return Bindings{
 		Client:   client,
 		Tools:    fixedTools{localTool("remote", executor)},
@@ -377,7 +389,10 @@ func failingFunc(t *testing.T, err error) tool.Executor {
 
 // funcExecutor builds a typed tool whose callback returns fn's result, so
 // tests exercise tool.Func's error pass-through.
-func funcExecutor(t *testing.T, fn func() (tool.Outcome, error)) tool.Executor {
+func funcExecutor(
+	t *testing.T,
+	fn func() (tool.Outcome, error),
+) tool.Executor {
 	t.Helper()
 	callback := func(context.Context, tool.Call, valueInput) (tool.Outcome, error) {
 		return fn()
@@ -407,7 +422,10 @@ func callsResult(ids ...string) llm.Result {
 	parts := make([]llm.Content, 0, len(ids))
 	for _, id := range ids {
 		call := tool.Call{ID: id, Name: "remote", Args: []byte(`{"value":1}`)}
-		parts = append(parts, llm.Content{Kind: llm.ContentToolCall, ToolCall: &call})
+		parts = append(
+			parts,
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &call},
+		)
 	}
 	return llm.Result{
 		Message:   llm.AssistantMessage(parts...),

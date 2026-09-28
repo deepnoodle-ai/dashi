@@ -10,17 +10,41 @@ import (
 )
 
 func TestDecodeContentClassifiesRedactedThinking(t *testing.T) {
-	wire := codec{origin: content.Origin{Provider: "anthropic", API: API, Model: "model", Scope: "scope"}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "anthropic",
+			API:      API,
+			Model:    "model",
+			Scope:    "scope",
+		},
+	}
 	for _, tc := range []struct {
 		name string
 		raw  string
 		kind llm.ContentKind
 		text string
 	}{
-		{name: "signed", raw: `{"type":"thinking","thinking":"display","signature":"signed"}`, kind: llm.ContentReasoning, text: "display"},
-		{name: "redacted", raw: `{"type":"redacted_thinking","data":"encrypted"}`, kind: llm.ContentReasoning},
-		{name: "missing encrypted data", raw: `{"type":"redacted_thinking"}`, kind: llm.ContentOpaque},
-		{name: "future block", raw: `{"type":"future_thinking","data":"private"}`, kind: llm.ContentOpaque},
+		{
+			name: "signed",
+			raw:  `{"type":"thinking","thinking":"display","signature":"signed"}`,
+			kind: llm.ContentReasoning,
+			text: "display",
+		},
+		{
+			name: "redacted",
+			raw:  `{"type":"redacted_thinking","data":"encrypted"}`,
+			kind: llm.ContentReasoning,
+		},
+		{
+			name: "missing encrypted data",
+			raw:  `{"type":"redacted_thinking"}`,
+			kind: llm.ContentOpaque,
+		},
+		{
+			name: "future block",
+			raw:  `{"type":"future_thinking","data":"private"}`,
+			kind: llm.ContentOpaque,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			decoded, err := wire.decodeContent(json.RawMessage(tc.raw))
@@ -33,7 +57,9 @@ func TestDecodeContentClassifiesRedactedThinking(t *testing.T) {
 			if tc.kind != llm.ContentReasoning {
 				return
 			}
-			if decoded.Reasoning.Text != tc.text || decoded.Replay == nil || decoded.Opaque != nil {
+			if decoded.Reasoning.Text != tc.text ||
+				decoded.Replay == nil ||
+				decoded.Opaque != nil {
 				t.Fatal("reasoning lost its display projection or replay location")
 			}
 			decoded.Reasoning.Text = "edited display"
@@ -46,7 +72,11 @@ func TestDecodeContentClassifiesRedactedThinking(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(encoded, original) {
-				t.Fatalf("replay changed original reasoning: got %v, want %v", encoded, original)
+				t.Fatalf(
+					"replay changed original reasoning: got %v, want %v",
+					encoded,
+					original,
+				)
 			}
 		})
 	}

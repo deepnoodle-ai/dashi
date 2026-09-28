@@ -19,8 +19,12 @@ import (
 
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
-	client, err := New(Config{Provider: "google", APIKey: "test", Endpoint: server.URL + "/v1beta/models/{model}:generateContent",
-		CapabilityPolicy: llm.CapabilityAdjust})
+	client, err := New(Config{
+		Provider:         "google",
+		APIKey:           "test",
+		Endpoint:         server.URL + "/v1beta/models/{model}:generateContent",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,29 +32,50 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 }
 
 func sampleInput(stream bool) llm.Input {
-	return llm.Input{Model: "gemini-test", Stream: stream, System: "Be concise.",
+	return llm.Input{
+		Model:    "gemini-test",
+		Stream:   stream,
+		System:   "Be concise.",
 		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
-		Tools:    []tool.Definition{{Name: "search", Schema: json.RawMessage(`{"type":"object"}`)}}}
+		Tools: []tool.Definition{
+			{Name: "search", Schema: json.RawMessage(`{"type":"object"}`)},
+		},
+	}
 }
 
 func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
-	stable, err := New(Config{Provider: "google", APIKey: "test",
+	stable, err := New(Config{
+		Provider:         "google",
+		APIKey:           "test",
 		Endpoint:         strings.Replace(DefaultEndpoint, "/v1beta/", "/v1/", 1),
-		CapabilityPolicy: llm.CapabilityAdjust})
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stable.Prepare(context.Background(), sampleInput(false)); err == nil ||
+	if _, err := stable.Prepare(
+		context.Background(),
+		sampleInput(false),
+	); err == nil ||
 		!strings.Contains(err.Error(), "v1beta") {
-		t.Fatalf("v1 client function calling was not rejected before dispatch: %v", err)
+		t.Fatalf(
+			"v1 client function calling was not rejected before dispatch: %v",
+			err,
+		)
 	}
 	history := geminiToolHistory("call-1")
 	history.Tools = nil
 	if _, err := stable.Prepare(context.Background(), history); err == nil ||
 		!strings.Contains(err.Error(), "v1beta") {
-		t.Fatalf("v1 client function history was not rejected before dispatch: %v", err)
+		t.Fatalf(
+			"v1 client function history was not rejected before dispatch: %v",
+			err,
+		)
 	}
-	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	client, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +94,15 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
-		if r.URL.Path != "/v1beta/models/gemini-test:generateContent" || r.Header.Get("X-Goog-Api-Key") != "test" {
+		if r.URL.Path != "/v1beta/models/gemini-test:generateContent" ||
+			r.Header.Get("X-Goog-Api-Key") != "test" {
 			t.Errorf("wrong Gemini route or key: %s %+v", r.URL, r.Header)
 		}
 		sent, _ = io.ReadAll(r.Body)
-		io.WriteString(w, `{"responseId":"r1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello","thoughtSignature":"c2ln"},{"functionCall":{"id":"call-1","name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"cachedContentTokenCount":5,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":18}}`)
+		io.WriteString(
+			w,
+			`{"responseId":"r1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello","thoughtSignature":"c2ln"},{"functionCall":{"id":"call-1","name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"cachedContentTokenCount":5,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":18}}`,
+		)
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
@@ -81,41 +110,63 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempts.Load() != 0 || !strings.Contains(string(prepared.Body()), `"functionDeclarations"`) {
+	if attempts.Load() != 0 || !strings.Contains(
+		string(prepared.Body()),
+		`"functionDeclarations"`,
+	) {
 		t.Fatalf("preparation sent or lost tools: %s", prepared.Body())
 	}
 	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempts.Load() != 1 || string(sent) != string(prepared.Body()) || result.ID != "r1" ||
-		result.Served.Model != "served" || result.Stop.Kind != llm.StopFinished || result.Message.Text() != "Hello" ||
+	if attempts.Load() != 1 ||
+		string(sent) != string(prepared.Body()) ||
+		result.ID != "r1" ||
+		result.Served.Model != "served" ||
+		result.Stop.Kind != llm.StopFinished ||
+		result.Message.Text() != "Hello" ||
 		result.Message.Source == nil || result.Message.Source.ResponseID != "r1" ||
-		len(result.Message.Content) != 2 || result.Message.Content[0].Replay == nil ||
+		len(result.Message.Content) != 2 ||
+		result.Message.Content[0].Replay == nil ||
 		result.Message.Content[1].ToolCall.ID != "call-1" || result.Usage == nil ||
 		result.Usage.InputTokens != 7 || result.Usage.CacheReadInputTokens != 5 ||
 		result.Usage.OutputTokens != 6 || result.Usage.ReasoningTokens != 2 {
 		t.Fatalf("Gemini response lost data: %+v", result)
 	}
 	replay := sampleInput(false)
-	replay.Messages = append(replay.Messages, result.Message, llm.UserMessage(llm.Content{
-		Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: "call-1",
-			Output: tool.Output{Content: []content.Block{content.TextBlock("found")}}},
-	}))
+	replay.Messages = append(
+		replay.Messages,
+		result.Message,
+		llm.UserMessage(llm.Content{
+			Kind: llm.ContentToolResult,
+			ToolResult: &llm.ToolResult{
+				CallID: "call-1",
+				Output: tool.Output{Content: []content.Block{content.TextBlock("found")}},
+			},
+		}),
+	)
 	preparedReplay, err := p.Prepare(context.Background(), replay)
 	if err != nil {
 		t.Fatalf("signed Gemini turn did not replay: %v", err)
 	}
-	if !strings.Contains(string(preparedReplay.Body()), `"thoughtSignature":"c2ln"`) ||
+	if !strings.Contains(
+		string(preparedReplay.Body()),
+		`"thoughtSignature":"c2ln"`,
+	) ||
 		!strings.Contains(string(preparedReplay.Body()), `"functionResponse"`) ||
 		!strings.Contains(string(preparedReplay.Body()), `"name":"search"`) {
-		t.Fatalf("signed part or named tool result was lost: %s", preparedReplay.Body())
+		t.Fatalf(
+			"signed part or named tool result was lost: %s",
+			preparedReplay.Body(),
+		)
 	}
 }
 
 func TestStreamCollectsTextSignatureAndUsage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1beta/models/gemini-test:streamGenerateContent" || r.URL.Query().Get("alt") != "sse" {
+		if r.URL.Path != "/v1beta/models/gemini-test:streamGenerateContent" ||
+			r.URL.Query().Get("alt") != "sse" {
 			t.Errorf("wrong Gemini stream route: %s", r.URL)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -133,14 +184,27 @@ func TestStreamCollectsTextSignatureAndUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(d llm.Delta) { deltas = append(deltas, d) }})
+	result, err := p.Send(
+		context.Background(),
+		llm.Call{
+			Request: prepared,
+			Sink: func(d llm.Delta) {
+				deltas = append(deltas, d)
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Message.Text() != "Hello" || len(result.Message.Content) != 2 ||
-		result.Message.Content[0].Replay == nil || result.Message.Content[1].ToolCall.ID != "call-1" ||
+		result.Message.Content[0].Replay == nil ||
+		result.Message.Content[1].ToolCall.ID != "call-1" ||
 		result.Usage == nil || result.Usage.InputTokens != 3 || len(deltas) < 3 {
-		t.Fatalf("Gemini stream lost final data: result=%+v deltas=%+v", result, deltas)
+		t.Fatalf(
+			"Gemini stream lost final data: result=%+v deltas=%+v",
+			result,
+			deltas,
+		)
 	}
 }
 
@@ -151,12 +215,22 @@ func TestVertexUsesSDKRouteAndFrozenBody(t *testing.T) {
 			t.Errorf("wrong Vertex route: %s", r.URL)
 		}
 		sent, _ = io.ReadAll(r.Body)
-		io.WriteString(w, `{"responseId":"vertex-1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}`)
+		io.WriteString(
+			w,
+			`{"responseId":"vertex-1","modelVersion":"served","candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}`,
+		)
 	}))
 	defer server.Close()
-	p, err := New(Config{Provider: "vertex-test", Vertex: true, Project: "project", Location: "global",
-		CredentialScope: "test-principal", Endpoint: server.URL + "/v1/projects/project/locations/global/publishers/google/models/{model}:generateContent",
-		Client: &http.Client{Transport: http.DefaultTransport}, CapabilityPolicy: llm.CapabilityAdjust})
+	p, err := New(Config{
+		Provider:         "vertex-test",
+		Vertex:           true,
+		Project:          "project",
+		Location:         "global",
+		CredentialScope:  "test-principal",
+		Endpoint:         server.URL + "/v1/projects/project/locations/global/publishers/google/models/{model}:generateContent",
+		Client:           &http.Client{Transport: http.DefaultTransport},
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,39 +245,62 @@ func TestVertexUsesSDKRouteAndFrozenBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(sent) != string(prepared.Body()) || result.ID != "vertex-1" || result.Message.Text() != "Hello" {
+	if string(sent) != string(prepared.Body()) ||
+		result.ID != "vertex-1" ||
+		result.Message.Text() != "Hello" {
 		t.Fatalf("Vertex SDK call lost frozen body or response: %+v", result)
 	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+func (f roundTripFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
 	return f(request)
 }
 
 func TestSDKGuardRejectsDriftBeforeDispatch(t *testing.T) {
 	var dispatched bool
-	guard := &sdkGuard{url: "https://example.test/v1/models/m:generateContent", body: []byte(`{"contents":[]}`),
+	guard := &sdkGuard{
+		url:  "https://example.test/v1/models/m:generateContent",
+		body: []byte(`{"contents":[]}`),
 		base: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			dispatched = true
 			return nil, nil
-		})}
-	request, err := http.NewRequest(http.MethodPost, guard.url, bytes.NewBufferString(`{"contents":[1]}`))
+		}),
+	}
+	request, err := http.NewRequest(
+		http.MethodPost,
+		guard.url,
+		bytes.NewBufferString(`{"contents":[1]}`),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := guard.RoundTrip(request); err == nil || dispatched {
-		t.Fatalf("SDK body drift reached transport: err=%v dispatched=%v", err, dispatched)
+		t.Fatalf(
+			"SDK body drift reached transport: err=%v dispatched=%v",
+			err,
+			dispatched,
+		)
 	}
 }
 
 func TestVertexCredentialScopesPrivateReplay(t *testing.T) {
-	first, err := New(Config{Vertex: true, Project: "project", CredentialScope: "principal-a"})
+	first, err := New(Config{
+		Vertex:          true,
+		Project:         "project",
+		CredentialScope: "principal-a",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := New(Config{Vertex: true, Project: "project", CredentialScope: "principal-b"})
+	second, err := New(Config{
+		Vertex:          true,
+		Project:         "project",
+		CredentialScope: "principal-b",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +320,10 @@ func TestVertexCredentialScopesPrivateReplay(t *testing.T) {
 func TestSDKAPIErrorPreservesStatusAndBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		io.WriteString(w, `{"error":{"code":429,"message":"slow down","status":"RESOURCE_EXHAUSTED"}}`)
+		io.WriteString(
+			w,
+			`{"error":{"code":429,"message":"slow down","status":"RESOURCE_EXHAUSTED"}}`,
+		)
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
@@ -233,8 +333,14 @@ func TestSDKAPIErrorPreservesStatusAndBody(t *testing.T) {
 	}
 	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	var failure *llm.Error
-	if !errors.As(err, &failure) || failure.Category != llm.ErrorRateLimited || failure.Status != 429 ||
-		!failure.Retryable || !bytes.Contains(failure.Body, []byte("slow down")) || result.Stop.Kind != llm.StopIncomplete {
+	if !errors.As(
+		err,
+		&failure,
+	) || failure.Category != llm.ErrorRateLimited || failure.Status != 429 ||
+		!failure.Retryable || !bytes.Contains(
+		failure.Body,
+		[]byte("slow down"),
+	) || result.Stop.Kind != llm.StopIncomplete {
 		t.Fatalf("SDK API error was misclassified: result=%+v err=%v", result, err)
 	}
 }

@@ -141,7 +141,10 @@ func write(buf *bytes.Buffer, value any) error {
 		}
 		buf.WriteByte('}')
 	default:
-		return fmt.Errorf("canonjson: unexpected decoded type %T", value)
+		return fmt.Errorf(
+			"canonjson: unexpected decoded type %T",
+			value,
+		)
 	}
 	return nil
 }
@@ -203,7 +206,10 @@ func formatNumber(lit string) (string, error) {
 	if hasExp {
 		e, err := strconv.Atoi(expPart)
 		if err != nil || e > maxExponent || e < -maxExponent {
-			return "", fmt.Errorf("canonjson: number exponent out of range: %s", lit)
+			return "", fmt.Errorf(
+				"canonjson: number exponent out of range: %s",
+				lit,
+			)
 		}
 		exp = e
 	}

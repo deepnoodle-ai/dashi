@@ -73,7 +73,10 @@ func (s *ImageRequestSnapshot) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	policy, err := decodePolicy(raw.CapabilityPolicy, raw.UnknownCapabilities)
+	policy, err := decodePolicy(
+		raw.CapabilityPolicy,
+		raw.UnknownCapabilities,
+	)
 	if err != nil {
 		return err
 	}
@@ -97,12 +100,19 @@ func NewImageRequest(snapshot ImageRequestSnapshot) (ImageRequest, error) {
 	}
 	if snapshot.Effective != snapshot.Input.Settings &&
 		len(snapshot.Adjustments) == 0 {
-		return ImageRequest{}, errors.New("media: changed image settings require adjustments")
+		return ImageRequest{}, errors.New(
+			"media: changed image settings require adjustments",
+		)
 	}
 	if err := validatePrepared(
-		snapshot.Origin, snapshot.Input.Model, snapshot.ContentType,
-		snapshot.Body, snapshot.ModelInfo, snapshot.CapabilityPolicy,
-		snapshot.Unverified, snapshot.Adjustments,
+		snapshot.Origin,
+		snapshot.Input.Model,
+		snapshot.ContentType,
+		snapshot.Body,
+		snapshot.ModelInfo,
+		snapshot.CapabilityPolicy,
+		snapshot.Unverified,
+		snapshot.Adjustments,
 	); err != nil {
 		return ImageRequest{}, err
 	}
@@ -183,7 +193,10 @@ func (s *VideoRequestSnapshot) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	policy, err := decodePolicy(raw.CapabilityPolicy, raw.UnknownCapabilities)
+	policy, err := decodePolicy(
+		raw.CapabilityPolicy,
+		raw.UnknownCapabilities,
+	)
 	if err != nil {
 		return err
 	}
@@ -206,12 +219,19 @@ func NewVideoRequest(snapshot VideoRequestSnapshot) (VideoRequest, error) {
 	}
 	if snapshot.Effective != snapshot.Input.Settings &&
 		len(snapshot.Adjustments) == 0 {
-		return VideoRequest{}, errors.New("media: changed video settings require adjustments")
+		return VideoRequest{}, errors.New(
+			"media: changed video settings require adjustments",
+		)
 	}
 	if err := validatePrepared(
-		snapshot.Origin, snapshot.Input.Model, snapshot.ContentType,
-		snapshot.Body, snapshot.ModelInfo, snapshot.CapabilityPolicy,
-		snapshot.Unverified, snapshot.Adjustments,
+		snapshot.Origin,
+		snapshot.Input.Model,
+		snapshot.ContentType,
+		snapshot.Body,
+		snapshot.ModelInfo,
+		snapshot.CapabilityPolicy,
+		snapshot.Unverified,
+		snapshot.Adjustments,
 	); err != nil {
 		return VideoRequest{}, err
 	}
@@ -327,7 +347,8 @@ func validatePrepared(
 	if !unknown.Valid() {
 		return errors.New("media: invalid capability policy")
 	}
-	if len(unverified) > 0 && unknown.Resolved() != model.CapabilityAdjust {
+	if len(unverified) > 0 &&
+		unknown.Resolved() != model.CapabilityAdjust {
 		return errors.New("media: unverified capabilities require the adjust capability policy")
 	}
 	for i, feature := range unverified {
@@ -347,7 +368,8 @@ func validatePrepared(
 		if err := info.Validate(); err != nil {
 			return err
 		}
-		if info.Evidence.Model != origin.Model || info.Evidence.API != origin.API {
+		if info.Evidence.Model != origin.Model ||
+			info.Evidence.API != origin.API {
 			return errors.New("media: model evidence does not match preparation")
 		}
 	}

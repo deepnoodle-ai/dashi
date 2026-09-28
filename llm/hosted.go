@@ -35,8 +35,13 @@ type HostedUse struct {
 // Validate requires provenance and keeps display fields from standing in for
 // a provider's original replay data.
 func (u HostedUse) Validate() error {
-	if u.ID == "" || u.Name == "" || u.Type == "" || u.Origin.Validate() != nil ||
-		u.Origin.Model == "" || (len(u.Input) > 0 && !json.Valid(u.Input)) {
+	if u.ID == "" ||
+		u.Name == "" ||
+		u.Type == "" ||
+		u.Origin.Validate() != nil ||
+		u.Origin.Model == "" ||
+		(len(u.Input) > 0 &&
+			!json.Valid(u.Input)) {
 		return errors.New(
 			"llm: hosted use requires ID, name, type, origin, and valid JSON input if provided",
 		)
@@ -140,7 +145,9 @@ type HostedApprovalResponse struct {
 
 // Validate requires a provider-bound approval request ID.
 func (r HostedApprovalResponse) Validate() error {
-	if r.RequestID == "" || r.Origin.Validate() != nil || r.Origin.Model == "" {
+	if r.RequestID == "" ||
+		r.Origin.Validate() != nil ||
+		r.Origin.Model == "" {
 		return errors.New(
 			"llm: hosted approval response requires request ID and origin",
 		)

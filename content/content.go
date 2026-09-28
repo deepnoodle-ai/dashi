@@ -256,15 +256,22 @@ func VideoBlock(source Source) Block {
 // and whether that payload is well formed.
 func (b Block) Validate() error {
 	if count(
-		b.Text != nil, b.Image != nil, b.Document != nil,
-		b.Audio != nil, b.Video != nil, b.Resource != nil,
+		b.Text != nil,
+		b.Image != nil,
+		b.Document != nil,
+		b.Audio != nil,
+		b.Video != nil,
+		b.Resource != nil,
 	) != 1 {
 		return errors.New("content: block requires one payload")
 	}
 	switch {
 	case b.Kind == KindText && b.Text != nil:
 		for _, c := range b.Text.Citations {
-			if len(c.Raw) > 0 && (c.Origin.Validate() != nil || c.Origin.Model == "" || !json.Valid(c.Raw)) {
+			if len(c.Raw) > 0 &&
+				(c.Origin.Validate() != nil ||
+					c.Origin.Model == "" ||
+					!json.Valid(c.Raw)) {
 				return errors.New("content: invalid citation provenance or JSON")
 			}
 		}
@@ -289,7 +296,9 @@ func (b Block) Validate() error {
 			return errors.New("content: video duration cannot be negative")
 		}
 		return nil
-	case b.Kind == KindResource && b.Resource != nil && b.Resource.URI != "":
+	case b.Kind == KindResource &&
+		b.Resource != nil &&
+		b.Resource.URI != "":
 		if b.Resource.Origin != (Origin{}) {
 			return b.Resource.Origin.Validate()
 		}

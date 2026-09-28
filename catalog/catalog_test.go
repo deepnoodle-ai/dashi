@@ -16,7 +16,14 @@ func TestEmbeddedFilesParseAndValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embedded catalog is invalid: %v", err)
 	}
-	want := []string{"anthropic", "google", "grok", "meta", "mistral", "openai"}
+	want := []string{
+		"anthropic",
+		"google",
+		"grok",
+		"meta",
+		"mistral",
+		"openai",
+	}
 	if got := Providers(); !slices.Equal(got, want) {
 		t.Fatalf("providers = %v, want %v", got, want)
 	}
@@ -37,10 +44,20 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 				endpoint := d.resolve(e.Model)
 				info, ok := Lookup(d.API, endpoint, e.Model)
 				if !ok {
-					t.Fatalf("%s %s: no lookup at %s", name, e.Model, endpoint)
+					t.Fatalf(
+						"%s %s: no lookup at %s",
+						name,
+						e.Model,
+						endpoint,
+					)
 				}
 				if err := info.Validate(); err != nil {
-					t.Fatalf("%s %s: %v", name, e.Model, err)
+					t.Fatalf(
+						"%s %s: %v",
+						name,
+						e.Model,
+						err,
+					)
 				}
 			}
 		}
@@ -52,17 +69,33 @@ func TestEntriesDateEveryClaim(t *testing.T) {
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {
-				t.Fatalf("%s %s is qualified in the future", name, e.Model)
+				t.Fatalf(
+					"%s %s is qualified in the future",
+					name,
+					e.Model,
+				)
 			}
 			if e.Pricing == nil {
 				continue
 			}
-			updated, _ := time.Parse(time.DateOnly, e.Pricing.UpdatedAt)
+			updated, _ := time.Parse(
+				time.DateOnly,
+				e.Pricing.UpdatedAt,
+			)
 			if updated.After(today) {
-				t.Fatalf("%s %s price is dated in the future", name, e.Model)
+				t.Fatalf(
+					"%s %s price is dated in the future",
+					name,
+					e.Model,
+				)
 			}
-			if e.Pricing.Currency != "USD" || e.Pricing.Reference == "" {
-				t.Fatalf("%s %s price lacks a reference", name, e.Model)
+			if e.Pricing.Currency != "USD" ||
+				e.Pricing.Reference == "" {
+				t.Fatalf(
+					"%s %s price lacks a reference",
+					name,
+					e.Model,
+				)
 			}
 		}
 	}
@@ -82,11 +115,18 @@ func TestEntriesNeverClaimLiveProbes(t *testing.T) {
 			if info.Evidence.Method != llm.EvidenceDocumentation {
 				t.Fatalf(
 					"%s %s method = %q",
-					name, e.Model, info.Evidence.Method,
+					name,
+					e.Model,
+					info.Evidence.Method,
 				)
 			}
 			if info.Evidence.Owner != Owner {
-				t.Fatalf("%s %s owner = %q", name, e.Model, info.Evidence.Owner)
+				t.Fatalf(
+					"%s %s owner = %q",
+					name,
+					e.Model,
+					info.Evidence.Owner,
+				)
 			}
 		}
 	}
@@ -121,11 +161,16 @@ func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
 		if base.CacheWrite*4 != base.Input*5 {
 			t.Fatalf(
 				"%s cache write %s is not 1.25x input %s",
-				e.Model, base.CacheWrite, base.Input,
+				e.Model,
+				base.CacheWrite,
+				base.Input,
 			)
 		}
 		if len(e.Pricing.Tiers) > 0 {
-			t.Fatalf("%s has a tier the Messages client cannot reach", e.Model)
+			t.Fatalf(
+				"%s has a tier the Messages client cannot reach",
+				e.Model,
+			)
 		}
 	}
 }
@@ -195,7 +240,11 @@ func TestLookupIgnoresUndocumentedDestinations(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, ok := Lookup(tc.api, tc.endpoint, tc.model); ok {
+			if _, ok := Lookup(
+				tc.api,
+				tc.endpoint,
+				tc.model,
+			); ok {
 				t.Fatal("lookup matched an undocumented destination")
 			}
 		})
@@ -205,7 +254,11 @@ func TestLookupIgnoresUndocumentedDestinations(t *testing.T) {
 func TestLookupResolvesModelInEndpointTemplate(t *testing.T) {
 	endpoint := "https://generativelanguage.googleapis.com/v1beta/models/" +
 		"gemini-3.8-flash:generateContent"
-	info, ok := Lookup("google.generate_content", endpoint, "gemini-3.8-flash")
+	info, ok := Lookup(
+		"google.generate_content",
+		endpoint,
+		"gemini-3.8-flash",
+	)
 	if !ok {
 		t.Fatal("templated endpoint did not match")
 	}
@@ -282,36 +335,68 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 			name: "unknown field",
 			data: strings.Replace(
 				fmt.Sprintf(valid, fmt.Sprintf(entry, "", "")),
-				`"source"`, `"extra":1,"source"`, 1,
+				`"source"`,
+				`"extra":1,"source"`,
+				1,
 			),
 			want: "unknown field",
 		},
 		{
 			name: "unknown feature",
-			data: fmt.Sprintf(valid, fmt.Sprintf(
-				entry, `"features":{"x":"supported"}`, "",
-			)),
+			data: fmt.Sprintf(
+				valid,
+				fmt.Sprintf(
+					entry,
+					`"features":{"x":"supported"}`,
+					"",
+				),
+			),
 			want: "invalid capability",
 		},
 		{
 			name: "free rate by omission",
-			data: fmt.Sprintf(valid, fmt.Sprintf(entry, "",
-				`,"pricing":{"currency":"USD","updated_at":"2026-09-27",`+
-					`"base":{"input":1,"output":2,"cache_read":0.1}}`)),
+			data: fmt.Sprintf(
+				valid,
+				fmt.Sprintf(
+					entry,
+					"",
+					`,"pricing":{"currency":"USD","updated_at":"2026-09-27",`+
+						`"base":{"input":1,"output":2,"cache_read":0.1}}`,
+				),
+			),
 			want: "explicit cache_write",
 		},
 		{
 			name: "undocumented API",
-			data: fmt.Sprintf(valid, strings.Replace(
-				fmt.Sprintf(entry, "", ""), `["a"]`, `["b"]`, 1,
-			)),
+			data: fmt.Sprintf(
+				valid,
+				strings.Replace(
+					fmt.Sprintf(
+						entry,
+						"",
+						"",
+					),
+					`["a"]`,
+					`["b"]`,
+					1,
+				),
+			),
 			want: "undocumented API",
 		},
 		{
 			name: "missing default",
 			data: strings.Replace(
-				fmt.Sprintf(valid, fmt.Sprintf(entry, "", "")), `"default":"m"`,
-				`"default":"n"`, 1,
+				fmt.Sprintf(
+					valid,
+					fmt.Sprintf(
+						entry,
+						"",
+						"",
+					),
+				),
+				`"default":"m"`,
+				`"default":"n"`,
+				1,
 			),
 			want: "default",
 		},
@@ -319,8 +404,15 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parse([]byte(tc.data))
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error = %v, want %q", err, tc.want)
+			if err == nil || !strings.Contains(
+				err.Error(),
+				tc.want,
+			) {
+				t.Fatalf(
+					"error = %v, want %q",
+					err,
+					tc.want,
+				)
 			}
 		})
 	}

@@ -10,19 +10,51 @@ import (
 )
 
 func TestDecodeItemClassifiesOnlyRecognizedReasoning(t *testing.T) {
-	wire := codec{origin: content.Origin{Provider: "openai", API: API, Model: "model", Scope: "scope"}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "openai",
+			API:      API,
+			Model:    "model",
+			Scope:    "scope",
+		},
+	}
 	for _, tc := range []struct {
 		name string
 		raw  string
 		kind llm.ContentKind
 		text string
 	}{
-		{name: "encrypted", raw: `{"type":"reasoning","encrypted_content":"private","summary":[]}`, kind: llm.ContentReasoning},
-		{name: "summary", raw: `{"type":"reasoning","summary":[{"type":"summary_text","text":"first"},{"type":"summary_text","text":"second"}]}`, kind: llm.ContentReasoning, text: "first\n\nsecond"},
-		{name: "unknown summary part", raw: `{"type":"reasoning","summary":[{"type":"future_summary","text":"private"}]}`, kind: llm.ContentOpaque},
-		{name: "unmodeled content", raw: `{"type":"reasoning","content":[{"type":"reasoning_text","text":"private"}],"summary":[]}`, kind: llm.ContentOpaque},
-		{name: "no recognized payload", raw: `{"type":"reasoning","future_payload":"private"}`, kind: llm.ContentOpaque},
-		{name: "future item", raw: `{"type":"future_reasoning","encrypted_content":"private"}`, kind: llm.ContentOpaque},
+		{
+			name: "encrypted",
+			raw:  `{"type":"reasoning","encrypted_content":"private","summary":[]}`,
+			kind: llm.ContentReasoning,
+		},
+		{
+			name: "summary",
+			raw:  `{"type":"reasoning","summary":[{"type":"summary_text","text":"first"},{"type":"summary_text","text":"second"}]}`,
+			kind: llm.ContentReasoning,
+			text: "first\n\nsecond",
+		},
+		{
+			name: "unknown summary part",
+			raw:  `{"type":"reasoning","summary":[{"type":"future_summary","text":"private"}]}`,
+			kind: llm.ContentOpaque,
+		},
+		{
+			name: "unmodeled content",
+			raw:  `{"type":"reasoning","content":[{"type":"reasoning_text","text":"private"}],"summary":[]}`,
+			kind: llm.ContentOpaque,
+		},
+		{
+			name: "no recognized payload",
+			raw:  `{"type":"reasoning","future_payload":"private"}`,
+			kind: llm.ContentOpaque,
+		},
+		{
+			name: "future item",
+			raw:  `{"type":"future_reasoning","encrypted_content":"private"}`,
+			kind: llm.ContentOpaque,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			decoded, err := wire.decodeItem(json.RawMessage(tc.raw))
@@ -48,7 +80,11 @@ func TestDecodeItemClassifiesOnlyRecognizedReasoning(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(encoded, original) {
-				t.Fatalf("replay changed original reasoning: got %v, want %v", encoded, original)
+				t.Fatalf(
+					"replay changed original reasoning: got %v, want %v",
+					encoded,
+					original,
+				)
 			}
 		})
 	}

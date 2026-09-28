@@ -24,9 +24,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	definition := kernel.Definition{ID: "example", Revision: "1", Provider: client.Provider(), API: client.API(), Model: model, Limits: kernel.DefaultLimits()}
+	definition := kernel.Definition{
+		ID:       "example",
+		Revision: "1",
+		Provider: client.Provider(),
+		API:      client.API(),
+		Model:    model,
+		Limits:   kernel.DefaultLimits(),
+	}
 	recorder := kernel.NewMemoryRecorder()
-	outcome, err := (kernel.Engine{}).Apply(ctx, kernel.Turn{ID: "example-turn"}, definition, kernel.Start{ID: "example-start", Input: []llm.Message{llm.UserMessage(llm.Text("Say hello in one sentence."))}}, kernel.Bindings{Client: client, Recorder: recorder})
+	outcome, err := (kernel.Engine{}).Apply(
+		ctx,
+		kernel.Turn{ID: "example-turn"},
+		definition,
+		kernel.Start{
+			ID: "example-start",
+			Input: []llm.Message{
+				llm.UserMessage(llm.Text("Say hello in one sentence.")),
+			},
+		},
+		kernel.Bindings{Client: client, Recorder: recorder},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -9,14 +9,25 @@ import (
 )
 
 func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup"), final("found")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "lookup"), final("found")},
+	}
 	rec := NewMemoryRecorder()
-	external := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: []byte(`{"type":"object"}`), Kind: tool.KindExternal}}
+	external := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindExternal,
+		},
+	}
 	first, err := start(t, client, fixedTools{external}, rec, AllowLocalPolicy{})
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
-	result := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("result"))}
+	result := tool.Outcome{
+		State:  tool.StateSucceeded,
+		Output: ptr(tool.TextOutput("result")),
+	}
 	accepted, err := (Engine{}).Apply(
 		context.Background(),
 		first.Turn,
@@ -47,8 +58,20 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	if err != nil || completed.Stop.Kind != StopCompleted {
 		t.Fatalf("accept: stop=%+v err=%v", completed.Stop, err)
 	}
-	duplicate, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}, Bindings{Client: client, Recorder: rec})
+	duplicate, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || len(duplicate.Turn.Steps) != len(completed.Turn.Steps) || client.sends != 2 {
-		t.Fatalf("duplicate: stop=%+v steps=%d err=%v sends=%d", duplicate.Stop, len(duplicate.Turn.Steps), err, client.sends)
+		t.Fatalf(
+			"duplicate: stop=%+v steps=%d err=%v sends=%d",
+			duplicate.Stop,
+			len(duplicate.Turn.Steps),
+			err,
+			client.sends,
+		)
 	}
 }

@@ -18,7 +18,9 @@ import (
 
 // sdkArguments passes the familiar typed request through the SDK. The final
 // body hook retains provider-private parts that its typed model may not know.
-func sdkArguments(body []byte) ([]*genai.Content, *genai.GenerateContentConfig, error) {
+func sdkArguments(
+	body []byte,
+) ([]*genai.Content, *genai.GenerateContentConfig, error) {
 	var request struct {
 		Contents          []*genai.Content  `json:"contents"`
 		SystemInstruction *genai.Content    `json:"systemInstruction"`
@@ -29,8 +31,11 @@ func sdkArguments(body []byte) ([]*genai.Content, *genai.GenerateContentConfig, 
 	if err := json.Unmarshal(body, &request); err != nil {
 		return nil, nil, err
 	}
-	config := &genai.GenerateContentConfig{SystemInstruction: request.SystemInstruction,
-		Tools: request.Tools, ToolConfig: request.ToolConfig}
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: request.SystemInstruction,
+		Tools:             request.Tools,
+		ToolConfig:        request.ToolConfig,
+	}
 	if len(request.GenerationConfig) > 0 {
 		if err := json.Unmarshal(request.GenerationConfig, config); err != nil {
 			return nil, nil, err
@@ -40,16 +45,21 @@ func sdkArguments(body []byte) ([]*genai.Content, *genai.GenerateContentConfig, 
 	if err := providerhttp.Decode(body, &frozen); err != nil {
 		return nil, nil, err
 	}
-	config.HTTPOptions = &genai.HTTPOptions{ExtrasRequestProvider: func(map[string]any) map[string]any {
-		return frozen
-	}}
+	config.HTTPOptions = &genai.HTTPOptions{
+		ExtrasRequestProvider: func(map[string]any) map[string]any {
+			return frozen
+		},
+	}
 	return request.Contents, config, nil
 }
 
 // sdkEndpoint pins the URL grammar that the SDK generates. A custom endpoint
 // must use the same model path; otherwise a prepared origin could name a
 // different destination from the one the SDK calls.
-func sdkEndpoint(endpoint string, vertex bool) (baseURL, version string, err error) {
+func sdkEndpoint(
+	endpoint string,
+	vertex bool,
+) (baseURL, version string, err error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
 		return "", "", errors.New("gemini: invalid SDK endpoint")
@@ -78,7 +88,11 @@ func sdkEndpoint(endpoint string, vertex bool) (baseURL, version string, err err
 	return u.String(), version, nil
 }
 
-func (p *Client) newSDKClient(ctx context.Context, transport http.RoundTripper, authenticate bool) (*genai.Client, error) {
+func (p *Client) newSDKClient(
+	ctx context.Context,
+	transport http.RoundTripper,
+	authenticate bool,
+) (*genai.Client, error) {
 	baseURL, version, err := sdkEndpoint(p.config.Endpoint, p.config.Vertex)
 	if err != nil {
 		return nil, err
@@ -89,10 +103,15 @@ func (p *Client) newSDKClient(ctx context.Context, transport http.RoundTripper, 
 		httpClient = &copy
 	}
 	httpClient.Transport = transport
-	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	config := &genai.ClientConfig{Backend: genai.BackendGeminiAPI,
-		APIKey: p.config.APIKey, HTTPClient: httpClient,
-		HTTPOptions: genai.HTTPOptions{BaseURL: baseURL, APIVersion: version}}
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	config := &genai.ClientConfig{
+		Backend:     genai.BackendGeminiAPI,
+		APIKey:      p.config.APIKey,
+		HTTPClient:  httpClient,
+		HTTPOptions: genai.HTTPOptions{BaseURL: baseURL, APIVersion: version},
+	}
 	if p.config.Vertex {
 		config.Backend = genai.BackendVertexAI
 		config.Project = p.config.Project
@@ -109,14 +128,24 @@ func (p *Client) newSDKClient(ctx context.Context, transport http.RoundTripper, 
 func (p *Client) sdkURL(model string, stream bool) string {
 	endpoint := p.endpoint(model)
 	if stream {
-		return strings.Replace(endpoint, ":generateContent", ":streamGenerateContent?alt=sse", 1)
+		return strings.Replace(
+			endpoint,
+			":generateContent",
+			":streamGenerateContent?alt=sse",
+			1,
+		)
 	}
 	return endpoint
 }
 
 // sdkBody uses an in-memory HTTP transport. Preparation invokes the same SDK
 // serializer as Send but cannot reach the network or charge for a model call.
-func (p *Client) sdkBody(ctx context.Context, model string, stream bool, body []byte) ([]byte, error) {
+func (p *Client) sdkBody(
+	ctx context.Context,
+	model string,
+	stream bool,
+	body []byte,
+) ([]byte, error) {
 	guard := &sdkGuard{url: p.sdkURL(model, stream), dryRun: true}
 	client, err := p.newSDKClient(ctx, guard, false)
 	if err != nil {
@@ -127,12 +156,22 @@ func (p *Client) sdkBody(ctx context.Context, model string, stream bool, body []
 		return nil, err
 	}
 	if stream {
-		for _, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
+		for _, err := range client.Models.GenerateContentStream(
+			ctx,
+			model,
+			contents,
+			config,
+		) {
 			if err != nil {
 				return nil, err
 			}
 		}
-	} else if _, err := client.Models.GenerateContent(ctx, model, contents, config); err != nil {
+	} else if _, err := client.Models.GenerateContent(
+		ctx,
+		model,
+		contents,
+		config,
+	); err != nil {
 		return nil, err
 	}
 	if !guard.seen {
@@ -141,12 +180,21 @@ func (p *Client) sdkBody(ctx context.Context, model string, stream bool, body []
 	return bytes.Clone(guard.body), nil
 }
 
-func (p *Client) sdkClient(ctx context.Context, model string, stream bool, body []byte) (*genai.Client, *sdkGuard, error) {
+func (p *Client) sdkClient(
+	ctx context.Context,
+	model string,
+	stream bool,
+	body []byte,
+) (*genai.Client, *sdkGuard, error) {
 	base := http.DefaultTransport
 	if p.config.Client != nil && p.config.Client.Transport != nil {
 		base = p.config.Client.Transport
 	}
-	guard := &sdkGuard{url: p.sdkURL(model, stream), body: bytes.Clone(body), base: base}
+	guard := &sdkGuard{
+		url:  p.sdkURL(model, stream),
+		body: bytes.Clone(body),
+		base: base,
+	}
 	client, err := p.newSDKClient(ctx, guard, true)
 	return client, guard, err
 }
@@ -163,6 +211,7 @@ type sdkGuard struct {
 	resp   bytes.Buffer
 }
 
+// RoundTrip dispatches only when the SDK request matches the prepared request.
 func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 	g.mu.Lock()
 	if g.seen {
@@ -186,15 +235,23 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 			contentType = "text/event-stream"
 			response = "data: " + response + "\n\n"
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {contentType}},
-			Body: io.NopCloser(strings.NewReader(response)), Request: r}, nil
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {contentType}},
+			Body:       io.NopCloser(strings.NewReader(response)),
+			Request:    r,
+		}, nil
 	}
 	r.Body = io.NopCloser(bytes.NewReader(actual))
 	response, err := g.base.RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}
-	response.Body = &captureBody{ReadCloser: response.Body, output: &g.resp, mu: &g.mu}
+	response.Body = &captureBody{
+		ReadCloser: response.Body,
+		output:     &g.resp,
+		mu:         &g.mu,
+	}
 	return response, nil
 }
 
@@ -210,6 +267,7 @@ type captureBody struct {
 	mu     *sync.Mutex
 }
 
+// Read retains the bytes observed while callers consume the SDK response.
 func (r *captureBody) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
 	r.mu.Lock()
@@ -241,15 +299,30 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 		if providerhttp.KnownRejection(api.Code) {
 			disposition = llm.FailureRejected
 		}
-		rejection := providerhttp.Rejection{Status: api.Code, Type: api.Status, Message: api.Message, HasMedia: hasMedia}
-		return &llm.Error{Provider: provider, Category: category, Reason: providerhttp.Reason(errorReason, rejection),
-			Disposition: disposition, Status: api.Code, Body: bytes.Clone(body), Retryable: api.Code == 408 || api.Code == 429 || api.Code >= 500, Cause: err}
+		rejection := providerhttp.Rejection{
+			Status:   api.Code,
+			Type:     api.Status,
+			Message:  api.Message,
+			HasMedia: hasMedia,
+		}
+		return &llm.Error{
+			Provider:    provider,
+			Category:    category,
+			Reason:      providerhttp.Reason(errorReason, rejection),
+			Disposition: disposition,
+			Status:      api.Code,
+			Body:        bytes.Clone(body),
+			Retryable:   api.Code == 408 || api.Code == 429 || api.Code >= 500,
+			Cause:       err,
+		}
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }
 
 func emitSDKChunk(sink llm.Sink, response *genai.GenerateContentResponse) {
-	if response == nil || len(response.Candidates) == 0 || response.Candidates[0].Content == nil {
+	if response == nil ||
+		len(response.Candidates) == 0 ||
+		response.Candidates[0].Content == nil {
 		return
 	}
 	for index, part := range response.Candidates[0].Content.Parts {
@@ -258,20 +331,36 @@ func emitSDKChunk(sink llm.Sink, response *genai.GenerateContentResponse) {
 			if part.Thought {
 				kind = llm.DeltaReasoning
 			}
-			providerhttp.Emit(sink, llm.Delta{Kind: kind, Index: index, Text: part.Text})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:  kind,
+					Index: index,
+					Text:  part.Text,
+				},
+			)
 		}
 		if part.FunctionCall != nil {
 			args, _ := json.Marshal(part.FunctionCall.Args)
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaToolArguments, Index: index, Text: string(args)})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:  llm.DeltaToolArguments,
+					Index: index,
+					Text:  string(args),
+				},
+			)
 		}
 	}
 	if response.UsageMetadata != nil {
-		usage := usageWire{PromptTokenCount: int(response.UsageMetadata.PromptTokenCount),
+		usage := usageWire{
+			PromptTokenCount:        int(response.UsageMetadata.PromptTokenCount),
 			CandidatesTokenCount:    int(response.UsageMetadata.CandidatesTokenCount),
 			CachedContentTokenCount: int(response.UsageMetadata.CachedContentTokenCount),
 			ThoughtsTokenCount:      int(response.UsageMetadata.ThoughtsTokenCount),
 			ToolUsePromptTokenCount: int(response.UsageMetadata.ToolUsePromptTokenCount),
-			TotalTokenCount:         int(response.UsageMetadata.TotalTokenCount)}
+			TotalTokenCount:         int(response.UsageMetadata.TotalTokenCount),
+		}
 		if normalized, err := usage.normalize(); err == nil {
 			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: normalized})
 		}

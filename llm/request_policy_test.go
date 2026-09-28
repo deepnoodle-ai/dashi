@@ -56,7 +56,10 @@ func TestRequestSnapshotDecodesRecordedCapabilityPolicy(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var snapshot RequestSnapshot
-			err := json.Unmarshal([]byte(prefix+test.fields+"}"), &snapshot)
+			err := json.Unmarshal(
+				[]byte(prefix+test.fields+"}"),
+				&snapshot,
+			)
 			if test.fails {
 				if err == nil {
 					t.Fatal("decoded an unrecognized capability policy")
@@ -69,7 +72,8 @@ func TestRequestSnapshotDecodesRecordedCapabilityPolicy(t *testing.T) {
 			if snapshot.CapabilityPolicy != test.want {
 				t.Fatalf(
 					"recorded policy decoded as %q, want %q",
-					snapshot.CapabilityPolicy, test.want,
+					snapshot.CapabilityPolicy,
+					test.want,
 				)
 			}
 			if !bytes.Equal(snapshot.Body, []byte("{}")) {
@@ -79,15 +83,24 @@ func TestRequestSnapshotDecodesRecordedCapabilityPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bytes.Contains(raw, []byte(`"unknown_capabilities"`)) {
+			if bytes.Contains(
+				raw,
+				[]byte(`"unknown_capabilities"`),
+			) {
 				t.Fatal("snapshot re-encoded the legacy policy field")
 			}
 			var again RequestSnapshot
-			if err := json.Unmarshal(raw, &again); err != nil {
+			if err := json.Unmarshal(
+				raw,
+				&again,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if again.CapabilityPolicy != test.want {
-				t.Fatalf("policy %q did not round trip", test.want)
+				t.Fatalf(
+					"policy %q did not round trip",
+					test.want,
+				)
 			}
 		})
 	}

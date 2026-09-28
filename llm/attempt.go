@@ -48,4 +48,6 @@ type Attempt struct {
 }
 
 // IsZero reports whether the caller supplied no attempt identity.
-func (a Attempt) IsZero() bool { return a == Attempt{} }
+func (a Attempt) IsZero() bool {
+	return a == Attempt{}
+}

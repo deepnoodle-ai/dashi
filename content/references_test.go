@@ -6,24 +6,38 @@ import (
 )
 
 func TestSourceValidateProviderURIRequiresOriginAndMIMEType(t *testing.T) {
-	origin := Origin{Provider: "google", API: "google.generate_content", Scope: "key"}
+	origin := Origin{
+		Provider: "google",
+		API:      "google.generate_content",
+		Scope:    "key",
+	}
 	tests := []struct {
 		name   string
 		source Source
 		valid  bool
 	}{
 		{
-			name:   "provider URI",
-			source: Source{URI: "https://files.example.test/f", MIMEType: "application/pdf", Origin: origin},
-			valid:  true,
+			name: "provider URI",
+			source: Source{
+				URI:      "https://files.example.test/f",
+				MIMEType: "application/pdf",
+				Origin:   origin,
+			},
+			valid: true,
 		},
 		{
-			name:   "missing origin",
-			source: Source{URI: "https://files.example.test/f", MIMEType: "application/pdf"},
+			name: "missing origin",
+			source: Source{
+				URI:      "https://files.example.test/f",
+				MIMEType: "application/pdf",
+			},
 		},
 		{
-			name:   "missing MIME type",
-			source: Source{URI: "https://files.example.test/f", Origin: origin},
+			name: "missing MIME type",
+			source: Source{
+				URI:    "https://files.example.test/f",
+				Origin: origin,
+			},
 		},
 		{
 			name: "ambiguous location",
@@ -39,7 +53,12 @@ func TestSourceValidateProviderURIRequiresOriginAndMIMEType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.source.Validate()
 			if (err == nil) != tt.valid {
-				t.Fatalf("source validity=%t want=%t: %v", err == nil, tt.valid, err)
+				t.Fatalf(
+					"source validity=%t want=%t: %v",
+					err == nil,
+					tt.valid,
+					err,
+				)
 			}
 		})
 	}

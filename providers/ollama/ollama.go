@@ -45,9 +45,15 @@ func New(config Config) (*Client, error) {
 	if config.DefaultMaxTokens == 0 {
 		config.DefaultMaxTokens = 32768
 	}
-	client, err := messages.New(messages.Config{Provider: "ollama", APIKey: config.APIKey,
-		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		CapabilityPolicy: config.CapabilityPolicy, DefaultMaxTokens: config.DefaultMaxTokens})
+	client, err := messages.New(messages.Config{
+		Provider:         "ollama",
+		APIKey:           config.APIKey,
+		Endpoint:         config.Endpoint,
+		Client:           config.Client,
+		Models:           config.Models,
+		CapabilityPolicy: config.CapabilityPolicy,
+		DefaultMaxTokens: config.DefaultMaxTokens,
+	})
 	if err != nil {
 		return nil, err
 	}

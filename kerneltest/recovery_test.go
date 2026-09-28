@@ -165,11 +165,12 @@ func testRecovery(
 			State:  tool.StateSucceeded,
 			Output: ptr(tool.TextOutput("verified by the host")),
 		}
-		out = apply(t, out.Turn, kernel.Accept{
-			ID:      "reconcile",
-			CallID:  "call-1",
-			Outcome: &result,
-		}, bindings("worker-2"))
+		out = apply(
+			t,
+			out.Turn,
+			kernel.Accept{ID: "reconcile", CallID: "call-1", Outcome: &result},
+			bindings("worker-2"),
+		)
 		out = apply(
 			t,
 			out.Turn,
@@ -278,10 +279,7 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 				)
 			}
 			if work.calls() != runs {
-				t.Fatalf(
-					"stale retry ran the tool %d more times",
-					work.calls()-runs,
-				)
+				t.Fatalf("stale retry ran the tool %d more times", work.calls()-runs)
 			}
 			after, err := store.Load(t.Context(), "t1")
 			if err != nil {
@@ -325,12 +323,17 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			model := &scriptedModel{}
 			work := &countingTool{}
-			out := apply(t, kernel.Turn{ID: "t1"}, startCommand(), kernel.Bindings{
-				Client:   model,
-				Tools:    work,
-				Recorder: newTurnLoader{kernel.NewMemoryRecorder(), tc.load},
-				Policy:   kernel.AllowLocalPolicy{},
-			})
+			out := apply(
+				t,
+				kernel.Turn{ID: "t1"},
+				startCommand(),
+				kernel.Bindings{
+					Client:   model,
+					Tools:    work,
+					Recorder: newTurnLoader{kernel.NewMemoryRecorder(), tc.load},
+					Policy:   kernel.AllowLocalPolicy{},
+				},
+			)
 			if out.Stop.Kind != kernel.StopCompleted {
 				t.Fatalf("new turn stopped with %+v; want completed", out.Stop)
 			}
@@ -370,7 +373,10 @@ type newTurnLoader struct {
 	load func(string) (kernel.Turn, error)
 }
 
-func (l newTurnLoader) Load(_ context.Context, id string) (kernel.Turn, error) {
+func (l newTurnLoader) Load(
+	_ context.Context,
+	id string,
+) (kernel.Turn, error) {
 	return l.load(id)
 }
 
@@ -600,17 +606,22 @@ type countingTool struct {
 }
 
 func (c *countingTool) Tools(context.Context) ([]tool.Tool, error) {
-	return []tool.Tool{{
-		Definition: tool.Definition{
-			Name:   "work",
-			Schema: []byte(`{"type":"object"}`),
-			Kind:   tool.KindLocal,
+	return []tool.Tool{
+		{
+			Definition: tool.Definition{
+				Name:   "work",
+				Schema: []byte(`{"type":"object"}`),
+				Kind:   tool.KindLocal,
+			},
+			Executor: c,
 		},
-		Executor: c,
-	}}, nil
+	}, nil
 }
 
-func (c *countingTool) Execute(context.Context, tool.Call) (tool.Outcome, error) {
+func (c *countingTool) Execute(
+	context.Context,
+	tool.Call,
+) (tool.Outcome, error) {
 	c.mu.Lock()
 	c.runs++
 	c.mu.Unlock()

@@ -16,6 +16,7 @@ func newEmitter(observer Observer) *emitter {
 	}()
 	return e
 }
+
 func (e *emitter) send(event Event) {
 	if e == nil || e.ch == nil {
 		return
@@ -25,6 +26,7 @@ func (e *emitter) send(event Event) {
 	default:
 	}
 }
+
 func (e *emitter) close() {
 	if e != nil && e.ch != nil {
 		close(e.ch)

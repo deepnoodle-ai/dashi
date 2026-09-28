@@ -32,5 +32,8 @@ func Decode(
 	case *legacy == "reject":
 		return model.CapabilityStrict, nil
 	}
-	return "", fmt.Errorf("invalid legacy unknown_capabilities %q", *legacy)
+	return "", fmt.Errorf(
+		"invalid legacy unknown_capabilities %q",
+		*legacy,
+	)
 }

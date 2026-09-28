@@ -20,7 +20,8 @@ import (
 
 // Run with KERNEL_LIVE_IMAGE_INPUT_TEST=1, GEMINI_API_KEY, and GEMINI_MODEL.
 // The inline blocking, inline streaming, URL, and file URI subtests each make
-// one paid Gemini LLM call. The file URI subtest uploads and deletes a test PNG.
+// one paid Gemini LLM call. The file URI subtest uploads and deletes a test
+// PNG.
 func TestLiveImageInput(t *testing.T) {
 	if os.Getenv("KERNEL_LIVE_IMAGE_INPUT_TEST") != "1" {
 		t.Skip("set KERNEL_LIVE_IMAGE_INPUT_TEST=1 to make paid Gemini LLM calls")
@@ -29,7 +30,10 @@ func TestLiveImageInput(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_MODEL are required")
 	}
-	client, err := New(Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
+	client, err := New(Config{
+		APIKey:           key,
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,13 +46,23 @@ func TestLiveImageInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			input := llm.Input{Model: modelName, Stream: tc.stream,
+			input := llm.Input{
+				Model:    modelName,
+				Stream:   tc.stream,
 				Settings: llm.Settings{MaxTokens: 512},
-				Messages: []llm.Message{llm.UserMessage(
-					llm.Text("What color is the circle in each image, in order? Reply with the two colors."),
-					llm.Block(content.ImageBlock(content.Source{Data: red, MIMEType: "image/png"})),
-					llm.Block(content.ImageBlock(content.Source{Data: green, MIMEType: "image/png"})),
-				)},
+				Messages: []llm.Message{
+					llm.UserMessage(
+						llm.Text("What color is the circle in each image, in order? Reply with the two colors."),
+						llm.Block(content.ImageBlock(content.Source{
+							Data:     red,
+							MIMEType: "image/png",
+						})),
+						llm.Block(content.ImageBlock(content.Source{
+							Data:     green,
+							MIMEType: "image/png",
+						})),
+					),
+				},
 			}
 			request, err := client.Prepare(ctx, input)
 			if err != nil {
@@ -59,7 +73,13 @@ func TestLiveImageInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			answer := strings.ToLower(result.Message.Text())
-			redAt, greenAt := strings.Index(answer, "red"), strings.Index(answer, "green")
+			redAt, greenAt := strings.Index(
+				answer,
+				"red",
+			), strings.Index(
+				answer,
+				"green",
+			)
 			if result.Stop.Kind != llm.StopFinished || redAt < 0 || greenAt <= redAt {
 				t.Fatalf("image input answer = %q, stop = %q", answer, result.Stop.Kind)
 			}
@@ -69,14 +89,18 @@ func TestLiveImageInput(t *testing.T) {
 	t.Run("remote_url", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		input := llm.Input{Model: modelName, Settings: llm.Settings{MaxTokens: 512},
-			Messages: []llm.Message{llm.UserMessage(
-				llm.Text("What musical instrument is pictured? Reply with its name."),
-				llm.Block(content.ImageBlock(content.Source{
-					URL:      "https://goo.gle/instrument-img",
-					MIMEType: "image/jpeg",
-				})),
-			)},
+		input := llm.Input{
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 512},
+			Messages: []llm.Message{
+				llm.UserMessage(
+					llm.Text("What musical instrument is pictured? Reply with its name."),
+					llm.Block(content.ImageBlock(content.Source{
+						URL:      "https://goo.gle/instrument-img",
+						MIMEType: "image/jpeg",
+					})),
+				),
+			},
 		}
 		request, err := client.Prepare(ctx, input)
 		if err != nil {
@@ -87,7 +111,10 @@ func TestLiveImageInput(t *testing.T) {
 			t.Fatal(err)
 		}
 		answer := strings.ToLower(result.Message.Text())
-		if result.Stop.Kind != llm.StopFinished || !strings.Contains(answer, "organ") {
+		if result.Stop.Kind != llm.StopFinished || !strings.Contains(
+			answer,
+			"organ",
+		) {
 			t.Fatalf("remote image answer = %q, stop = %q", answer, result.Stop.Kind)
 		}
 		t.Logf("model=%s remote image answer=%q", modelName, answer)
@@ -95,16 +122,31 @@ func TestLiveImageInput(t *testing.T) {
 	t.Run("file_uri", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		files, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key, Backend: genai.BackendGeminiAPI})
+		files, err := genai.NewClient(
+			ctx,
+			&genai.ClientConfig{
+				APIKey:  key,
+				Backend: genai.BackendGeminiAPI,
+			},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		file, err := files.Files.Upload(ctx, bytes.NewReader(red), &genai.UploadFileConfig{MIMEType: "image/png"})
+		file, err := files.Files.Upload(
+			ctx,
+			bytes.NewReader(red),
+			&genai.UploadFileConfig{
+				MIMEType: "image/png",
+			},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			cleanupCtx, cleanupCancel := context.WithTimeout(
+				context.Background(),
+				15*time.Second,
+			)
 			defer cleanupCancel()
 			if _, err := files.Files.Delete(cleanupCtx, file.Name, nil); err != nil {
 				t.Errorf("delete uploaded test image: %v", err)
@@ -114,15 +156,19 @@ func TestLiveImageInput(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input := llm.Input{Model: modelName, Settings: llm.Settings{MaxTokens: 512},
-			Messages: []llm.Message{llm.UserMessage(
-				llm.Text("What color is the circle in this image? Reply with the color."),
-				llm.Block(content.ImageBlock(content.Source{
-					URI:      file.URI,
-					MIMEType: file.MIMEType,
-					Origin:   httpClient.Origin(modelName),
-				})),
-			)},
+		input := llm.Input{
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 512},
+			Messages: []llm.Message{
+				llm.UserMessage(
+					llm.Text("What color is the circle in this image? Reply with the color."),
+					llm.Block(content.ImageBlock(content.Source{
+						URI:      file.URI,
+						MIMEType: file.MIMEType,
+						Origin:   httpClient.Origin(modelName),
+					})),
+				),
+			},
 		}
 		request, err := client.Prepare(ctx, input)
 		if err != nil {
@@ -133,7 +179,10 @@ func TestLiveImageInput(t *testing.T) {
 			t.Fatal(err)
 		}
 		answer := strings.ToLower(result.Message.Text())
-		if result.Stop.Kind != llm.StopFinished || !strings.Contains(answer, "red") {
+		if result.Stop.Kind != llm.StopFinished || !strings.Contains(
+			answer,
+			"red",
+		) {
 			t.Fatalf("file image answer = %q, stop = %q", answer, result.Stop.Kind)
 		}
 		t.Logf("model=%s file image answer=%q", modelName, answer)

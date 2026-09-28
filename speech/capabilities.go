@@ -72,7 +72,8 @@ func (m ModelInfo) Validate() error {
 			return errors.New("speech: invalid recognition support")
 		}
 		for _, granularity := range c.Granularities {
-			if granularity != TimestampSegment && granularity != TimestampWord {
+			if granularity != TimestampSegment &&
+				granularity != TimestampWord {
 				return errors.New("speech: invalid timestamp granularity")
 			}
 		}

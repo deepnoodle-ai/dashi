@@ -12,15 +12,24 @@ import (
 )
 
 func TestReminderPreparedWireAndEvidence(t *testing.T) {
-	openai, err := responses.New(responses.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	openai, err := responses.New(responses.Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	anthropic, err := messages.New(messages.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	anthropic, err := messages.New(messages.Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	google, err := gemini.New(gemini.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	google, err := gemini.New(gemini.Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,23 +43,36 @@ func TestReminderPreparedWireAndEvidence(t *testing.T) {
 		{"gemini", google, llm.RoleUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input := llm.Input{Model: "example-model", Messages: []llm.Message{
-				llm.UserMessage(llm.Text("question")),
-				llm.ReminderMessage(llm.Reminder{Name: "scope", Tier: llm.ReminderOperator, Content: "visible reminder"}),
-			}}
+			input := llm.Input{
+				Model: "example-model",
+				Messages: []llm.Message{
+					llm.UserMessage(llm.Text("question")),
+					llm.ReminderMessage(llm.Reminder{
+						Name:    "scope",
+						Tier:    llm.ReminderOperator,
+						Content: "visible reminder",
+					}),
+				},
+			}
 			req, err := tc.client.Prepare(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			snapshot := req.Snapshot()
-			if len(snapshot.ContentChanges) != 1 || snapshot.ContentChanges[0].Action != llm.ContentChangeRenderReminder || snapshot.ContentChanges[0].ToRole != tc.role || snapshot.Input.Messages[1].Content[0].Kind != llm.ContentReminder {
+			if len(snapshot.ContentChanges) != 1 ||
+				snapshot.ContentChanges[0].Action != llm.ContentChangeRenderReminder ||
+				snapshot.ContentChanges[0].ToRole != tc.role ||
+				snapshot.Input.Messages[1].Content[0].Kind != llm.ContentReminder {
 				t.Fatalf("snapshot=%+v", snapshot)
 			}
 			body := string(req.Body())
 			if !strings.Contains(body, "visible reminder") {
 				t.Fatalf("wire reminder missing: %s", body)
 			}
-			if tc.name == "responses" && !strings.Contains(body, `"role":"developer"`) {
+			if tc.name == "responses" && !strings.Contains(
+				body,
+				`"role":"developer"`,
+			) {
 				t.Fatalf("Responses lost operator role: %s", body)
 			}
 		})

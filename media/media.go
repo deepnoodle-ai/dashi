@@ -44,9 +44,12 @@ const (
 type VideoOperation string
 
 const (
+	// VideoGenerate creates a video from a prompt.
 	VideoGenerate VideoOperation = "generate"
-	VideoEdit     VideoOperation = "edit"
-	VideoExtend   VideoOperation = "extend"
+	// VideoEdit modifies a video with source media.
+	VideoEdit VideoOperation = "edit"
+	// VideoExtend continues an existing video.
+	VideoExtend VideoOperation = "extend"
 )
 
 // Size requests exact pixel dimensions when both fields are set. A zero value
@@ -130,7 +133,8 @@ func (in ImageInput) Validate() error {
 		}
 	}
 	if in.Mask != nil {
-		if in.Mask.Kind != content.KindImage || in.Mask.Validate() != nil {
+		if in.Mask.Kind != content.KindImage ||
+			in.Mask.Validate() != nil {
 			return errors.New("media: image mask requires a valid image block")
 		}
 	}
@@ -287,7 +291,8 @@ func (r Result) Validate() error {
 		return errors.New("media: result requires kind, content, and request origin")
 	}
 	if r.Served != (model.ModelRef{}) &&
-		(r.Served.Provider != r.Requested.Provider || r.Served.Model == "") {
+		(r.Served.Provider != r.Requested.Provider ||
+			r.Served.Model == "") {
 		return errors.New("media: served model must identify the configured provider")
 	}
 	if err := validateRawUsage(r.RawUsage); err != nil {
@@ -301,9 +306,16 @@ func (r Result) Validate() error {
 		hasPrimary = hasPrimary || block.Kind == content.Kind(r.Kind)
 	}
 	if !hasPrimary {
-		return fmt.Errorf("media: result requires a primary %s block", r.Kind)
+		return fmt.Errorf(
+			"media: result requires a primary %s block",
+			r.Kind,
+		)
 	}
-	if err := validateStoredOutputs(r.StoredOutputs, r.Content, r.Requested.Provider); err != nil {
+	if err := validateStoredOutputs(
+		r.StoredOutputs,
+		r.Content,
+		r.Requested.Provider,
+	); err != nil {
 		return err
 	}
 	return nil
@@ -321,7 +333,10 @@ func validateRawUsage(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	if !json.Valid(raw) || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte{'{'}) {
+	if !json.Valid(raw) || !bytes.HasPrefix(
+		bytes.TrimSpace(raw),
+		[]byte{'{'},
+	) {
 		return errors.New("media: raw usage requires a JSON object")
 	}
 	return nil

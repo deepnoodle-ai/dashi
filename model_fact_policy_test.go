@@ -68,7 +68,8 @@ func TestModelFactDecodesRecordedCapabilityPolicy(t *testing.T) {
 			if fact.CapabilityPolicy != test.want {
 				t.Fatalf(
 					"recorded policy decoded as %q, want %q",
-					fact.CapabilityPolicy, test.want,
+					fact.CapabilityPolicy,
+					test.want,
 				)
 			}
 			if fact.AttemptID != "t1:model:1" || fact.Model != "m" {

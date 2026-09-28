@@ -1,5 +1,6 @@
-// Package grok configures xAI's Responses endpoint. Adapted from Dive
-// (65c393f), Apache-2.0.
+// Package grok configures xAI's Responses endpoint. The hosted options are
+// adapted from Dive's web search, X search, collections search, and code
+// execution tools (65c393f), Apache-2.0.
 package grok
 
 import (
@@ -13,7 +14,8 @@ import (
 // DefaultEndpoint is xAI's Responses URL.
 const DefaultEndpoint = "https://api.x.ai/v1/responses"
 
-// Config supplies destination credentials and application-owned model evidence.
+// Config supplies destination credentials and application-owned model
+// evidence.
 type Config struct {
 	APIKey           string
 	Endpoint         string
@@ -40,9 +42,14 @@ func New(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("GROK_API_KEY")
 	}
-	client, err := responses.New(responses.Config{Provider: "grok", APIKey: config.APIKey,
-		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		CapabilityPolicy: config.CapabilityPolicy})
+	client, err := responses.New(responses.Config{
+		Provider:         "grok",
+		APIKey:           config.APIKey,
+		Endpoint:         config.Endpoint,
+		Client:           config.Client,
+		Models:           config.Models,
+		CapabilityPolicy: config.CapabilityPolicy,
+	})
 	if err != nil {
 		return nil, err
 	}

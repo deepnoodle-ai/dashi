@@ -62,20 +62,30 @@ func validateContentChanges(p RequestSnapshot) error {
 	}
 	seen := map[position]bool{}
 	for _, change := range p.ContentChanges {
-		if change.MessageIndex < 0 || change.MessageIndex >= len(p.Input.Messages) {
+		if change.MessageIndex < 0 ||
+			change.MessageIndex >= len(p.Input.Messages) {
 			return errors.New("llm: content change requires an original message index")
 		}
 		m := p.Input.Messages[change.MessageIndex]
-		if change.ContentIndex < 0 || change.ContentIndex >= len(m.Content) || change.Reason == "" {
+		if change.ContentIndex < 0 ||
+			change.ContentIndex >= len(m.Content) ||
+			change.Reason == "" {
 			return errors.New("llm: content change requires an original content index and reason")
 		}
-		key := position{change.MessageIndex, change.ContentIndex, change.Action}
+		key := position{
+			change.MessageIndex,
+			change.ContentIndex,
+			change.Action,
+		}
 		if seen[key] {
 			return errors.New("llm: duplicate content change")
 		}
 		seen[key] = true
 		c := m.Content[change.ContentIndex]
-		if change.Action != ContentChangeConvertRole && change.Action != ContentChangeRenderReminder && (change.FromRole != "" || change.ToRole != "") {
+		if change.Action != ContentChangeConvertRole &&
+			change.Action != ContentChangeRenderReminder &&
+			(change.FromRole != "" ||
+				change.ToRole != "") {
 			return errors.New("llm: role fields require a role conversion")
 		}
 		if change.Action != ContentChangeRemapToolID &&
@@ -84,30 +94,53 @@ func validateContentChanges(p RequestSnapshot) error {
 		}
 		switch change.Action {
 		case ContentChangeStripReplay:
-			if c.Replay == nil || c.Replay.Origin == p.Origin || (c.Kind != ContentBlock && c.Kind != ContentToolCall) {
+			if c.Replay == nil ||
+				c.Replay.Origin == p.Origin ||
+				(c.Kind != ContentBlock &&
+					c.Kind != ContentToolCall) {
 				return errors.New("llm: replay strip requires incompatible data on portable content")
 			}
 		case ContentChangeOmitReasoning:
-			if p.Input.ContentPolicy.UnreplayableReasoning != ReasoningOmit || c.Kind != ContentReasoning || c.Reasoning == nil || m.Role != RoleAssistant ||
-				(c.Replay != nil && c.Replay.Origin == p.Origin) || seen[position{change.MessageIndex, change.ContentIndex, ContentChangeStripReplay}] {
+			if p.Input.ContentPolicy.UnreplayableReasoning != ReasoningOmit ||
+				c.Kind != ContentReasoning ||
+				c.Reasoning == nil ||
+				m.Role != RoleAssistant ||
+				(c.Replay != nil &&
+					c.Replay.Origin == p.Origin) ||
+				seen[position{
+					change.MessageIndex,
+					change.ContentIndex,
+					ContentChangeStripReplay,
+				}] {
 				return errors.New("llm: reasoning omission requires explicit policy and an unreplayable original block")
 			}
 		case ContentChangeOmitHostedActivity:
 			if p.Input.ContentPolicy.ForeignHostedActivity != HostedOmit ||
-				(c.HostedUse == nil && c.HostedResult == nil) ||
-				c.Replay == nil || c.Replay.Origin == p.Origin ||
+				(c.HostedUse == nil &&
+					c.HostedResult == nil) ||
+				c.Replay == nil ||
+				c.Replay.Origin == p.Origin ||
 				m.Role != RoleAssistant {
 				return errors.New(
 					"llm: hosted omission requires explicit policy and foreign replay",
 				)
 			}
 		case ContentChangeConvertRole:
-			if m.Role != RoleDeveloper || change.FromRole != m.Role || change.ToRole != RoleSystem {
+			if m.Role != RoleDeveloper ||
+				change.FromRole != m.Role ||
+				change.ToRole != RoleSystem {
 				return errors.New("llm: unsupported recorded role conversion")
 			}
 		case ContentChangeRenderReminder:
-			if c.Kind != ContentReminder || c.Reminder == nil || m.Role != RoleUser || len(m.Content) != 1 ||
-				change.FromRole != RoleUser || change.ToRole != ReminderPreparedRole(*c.Reminder, p.Origin) {
+			if c.Kind != ContentReminder ||
+				c.Reminder == nil ||
+				m.Role != RoleUser ||
+				len(m.Content) != 1 ||
+				change.FromRole != RoleUser ||
+				change.ToRole != ReminderPreparedRole(
+					*c.Reminder,
+					p.Origin,
+				) {
 				return errors.New("llm: invalid reminder rendering decision")
 			}
 		case ContentChangeEncodeToolError:
@@ -115,15 +148,19 @@ func validateContentChanges(p RequestSnapshot) error {
 				return errors.New("llm: tool error encoding requires a failed tool result")
 			}
 		case ContentChangeRemapToolID:
-			if change.FromID == "" || change.FromID == change.ToID ||
-				!utf8.ValidString(change.FromID) || !portableToolID(change.ToID) {
+			if change.FromID == "" ||
+				change.FromID == change.ToID ||
+				!utf8.ValidString(change.FromID) ||
+				!portableToolID(change.ToID) {
 				return errors.New(
 					"llm: tool ID remap requires distinct original and portable IDs",
 				)
 			}
-			if (m.Role != RoleAssistant || c.Kind != ContentToolCall ||
+			if (m.Role != RoleAssistant ||
+				c.Kind != ContentToolCall ||
 				c.ToolCall.ID != change.FromID) &&
-				(m.Role != RoleUser || c.Kind != ContentToolResult ||
+				(m.Role != RoleUser ||
+					c.Kind != ContentToolResult ||
 					c.ToolResult.CallID != change.FromID) {
 				return errors.New(
 					"llm: tool ID remap requires a matching call or result",
@@ -143,7 +180,10 @@ func validateToolIDRemaps(p RequestSnapshot) error {
 	decisions := map[position]ContentChange{}
 	for _, change := range p.ContentChanges {
 		if change.Action == ContentChangeRemapToolID {
-			decisions[position{change.MessageIndex, change.ContentIndex}] = change
+			decisions[position{
+				change.MessageIndex,
+				change.ContentIndex,
+			}] = change
 		}
 	}
 	if len(decisions) == 0 {

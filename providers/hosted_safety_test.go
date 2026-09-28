@@ -86,9 +86,12 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 		{
 			name: "Gemini file search",
 			makeTool: func() (tool.Definition, error) {
-				return gemini.NewFileSearchTool("", gemini.FileSearchOptions{
-					StoreNames: []string{"store"},
-				})
+				return gemini.NewFileSearchTool(
+					"",
+					gemini.FileSearchOptions{
+						StoreNames: []string{"store"},
+					},
+				)
 			},
 			readOnly: true,
 		},

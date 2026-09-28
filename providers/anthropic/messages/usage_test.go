@@ -11,7 +11,14 @@ import (
 )
 
 func TestServiceTierMovesFromNativeUsageToResult(t *testing.T) {
-	wire := codec{origin: content.Origin{Provider: "anthropic", API: API, Model: "model", Scope: "scope"}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "anthropic",
+			API:      API,
+			Model:    "model",
+			Scope:    "scope",
+		},
+	}
 	requested := llm.ModelRef{Provider: "anthropic", Model: "model"}
 	complete := `{"id":"msg_1","type":"message","model":"model","content":[{"type":"text","text":"Hi"}],"stop_reason":"end_turn","usage":{"input_tokens":9,"output_tokens":2,"service_tier":"standard"}}`
 	stream := `data: {"type":"message_start","message":{"id":"msg_1","type":"message","model":"model","content":[],"usage":{"input_tokens":9,"output_tokens":0,"service_tier":"standard"}}}
@@ -31,11 +38,20 @@ data: {"type":"message_stop"}
 	if err != nil {
 		t.Fatal(err)
 	}
-	streaming, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{Requested: requested}, nil)
+	streaming, err := wire.readStream(
+		io.NopCloser(strings.NewReader(stream)),
+		llm.Result{
+			Requested: requested,
+		},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, result := range map[string]llm.Result{"blocking": blocking, "streaming": streaming} {
+	for name, result := range map[string]llm.Result{
+		"blocking":  blocking,
+		"streaming": streaming,
+	} {
 		t.Run(name, func(t *testing.T) {
 			if result.ServiceTier != "standard" || result.Usage == nil ||
 				result.Usage.InputTokens != 9 || result.Usage.OutputTokens != 2 ||
@@ -47,7 +63,10 @@ data: {"type":"message_stop"}
 					ServiceTier string `json:"service_tier"`
 				} `json:"usage"`
 			}
-			if err := json.Unmarshal(result.Raw, &raw); err != nil || raw.Usage.ServiceTier != "standard" {
+			if err := json.Unmarshal(
+				result.Raw,
+				&raw,
+			); err != nil || raw.Usage.ServiceTier != "standard" {
 				t.Fatalf("raw result lost native service tier: %v, %+v", err, raw)
 			}
 		})

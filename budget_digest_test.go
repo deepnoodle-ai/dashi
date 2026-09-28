@@ -64,13 +64,17 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	def := definition()
 	def.Settings.MaxTokens = 100
 	start := Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
-		Budget: &Budget{
-			MaxCost: &Money{Amount: amount("0.50"), Currency: "USD"},
-		},
+		ID:     "start",
+		Input:  []llm.Message{llm.UserMessage(llm.Text("go"))},
+		Budget: &Budget{MaxCost: &Money{Amount: amount("0.50"), Currency: "USD"}},
 	}
-	out, err := (Engine{}).Apply(t.Context(), Turn{ID: "t1"}, def, start, bindings)
+	out, err := (Engine{}).Apply(
+		t.Context(),
+		Turn{ID: "t1"},
+		def,
+		start,
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}

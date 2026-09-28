@@ -63,10 +63,17 @@ func TestSynthesizeInputValidateRejectsNonfiniteSpeed(t *testing.T) {
 
 func TestTranscriptionValidateRequiresOrderedSegments(t *testing.T) {
 	result := Transcription{
-		Requested: model.ModelRef{Provider: "test", Model: "recognizer"},
-		API:       "transcriptions",
+		Requested: model.ModelRef{
+			Provider: "test",
+			Model:    "recognizer",
+		},
+		API: "transcriptions",
 		Segments: []Segment{
-			{Start: time.Second, End: 2 * time.Second, Text: "first"},
+			{
+				Start: time.Second,
+				End:   2 * time.Second,
+				Text:  "first",
+			},
 			{Start: 0, End: time.Second, Text: "second"},
 		},
 	}

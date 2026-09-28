@@ -121,7 +121,9 @@ func (e Entry) Bind(api, endpoint string) (llm.ModelInfo, error) {
 	if !slices.Contains(e.APIs, api) {
 		return llm.ModelInfo{}, fmt.Errorf(
 			"catalog: %s model %q is not served by API %q",
-			e.Provider, e.Model, api,
+			e.Provider,
+			e.Model,
+			api,
 		)
 	}
 	info := llm.ModelInfo{
@@ -139,7 +141,10 @@ func (e Entry) Bind(api, endpoint string) (llm.ModelInfo, error) {
 	}.Clone()
 	if err := info.Validate(); err != nil {
 		return llm.ModelInfo{}, fmt.Errorf(
-			"catalog: %s model %q: %w", e.Provider, e.Model, err,
+			"catalog: %s model %q: %w",
+			e.Provider,
+			e.Model,
+			err,
 		)
 	}
 	return info, nil
@@ -273,11 +278,20 @@ func parseAll() ([]provider, error) {
 		}
 		p, err := parse(data)
 		if err != nil {
-			return nil, fmt.Errorf("catalog: %s: %w", f.Name(), err)
-		}
-		if want := strings.TrimSuffix(f.Name(), ".json"); p.name != want {
 			return nil, fmt.Errorf(
-				"catalog: %s names provider %q", f.Name(), p.name,
+				"catalog: %s: %w",
+				f.Name(),
+				err,
+			)
+		}
+		if want := strings.TrimSuffix(
+			f.Name(),
+			".json",
+		); p.name != want {
+			return nil, fmt.Errorf(
+				"catalog: %s names provider %q",
+				f.Name(),
+				p.name,
 			)
 		}
 		c = append(c, p)
@@ -334,15 +348,23 @@ func parse(data []byte) (provider, error) {
 			return provider{}, err
 		}
 		if _, dup := p.index[e.Model]; dup {
-			return provider{}, fmt.Errorf("duplicate model %q", e.Model)
+			return provider{}, fmt.Errorf(
+				"duplicate model %q",
+				e.Model,
+			)
 		}
 		for _, api := range e.APIs {
-			d := slices.IndexFunc(f.Destinations, func(d Destination) bool {
-				return d.API == api
-			})
+			d := slices.IndexFunc(
+				f.Destinations,
+				func(d Destination) bool {
+					return d.API == api
+				},
+			)
 			if d < 0 {
 				return provider{}, fmt.Errorf(
-					"model %q names undocumented API %q", e.Model, api,
+					"model %q names undocumented API %q",
+					e.Model,
+					api,
 				)
 			}
 			endpoint := f.Destinations[d].resolve(e.Model)
@@ -356,7 +378,8 @@ func parse(data []byte) (provider, error) {
 	i, ok := p.index[p.defaultModel]
 	if !ok || p.entries[i].Lifecycle == LifecycleDeprecated {
 		return provider{}, fmt.Errorf(
-			"default %q must be a current catalog model", p.defaultModel,
+			"default %q must be a current catalog model",
+			p.defaultModel,
 		)
 	}
 	return p, nil
@@ -370,16 +393,22 @@ func (m entryJSON) entry(providerName, source string) (Entry, error) {
 	case LifecycleCurrent, LifecyclePreview, LifecycleDeprecated:
 	default:
 		return Entry{}, fmt.Errorf(
-			"model %q has unknown lifecycle %q", m.Model, m.Lifecycle,
+			"model %q has unknown lifecycle %q",
+			m.Model,
+			m.Lifecycle,
 		)
 	}
 	if m.Snapshot == m.Model {
-		return Entry{}, fmt.Errorf("model %q names itself as snapshot", m.Model)
+		return Entry{}, fmt.Errorf(
+			"model %q names itself as snapshot",
+			m.Model,
+		)
 	}
 	date, err := time.Parse(time.DateOnly, m.QualifiedAt)
 	if err != nil {
 		return Entry{}, fmt.Errorf(
-			"model %q requires a qualified_at date", m.Model,
+			"model %q requires a qualified_at date",
+			m.Model,
 		)
 	}
 	return Entry{

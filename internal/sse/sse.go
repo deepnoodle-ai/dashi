@@ -25,7 +25,9 @@ type ServerSentEventsReader[T any] struct {
 }
 
 // NewServerSentEventsReader borrows stream and starts before the first event.
-func NewServerSentEventsReader[T any](stream io.ReadCloser) *ServerSentEventsReader[T] {
+func NewServerSentEventsReader[T any](
+	stream io.ReadCloser,
+) *ServerSentEventsReader[T] {
 	return &ServerSentEventsReader[T]{
 		body:   stream,
 		reader: bufio.NewReader(stream),
@@ -34,7 +36,9 @@ func NewServerSentEventsReader[T any](stream io.ReadCloser) *ServerSentEventsRea
 
 // WithSSECallback sets an optional callback that is called for each line of the
 // server-sent events stream.
-func (s *ServerSentEventsReader[T]) WithSSECallback(callback ServerSentEventsCallback) *ServerSentEventsReader[T] {
+func (s *ServerSentEventsReader[T]) WithSSECallback(
+	callback ServerSentEventsCallback,
+) *ServerSentEventsReader[T] {
 	s.sseCallback = callback
 	return s
 }
@@ -64,7 +68,13 @@ func (s *ServerSentEventsReader[T]) Next() (T, bool) {
 				return zero, false
 			}
 		}
-		line = bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r"))
+		line = bytes.TrimSuffix(
+			bytes.TrimSuffix(
+				line,
+				[]byte("\n"),
+			),
+			[]byte("\r"),
+		)
 		if bytes.HasPrefix(line, []byte("data:")) {
 			value := bytes.TrimPrefix(line[5:], []byte(" "))
 			data = append(data, value...)

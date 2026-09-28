@@ -31,10 +31,16 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 				dispatched, _ = io.ReadAll(r.Body)
 				if stream {
 					w.Header().Set("Content-Type", "text/event-stream")
-					io.WriteString(w, "data: "+`{"id":"chat-1","model":"served","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\n")
+					io.WriteString(
+						w,
+						"data: "+`{"id":"chat-1","model":"served","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\n",
+					)
 					io.WriteString(w, "data: [DONE]\n\n")
 				} else {
-					io.WriteString(w, `{"id":"chat-1","model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+					io.WriteString(
+						w,
+						`{"id":"chat-1","model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
+					)
 				}
 			}))
 			defer server.Close()
@@ -74,7 +80,10 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 
 			messages := completionsWireMessages(t, request.Body())
 			if len(messages) != 5 {
-				t.Fatalf("want system, user, assistant, and two tool messages: %+v", messages)
+				t.Fatalf(
+					"want system, user, assistant, and two tool messages: %+v",
+					messages,
+				)
 			}
 			assistant := messages[2]
 			if assistant.Role != "assistant" || len(assistant.ToolCalls) != 2 {
@@ -84,7 +93,11 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 				t.Fatalf("first call ID = %q, want %q", assistant.ToolCalls[0].ID, first)
 			}
 			if assistant.ToolCalls[1].ID != second {
-				t.Fatalf("second call ID = %q, want %q", assistant.ToolCalls[1].ID, second)
+				t.Fatalf(
+					"second call ID = %q, want %q",
+					assistant.ToolCalls[1].ID,
+					second,
+				)
 			}
 			var args map[string]string
 			if err := json.Unmarshal(
@@ -141,7 +154,12 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 			input.Messages[1].Content[0].ToolCall.ID = "mutated"
 			input.Messages[2].Content[1].ToolResult.CallID = "mutated"
 			changes[0].ToID = "mutated"
-			if _, err := client.Send(context.Background(), llm.Call{Request: restored}); err != nil {
+			if _, err := client.Send(
+				context.Background(),
+				llm.Call{
+					Request: restored,
+				},
+			); err != nil {
 				t.Fatal(err)
 			}
 			if attempts.Load() != 1 {
@@ -222,7 +240,12 @@ func completionsMappedID(
 			return change.ToID
 		}
 	}
-	t.Fatalf("missing remap record at message %d content %d: %+v", message, content, changes)
+	t.Fatalf(
+		"missing remap record at message %d content %d: %+v",
+		message,
+		content,
+		changes,
+	)
 	return ""
 }
 

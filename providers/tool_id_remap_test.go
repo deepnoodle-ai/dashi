@@ -27,16 +27,19 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
 				var calls atomic.Int32
 				var sent []byte
-				server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-					calls.Add(1)
-					sent, _ = io.ReadAll(r.Body)
-					if stream {
-						w.Header().Set("Content-Type", "text/event-stream")
-						io.WriteString(w, tc.stream)
-					} else {
-						io.WriteString(w, tc.empty)
-					}
-				})
+				server := serve(
+					t,
+					func(w http.ResponseWriter, r *http.Request) {
+						calls.Add(1)
+						sent, _ = io.ReadAll(r.Body)
+						if stream {
+							w.Header().Set("Content-Type", "text/event-stream")
+							io.WriteString(w, tc.stream)
+						} else {
+							io.WriteString(w, tc.empty)
+						}
+					},
+				)
 				client := tc.new(server.URL)
 				input := remapHistory("tool call: 東京 / 🚀", "valid_ID-9")
 				input.Stream = stream
@@ -87,7 +90,10 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 					t.Fatal("identical preparation changed mapping")
 				}
 				var snapshot llm.RequestSnapshot
-				if err := json.Unmarshal([]byte(mustJSON(request.Snapshot())), &snapshot); err != nil {
+				if err := json.Unmarshal(
+					[]byte(mustJSON(request.Snapshot())),
+					&snapshot,
+				); err != nil {
 					t.Fatal(err)
 				}
 				restored, err := llm.NewRequest(snapshot)
@@ -97,7 +103,10 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 				if !bytes.Equal(restored.Body(), request.Body()) {
 					t.Fatal("snapshot round trip changed body")
 				}
-				if !reflect.DeepEqual(restored.ContentChanges(), request.ContentChanges()) {
+				if !reflect.DeepEqual(
+					restored.ContentChanges(),
+					request.ContentChanges(),
+				) {
 					t.Fatal("snapshot round trip changed mapping")
 				}
 				if mustJSON(restored.Input()) != original {
@@ -105,7 +114,12 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 				}
 				input.Messages[1].Content[0].ToolCall.ID = "mutated"
 				input.Messages[2].Content[0].ToolResult.CallID = "mutated"
-				if _, err := client.Send(context.Background(), llm.Call{Request: restored}); err != nil {
+				if _, err := client.Send(
+					context.Background(),
+					llm.Call{
+						Request: restored,
+					},
+				); err != nil {
 					t.Fatal(err)
 				}
 				if calls.Load() != 1 {
@@ -119,11 +133,19 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 	}
 }
 
-func TestPrepareRemapIsDeterministicAcrossTransportSettingsAndScope(t *testing.T) {
+func TestPrepareRemapIsDeterministicAcrossTransportSettingsAndScope(
+	t *testing.T,
+) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var mapped []string
-			for _, variant := range []string{"base", "stream", "settings", "credential", "endpoint"} {
+			for _, variant := range []string{
+				"base",
+				"stream",
+				"settings",
+				"credential",
+				"endpoint",
+			} {
 				config := clientConfig{
 					endpoint: "https://unused.invalid/api",
 					key:      "key-one",
@@ -146,19 +168,25 @@ func TestPrepareRemapIsDeterministicAcrossTransportSettingsAndScope(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				mapped = append(mapped, assertRemapPair(
-					t,
-					request.ContentChanges(),
-					1,
-					0,
-					2,
-					0,
-					strings.Repeat("x", 65),
-				))
+				mapped = append(
+					mapped,
+					assertRemapPair(
+						t,
+						request.ContentChanges(),
+						1,
+						0,
+						2,
+						0,
+						strings.Repeat("x", 65),
+					),
+				)
 			}
 			for _, id := range mapped[1:] {
 				if id != mapped[0] {
-					t.Fatalf("mapping changed with transport, settings, or scope: %q", mapped)
+					t.Fatalf(
+						"mapping changed with transport, settings, or scope: %q",
+						mapped,
+					)
 				}
 			}
 		})
@@ -174,13 +202,29 @@ func TestPrepareReservesSupportedToolIDsBeforeAllocating(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			candidate := assertRemapPair(t, first.ContentChanges(), 1, 0, 2, 0, original)
+			candidate := assertRemapPair(
+				t,
+				first.ContentChanges(),
+				1,
+				0,
+				2,
+				0,
+				original,
+			)
 			input := remapHistory(original, candidate)
 			request, err := client.Prepare(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			mapped := assertRemapPair(t, request.ContentChanges(), 1, 0, 2, 0, original)
+			mapped := assertRemapPair(
+				t,
+				request.ContentChanges(),
+				1,
+				0,
+				2,
+				0,
+				original,
+			)
 			if mapped == candidate {
 				t.Fatal("generated ID collided with a later supported ID")
 			}
@@ -198,7 +242,12 @@ func TestPrepareReservesSupportedToolIDsBeforeAllocating(t *testing.T) {
 func TestPrepareRemapsParallelCallsWithoutReordering(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			ids := []string{"punctuation !", "東京", "valid-3", strings.Repeat("L", 65)}
+			ids := []string{
+				"punctuation !",
+				"東京",
+				"valid-3",
+				strings.Repeat("L", 65),
+			}
 			input := modelInput()
 			calls := make([]llm.Content, 0, len(ids))
 			results := make([]llm.Content, 0, len(ids))
@@ -211,7 +260,10 @@ func TestPrepareRemapsParallelCallsWithoutReordering(t *testing.T) {
 				llm.AssistantMessage(calls...),
 				llm.UserMessage(results...),
 			)
-			request, err := tc.new("https://unused.invalid/api").Prepare(context.Background(), input)
+			request, err := tc.new("https://unused.invalid/api").Prepare(
+				context.Background(),
+				input,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,10 +279,17 @@ func TestPrepareRemapsParallelCallsWithoutReordering(t *testing.T) {
 				t.Fatalf("parallel call order changed: got=%q want=%q", wireCalls, want)
 			}
 			if !reflect.DeepEqual(wireResults, want) {
-				t.Fatalf("parallel result pairing changed: got=%q want=%q", wireResults, want)
+				t.Fatalf(
+					"parallel result pairing changed: got=%q want=%q",
+					wireResults,
+					want,
+				)
 			}
 			if len(request.ContentChanges()) != 6 {
-				t.Fatalf("unexpected decisions for supported ID: %+v", request.ContentChanges())
+				t.Fatalf(
+					"unexpected decisions for supported ID: %+v",
+					request.ContentChanges(),
+				)
 			}
 		})
 	}
@@ -239,8 +298,13 @@ func TestPrepareRemapsParallelCallsWithoutReordering(t *testing.T) {
 func TestPrepareRejectsInvalidToolHistoryEvenWithRemapping(t *testing.T) {
 	for _, tc := range cases(t) {
 		for _, variant := range []string{
-			"empty-call", "empty-result", "duplicate-call", "duplicate-result",
-			"orphan", "unresolved", "result-before-call",
+			"empty-call",
+			"empty-result",
+			"duplicate-call",
+			"duplicate-result",
+			"orphan",
+			"unresolved",
+			"result-before-call",
 		} {
 			t.Run(tc.name+"/"+variant, func(t *testing.T) {
 				call := llm.AssistantMessage(remapCall("invalid id"))
@@ -327,7 +391,9 @@ func TestPrepareRemapKeepsOriginalIndicesAfterReasoningOmission(t *testing.T) {
 	}
 }
 
-func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(t *testing.T) {
+func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(
+	t *testing.T,
+) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := tc.new("https://unused.invalid/api")
@@ -339,7 +405,15 @@ func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			mapped := assertRemapPair(t, request.ContentChanges(), 1, 0, 2, 0, "replay / id")
+			mapped := assertRemapPair(
+				t,
+				request.ContentChanges(),
+				1,
+				0,
+				2,
+				0,
+				"replay / id",
+			)
 			if tc.name == "openai" {
 				if !bytes.Contains(request.Body(), []byte(`"id":"independent-item"`)) {
 					t.Fatal("Responses item ID was changed with call_id")
@@ -352,7 +426,12 @@ func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(t *test
 			if !reflect.DeepEqual(results, []string{mapped}) {
 				t.Fatalf("result did not use mapped call ID: %q", results)
 			}
-			call.Replay = remapCallReplay(tc.name, origin, "replay / id", "replay / id")
+			call.Replay = remapCallReplay(
+				tc.name,
+				origin,
+				"replay / id",
+				"replay / id",
+			)
 			if _, err := client.Prepare(context.Background(), input); err == nil {
 				t.Fatal("remap silently retained unknown private dependency on old ID")
 			}
@@ -390,7 +469,15 @@ func TestPrepareRemapLeavesCompatibleUnknownOpaqueContentOpaque(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			mapped := assertRemapPair(t, request.ContentChanges(), 1, 1, 2, 0, original)
+			mapped := assertRemapPair(
+				t,
+				request.ContentChanges(),
+				1,
+				1,
+				2,
+				0,
+				original,
+			)
 			if len(request.ContentChanges()) != 2 {
 				t.Fatalf(
 					"unknown opaque content was treated as a tool call: %+v",
@@ -477,7 +564,12 @@ func assertRemapPair(
 			mapped = change.ToID
 		}
 		if found != 1 {
-			t.Fatalf("want one remap decision at %v, got %d: %+v", position, found, changes)
+			t.Fatalf(
+				"want one remap decision at %v, got %d: %+v",
+				position,
+				found,
+				changes,
+			)
 		}
 	}
 	return mapped
@@ -516,7 +608,11 @@ func wireToolIDs(t *testing.T, body []byte) (calls, results []string) {
 	return calls, results
 }
 
-func remapCallReplay(name string, origin content.Origin, id, private string) *llm.Opaque {
+func remapCallReplay(
+	name string,
+	origin content.Origin,
+	id, private string,
+) *llm.Opaque {
 	privateField := ""
 	if private != "" {
 		privateField = fmt.Sprintf(`,"related_call_id":%q`, private)

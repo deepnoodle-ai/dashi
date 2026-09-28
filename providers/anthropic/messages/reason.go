@@ -14,7 +14,9 @@ import (
 // "messages.0.content.1.image.source.base64.data: At least one of the image
 // dimensions exceed max allowed size: 8000 pixels".
 func errorReason(r providerhttp.Rejection) llm.ErrorReason {
-	if r.Type != "" && r.Type != "invalid_request_error" && r.Type != "request_too_large" {
+	if r.Type != "" &&
+		r.Type != "invalid_request_error" &&
+		r.Type != "request_too_large" {
 		return ""
 	}
 	if r.Status != 0 && (r.Status < 400 || r.Status >= 500 || r.Status == 429) {
@@ -25,13 +27,15 @@ func errorReason(r providerhttp.Rejection) llm.ErrorReason {
 		return llm.ReasonContextWindowExceeded
 	case providerhttp.ContainsAny(r.Message, ".image.source", ".document.source"):
 		return llm.ReasonMediaRejected
-	case r.HasMedia && providerhttp.ContainsAny(r.Message,
+	case r.HasMedia && providerhttp.ContainsAny(
+		r.Message,
 		"could not process image",
 		"image exceeds",
 		"image dimensions exceed",
 		"too many images",
 		"pdf specified was not valid",
-		"pdf pages"):
+		"pdf pages",
+	):
 		return llm.ReasonMediaRejected
 	}
 	return ""

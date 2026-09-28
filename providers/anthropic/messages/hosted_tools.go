@@ -209,7 +209,8 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 	spec := d.Hosted
 	if spec.Provider != wire.origin.Provider || spec.API != API {
 		return nil, wire.unsupported(
-			"hosted tool %q requires its own destination", d.Name,
+			"hosted tool %q requires its own destination",
+			d.Name,
 		)
 	}
 	config := map[string]any{

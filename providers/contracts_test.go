@@ -25,15 +25,22 @@ type clientConfig struct {
 }
 
 func TestCustomEndpointRequiresIdentity(t *testing.T) {
-	if _, err := responses.New(responses.Config{Endpoint: "https://example.com/responses"}); err == nil {
+	if _, err := responses.New(responses.Config{
+		Endpoint: "https://example.com/responses",
+	}); err == nil {
 		t.Fatal("Responses accepted custom endpoint without identity")
 	}
-	if _, err := messages.New(messages.Config{Endpoint: "https://example.com/messages"}); err == nil {
+	if _, err := messages.New(messages.Config{
+		Endpoint: "https://example.com/messages",
+	}); err == nil {
 		t.Fatal("Messages accepted custom endpoint without identity")
 	}
 	openai := newResponses(t, responses.Config{APIKey: "test"})
 	anthropic := newMessages(t, messages.Config{APIKey: "test"})
-	if openai.Provider() != "openai" || openai.API() != responses.API || anthropic.Provider() != "anthropic" || anthropic.API() != messages.API {
+	if openai.Provider() != "openai" ||
+		openai.API() != responses.API ||
+		anthropic.Provider() != "anthropic" ||
+		anthropic.API() != messages.API {
 		t.Fatal("default service identity was conflated with API format")
 	}
 }
@@ -54,19 +61,25 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 				stream, observe := mode.stream, mode.observe
 				var sent []byte
 				var accept string
-				server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-					sent, _ = io.ReadAll(r.Body)
-					accept = r.Header.Get("Accept")
-					if stream {
-						io.WriteString(w, tc.stream)
-					} else {
-						io.WriteString(w, tc.complete)
-					}
-				})
+				server := serve(
+					t,
+					func(w http.ResponseWriter, r *http.Request) {
+						sent, _ = io.ReadAll(r.Body)
+						accept = r.Header.Get("Accept")
+						if stream {
+							io.WriteString(w, tc.stream)
+						} else {
+							io.WriteString(w, tc.complete)
+						}
+					},
+				)
 				p := tc.new(server.URL)
 				prep := preparedRequest(t, p, stream)
 				var wire struct{ Stream bool }
-				if err := json.Unmarshal(prep.Body(), &wire); err != nil || wire.Stream != stream {
+				if err := json.Unmarshal(
+					prep.Body(),
+					&wire,
+				); err != nil || wire.Stream != stream {
 					t.Fatal("preparation did not pin stream mode", err)
 				}
 				body := prep.Body()
@@ -81,7 +94,13 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 						seen++
 					}
 				}
-				result, err := p.Send(context.Background(), llm.Call{Request: prep, Sink: sink})
+				result, err := p.Send(
+					context.Background(),
+					llm.Call{
+						Request: prep,
+						Sink:    sink,
+					},
+				)
 				if err != nil || result.Message.Text() == "" {
 					t.Fatal("collection depended on observation", err)
 				}
@@ -97,16 +116,28 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 }
 
 func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
-	p := newMessages(t, messages.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	p := newMessages(
+		t,
+		messages.Config{
+			APIKey:           "test",
+			CapabilityPolicy: llm.CapabilityAdjust,
+		},
+	)
 	r := modelInput()
 	prep, err := p.Prepare(context.Background(), r)
 	if err != nil {
 		t.Fatalf("prepare request with omitted settings: %v", err)
 	}
-	if r.Settings.MaxTokens != 0 || prep.Input().Settings.MaxTokens != 0 || prep.Effective().MaxTokens != 1024 || len(prep.Adjustments()) != 1 {
+	if r.Settings.MaxTokens != 0 ||
+		prep.Input().Settings.MaxTokens != 0 ||
+		prep.Effective().MaxTokens != 1024 ||
+		len(prep.Adjustments()) != 1 {
 		t.Fatal("preparation lost original omission or effective default")
 	}
-	if prep.Snapshot().ModelInfo != nil || !slices.Contains(prep.Snapshot().Unverified, llm.FeatureText) {
+	if prep.Snapshot().ModelInfo != nil || !slices.Contains(
+		prep.Snapshot().Unverified,
+		llm.FeatureText,
+	) {
 		t.Fatal("unknown model knowledge was presented as verified")
 	}
 	encoded, err := json.Marshal(prep.Snapshot())
@@ -118,7 +149,10 @@ func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
 		t.Fatalf("decode preparation evidence: %v", err)
 	}
 	restored, err := llm.NewRequest(record)
-	if err != nil || !bytes.Equal(restored.Body(), prep.Body()) || restored.Origin() != prep.Origin() {
+	if err != nil || !bytes.Equal(
+		restored.Body(),
+		prep.Body(),
+	) || restored.Origin() != prep.Origin() {
 		t.Fatal("preparation evidence could not round trip", err)
 	}
 }
@@ -127,13 +161,20 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-			})
-			p := configured(t, tc, clientConfig{
-				endpoint: server.URL,
-				policy:   llm.CapabilityStrict,
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+				},
+			)
+			p := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					policy:   llm.CapabilityStrict,
+				},
+			)
 			if _, known := p.ModelInfo("requested"); known {
 				t.Fatal("unknown model reported as known")
 			}
@@ -142,36 +183,72 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			}
 			info := textModel(tc, server.URL)
 			catalog := map[string]llm.ModelInfo{"requested": info}
-			strict := configured(t, tc, clientConfig{
-				endpoint: server.URL,
-				models:   catalog,
-				policy:   llm.CapabilityStrict,
-			})
-			if _, err := strict.Prepare(context.Background(), modelInput()); err != nil {
+			strict := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+					policy:   llm.CapabilityStrict,
+				},
+			)
+			if _, err := strict.Prepare(
+				context.Background(),
+				modelInput(),
+			); err != nil {
 				t.Fatal("known supported model rejected", err)
 			}
 			r := modelInput()
 			temperature := 0.5
 			r.Settings.Temperature = &temperature
-			if _, err := strict.Prepare(context.Background(), r); err == nil || !strings.Contains(err.Error(), "temperature") {
+			if _, err := strict.Prepare(
+				context.Background(),
+				r,
+			); err == nil || !strings.Contains(
+				err.Error(),
+				"temperature",
+			) {
 				t.Fatal("unknown setting support accepted", err)
 			}
-			allow := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			allow := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+				},
+			)
 			prep, err := allow.Prepare(context.Background(), r)
-			if err != nil || !slices.Equal(prep.Snapshot().Unverified, []llm.Feature{llm.FeatureTemperature}) {
+			if err != nil || !slices.Equal(
+				prep.Snapshot().Unverified,
+				[]llm.Feature{
+					llm.FeatureTemperature,
+				},
+			) {
 				t.Fatal("passthrough did not record unverified setting", err)
 			}
 			info.Capabilities.Features[llm.FeatureTemperature] = llm.SupportUnsupported
 			catalog["requested"] = info
-			deny := configured(t, tc, clientConfig{
-				endpoint: server.URL,
-				models:   catalog,
-				policy:   llm.CapabilityStrict,
-			})
+			deny := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+					policy:   llm.CapabilityStrict,
+				},
+			)
 			if _, err := deny.Prepare(context.Background(), r); err == nil {
 				t.Fatal("strict policy overrode known unsupported setting")
 			}
-			omit := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			omit := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+				},
+			)
 			prep, err = omit.Prepare(context.Background(), r)
 			if err != nil {
 				t.Fatal("known unsupported temperature was not omitted", err)
@@ -179,27 +256,46 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			if prep.Effective().Temperature != nil {
 				t.Fatal("omitted temperature was still encoded")
 			}
-			wantOmit := []llm.Warning{{
-				Code:    llm.WarningSettingOmitted,
-				Field:   llm.SettingTemperature,
-				Message: "temperature is not accepted here; the model default applies",
-			}}
+			wantOmit := []llm.Warning{
+				{
+					Code:    llm.WarningSettingOmitted,
+					Field:   llm.SettingTemperature,
+					Message: "temperature is not accepted here; the model default applies",
+				},
+			}
 			if !slices.Equal(prep.Warnings(), wantOmit) {
 				t.Fatalf("omission warnings = %+v", prep.Warnings())
 			}
 			info.Capabilities.Features[llm.FeatureTemperature] = llm.SupportSupported
 			info.Capabilities.MaxOutputTokens = 100
 			catalog["requested"] = info
-			limited := configured(t, tc, clientConfig{
-				endpoint: server.URL,
-				models:   catalog,
-				policy:   llm.CapabilityStrict,
-			})
+			limited := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+					policy:   llm.CapabilityStrict,
+				},
+			)
 			r.Settings.MaxTokens = 101
-			if _, err := limited.Prepare(context.Background(), r); err == nil || !strings.Contains(err.Error(), "max_tokens") {
+			if _, err := limited.Prepare(
+				context.Background(),
+				r,
+			); err == nil || !strings.Contains(
+				err.Error(),
+				"max_tokens",
+			) {
 				t.Fatal("known output limit ignored", err)
 			}
-			clamp := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			clamp := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: server.URL,
+					models:   catalog,
+				},
+			)
 			prep, err = clamp.Prepare(context.Background(), r)
 			if err != nil {
 				t.Fatal("output limit was not clamped", err)
@@ -226,16 +322,25 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 				Currency:  "USD",
 				UpdatedAt: "2026-09-27",
 				Base:      llm.Rates{Input: 2},
-				Tiers: []llm.PriceTier{{
-					MinInputTokens: 100,
-					Rates:          llm.Rates{Input: 4},
-				}},
+				Tiers: []llm.PriceTier{
+					{
+						MinInputTokens: 100,
+						Rates:          llm.Rates{Input: 4},
+					},
+				},
 				Modality: map[string]llm.Rates{
 					"audio": {Input: 3},
 				},
 			}
 			catalog := map[string]llm.ModelInfo{"requested": info}
-			p := configured(t, tc, clientConfig{endpoint: "https://example.com/api", models: catalog})
+			p := configured(
+				t,
+				tc,
+				clientConfig{
+					endpoint: "https://example.com/api",
+					models:   catalog,
+				},
+			)
 			info.Capabilities.Features[llm.FeatureText] = llm.SupportUnsupported
 			info.Pricing.Modality["audio"] = llm.Rates{Input: 100}
 			info.Pricing.Tiers[0].Rates.Input = 100
@@ -264,7 +369,9 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 	}
 }
 
-func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported(t *testing.T) {
+func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported(
+	t *testing.T,
+) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			response := tc.complete
@@ -276,61 +383,90 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 					`{"type":"future_item","private":"retained"}]}`
 			}
 			var calls atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-				io.WriteString(w, response)
-			})
-			base := clientConfig{id: "shared-name", endpoint: server.URL, key: "credential-one"}
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					io.WriteString(w, response)
+				},
+			)
+			base := clientConfig{
+				id:       "shared-name",
+				endpoint: server.URL,
+				key:      "credential-one",
+			}
 			p := configured(t, tc, base)
 			prep := preparedRequest(t, p)
 			result, err := p.Send(context.Background(), llm.Call{Request: prep})
 			if err != nil {
 				t.Fatalf("collect response for replay checks: %v", err)
 			}
-			if result.Requested != (llm.ModelRef{Provider: base.id, Model: "requested"}) || result.Served.Provider != base.id {
+			if result.Requested != (llm.ModelRef{
+				Provider: base.id,
+				Model:    "requested",
+			}) || result.Served.Provider != base.id {
 				t.Fatal("result lost configured provider identity")
 			}
-			for _, variant := range []string{"same", "identity", "endpoint", "credential", "model"} {
-				t.Run(variant, func(t *testing.T) {
-					config := base
-					model := "requested"
-					switch variant {
-					case "identity":
-						config.id = "other"
-					case "endpoint":
-						config.endpoint += "/other"
-					case "credential":
-						config.key = "credential-two"
-					case "model":
-						model = "other"
-					}
-					other := configured(t, tc, config)
-					for _, part := range result.Message.Content {
-						r := modelInput()
-						r.Model = model
-						r.Messages = append(r.Messages, llm.AssistantMessage(part))
-						r.Messages = append(r.Messages, toolReplies(llm.AssistantMessage(part))...)
-						_, err := other.Prepare(context.Background(), r)
-						if (err == nil) != (variant == "same" || part.ToolCall != nil) {
-							t.Fatalf("%s replay: %v", part.Kind, err)
+			for _, variant := range []string{
+				"same",
+				"identity",
+				"endpoint",
+				"credential",
+				"model",
+			} {
+				t.Run(
+					variant,
+					func(t *testing.T) {
+						config := base
+						model := "requested"
+						switch variant {
+						case "identity":
+							config.id = "other"
+						case "endpoint":
+							config.endpoint += "/other"
+						case "credential":
+							config.key = "credential-two"
+						case "model":
+							model = "other"
 						}
-						// Citations must also carry origin when separated from their
-						// enclosing provider data by an application projection.
-						if part.Block != nil && part.Block.Text != nil && len(part.Block.Text.Citations) > 0 {
-							part.Replay = nil
-							r.Messages[len(r.Messages)-1] = llm.AssistantMessage(part)
+						other := configured(t, tc, config)
+						for _, part := range result.Message.Content {
+							r := modelInput()
+							r.Model = model
+							r.Messages = append(r.Messages, llm.AssistantMessage(part))
+							r.Messages = append(
+								r.Messages,
+								toolReplies(llm.AssistantMessage(part))...,
+							)
 							_, err := other.Prepare(context.Background(), r)
-							if (err == nil) != (variant == "same") {
-								t.Fatal("citation replay bypassed origin", err)
+							if (err == nil) != (variant == "same" || part.ToolCall != nil) {
+								t.Fatalf("%s replay: %v", part.Kind, err)
+							}
+							// Citations must also carry origin when separated from their
+							// enclosing provider data by an application projection.
+							if part.Block != nil &&
+								part.Block.Text != nil &&
+								len(part.Block.Text.Citations) > 0 {
+								part.Replay = nil
+								r.Messages[len(r.Messages)-1] = llm.AssistantMessage(part)
+								_, err := other.Prepare(context.Background(), r)
+								if (err == nil) != (variant == "same") {
+									t.Fatal("citation replay bypassed origin", err)
+								}
 							}
 						}
-					}
-					if variant != "same" && variant != "model" {
-						if _, err := other.Send(context.Background(), llm.Call{Request: prep}); err == nil {
-							t.Fatal("prepared request crossed destination boundary")
+						if variant != "same" && variant != "model" {
+							if _, err := other.Send(
+								context.Background(),
+								llm.Call{
+									Request: prep,
+								},
+							); err == nil {
+								t.Fatal("prepared request crossed destination boundary")
+							}
 						}
-					}
-				})
+					},
+				)
 			}
 			if calls.Load() != 1 {
 				t.Fatal("mismatched destination sent a request")
@@ -346,18 +482,29 @@ func TestSendDoesNotFollowRedirects(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-				if r.URL.Path == "/second" {
-					io.WriteString(w, tc.complete)
-					return
-				}
-				http.Redirect(w, r, "/second", http.StatusTemporaryRedirect)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					if r.URL.Path == "/second" {
+						io.WriteString(w, tc.complete)
+						return
+					}
+					http.Redirect(w, r, "/second", http.StatusTemporaryRedirect)
+				},
+			)
 			p := tc.new(server.URL)
-			_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+			_, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: preparedRequest(t, p),
+				},
+			)
 			var failure *llm.Error
-			if !errors.As(err, &failure) || failure.Status != 307 || failure.Retryable || calls.Load() != 1 {
+			if !errors.As(
+				err,
+				&failure,
+			) || failure.Status != 307 || failure.Retryable || calls.Load() != 1 {
 				t.Fatal("redirect hid a second dispatch", err, calls.Load())
 			}
 		})
@@ -375,7 +522,12 @@ func TestRequestAndReplayRejectOtherAPI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("construct prepared request for API mismatch check: %v", err)
 			}
-			if _, err := p.Send(context.Background(), llm.Call{Request: foreign}); err == nil {
+			if _, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: foreign,
+				},
+			); err == nil {
 				t.Fatal("prepared request crossed API boundary")
 			}
 			for _, part := range result.Message.Content {
@@ -387,7 +539,10 @@ func TestRequestAndReplayRejectOtherAPI(t *testing.T) {
 				}
 				r := modelInput()
 				r.Messages = append(r.Messages, llm.AssistantMessage(part))
-				r.Messages = append(r.Messages, toolReplies(llm.AssistantMessage(part))...)
+				r.Messages = append(
+					r.Messages,
+					toolReplies(llm.AssistantMessage(part))...,
+				)
 				if _, err := p.Prepare(context.Background(), r); err == nil {
 					t.Fatal("private replay crossed API boundary")
 				}
@@ -401,16 +556,33 @@ func TestRetryHintsPreserveRateLimitAndQuotaMeaning(t *testing.T) {
 		for _, code := range []string{"slow_down", "insufficient_quota"} {
 			t.Run(tc.name+"/"+code, func(t *testing.T) {
 				var calls atomic.Int32
-				server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-					calls.Add(1)
-					w.Header().Set("Retry-After", "7")
-					w.WriteHeader(429)
-					_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code}})
-				})
+				server := serve(
+					t,
+					func(w http.ResponseWriter, r *http.Request) {
+						calls.Add(1)
+						w.Header().Set("Retry-After", "7")
+						w.WriteHeader(429)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"error": map[string]string{"code": code},
+						})
+					},
+				)
 				p := tc.new(server.URL)
-				_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+				_, err := p.Send(
+					context.Background(),
+					llm.Call{
+						Request: preparedRequest(t, p),
+					},
+				)
 				var failure *llm.Error
-				if !errors.As(err, &failure) || failure.Code != code || failure.RetryAfter != 7*time.Second || failure.Retryable != (code == "slow_down") || calls.Load() != 1 {
+				if !errors.As(
+					err,
+					&failure,
+				) ||
+					failure.Code != code ||
+					failure.RetryAfter != 7*time.Second ||
+					failure.Retryable != (code == "slow_down") ||
+					calls.Load() != 1 {
 					t.Fatal("retry hint lost provider meaning or triggered retry", err)
 				}
 			})
@@ -427,9 +599,27 @@ func configured(t *testing.T, tc providerCase, c clientConfig) llm.Client {
 		c.key = "test"
 	}
 	if tc.name == "anthropic" {
-		return newMessages(t, messages.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, CapabilityPolicy: c.policy})
+		return newMessages(
+			t,
+			messages.Config{
+				Provider:         c.id,
+				Endpoint:         c.endpoint,
+				APIKey:           c.key,
+				Models:           c.models,
+				CapabilityPolicy: c.policy,
+			},
+		)
 	}
-	return newResponses(t, responses.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, CapabilityPolicy: c.policy})
+	return newResponses(
+		t,
+		responses.Config{
+			Provider:         c.id,
+			Endpoint:         c.endpoint,
+			APIKey:           c.key,
+			Models:           c.models,
+			CapabilityPolicy: c.policy,
+		},
+	)
 }
 
 func textModel(tc providerCase, endpoint string) llm.ModelInfo {
@@ -438,11 +628,20 @@ func textModel(tc providerCase, endpoint string) llm.ModelInfo {
 		api = messages.API
 	}
 	return llm.ModelInfo{
-		Evidence: llm.ModelEvidence{Model: "requested", API: api, Endpoint: endpoint,
-			Owner: "Kernel tests", Source: "test evidence", Method: llm.EvidenceFixture,
-			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)},
-		Capabilities: llm.Capabilities{Features: map[llm.Feature]llm.Support{
-			llm.FeatureText: llm.SupportSupported, llm.FeatureMaxTokens: llm.SupportSupported,
-		}},
+		Evidence: llm.ModelEvidence{
+			Model:       "requested",
+			API:         api,
+			Endpoint:    endpoint,
+			Owner:       "Kernel tests",
+			Source:      "test evidence",
+			Method:      llm.EvidenceFixture,
+			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
+		},
+		Capabilities: llm.Capabilities{
+			Features: map[llm.Feature]llm.Support{
+				llm.FeatureText:      llm.SupportSupported,
+				llm.FeatureMaxTokens: llm.SupportSupported,
+			},
+		},
 	}
 }

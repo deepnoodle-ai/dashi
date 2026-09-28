@@ -25,12 +25,19 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(), Turn{ID: "legacy"}, legacy, start,
+		context.Background(),
+		Turn{ID: "legacy"},
+		legacy,
+		start,
 		Bindings{Client: client, Recorder: rec, Pause: pause},
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted || client.sends != 0 {
-		t.Fatalf("legacy start: stop=%+v err=%v sends=%d",
-			first.Stop, err, client.sends)
+		t.Fatalf(
+			"legacy start: stop=%+v err=%v sends=%d",
+			first.Stop,
+			err,
+			client.sends,
+		)
 	}
 	raw, err := json.Marshal(first.Turn)
 	if err != nil {
@@ -46,25 +53,42 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 	changed := current
 	changed.Limits.Interruptions++
 	if _, err := (Engine{}).Apply(
-		context.Background(), saved, changed, Continue{ID: "wrong-limit"},
+		context.Background(),
+		saved,
+		changed,
+		Continue{ID: "wrong-limit"},
 		Bindings{Client: client, Recorder: rec},
 	); !errors.Is(err, ErrDefinitionChanged) {
 		t.Fatalf("changed limit passed definition check: %v", err)
 	}
 	done, err := (Engine{}).Apply(
-		context.Background(), saved, current, Continue{ID: "resume"},
+		context.Background(),
+		saved,
+		current,
+		Continue{ID: "resume"},
 		Bindings{Client: client, Recorder: rec},
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
-		t.Fatalf("legacy continuation: stop=%+v err=%v sends=%d",
-			done.Stop, err, client.sends)
+		t.Fatalf(
+			"legacy continuation: stop=%+v err=%v sends=%d",
+			done.Stop,
+			err,
+			client.sends,
+		)
 	}
 	duplicate, err := (Engine{}).Apply(
-		context.Background(), saved, current, start,
+		context.Background(),
+		saved,
+		current,
+		start,
 		Bindings{Client: client, Recorder: rec},
 	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || client.sends != 1 {
-		t.Fatalf("legacy duplicate: stop=%+v err=%v sends=%d",
-			duplicate.Stop, err, client.sends)
+		t.Fatalf(
+			"legacy duplicate: stop=%+v err=%v sends=%d",
+			duplicate.Stop,
+			err,
+			client.sends,
+		)
 	}
 }

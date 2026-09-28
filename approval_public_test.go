@@ -22,24 +22,45 @@ var shownArgs = json.RawMessage(`{"b": 1e2, "a": "café"}`)
 
 type approvalClient struct{ sends int }
 
-func (*approvalClient) Provider() string                       { return "test" }
-func (*approvalClient) API() string                            { return "test.chat" }
-func (*approvalClient) ModelInfo(string) (llm.ModelInfo, bool) { return llm.ModelInfo{}, false }
-func (*approvalClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
+func (*approvalClient) Provider() string {
+	return "test"
+}
+
+func (*approvalClient) API() string {
+	return "test.chat"
+}
+
+func (*approvalClient) ModelInfo(string) (llm.ModelInfo, bool) {
+	return llm.ModelInfo{}, false
+}
+
+func (*approvalClient) Prepare(
+	_ context.Context,
+	in llm.Input,
+) (llm.Request, error) {
 	return llm.NewRequest(llm.RequestSnapshot{
-		Origin:    content.Origin{Provider: "test", API: "test.chat", Model: in.Model, Scope: "fixture"},
+		Origin: content.Origin{
+			Provider: "test",
+			API:      "test.chat",
+			Model:    in.Model,
+			Scope:    "fixture",
+		},
 		Input:     in,
 		Effective: in.Settings,
 		Body:      []byte(`{}`),
 	})
 }
+
 func (c *approvalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	c.sends++
 	requested := llm.ModelRef{Provider: "test", Model: "fixture"}
 	if c.sends == 1 {
 		call := tool.Call{ID: "call-1", Name: "write", Args: shownArgs}
 		return llm.Result{
-			Message:   llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}),
+			Message: llm.AssistantMessage(llm.Content{
+				Kind:     llm.ContentToolCall,
+				ToolCall: &call,
+			}),
 			Stop:      llm.Stop{Kind: llm.StopToolUse},
 			Requested: requested,
 		}, nil
@@ -54,8 +75,15 @@ func (c *approvalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 // approvalPolicy defers every tool call to a person.
 type approvalPolicy struct{ kernel.AllowLocalPolicy }
 
-func (approvalPolicy) AuthorizeTool(context.Context, tool.Call, kernel.TurnView) (kernel.ToolDecision, error) {
-	return kernel.ToolDecision{Kind: kernel.DecisionDefer, Revision: "policy-v1"}, nil
+func (approvalPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	kernel.TurnView,
+) (kernel.ToolDecision, error) {
+	return kernel.ToolDecision{
+		Kind:     kernel.DecisionDefer,
+		Revision: "policy-v1",
+	}, nil
 }
 
 // jsonbStore wraps MemoryRecorder; Load returns each step re-encoded with
@@ -94,25 +122,51 @@ func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
 	return turn, nil
 }
 
-func pendingApproval(t *testing.T) (kernel.Turn, kernel.Definition, kernel.Bindings, *approvalClient, *int) {
+func pendingApproval(
+	t *testing.T,
+) (kernel.Turn, kernel.Definition, kernel.Bindings, *approvalClient, *int) {
 	t.Helper()
 	def := kernel.Definition{
-		ID: "agent", Revision: "r1", Provider: "test", API: "test.chat", Model: "fixture",
-		Limits: kernel.Limits{ModelAttempts: 3, ToolConcurrency: 1},
+		ID:       "agent",
+		Revision: "r1",
+		Provider: "test",
+		API:      "test.chat",
+		Model:    "fixture",
+		Limits:   kernel.Limits{ModelAttempts: 3, ToolConcurrency: 1},
 	}
 	runs := new(int)
 	write := tool.Tool{
-		Definition: tool.Definition{Name: "write", Schema: json.RawMessage(`{"type":"object"}`), Kind: tool.KindLocal},
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: json.RawMessage(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
 		Executor: toolFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			*runs++
-			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: new(tool.TextOutput("ok")),
+			}, nil
 		}),
 	}
 	client := &approvalClient{}
 	store := jsonbStore{kernel.NewMemoryRecorder()}
-	bindings := kernel.Bindings{Client: client, Tools: tools{write}, Recorder: store, Policy: approvalPolicy{}}
-	out, err := (kernel.Engine{}).Apply(t.Context(), kernel.Turn{ID: "t1"}, def,
-		kernel.Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("write it"))}}, bindings)
+	bindings := kernel.Bindings{
+		Client:   client,
+		Tools:    tools{write},
+		Recorder: store,
+		Policy:   approvalPolicy{},
+	}
+	out, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		kernel.Turn{ID: "t1"},
+		def,
+		kernel.Start{
+			ID:    "start",
+			Input: []llm.Message{llm.UserMessage(llm.Text("write it"))},
+		},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != kernel.StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
@@ -144,16 +198,37 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	if pending.ArgsDigest != kernel.ArgsDigest(shownArgs) {
 		t.Fatal("view digest differs from the digest of the arguments first shown")
 	}
-	approval := kernel.ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: pending.ArgsDigest, PolicyRevision: pending.Decision.Revision}
-	accepted, err := (kernel.Engine{}).Apply(t.Context(), turn, def, kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval}, bindings)
+	approval := kernel.ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     pending.ArgsDigest,
+		PolicyRevision: pending.Decision.Revision,
+	}
+	accepted, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		turn,
+		def,
+		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
+		bindings,
+	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
 	}
 	view, err = kernel.Replay(accepted.Turn)
 	if err != nil || view.Tools["call-1"].ArgsDigest != "" {
-		t.Fatalf("answered call keeps its approval digest: %+v err=%v", view.Tools["call-1"], err)
+		t.Fatalf(
+			"answered call keeps its approval digest: %+v err=%v",
+			view.Tools["call-1"],
+			err,
+		)
 	}
-	done, err := (kernel.Engine{}).Apply(t.Context(), accepted.Turn, def, kernel.Continue{ID: "continue"}, bindings)
+	done, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		accepted.Turn,
+		def,
+		kernel.Continue{ID: "continue"},
+		bindings,
+	)
 	if err != nil || done.Stop.Kind != kernel.StopCompleted || *runs != 1 {
 		t.Fatalf("continue=%+v err=%v runs=%d", done.Stop, err, *runs)
 	}
@@ -162,8 +237,19 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 func TestApprovalDigestFromShownArguments(t *testing.T) {
 	turn, def, bindings, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
-	approval := kernel.ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: kernel.ArgsDigest(shownArgs), PolicyRevision: "policy-v1"}
-	accepted, err := (kernel.Engine{}).Apply(t.Context(), turn, def, kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval}, bindings)
+	approval := kernel.ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     kernel.ArgsDigest(shownArgs),
+		PolicyRevision: "policy-v1",
+	}
+	accepted, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		turn,
+		def,
+		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
+		bindings,
+	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
 	}
@@ -172,9 +258,23 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	turn, def, bindings, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
-	approval := kernel.ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: kernel.ArgsDigest(changed), PolicyRevision: "policy-v1"}
-	_, err := (kernel.Engine{}).Apply(t.Context(), turn, def, kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval}, bindings)
-	if err == nil || !strings.Contains(err.Error(), "stale tool approval") || *runs != 0 {
+	approval := kernel.ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     kernel.ArgsDigest(changed),
+		PolicyRevision: "policy-v1",
+	}
+	_, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		turn,
+		def,
+		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
+		bindings,
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"stale tool approval",
+	) || *runs != 0 {
 		t.Fatalf("approval of different arguments: err=%v runs=%d", err, *runs)
 	}
 }
@@ -183,7 +283,13 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 // longer carries an approval digest.
 func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
 	turn, def, bindings, _, runs := pendingApproval(t)
-	canceled, err := (kernel.Engine{}).Apply(t.Context(), turn, def, kernel.Cancel{ID: "cancel", Reason: "user left"}, bindings)
+	canceled, err := (kernel.Engine{}).Apply(
+		t.Context(),
+		turn,
+		def,
+		kernel.Cancel{ID: "cancel", Reason: "user left"},
+		bindings,
+	)
 	if err != nil || canceled.Stop.Kind != kernel.StopCanceled {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
@@ -199,8 +305,15 @@ func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
 
 type tools []tool.Tool
 
-func (ts tools) Tools(context.Context) ([]tool.Tool, error) { return ts, nil }
+func (ts tools) Tools(context.Context) ([]tool.Tool, error) {
+	return ts, nil
+}
 
 type toolFunc func(context.Context, tool.Call) (tool.Outcome, error)
 
-func (f toolFunc) Execute(ctx context.Context, c tool.Call) (tool.Outcome, error) { return f(ctx, c) }
+func (f toolFunc) Execute(
+	ctx context.Context,
+	c tool.Call,
+) (tool.Outcome, error) {
+	return f(ctx, c)
+}

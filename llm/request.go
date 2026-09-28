@@ -74,7 +74,8 @@ func (p *RequestSnapshot) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	policy, err := policyrecord.Decode(
-		raw.CapabilityPolicy, raw.UnknownCapabilities,
+		raw.CapabilityPolicy,
+		raw.UnknownCapabilities,
 	)
 	if err != nil {
 		return fmt.Errorf("llm: %w", err)
@@ -108,17 +109,26 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 		return Request{}, err
 	}
 	if p.Origin.Model != p.Input.Model || !json.Valid(p.Body) {
-		return Request{}, errors.New("llm: preparation requires matching model and valid body")
+		return Request{}, errors.New(
+			"llm: preparation requires matching model and valid body",
+		)
 	}
 	if p.ModelInfo != nil {
 		if err := p.ModelInfo.Validate(); err != nil {
 			return Request{}, err
 		}
-		if e := p.ModelInfo.Evidence; e.Model != p.Input.Model || e.API != p.Origin.API {
-			return Request{}, errors.New("llm: model evidence does not match preparation")
+		if e := p.ModelInfo.Evidence; e.Model != p.Input.Model ||
+			e.API != p.Origin.API {
+			return Request{}, errors.New(
+				"llm: model evidence does not match preparation",
+			)
 		}
 	}
-	if err := validateAdjustments(p.Input.Settings, p.Effective, p.Adjustments); err != nil {
+	if err := validateAdjustments(
+		p.Input.Settings,
+		p.Effective,
+		p.Adjustments,
+	); err != nil {
 		return Request{}, err
 	}
 	warnings := Warnings(p.Adjustments)
@@ -134,7 +144,9 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	}
 	p.CapabilityPolicy = p.CapabilityPolicy.Resolved()
 	if len(p.Unverified) > 0 && p.CapabilityPolicy != CapabilityAdjust {
-		return Request{}, errors.New("llm: unverified features require the adjust capability policy")
+		return Request{}, errors.New(
+			"llm: unverified features require the adjust capability policy",
+		)
 	}
 	for _, feature := range p.Unverified {
 		if !knownFeature(feature) {
@@ -195,7 +207,12 @@ func (p Request) ContentChanges() []ContentChange {
 
 // Generate prepares and sends through the same contracts as explicit users.
 // Use Prepare and Send separately when intent must be recorded in between.
-func Generate(ctx context.Context, client Client, input Input, sink Sink) (Result, error) {
+func Generate(
+	ctx context.Context,
+	client Client,
+	input Input,
+	sink Sink,
+) (Result, error) {
 	request, err := client.Prepare(ctx, input)
 	if err != nil {
 		return Result{}, err

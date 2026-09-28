@@ -16,10 +16,7 @@ func checkSendBudget(
 	snapshot := request.Snapshot()
 	var atRisk *llm.Cost
 	if snapshot.ModelInfo != nil && snapshot.ModelInfo.Pricing != nil {
-		if value, ok := llm.MaxCostAtRisk(
-			request,
-			*snapshot.ModelInfo.Pricing,
-		); ok {
+		if value, ok := llm.MaxCostAtRisk(request, *snapshot.ModelInfo.Pricing); ok {
 			atRisk = &value
 		}
 	}
@@ -92,11 +89,7 @@ func checkSendBudget(
 	remaining := cap.Amount - used
 	// A sum past the int64 range is over any cap; it must not wrap.
 	if after, ok := used.Add(atRisk.Total); !ok || after > cap.Amount {
-		fit := llm.FitOutputTokens(
-			request,
-			*snapshot.ModelInfo.Pricing,
-			remaining,
-		)
+		fit := llm.FitOutputTokens(request, *snapshot.ModelInfo.Pricing, remaining)
 		return atRisk, nil, &Stop{
 			Kind: StopLimited,
 			Reason: costLimitReason(

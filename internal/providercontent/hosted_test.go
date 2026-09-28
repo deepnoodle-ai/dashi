@@ -37,13 +37,15 @@ func TestAdaptOmitsOnlyCompletedForeignHostedPair(t *testing.T) {
 			CallID: "hosted_1",
 			Type:   "web_search_tool_result",
 			Origin: foreign,
-			Output: []content.Block{{
-				Kind: content.KindResource,
-				Resource: &content.Resource{
-					URI:    "https://example.com",
-					Origin: foreign,
+			Output: []content.Block{
+				{
+					Kind: content.KindResource,
+					Resource: &content.Resource{
+						URI:    "https://example.com",
+						Origin: foreign,
+					},
 				},
-			}},
+			},
 		},
 		Replay: hostedReplay(foreign, "web_search_tool_result"),
 	}

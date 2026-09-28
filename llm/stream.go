@@ -25,7 +25,11 @@ type StreamEvent struct {
 // of dispatching another paid request.
 // The client must stop invoking its sink before Send returns. A non-nil
 // call.Sink also observes each delta before it is yielded.
-func Stream(ctx context.Context, client Client, call Call) iter.Seq2[StreamEvent, error] {
+func Stream(
+	ctx context.Context,
+	client Client,
+	call Call,
+) iter.Seq2[StreamEvent, error] {
 	var started atomic.Bool
 	return func(yield func(StreamEvent, error) bool) {
 		if !started.CompareAndSwap(false, true) {
@@ -33,7 +37,10 @@ func Stream(ctx context.Context, client Client, call Call) iter.Seq2[StreamEvent
 			return
 		}
 		if client == nil {
-			yield(StreamEvent{}, errors.New("llm: client is required"))
+			yield(
+				StreamEvent{},
+				errors.New("llm: client is required"),
+			)
 			return
 		}
 		callCtx, cancel := context.WithCancel(ctx)

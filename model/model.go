@@ -109,13 +109,18 @@ type ModelEvidence struct {
 // Validate requires dated provenance and a concrete HTTP endpoint. It does
 // not verify the truth, coverage, or freshness of the supplied claims.
 func (e ModelEvidence) Validate() error {
-	if strings.TrimSpace(e.Model) == "" || strings.TrimSpace(e.API) == "" ||
-		strings.TrimSpace(e.Owner) == "" || strings.TrimSpace(e.Source) == "" ||
+	if strings.TrimSpace(e.Model) == "" ||
+		strings.TrimSpace(e.API) == "" ||
+		strings.TrimSpace(e.Owner) == "" ||
+		strings.TrimSpace(e.Source) == "" ||
 		e.QualifiedAt.IsZero() {
 		return errors.New("model: evidence requires model, API, owner, source, and date")
 	}
 	u, err := url.Parse(e.Endpoint)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") ||
+	if err != nil ||
+		u.Host == "" ||
+		(u.Scheme != "https" &&
+			u.Scheme != "http") ||
 		u.User != nil || u.Fragment != "" {
 		return errors.New("model: evidence requires an HTTP endpoint without user info or fragment")
 	}

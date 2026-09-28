@@ -124,9 +124,15 @@ type Capabilities struct {
 // CapabilityAdjust the returned features have unknown support, so callers can
 // record that uncertainty. Known rejection fails under both policies.
 // Input.Settings should contain effective settings when checking defaults.
-func (c Capabilities) Check(r Input, policy CapabilityPolicy) ([]Feature, error) {
+func (c Capabilities) Check(
+	r Input,
+	policy CapabilityPolicy,
+) ([]Feature, error) {
 	if !policy.Valid() {
-		return nil, fmt.Errorf("llm: invalid capability policy %q", policy)
+		return nil, fmt.Errorf(
+			"llm: invalid capability policy %q",
+			policy,
+		)
 	}
 	var unverified []Feature
 	for _, f := range requestedFeatures(r) {
@@ -137,14 +143,18 @@ func (c Capabilities) Check(r Input, policy CapabilityPolicy) ([]Feature, error)
 				return nil, fmt.Errorf(
 					"llm: model %q support for %s is unknown; "+
 						"add ModelInfo evidence for it or use the adjust capability policy",
-					r.Model, f,
+					r.Model,
+					f,
 				)
 			}
 			unverified = append(unverified, f)
 		case SupportUnsupported:
 			return nil, unsupportedError(r.Model, f)
 		default:
-			return nil, fmt.Errorf("llm: invalid support value for %s", f)
+			return nil, fmt.Errorf(
+				"llm: invalid support value for %s",
+				f,
+			)
 		}
 	}
 	if _, _, err := c.Fit(r, CapabilityStrict, nil); err != nil {
@@ -187,13 +197,18 @@ func (m ModelInfo) Validate() error {
 	}
 	for f, support := range m.Capabilities.Features {
 		if !knownFeature(f) || !support.Valid() {
-			return fmt.Errorf("llm: invalid capability %q: %q", f, support)
+			return fmt.Errorf(
+				"llm: invalid capability %q: %q",
+				f,
+				support,
+			)
 		}
 	}
 	c := m.Capabilities
 	if c.MaxOutputTokens < 0 || c.ContextWindow < 0 ||
 		c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 ||
-		(c.MaxReasoningBudget > 0 && c.MinReasoningBudget > c.MaxReasoningBudget) ||
+		(c.MaxReasoningBudget > 0 &&
+			c.MinReasoningBudget > c.MaxReasoningBudget) ||
 		!(c.MaxTemperature >= 0) || math.IsInf(c.MaxTemperature, 0) {
 		return errors.New("llm: invalid capability limits")
 	}
@@ -273,8 +288,10 @@ func requestedFeatures(r Input) []Feature {
 				data(*part.Block)
 			}
 			if part.ToolCall != nil || part.ToolResult != nil ||
-				part.HostedUse != nil || part.HostedResult != nil ||
-				part.HostedApprovalRequest != nil || part.HostedApprovalResponse != nil {
+				part.HostedUse != nil ||
+				part.HostedResult != nil ||
+				part.HostedApprovalRequest != nil ||
+				part.HostedApprovalResponse != nil {
 				add(FeatureTools)
 			}
 			if part.ToolResult != nil {

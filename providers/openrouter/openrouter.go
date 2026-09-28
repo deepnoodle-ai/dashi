@@ -1,4 +1,5 @@
-// Package openrouter configures OpenRouter's Chat Completions endpoint. Adapted
+// Package openrouter configures OpenRouter's Chat Completions endpoint.
+// Adapted
 // from Dive (65c393f), Apache-2.0.
 package openrouter
 
@@ -47,11 +48,21 @@ func New(config Config) (*Client, error) {
 	if config.SiteName == "" {
 		config.SiteName = "Deep Noodle"
 	}
-	client, err := completions.New(completions.Config{Provider: "openrouter", APIKey: config.APIKey,
-		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		CapabilityPolicy: config.CapabilityPolicy, SystemRole: llm.RoleSystem,
-		ReportedCostField: "cost", CostCurrency: "USD",
-		Headers: http.Header{"Http-Referer": {config.SiteURL}, "X-Title": {config.SiteName}}})
+	client, err := completions.New(completions.Config{
+		Provider:          "openrouter",
+		APIKey:            config.APIKey,
+		Endpoint:          config.Endpoint,
+		Client:            config.Client,
+		Models:            config.Models,
+		CapabilityPolicy:  config.CapabilityPolicy,
+		SystemRole:        llm.RoleSystem,
+		ReportedCostField: "cost",
+		CostCurrency:      "USD",
+		Headers: http.Header{
+			"Http-Referer": {config.SiteURL},
+			"X-Title":      {config.SiteName},
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

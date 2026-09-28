@@ -24,13 +24,20 @@ var (
 
 // PrepareImage validates an image operation and captures the exact JSON body
 // without contacting xAI. Edit inputs may contain inline bytes as data URLs.
-func (c *Client) PrepareImage(ctx context.Context, input media.ImageInput) (media.ImageRequest, error) {
+func (c *Client) PrepareImage(
+	ctx context.Context,
+	input media.ImageInput,
+) (media.ImageRequest, error) {
 	return c.PrepareImageWithOptions(ctx, input, ImageOptions{})
 }
 
 // PrepareImageWithOptions adds xAI's response format to an image request.
 // The exact body and provider options are frozen before the call.
-func (c *Client) PrepareImageWithOptions(ctx context.Context, input media.ImageInput, options ImageOptions) (media.ImageRequest, error) {
+func (c *Client) PrepareImageWithOptions(
+	ctx context.Context,
+	input media.ImageInput,
+	options ImageOptions,
+) (media.ImageRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.ImageRequest{}, err
 	}
@@ -50,7 +57,9 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context, input media.ImageI
 	}
 	var info *media.ModelInfo
 	capabilities := media.ImageCapabilities{}
-	if known, ok := c.models[input.Model]; ok && known.Image != nil && known.Evidence.API == ImageAPI {
+	if known, ok := c.models[input.Model]; ok &&
+		known.Image != nil &&
+		known.Evidence.API == ImageAPI {
 		copy := known.Clone()
 		info = &copy
 		capabilities = *copy.Image
@@ -78,7 +87,10 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context, input media.ImageI
 
 // SendImage makes one image generation or edit call. It does not retry, follow
 // redirects, or fetch temporary image URLs from the response.
-func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (media.Result, error) {
+func (c *Client) SendImage(
+	ctx context.Context,
+	request media.ImageRequest,
+) (media.Result, error) {
 	input := request.Input()
 	if request.Origin() != c.origin(ImageAPI, input.Model) {
 		return media.Result{}, c.failure(
@@ -90,7 +102,13 @@ func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (med
 	if input.Operation == media.ImageEdit {
 		path = "/images/edits"
 	}
-	raw, err := c.do(ctx, http.MethodPost, path, request.Body(), request.ContentType())
+	raw, err := c.do(
+		ctx,
+		http.MethodPost,
+		path,
+		request.Body(),
+		request.ContentType(),
+	)
 	if err != nil {
 		return media.Result{}, err
 	}
@@ -103,13 +121,20 @@ func (c *Client) SendImage(ctx context.Context, request media.ImageRequest) (med
 
 // PrepareVideo validates an xAI video request and captures its exact JSON
 // submission body. At most one reference frame is accepted as the first frame.
-func (c *Client) PrepareVideo(ctx context.Context, input media.VideoInput) (media.VideoRequest, error) {
+func (c *Client) PrepareVideo(
+	ctx context.Context,
+	input media.VideoInput,
+) (media.VideoRequest, error) {
 	return c.PrepareVideoWithOptions(ctx, input, VideoOptions{})
 }
 
 // PrepareVideoWithOptions adds xAI-specific reference, frame, and audio
 // controls. The options and exact wire body are captured in the request.
-func (c *Client) PrepareVideoWithOptions(ctx context.Context, input media.VideoInput, options VideoOptions) (media.VideoRequest, error) {
+func (c *Client) PrepareVideoWithOptions(
+	ctx context.Context,
+	input media.VideoInput,
+	options VideoOptions,
+) (media.VideoRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.VideoRequest{}, err
 	}
@@ -129,7 +154,9 @@ func (c *Client) PrepareVideoWithOptions(ctx context.Context, input media.VideoI
 	}
 	var info *media.ModelInfo
 	capabilities := media.VideoCapabilities{}
-	if known, ok := c.models[input.Model]; ok && known.Video != nil && known.Evidence.API == VideoAPI {
+	if known, ok := c.models[input.Model]; ok &&
+		known.Video != nil &&
+		known.Evidence.API == VideoAPI {
 		copy := known.Clone()
 		info = &copy
 		capabilities = *copy.Video
@@ -157,7 +184,10 @@ func (c *Client) PrepareVideoWithOptions(ctx context.Context, input media.VideoI
 
 // SubmitVideo makes one remote submission attempt. Transport or server failure
 // can leave acceptance unknown; callers must record that uncertainty.
-func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (media.Submission, error) {
+func (c *Client) SubmitVideo(
+	ctx context.Context,
+	request media.VideoRequest,
+) (media.Submission, error) {
 	input := request.Input()
 	if request.Origin() != c.origin(VideoAPI, input.Model) {
 		return media.Submission{}, c.failure(
@@ -175,7 +205,13 @@ func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (m
 	case media.VideoExtend:
 		path = "/videos/extensions"
 	}
-	raw, err := c.do(ctx, http.MethodPost, path, request.Body(), request.ContentType())
+	raw, err := c.do(
+		ctx,
+		http.MethodPost,
+		path,
+		request.Body(),
+		request.ContentType(),
+	)
 	if err != nil {
 		state := media.SubmissionUnknown
 		var failure *media.Error
@@ -187,9 +223,15 @@ func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (m
 	var response struct {
 		RequestID string `json:"request_id"`
 	}
-	if err := json.Unmarshal(raw, &response); err != nil || strings.TrimSpace(response.RequestID) == "" {
+	if err := json.Unmarshal(
+		raw,
+		&response,
+	); err != nil || strings.TrimSpace(response.RequestID) == "" {
 		return media.Submission{State: media.SubmissionUnknown},
-			c.failure(media.ErrorProtocol, errors.New("video submission returned no usable request_id"))
+			c.failure(
+				media.ErrorProtocol,
+				errors.New("video submission returned no usable request_id"),
+			)
 	}
 	job := media.Job{
 		ID:     response.RequestID,
@@ -199,8 +241,10 @@ func (c *Client) SubmitVideo(ctx context.Context, request media.VideoRequest) (m
 	return media.Submission{State: media.SubmissionAccepted, Job: &job}, nil
 }
 
-// A status that may be produced after admission leaves the job outcome unknown.
-// xAI does not document idempotent video submission or reconciliation by token.
+// A status that may be produced after admission leaves the job outcome
+// unknown.
+// xAI does not document idempotent video submission or reconciliation by
+// token.
 func knownRejectedStatus(status int) bool {
 	if status < 400 || status >= 500 {
 		return false
@@ -215,17 +259,29 @@ func knownRejectedStatus(status int) bool {
 
 // PollVideo makes one status request for an accepted job. It does not wait or
 // schedule another poll. Completed output is a temporary URL reference.
-func (c *Client) PollVideo(ctx context.Context, job media.Job) (media.JobPoll, error) {
+func (c *Client) PollVideo(
+	ctx context.Context,
+	job media.Job,
+) (media.JobPoll, error) {
 	if err := job.Validate(); err != nil {
 		return media.JobPoll{}, c.failure(media.ErrorInvalidRequest, err)
 	}
-	if job.Kind != media.KindVideo || job.Origin != c.origin(VideoAPI, job.Origin.Model) {
+	if job.Kind != media.KindVideo || job.Origin != c.origin(
+		VideoAPI,
+		job.Origin.Model,
+	) {
 		return media.JobPoll{}, c.failure(
 			media.ErrorInvalidRequest,
 			errors.New("video job belongs to another destination"),
 		)
 	}
-	raw, err := c.do(ctx, http.MethodGet, "/videos/"+url.PathEscape(job.ID), nil, "")
+	raw, err := c.do(
+		ctx,
+		http.MethodGet,
+		"/videos/"+url.PathEscape(job.ID),
+		nil,
+		"",
+	)
 	if err != nil {
 		return media.JobPoll{}, err
 	}
@@ -281,21 +337,30 @@ func (c *Client) PollVideo(ctx context.Context, job media.Job) (media.JobPoll, e
 
 // FetchVideo turns the completed status's URL into a media result. xAI returns
 // output in its poll response; the host decides if and how to persist the URL.
-func (c *Client) FetchVideo(ctx context.Context, poll media.JobPoll) (media.Result, error) {
+func (c *Client) FetchVideo(
+	ctx context.Context,
+	poll media.JobPoll,
+) (media.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return media.Result{}, err
 	}
 	if err := poll.Validate(); err != nil {
 		return media.Result{}, c.failure(media.ErrorInvalidRequest, err)
 	}
-	if poll.Job.Kind != media.KindVideo || poll.Job.Origin != c.origin(VideoAPI, poll.Job.Origin.Model) {
+	if poll.Job.Kind != media.KindVideo || poll.Job.Origin != c.origin(
+		VideoAPI,
+		poll.Job.Origin.Model,
+	) {
 		return media.Result{}, c.failure(
 			media.ErrorInvalidRequest,
 			errors.New("video job belongs to another destination"),
 		)
 	}
 	if poll.State != media.JobSucceeded || len(poll.Content) == 0 {
-		return media.Result{}, c.failure(media.ErrorInvalidRequest, errors.New("video output is not ready"))
+		return media.Result{}, c.failure(
+			media.ErrorInvalidRequest,
+			errors.New("video output is not ready"),
+		)
 	}
 	copy := poll.Clone()
 	result := media.Result{
@@ -323,7 +388,12 @@ func (c *Client) failure(category media.ErrorCategory, cause error) error {
 }
 
 // do sends exactly one HTTP request and bounds the response held in memory.
-func (c *Client) do(ctx context.Context, method, path string, body []byte, contentType string) ([]byte, error) {
+func (c *Client) do(
+	ctx context.Context,
+	method, path string,
+	body []byte,
+	contentType string,
+) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -331,9 +401,14 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, conte
 	if c.http != nil {
 		httpClient = *c.http
 	}
-	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	request, err := http.NewRequestWithContext(
-		ctx, method, c.endpoint+path, bytes.NewReader(body),
+		ctx,
+		method,
+		c.endpoint+path,
+		bytes.NewReader(body),
 	)
 	if err != nil {
 		return nil, c.failure(media.ErrorInvalidRequest, err)
@@ -353,7 +428,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, conte
 		return nil, c.failure(media.ErrorTransport, err)
 	}
 	if len(raw) > maxResponseBytes {
-		return nil, c.failure(media.ErrorProtocol, errors.New("provider response exceeds 32 MiB"))
+		return nil, c.failure(
+			media.ErrorProtocol,
+			errors.New("provider response exceeds 32 MiB"),
+		)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		providerError := providerhttp.NewError(

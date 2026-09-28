@@ -49,7 +49,10 @@ func (c Capabilities) Fit(
 	prior []Adjustment,
 ) (Input, []Adjustment, error) {
 	if !policy.Valid() {
-		return Input{}, nil, fmt.Errorf("llm: invalid capability policy %q", policy)
+		return Input{}, nil, fmt.Errorf(
+			"llm: invalid capability policy %q",
+			policy,
+		)
 	}
 	f := fitter{
 		model:       r.Model,
@@ -59,12 +62,19 @@ func (c Capabilities) Fit(
 	s := &r.Settings
 	if limit := c.MaxOutputTokens; limit > 0 && s.MaxTokens > limit {
 		err := f.clamp(
-			SettingMaxTokens, s.MaxTokens, limit,
+			SettingMaxTokens,
+			s.MaxTokens,
+			limit,
 			fmt.Sprintf(
 				"max_tokens %d exceeds the known limit %d; sent %d",
-				s.MaxTokens, limit, limit,
+				s.MaxTokens,
+				limit,
+				limit,
 			),
-			fmt.Errorf("llm: max_tokens exceeds model limit %d", limit),
+			fmt.Errorf(
+				"llm: max_tokens exceeds model limit %d",
+				limit,
+			),
 		)
 		if err != nil {
 			return Input{}, nil, err
@@ -75,7 +85,8 @@ func (c Capabilities) Fit(
 		switch limit := c.MaxTemperature; {
 		case c.Features[FeatureTemperature] == SupportUnsupported:
 			err := f.omit(
-				SettingTemperature, *t,
+				SettingTemperature,
+				*t,
 				"temperature is not accepted here; the model default applies",
 				unsupportedError(r.Model, FeatureTemperature),
 			)
@@ -85,12 +96,19 @@ func (c Capabilities) Fit(
 			s.Temperature = nil
 		case limit > 0 && *t > limit:
 			err := f.clamp(
-				SettingTemperature, *t, limit,
+				SettingTemperature,
+				*t,
+				limit,
 				fmt.Sprintf(
 					"temperature %g exceeds the known maximum %g; sent %g",
-					*t, limit, limit,
+					*t,
+					limit,
+					limit,
 				),
-				fmt.Errorf("llm: temperature must be at most %g", limit),
+				fmt.Errorf(
+					"llm: temperature must be at most %g",
+					limit,
+				),
 			)
 			if err != nil {
 				return Input{}, nil, err
@@ -119,7 +137,8 @@ func (c Capabilities) Fit(
 			)
 		}
 		err := f.omit(
-			SettingParallelTools, true,
+			SettingParallelTools,
+			true,
 			"parallel_tools is not accepted here; the model default applies",
 			unsupportedError(r.Model, FeatureParallelTools),
 		)
@@ -136,18 +155,34 @@ func (c Capabilities) Fit(
 // its effort names or temperature range, to a model's evidence before Fit.
 func (c Capabilities) Intersect(o Capabilities) Capabilities {
 	out := Capabilities{
-		MaxOutputTokens:    minLimit(c.MaxOutputTokens, o.MaxOutputTokens),
-		ContextWindow:      minLimit(c.ContextWindow, o.ContextWindow),
-		MinReasoningBudget: max(c.MinReasoningBudget, o.MinReasoningBudget),
-		MaxReasoningBudget: minLimit(c.MaxReasoningBudget, o.MaxReasoningBudget),
-		MaxTemperature:     minLimit(c.MaxTemperature, o.MaxTemperature),
-		Features:           make(map[Feature]Support),
+		MaxOutputTokens: minLimit(
+			c.MaxOutputTokens,
+			o.MaxOutputTokens,
+		),
+		ContextWindow: minLimit(c.ContextWindow, o.ContextWindow),
+		MinReasoningBudget: max(
+			c.MinReasoningBudget,
+			o.MinReasoningBudget,
+		),
+		MaxReasoningBudget: minLimit(
+			c.MaxReasoningBudget,
+			o.MaxReasoningBudget,
+		),
+		MaxTemperature: minLimit(
+			c.MaxTemperature,
+			o.MaxTemperature,
+		),
+		Features: make(map[Feature]Support),
 	}
-	for _, features := range []map[Feature]Support{c.Features, o.Features} {
+	for _, features := range []map[Feature]Support{
+		c.Features,
+		o.Features,
+	} {
 		for f := range features {
 			a, b := c.Features[f], o.Features[f]
 			switch {
-			case a == SupportUnsupported || b == SupportUnsupported:
+			case a == SupportUnsupported ||
+				b == SupportUnsupported:
 				out.Features[f] = SupportUnsupported
 			case a == SupportSupported && b == SupportSupported:
 				out.Features[f] = SupportSupported
@@ -162,7 +197,10 @@ func (c Capabilities) Intersect(o Capabilities) Capabilities {
 	default:
 		for _, effort := range c.ReasoningEfforts {
 			if slices.Contains(o.ReasoningEfforts, effort) {
-				out.ReasoningEfforts = append(out.ReasoningEfforts, effort)
+				out.ReasoningEfforts = append(
+					out.ReasoningEfforts,
+					effort,
+				)
 			}
 		}
 		if len(out.ReasoningEfforts) == 0 {
@@ -181,7 +219,10 @@ func (c Capabilities) fitReasoning(
 	requested := s
 	if s.Effort != "" {
 		if c.Features[FeatureReasoningEffort] == SupportUnsupported {
-			return s, unsupportedError(f.model, FeatureReasoningEffort)
+			return s, unsupportedError(
+				f.model,
+				FeatureReasoningEffort,
+			)
 		}
 		levels := c.ReasoningEfforts
 		if len(levels) == 0 || slices.Contains(levels, s.Effort) {
@@ -190,7 +231,8 @@ func (c Capabilities) fitReasoning(
 		accepted := strings.Join(c.ReasoningEfforts, ", ")
 		strict := fmt.Errorf(
 			"llm: reasoning effort %q is unsupported; use one of %s",
-			s.Effort, accepted,
+			s.Effort,
+			accepted,
 		)
 		nearest, ok := nearestEffort(s.Effort, c.ReasoningEfforts)
 		if !ok {
@@ -198,10 +240,14 @@ func (c Capabilities) fitReasoning(
 		}
 		s.Effort = nearest
 		return s, f.clamp(
-			SettingReasoning, requested, s,
+			SettingReasoning,
+			requested,
+			s,
 			fmt.Sprintf(
 				"reasoning effort %q is not accepted (accepted: %s); sent %q",
-				requested.Effort, accepted, nearest,
+				requested.Effort,
+				accepted,
+				nearest,
 			),
 			strict,
 		)
@@ -214,7 +260,8 @@ func (c Capabilities) fitReasoning(
 		return s, fmt.Errorf(
 			"llm: no reasoning budget fits between %d and %d; "+
 				"raise max_tokens or remove the reasoning budget",
-			low, high,
+			low,
+			high,
 		)
 	}
 	switch {
@@ -230,14 +277,19 @@ func (c Capabilities) fitReasoning(
 		bounds = fmt.Sprintf("%d to %d", low, high)
 	}
 	return s, f.clamp(
-		SettingReasoning, requested, s,
+		SettingReasoning,
+		requested,
+		s,
 		fmt.Sprintf(
 			"reasoning budget %d is outside the accepted range (%s); sent %d",
-			requested.BudgetTokens, bounds, s.BudgetTokens,
+			requested.BudgetTokens,
+			bounds,
+			s.BudgetTokens,
 		),
 		fmt.Errorf(
 			"llm: reasoning budget %d is outside model limits (%s)",
-			requested.BudgetTokens, bounds,
+			requested.BudgetTokens,
+			bounds,
 		),
 	)
 }
@@ -256,7 +308,12 @@ func (f *fitter) clamp(
 	strict error,
 ) error {
 	return f.record(
-		field, AdjustmentClamp, requested, effective, reason, strict,
+		field,
+		AdjustmentClamp,
+		requested,
+		effective,
+		reason,
+		strict,
 	)
 }
 
@@ -288,13 +345,16 @@ func (f *fitter) record(
 	})
 	if i < 0 {
 		raw, _ := json.Marshal(requested)
-		f.adjustments = append(f.adjustments, Adjustment{
-			Field:     field,
-			Action:    action,
-			Requested: raw,
-			Effective: value,
-			Reason:    reason,
-		})
+		f.adjustments = append(
+			f.adjustments,
+			Adjustment{
+				Field:     field,
+				Action:    action,
+				Requested: raw,
+				Effective: value,
+				Reason:    reason,
+			},
+		)
 		return nil
 	}
 	prior := &f.adjustments[i]
@@ -353,7 +413,8 @@ func unsupportedError(model string, f Feature) error {
 	switch f {
 	case FeatureImage, FeatureDocument, FeatureAudio, FeatureResource:
 		fix = fmt.Sprintf(
-			"remove the %s content or use a model that accepts it", f,
+			"remove the %s content or use a model that accepts it",
+			f,
 		)
 	case FeatureTools:
 		fix = "remove tools and tool history or use a model with tool support"
@@ -368,7 +429,12 @@ func unsupportedError(model string, f Feature) error {
 		fix = "use a reasoning effort, remove Reasoning, " +
 			"or use a model with reasoning budgets"
 	}
-	return fmt.Errorf("llm: model %q does not support %s; %s", model, f, fix)
+	return fmt.Errorf(
+		"llm: model %q does not support %s; %s",
+		model,
+		f,
+		fix,
+	)
 }
 
 // minLimit returns the tighter of two limits where zero means no limit.

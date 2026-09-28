@@ -21,7 +21,9 @@ func imageSnapshot() ImageRequestSnapshot {
 		Input: ImageInput{
 			Model:     "image-model",
 			Operation: ImageGenerate,
-			Prompt:    []content.Block{content.TextBlock("a mountain")},
+			Prompt: []content.Block{
+				content.TextBlock("a mountain"),
+			},
 		},
 		Body:        []byte(`{"model":"image-model","prompt":"a mountain"}`),
 		ContentType: "application/json",
@@ -37,8 +39,10 @@ func videoSnapshot() VideoRequestSnapshot {
 			Scope:    "account",
 		},
 		Input: VideoInput{
-			Model:  "video-model",
-			Prompt: []content.Block{content.TextBlock("a mountain")},
+			Model: "video-model",
+			Prompt: []content.Block{
+				content.TextBlock("a mountain"),
+			},
 		},
 		Body:        []byte(`{"model":"video-model","prompt":"a mountain"}`),
 		ContentType: "application/json",
@@ -117,7 +121,10 @@ func TestVideoRequestRecordsUnknownCapabilityPolicy(t *testing.T) {
 	snapshot.CapabilityPolicy = model.CapabilityAdjust
 	request, err := NewVideoRequest(snapshot)
 	if err != nil {
-		t.Fatalf("explicitly allowed unknown support rejected: %v", err)
+		t.Fatalf(
+			"explicitly allowed unknown support rejected: %v",
+			err,
+		)
 	}
 	if request.Snapshot().Unverified[0] != "video.generate" {
 		t.Fatal("prepared video request lost unverified support")
@@ -130,11 +137,13 @@ func TestVideoRequestRequiresRecordedSettingAdjustment(t *testing.T) {
 	if _, err := NewVideoRequest(snapshot); err == nil {
 		t.Fatal("accepted changed settings without an adjustment")
 	}
-	snapshot.Adjustments = []Adjustment{{
-		Setting:   "duration",
-		Effective: "8s",
-		Reason:    "provider default",
-	}}
+	snapshot.Adjustments = []Adjustment{
+		{
+			Setting:   "duration",
+			Effective: "8s",
+			Reason:    "provider default",
+		},
+	}
 	if _, err := NewVideoRequest(snapshot); err != nil {
 		t.Fatalf("documented provider default rejected: %v", err)
 	}
@@ -155,10 +164,12 @@ func TestJobPollCloneCopiesOutputReference(t *testing.T) {
 		},
 		State:    JobSucceeded,
 		RawUsage: json.RawMessage(`{"cost_in_usd_ticks":123}`),
-		Content: []content.Block{content.VideoBlock(content.Source{
-			URL:       "https://example.test/video.mp4",
-			ExpiresAt: &expires,
-		})},
+		Content: []content.Block{
+			content.VideoBlock(content.Source{
+				URL:       "https://example.test/video.mp4",
+				ExpiresAt: &expires,
+			}),
+		},
 	}
 	if err := poll.Validate(); err != nil {
 		t.Fatalf("valid successful poll rejected: %v", err)
@@ -209,7 +220,10 @@ func TestVideoRequestSnapshotDecodesLegacyCapabilityPolicy(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &fields); err != nil {
+			if err := json.Unmarshal(
+				raw,
+				&fields,
+			); err != nil {
 				t.Fatal(err)
 			}
 			delete(fields, "capability_policy")
@@ -221,13 +235,17 @@ func TestVideoRequestSnapshotDecodesLegacyCapabilityPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			var snapshot VideoRequestSnapshot
-			if err := json.Unmarshal(legacy, &snapshot); err != nil {
+			if err := json.Unmarshal(
+				legacy,
+				&snapshot,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if snapshot.CapabilityPolicy != test.want {
 				t.Fatalf(
 					"legacy snapshot decoded as %q, want %q",
-					snapshot.CapabilityPolicy, test.want,
+					snapshot.CapabilityPolicy,
+					test.want,
 				)
 			}
 		})

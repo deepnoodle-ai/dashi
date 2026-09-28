@@ -121,7 +121,8 @@ func (u Usage) Validate() error {
 	}
 	for _, detail := range u.ModalityTokens {
 		if detail.InputTokens < 0 || detail.OutputTokens < 0 ||
-			detail.CacheCreationInputTokens < 0 || detail.CacheReadInputTokens < 0 {
+			detail.CacheCreationInputTokens < 0 ||
+			detail.CacheReadInputTokens < 0 {
 			return errors.New("llm: modality counters cannot be negative")
 		}
 		if _, ok := sumNonnegative(
@@ -170,10 +171,16 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for _, field := range []string{
-		"cost", "cost_estimate_unavailable", "service_tier", "speed",
+		"cost",
+		"cost_estimate_unavailable",
+		"service_tier",
+		"speed",
 	} {
 		if _, present := fields[field]; present {
-			return fmt.Errorf("llm: usage field %q requires record migration", field)
+			return fmt.Errorf(
+				"llm: usage field %q requires record migration",
+				field,
+			)
 		}
 	}
 	*u = Usage(raw.usageAlias)
@@ -199,10 +206,23 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 		_, hasPromptTokens := fields["prompt_tokens"]
 		_, hasPromptDetails := fields["prompt_tokens_details"]
 		switch {
-		case hasInputTokens && hasInputDetails && raw.InputTokensDetails != nil:
-			normalize(u.InputTokens, raw.InputTokensDetails.CachedTokens, raw.InputTokensDetails.CacheWriteTokens)
-		case hasPromptTokens && hasPromptDetails && raw.PromptTokens != nil && raw.PromptTokensDetails != nil:
-			normalize(*raw.PromptTokens, raw.PromptTokensDetails.CachedTokens, raw.PromptTokensDetails.CacheWriteTokens)
+		case hasInputTokens &&
+			hasInputDetails &&
+			raw.InputTokensDetails != nil:
+			normalize(
+				u.InputTokens,
+				raw.InputTokensDetails.CachedTokens,
+				raw.InputTokensDetails.CacheWriteTokens,
+			)
+		case hasPromptTokens &&
+			hasPromptDetails &&
+			raw.PromptTokens != nil &&
+			raw.PromptTokensDetails != nil:
+			normalize(
+				*raw.PromptTokens,
+				raw.PromptTokensDetails.CachedTokens,
+				raw.PromptTokensDetails.CacheWriteTokens,
+			)
 		}
 	}
 
@@ -253,9 +273,18 @@ func (u *Usage) Absorb(other *Usage) {
 	}
 	u.InputTokens = max(u.InputTokens, other.InputTokens)
 	u.OutputTokens = max(u.OutputTokens, other.OutputTokens)
-	u.CacheCreationInputTokens = max(u.CacheCreationInputTokens, other.CacheCreationInputTokens)
-	u.CacheReadInputTokens = max(u.CacheReadInputTokens, other.CacheReadInputTokens)
-	u.ToolUseInputTokens = max(u.ToolUseInputTokens, other.ToolUseInputTokens)
+	u.CacheCreationInputTokens = max(
+		u.CacheCreationInputTokens,
+		other.CacheCreationInputTokens,
+	)
+	u.CacheReadInputTokens = max(
+		u.CacheReadInputTokens,
+		other.CacheReadInputTokens,
+	)
+	u.ToolUseInputTokens = max(
+		u.ToolUseInputTokens,
+		other.ToolUseInputTokens,
+	)
 	u.ReasoningTokens = max(u.ReasoningTokens, other.ReasoningTokens)
 	if len(other.Requests) > 0 {
 		if u.Requests == nil {
@@ -267,14 +296,29 @@ func (u *Usage) Absorb(other *Usage) {
 	}
 	if len(other.ModalityTokens) > 0 {
 		if u.ModalityTokens == nil {
-			u.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))
+			u.ModalityTokens = make(
+				map[string]ModalityTokenUsage,
+				len(other.ModalityTokens),
+			)
 		}
 		for modality, frame := range other.ModalityTokens {
 			current := u.ModalityTokens[modality]
-			current.InputTokens = max(current.InputTokens, frame.InputTokens)
-			current.OutputTokens = max(current.OutputTokens, frame.OutputTokens)
-			current.CacheCreationInputTokens = max(current.CacheCreationInputTokens, frame.CacheCreationInputTokens)
-			current.CacheReadInputTokens = max(current.CacheReadInputTokens, frame.CacheReadInputTokens)
+			current.InputTokens = max(
+				current.InputTokens,
+				frame.InputTokens,
+			)
+			current.OutputTokens = max(
+				current.OutputTokens,
+				frame.OutputTokens,
+			)
+			current.CacheCreationInputTokens = max(
+				current.CacheCreationInputTokens,
+				frame.CacheCreationInputTokens,
+			)
+			current.CacheReadInputTokens = max(
+				current.CacheReadInputTokens,
+				frame.CacheReadInputTokens,
+			)
 			u.ModalityTokens[modality] = current
 		}
 	}
@@ -300,7 +344,10 @@ func (u *Usage) Add(other *Usage) error {
 	}{
 		{&next.InputTokens, other.InputTokens},
 		{&next.OutputTokens, other.OutputTokens},
-		{&next.CacheCreationInputTokens, other.CacheCreationInputTokens},
+		{
+			&next.CacheCreationInputTokens,
+			other.CacheCreationInputTokens,
+		},
 		{&next.CacheReadInputTokens, other.CacheReadInputTokens},
 		{&next.ToolUseInputTokens, other.ToolUseInputTokens},
 		{&next.ReasoningTokens, other.ReasoningTokens},
@@ -325,7 +372,10 @@ func (u *Usage) Add(other *Usage) error {
 	}
 	if len(other.ModalityTokens) > 0 {
 		if next.ModalityTokens == nil {
-			next.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))
+			next.ModalityTokens = make(
+				map[string]ModalityTokenUsage,
+				len(other.ModalityTokens),
+			)
 		}
 		for modality, addition := range other.ModalityTokens {
 			current := next.ModalityTokens[modality]
@@ -373,9 +423,14 @@ func sumNonnegative(counts ...int) (int, bool) {
 // mergeFlags carries forward flags that mark data as missing. Once any part of
 // an aggregate lacks a detail, the aggregate lacks it too.
 func (u *Usage) mergeFlags(other *Usage) {
-	u.CacheCreationInputTokensUnavailable = u.CacheCreationInputTokensUnavailable || other.CacheCreationInputTokensUnavailable
-	u.InputModalityTokenDetailsIncomplete = u.InputModalityTokenDetailsIncomplete || other.InputModalityTokenDetailsIncomplete
-	u.OutputModalityTokenDetailsIncomplete = u.OutputModalityTokenDetailsIncomplete || other.OutputModalityTokenDetailsIncomplete
-	u.CacheReadModalityTokenDetailsIncomplete = u.CacheReadModalityTokenDetailsIncomplete || other.CacheReadModalityTokenDetailsIncomplete
-	u.TotalTokenCountMismatch = u.TotalTokenCountMismatch || other.TotalTokenCountMismatch
+	u.CacheCreationInputTokensUnavailable = u.CacheCreationInputTokensUnavailable ||
+		other.CacheCreationInputTokensUnavailable
+	u.InputModalityTokenDetailsIncomplete = u.InputModalityTokenDetailsIncomplete ||
+		other.InputModalityTokenDetailsIncomplete
+	u.OutputModalityTokenDetailsIncomplete = u.OutputModalityTokenDetailsIncomplete ||
+		other.OutputModalityTokenDetailsIncomplete
+	u.CacheReadModalityTokenDetailsIncomplete = u.CacheReadModalityTokenDetailsIncomplete ||
+		other.CacheReadModalityTokenDetailsIncomplete
+	u.TotalTokenCountMismatch = u.TotalTokenCountMismatch ||
+		other.TotalTokenCountMismatch
 }

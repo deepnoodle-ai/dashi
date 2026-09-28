@@ -22,8 +22,22 @@ import (
 )
 
 var tinyPNG = []byte{
-	0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n',
-	0, 0, 0, 0, 'I', 'H', 'D', 'R',
+	0x89,
+	'P',
+	'N',
+	'G',
+	'\r',
+	'\n',
+	0x1a,
+	'\n',
+	0,
+	0,
+	0,
+	0,
+	'I',
+	'H',
+	'D',
+	'R',
 }
 
 func testClient(t *testing.T, endpoint string,
@@ -38,8 +52,11 @@ func testClient(t *testing.T, endpoint string,
 			name: {
 				Image: &capabilities,
 				Evidence: model.ModelEvidence{
-					Model: name, API: API, Endpoint: endpoint,
-					Owner: "test", Source: "fixture",
+					Model:       name,
+					API:         API,
+					Endpoint:    endpoint,
+					Owner:       "test",
+					Source:      "fixture",
 					Method:      model.EvidenceFixture,
 					QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
 				},
@@ -70,9 +87,11 @@ func writeImageResponse(t *testing.T, w http.ResponseWriter) {
 		"usage": map[string]any{
 			"total_tokens": 17,
 		},
-		"data": []map[string]string{{
-			"b64_json": base64.StdEncoding.EncodeToString(tinyPNG),
-		}},
+		"data": []map[string]string{
+			{
+				"b64_json": base64.StdEncoding.EncodeToString(tinyPNG),
+			},
+		},
 	}); err != nil {
 		t.Errorf("encode response: %v", err)
 	}
@@ -98,9 +117,13 @@ func TestClientGenerateImageSendsPreparedJSON(t *testing.T) {
 		writeImageResponse(t, w)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", media.ImageCapabilities{
-		Generate: model.SupportSupported,
-	})
+	client := testClient(
+		t,
+		server.URL+"/v1",
+		media.ImageCapabilities{
+			Generate: model.SupportSupported,
+		},
+	)
 	input := imageInput(media.ImageGenerate)
 	request, err := client.PrepareImage(context.Background(), input)
 	if err != nil {
@@ -116,7 +139,8 @@ func TestClientGenerateImageSendsPreparedJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send image: %v", err)
 	}
-	if result.ResponseID != "req_123" || result.Requested.Model != "gpt-image-1.5" {
+	if result.ResponseID != "req_123" ||
+		result.Requested.Model != "gpt-image-1.5" {
 		t.Fatalf("result lost request provenance: %#v", result)
 	}
 	if len(result.Content) != 1 ||
@@ -171,13 +195,18 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 		writeImageResponse(t, w)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", media.ImageCapabilities{
-		Edit: model.SupportSupported,
-		Mask: model.SupportSupported,
-	})
+	client := testClient(
+		t,
+		server.URL+"/v1",
+		media.ImageCapabilities{
+			Edit: model.SupportSupported,
+			Mask: model.SupportSupported,
+		},
+	)
 	input := imageInput(media.ImageEdit)
 	image := content.ImageBlock(content.Source{
-		Data: slices.Clone(tinyPNG), MIMEType: "image/png",
+		Data:     slices.Clone(tinyPNG),
+		MIMEType: "image/png",
 	})
 	input.ReferenceImages = []content.Block{image}
 	input.Mask = &image
@@ -204,18 +233,23 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := strict.PrepareImage(context.Background(),
-		imageInput(media.ImageGenerate)); err == nil {
+	if _, err := strict.PrepareImage(
+		context.Background(),
+		imageInput(media.ImageGenerate),
+	); err == nil {
 		t.Fatal("missing model evidence was silently accepted")
 	}
 	permissive, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := permissive.PrepareImage(context.Background(),
-		imageInput(media.ImageGenerate))
+	request, err := permissive.PrepareImage(
+		context.Background(),
+		imageInput(media.ImageGenerate),
+	)
 	if err != nil {
 		t.Fatalf("explicit unknown allowance failed: %v", err)
 	}
@@ -226,7 +260,8 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 
 func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,11 +282,17 @@ func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
 }
 
 func TestClientRejectsKnownUnsupportedCapability(t *testing.T) {
-	client := testClient(t, defaultEndpoint, media.ImageCapabilities{
-		Generate: model.SupportUnsupported,
-	})
-	_, err := client.PrepareImage(context.Background(),
-		imageInput(media.ImageGenerate))
+	client := testClient(
+		t,
+		defaultEndpoint,
+		media.ImageCapabilities{
+			Generate: model.SupportUnsupported,
+		},
+	)
+	_, err := client.PrepareImage(
+		context.Background(),
+		imageInput(media.ImageGenerate),
+	)
 	var mediaError *media.Error
 	if !errors.As(err, &mediaError) ||
 		mediaError.Category != media.ErrorUnsupported {
@@ -261,15 +302,18 @@ func TestClientRejectsKnownUnsupportedCapability(t *testing.T) {
 
 func TestClientEditImagePreservesURLReference(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	input := imageInput(media.ImageEdit)
-	input.ReferenceImages = []content.Block{content.ImageBlock(
-		content.Source{URL: "https://example.com/reference.png"},
-	)}
+	input.ReferenceImages = []content.Block{
+		content.ImageBlock(
+			content.Source{URL: "https://example.com/reference.png"},
+		),
+	}
 	request, err := client.PrepareImage(context.Background(), input)
 	if err != nil {
 		t.Fatalf("prepare URL edit: %v", err)
@@ -300,17 +344,25 @@ func TestClientRejectsWrongDestinationBeforeDispatch(t *testing.T) {
 	}))
 	defer server.Close()
 	endpoint := server.URL + "/v1"
-	first := testClient(t, endpoint, media.ImageCapabilities{
-		Generate: model.SupportSupported,
-	})
+	first := testClient(
+		t,
+		endpoint,
+		media.ImageCapabilities{
+			Generate: model.SupportSupported,
+		},
+	)
 	second, err := New(Config{
-		Provider: "openai-test", APIKey: "another-key", Endpoint: endpoint,
+		Provider: "openai-test",
+		APIKey:   "another-key",
+		Endpoint: endpoint,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := first.PrepareImage(context.Background(),
-		imageInput(media.ImageGenerate))
+	request, err := first.PrepareImage(
+		context.Background(),
+		imageInput(media.ImageGenerate),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,11 +382,17 @@ func TestClientClassifiesQuotaRejection(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":{"code":"insufficient_quota"}}`))
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", media.ImageCapabilities{
-		Generate: model.SupportSupported,
-	})
-	request, err := client.PrepareImage(context.Background(),
-		imageInput(media.ImageGenerate))
+	client := testClient(
+		t,
+		server.URL+"/v1",
+		media.ImageCapabilities{
+			Generate: model.SupportSupported,
+		},
+	)
+	request, err := client.PrepareImage(
+		context.Background(),
+		imageInput(media.ImageGenerate),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +415,8 @@ func TestClientClassifiesQuotaRejection(t *testing.T) {
 
 func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -370,9 +429,11 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 			name: "generation with reference",
 			input: func() media.ImageInput {
 				input := imageInput(media.ImageGenerate)
-				input.ReferenceImages = []content.Block{content.ImageBlock(
-					content.Source{Data: tinyPNG, MIMEType: "image/png"},
-				)}
+				input.ReferenceImages = []content.Block{
+					content.ImageBlock(
+						content.Source{Data: tinyPNG, MIMEType: "image/png"},
+					),
+				}
 				return input
 			}(),
 		},
@@ -388,22 +449,28 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 			name: "edit with unqualified file ID",
 			input: func() media.ImageInput {
 				input := imageInput(media.ImageEdit)
-				input.ReferenceImages = []content.Block{content.ImageBlock(
-					content.Source{
-						ID: "file_123",
-						Origin: content.Origin{
-							Provider: "openai", API: "openai.files",
-							Scope: "different-credential",
+				input.ReferenceImages = []content.Block{
+					content.ImageBlock(
+						content.Source{
+							ID: "file_123",
+							Origin: content.Origin{
+								Provider: "openai",
+								API:      "openai.files",
+								Scope:    "different-credential",
+							},
 						},
-					},
-				)}
+					),
+				}
 				return input
 			}(),
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := client.PrepareImage(context.Background(), tc.input); err == nil {
+			if _, err := client.PrepareImage(
+				context.Background(),
+				tc.input,
+			); err == nil {
 				t.Fatal("unsupported input was silently encoded")
 			}
 		})
@@ -412,7 +479,8 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 
 func TestClientPreparesOpenAIOptions(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -424,10 +492,15 @@ func TestClientPreparesOpenAIOptions(t *testing.T) {
 	input.Settings.OutputMIMEType = "image/webp"
 	zero := 0
 	options := Options{
-		Background: "transparent", Moderation: "low",
+		Background:        "transparent",
+		Moderation:        "low",
 		OutputCompression: &zero,
 	}
-	request, err := client.PrepareImageWithOptions(context.Background(), input, options)
+	request, err := client.PrepareImageWithOptions(
+		context.Background(),
+		input,
+		options,
+	)
 	if err != nil {
 		t.Fatalf("prepare current image model: %v", err)
 	}
@@ -442,7 +515,10 @@ func TestClientPreparesOpenAIOptions(t *testing.T) {
 		t.Fatalf("options not fully encoded: %#v", body)
 	}
 	var saved Options
-	if err := json.Unmarshal(request.Snapshot().ProviderOptions, &saved); err != nil {
+	if err := json.Unmarshal(
+		request.Snapshot().ProviderOptions,
+		&saved,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if saved.OutputCompression == nil || *saved.OutputCompression != 0 {
@@ -452,17 +528,24 @@ func TestClientPreparesOpenAIOptions(t *testing.T) {
 
 func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	input := imageInput(media.ImageEdit)
-	input.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
-		Data: tinyPNG, MIMEType: "image/png",
-	})}
-	request, err := client.PrepareImageWithOptions(context.Background(), input,
-		Options{InputFidelity: "high", Background: "opaque"})
+	input.ReferenceImages = []content.Block{
+		content.ImageBlock(content.Source{
+			Data:     tinyPNG,
+			MIMEType: "image/png",
+		}),
+	}
+	request, err := client.PrepareImageWithOptions(
+		context.Background(),
+		input,
+		Options{InputFidelity: "high", Background: "opaque"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +553,10 @@ func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := multipart.NewReader(bytes.NewReader(request.Body()), params["boundary"])
+	reader := multipart.NewReader(
+		bytes.NewReader(request.Body()),
+		params["boundary"],
+	)
 	var fields = map[string]string{}
 	for {
 		part, err := reader.NextPart()
@@ -494,7 +580,8 @@ func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 
 func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -510,9 +597,12 @@ func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 	jpeg.Settings.OutputMIMEType = "image/jpeg"
 	edit := imageInput(media.ImageEdit)
 	edit.Model = "gpt-image-2"
-	edit.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
-		Data: tinyPNG, MIMEType: "image/png",
-	})}
+	edit.ReferenceImages = []content.Block{
+		content.ImageBlock(content.Source{
+			Data:     tinyPNG,
+			MIMEType: "image/png",
+		}),
+	}
 	badCompression := 101
 	cases := []struct {
 		name    string
@@ -520,19 +610,34 @@ func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 		options Options
 	}{
 		{"transparent JPEG", jpeg, Options{Background: "transparent"}},
-		{"compression without format", imageInput(media.ImageGenerate),
-			Options{OutputCompression: &badCompression}},
-		{"invalid moderation", imageInput(media.ImageGenerate),
-			Options{Moderation: "none"}},
-		{"generation fidelity", imageInput(media.ImageGenerate),
-			Options{InputFidelity: "high"}},
-		{"GPT Image 2 fixed fidelity", edit,
-			Options{InputFidelity: "low"}},
+		{
+			"compression without format",
+			imageInput(media.ImageGenerate),
+			Options{OutputCompression: &badCompression},
+		},
+		{
+			"invalid moderation",
+			imageInput(media.ImageGenerate),
+			Options{Moderation: "none"},
+		},
+		{
+			"generation fidelity",
+			imageInput(media.ImageGenerate),
+			Options{InputFidelity: "high"},
+		},
+		{
+			"GPT Image 2 fixed fidelity",
+			edit,
+			Options{InputFidelity: "low"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := client.PrepareImageWithOptions(context.Background(),
-				tc.input, tc.options); err == nil {
+			if _, err := client.PrepareImageWithOptions(
+				context.Background(),
+				tc.input,
+				tc.options,
+			); err == nil {
 				t.Fatal("invalid options were accepted")
 			}
 		})
@@ -560,24 +665,37 @@ func TestFlexibleImageSizesRespectCurrentBounds(t *testing.T) {
 
 func TestDecodeImageSourceRejectsFalseFormat(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(tinyPNG)
-	if _, err := decodeImageSource(encoded, "", "jpeg",
-		"gpt-image-1.5"); err == nil {
+	if _, err := decodeImageSource(
+		encoded,
+		"",
+		"jpeg",
+		"gpt-image-1.5",
+	); err == nil {
 		t.Fatal("declared JPEG with PNG bytes was accepted")
 	}
 }
 
 func TestDecodeImageSourceRequiresBase64ForKnownGPTModels(t *testing.T) {
-	_, err := decodeImageSource("", "https://example.com/generated.png", "png",
-		"gpt-image-2.5-sunburst")
+	_, err := decodeImageSource(
+		"",
+		"https://example.com/generated.png",
+		"png",
+		"gpt-image-2.5-sunburst",
+	)
 	if err == nil {
 		t.Fatal("known GPT Image URL was accepted despite base64-only response")
 	}
-	source, err := decodeImageSource("", "https://example.com/generated.png", "png",
-		"future-image-model")
+	source, err := decodeImageSource(
+		"",
+		"https://example.com/generated.png",
+		"png",
+		"future-image-model",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.URL != "https://example.com/generated.png" || source.ExpiresAt != nil {
+	if source.URL != "https://example.com/generated.png" ||
+		source.ExpiresAt != nil {
 		t.Fatalf("unknown model URL received invented expiry: %#v", source)
 	}
 }

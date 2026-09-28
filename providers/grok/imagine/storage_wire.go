@@ -20,7 +20,11 @@ type fileOutputWire struct {
 	PublicURLError     string          `json:"public_url_error"`
 }
 
-func (wire fileOutputWire) storedOutput(index int, mimeType string, files content.Origin) (media.StoredOutput, error) {
+func (wire fileOutputWire) storedOutput(
+	index int,
+	mimeType string,
+	files content.Origin,
+) (media.StoredOutput, error) {
 	if wire.FileID == "" || wire.Filename == "" {
 		return media.StoredOutput{}, errors.New("imagine: stored output requires file_id and filename")
 	}
@@ -74,7 +78,11 @@ func parseOutputExpiry(raw json.RawMessage) *time.Time {
 		}
 		return nil
 	}
-	if value, err := strconv.ParseInt(strings.TrimSpace(encoded), 10, 64); err == nil {
+	if value, err := strconv.ParseInt(
+		strings.TrimSpace(encoded),
+		10,
+		64,
+	); err == nil {
 		parsed := time.Unix(value, 0).UTC()
 		if validOutputExpiry(parsed) {
 			return &parsed

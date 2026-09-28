@@ -29,11 +29,14 @@ func fingerprintMessages(history []llm.Message) []fingerprintMessage {
 	// A nil slice and an empty slice both mean there is no prior history.
 	messages := make([]fingerprintMessage, 0, len(history))
 	for _, message := range history {
-		messages = append(messages, fingerprintMessage{
-			Role:    message.Role,
-			Content: message.Content,
-			Source:  message.Source,
-		})
+		messages = append(
+			messages,
+			fingerprintMessage{
+				Role:    message.Role,
+				Content: message.Content,
+				Source:  message.Source,
+			},
+		)
 	}
 	return messages
 }

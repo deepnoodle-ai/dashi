@@ -17,7 +17,11 @@ func TestHistoryFingerprintTreatsNoHistoryConsistently(t *testing.T) {
 		t.Fatal(err)
 	}
 	if withoutHistory != emptyHistory {
-		t.Fatalf("nil and empty history differ: %q, %q", withoutHistory, emptyHistory)
+		t.Fatalf(
+			"nil and empty history differ: %q, %q",
+			withoutHistory,
+			emptyHistory,
+		)
 	}
 	const want = "v2:sha256:cebd6398674617d53df5b037c36f04f78241ec59ea669e892cf19ec1c5dbe736"
 	if withoutHistory != want {
@@ -49,9 +53,7 @@ func TestHistoryFingerprintTracksMessageFields(t *testing.T) {
 	changedRole := first.Clone()
 	changedRole.Role = llm.RoleAssistant
 	changedSource := first.Clone()
-	changedSource.Source = &llm.MessageSource{
-		API: "responses",
-	}
+	changedSource.Source = &llm.MessageSource{API: "responses"}
 	for _, message := range []llm.Message{
 		changedContent,
 		changedRole,
@@ -125,9 +127,7 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 				Kind:    StepStarted,
 				Started: &StartFact{
 					Definition: definition(),
-					Input: []llm.Message{
-						llm.UserMessage(llm.Text("current")),
-					},
+					Input:      []llm.Message{llm.UserMessage(llm.Text("current"))},
 				},
 			},
 			{
@@ -135,10 +135,12 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 				TurnID:  "turn-1",
 				Seq:     2,
 				Kind:    StepContinued,
-				Warnings: []Warning{{
-					Code:    WarningHistoryMismatch,
-					Message: "prior history differs from turn start",
-				}},
+				Warnings: []Warning{
+					{
+						Code:    WarningHistoryMismatch,
+						Message: "prior history differs from turn start",
+					},
+				},
 			},
 		},
 	}
@@ -173,8 +175,14 @@ func TestHistoryMatchesLegacyV1Fingerprints(t *testing.T) {
 		history []llm.Message
 		v1      string
 	}{
-		{nil, "v1:sha256:45534b2b2de441698879afa92a091595118dbeddc6096be5d6fa63efb8f69287"},
-		{[]llm.Message{llm.UserMessage(llm.Text("earlier"))}, "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc"},
+		{
+			nil,
+			"v1:sha256:45534b2b2de441698879afa92a091595118dbeddc6096be5d6fa63efb8f69287",
+		},
+		{
+			[]llm.Message{llm.UserMessage(llm.Text("earlier"))},
+			"v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc",
+		},
 	}
 	for _, c := range cases {
 		current, err := historyFingerprint(c.history)
@@ -196,16 +204,31 @@ func TestHistoryMatchesLegacyV1Fingerprints(t *testing.T) {
 func TestContinueAcceptsLegacyV1HistoryFingerprint(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("earlier"))}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	turn := Turn{ID: "t1", Steps: []Step{{
-		Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted,
-		CommandID: "start", CommandDigest: "legacy",
-		Started: &StartFact{
-			Definition:         definition(),
-			HistoryFingerprint: "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc",
-			Input:              []llm.Message{llm.UserMessage(llm.Text("go"))},
+	turn := Turn{
+		ID: "t1",
+		Steps: []Step{
+			{
+				Version:       1,
+				TurnID:        "t1",
+				Seq:           1,
+				Kind:          StepStarted,
+				CommandID:     "start",
+				CommandDigest: "legacy",
+				Started: &StartFact{
+					Definition:         definition(),
+					HistoryFingerprint: "v1:sha256:65f8814a69a0e497248526e5f00e400e6406a7695aefb960c3d73187978100cc",
+					Input:              []llm.Message{llm.UserMessage(llm.Text("go"))},
+				},
+			},
 		},
-	}}}
-	out, err := (Engine{}).Apply(t.Context(), turn, definition(), Continue{ID: "continue", History: history}, Bindings{Client: client})
+	}
+	out, err := (Engine{}).Apply(
+		t.Context(),
+		turn,
+		definition(),
+		Continue{ID: "continue", History: history},
+		Bindings{Client: client},
+	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("continue=%+v err=%v", out.Stop, err)
 	}

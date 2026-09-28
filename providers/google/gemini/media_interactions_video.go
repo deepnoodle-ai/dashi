@@ -9,10 +9,15 @@ import (
 	"github.com/deepnoodle-ai/kernel/media"
 )
 
-func (p *InteractionsMediaClient) videoEvidence(in media.VideoInput) (*media.ModelInfo, []string, error) {
+func (p *InteractionsMediaClient) videoEvidence(
+	in media.VideoInput,
+) (*media.ModelInfo, []string, error) {
 	info, known := p.VideoModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.VideoCapabilities{}).Check(in, p.config.CapabilityPolicy)
+		unverified, err := (media.VideoCapabilities{}).Check(
+			in,
+			p.config.CapabilityPolicy,
+		)
 		return nil, unverified, err
 	}
 	unverified, err := info.Video.Check(in, p.config.CapabilityPolicy)
@@ -22,11 +27,18 @@ func (p *InteractionsMediaClient) videoEvidence(in media.VideoInput) (*media.Mod
 // PrepareVideo encodes a stateless synchronous Omni generation call. A single
 // reference frame means an initial image for image-to-video; other frame roles
 // need explicit provider options and are not inferred from slice order.
-func (p *InteractionsMediaClient) PrepareVideo(ctx context.Context, in media.VideoInput) (media.VideoRequest, error) {
+func (p *InteractionsMediaClient) PrepareVideo(
+	ctx context.Context,
+	in media.VideoInput,
+) (media.VideoRequest, error) {
 	return p.prepareVideo(ctx, in, "inline")
 }
 
-func (p *InteractionsMediaClient) prepareVideo(ctx context.Context, in media.VideoInput, delivery string) (media.VideoRequest, error) {
+func (p *InteractionsMediaClient) prepareVideo(
+	ctx context.Context,
+	in media.VideoInput,
+	delivery string,
+) (media.VideoRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.VideoRequest{}, err
 	}
@@ -34,27 +46,65 @@ func (p *InteractionsMediaClient) prepareVideo(ctx context.Context, in media.Vid
 		return media.VideoRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
 	if in.Operation != "" && in.Operation != media.VideoGenerate {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Interactions video %s requires an explicit video source contract", in.Operation)
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Interactions video %s requires an explicit video source contract",
+			in.Operation,
+		)
 	}
-	if strings.HasPrefix(in.Model, "veo-") || strings.HasPrefix(in.Model, "imagen-") ||
+	if strings.HasPrefix(
+		in.Model,
+		"veo-",
+	) || strings.HasPrefix(
+		in.Model,
+		"imagen-",
+	) ||
 		strings.HasSuffix(in.Model, "-image") {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "model %q is not an Omni video model", in.Model)
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"model %q is not an Omni video model",
+			in.Model,
+		)
 	}
-	if in.Settings.Size.Width != 0 || in.Settings.Duration != 0 || len(in.ReferenceFrames) > 1 {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Omni exact size, explicit duration, or ambiguous multiple reference frames")
+	if in.Settings.Size.Width != 0 ||
+		in.Settings.Duration != 0 ||
+		len(in.ReferenceFrames) > 1 {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni exact size, explicit duration, or ambiguous multiple reference frames",
+		)
 	}
-	if ratio := in.Settings.AspectRatio; ratio != "" && ratio != "16:9" && ratio != "9:16" {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Omni aspect ratio %q", ratio)
+	if ratio := in.Settings.AspectRatio; ratio != "" &&
+		ratio != "16:9" &&
+		ratio != "9:16" {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni aspect ratio %q",
+			ratio,
+		)
 	}
-	if resolution := in.Settings.Resolution; resolution != "" && resolution != "360p" &&
+	if resolution := in.Settings.Resolution; resolution != "" &&
+		resolution != "360p" &&
 		resolution != "720p" && resolution != "1080p" && resolution != "4k" {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Omni resolution %q", resolution)
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni resolution %q",
+			resolution,
+		)
 	}
-	if delivery == "inline" && (in.Settings.Resolution == "1080p" || in.Settings.Resolution == "4k") {
-		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "Omni high resolution requires URI delivery")
+	if delivery == "inline" &&
+		(in.Settings.Resolution == "1080p" ||
+			in.Settings.Resolution == "4k") {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni high resolution requires URI delivery",
+		)
 	}
 	if len(in.Prompt) == 0 && len(in.ReferenceFrames) == 0 {
-		return media.VideoRequest{}, p.failure(media.ErrorInvalidRequest, "Omni requires a prompt or initial image")
+		return media.VideoRequest{}, p.failure(
+			media.ErrorInvalidRequest,
+			"Omni requires a prompt or initial image",
+		)
 	}
 	info, unverified, err := p.videoEvidence(in)
 	if err != nil {
@@ -83,31 +133,55 @@ func (p *InteractionsMediaClient) prepareVideo(ctx context.Context, in media.Vid
 		format["resolution"] = in.Settings.Resolution
 	}
 	bodyValue := map[string]any{
-		"model": in.Model, "input": input, "response_format": format,
+		"model":           in.Model,
+		"input":           input,
+		"response_format": format,
 		// URI delivery creates a provider File and requires stored interaction
 		// state; inline delivery keeps the call stateless.
-		"background": false, "store": delivery == "uri", "stream": false,
+		"background": false,
+		"store":      delivery == "uri",
+		"stream":     false,
 	}
 	if len(in.ReferenceFrames) == 1 {
-		bodyValue["generation_config"] = map[string]any{"video_config": map[string]any{"task": "image_to_video"}}
+		bodyValue["generation_config"] = map[string]any{
+			"video_config": map[string]any{"task": "image_to_video"},
+		}
 	}
 	body, err := json.Marshal(bodyValue)
 	if err != nil {
 		return media.VideoRequest{}, err
 	}
-	return media.NewVideoRequest(media.VideoRequestSnapshot{Origin: p.origin(in.Model),
-		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
+	return media.NewVideoRequest(media.VideoRequestSnapshot{
+		Origin:           p.origin(in.Model),
+		Input:            in,
+		Effective:        in.Settings,
+		Body:             body,
+		ContentType:      "application/json",
+		ModelInfo:        info,
+		CapabilityPolicy: p.config.CapabilityPolicy,
+		Unverified:       unverified,
+	})
 }
 
 // SendVideo dispatches one synchronous Interactions video call.
-func (p *InteractionsMediaClient) SendVideo(ctx context.Context, request media.VideoRequest) (media.Result, error) {
+func (p *InteractionsMediaClient) SendVideo(
+	ctx context.Context,
+	request media.VideoRequest,
+) (media.Result, error) {
 	in := request.Input()
-	if request.Origin() != p.origin(in.Model) || request.ContentType() != "application/json" {
-		return media.Result{}, p.failure(media.ErrorInvalidRequest, "prepared video request belongs to another destination")
+	if request.Origin() != p.origin(in.Model) ||
+		request.ContentType() != "application/json" {
+		return media.Result{}, p.failure(
+			media.ErrorInvalidRequest,
+			"prepared video request belongs to another destination",
+		)
 	}
-	if delivery, err := preparedVideoDelivery(request.Body()); err != nil || delivery != "inline" {
-		return media.Result{}, p.failure(media.ErrorInvalidRequest, "prepared video request is not an inline Interactions call")
+	if delivery, err := preparedVideoDelivery(request.Body()); err != nil ||
+		delivery != "inline" {
+		return media.Result{}, p.failure(
+			media.ErrorInvalidRequest,
+			"prepared video request is not an inline Interactions call",
+		)
 	}
 	raw, err := p.do(ctx, request.Body())
 	if err != nil {

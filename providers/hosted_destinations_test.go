@@ -40,21 +40,26 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := grok.NewImageGenerationTool(grok.ImageGenerationToolOptions{Action: "generate"})
+	image, err := grok.NewImageGenerationTool(grok.ImageGenerationToolOptions{
+		Action: "generate",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
-		Tools: []tool.Definition{
-			web,
-			x,
-			collections,
-			grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}),
-			image,
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
+			Tools: []tool.Definition{
+				web,
+				x,
+				collections,
+				grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}),
+				image,
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("prepare Grok hosted tools: %v", err)
 	}
@@ -98,11 +103,14 @@ func TestMetaHostedWebSearchIncludesResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
-		Tools:    []tool.Definition{web},
-	})
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
+			Tools:    []tool.Definition{web},
+		},
+	)
 	if err != nil {
 		t.Fatalf("prepare Meta search: %v", err)
 	}

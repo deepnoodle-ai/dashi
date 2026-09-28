@@ -7,7 +7,8 @@ import (
 
 // errorReason classifies Gemini failures. Gemini reports both context
 // overflow and unusable media as 400 INVALID_ARGUMENT with no finer code, so
-// the message decides: "The input token count (N) exceeds the maximum number of tokens
+// the message decides: "The input token count (N) exceeds the maximum number
+// of tokens
 // allowed (M)." for context, and phrases such as "Unable to process input
 // image" for media. Media phrases apply only when the request carried media,
 // which is also why the request payload size limit is attributed to media.
@@ -21,12 +22,14 @@ func errorReason(r providerhttp.Rejection) llm.ErrorReason {
 	switch {
 	case providerhttp.ContextWindowMessage(r.Message):
 		return llm.ReasonContextWindowExceeded
-	case r.HasMedia && providerhttp.ContainsAny(r.Message,
+	case r.HasMedia && providerhttp.ContainsAny(
+		r.Message,
 		"unable to process input image",
 		"image is not valid",
 		"unsupported mime type",
 		"the document has no pages",
-		"request payload size exceeds the limit"):
+		"request payload size exceeds the limit",
+	):
 		return llm.ReasonMediaRejected
 	}
 	return ""

@@ -10,7 +10,14 @@ import (
 
 func TestNearestEffortPrefersLowerLevels(t *testing.T) {
 	messages := []string{"low", "medium", "high", "max"}
-	responses := []string{"none", "minimal", "low", "medium", "high", "xhigh"}
+	responses := []string{
+		"none",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+	}
 	for _, test := range []struct {
 		name      string
 		requested string
@@ -98,9 +105,18 @@ func TestNearestEffortPrefersLowerLevels(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := nearestEffort(test.requested, test.accepted)
+			got, ok := nearestEffort(
+				test.requested,
+				test.accepted,
+			)
 			if got != test.want || ok != test.ok {
-				t.Fatalf("nearestEffort = %q, %v; want %q, %v", got, ok, test.want, test.ok)
+				t.Fatalf(
+					"nearestEffort = %q, %v; want %q, %v",
+					got,
+					ok,
+					test.want,
+					test.ok,
+				)
 			}
 		})
 	}
@@ -124,26 +140,49 @@ func TestFitRanksEffortAliasesUnderBothPolicies(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			c := Capabilities{ReasoningEfforts: test.accepted}
+			c := Capabilities{
+				ReasoningEfforts: test.accepted,
+			}
 			r := Input{
 				Model: "m",
 				Settings: Settings{
-					Reasoning: &ReasoningSettings{Effort: "extra-high"},
+					Reasoning: &ReasoningSettings{
+						Effort: "extra-high",
+					},
 				},
 			}
-			if _, _, err := c.Fit(r, CapabilityStrict, nil); err == nil {
+			if _, _, err := c.Fit(
+				r,
+				CapabilityStrict,
+				nil,
+			); err == nil {
 				t.Fatal("strict policy sent an alias it had to adjust")
 			}
-			fitted, adjustments, err := c.Fit(r, CapabilityAdjust, nil)
+			fitted, adjustments, err := c.Fit(
+				r,
+				CapabilityAdjust,
+				nil,
+			)
 			if err != nil {
-				t.Fatalf("adjust policy rejected a ranked alias: %v", err)
+				t.Fatalf(
+					"adjust policy rejected a ranked alias: %v",
+					err,
+				)
 			}
 			if got := fitted.Settings.Reasoning.Effort; got != test.want {
-				t.Fatalf("effort = %q, want %q", got, test.want)
+				t.Fatalf(
+					"effort = %q, want %q",
+					got,
+					test.want,
+				)
 			}
 			warnings := Warnings(adjustments)
-			if len(warnings) != 1 || warnings[0].Code != WarningSettingClamped {
-				t.Fatalf("alias adjustment warnings = %+v", warnings)
+			if len(warnings) != 1 ||
+				warnings[0].Code != WarningSettingClamped {
+				t.Fatalf(
+					"alias adjustment warnings = %+v",
+					warnings,
+				)
 			}
 		})
 	}
@@ -172,21 +211,35 @@ func TestFitClampsUnderAdjustAndFailsUnderStrict(t *testing.T) {
 		t.Fatalf("adjust policy rejected fittable values: %v", err)
 	}
 	if fitted.Settings.MaxTokens != 4096 {
-		t.Fatalf("max tokens = %d, want 4096", fitted.Settings.MaxTokens)
+		t.Fatalf(
+			"max tokens = %d, want 4096",
+			fitted.Settings.MaxTokens,
+		)
 	}
 	if *fitted.Settings.Temperature != 1 {
-		t.Fatalf("temperature = %g, want 1", *fitted.Settings.Temperature)
+		t.Fatalf(
+			"temperature = %g, want 1",
+			*fitted.Settings.Temperature,
+		)
 	}
 	if fitted.Settings.Reasoning.Effort != "low" {
-		t.Fatalf("effort = %q, want low", fitted.Settings.Reasoning.Effort)
+		t.Fatalf(
+			"effort = %q, want low",
+			fitted.Settings.Reasoning.Effort,
+		)
 	}
-	if r.Settings.Reasoning.Effort != "medium" || *r.Settings.Temperature != 1.5 {
+	if r.Settings.Reasoning.Effort != "medium" ||
+		*r.Settings.Temperature != 1.5 {
 		t.Fatal("fitting changed the caller's settings")
 	}
 	if len(adjustments) != 3 || len(Warnings(adjustments)) != 3 {
 		t.Fatalf("adjustments = %+v", adjustments)
 	}
-	if err := validateAdjustments(r.Settings, fitted.Settings, adjustments); err != nil {
+	if err := validateAdjustments(
+		r.Settings,
+		fitted.Settings,
+		adjustments,
+	); err != nil {
 		t.Fatalf("fitted adjustments disagree with settings: %v", err)
 	}
 }
@@ -196,35 +249,45 @@ func TestFitKeepsFittedDefaultSilent(t *testing.T) {
 	requested := Input{Model: "m"}
 	effective := requested
 	effective.Settings.MaxTokens = 4096
-	prior := []Adjustment{{
-		Field:     SettingMaxTokens,
-		Action:    AdjustmentDefault,
-		Requested: json.RawMessage("null"),
-		Effective: json.RawMessage("4096"),
-		Reason:    "default",
-	}}
+	prior := []Adjustment{
+		{
+			Field:     SettingMaxTokens,
+			Action:    AdjustmentDefault,
+			Requested: json.RawMessage("null"),
+			Effective: json.RawMessage("4096"),
+			Reason:    "default",
+		},
+	}
 	fitted, adjustments, err := c.Fit(effective, CapabilityAdjust, prior)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(adjustments) != 1 || adjustments[0].Action != AdjustmentDefault {
+	if len(adjustments) != 1 ||
+		adjustments[0].Action != AdjustmentDefault {
 		t.Fatalf("fitted default recorded as %+v", adjustments)
 	}
-	if string(adjustments[0].Effective) != "2048" || string(prior[0].Effective) != "4096" {
+	if string(adjustments[0].Effective) != "2048" ||
+		string(prior[0].Effective) != "4096" {
 		t.Fatal("default was not refitted without changing prior")
 	}
 	if len(Warnings(adjustments)) != 0 {
 		t.Fatal("a default the caller never set produced a warning")
 	}
-	if err := validateAdjustments(requested.Settings, fitted.Settings, adjustments); err != nil {
+	if err := validateAdjustments(
+		requested.Settings,
+		fitted.Settings,
+		adjustments,
+	); err != nil {
 		t.Fatalf("fitted default disagrees with settings: %v", err)
 	}
 }
 
 func TestFitOmitsOnlyParallelRequests(t *testing.T) {
-	c := Capabilities{Features: map[Feature]Support{
-		FeatureParallelTools: SupportUnsupported,
-	}}
+	c := Capabilities{
+		Features: map[Feature]Support{
+			FeatureParallelTools: SupportUnsupported,
+		},
+	}
 	enabled, disabled := true, false
 	r := Input{Model: "m", Settings: Settings{ParallelTools: &enabled}}
 	fitted, adjustments, err := c.Fit(r, CapabilityAdjust, nil)
@@ -240,31 +303,51 @@ func TestFitOmitsOnlyParallelRequests(t *testing.T) {
 	}
 	r.Settings.ParallelTools = &disabled
 	_, _, err = c.Fit(r, CapabilityAdjust, nil)
-	if err == nil || !strings.Contains(err.Error(), "remove ParallelTools") {
-		t.Fatalf("disabling parallel calls was dropped or unexplained: %v", err)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"remove ParallelTools",
+	) {
+		t.Fatalf(
+			"disabling parallel calls was dropped or unexplained: %v",
+			err,
+		)
 	}
 }
 
 func TestCheckUnsupportedFeatureNamesFix(t *testing.T) {
-	c := Capabilities{Features: map[Feature]Support{
-		FeatureText:  SupportSupported,
-		FeatureTools: SupportUnsupported,
-	}}
+	c := Capabilities{
+		Features: map[Feature]Support{
+			FeatureText:  SupportSupported,
+			FeatureTools: SupportUnsupported,
+		},
+	}
 	r := Input{
 		Model: "m",
-		Messages: []Message{AssistantMessage(Content{
-			Kind: ContentToolCall,
-			ToolCall: &tool.Call{
-				ID:   "call",
-				Name: "act",
-				Args: json.RawMessage(`{}`),
-			},
-		})},
+		Messages: []Message{
+			AssistantMessage(Content{
+				Kind: ContentToolCall,
+				ToolCall: &tool.Call{
+					ID:   "call",
+					Name: "act",
+					Args: json.RawMessage(`{}`),
+				},
+			}),
+		},
 	}
-	for _, policy := range []CapabilityPolicy{CapabilityAdjust, CapabilityStrict} {
+	for _, policy := range []CapabilityPolicy{
+		CapabilityAdjust,
+		CapabilityStrict,
+	} {
 		_, err := c.Check(r, policy)
-		if err == nil || !strings.Contains(err.Error(), "use a model with tool support") {
-			t.Fatalf("policy %q: known missing tool support lacked a fix: %v", policy, err)
+		if err == nil || !strings.Contains(
+			err.Error(),
+			"use a model with tool support",
+		) {
+			t.Fatalf(
+				"policy %q: known missing tool support lacked a fix: %v",
+				policy,
+				err,
+			)
 		}
 	}
 }
@@ -286,11 +369,17 @@ func TestIntersectKeepsTighterLimits(t *testing.T) {
 		MaxTemperature:     1,
 	}
 	got := model.Intersect(api)
-	if got.MaxOutputTokens != 8192 || got.MinReasoningBudget != 1024 || got.MaxTemperature != 1 {
+	if got.MaxOutputTokens != 8192 ||
+		got.MinReasoningBudget != 1024 ||
+		got.MaxTemperature != 1 {
 		t.Fatalf("limits were not combined: %+v", got)
 	}
-	if len(got.ReasoningEfforts) != 1 || got.ReasoningEfforts[0] != "high" {
-		t.Fatalf("effort levels = %v, want [high]", got.ReasoningEfforts)
+	if len(got.ReasoningEfforts) != 1 ||
+		got.ReasoningEfforts[0] != "high" {
+		t.Fatalf(
+			"effort levels = %v, want [high]",
+			got.ReasoningEfforts,
+		)
 	}
 	if got.Features[FeatureParallelTools] != SupportUnsupported {
 		t.Fatal("API rejection was lost")
@@ -307,7 +396,11 @@ func TestIntersectKeepsTighterContextWindow(t *testing.T) {
 		api  Capabilities
 		want int
 	}{
-		{name: "unknown API window", api: Capabilities{}, want: 200_000},
+		{
+			name: "unknown API window",
+			api:  Capabilities{},
+			want: 200_000,
+		},
 		{
 			name: "tighter API window",
 			api:  Capabilities{ContextWindow: 128_000},
@@ -323,7 +416,11 @@ func TestIntersectKeepsTighterContextWindow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := model.Intersect(tc.api).ContextWindow
 			if got != tc.want {
-				t.Fatalf("context window = %d, want %d", got, tc.want)
+				t.Fatalf(
+					"context window = %d, want %d",
+					got,
+					tc.want,
+				)
 			}
 		})
 	}

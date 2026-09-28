@@ -9,10 +9,15 @@ import (
 	"github.com/deepnoodle-ai/kernel/media"
 )
 
-func (p *InteractionsMediaClient) imageEvidence(in media.ImageInput) (*media.ModelInfo, []string, error) {
+func (p *InteractionsMediaClient) imageEvidence(
+	in media.ImageInput,
+) (*media.ModelInfo, []string, error) {
 	info, known := p.ImageModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.CapabilityPolicy)
+		unverified, err := (media.ImageCapabilities{}).Check(
+			in,
+			p.config.CapabilityPolicy,
+		)
 		return nil, unverified, err
 	}
 	unverified, err := info.Image.Check(in, p.config.CapabilityPolicy)
@@ -21,7 +26,10 @@ func (p *InteractionsMediaClient) imageEvidence(in media.ImageInput) (*media.Mod
 
 // PrepareImage encodes a stateless Interactions call with inline input images.
 // The exact JSON is retained for dispatch and can be recorded before sending.
-func (p *InteractionsMediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (media.ImageRequest, error) {
+func (p *InteractionsMediaClient) PrepareImage(
+	ctx context.Context,
+	in media.ImageInput,
+) (media.ImageRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.ImageRequest{}, err
 	}
@@ -29,26 +37,54 @@ func (p *InteractionsMediaClient) PrepareImage(ctx context.Context, in media.Ima
 		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
 	if strings.HasPrefix(in.Model, "imagen-") {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Imagen models are retired from the Gemini API")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Imagen models are retired from the Gemini API",
+		)
 	}
-	if in.Mask != nil || in.Settings.Size.Width != 0 || in.Settings.Quality != "" || in.Settings.Count > 1 {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Interactions image mask, exact size, quality, or count above one")
+	if in.Mask != nil ||
+		in.Settings.Size.Width != 0 ||
+		in.Settings.Quality != "" ||
+		in.Settings.Count > 1 {
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Interactions image mask, exact size, quality, or count above one",
+		)
 	}
 	if in.Operation == media.ImageGenerate && len(in.ReferenceImages) > 0 {
-		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "reference images require edit operation")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorInvalidRequest,
+			"reference images require edit operation",
+		)
 	}
-	if (in.Model == "gemini-3.1-flash-lite-image" || in.Model == "gemini-3.1-flash-image" ||
+	if (in.Model == "gemini-3.1-flash-lite-image" ||
+		in.Model == "gemini-3.1-flash-image" ||
 		in.Model == "gemini-3-pro-image") && len(in.ReferenceImages) > 14 {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Interactions image edit supports at most 14 reference images")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Interactions image edit supports at most 14 reference images",
+		)
 	}
-	if err := validateImageModelResolution(in.Model, in.Settings.Resolution); err != nil {
+	if err := validateImageModelResolution(
+		in.Model,
+		in.Settings.Resolution,
+	); err != nil {
 		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
-	if err := validateImageModelAspectRatio(in.Model, in.Settings.AspectRatio); err != nil {
+	if err := validateImageModelAspectRatio(
+		in.Model,
+		in.Settings.AspectRatio,
+	); err != nil {
 		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
-	if mime := in.Settings.OutputMIMEType; mime != "" && mime != "image/jpeg" && mime != "image/png" {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Interactions image output MIME type %q", mime)
+	if mime := in.Settings.OutputMIMEType; mime != "" &&
+		mime != "image/jpeg" &&
+		mime != "image/png" {
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Interactions image output MIME type %q",
+			mime,
+		)
 	}
 	info, unverified, err := p.imageEvidence(in)
 	if err != nil {
@@ -82,22 +118,40 @@ func (p *InteractionsMediaClient) PrepareImage(ctx context.Context, in media.Ima
 		format["image_size"] = in.Settings.Resolution
 	}
 	body, err := json.Marshal(map[string]any{
-		"model": in.Model, "input": input, "response_format": format,
-		"background": false, "store": false, "stream": false,
+		"model":           in.Model,
+		"input":           input,
+		"response_format": format,
+		"background":      false,
+		"store":           false,
+		"stream":          false,
 	})
 	if err != nil {
 		return media.ImageRequest{}, err
 	}
-	return media.NewImageRequest(media.ImageRequestSnapshot{Origin: p.origin(in.Model),
-		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
+	return media.NewImageRequest(media.ImageRequestSnapshot{
+		Origin:           p.origin(in.Model),
+		Input:            in,
+		Effective:        in.Settings,
+		Body:             body,
+		ContentType:      "application/json",
+		ModelInfo:        info,
+		CapabilityPolicy: p.config.CapabilityPolicy,
+		Unverified:       unverified,
+	})
 }
 
 // SendImage dispatches one prepared Interactions image call.
-func (p *InteractionsMediaClient) SendImage(ctx context.Context, request media.ImageRequest) (media.Result, error) {
+func (p *InteractionsMediaClient) SendImage(
+	ctx context.Context,
+	request media.ImageRequest,
+) (media.Result, error) {
 	in := request.Input()
-	if request.Origin() != p.origin(in.Model) || request.ContentType() != "application/json" {
-		return media.Result{}, p.failure(media.ErrorInvalidRequest, "prepared image request belongs to another destination")
+	if request.Origin() != p.origin(in.Model) ||
+		request.ContentType() != "application/json" {
+		return media.Result{}, p.failure(
+			media.ErrorInvalidRequest,
+			"prepared image request belongs to another destination",
+		)
 	}
 	raw, err := p.do(ctx, request.Body())
 	if err != nil {
@@ -141,12 +195,17 @@ func validateImageModelAspectRatio(name, ratio string) error {
 	standard := ratio == "1:1" || ratio == "2:3" || ratio == "3:2" ||
 		ratio == "3:4" || ratio == "4:3" || ratio == "4:5" ||
 		ratio == "5:4" || ratio == "9:16" || ratio == "16:9" || ratio == "21:9"
-	extended := ratio == "1:4" || ratio == "4:1" || ratio == "1:8" || ratio == "8:1"
+	extended := ratio == "1:4" ||
+		ratio == "4:1" ||
+		ratio == "1:8" ||
+		ratio == "8:1"
 	if !standard && !extended {
 		return fmt.Errorf("Gemini image aspect ratio %q", ratio)
 	}
-	if extended && (name == "gemini-3.1-flash-lite-image" || name == "gemini-3-pro-image" ||
-		name == "gemini-2.5-flash-image") {
+	if extended &&
+		(name == "gemini-3.1-flash-lite-image" ||
+			name == "gemini-3-pro-image" ||
+			name == "gemini-2.5-flash-image") {
 		return fmt.Errorf("%s does not support %s image aspect ratio", name, ratio)
 	}
 	return nil

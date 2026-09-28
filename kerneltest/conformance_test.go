@@ -224,7 +224,10 @@ type changesMeaning struct {
 	jsonbStore
 }
 
-func (s changesMeaning) Load(ctx context.Context, id string) (kernel.Turn, error) {
+func (s changesMeaning) Load(
+	ctx context.Context,
+	id string,
+) (kernel.Turn, error) {
 	turn, err := s.jsonbStore.Load(ctx, id)
 	if err != nil || len(turn.Steps) == 0 || turn.Steps[0].Started == nil {
 		return turn, err

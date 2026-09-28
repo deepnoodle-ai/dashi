@@ -1,4 +1,5 @@
-// Package responses implements the Responses API. Encoding, usage normalization,
+// Package responses implements the Responses API. Encoding, usage
+// normalization,
 // and replay handling are adapted from Dive's OpenAI provider (65c393f),
 // Apache-2.0. Provider wire objects stay outside Kernel's public model types.
 package responses
@@ -79,8 +80,18 @@ func New(config Config) (*Client, error) {
 		}
 		config.Provider = "openai"
 	}
-	client, err := providerhttp.NewClient(config.Provider, API, config.Endpoint, config.APIKey,
-		config.Client, http.Header{"Authorization": {"Bearer " + config.APIKey}}, config.Models, config.CapabilityPolicy)
+	client, err := providerhttp.NewClient(
+		config.Provider,
+		API,
+		config.Endpoint,
+		config.APIKey,
+		config.Client,
+		http.Header{
+			"Authorization": {"Bearer " + config.APIKey},
+		},
+		config.Models,
+		config.CapabilityPolicy,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +99,8 @@ func New(config Config) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
-// Provider identifies the configured destination in model references and errors.
+// Provider identifies the configured destination in model references and
+// errors.
 func (p *Client) Provider() string {
 	return p.client.Provider
 }
@@ -108,14 +120,22 @@ func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 // model's known limits are fitted to the nearest accepted value and recorded
 // as warnings; content the API cannot express is rejected as Unsupported
 // rather than dropped.
-func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) {
+func (p *Client) Prepare(
+	ctx context.Context,
+	r llm.Input,
+) (llm.Request, error) {
 	wire := codec{origin: p.client.Origin(r.Model)}
 	requested := r
 	if err := ctx.Err(); err != nil {
 		return llm.Request{}, err
 	}
 	if err := r.Validate(); err != nil {
-		return llm.Request{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorInvalidRequest, "%w", err)
+		return llm.Request{}, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	r, changes, err := providercontent.Adapt(r, wire.origin)
 	if err != nil {
@@ -164,7 +184,8 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 				if definition.Name == c.Name &&
 					definition.Kind == tool.KindProviderHosted {
 					return llm.Request{}, wire.unsupported(
-						"named choice of hosted tool %q", c.Name,
+						"named choice of hosted tool %q",
+						c.Name,
 					)
 				}
 			}
@@ -189,17 +210,24 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 			body["include"] = append(body["include"].([]string), includes...)
 			continue
 		}
-		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 || schema[0] != '{' {
-			return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
+		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 ||
+			schema[0] != '{' {
+			return llm.Request{}, wire.unsupported(
+				"tool %q requires an object schema",
+				d.Name,
+			)
 		}
 		// Explicit non-strict mode preserves the caller's schema unchanged.
-		defs = append(defs, map[string]any{
-			"type":        "function",
-			"name":        d.Name,
-			"description": d.Description,
-			"parameters":  d.Schema,
-			"strict":      false,
-		})
+		defs = append(
+			defs,
+			map[string]any{
+				"type":        "function",
+				"name":        d.Name,
+				"description": d.Description,
+				"parameters":  d.Schema,
+				"strict":      false,
+			},
+		)
 	}
 	if len(defs) > 0 {
 		body["tools"] = defs
@@ -207,8 +235,14 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	input := make([]any, 0)
 	for _, m := range r.Messages {
 		for _, c := range m.Content {
-			if (c.ToolCall != nil || c.Reasoning != nil || c.Refusal != nil) && m.Role != llm.RoleAssistant {
-				return llm.Request{}, wire.unsupported("assistant-only content in %s message", m.Role)
+			if (c.ToolCall != nil ||
+				c.Reasoning != nil ||
+				c.Refusal != nil) &&
+				m.Role != llm.RoleAssistant {
+				return llm.Request{}, wire.unsupported(
+					"assistant-only content in %s message",
+					m.Role,
+				)
 			}
 			if c.ToolResult != nil && m.Role != llm.RoleUser {
 				return llm.Request{}, wire.unsupported("tool results require user role")
@@ -224,7 +258,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 				last, ok := input[len(input)-1].(map[string]any)
 				lastID, _ := last["id"].(string)
 				if ok && last["type"] == "message" && lastID == itemID {
-					last["content"] = append(last["content"].([]any), item["content"].([]any)...)
+					last["content"] = append(
+						last["content"].([]any),
+						item["content"].([]any)...,
+					)
 					continue
 				}
 			}
@@ -241,17 +278,30 @@ var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
 	},
-	ReasoningEfforts: []string{"none", "minimal", "low", "medium", "high", "xhigh"},
-	MaxTemperature:   2,
+	ReasoningEfforts: []string{
+		"none",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+	},
+	MaxTemperature: 2,
 }
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
 // Whenever an error is returned, the result's stop kind is incomplete and the
 // result may still carry the content received before the failure.
-func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+func (p *Client) Send(
+	ctx context.Context,
+	call llm.Call,
+) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
-	wire := codec{origin: p.client.Origin(prepared.Input().Model), media: providerhttp.HasMedia(prepared.Input())}
+	wire := codec{
+		origin: p.client.Origin(prepared.Input().Model),
+		media:  providerhttp.HasMedia(prepared.Input()),
+	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
@@ -261,8 +311,11 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 		}
 	}()
 	r := llm.Result{
-		Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},
-		Message:   llm.Message{Role: llm.RoleAssistant},
+		Requested: llm.ModelRef{
+			Provider: prepared.Origin().Provider,
+			Model:    prepared.Input().Model,
+		},
+		Message: llm.Message{Role: llm.RoleAssistant},
 	}
 	resp, err := p.client.Post(ctx, prepared)
 	if err != nil {
@@ -274,7 +327,12 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorTransport, "read response: %w", err)
+		return r, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorTransport,
+			"read response: %w",
+			err,
+		)
 	}
 	return wire.decode(raw, r.Requested)
 }
@@ -290,7 +348,10 @@ type codec struct {
 // encodeData encodes a shared content block as a Responses content part.
 // Assistant text uses output parts and may carry citations only as their
 // original OpenAI annotations; user text uses input parts and cannot cite.
-func (wire codec) encodeData(b content.Block, assistant bool) (map[string]any, error) {
+func (wire codec) encodeData(
+	b content.Block,
+	assistant bool,
+) (map[string]any, error) {
 	switch b.Kind {
 	case content.KindText:
 		t := "input_text"
@@ -364,10 +425,14 @@ func (wire codec) encodeData(b content.Block, assistant bool) (map[string]any, e
 	}
 }
 
-// encode encodes c as a Responses input item. Shared blocks and refusals become
+// encode encodes c as a Responses input item. Shared blocks and refusals
+// become
 // single-part message items, which Prepare regroups by their original message
 // ID. Replay data is overlaid so private fields survive the round trip.
-func (wire codec) encode(c llm.Content, role llm.Role) (map[string]any, error) {
+func (wire codec) encode(
+	c llm.Content,
+	role llm.Role,
+) (map[string]any, error) {
 	switch c.Kind {
 	case llm.ContentBlock:
 		part, err := wire.encodeData(*c.Block, role == llm.RoleAssistant)
@@ -376,17 +441,28 @@ func (wire codec) encode(c llm.Content, role llm.Role) (map[string]any, error) {
 		}
 		return wire.encodePart(role, part, c.Replay)
 	case llm.ContentRefusal:
-		return wire.encodePart(role, map[string]any{"type": "refusal", "refusal": *c.Refusal}, c.Replay)
+		return wire.encodePart(
+			role,
+			map[string]any{
+				"type":    "refusal",
+				"refusal": *c.Refusal,
+			},
+			c.Replay,
+		)
 	case llm.ContentToolCall:
 		if c.Replay != nil && c.Replay.Unit != llm.OpaqueUnitItem {
 			return nil, wire.unsupported("tool call replay unit")
 		}
-		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{
-			"type":      "function_call",
-			"call_id":   c.ToolCall.ID,
-			"name":      c.ToolCall.Name,
-			"arguments": string(c.ToolCall.Args),
-		})
+		return providerhttp.Overlay(
+			wire.origin,
+			c.Replay,
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   c.ToolCall.ID,
+				"name":      c.ToolCall.Name,
+				"arguments": string(c.ToolCall.Args),
+			},
+		)
 	case llm.ContentToolResult:
 		blocks := make([]any, 0, len(c.ToolResult.Output.Content))
 		for _, b := range c.ToolResult.Output.Content {
@@ -443,7 +519,11 @@ func (wire codec) encode(c llm.Content, role llm.Role) (map[string]any, error) {
 // encodePart wraps part in a message item for role. With replay data, the
 // original message metadata (such as its ID and phase) and the part's private
 // fields are restored, and part's public fields are overlaid on them.
-func (wire codec) encodePart(role llm.Role, part map[string]any, replay *llm.Opaque) (map[string]any, error) {
+func (wire codec) encodePart(
+	role llm.Role,
+	part map[string]any,
+	replay *llm.Opaque,
+) (map[string]any, error) {
 	message := map[string]any{"type": "message", "role": role}
 	if replay != nil {
 		if replay.Origin != wire.origin || replay.Unit != llm.OpaqueUnitMessagePart {
@@ -453,7 +533,10 @@ func (wire codec) encodePart(role llm.Role, part map[string]any, replay *llm.Opa
 			Message map[string]any
 			Part    map[string]any
 		}
-		if err := providerhttp.Decode(replay.Raw, &v); err != nil || v.Message == nil || v.Part == nil {
+		if err := providerhttp.Decode(
+			replay.Raw,
+			&v,
+		); err != nil || v.Message == nil || v.Part == nil {
 			return nil, errors.New("responses: message replay requires message and part objects")
 		}
 		message = v.Message
@@ -467,7 +550,10 @@ func (wire codec) encodePart(role llm.Role, part map[string]any, replay *llm.Opa
 
 // decode converts a terminal Responses object into a Result. Streaming decodes
 // the provider's final response object here as well, so both paths agree.
-func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error) {
+func (wire codec) decode(
+	raw []byte,
+	requested llm.ModelRef,
+) (llm.Result, error) {
 	r := llm.Result{
 		Requested: requested,
 		Raw:       slices.Clone(raw),
@@ -484,22 +570,42 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		Error             json.RawMessage
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode response: %w", err)
+		return r, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"decode response: %w",
+			err,
+		)
 	}
 	if v.Object != "response" {
-		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "expected response, received %q", v.Object)
+		return r, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"expected response, received %q",
+			v.Object,
+		)
 	}
 	r.ID = v.ID
 	r.Served = llm.ModelRef{Provider: wire.origin.Provider, Model: v.Model}
 	if v.Model == "" {
 		r.Served = llm.ModelRef{}
 	}
-	r.Message.Source = &llm.MessageSource{Requested: requested, Served: r.Served, API: wire.origin.API, ResponseID: r.ID}
+	r.Message.Source = &llm.MessageSource{
+		Requested:  requested,
+		Served:     r.Served,
+		API:        wire.origin.API,
+		ResponseID: r.ID,
+	}
 	r.Usage = v.Usage
 	switch v.Status {
 	case "completed", "incomplete", "failed", "cancelled":
 	default:
-		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "response has no terminal status: %q", v.Status)
+		return r, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"response has no terminal status: %q",
+			v.Status,
+		)
 	}
 	rawStop := v.Status
 	stop := v.Status
@@ -527,7 +633,11 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		for _, c := range cs {
 			switch {
 			case c.Opaque != nil && c.Opaque.Type == "function_call":
-				return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "completed response contains invalid tool arguments")
+				return r, providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"completed response contains invalid tool arguments",
+				)
 			case c.ToolCall != nil:
 				stop = "tool_use"
 			case c.Refusal != nil:
@@ -538,12 +648,16 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(stop), Raw: rawStop}
 	if v.Status == "failed" || (len(v.Error) > 0 && string(v.Error) != "null") {
 		r.Stop.Kind = llm.StopIncomplete
-		return r, providerhttp.Classify(&llm.Error{
-			Provider: wire.origin.Provider,
-			Category: llm.ErrorProtocol,
-			Body:     slices.Clone(v.Error),
-			Cause:    errors.New("responses: provider reported response failure"),
-		}, providerhttp.OpenAIReason, wire.media)
+		return r, providerhttp.Classify(
+			&llm.Error{
+				Provider: wire.origin.Provider,
+				Category: llm.ErrorProtocol,
+				Body:     slices.Clone(v.Error),
+				Cause:    errors.New("responses: provider reported response failure"),
+			},
+			providerhttp.OpenAIReason,
+			wire.media,
+		)
 	}
 	return r, nil
 }
@@ -578,21 +692,34 @@ func (wire codec) decodeItem(raw json.RawMessage) ([]llm.Content, error) {
 			replay.Partial = true
 			return []llm.Content{{Kind: llm.ContentOpaque, Opaque: replay}}, nil
 		}
-		call := tool.Call{ID: callItem.CallID, Name: callItem.Name, Args: json.RawMessage(callItem.Arguments)}
-		if err := call.Validate(); err != nil {
-			return nil, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid tool call: %w", err)
+		call := tool.Call{
+			ID:   callItem.CallID,
+			Name: callItem.Name,
+			Args: json.RawMessage(callItem.Arguments),
 		}
-		return []llm.Content{{Kind: llm.ContentToolCall, ToolCall: &call, Replay: replay}}, nil
+		if err := call.Validate(); err != nil {
+			return nil, providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"invalid tool call: %w",
+				err,
+			)
+		}
+		return []llm.Content{
+			{Kind: llm.ContentToolCall, ToolCall: &call, Replay: replay},
+		}, nil
 	case "reasoning":
 		text, ok := reasoningSummary(raw)
 		if !ok {
 			return []llm.Content{{Kind: llm.ContentOpaque, Opaque: replay}}, nil
 		}
-		return []llm.Content{{
-			Kind:      llm.ContentReasoning,
-			Reasoning: &llm.Reasoning{Text: text},
-			Replay:    replay,
-		}}, nil
+		return []llm.Content{
+			{
+				Kind:      llm.ContentReasoning,
+				Reasoning: &llm.Reasoning{Text: text},
+				Replay:    replay,
+			},
+		}, nil
 	case "web_search_call", "x_search_call", "file_search_call", "code_interpreter_call",
 		"image_generation_call", "mcp_call":
 		return wire.decodeHostedItem(raw, replay)
@@ -636,18 +763,41 @@ func (wire codec) decodeItem(raw json.RawMessage) ([]llm.Content, error) {
 					if err := json.Unmarshal(annotation, &a); err != nil {
 						return nil, err
 					}
-					b.Text.Citations = append(b.Text.Citations, content.Citation{
-						URL:    a.URL,
-						Title:  a.Title,
-						Origin: wire.origin,
-						Raw:    slices.Clone(annotation),
-					})
+					b.Text.Citations = append(
+						b.Text.Citations,
+						content.Citation{
+							URL:    a.URL,
+							Title:  a.Title,
+							Origin: wire.origin,
+							Raw:    slices.Clone(annotation),
+						},
+					)
 				}
-				result = append(result, llm.Content{Kind: llm.ContentBlock, Block: &b, Replay: replay})
+				result = append(
+					result,
+					llm.Content{
+						Kind:   llm.ContentBlock,
+						Block:  &b,
+						Replay: replay,
+					},
+				)
 			case "refusal":
-				result = append(result, llm.Content{Kind: llm.ContentRefusal, Refusal: &p.Refusal, Replay: replay})
+				result = append(
+					result,
+					llm.Content{
+						Kind:    llm.ContentRefusal,
+						Refusal: &p.Refusal,
+						Replay:  replay,
+					},
+				)
 			default:
-				result = append(result, llm.Content{Kind: llm.ContentOpaque, Opaque: replay})
+				result = append(
+					result,
+					llm.Content{
+						Kind:   llm.ContentOpaque,
+						Opaque: replay,
+					},
+				)
 			}
 		}
 		return result, nil
@@ -670,7 +820,8 @@ func reasoningSummary(raw json.RawMessage) (string, bool) {
 		return "", false
 	}
 	recognized := false
-	if encrypted, exists := fields["encrypted_content"]; exists && string(encrypted) != "null" {
+	if encrypted, exists := fields["encrypted_content"]; exists &&
+		string(encrypted) != "null" {
 		var value string
 		if json.Unmarshal(encrypted, &value) != nil || value == "" {
 			return "", false
@@ -689,7 +840,10 @@ func reasoningSummary(raw json.RawMessage) (string, bool) {
 				Type string
 				Text *string
 			}
-			if json.Unmarshal(part, &p) != nil || p.Type != "summary_text" || p.Text == nil {
+			if json.Unmarshal(
+				part,
+				&p,
+			) != nil || p.Type != "summary_text" || p.Text == nil {
 				return "", false
 			}
 			text = append(text, *p.Text)
@@ -703,5 +857,10 @@ func reasoningSummary(raw json.RawMessage) (string, bool) {
 
 // unsupported reports a request feature the Responses API cannot express.
 func (wire codec) unsupported(format string, args ...any) error {
-	return providerhttp.Failure(wire.origin.Provider, llm.ErrorUnsupported, format, args...)
+	return providerhttp.Failure(
+		wire.origin.Provider,
+		llm.ErrorUnsupported,
+		format,
+		args...,
+	)
 }

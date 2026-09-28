@@ -11,15 +11,29 @@ import (
 )
 
 func TestPrepareEncodesMultipleInlineImages(t *testing.T) {
-	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	client, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := llm.Input{Model: "gemini-test", Messages: []llm.Message{llm.UserMessage(
-		llm.Text("Describe both images."),
-		llm.Block(content.ImageBlock(content.Source{Data: []byte("first"), MIMEType: "image/png"})),
-		llm.Block(content.ImageBlock(content.Source{Data: []byte("second"), MIMEType: "image/jpeg"})),
-	)}}
+	input := llm.Input{
+		Model: "gemini-test",
+		Messages: []llm.Message{
+			llm.UserMessage(
+				llm.Text("Describe both images."),
+				llm.Block(content.ImageBlock(content.Source{
+					Data:     []byte("first"),
+					MIMEType: "image/png",
+				})),
+				llm.Block(content.ImageBlock(content.Source{
+					Data:     []byte("second"),
+					MIMEType: "image/jpeg",
+				})),
+			),
+		},
+	}
 	prepared, err := client.Prepare(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -65,17 +79,19 @@ func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 	}
 	input := llm.Input{
 		Model: "gemini-test",
-		Messages: []llm.Message{llm.UserMessage(
-			llm.Block(content.DocumentBlock(content.Source{
-				URI:      "https://files.example.test/pdf-1",
-				MIMEType: "application/pdf",
-				Origin:   httpClient.Origin("gemini-test"),
-			})),
-			llm.Block(content.ImageBlock(content.Source{
-				URL:      "https://example.test/image.png",
-				MIMEType: "image/png",
-			})),
-		)},
+		Messages: []llm.Message{
+			llm.UserMessage(
+				llm.Block(content.DocumentBlock(content.Source{
+					URI:      "https://files.example.test/pdf-1",
+					MIMEType: "application/pdf",
+					Origin:   httpClient.Origin("gemini-test"),
+				})),
+				llm.Block(content.ImageBlock(content.Source{
+					URL:      "https://example.test/image.png",
+					MIMEType: "image/png",
+				})),
+			),
+		},
 	}
 	prepared, err := client.Prepare(context.Background(), input)
 	if err != nil {
@@ -98,11 +114,13 @@ func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 		t.Fatalf("Gemini file parts were lost: %s", prepared.Body())
 	}
 	first := body.Contents[0].Parts[0].FileData
-	if first.FileURI != "https://files.example.test/pdf-1" || first.MIMEType != "application/pdf" {
+	if first.FileURI != "https://files.example.test/pdf-1" ||
+		first.MIMEType != "application/pdf" {
 		t.Fatalf("provider URI was changed: %+v", first)
 	}
 	second := body.Contents[0].Parts[1].FileData
-	if second.FileURI != "https://example.test/image.png" || second.MIMEType != "image/png" {
+	if second.FileURI != "https://example.test/image.png" ||
+		second.MIMEType != "image/png" {
 		t.Fatalf("public URL was changed: %+v", second)
 	}
 }
@@ -117,17 +135,19 @@ func TestPrepareRejectsForeignGeminiFileURI(t *testing.T) {
 	}
 	input := llm.Input{
 		Model: "gemini-test",
-		Messages: []llm.Message{llm.UserMessage(llm.Block(
-			content.DocumentBlock(content.Source{
-				URI:      "https://files.example.test/pdf-1",
-				MIMEType: "application/pdf",
-				Origin: content.Origin{
-					Provider: "other",
-					API:      API,
-					Scope:    "other",
-				},
-			}),
-		))},
+		Messages: []llm.Message{
+			llm.UserMessage(llm.Block(
+				content.DocumentBlock(content.Source{
+					URI:      "https://files.example.test/pdf-1",
+					MIMEType: "application/pdf",
+					Origin: content.Origin{
+						Provider: "other",
+						API:      API,
+						Scope:    "other",
+					},
+				}),
+			)),
+		},
 	}
 	if _, err := client.Prepare(context.Background(), input); err == nil {
 		t.Fatal("foreign provider URI prepared for Gemini")

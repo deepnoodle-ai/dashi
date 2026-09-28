@@ -10,14 +10,25 @@ import (
 )
 
 func streamStart() Start {
-	return Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}
+	return Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	}
 }
 
 func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{final("done")}, deltas: []llm.Delta{{Kind: llm.DeltaText, Text: "done"}}}
+	client := &scriptedClient{
+		results: []llm.Result{final("done")},
+		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "done"}},
+	}
 	recorder := NewMemoryRecorder()
-	sequence := (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
-		Bindings{Client: client, Recorder: recorder})
+	sequence := (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		streamStart(),
+		Bindings{Client: client, Recorder: recorder},
+	)
 	if client.sends != 0 {
 		t.Fatal("constructing iterator dispatched model")
 	}
@@ -39,7 +50,14 @@ func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
 			t.Fatal("empty stream event")
 		}
 	}
-	want := []string{"turn_started", "model_requested", "delta:done", "model_settled", "turn_stopped", "outcome"}
+	want := []string{
+		"turn_started",
+		"model_requested",
+		"delta:done",
+		"model_settled",
+		"turn_stopped",
+		"outcome",
+	}
 	if len(got) != len(want) {
 		t.Fatalf("events=%v", got)
 	}
@@ -49,10 +67,18 @@ func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
 		}
 	}
 	if terminal == nil || terminal.Stop.Kind != StopCompleted || client.sends != 1 || len(client.inputs) != 1 || !client.inputs[0].Stream {
-		t.Fatalf("outcome=%+v sends=%d inputs=%+v", terminal, client.sends, client.inputs)
+		t.Fatalf(
+			"outcome=%+v sends=%d inputs=%+v",
+			terminal,
+			client.sends,
+			client.inputs,
+		)
 	}
 	for event, err := range sequence {
-		if !errors.Is(err, ErrStreamConsumed) || event.Step != nil || event.Outcome != nil {
+		if !errors.Is(
+			err,
+			ErrStreamConsumed,
+		) || event.Step != nil || event.Outcome != nil {
 			t.Fatalf("second range event=%+v err=%v", event, err)
 		}
 	}
@@ -63,9 +89,13 @@ func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
 
 func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
-	for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(),
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
 		Start{Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
-		Bindings{Client: client, Recorder: NewMemoryRecorder()}) {
+		Bindings{Client: client, Recorder: NewMemoryRecorder()},
+	) {
 		if err == nil || event.Step != nil || event.Outcome != nil {
 			t.Fatalf("validation event=%+v err=%v", event, err)
 		}
@@ -75,8 +105,13 @@ func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
 	}
 	recorder := &failOnceKind{base: NewMemoryRecorder(), kind: StepStarted}
 	steps, terminals := 0, 0
-	for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
-		Bindings{Client: client, Recorder: recorder}) {
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		streamStart(),
+		Bindings{Client: client, Recorder: recorder},
+	) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,8 +135,13 @@ func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 		t.Run(string(stopAt), func(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("unused")}}
 			recorder := NewMemoryRecorder()
-			for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
-				Bindings{Client: client, Recorder: recorder}) {
+			for event, err := range (Engine{}).Stream(
+				context.Background(),
+				Turn{ID: "t1"},
+				definition(),
+				streamStart(),
+				Bindings{Client: client, Recorder: recorder},
+			) {
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -135,20 +175,31 @@ func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 
 type cancelAfterDeltaClient struct{ *scriptedClient }
 
-func (c *cancelAfterDeltaClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+func (c *cancelAfterDeltaClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
 	c.sends++
 	call.Sink(llm.Delta{Kind: llm.DeltaText, Text: "partial"})
 	<-ctx.Done()
-	return llm.Result{ID: "partial", Message: llm.AssistantMessage(llm.Text("partial")),
+	return llm.Result{
+		ID:        "partial",
+		Message:   llm.AssistantMessage(llm.Text("partial")),
 		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
-		Usage:     &llm.Usage{InputTokens: 3, OutputTokens: 2}}, ctx.Err()
+		Usage:     &llm.Usage{InputTokens: 3, OutputTokens: 2},
+	}, ctx.Err()
 }
 
 func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	client := &cancelAfterDeltaClient{scriptedClient: &scriptedClient{}}
 	recorder := NewMemoryRecorder()
-	for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
-		Bindings{Client: client, Recorder: recorder}) {
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		streamStart(),
+		Bindings{Client: client, Recorder: recorder},
+	) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,8 +217,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	}
 	if view.ModelAttempts != 0 || view.Spend.Usage.InputTokens != 3 ||
 		view.Spend.Usage.OutputTokens != 2 {
-		t.Fatalf("attempts=%d usage=%+v", view.ModelAttempts,
-			view.Spend.Usage)
+		t.Fatalf("attempts=%d usage=%+v", view.ModelAttempts, view.Spend.Usage)
 	}
 	found := false
 	for _, step := range turn.Steps {
@@ -186,13 +236,29 @@ func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
 	runs := 0
-	local := tool.Tool{Definition: tool.Definition{Name: "work", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+	local := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "work",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			runs++
 			return tool.Outcome{State: tool.StateSucceeded}, nil
-		})}
-	for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
-		Bindings{Client: client, Tools: fixedTools{local}, Recorder: recorder, Policy: AllowLocalPolicy{}}) {
+		}),
+	}
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		streamStart(),
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{local},
+			Recorder: recorder,
+			Policy:   AllowLocalPolicy{},
+		},
+	) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,9 +278,7 @@ func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 }
 
 func TestEngineStreamBreakWithContextCancelEndsTurn(t *testing.T) {
-	client := &scriptedClient{
-		results: []llm.Result{callResult("call", "work")},
-	}
+	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
 	for event, err := range (Engine{}).Stream(
 		context.Background(),
@@ -250,7 +314,9 @@ func TestEngineStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 	}
 	if view.Tools["call"].Outcome == nil ||
 		view.Tools["call"].Outcome.State != tool.StateNotExecuted {
-		t.Fatalf("unstarted call outcome=%+v, want not executed",
-			view.Tools["call"].Outcome)
+		t.Fatalf(
+			"unstarted call outcome=%+v, want not executed",
+			view.Tools["call"].Outcome,
+		)
 	}
 }

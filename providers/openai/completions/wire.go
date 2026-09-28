@@ -9,6 +9,9 @@ import (
 	"github.com/deepnoodle-ai/kernel/money"
 )
 
+// Message keeps both string and content-part forms of Chat Completions
+// content.
+// A decoded part array also populates Content with its joined text.
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -30,6 +33,7 @@ type Message struct {
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
+// MarshalJSON writes ContentParts in place of Content when parts are present.
 func (m Message) MarshalJSON() ([]byte, error) {
 	type alias Message
 	if len(m.ContentParts) == 0 {
@@ -65,7 +69,10 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.ToolCalls = aux.ToolCalls
 	m.Reasoning = aux.Reasoning
 	reasoningDetails := bytes.TrimSpace(aux.ReasoningDetails)
-	if len(reasoningDetails) == 0 || bytes.Equal(reasoningDetails, []byte("null")) {
+	if len(reasoningDetails) == 0 || bytes.Equal(
+		reasoningDetails,
+		[]byte("null"),
+	) {
 		m.ReasoningDetails = nil
 	} else {
 		m.ReasoningDetails = append(m.ReasoningDetails[:0], reasoningDetails...)
@@ -105,6 +112,7 @@ type ContentPart struct {
 	PromptCacheBreakpoint *PromptCacheBreakpoint `json:"prompt_cache_breakpoint,omitempty"`
 }
 
+// PromptCacheBreakpoint marks a provider cache boundary in a content part.
 type PromptCacheBreakpoint struct {
 	Mode string `json:"mode"`
 }
@@ -124,17 +132,20 @@ type FilePart struct {
 	FileID   string `json:"file_id,omitempty"`
 }
 
+// ToolCallFunction carries a tool name and its serialized arguments.
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
+// ToolCall carries a function call in a complete Chat Completions message.
 type ToolCall struct {
 	ID       string           `json:"id"`
 	Type     string           `json:"type"`
 	Function ToolCallFunction `json:"function"`
 }
 
+// Response retains the complete response fields needed for result decoding.
 type Response struct {
 	ID          string   `json:"id"`
 	Object      string   `json:"object"`
@@ -145,12 +156,14 @@ type Response struct {
 	Usage       Usage    `json:"usage"`
 }
 
+// Choice pairs a complete message with the provider's finish reason.
 type Choice struct {
 	Index        int     `json:"index"`
 	Message      Message `json:"message"`
 	FinishReason string  `json:"finish_reason"`
 }
 
+// Usage retains provider token breakdowns and exact decimal cost fields.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -165,6 +178,7 @@ type Usage struct {
 	present                 bool
 }
 
+// UnmarshalJSON distinguishes a reported zero usage object from JSON null.
 func (u *Usage) UnmarshalJSON(data []byte) error {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		*u = Usage{}
@@ -215,6 +229,7 @@ func (u Usage) toLLMUsage() llm.Usage {
 	return usage
 }
 
+// StreamResponse retains streamed choices, usage, and in-band failures.
 type StreamResponse struct {
 	ID                string         `json:"id"`                 // chatcmpl-B6ffy5hheub7qvA7LWuXEqDXR3TQ5
 	Object            string         `json:"object"`             // chat.completion.chunk
@@ -229,12 +244,14 @@ type StreamResponse struct {
 	Error json.RawMessage `json:"error,omitempty"`
 }
 
+// StreamChoice pairs a delta with its optional finish reason.
 type StreamChoice struct {
 	Index        int         `json:"index"`
 	Delta        StreamDelta `json:"delta"`
 	FinishReason string      `json:"finish_reason"`
 }
 
+// StreamDelta retains both string and content-part forms of streamed content.
 type StreamDelta struct {
 	Role string `json:"role"`
 	// Content holds the ordinary string form. ContentParts holds the typed
@@ -262,7 +279,10 @@ func (d *StreamDelta) UnmarshalJSON(data []byte) error {
 	d.Role = aux.Role
 	d.Reasoning = aux.Reasoning
 	reasoningDetails := bytes.TrimSpace(aux.ReasoningDetails)
-	if len(reasoningDetails) == 0 || bytes.Equal(reasoningDetails, []byte("null")) {
+	if len(reasoningDetails) == 0 || bytes.Equal(
+		reasoningDetails,
+		[]byte("null"),
+	) {
 		d.ReasoningDetails = nil
 	} else {
 		d.ReasoningDetails = append(d.ReasoningDetails[:0], reasoningDetails...)

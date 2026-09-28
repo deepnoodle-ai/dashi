@@ -1,4 +1,3 @@
-// Meta hosted web search is adapted from Dive's tool_web_search.go.
 package meta
 
 import (
