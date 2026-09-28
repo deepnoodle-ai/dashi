@@ -200,9 +200,21 @@ func lastDispatchedIntent(t Turn) int64 {
 	return last
 }
 
-// modelDispatched reports whether a settled model call reached the
-// provider: it was not stopped before dispatch, and not verified as never
-// dispatched.
+// modelDispatched reports whether a settlement shows evidence that the call
+// reached the provider: any part of a provider response (an ID, content,
+// usage, or a stop), or a rejection, which only a provider gives. A
+// settlement without such evidence, such as a call stopped before dispatch
+// or one recovered after a worker crash, does not count; a recovered call is
+// resent on resume, so an item kept for it goes with the resend, and a
+// NextCallOnly item may reach the model twice rather than never.
 func modelDispatched(f *ModelFact) bool {
-	return f != nil && !f.NoDispatch && f.Failure != llm.FailureNotDispatched
+	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+		return false
+	}
+	if f.Failure == llm.FailureRejected {
+		return true
+	}
+	r := f.Result
+	return r != nil && (r.ID != "" || len(r.Message.Content) > 0 ||
+		r.Usage != nil || r.Stop.Kind != "")
 }

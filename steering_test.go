@@ -1074,3 +1074,60 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 		})
 	})
 }
+
+// loseIntentAck records the first model request and then reports its write
+// as unknown, so the worker stops before the client is called, as a crash
+// between the request and dispatch would.
+type loseIntentAck struct {
+	*MemoryRecorder
+	fired bool
+}
+
+func (l *loseIntentAck) Commit(ctx context.Context, req CommitRequest) error {
+	if err := l.MemoryRecorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if !l.fired && req.Step.Kind == StepModelIntent {
+		l.fired = true
+		return errors.New("injected: acknowledgement lost")
+	}
+	return nil
+}
+
+// TestNextCallOnlySteerSurvivesCrashBeforeDispatch records a NextCallOnly
+// steer and a model request, stops before the client is called, reloads,
+// and continues. The recovered settlement is no evidence of dispatch, so
+// the steer reaches the resent call.
+func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
+	inbox := NewInbox()
+	if _, err := inbox.Send(Steer{Item: ContextItem{
+		Message:      llm.UserMessage(llm.Text("use the staging database")),
+		NextCallOnly: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	rec := &loseIntentAck{MemoryRecorder: NewMemoryRecorder()}
+	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	if _, err := runner.Run(
+		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	); err == nil {
+		t.Fatal("the lost acknowledgement was not reported")
+	}
+	if client.sends != 0 {
+		t.Fatal("the client was called before the request was acknowledged")
+	}
+	saved, err := rec.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runner.Run(
+		t.Context(), saved, Continue{CommandID: "resume"}, WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+	if hasText(client.inputs[0].Messages, "staging") < 0 {
+		t.Fatal("the steer did not reach the resent call")
+	}
+}

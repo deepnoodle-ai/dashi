@@ -14,8 +14,10 @@ return one through `ModelDecision.Deliver`. The full typed content is saved in
 the turn record and reconstructed by `Project`, including after an external tool
 wait or process restart. `ContextItem.Snapshot` replaces older items of the same
 origin and context-item name in the model projection; `NextCallOnly` keeps a
-recorded item until one model call is dispatched after it (a request stopped
-before dispatch does not count). Neither rule edits the saved facts.
+recorded item until a later model call shows evidence of dispatch (a provider
+response or rejection); after an ambiguous crash the resent call carries it
+again, so it may reach the model twice rather than never. Neither rule edits
+the saved facts.
 
 This matches Nvoken's choice to keep application context in its authoritative
 transcript. Nvoken also deduplicates unchanged named values and carries them
