@@ -155,9 +155,10 @@ type Event struct {
   redaction row). Should Dashi's per-step projection helper redact by default,
   and should reasoning previews be suppressed when reasoning is not meant for
   display, as nvoken does (generation.go:888-891)?
-- **Tool progress.** Executors have no progress sink (tool/tool.go:312-315). If
-  one is added it belongs to the preview class, keyed by `(CallID, Offset)` and
-  sharing the gap signal. Wait for a tool that needs it.
+- **Tool progress.** Decided in [tool-progress.md](tool-progress.md):
+  `tool.Report` snapshots are previews delivered as `Event.Progress`. A
+  snapshot replaces the last, so it needs neither `(CallID, Offset)` keys nor
+  the gap signal; those remain for appended tool output, added later.
 - **Ending a follow.** `Follow` ends only with its context until stops carry a
   final flag (`Stop.Final`, gap-analysis theme 1). Should it end on one?
 - **Conversation scope.** `Seq` is per turn; a cursor across a conversation's

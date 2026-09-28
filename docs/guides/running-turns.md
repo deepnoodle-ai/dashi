@@ -114,6 +114,32 @@ the turn as canceled. The iterator is backpressured; `Runner.Observer`
 remains a separate, lossy display hook. Ranging the same turn sequence again
 returns `dashi.ErrStreamConsumed`.
 
+## Tool progress
+
+A long-running tool can report a status snapshot with `tool.Report`. Each
+report replaces the previous one; `Total` of zero means unknown, and `Data`
+holds optional JSON for custom displays.
+
+```go
+tool.Report(ctx, tool.Progress{
+	Message: fmt.Sprintf("processed %d/%d records", i, total),
+	Done:    float64(i),
+	Total:   float64(total),
+})
+```
+
+Snapshots arrive as `Event.Progress` on `Runner.Stream` and on
+`Runner.Observer`, labeled with the call's `CallID` and tool `Name`. They are
+previews: never recorded, never replayed, and never shown to the model, so the
+tool's `Outcome` must still carry its full result. `Report` never blocks and
+does nothing when no one listens. When the consumer is slower than the tool,
+snapshots merge and the latest wins; the last report before `Execute` returns
+arrives before the call's settled step, and nothing for the call follows it.
+With one tool at a time, a snapshot may wait while the runner does other work.
+Report at human rates, a few times a second at most, and throttle rendering
+if needed. To test a tool on its own, install a reporter with
+`tool.WithReporter`. See `examples/tool_progress`.
+
 ## Serving live updates
 
 `Runner.Stream` suits a caller that owns the turn's lifetime, such as a CLI or
