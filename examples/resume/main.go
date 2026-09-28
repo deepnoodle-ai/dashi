@@ -6,7 +6,7 @@
 // filerecorder, a durable recorder that keeps each turn in a file, which is
 // what lets the turn outlive the process.
 //
-// Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL, then run:
+// Set ANTHROPIC_API_KEY (and optionally ANTHROPIC_MODEL), then run:
 //
 //	go run ./examples/resume -mode=start
 //	go run ./examples/resume -mode=resume

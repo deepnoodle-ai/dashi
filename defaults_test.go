@@ -107,7 +107,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "lookup"), final("found")},
 	}
 	rec := NewMemoryRecorder()
-	external := fixedTools{{Definition: tool.Definition{
+	external := tool.List{{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
@@ -172,7 +172,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 
 func TestZeroAgentCancelsAfterPromptEdit(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
-	external := fixedTools{{Definition: tool.Definition{
+	external := tool.List{{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
@@ -253,7 +253,7 @@ func TestNilPolicyAllowsBoundTools(t *testing.T) {
 			}, nil
 		}),
 	}
-	out, err := start(t, client, fixedTools{local}, nil, nil)
+	out, err := start(t, client, tool.List{local}, nil, nil)
 	if err != nil || out.Stop.Kind != StopCompleted || !ran {
 		t.Fatalf("stop=%+v err=%v ran=%v", out.Stop, err, ran)
 	}
@@ -272,7 +272,7 @@ func TestNilPolicyAllowsBoundTools(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}
 	client = &scriptedClient{results: []llm.Result{callResult("call-1", "echo")}}
-	out, err = start(t, client, fixedTools{external}, nil, nil)
+	out, err = start(t, client, tool.List{external}, nil, nil)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("external stop=%+v err=%v", out.Stop, err)
 	}
@@ -369,7 +369,7 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		api:      "anthropic.messages",
 		known:    map[string]bool{small: true},
 	}
-	external := fixedTools{{Definition: tool.Definition{
+	external := tool.List{{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
 		Kind:   tool.KindExternal,

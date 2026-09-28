@@ -50,8 +50,6 @@ func run(ctx context.Context, prompt string) error {
 	if err != nil {
 		return fmt.Errorf("hosted_tools: create client: %w", err)
 	}
-	// The provider runs hosted tools inside the model call, so the runner
-	// has no local call to authorize.
 	runner := dashi.Runner{
 		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client: client,
