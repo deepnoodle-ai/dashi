@@ -177,6 +177,24 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	}
 }
 
+// A call that leaves approval without an answer, here by cancellation, no
+// longer carries an approval digest.
+func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
+	turn, def, bindings, _, runs := pendingApproval(t)
+	canceled, err := (kernel.Engine{}).Apply(t.Context(), turn, def, kernel.Cancel{ID: "cancel", Reason: "user left"}, bindings)
+	if err != nil || canceled.Stop.Kind != kernel.StopCanceled {
+		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
+	}
+	view, err := kernel.Replay(canceled.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := view.Tools["call-1"]
+	if call.Status == kernel.ToolApprovalPending || call.ArgsDigest != "" || *runs != 0 {
+		t.Fatalf("canceled call=%+v runs=%d", call, *runs)
+	}
+}
+
 type tools []tool.Tool
 
 func (ts tools) Tools(context.Context) ([]tool.Tool, error) { return ts, nil }

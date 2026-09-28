@@ -149,6 +149,15 @@ func replay(t Turn) (*replayState, error) {
 		s.Warnings = append(s.Warnings, step.Warnings...)
 		s.Revision = step.Seq
 	}
+	// Derive ArgsDigest from the final status, so no transition out of
+	// approval can leave a stale digest behind.
+	for id, v := range s.Tools {
+		v.ArgsDigest = ""
+		if v.Status == ToolApprovalPending {
+			v.ArgsDigest = ArgsDigest(v.Call.Args)
+		}
+		s.Tools[id] = v
+	}
 	s.Pending = s.pending()
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
@@ -507,7 +516,6 @@ func (s *replayState) apply(step Step) error {
 			v.Status = ToolAllowed
 		case DecisionDefer:
 			v.Status = ToolApprovalPending
-			v.ArgsDigest = ArgsDigest(v.Call.Args)
 		case DecisionDeny:
 			v.Status = ToolDenied
 		default:
@@ -616,7 +624,6 @@ func (s *replayState) apply(step Step) error {
 		} else {
 			v.Status = ToolDenied
 		}
-		v.ArgsDigest = ""
 		s.Tools[v.Call.ID] = v
 	case StepHostedApproval:
 		s.awaitingClassification = false
