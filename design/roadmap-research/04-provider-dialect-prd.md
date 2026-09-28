@@ -1,37 +1,47 @@
-# PRD: provider dialect conformance
+# PRD: provider dialect conformance, first slice
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for discussion |
+| Status | Draft for independent review |
 | Date | 2026-09-28 |
 | Roadmap | [Item 4](../remaining-work.md), size M / medium difficulty |
-| Evidence | [Source review](04-provider-dialect-research.md), [content replay contract](../provider-content-replay.md) |
+| Evidence | [Source review](04-provider-dialect-research.md), [content replay contract](../provider-content-replay.md), Dashi `018af907` |
 
-## User problem
+## Problem and user
 
-An application developer expects `llm.Client` to keep a complete tool call, result, usage and stop reason when they change models or use an OpenAI-compatible endpoint. Real streams vary: tool IDs or indices may appear late or repeat, arguments may be empty or split oddly, and usage may arrive after a finish reason. Today Dashi covers important examples, but the fixture set cannot demonstrate that these variants preserve the same facts. A defect can surface as a broken turn or an unexecutable partial tool call, with the application left to diagnose the provider dialect.
+An application developer using an OpenAI-compatible endpoint expects streamed tool calls to mean the same thing as a blocking response. Some endpoints omit an index, send a tool ID or name late, interleave two calls, or emit usage after the finish reason. Dashi's current single-call tests do not prove that these bytes yield correctly paired calls and results. A bad correlation can turn fragments for two tools into one executable call. A developer needs a failure that names the route and wire case, and a saved conversation that either prepares safely for another provider or explains why it cannot.
 
-## Goal and scope
+The primary user is the developer selecting or integrating an LLM route. Adapter maintainers also need a small, reproducible corpus for fixing dialect regressions. The [research](04-provider-dialect-research.md) identifies the current index-based assembler risk and distinguishes it from verified live-provider behavior.
 
-Make a **small offline conformance corpus** that catches dialect regressions and makes support claims explainable. Keep the existing public `llm.Input`, `Result`, `Prepare` and `Client` concepts. Expand `internal/providertest` and route-owned fixtures rather than designing a plugin system or a general-purpose fixture language. Use `llm.ModelInfo` evidence and exact request snapshots to describe what was tested. A green local test means conformance with fixture bytes, not live provider qualification; live probes belong to [item 5](../remaining-work.md).
+## Outcome and scope
 
-## Proposed developer flow
+Deliver a **small offline Chat Completions conformance slice** using raw JSON/SSE bytes served by local HTTP tests. Keep `llm.Input`, `Result`, `Client`, and `Prepare` as the public vocabulary. A passing suite must cover at least seven named wire cases below, show blocking/stream parity for the valid two-tool exchange, and demonstrate one completed Chat Completions tool exchange preparing for both Anthropic Messages and OpenAI Responses. Case names should appear in failures as route/case/transport. Record for each case whether bytes are synthesized or captured, its route/endpoint identity, and the behavior it represents.
 
-An adapter author adds a small named case with a raw complete body or SSE sequence, expected normalized `Result` and deltas, and a source note (recorded route/date or hand-built edge case). The shared check prepares the request, serves bytes from a local HTTP server, compares blocking and streaming terminal facts, and verifies that `Send` uses the frozen body. A replay case feeds the resulting assistant message and matched tool result to each eligible destination's `Prepare`, checking either a semantically equivalent body with explicit `ContentChanges` or a typed rejection. Separate-module adapters such as Gemini run the same contract helpers in their module. The case name appears in test failure output, for example `completions/late-tool-id/stream`, so the developer sees the broken dialect and exact behavior.
+This slice is complete when the named cases pass in the root module, a regression in index/ID correlation fails a specific case, and the prepared cross-route body is the body dispatched. These are local parser and encoder claims. The [live qualification record](../../docs/dev/live-tests.md) remains the place for current provider acceptance.
 
-Begin with the known missing cases: parallel tool calls with missing/reused indices or IDs, empty argument fragments, out-of-order metadata, partial JSON on interruption, an in-stream error after text, and tool results after model handoff. Distinguish a temporarily incomplete call from a completed invalid call. Preserve unknown private replay as data; never infer an executable tool call from it. Keep source and target model/endpoint identities in the fixture notes.
+## Developer flow and acceptance cases
 
-## Acceptance criteria
+An adapter maintainer adds one compact fixture with source notes, runs the package tests, and reads a failure naming the route, case, and expected fact. The test compares canonical tool IDs, names, JSON arguments, usage presence, served model, and stop classification rather than brittle JSON formatting. It also checks request snapshots and dispatched bytes where history is prepared for another provider.
 
-1. A shared offline check runs complete/stream parity for Anthropic Messages, OpenAI Responses, Chat Completions and the separate Gemini module, with named raw-wire cases. It reports route and case on failure.
-2. Tool-call cases prove stable correlation of IDs, names and JSON arguments when fragments are unambiguous. Ambiguous reused indices or IDs, malformed calls, and incomplete calls cannot become executable tool calls; they produce an explicit error or non-executable partial content, with no silent drop or fabricated call ID.
-3. At least one cross-route history case per pair checks `Prepare` decisions and exact dispatched bytes, including a valid tool exchange and a rejected private replay. Extend the existing pair test rather than duplicating it.
-4. Fixtures compare final usage, cost availability, served model, stop and error classification across streaming and blocking where the provider supplies equivalent facts. Missing usage remains unknown rather than zero.
-5. Each route has a short coverage note listing fixture-backed behaviors, source of bytes and date. Live qualification is linked separately and never inferred from the fixture suite.
+| Case | Required behavior |
+| --- | --- |
+| `interleaved-two-tools` | Two indexed tool calls with split arguments and late but consistent ID/name remain distinct; equivalent blocking and stream results agree, including usage delivered after finish. |
+| `missing-index-resolved` | An omitted index joins an existing call only when its ID or the sole active call makes correlation unambiguous. Empty argument fragments do not alter the resulting JSON. |
+| `missing-index-ambiguous` | With two active calls and no usable index or ID, return `ErrorProtocol`; do not expose the ambiguous fragment as an executable call. |
+| `reused-index-conflicting-id` | An existing index carrying a different nonempty ID or name returns `ErrorProtocol`, retaining diagnostic source bytes. |
+| `duplicate-id-across-indices` | Two distinct calls ending with the same ID return `ErrorProtocol`, rather than creating a replay ambiguity. |
+| `finished-invalid-arguments` | A finished call with empty or malformed JSON arguments returns `ErrorProtocol`; no fabricated `{}` or executable call appears. |
+| `interrupted-arguments` | A stream ending before its tool JSON completes reports an incomplete result with partial, non-executable content. |
 
-## Non-goals, risks and open decisions
+For the valid two-tool result, append exactly matched tool results to the saved history. `Prepare` on Anthropic Messages and OpenAI Responses must retain both tool meanings and record any replay changes at their original positions. Snapshot restoration must preserve the frozen body, and `Send` must dispatch it once without silently changing IDs, names, arguments, or outputs. A rejected private-replay shape is already covered by the existing pair tests; keep that guard green rather than duplicating it here.
 
-- **No blanket compatibility flag bag.** pi shows why dialect traits help, but its size also shows maintenance cost. Add a typed, route-scoped option only for a demonstrated fixture-backed difference; expose the effective choice in `Prepare` evidence. A generic map or URL-sniffing policy is out of scope.
-- **No all-model live matrix here.** The pair matrix uses deterministic representative histories. Paid calls, credentials, model drift and current provider acceptance are item 5.
-- **Corpus maintenance:** Recorded responses may contain secrets, unstable IDs or large payloads. Review and minimize each fixture before committing it; record whether it was captured or synthesized. Keep the exact raw fragments needed to reproduce the behavior.
-- **Open decision:** Decide which incompatibilities deserve normalization and which should reject with `ErrorProtocol` or `ErrorUnsupported`. The rule should follow user meaning and replay safety, not mere parser permissiveness.
+## Boundaries and design guidance
+
+- Reuse route-owned tests and the existing `internal/providertest` helpers where they simplify the cases. Do not add Chat Completions to the broad root `cases(t)` table merely to get pair coverage: that table also drives many unrelated contracts.
+- Resolve a fragment by explicit index first, then a matching ID, then a sole active call. Reject conflicting evidence or unresolved ambiguity. A final call needs a provider ID, name, and valid JSON arguments. Preserve useful partial evidence without allowing an ambiguous call to execute.
+- Keep missing usage unknown (`nil`). Compare reported cost only when the fixture supplies it. Do not synthesize usage from text length.
+- No general compatibility-flag framework, model-name heuristics, all-route matrix, Gemini-module expansion, or paid live probes. Add a route-scoped option later only for a demonstrated wire difference that cannot be handled safely without one.
+
+## Risks and open decisions
+
+Synthesized fixtures prove deterministic adapter behavior, not that a named vendor emits those bytes today. Label the cases honestly and minimize captured payloads before committing any future real traces. Avoid broad parser tolerance: once two possible calls fit a fragment, rejection gives the developer an actionable protocol error and protects tool execution. During implementation, choose the smallest way to retain raw offending bytes in the error; the existing `llm.Error.Body` is preferable to a new public diagnostic type. If the current partial-result contract cannot represent a particular ambiguous fragment safely, report it through the error and keep the ambiguous content non-executable.
