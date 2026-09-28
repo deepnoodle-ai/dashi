@@ -212,7 +212,7 @@ func TestPreparePreservesMedia(t *testing.T) {
 				})),
 				llm.Block(content.DocumentBlock(content.Source{
 					URL: "https://example.com/doc.pdf",
-				})),
+				}, "")),
 			)
 			result := &llm.ToolResult{
 				CallID: "call-1",

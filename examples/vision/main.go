@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -60,10 +59,7 @@ func run(ctx context.Context) error {
 		llm.Input{
 			Model: model,
 			Messages: []llm.Message{
-				llm.UserMessage(
-					llm.Block(content.ImageBlock(source)),
-					llm.Text(*prompt),
-				),
+				llm.UserMessage(llm.Image(source), llm.Text(*prompt)),
 			},
 		},
 		nil,
@@ -76,8 +72,8 @@ func run(ctx context.Context) error {
 }
 
 // imageSource passes a URL through for the provider to fetch, and reads a
-// local file into inline bytes. Inline bytes need a MIME type; Dashi never
-// fetches or sniffs sources itself.
+// local file into inline bytes. Dashi never fetches a URL itself; it detects
+// the MIME type of inline bytes when preparing the request.
 func imageSource(image string) (content.Source, error) {
 	if strings.HasPrefix(image, "https://") ||
 		strings.HasPrefix(image, "http://") {
@@ -87,8 +83,5 @@ func imageSource(image string) (content.Source, error) {
 	if err != nil {
 		return content.Source{}, err
 	}
-	return content.Source{
-		Data:     data,
-		MIMEType: http.DetectContentType(data),
-	}, nil
+	return content.Source{Data: data}, nil
 }

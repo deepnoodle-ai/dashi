@@ -169,7 +169,43 @@ func (c Capabilities) Fit(
 		}
 		s.ParallelTools = nil
 	}
+	if s.Citations &&
+		c.Features[FeatureCitations] == SupportUnsupported &&
+		hasDocument(r) {
+		err := f.omit(
+			SettingCitations,
+			true,
+			"document citations are not supported here; "+
+				"documents were sent without them",
+			unsupportedError(r.Model, FeatureCitations),
+		)
+		if err != nil {
+			return Input{}, nil, err
+		}
+		s.Citations = false
+	}
 	return r, f.adjustments, nil
+}
+
+// hasDocument reports whether any message or tool result carries a document,
+// the only content the citations setting affects.
+func hasDocument(r Input) bool {
+	for _, m := range r.Messages {
+		for _, c := range m.Content {
+			if c.Block != nil && c.Block.Document != nil {
+				return true
+			}
+			if c.ToolResult == nil {
+				continue
+			}
+			for _, b := range c.ToolResult.Output.Content {
+				if b.Document != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // Intersect combines two sets of claims so the result accepts only what both

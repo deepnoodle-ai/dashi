@@ -247,6 +247,16 @@ func Adapt(
 				changes[len(changes)-1].FromRole = llm.RoleDeveloper
 				changes[len(changes)-1].ToRole = llm.RoleSystem
 			}
+			if reason, unknown := detectMIMETypes(c); reason != "" {
+				record(llm.ContentChangeDetectMIMEType, reason)
+				if unknown {
+					record(
+						llm.ContentChangeUnknownMIMEType,
+						"inline data could not be identified and was sent as "+
+							content.UnknownMIMEType+"; set Source.MIMEType",
+					)
+				}
+			}
 			kept = append(kept, *c)
 		}
 		if len(kept) > 0 || len(original.Content) == 0 {

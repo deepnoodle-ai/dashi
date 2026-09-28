@@ -201,7 +201,7 @@ func TestPrepareChecksFileOriginsAtEveryContentLocation(t *testing.T) {
 						block := content.DocumentBlock(content.Source{
 							ID:     "file-1",
 							Origin: origin,
-						})
+						}, "")
 						if nested {
 							message := llm.AssistantMessage(llm.Content{
 								Kind: llm.ContentToolCall,

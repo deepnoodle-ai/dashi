@@ -67,6 +67,10 @@ const (
 	FeatureReasoningBudget Feature = "reasoning_budget"
 	// FeatureStreaming describes support for streamed responses.
 	FeatureStreaming Feature = "streaming"
+	// FeatureCitations describes support for citing request documents. It is
+	// a property of the API encoding; APIs that cannot request citations
+	// declare it unsupported.
+	FeatureCitations Feature = "citations"
 )
 
 // HostedToolFeature scopes model evidence to a provider's wire tool type.
@@ -225,7 +229,8 @@ func knownFeature(f Feature) bool {
 	switch f {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
-		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming:
+		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming,
+		FeatureCitations:
 		return true
 	}
 	return strings.HasPrefix(string(f), "hosted_tool:") &&

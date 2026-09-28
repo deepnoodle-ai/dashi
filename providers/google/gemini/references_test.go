@@ -84,7 +84,7 @@ func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 					URI:      "https://files.example.test/pdf-1",
 					MIMEType: "application/pdf",
 					Origin:   httpClient.Origin("gemini-test"),
-				})),
+				}, "")),
 				llm.Block(content.ImageBlock(content.Source{
 					URL:      "https://example.test/image.png",
 					MIMEType: "image/png",
@@ -144,7 +144,7 @@ func TestPrepareRejectsForeignGeminiFileURI(t *testing.T) {
 						API:      API,
 						Scope:    "other",
 					},
-				}),
+				}, ""),
 			)),
 		},
 	}
