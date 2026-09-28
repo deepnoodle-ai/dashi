@@ -1597,6 +1597,10 @@ func validateStepPayload(step Step) error {
 			return err
 		}
 	}
+	if step.Tool != nil && step.Tool.Result != nil &&
+		step.Kind != StepToolSettled {
+		return errors.New("only a settlement records what the model sees")
+	}
 	if step.Kind != StepLoopContinued && step.Context != nil &&
 		step.Context.Vetoed {
 		return errors.New("only a loop continuation records a veto")

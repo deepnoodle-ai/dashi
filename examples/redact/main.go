@@ -76,7 +76,7 @@ func main() {
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	for _, v := range out.Tools {
-		fmt.Printf("\nRecorded output kept the key: %v\n",
-			apiKey.MatchString(v.Outcome.Output.Content[0].Text.Text))
+		fmt.Printf("\nThe model saw: %q\n", v.Result().Output.Content[0].Text.Text)
+		fmt.Printf("The record kept: %q\n", v.Outcome.Output.Content[0].Text.Text)
 	}
 }

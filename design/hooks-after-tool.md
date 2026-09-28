@@ -38,7 +38,9 @@ type ResultDecision struct {
 func (o Output) MapText(f func(string) string) Output // package tool
 ```
 
-A redactor that keeps images and returns no opinion when nothing matched:
+A redactor that keeps images and returns no opinion when nothing matched.
+`MapText` rewrites text blocks only; a strict redactor errors on blocks it
+cannot inspect:
 
 ```go
 redact := dashi.ResultHook{Name: "redact", Func: func(
@@ -68,14 +70,16 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
   storage redaction; a host that must not store a secret removes it in the
   executor.
 - **Failure.** Closed by default: the model sees "The tool ran, but its result
-  was withheld: check `<name>` failed.", not marked as an error so the model
-  does not retry a call that took effect, with `WarningHookFailed`. The hook
-  name is shown to the model. With `FailOpen`, the result so far stands and a
-  warning is recorded. `BeforeFinish` with `FailOpen` treats an error as no
+  was withheld: check "<name>" failed." (for a tool that returned
+  `not_executed`, "The call finished without running, …"), not marked as an
+  error so the model does not retry a call that took effect, with
+  `WarningHookFailed`. The hook name is shown to the model. With `FailOpen`,
+  the result so far stands and a warning is recorded. `BeforeFinish` with `FailOpen` treats an error as no
   opinion, with a warning. An invalid replacement is a failure.
 - **Ended context.** If the run's context ends while the chain runs, the
-  settlement is still committed, failing closed with a warning; the outcome
-  and its cost are kept. A context that ended before the chain started keeps
+  settlement is still committed with a warning, withheld unless every hook
+  left to answer fails open; the outcome and its cost are kept. A `Settle`
+  runs its hooks under the command's context, not the turn's deadline. A context that ended before the chain started keeps
   today's rule. `Project` never refuses a turn because of hooks.
 
 **Recording.** `ToolFact.Result *llm.ToolResult` (JSON `result`) is set on
@@ -94,19 +98,13 @@ non-text blocks; and the redactor example run live.
 
 ## 2b and 2c
 
-- **Hide.** Hooks' lists union; any tool from `Runner.Tools` can be hidden
-  except `dashi_submit_output` (that name is ignored with a warning); names
-  not offered are ignored; no effect on the final-answer call. The hide wins
-  over a forced tool choice that names a hidden tool: the choice is cleared,
-  with a warning. A call to a hidden tool reads "This tool is not available
-  now." Hide does not guarantee a tool is never called: `BeforeModel` fails
-  open, so pair it with a `BeforeTool` deny where that matters. Changing the
-  offered tools also resets the provider's prompt cache, so hides should
-  change rarely.
-- **tool.Join** combines toolsets and fails `Tools` on a duplicate name, so a
-  package can export `Hooks()` and `Tools()`.
-- **State** (2c) is recorded only when it changes, keyed by hook name and
-  shared across a bundle's points, and read through a typed accessor.
+- **2b, `Hide`:** hooks' lists union; the submit tool cannot be hidden; the
+  hide clears a forced tool choice naming a hidden tool, with a warning; a
+  hidden tool is not guaranteed unused, since `BeforeModel` fails open; and
+  changing the offered tools resets the provider's prompt cache. Plus
+  `tool.Join`, which fails `Tools` on a duplicate name.
+- **2c, state:** recorded only when it changes, keyed by hook name and shared
+  across a bundle's points, with a typed accessor.
 
 ## Risks
 

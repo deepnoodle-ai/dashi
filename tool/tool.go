@@ -231,8 +231,11 @@ func TextOutput(text string) Output {
 	return Output{Content: []content.Block{content.TextBlock(text)}}
 }
 
-// MapText returns a copy of o whose text blocks are rewritten by f. Other
-// blocks, such as images, and Display are kept unchanged.
+// MapText returns a copy of o whose text blocks are rewritten by f. Every
+// other block, such as an image, a document or a resource, and Display pass
+// through unchanged, so a strict redactor should refuse results with blocks
+// it cannot inspect. Citations on a rewritten block keep their original
+// character ranges.
 func (o Output) MapText(f func(string) string) Output {
 	out := o.Clone()
 	for i, block := range out.Content {
@@ -310,6 +313,23 @@ type Outcome struct {
 	Handle *Handle `json:"handle,omitempty"`
 	// Cost is the application-reported charge for completed tool work.
 	Cost *Cost `json:"cost,omitempty"`
+}
+
+// Clone returns a deep copy of o that shares no data with it.
+func (o Outcome) Clone() Outcome {
+	if o.Output != nil {
+		o.Output = new(o.Output.Clone())
+	}
+	if o.Wait != nil {
+		o.Wait = new(*o.Wait)
+	}
+	if o.Handle != nil {
+		o.Handle = new(*o.Handle)
+	}
+	if o.Cost != nil {
+		o.Cost = new(*o.Cost)
+	}
+	return o
 }
 
 // Succeeded returns a successful outcome whose output is text. An empty text

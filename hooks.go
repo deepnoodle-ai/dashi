@@ -110,7 +110,9 @@ func (h ResultHook) Hooks() Hooks {
 //     AcceptEmpty holds if any hook says so.
 //
 // When the run's context has ended, a hook's error gives the normal context
-// stop, and nothing is recorded for that hook. A panic counts as an error.
+// stop, and nothing is recorded for that hook, except at AfterTool: the
+// tool's result is still recorded, withheld from the model unless the
+// remaining hooks fail open. A panic counts as an error.
 type Hooks struct {
 	BeforeModel  []ModelHook
 	BeforeSend   []SendHook

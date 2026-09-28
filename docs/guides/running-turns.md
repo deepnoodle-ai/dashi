@@ -91,7 +91,9 @@ model call, and the next turn's history through `dashi.Project`. The record,
 `Observer` and `Stream` events, and `ToolView.Outcome` keep the raw output,
 so it is not storage redaction; keep a secret out of the record in the tool
 itself ([example](../../examples/redact/main.go)). `ToolView.Result()` shows
-what the model saw. A failing result hook withholds that result, telling the
+what the model saw. `Output.MapText` rewrites text blocks only; a strict
+redactor returns an error, withholding the result, when it finds a block it
+cannot inspect, such as a document or a resource. A failing result hook withholds that result, telling the
 model the tool ran; set `FailOpen` on a hook that only improves results to
 keep the result instead. `FailOpen` also works on `BeforeFinish`, where an
 error then counts as no opinion. Pass the same hooks to a `Settle` that

@@ -591,7 +591,10 @@ func (r Runner) apply(
 				return Outcome{}, errors.New("dashi: settle requires a final tool outcome")
 			}
 			fact := &ToolFact{Call: v.Call, Outcome: c.Outcome}
-			rt.afterTool(rt.ctx, fact)
+			// The turn deadline limits the turn's own work, not the host
+			// recording a result, so the hooks run under the command's
+			// context.
+			rt.afterTool(ctx, fact)
 			if o := rt.commit(Step{
 				Kind:          StepToolSettled,
 				CommandID:     c.CommandID,

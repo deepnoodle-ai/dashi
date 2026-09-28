@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -149,7 +150,7 @@ func TestAfterToolFailsClosed(t *testing.T) {
 				t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
 			}
 			result := out.Tools["call-1"].Result()
-			want := "The tool ran, but its result was withheld: check check failed."
+			want := `The tool ran, but its result was withheld: check "check" failed.`
 			if modelText(result) != want || result.IsError {
 				t.Fatalf("model result = %+v", result)
 			}
@@ -441,5 +442,211 @@ func TestFailOpenIsOnlyForAfterToolAndBeforeFinish(t *testing.T) {
 	out, err := runHooked(t, client, nil, guard.Hooks())
 	if err != nil || out.Stop.Kind != StopCompleted || !hasWarning(out, WarningHookFailed) {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+}
+
+func TestAfterToolCannotChangeTheRecordedOutcome(t *testing.T) {
+	costly := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "remote",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			out := tool.Succeeded("ok")
+			out.Cost = &tool.Cost{Amount: amount("5"), Currency: "USD"}
+			return out, nil
+		}),
+	}
+	meddle := ResultHook{Name: "meddle", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		p.Outcome.Cost.Amount = 0
+		p.Outcome.Output.Content[0].Text.Text = "changed"
+		return ResultDecision{}, nil
+	}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+	}
+	out, err := runHooked(t, client, tool.List{costly}, meddle.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	outcome := out.Tools["call-1"].Outcome
+	if outcome.Cost.Amount != amount("5") || modelText(out.Tools["call-1"].Result()) != "ok" {
+		t.Fatalf("outcome = %+v cost=%+v", outcome, outcome.Cost)
+	}
+
+	wait := tool.Outcome{State: tool.StateWaiting, Wait: &tool.Wait{Reason: "r"}, Handle: &tool.Handle{ID: "h"}}
+	copied := wait.Clone()
+	copied.Wait.Reason = "x"
+	copied.Handle.ID = "y"
+	if wait.Wait.Reason != "r" || wait.Handle.ID != "h" {
+		t.Fatal("Clone shares Wait or Handle")
+	}
+}
+
+func TestAfterToolFailOpenKeepsTheResultWhenTheRunEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		closed   bool
+		withheld bool
+	}{
+		{name: "only fail-open hooks left", withheld: false},
+		{name: "a fail-closed hook left", closed: true, withheld: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			redact := replaceText("redact", func(s string) string {
+				return strings.ReplaceAll(s, "sk-123", "[redacted]")
+			})
+			enrich := ResultHook{Name: "enrich", FailOpen: true, Func: func(
+				ctx context.Context,
+				_ ResultPlan,
+			) (ResultDecision, error) {
+				cancel()
+				<-ctx.Done()
+				return ResultDecision{}, ctx.Err()
+			}}
+			hooks := []ResultHook{redact, enrich}
+			if tc.closed {
+				hooks = append(hooks, replaceText("strict", func(s string) string { return s }))
+			}
+			runs := 0
+			client := &scriptedClient{
+				results: []llm.Result{callResult("call-1", "remote"), final("done")},
+			}
+			out, err := (Runner{
+				Agent:  testAgent(),
+				Client: client,
+				Tools:  tool.List{secretTool(&runs)},
+				Hooks:  Hooks{AfterTool: hooks},
+			}).Run(ctx, Turn{ID: "t1"}, Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+			})
+			if err != nil || out.Stop.Kind != StopInterrupted ||
+				!hasWarning(out, WarningHookFailed) {
+				t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+			}
+			got := modelText(out.Tools["call-1"].Result())
+			if tc.withheld != strings.Contains(got, "withheld") ||
+				!tc.withheld && got != "key=[redacted] ok" {
+				t.Fatalf("model result = %q", got)
+			}
+		})
+	}
+}
+
+func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
+	strictRedact := ResultHook{Name: "redact", Func: func(
+		ctx context.Context,
+		p ResultPlan,
+	) (ResultDecision, error) {
+		if err := ctx.Err(); err != nil {
+			return ResultDecision{}, err
+		}
+		r := p.Result
+		r.Output = r.Output.MapText(func(s string) string {
+			return strings.ReplaceAll(s, "sk-123", "[redacted]")
+		})
+		return ResultDecision{Replace: &r}, nil
+	}}
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "lookup",
+		Schema: []byte(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	agent := testAgent()
+	agent.Limits.Deadline = time.Now().Add(300 * time.Millisecond)
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
+	runner := Runner{Agent: agent, Client: client, Tools: tool.List{external}, Hooks: strictRedact.Hooks()}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	})
+	if err != nil || out.Stop.Kind != StopWaiting {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	time.Sleep(time.Until(agent.Limits.Deadline) + 50*time.Millisecond)
+	result := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("key=sk-123"))}
+	out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(result))
+	if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
+		t.Fatalf("result=%+v err=%v", out.Tools["call-1"].Result(), err)
+	}
+}
+
+func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
+	calls := 0
+	watch := ResultHook{Name: "watch", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
+		calls++
+		return ResultDecision{}, nil
+	}}
+	t.Run("fatal", func(t *testing.T) {
+		calls = 0
+		fatal := tool.Tool{
+			Definition: tool.Definition{
+				Name:   "remote",
+				Schema: []byte(`{"type":"object"}`),
+				Kind:   tool.KindLocal,
+			},
+			Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				return tool.Outcome{}, tool.Fatal(errors.New("disk full"))
+			}),
+		}
+		client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+		out, err := runHooked(t, client, tool.List{fatal}, watch.Hooks())
+		if err != nil || out.Stop.Reason != StopReasonToolFatal || calls != 1 {
+			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
+		}
+	})
+	t.Run("uncertain", func(t *testing.T) {
+		calls = 0
+		panicky := tool.Tool{
+			Definition: tool.Definition{
+				Name:   "remote",
+				Schema: []byte(`{"type":"object"}`),
+				Kind:   tool.KindLocal,
+			},
+			Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				panic("boom")
+			}),
+		}
+		client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+		runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{panicky}, Hooks: watch.Hooks()}
+		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		})
+		if err != nil || out.Stop.Kind != StopUncertain || calls != 0 {
+			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
+		}
+		result := tool.Succeeded("reconciled")
+		out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(result))
+		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolSettled {
+			t.Fatalf("status=%s calls=%d err=%v", out.Tools["call-1"].Status, calls, err)
+		}
+	})
+}
+
+func TestReplayRejectsAResultOffASettlement(t *testing.T) {
+	runs := 0
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+	}
+	out, err := runHooked(t, client, tool.List{secretTool(&runs)}, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := cloneTurn(out.Turn)
+	for i, step := range turn.Steps {
+		if step.Kind == StepToolStarted {
+			turn.Steps[i].Tool.Result = &llm.ToolResult{
+				CallID: "call-1",
+				Output: tool.TextOutput("forged"),
+			}
+		}
+	}
+	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("replay err = %v", err)
 	}
 }

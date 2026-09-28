@@ -721,8 +721,9 @@ func estimatedItemTokens(items []ContextItem) int {
 // afterTool runs the AfterTool chain on a tool or host result about to be
 // recorded, and sets fact.Result when the hooks changed what the model sees.
 // It fails closed: a failing hook, or a run context that ends during the
-// chain, withholds the result from the model. The outcome and its cost are
-// recorded either way, since the tool already ran.
+// chain while a hook still to run fails closed, withholds the result from
+// the model. The outcome and its cost are recorded either way, since the
+// call already finished.
 func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	if len(r.hooks.AfterTool) == 0 || fact.Outcome == nil {
 		return
@@ -735,11 +736,11 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	}
 	def := view.Tools[fact.Call.ID].Definition
 	mark := r.hookMark()
-	for _, h := range r.hooks.AfterTool {
+	for i, h := range r.hooks.AfterTool {
 		d, err := callHook(ctx, h, ResultPlan{
 			Call:       fact.Call.Clone(),
 			Definition: def.Clone(),
-			Outcome:    cloneOutcome(*fact.Outcome),
+			Outcome:    fact.Outcome.Clone(),
 			Result:     cloneToolResult(current),
 			Turn:       snapshotView(view),
 		})
@@ -751,18 +752,29 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 		}
 		if err != nil {
 			if ctx.Err() != nil {
-				r.dropHooks(mark)
-				current = withheldResult(fact.Call.ID, fmt.Sprintf(
-					"check %s did not finish",
-					h.Name,
-				))
+				// The rest of the chain cannot run. Withhold only when a
+				// hook that has not answered would fail closed.
+				withhold := slices.ContainsFunc(
+					r.hooks.AfterTool[i:],
+					func(h ResultHook) bool { return !h.FailOpen },
+				)
+				what := "the result so far was kept"
+				if withhold {
+					r.dropHooks(mark)
+					current = withheldResult(*fact.Outcome, fmt.Sprintf(
+						"check %q did not finish",
+						h.Name,
+					))
+					what = "the result was withheld"
+				}
 				r.pendingWarnings = append(r.pendingWarnings, Warning{
 					Code: WarningHookFailed,
 					Message: fmt.Sprintf(
-						"after_tool hook %s did not finish before the run "+
-							"ended; the result of call %s was withheld",
+						"after_tool hook %q did not finish before the run "+
+							"ended; for call %s, %s",
 						h.Name,
 						fact.Call.ID,
+						what,
 					),
 				})
 				break
@@ -771,8 +783,8 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 			if h.FailOpen {
 				continue
 			}
-			current = withheldResult(fact.Call.ID, fmt.Sprintf(
-				"check %s failed",
+			current = withheldResult(*fact.Outcome, fmt.Sprintf(
+				"check %q failed",
 				h.Name,
 			))
 			break
@@ -788,20 +800,20 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 		})
 	}
 	if !sameJSONValue(current, base) {
+		current.CallID = fact.Call.ID
 		fact.Result = &current
 	}
 }
 
-// withheldResult is what the model sees when a result hook failed. It says
-// the tool ran and is not marked as an error, so the model does not retry a
-// call that may have taken effect.
-func withheldResult(callID, why string) llm.ToolResult {
-	return llm.ToolResult{
-		CallID: callID,
-		Output: tool.TextOutput(
-			"The tool ran, but its result was withheld: " + why + ".",
-		),
+// withheldResult is what the model sees when a result hook failed. It is not
+// marked as an error, and for a call that ran it says so, so the model does
+// not retry a call that may have taken effect.
+func withheldResult(o tool.Outcome, why string) llm.ToolResult {
+	lead := "The tool ran, but its result was withheld: "
+	if o.State == tool.StateNotExecuted {
+		lead = "The call finished without running, and its result was withheld: "
 	}
+	return llm.ToolResult{Output: tool.TextOutput(lead + why + ".")}
 }
 
 func validToolResult(result llm.ToolResult) error {

@@ -33,13 +33,6 @@ func cloneToolResult(r llm.ToolResult) llm.ToolResult {
 	return r
 }
 
-func cloneOutcome(o tool.Outcome) tool.Outcome {
-	if o.Output != nil {
-		o.Output = new(o.Output.Clone())
-	}
-	return o
-}
-
 // projectWithHistory assembles one model request from the current call's prior
 // history and this turn's recorded messages. It never stores that history.
 func projectWithHistory(
