@@ -136,9 +136,9 @@ type Steer struct {
   only when the runtime method `nextCallPossible(extraInputTokens)` from hooks
   holds. It covers attempts with the reserve, deadline, pause and context,
   and every cap, with a worked example in hooks.md; steering passes the
-  waiting steers' estimated input tokens and adds no checks of its own. For
-  an interrupt (PR 2), the in-flight call must count as used, since decision
-  32 counts it.
+  waiting steers' estimated input tokens and adds no checks of its own. An
+  in-flight call already counts as used: attempts are counted from recorded
+  `model_requested` steps, committed before dispatch (hooks.md).
   Otherwise steers wait, and Dashi records `WarningSteering`
   naming the limit, once per candidate. Only hooks and unpredictable failures
   can still refuse the next call; then the turn stops with that stop kind and
@@ -210,8 +210,8 @@ type Steer struct {
    through it too.
 3. `rejectSubmission(call, reason)`: started to settled as `StateFailed`,
    "Not accepted: <reason>"; steering supplies only the reason.
-4. `nextCallPossible(extraInputTokens)` with every check (FR-9). PR 2 needs it
-   to treat an in-flight call as one more used attempt.
+4. `nextCallPossible(extraInputTokens)` with every check (FR-9), counting
+   attempts from `model_requested` steps.
 5. Warnings on any step kind, buffered onto the next committed step.
 6. A point in the tools loop, before `BeforeTool`, for steering's check.
 
