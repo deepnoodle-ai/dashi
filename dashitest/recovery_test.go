@@ -10,6 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -46,12 +47,21 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 	}
 	// The jsonb store returns every reloaded step respelled, so recovery must
 	// not depend on the bytes the runner wrote.
-	stores := map[string]func() dashitest.Store{
-		"memory": func() dashitest.Store {
+	// The file store is the reference durable recorder, run through the same
+	// faults on disk.
+	stores := map[string]func(*testing.T) dashitest.Store{
+		"memory": func(*testing.T) dashitest.Store {
 			return dashi.NewMemoryRecorder()
 		},
-		"jsonb": func() dashitest.Store {
+		"jsonb": func(*testing.T) dashitest.Store {
 			return newJSONBStore()
+		},
+		"file": func(t *testing.T) dashitest.Store {
+			r, err := filerecorder.New(filerecorder.Config{Dir: t.TempDir()})
+			if err != nil {
+				t.Skip(err)
+			}
+			return r
 		},
 	}
 	for storeName, newStore := range stores {
@@ -68,7 +78,7 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 					)
 				}
 				t.Run(name, func(t *testing.T) {
-					store := newStore()
+					store := newStore(t)
 					rec := &dashitest.FaultRecorder{
 						Recorder: store,
 						Kind:     target.kind,
