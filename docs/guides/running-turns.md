@@ -65,10 +65,12 @@ while its usage still counts toward spend. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Accept`, and call
 `Continue`. `Accept` only records, including for approvals and external tool
-results. `Outcome.ReadyToContinue` and the replayed turn's
-`TurnView.ReadyToContinue` show when no unresolved effect blocks the next
-`Continue`. The host's sweeper should pick up ready turns with no active
-worker.
+results. To answer an approval, replay the turn and echo the pending call's
+`ToolView.ArgsDigest` and `Decision.Revision` in an `ApprovalFact`;
+`kernel.ArgsDigest(args)` gives the same digest for arguments shown earlier.
+`Outcome.ReadyToContinue` and the replayed turn's `TurnView.ReadyToContinue`
+show when no unresolved effect blocks the next `Continue`. The host's sweeper
+should pick up ready turns with no active worker.
 
 `Limits.Interruptions` bounds resumes after interruption (default 10); these
 resumes do not consume `ModelAttempts`. The turn's `Limits.Deadline` stops it as

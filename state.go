@@ -30,6 +30,10 @@ type ToolView struct {
 	Status     ToolStatus
 	Decision   ToolDecision
 	Outcome    *tool.Outcome
+	// ArgsDigest is set while Status is ToolApprovalPending. It identifies
+	// Call.Args by JSON meaning; echo it in ApprovalFact.ArgsDigest to approve
+	// or deny exactly the arguments shown.
+	ArgsDigest string
 }
 
 // TurnView is the current state reconstructed from acknowledged steps.
@@ -503,6 +507,7 @@ func (s *replayState) apply(step Step) error {
 			v.Status = ToolAllowed
 		case DecisionDefer:
 			v.Status = ToolApprovalPending
+			v.ArgsDigest = ArgsDigest(v.Call.Args)
 		case DecisionDeny:
 			v.Status = ToolDenied
 		default:
@@ -611,6 +616,7 @@ func (s *replayState) apply(step Step) error {
 		} else {
 			v.Status = ToolDenied
 		}
+		v.ArgsDigest = ""
 		s.Tools[v.Call.ID] = v
 	case StepHostedApproval:
 		s.awaitingClassification = false

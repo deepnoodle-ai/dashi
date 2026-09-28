@@ -320,9 +320,17 @@ type ToolFact struct {
 	Reason     string          `json:"reason,omitempty"`
 }
 
+// ApprovalFact answers a deferred tool decision. It is accepted only while
+// the call awaits approval and its arguments and policy revision are the ones
+// the fact names.
 type ApprovalFact struct {
-	CallID         string `json:"call_id"`
-	Approve        bool   `json:"approve"`
+	CallID  string `json:"call_id"`
+	Approve bool   `json:"approve"`
+	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
+	// not bytes. Copy it from the pending call's ToolView.ArgsDigest (from
+	// Replay), or compute it with ArgsDigest from the arguments that were
+	// shown. Bare-hex digests from before canonical hashing are still
+	// accepted, but only while the arguments keep their original bytes.
 	ArgsDigest     string `json:"args_digest"`
 	PolicyRevision string `json:"policy_revision"`
 }

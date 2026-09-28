@@ -162,9 +162,13 @@ policy decision. A policy rewrite is checked and authorized again with its
 effective arguments; the original arguments remain on the recorded call.
 `tool.KindExternal` produces pending work for a host to settle with `Accept`.
 Deferred decisions require an `ApprovalFact` bound to the call ID, argument
-digest, and policy revision. Provider-hosted approval is a separate response;
-it never becomes a locally executable tool call. The default policy denies
-client tools. Use `AllowLocalPolicy` only when that permission is intended.
+digest, and policy revision. Copy the digest from the pending call's
+`ToolView.ArgsDigest` (from `Replay`), or compute it with `kernel.ArgsDigest`
+from the arguments shown; it binds the answer to the arguments' JSON meaning,
+so it survives a store that respells them. Provider-hosted approval is a
+separate response; it never becomes a locally executable tool call. The
+default policy denies client tools. Use `AllowLocalPolicy` only when that
+permission is intended.
 Context from a user, library, or tool uses the user message role; only
 operator-sourced context may use a system or developer role. The host must
 authorize who can submit operator context.
