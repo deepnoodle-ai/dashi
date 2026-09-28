@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Independent review incorporated; implementation pending code review |
+| Status | Independent PRD and code reviews incorporated; implementation in PR |
 | Date | 2026-09-28 |
 | Roadmap | [Item 4](../remaining-work.md), size M / medium difficulty |
 | Evidence | [Source review](04-provider-dialect-research.md), [content replay contract](../provider-content-replay.md), Dashi `018af907` |
