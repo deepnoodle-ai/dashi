@@ -203,7 +203,7 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = p.Send(context.Background(), prepared, nil)
+			_, err = p.Send(context.Background(), llm.Call{Request: prepared})
 			var e *llm.Error
 			if !errors.As(err, &e) {
 				t.Fatalf("err = %v, want *llm.Error", err)
@@ -317,7 +317,7 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = p.Send(context.Background(), prepared, func(llm.Delta) {})
+			_, err = p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(llm.Delta) {}})
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol || e.Reason != tt.want {
 				t.Fatalf("err = %v, want protocol error with reason %q", err, tt.want)

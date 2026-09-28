@@ -105,7 +105,7 @@ func TestLiveErrorReasons(t *testing.T) {
 				if err != nil {
 					t.Fatalf("prepare: %v", err)
 				}
-				result, err := client.Send(ctx, request, nil)
+				result, err := client.Send(ctx, llm.Call{Request: request})
 				if err == nil {
 					t.Fatalf("request was accepted: served=%s usage=%+v", result.Served.Model, result.Usage)
 				}

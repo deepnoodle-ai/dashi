@@ -92,7 +92,7 @@ func TestSDKErrorCarriesReason(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = p.Send(context.Background(), prepared, nil)
+			_, err = p.Send(context.Background(), llm.Call{Request: prepared})
 			var failure *llm.Error
 			if !errors.As(err, &failure) || failure.Category != llm.ErrorInvalidRequest || failure.Reason != tt.want {
 				t.Fatalf("err = %v, want invalid_request with reason %q", err, tt.want)
@@ -115,7 +115,7 @@ func TestStreamErrorCarriesReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = p.Send(context.Background(), prepared, func(llm.Delta) {})
+	_, err = p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(llm.Delta) {}})
 	if !llm.IsContextWindowExceeded(err) {
 		t.Fatalf("err = %v, want context window exceeded", err)
 	}
