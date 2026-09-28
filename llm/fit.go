@@ -137,6 +137,7 @@ func (c Capabilities) Fit(
 func (c Capabilities) Intersect(o Capabilities) Capabilities {
 	out := Capabilities{
 		MaxOutputTokens:    minLimit(c.MaxOutputTokens, o.MaxOutputTokens),
+		ContextWindow:      minLimit(c.ContextWindow, o.ContextWindow),
 		MinReasoningBudget: max(c.MinReasoningBudget, o.MinReasoningBudget),
 		MaxReasoningBudget: minLimit(c.MaxReasoningBudget, o.MaxReasoningBudget),
 		MaxTemperature:     minLimit(c.MaxTemperature, o.MaxTemperature),

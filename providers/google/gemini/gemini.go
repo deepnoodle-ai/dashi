@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/deepnoodle-ai/kernel/catalog"
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/internal/providercontent"
 	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
@@ -140,10 +141,15 @@ func (*Client) API() string {
 	return API
 }
 
-// ModelInfo returns independently owned model knowledge when supplied.
+// ModelInfo returns independently owned model knowledge. Configured
+// knowledge wins; otherwise the catalog supplies documented facts when the
+// resolved endpoint is the public Gemini API, never for Vertex or a custom
+// endpoint.
 func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
-	info, ok := p.models[model]
-	return info.Clone(), ok
+	if info, ok := p.models[model]; ok {
+		return info.Clone(), true
+	}
+	return catalog.Lookup(API, p.endpoint(model), model)
 }
 
 func (p *Client) endpoint(model string) string {

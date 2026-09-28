@@ -1,0 +1,401 @@
+{
+  "provider": "google",
+  "source": "https://ai.google.dev/api/models",
+  "default": "gemini-3.8-flash",
+  "destinations": [
+    {
+      "api": "google.generate_content",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    }
+  ],
+  "models": [
+    {
+      "model": "gemini-3.8-flash",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-02",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "cache_write": 0.75
+        }
+      }
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-01",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "cache_write": 0.75
+        }
+      }
+    },
+    {
+      "model": "gemini-3.6-flash",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-01",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "cache_write": 0.75
+        }
+      }
+    },
+    {
+      "model": "gemini-3.5-flash",
+      "apis": [
+        "google.generate_content"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 1.5,
+          "output": 9,
+          "cache_read": 0.15,
+          "cache_write": 1.5
+        }
+      }
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "apis": [
+        "google.generate_content"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.3,
+          "output": 2.5,
+          "cache_read": 0.03,
+          "cache_write": 0.3
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-preview",
+      "apis": [
+        "google.generate_content"
+      ],
+      "lifecycle": "preview",
+      "note": "Input $2.00 up to 200K tokens, $4.00 above; output $12.00 up to 200K tokens, $18.00 above.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 2
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 200001,
+            "rates": {
+              "input": 4,
+              "output": 18,
+              "cache_read": 0.4,
+              "cache_write": 4
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-preview-customtools",
+      "apis": [
+        "google.generate_content"
+      ],
+      "lifecycle": "preview",
+      "note": "Up to 200K tokens ($4.00 over 200K) $18.00 over 200K tokens",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 2
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 200001,
+            "rates": {
+              "input": 4,
+              "output": 18,
+              "cache_read": 0.4,
+              "cache_write": 4
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gemini-3.1-flash-lite",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "text/image/video ($0.50 audio)",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.25,
+          "output": 1.5,
+          "cache_read": 0.025,
+          "cache_write": 0.25
+        },
+        "modality": {
+          "audio": {
+            "input": 0.5,
+            "output": 1.5,
+            "cache_read": 0.05,
+            "cache_write": 0.5
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-flash-lite-preview",
+      "apis": [
+        "google.generate_content"
+      ],
+      "lifecycle": "preview",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-03-10",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.1,
+          "output": 0.4,
+          "cache_read": 0.1,
+          "cache_write": 0.1
+        }
+      }
+    },
+    {
+      "model": "gemini-3-flash-preview",
+      "apis": [
+        "google.generate_content"
+      ],
+      "lifecycle": "preview",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.5,
+          "output": 3,
+          "cache_read": 0.05,
+          "cache_write": 0.5
+        },
+        "modality": {
+          "audio": {
+            "input": 1,
+            "output": 3,
+            "cache_read": 0.1,
+            "cache_write": 1
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-pro",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Input $1.25 up to 200K tokens, $2.50 above; output $10.00 up to 200K tokens, $15.00 above.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125,
+          "cache_write": 1.25
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 200001,
+            "rates": {
+              "input": 2.5,
+              "output": 15,
+              "cache_read": 0.25,
+              "cache_write": 2.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "apis": [
+        "google.generate_content"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.3,
+          "output": 2.5,
+          "cache_read": 0.03,
+          "cache_write": 0.3
+        },
+        "modality": {
+          "audio": {
+            "input": 1,
+            "output": 2.5,
+            "cache_read": 0.1,
+            "cache_write": 1
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash-lite",
+      "apis": [
+        "google.generate_content"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-07-21",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": 0.1,
+          "output": 0.4,
+          "cache_read": 0.01,
+          "cache_write": 0.1
+        },
+        "modality": {
+          "audio": {
+            "input": 0.3,
+            "output": 0.4,
+            "cache_read": 0.03,
+            "cache_write": 0.3
+          }
+        }
+      }
+    }
+  ]
+}

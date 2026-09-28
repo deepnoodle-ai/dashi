@@ -299,3 +299,32 @@ func TestIntersectKeepsTighterLimits(t *testing.T) {
 		t.Fatal("support claimed by only one side was promoted")
 	}
 }
+
+func TestIntersectKeepsTighterContextWindow(t *testing.T) {
+	model := Capabilities{ContextWindow: 200_000}
+	cases := []struct {
+		name string
+		api  Capabilities
+		want int
+	}{
+		{name: "unknown API window", api: Capabilities{}, want: 200_000},
+		{
+			name: "tighter API window",
+			api:  Capabilities{ContextWindow: 128_000},
+			want: 128_000,
+		},
+		{
+			name: "looser API window",
+			api:  Capabilities{ContextWindow: 1_000_000},
+			want: 200_000,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := model.Intersect(tc.api).ContextWindow
+			if got != tc.want {
+				t.Fatalf("context window = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

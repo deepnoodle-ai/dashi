@@ -38,8 +38,9 @@ have a different default and therefore a different thinking-budget clamp
   truthfully represent a run that used different settings. The result records
   the served model when the provider reports it.
 
-This uses one configured client and one preparation path. An enumerable
-catalog can be added when needed without becoming a second request planner.
+This uses one configured client and one preparation path. The
+[model catalog](model-catalog.md) supplies default `ModelInfo` through the same
+path; it is data, not a second request planner.
 
 ## Defaults and evidence
 
@@ -63,8 +64,9 @@ emulation.
 
 Effective settings describe the controls Kernel encodes, not undisclosed server
 defaults or proof that the model honored them. Unknown numerical bounds remain
-unknown even when feature support is supplied. Evidence freshness and catalog
-maintenance remain application responsibilities.
+unknown even when feature support is supplied. The built-in catalog is dated
+documentation evidence; an application that needs fresher or verified claims
+supplies its own entries, which replace the catalog's.
 
 Content adaptation shares this same preparation path and records separate
 `ContentChange` decisions. `Input.ContentPolicy` may explicitly permit omission

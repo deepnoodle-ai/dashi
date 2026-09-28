@@ -1,0 +1,1170 @@
+{
+  "provider": "openai",
+  "source": "https://developers.openai.com/api/docs/models/all.md",
+  "default": "gpt-6-luna",
+  "destinations": [
+    {
+      "api": "openai.responses",
+      "endpoint": "https://api.openai.com/v1/responses"
+    },
+    {
+      "api": "openai.completions",
+      "endpoint": "https://api.openai.com/v1/chat/completions"
+    }
+  ],
+  "models": [
+    {
+      "model": "gpt-6-astra",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-05",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 20,
+              "output": 75,
+              "cache_read": 2,
+              "cache_write": 25
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-22",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.2,
+          "cache_write": 2.5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 4,
+              "output": 15,
+              "cache_read": 0.4,
+              "cache_write": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-6-luna",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-22",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.1,
+          "output": 0.5,
+          "cache_read": 0.01,
+          "cache_write": 0.125
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 0.2,
+              "output": 0.75,
+              "cache_read": 0.02,
+              "cache_write": 0.25
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.6",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 8,
+              "output": 30,
+              "cache_read": 0.8,
+              "cache_write": 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 8,
+              "output": 30,
+              "cache_read": 0.8,
+              "cache_write": 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 2.5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 4,
+              "output": 18,
+              "cache_read": 0.4,
+              "cache_write": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.2,
+          "output": 1.2,
+          "cache_read": 0.02,
+          "cache_write": 0.25
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 0.4,
+              "output": 1.8,
+              "cache_read": 0.04,
+              "cache_write": 0.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.6-cyber",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Requires Daybreak program approval. gpt-daybreak-red-latest aliases this model and is priced to match.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 400000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 12.5,
+          "output": 75,
+          "cache_read": 1.25,
+          "cache_write": 15.625
+        }
+      }
+    },
+    {
+      "model": "gpt-daybreak-blue-latest",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Alias currently pointing at gpt-5.6-sol; OpenAI reprices the alias to match whichever model it points at.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1050000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 8,
+              "output": 30,
+              "cache_read": 0.8,
+              "cache_write": 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-daybreak-red-latest",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Alias currently pointing at gpt-5.6-cyber; OpenAI reprices the alias to match whichever model it points at.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 400000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 12.5,
+          "output": 75,
+          "cache_read": 1.25,
+          "cache_write": 15.625
+        }
+      }
+    },
+    {
+      "model": "gpt-5.5",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input and cache read double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 5,
+          "output": 30,
+          "cache_read": 0.5,
+          "cache_write": 5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 10,
+              "output": 45,
+              "cache_read": 1,
+              "cache_write": 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.5-pro",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input doubles and output is 1.5x. OpenAI publishes no cached-input rate for the pro models, so cache reads are stated at the input rate.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 30,
+          "output": 180,
+          "cache_read": 30,
+          "cache_write": 30
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 60,
+              "output": 270,
+              "cache_read": 60,
+              "cache_write": 60
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.4",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input and cache read double and output is 1.5x.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 2.5,
+          "output": 15,
+          "cache_read": 0.25,
+          "cache_write": 2.5
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 5,
+              "output": 22.5,
+              "cache_read": 0.5,
+              "cache_write": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.4-pro",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Above 272K input tokens, input doubles and output is 1.5x. OpenAI publishes no cached-input rate for the pro models, so cache reads are stated at the input rate.",
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 30,
+          "output": 180,
+          "cache_read": 30,
+          "cache_write": 30
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": 60,
+              "output": 270,
+              "cache_read": 60,
+              "cache_write": 60
+            }
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 400000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.75,
+          "output": 4.5,
+          "cache_read": 0.075,
+          "cache_write": 0.75
+        }
+      }
+    },
+    {
+      "model": "gpt-5.4-nano",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 400000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.2,
+          "output": 1.25,
+          "cache_read": 0.02,
+          "cache_write": 0.2
+        }
+      }
+    },
+    {
+      "model": "gpt-5.3-chat-latest",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      }
+    },
+    {
+      "model": "gpt-5.2",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 1.75,
+          "output": 14,
+          "cache_read": 0.175,
+          "cache_write": 1.75
+        }
+      }
+    },
+    {
+      "model": "gpt-5.2-pro",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 21,
+          "output": 168,
+          "cache_read": 21,
+          "cache_write": 21
+        }
+      }
+    },
+    {
+      "model": "gpt-5.1",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125,
+          "cache_write": 1.25
+        }
+      }
+    },
+    {
+      "model": "gpt-5",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125,
+          "cache_write": 1.25
+        }
+      }
+    },
+    {
+      "model": "gpt-5-pro",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "high"
+        ]
+      }
+    },
+    {
+      "model": "gpt-5-mini",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.25,
+          "output": 2,
+          "cache_read": 0.025,
+          "cache_write": 0.25
+        }
+      }
+    },
+    {
+      "model": "gpt-5-nano",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.05,
+          "output": 0.4,
+          "cache_read": 0.005,
+          "cache_write": 0.05
+        }
+      }
+    },
+    {
+      "model": "gpt-4.1",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "unsupported"
+        },
+        "context_window": 1047576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 2,
+          "output": 8,
+          "cache_read": 0.5,
+          "cache_write": 2
+        }
+      }
+    },
+    {
+      "model": "gpt-4.1-mini",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "unsupported"
+        },
+        "context_window": 1047576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.4,
+          "output": 1.6,
+          "cache_read": 0.1,
+          "cache_write": 0.4
+        }
+      }
+    },
+    {
+      "model": "gpt-4.1-nano",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "unsupported"
+        },
+        "context_window": 1047576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-09",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 0.1,
+          "output": 0.4,
+          "cache_read": 0.025,
+          "cache_write": 0.1
+        }
+      }
+    },
+    {
+      "model": "gpt-4o",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-08-10",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": 2.5,
+          "output": 10,
+          "cache_read": 1.25,
+          "cache_write": 2.5
+        }
+      }
+    },
+    {
+      "model": "o3",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "o3-pro",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "o3-mini",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "o4-mini",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "o3-deep-research",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "o4-mini-deep-research",
+      "apis": [
+        "openai.responses",
+        "openai.completions"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    },
+    {
+      "model": "gpt-5.3-codex",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.2-codex",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported"
+        },
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      }
+    },
+    {
+      "model": "gpt-5.1-codex-max",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      }
+    },
+    {
+      "model": "gpt-5.1-codex",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      }
+    },
+    {
+      "model": "gpt-5.1-codex-mini",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 400000
+      }
+    },
+    {
+      "model": "gpt-5-codex",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      }
+    },
+    {
+      "model": "gpt-5-codex-mini",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 1000000
+      }
+    },
+    {
+      "model": "codex-mini-latest",
+      "apis": [
+        "openai.responses"
+      ],
+      "qualified_at": "2026-09-27",
+      "capabilities": {
+        "features": {
+          "text": "supported"
+        },
+        "context_window": 200000
+      }
+    }
+  ]
+}

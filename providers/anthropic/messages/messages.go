@@ -46,7 +46,9 @@ type Config struct {
 	Client *http.Client
 
 	// Models supplies evidence for this API and endpoint, keyed by exact model
-	// ID. New validates scope and snapshots these values.
+	// ID. New validates scope and snapshots these values. An entry replaces
+	// the catalog's for that model; the catalog applies only to the public
+	// endpoint.
 	Models map[string]llm.ModelInfo
 
 	// CapabilityPolicy defaults to adjust: unknown features are sent and

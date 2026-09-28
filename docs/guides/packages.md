@@ -15,6 +15,8 @@ other.
 - `media`: Image, video, and non-speech audio values, preparation, results, and
   video jobs.
 - `speech`: Recognition and synthesis values and capability descriptions.
+- `catalog`: Documented capabilities, limits, and prices for known models at
+  public provider endpoints, as embedded JSON.
 
 ## Provider packages
 
@@ -32,10 +34,10 @@ other.
 
 ## Dependency direction
 
-Providers → `llm` → `tool` → `content`; `llm`, `media`, and `speech` share
-`model` identity and evidence. Shared content and model depend only on the
-standard library. The root agent loop depends on `llm` and `tool`; session
-storage remains an optional future adapter.
+Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
+`speech` share `model` identity and evidence. Shared content and model depend
+only on the standard library. The root agent loop depends on `llm` and `tool`;
+session storage remains an optional future adapter.
 
 The Google adapter depends on `google.golang.org/genai`; the core packages do
 not.

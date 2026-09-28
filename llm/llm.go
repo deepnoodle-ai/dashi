@@ -534,8 +534,9 @@ type Client interface {
 	// API returns the wire format independently of provider identity.
 	API() string
 
-	// ModelInfo returns owned model knowledge; false means the model is
-	// unknown.
+	// ModelInfo returns owned model knowledge: the application's configured
+	// entry, or else the built-in catalog's documented facts when this
+	// client's endpoint is one the catalog covers. False means unknown.
 	ModelInfo(string) (ModelInfo, bool)
 
 	// Prepare validates the full input and freezes a request without network
