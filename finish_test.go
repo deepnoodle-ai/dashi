@@ -238,3 +238,32 @@ func TestDeliveryAfterSubmissionFailureAsksTheModelAgain(t *testing.T) {
 		t.Fatalf("model saw %q", toolResultText(t, out.Turn, "out-1"))
 	}
 }
+
+func TestPauseDuringFinishKeepsTheRejection(t *testing.T) {
+	pause := make(chan struct{})
+	asked := 0
+	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		asked++
+		if asked == 1 {
+			close(pause)
+			return FinishDecision{Deliver: []ContextItem{{
+				Message: llm.UserMessage(llm.Text("not yet")),
+			}}}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("draft"), final("fixed")}}
+	runner := Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	}, WithPause(pause))
+	if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 1 ||
+		hasWarning(out, WarningDeliveryDropped) {
+		t.Fatalf("stop=%+v sends=%d warnings=%+v err=%v", out.Stop, client.sends, out.Warnings, err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "resume"})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "fixed" {
+		t.Fatalf("resumed stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+}
