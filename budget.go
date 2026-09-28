@@ -137,8 +137,9 @@ func (l LimitDetail) Validate() error {
 
 // Spend is reconstructed from committed model and tool settlements. MaxCost
 // applies to Cost, while ToolCost is reported separately for host admission.
-// Estimated counts calls whose usage never arrived; CostUnknown counts calls
-// whose model charge is unknown or in another currency.
+// Estimated counts calls without final usage, including partial streamed
+// frames; CostUnknown counts calls whose model charge is unknown or in another
+// currency.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
@@ -146,7 +147,7 @@ type Spend struct {
 	Cost map[string]float64 `json:"cost,omitempty"`
 	// ToolCost contains local tool charges outside MaxCost.
 	ToolCost map[string]float64 `json:"tool_cost,omitempty"`
-	// Estimated counts calls without provider-reported usage.
+	// Estimated counts calls without complete provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
 	// CostUnknown counts attempts whose charge cannot enforce a cost cap.
 	CostUnknown int `json:"cost_unknown,omitempty"`

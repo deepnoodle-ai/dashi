@@ -169,9 +169,10 @@ stops `limited` and asks for one. A call offering provider-hosted tools whose
 request count is unbounded stops likewise. Rationale: a cap must never be
 silently ignored; applications can supply prices without a catalog update.
 
-**24. A call whose usage never arrived counts a best guess.** Decided. When a
-worker crashes or a call is cut off before the provider reports usage, the call
-counts its estimated input plus the output text that did arrive, marked as
+**24. A call without final usage counts a best guess.** Decided. When a worker
+crashes or a call is cut off before final usage arrives, Kernel preserves any
+streamed counts, fills absent input from the recorded estimate, and estimates
+visible output text when no output count was reported. The call is marked
 estimated in the running total. The consequence, accepted: for such calls the
 cap is no longer a strict charge guarantee, since the guess can undercount.
 The admission check also relies on supplied prices and the provider respecting

@@ -40,11 +40,11 @@ stopped turn, and `BeforeSend` checks the balance again. If instead the turn's
 own cap ran out, `Continue` carries a raised budget, and the saved turn records
 the raise.
 
-**A call whose bill never arrived.** A worker is redeployed while a reply is
-streaming. Many providers report usage only at the end, so Kernel saw some text
-but no bill. The call is sent again on resume ([decision 9](decisions.md)); the
-lost try counts as its estimated input plus the output text that arrived,
-marked estimated in the running total.
+**A call whose final bill never arrived.** A worker is redeployed while a
+reply is streaming. Kernel may have input usage and some text, but no final
+output count. The call is sent again on resume ([decision 9](decisions.md));
+the lost try preserves the input count, infers visible output when its count is
+absent, and is marked estimated in the running total.
 
 ## How nvoken does it today
 
@@ -136,11 +136,12 @@ application's code, not `StopRefused` (`engine.go:558-559`), which stays for
 refusals.
 
 **Actual and estimated spend.** After each call Kernel records its charge: the
-provider-reported cost, else the price sheet applied to reported usage. A call
-whose usage never arrived (a crash, or a cut-off before the provider reported
-it) is charged a best guess: estimated input plus the output text that did
-arrive, marked estimated. The consequence, accepted: for such calls the cap is
-not a strict charge guarantee, since the guess can undercount. It also relies
+provider-reported cost, else the price sheet applied to observed or estimated
+usage. A call without final usage (a crash or cut-off) keeps streamed counts,
+fills missing input, and infers visible output text when no output count was
+reported. The usage is marked estimated. The consequence, accepted: for such
+calls the cap is not a strict charge guarantee, since the guess can undercount.
+The admission check also relies
 on the supplied rates and the provider respecting its output allowance.
 `TurnView.Spend` replaces the token-only `Usage` (`state.go:115-121`): token
 totals, model and local-tool cost per currency, and counts of estimated calls

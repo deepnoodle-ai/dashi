@@ -663,6 +663,7 @@ func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
 type cancelingPricedClient struct {
 	*pricedClient
 	cancel context.CancelFunc
+	usage  *llm.Usage
 }
 
 func (c *cancelingPricedClient) Send(
@@ -670,17 +671,22 @@ func (c *cancelingPricedClient) Send(
 	_ llm.Request,
 	sink llm.Sink,
 ) (llm.Result, error) {
+	if c.usage != nil {
+		sink(llm.Delta{Kind: llm.DeltaUsage, Usage: c.usage})
+	}
 	sink(llm.Delta{Kind: llm.DeltaText, Text: "partial"})
 	c.cancel()
 	return llm.Result{}, ctx.Err()
 }
 
-func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
+func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := &cancelingPricedClient{
 		pricedClient: newPricedClient(),
 		cancel:       cancel,
+		usage:        usage,
 	}
 	def := definition()
 	def.Settings.MaxTokens = 100
@@ -689,9 +695,12 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 		Turn{ID: "partial"},
 		def,
 		Start{
-			ID:     "start",
-			Budget: &Budget{MaxCost: &Money{Amount: 0.01, Currency: "USD"}},
-			Input:  []llm.Message{llm.UserMessage(llm.Text("answer"))},
+			ID: "start",
+			Budget: &Budget{
+				MaxOutputTokens: 2,
+				MaxCost:         &Money{Amount: 0.01, Currency: "USD"},
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 		Bindings{Client: client, Policy: AllowLocalPolicy{}},
 	)
@@ -701,6 +710,11 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	if out.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
+	return out
+}
+
+func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
+	out := runInterruptedBudgetTurn(t, nil)
 	view, err := Replay(out.Turn)
 	if err != nil {
 		t.Fatal(err)
@@ -717,6 +731,59 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	if out.Turn.Steps[2].Model.Charge == nil ||
 		!out.Turn.Steps[2].Model.EstimatedUsage {
 		t.Fatalf("settlement=%+v", out.Turn.Steps[2].Model)
+	}
+}
+
+func TestBudgetInterruptedPartialUsageInfersVisibleOutput(t *testing.T) {
+	out := runInterruptedBudgetTurn(
+		t,
+		&llm.Usage{InputTokens: 100},
+	)
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.Usage.InputTokens != 100 {
+		t.Fatalf("observed input tokens=%d", view.Spend.Usage.InputTokens)
+	}
+	if view.Spend.Usage.OutputTokens != 2 {
+		t.Fatalf("estimated output tokens=%d", view.Spend.Usage.OutputTokens)
+	}
+	if view.Spend.Estimated != 1 {
+		t.Fatalf("estimated attempts=%d", view.Spend.Estimated)
+	}
+	settled := out.Turn.Steps[2].Model
+	if settled.Result == nil || settled.Result.Usage == nil {
+		t.Fatalf("partial usage was not recorded: %+v", settled)
+	}
+	if settled.Result.Usage.OutputTokens != 0 {
+		t.Fatalf("observed output count was altered: %+v", settled.Result.Usage)
+	}
+	if !settled.EstimatedUsage {
+		t.Fatal("partial usage was not marked estimated")
+	}
+	if settled.Charge == nil {
+		t.Fatal("partial usage has no estimated charge")
+	}
+	if math.Abs(settled.Charge.Total-0.000102) > 1e-12 {
+		t.Fatalf("estimated charge=%g", settled.Charge.Total)
+	}
+	def := definition()
+	def.Settings.MaxTokens = 100
+	client := newPricedClient(final("unused"))
+	continued, err := (Engine{}).Apply(
+		context.Background(),
+		out.Turn,
+		def,
+		Continue{ID: "resume"},
+		Bindings{Client: client, Policy: AllowLocalPolicy{}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireBudgetLimit(t, continued, LimitOutputTokens)
+	if client.sends != 0 {
+		t.Fatalf("spent output cap sent %d calls", client.sends)
 	}
 }
 

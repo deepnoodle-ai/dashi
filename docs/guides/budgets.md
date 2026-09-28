@@ -38,10 +38,11 @@ since its cost cannot be bounded.
 calls with estimated usage, and counts of calls with unknown or
 incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
 by currency. Each settled model fact records its `Charge`; the intent records
-`AtRisk`. When no usage arrived, Kernel estimates input from
-the prepared request and output from the text observed, then marks the call as
-estimated. This best guess can undercount a cut-off call, so a cost cap is not
-a strict charge guarantee for that case. A tool may return
+`AtRisk`. When final usage is missing, Kernel preserves streamed counts,
+fills absent input from the prepared request, and infers visible output when
+no output count was reported. It marks the call estimated. This best guess can
+undercount a cut-off call, so a cost cap is not a strict charge guarantee for
+that case. A tool may return
 `tool.Outcome.Cost`; it is counted after the tool settles and does not consume
 `MaxCost`. The application must bound and admit charged tools before execution
 if it promises a cap covering them.

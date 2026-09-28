@@ -251,9 +251,9 @@ type ModelFact struct {
 	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
 	AtRisk *llm.Cost `json:"at_risk,omitempty"`
 	Charge *llm.Cost `json:"charge,omitempty"`
-	// EstimatedInputTokens is the recorded fallback when usage never arrives.
+	// EstimatedInputTokens is the recorded fallback when input usage is absent.
 	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
-	// EstimatedUsage marks settlements priced from a fallback token estimate.
+	// EstimatedUsage marks settlements with missing or partial token usage.
 	EstimatedUsage   bool                   `json:"estimated_usage,omitempty"`
 	Provider         string                 `json:"provider,omitempty"`
 	API              string                 `json:"api,omitempty"`

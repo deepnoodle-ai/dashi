@@ -24,12 +24,22 @@ func attemptSpend(
 	if estimated {
 		guess := &llm.Usage{InputTokens: intent.EstimatedInputTokens}
 		if settlement != nil && settlement.Result != nil {
-			text := settlement.Result.Message.Text()
-			guess.OutputTokens = (utf8.RuneCountInString(text) + 3) / 4
+			guess.OutputTokens = estimatedOutputTokens(settlement.Result)
 		}
 		usage = guess
 	} else {
 		usage = usage.Copy()
+	}
+	if settlement != nil && settlement.Interrupted {
+		// Streamed usage may describe only the input or an earlier output
+		// frame. Keep reported counts and fill absent buckets from evidence.
+		estimated = true
+		if usage.TotalInputTokens() == 0 {
+			usage.InputTokens = intent.EstimatedInputTokens
+		}
+		if settlement.Result != nil && usage.OutputTokens == 0 {
+			usage.OutputTokens = estimatedOutputTokens(settlement.Result)
+		}
 	}
 	if settlement != nil && settlement.Result != nil {
 		observed := map[string]int{}
@@ -60,6 +70,11 @@ func attemptSpend(
 		}
 	}
 	return usage, nil, estimated, true
+}
+
+func estimatedOutputTokens(result *llm.Result) int {
+	runes := utf8.RuneCountInString(result.Message.Text())
+	return runes/4 + min(1, runes%4)
 }
 
 func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
