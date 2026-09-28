@@ -110,7 +110,9 @@ func run(ctx context.Context) error {
 						line = text
 						send, note = inbox.SendUrgent, "  (urgent steer sent)"
 					}
-					if _, err := send(line); err == nil {
+					if _, err := send(line); err != nil {
+						fmt.Println("  (steer not sent:", err.Error()+")")
+					} else {
 						fmt.Println(note)
 					}
 				case <-done:
