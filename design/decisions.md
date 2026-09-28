@@ -285,3 +285,20 @@ model call cancelled because of an urgent steer (`ModelFact.InterruptedBy:
 that completes before the cancel takes effect is not interrupted. Rationale: a
 steering interruption is the user's choice, not the hosting's fault, and
 counting it bounds a flood of urgent steers.
+
+**33. A first turn needs only a client and input.** Decided 2026-09-28; the
+design is [zero-config.md](zero-config.md). An empty turn ID (on `Start`) and
+`CommandID` are generated UUIDv7s (`dashi.NewID`); an empty `Agent.Model` is
+`catalog.Default` when the client knows it; an empty `Revision` is `"auto:"`
+plus a digest of the agent's behavior fields, excluding `Limits.Deadline`;
+`Agent.ID` may stay empty. On an existing turn, a zero `Agent` is the recorded
+one and a partly set agent takes empty fields from the record;
+`ErrAgentChanged` names the differing fields. A nil `Policy` allows bound
+tools (decision 31 applied early), recording revision `default-v1`. A missing
+API key fails the first `Send` before dispatch with `llm.ErrNoAPIKey`, not
+`New`, and is skipped for a custom endpoint or HTTP client. Constructors keep
+returning concrete types; runtime choice uses a documented `llm.Client`
+switch, with no registry. Rationale: works by default. No warning is recorded
+for generated IDs: step-sequence fencing already stops a stale retry, and a
+recorded warning would sit in every turn of a durable host that chose to rely
+on it. Dashi had no users, so there is no migration.

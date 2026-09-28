@@ -6,29 +6,37 @@ contract.
 
 ## Try it
 
-With the same environment as the [model call guide](model-calls.md) (Go 1.26,
-`OPENAI_API_KEY`, and `OPENAI_MODEL`), run:
+With the same environment as the [model call guide](model-calls.md) (Go 1.26
+and `OPENAI_API_KEY`), run:
 
 ```sh
 go run ./examples/agent
 ```
 
 Its [source](../../examples/agent/main.go) shows the agent, runner, command,
-and outcome. The recorder in that example is optional for a single process.
+and outcome.
 
 A `Runner` holds the agent and its services; each call passes a turn and one
-command. Provider and API default to the client's:
+command. Everything else has a default, so the shortest turn is:
 
 ```go
-runner := dashi.Runner{
-	Agent:  dashi.Agent{ID: "support", Revision: "1", Model: model},
-	Client: client,
-}
-out, err := runner.Run(ctx, dashi.NewTurn("turn-1"), dashi.Start{
-	CommandID: "start-1",
-	Input:     input,
-})
+runner := dashi.Runner{Client: client, Tools: tools}
+out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 ```
+
+- **Agent.** Provider and API come from the client. An empty `Model` is the
+  provider's `catalog.Default`; providers without a catalog need `Model`. An
+  empty `Revision` is derived from the agent's behavior fields
+  (`"auto:…"`), so it changes when they do; tools are not part of it, so set
+  `Revision` yourself if you version tools. `ID` may stay empty.
+- **IDs.** A `Start` on the zero `Turn` gets a generated turn ID, and a command
+  with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
+  step's `CommandID` show them; see [IDs and recovery](#ids-and-recovery).
+- **Tools.** A nil `Policy` allows every bound local and external tool. To
+  ask a person first, supply a policy whose `AuthorizeTool` returns
+  `DecisionDefer`.
+- **Keys.** A client built without an API key fails on its first call with an
+  error matching `llm.ErrNoAPIKey`, which names the environment variable.
 
 ## Prior conversation
 
@@ -61,9 +69,24 @@ resume := dashi.Continue{
 
 ## IDs and recovery
 
-Each turn requires a stable ID, and each command requires a `CommandID` for
-duplicate delivery handling. A turn can span workers; its saved record holds the
-steps needed to resume its own work. When the running Go context ends, Dashi
+A turn ID lets any worker find the turn again, and a `CommandID` lets Dashi
+recognize a repeated command: the same ID with the same content returns the
+recorded result instead of running again. Generated IDs are fine in one
+process. For retries across restarts, choose the turn ID and each
+`CommandID` yourself (`dashi.NewID()` makes one), save them before the call,
+and reuse them on retry; nobody can reuse an ID generated inside a call that
+crashed. Without that, a retry from an old turn snapshot is still refused by
+the recorder, because its step numbers are taken, so no model call or tool
+runs twice. What can happen is a second turn from a `Start` retried with no
+turn ID, or a `Deliver` recorded twice.
+
+On an existing turn, a zero `Agent` runs with the turn's recorded agent, which
+suits commands such as `Settle` and `Cancel`. A partly set agent takes its
+empty `Model` and `Revision` from the record. Any other difference fails with
+`ErrAgentChanged`, whose message names the fields.
+
+A turn can span workers; its saved record holds the steps needed to resume its
+own work. When the running Go context ends, Dashi
 normally records `StopInterrupted` with the context cause. Reload the record and
 call `Continue` with the earlier conversation on any worker. `Continue` also
 recovers a crash that happened before the stop was written. Close the channel
