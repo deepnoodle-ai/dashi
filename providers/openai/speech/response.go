@@ -117,11 +117,10 @@ func (c *Client) SendSynthesis(ctx context.Context,
 	if err != nil {
 		return speech.Synthesis{}, responseError(ctx, err)
 	}
-	format, err := identifyAudio(body)
-	if err != nil || format.mimeType != "audio/mpeg" {
+	if !hasCompleteMP3Frame(body) {
 		return speech.Synthesis{}, &speech.Error{
 			Category: speech.ErrorProtocol, RemoteOutcomeUnknown: true,
-			Cause: errors.New("speech response is not identifiable MP3"),
+			Cause: errors.New("speech response has no complete MP3 frame"),
 		}
 	}
 	result := speech.Synthesis{

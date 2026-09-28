@@ -26,7 +26,9 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 var fixtureMP3 = []byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0}
-var fixtureFrameMP3 = []byte{0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0}
+
+// MPEG-1 Layer III, 128 kb/s at 44.1 kHz: one 417-byte frame.
+var fixtureFrameMP3 = append([]byte{0xff, 0xfb, 0x90, 0x64}, make([]byte, 413)...)
 var fixtureWAV = []byte{'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E'}
 
 type repeatingReader struct{}
@@ -213,6 +215,22 @@ func TestSynthesisPrepareSummaryAndWire(t *testing.T) {
 		result.Audio.Audio.Source.MIMEType != "audio/mpeg" ||
 		result.Served != (model.ModelRef{}) || result.ResponseID != "" {
 		t.Fatalf("result=%+v err=%v calls=%d", result, err, calls)
+	}
+}
+
+func TestSendSynthesisAcceptsTaggedCompleteFrame(t *testing.T) {
+	body := append(slices.Clone(fixtureMP3), fixtureFrameMP3...)
+	c := testClient(t, func(*http.Request) (*http.Response, error) {
+		return response(200, "audio/mpeg", bytes.NewReader(body)), nil
+	})
+	request, err := c.PrepareSynthesis(t.Context(),
+		speech.SynthesizeInput{Model: synthesisModel, Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := c.SendSynthesis(t.Context(), request)
+	if err != nil || !bytes.Equal(result.Audio.Audio.Source.Data, body) {
+		t.Fatalf("tagged MP3: result=%+v err=%v", result, err)
 	}
 }
 
@@ -468,6 +486,9 @@ func TestSendSynthesisRejectsWrongBodyAndBoundsResponse(t *testing.T) {
 		{"wrong media", "audio/wav", bytes.NewReader(fixtureMP3)},
 		{"wrong bytes", "application/octet-stream", strings.NewReader("not audio")},
 		{"empty", "audio/mpeg", strings.NewReader("")},
+		{"ID3 only", "audio/mpeg", bytes.NewReader(fixtureMP3)},
+		{"header only", "audio/mpeg", bytes.NewReader(fixtureFrameMP3[:4])},
+		{"truncated frame", "audio/mpeg", bytes.NewReader(fixtureFrameMP3[:416])},
 		{"too large", "audio/mpeg", io.LimitReader(
 			repeatingReader{}, maxResponseBytes+1)},
 	} {

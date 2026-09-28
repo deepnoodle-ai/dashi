@@ -46,7 +46,8 @@ Do not automatically retry it.
 Transcription accepts inline MP3 or WAV up to 25,000,000 file bytes. Dashi
 identifies the bytes, checks any declared MIME type, and makes an upload
 filename. URLs and provider file references are not fetched. This slice
-accepts optional ISO-639-1 language and an 8192-byte prompt; timestamps and
+accepts an optional lowercase two-letter language hint and an 8192-byte prompt;
+it checks the hint's shape but does not verify code membership. Timestamps and
 diarization require a later model/response shape. Synthesis returns MP3 only:
 text is at most 4096 Unicode code points, instructions at most 8192 bytes,
 speed 0.25–4.0, and voice is one of the documented built-in names. An empty

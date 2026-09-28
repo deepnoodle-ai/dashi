@@ -98,7 +98,8 @@ func New(config Config) (*Client, error) {
 }
 
 // ModelInfo returns documentation evidence only for the two qualified wire
-// shapes at the public endpoint. It does not claim a live probe.
+// shapes at the public /v1 base endpoint. Evidence.API distinguishes the
+// operation and Send appends its path. It does not claim a live probe.
 func (*Client) ModelInfo(name string) (speech.ModelInfo, bool) {
 	switch name {
 	case transcribeModel:
@@ -203,7 +204,7 @@ func (c *Client) PrepareTranscription(ctx context.Context,
 	}
 	if in.Language != "" && !validLanguage(in.Language) {
 		return nil, fail(speech.ErrorInvalidRequest,
-			errors.New("language must be a lowercase ISO-639-1 code"))
+			errors.New("language must be a lowercase two-letter code"))
 	}
 	if !utf8.ValidString(in.Prompt) || len(in.Prompt) > maxPromptBytes {
 		return nil, fail(speech.ErrorInvalidRequest,
