@@ -125,18 +125,20 @@ type Steer struct {
   finish point (PR 1b)"), before
   `BeforeFinish`. On the text path, before output is recorded, steers are
   recorded in a `StepLoopContinued`; replay knows from its position which
-  candidate it replaced. On the submission path, the submission settles
-  through hooks' shared rejection: it settles as failed with "Not accepted:
-  <Reason>", and steering passes the reason "the user sent new input; read it,
-  then submit again". FR-6 then delivers the steer. The model never reads "Output
+  candidate it replaced. On the submission path, steering calls hooks'
+  `rejectSubmission(call, reason)`, which settles the started submission as
+  `StateFailed` with "Not accepted: <reason>"; the reason is "the user sent
+  new input. Read it, then submit again." FR-6 then delivers the steer. The model never reads "Output
   accepted" for a superseded answer.
 - FR-8: **Never between a tool call and its result.** Projection emits results
   with their call, so a later item follows them; tests lock this in.
 - FR-9: **Never on the last possible answer.** Dashi supersedes or interrupts
-  only when hooks' `nextCallPossible` holds. Hooks owns every check in it
-  (attempts with the reserve, deadline, pause, budget, and the cost-cap
-  worst case) and its worked example; steering passes only the waiting
-  steers' estimated input tokens, and counts an interrupted call first.
+  only when the runtime method `nextCallPossible(extraInputTokens)` from hooks
+  holds. It covers attempts with the reserve, deadline, pause and context,
+  and every cap, with a worked example in hooks.md; steering passes the
+  waiting steers' estimated input tokens and adds no checks of its own. For
+  an interrupt (PR 2), the in-flight call must count as used, since decision
+  32 counts it.
   Otherwise steers wait, and Dashi records `WarningSteering`
   naming the limit, once per candidate. Only hooks and unpredictable failures
   can still refuse the next call; then the turn stops with that stop kind and
@@ -206,9 +208,10 @@ type Steer struct {
 2. One finish point for both answer paths, before output is recorded, with
    steering's check first. The finish retry after a hook failure stop goes
    through it too.
-3. The shared rejection of a submission (failed, "Not accepted: <Reason>"),
-   including its status transition; steering supplies only the reason.
-4. `nextCallPossible(state, extraInputTokens)` with every check (FR-9).
+3. `rejectSubmission(call, reason)`: started to settled as `StateFailed`,
+   "Not accepted: <reason>"; steering supplies only the reason.
+4. `nextCallPossible(extraInputTokens)` with every check (FR-9). PR 2 needs it
+   to treat an in-flight call as one more used attempt.
 5. Warnings on any step kind, buffered onto the next committed step.
 6. A point in the tools loop, before `BeforeTool`, for steering's check.
 
