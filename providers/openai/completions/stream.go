@@ -3,6 +3,7 @@ package completions
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -64,6 +65,14 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		if err := json.Unmarshal(raw, &chunk); err != nil {
 			partial, _ := build(false)
 			return partial, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "decode stream chunk: %w", err)
+		}
+		// A chunk that carries an error object, or is one (vLLM sends
+		// "object":"error"), ends the call even when it also has a finish
+		// reason: OpenRouter pairs its error with finish_reason "error".
+		if (len(chunk.Error) > 0 && string(chunk.Error) != "null") || chunk.Object == "error" {
+			partial, _ := build(false)
+			return partial, &llm.Error{Provider: wire.provider, Category: llm.ErrorProtocol,
+				Body: slices.Clone(raw), Cause: errors.New("provider stream error")}
 		}
 		if chunk.ID != "" {
 			result.ID = chunk.ID
