@@ -204,7 +204,7 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // call. The result is unavailable when token detail cannot support a faithful
 // estimate; nil usage never means known zero usage.
 func (p Pricing) Estimate(u *Usage) (Cost, bool) {
-	if u == nil || p.Validate() != nil {
+	if u == nil || p.Validate() != nil || u.Validate() != nil {
 		return Cost{}, false
 	}
 	unattributed, valid := unattributedUsageBuckets(u)

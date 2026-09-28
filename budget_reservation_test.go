@@ -37,8 +37,10 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			admission.Currency != fact.AtRisk.Currency ||
 			admission.Amount != fact.AtRisk.Total ||
 			admission.Amount > r.balance {
-			return &CommitError{Persistence: PersistenceRejected,
-				Err: errors.New("credit reservation rejected")}
+			return &CommitError{
+				Persistence: PersistenceRejected,
+				Err:         errors.New("credit reservation rejected"),
+			}
 		}
 		if err := r.base.Commit(ctx, req); err != nil {
 			return err
@@ -75,17 +77,25 @@ func (p creditPolicy) BeforeSend(
 	plan SendPlan,
 ) (ModelAuthorization, error) {
 	if plan.AtRisk == nil {
-		return ModelAuthorization{Reason: "price unavailable",
-			Limit: &LimitDetail{Kind: LimitHost,
-				Code: "cost_estimate_unavailable"}}, nil
+		return ModelAuthorization{
+			Reason: "price unavailable",
+			Limit: &LimitDetail{
+				Kind: LimitHost,
+				Code: "cost_estimate_unavailable",
+			},
+		}, nil
 	}
 	p.recorder.mu.Lock()
 	available := p.recorder.balance
 	p.recorder.mu.Unlock()
 	if plan.AtRisk.Total > available {
-		return ModelAuthorization{Reason: "insufficient credits",
-			Limit: &LimitDetail{Kind: LimitHost,
-				Code: "insufficient_credits"}}, nil
+		return ModelAuthorization{
+			Reason: "insufficient credits",
+			Limit: &LimitDetail{
+				Kind: LimitHost,
+				Code: "insufficient_credits",
+			},
+		}, nil
 	}
 	data, err := json.Marshal(creditAdmission{
 		Account:  "tenant-1",
@@ -107,23 +117,39 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 	def := definition()
 	def.Settings.MaxTokens = 100
 	out, err := (Engine{}).Apply(
-		context.Background(), Turn{ID: "credit"}, def,
-		Start{ID: "start", Input: []llm.Message{
-			llm.UserMessage(llm.Text("answer")),
-		}},
-		Bindings{Client: client, Recorder: recorder,
-			Policy: creditPolicy{recorder: recorder}},
+		context.Background(),
+		Turn{ID: "credit"},
+		def,
+		Start{
+			ID: "start",
+			Input: []llm.Message{
+				llm.UserMessage(llm.Text("answer")),
+			},
+		},
+		Bindings{
+			Client:   client,
+			Recorder: recorder,
+			Policy:   creditPolicy{recorder: recorder},
+		},
 	)
-	if err != nil || out.Stop.Kind != StopCompleted {
-		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
 	}
 	intent := out.Turn.Steps[1].Model
 	settled := out.Turn.Steps[2].Model
-	if intent.AtRisk == nil || settled.Charge == nil ||
-		intent.AtRisk.Total <= settled.Charge.Total ||
-		len(recorder.holds) != 0 ||
-		math.Abs(recorder.balance-(0.01-settled.Charge.Total)) > 1e-12 {
-		t.Fatalf("intent=%+v settled=%+v balance=%g holds=%v",
-			intent, settled, recorder.balance, recorder.holds)
+	if intent.AtRisk == nil || settled.Charge == nil {
+		t.Fatalf("risk or charge missing: intent=%+v settled=%+v", intent, settled)
+	}
+	if intent.AtRisk.Total <= settled.Charge.Total {
+		t.Fatalf("risk=%g charge=%g", intent.AtRisk.Total, settled.Charge.Total)
+	}
+	if len(recorder.holds) != 0 {
+		t.Fatalf("remaining holds=%v", recorder.holds)
+	}
+	if math.Abs(recorder.balance-(0.01-settled.Charge.Total)) > 1e-12 {
+		t.Fatalf("balance=%g charge=%g", recorder.balance, settled.Charge.Total)
 	}
 }

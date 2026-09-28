@@ -287,8 +287,10 @@ type Outcome struct {
 
 // Cost is an application-reported charge for one completed tool call.
 type Cost struct {
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	// Amount is the nonnegative charge for completed execution.
+	Amount float64 `json:"amount"`
+	// Currency identifies the unit without implying conversion.
+	Currency string `json:"currency"`
 }
 
 // Validate reports whether o carries exactly the payloads its State permits

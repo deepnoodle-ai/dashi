@@ -4,6 +4,7 @@ package llm
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 )
 
@@ -134,7 +135,7 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 			"text": {InputTokens: 10, OutputTokens: 20},
 		},
 	}
-	usage.Add(&Usage{
+	if err := usage.Add(&Usage{
 		InputTokens:                         5,
 		OutputTokens:                        7,
 		CacheReadInputTokens:                11,
@@ -145,7 +146,9 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 			"text":  {InputTokens: 5, OutputTokens: 7},
 			"audio": {CacheReadInputTokens: 11},
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if usage.InputTokens != 15 || usage.OutputTokens != 27 ||
 		usage.CacheReadInputTokens != 11 || usage.ReasoningTokens != 7 ||
 		usage.TotalInputTokens() != 26 {
@@ -170,6 +173,81 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 	}
 	if !decoded.TotalTokenCountMismatch || decoded.TotalInputTokens() != 26 {
 		t.Fatal("measurement quality or disjoint input lost in JSON")
+	}
+}
+
+func TestUsageValidateRejectsOverflowingBuckets(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage Usage
+	}{
+		{
+			name: "input buckets",
+			usage: Usage{
+				InputTokens:          math.MaxInt,
+				CacheReadInputTokens: 1,
+			},
+		},
+		{
+			name: "total tokens",
+			usage: Usage{
+				InputTokens:  math.MaxInt,
+				OutputTokens: 1,
+			},
+		},
+		{
+			name: "modality buckets",
+			usage: Usage{
+				ModalityTokens: map[string]ModalityTokenUsage{
+					"audio": {
+						InputTokens:  math.MaxInt,
+						OutputTokens: 1,
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.usage.Validate(); err == nil {
+				t.Fatal("overflowing usage was accepted")
+			}
+			if tc.name == "input buckets" &&
+				tc.usage.TotalInputTokens() != math.MaxInt {
+				t.Fatal("unvalidated input total wrapped")
+			}
+		})
+	}
+}
+
+func TestUsageAddRejectsCumulativeOverflowWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name  string
+		start Usage
+		add   Usage
+	}{
+		{
+			name:  "one counter across calls",
+			start: Usage{InputTokens: math.MaxInt - 1},
+			add:   Usage{InputTokens: 2},
+		},
+		{
+			name:  "disjoint counters across calls",
+			start: Usage{InputTokens: math.MaxInt - 1},
+			add:   Usage{OutputTokens: 2},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			usage := tc.start.Copy()
+			if err := usage.Add(&tc.add); err == nil {
+				t.Fatal("cumulative token overflow was accepted")
+			}
+			if usage.InputTokens != tc.start.InputTokens ||
+				usage.OutputTokens != tc.start.OutputTokens {
+				t.Fatal("failed addition changed the accumulated usage")
+			}
+		})
 	}
 }
 

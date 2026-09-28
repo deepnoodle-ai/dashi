@@ -40,8 +40,12 @@ func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
 	inputRate := max(rates.Input, rates.CacheRead, rates.CacheWrite)
 	outputRate := rates.Output
 	for _, modality := range pricing.Modality {
-		inputRate = max(inputRate, modality.Input, modality.CacheRead,
-			modality.CacheWrite)
+		inputRate = max(
+			inputRate,
+			modality.Input,
+			modality.CacheRead,
+			modality.CacheWrite,
+		)
 		outputRate = max(outputRate, modality.Output)
 	}
 	cost := Cost{

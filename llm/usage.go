@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 )
 
 // ModalityTokenUsage is a disjoint token breakdown for one provider modality.
@@ -86,16 +87,28 @@ type Usage struct {
 }
 
 // TotalInputTokens returns the full input size across the disjoint input-side
-// token buckets.
+// token buckets. Invalid values saturate; Validate rejects them for accounting.
 func (u Usage) TotalInputTokens() int {
-	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	total, ok := sumNonnegative(
+		u.InputTokens,
+		u.CacheCreationInputTokens,
+		u.CacheReadInputTokens,
+	)
+	if !ok {
+		return math.MaxInt
+	}
+	return total
 }
 
-// Validate rejects negative counters before they affect turn limits.
+// Validate rejects counters that cannot be safely summed for pricing or limits.
 func (u Usage) Validate() error {
 	for _, count := range []int{
-		u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens,
-		u.CacheReadInputTokens, u.ToolUseInputTokens, u.ReasoningTokens,
+		u.InputTokens,
+		u.OutputTokens,
+		u.CacheCreationInputTokens,
+		u.CacheReadInputTokens,
+		u.ToolUseInputTokens,
+		u.ReasoningTokens,
 	} {
 		if count < 0 {
 			return errors.New("llm: usage counters cannot be negative")
@@ -111,6 +124,22 @@ func (u Usage) Validate() error {
 			detail.CacheCreationInputTokens < 0 || detail.CacheReadInputTokens < 0 {
 			return errors.New("llm: modality counters cannot be negative")
 		}
+		if _, ok := sumNonnegative(
+			detail.InputTokens,
+			detail.CacheCreationInputTokens,
+			detail.CacheReadInputTokens,
+			detail.OutputTokens,
+		); !ok {
+			return errors.New("llm: modality token total overflows")
+		}
+	}
+	if _, ok := sumNonnegative(
+		u.InputTokens,
+		u.CacheCreationInputTokens,
+		u.CacheReadInputTokens,
+		u.OutputTokens,
+	); !ok {
+		return errors.New("llm: usage token total overflows")
 	}
 	return nil
 }
@@ -252,40 +281,93 @@ func (u *Usage) Absorb(other *Usage) {
 	u.mergeFlags(other)
 }
 
-// Add sums usage from a separate request into u. Use Absorb for cumulative
-// frames within one streamed response.
-func (u *Usage) Add(other *Usage) {
+// Add sums usage from a separate request into u. It rejects overflow without
+// changing u. Use Absorb for cumulative frames within one streamed response.
+func (u *Usage) Add(other *Usage) error {
 	if other == nil {
-		return
+		return nil
 	}
-	u.InputTokens += other.InputTokens
-	u.OutputTokens += other.OutputTokens
-	u.CacheCreationInputTokens += other.CacheCreationInputTokens
-	u.CacheReadInputTokens += other.CacheReadInputTokens
-	u.ToolUseInputTokens += other.ToolUseInputTokens
-	u.ReasoningTokens += other.ReasoningTokens
+	if err := u.Validate(); err != nil {
+		return err
+	}
+	if err := other.Validate(); err != nil {
+		return err
+	}
+	next := u.Copy()
+	for _, field := range []struct {
+		value *int
+		add   int
+	}{
+		{&next.InputTokens, other.InputTokens},
+		{&next.OutputTokens, other.OutputTokens},
+		{&next.CacheCreationInputTokens, other.CacheCreationInputTokens},
+		{&next.CacheReadInputTokens, other.CacheReadInputTokens},
+		{&next.ToolUseInputTokens, other.ToolUseInputTokens},
+		{&next.ReasoningTokens, other.ReasoningTokens},
+	} {
+		value, ok := sumNonnegative(*field.value, field.add)
+		if !ok {
+			return errors.New("llm: usage counters overflow")
+		}
+		*field.value = value
+	}
 	if len(other.Requests) > 0 {
-		if u.Requests == nil {
-			u.Requests = map[string]int{}
+		if next.Requests == nil {
+			next.Requests = map[string]int{}
 		}
 		for name, count := range other.Requests {
-			u.Requests[name] += count
+			value, ok := sumNonnegative(next.Requests[name], count)
+			if !ok {
+				return errors.New("llm: request count overflows")
+			}
+			next.Requests[name] = value
 		}
 	}
 	if len(other.ModalityTokens) > 0 {
-		if u.ModalityTokens == nil {
-			u.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))
+		if next.ModalityTokens == nil {
+			next.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))
 		}
 		for modality, addition := range other.ModalityTokens {
-			current := u.ModalityTokens[modality]
-			current.InputTokens += addition.InputTokens
-			current.OutputTokens += addition.OutputTokens
-			current.CacheCreationInputTokens += addition.CacheCreationInputTokens
-			current.CacheReadInputTokens += addition.CacheReadInputTokens
-			u.ModalityTokens[modality] = current
+			current := next.ModalityTokens[modality]
+			values := []*int{
+				&current.InputTokens,
+				&current.OutputTokens,
+				&current.CacheCreationInputTokens,
+				&current.CacheReadInputTokens,
+			}
+			counts := []int{
+				addition.InputTokens,
+				addition.OutputTokens,
+				addition.CacheCreationInputTokens,
+				addition.CacheReadInputTokens,
+			}
+			for i, field := range values {
+				value, ok := sumNonnegative(*field, counts[i])
+				if !ok {
+					return errors.New("llm: modality counters overflow")
+				}
+				*field = value
+			}
+			next.ModalityTokens[modality] = current
 		}
 	}
-	u.mergeFlags(other)
+	next.mergeFlags(other)
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	*u = *next
+	return nil
+}
+
+func sumNonnegative(counts ...int) (int, bool) {
+	total := 0
+	for _, count := range counts {
+		if count < 0 || count > math.MaxInt-total {
+			return 0, false
+		}
+		total += count
+	}
+	return total, true
 }
 
 // mergeFlags carries forward flags that mark data as missing. Once any part of

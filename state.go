@@ -43,12 +43,15 @@ type TurnView struct {
 	// Interruptions counts resumes after a context stop or worker crash.
 	Interruptions  int
 	ProviderPauses int
-	Budget         *Budget
-	Raises         []BudgetRaise
-	Spend          Spend
-	Stop           Stop
-	Output         *StructuredOutput
-	Pending        []string
+	// Budget is the current cap, including any recorded raises.
+	Budget *Budget
+	// Raises preserves the authorized cap changes in order.
+	Raises []BudgetRaise
+	// Spend is rebuilt from committed model and tool facts.
+	Spend   Spend
+	Stop    Stop
+	Output  *StructuredOutput
+	Pending []string
 	// Warnings includes nonfatal conditions from acknowledged steps.
 	Warnings []Warning
 	// ReadyToContinue means Continue can run without first raising a budget.
@@ -143,12 +146,14 @@ func replay(t Turn) (*replayState, error) {
 		s.Revision = step.Seq
 	}
 	s.Pending = s.pending()
-	s.calculateSpend()
+	if err := s.calculateSpend(); err != nil {
+		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
+	}
 	s.ReadyToContinue = s.canContinue()
 	return s, nil
 }
 
-func (s *replayState) calculateSpend() {
+func (s *replayState) calculateSpend() error {
 	s.Spend = Spend{Cost: map[string]float64{}}
 	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
 		usage, charge, estimated, counted := attemptSpend(
@@ -158,7 +163,9 @@ func (s *replayState) calculateSpend() {
 			continue
 		}
 		if usage != nil {
-			s.Spend.Usage.Add(usage)
+			if err := s.Spend.Usage.Add(usage); err != nil {
+				return err
+			}
 		}
 		if estimated {
 			s.Spend.Estimated++
@@ -167,7 +174,9 @@ func (s *replayState) calculateSpend() {
 			s.Spend.CostUnknown++
 			continue
 		}
-		s.Spend.Cost[charge.Currency] += charge.Total
+		if err := s.Spend.addCost(charge.Currency, charge.Total); err != nil {
+			return err
+		}
 		if s.Budget != nil && s.Budget.MaxCost != nil &&
 			charge.Currency != s.Budget.MaxCost.Currency {
 			s.Spend.CostUnknown++
@@ -178,13 +187,16 @@ func (s *replayState) calculateSpend() {
 		if view.Status == ToolSettled && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
-			s.Spend.Cost[cost.Currency] += cost.Amount
+			if err := s.Spend.addCost(cost.Currency, cost.Amount); err != nil {
+				return err
+			}
 			if s.Budget != nil && s.Budget.MaxCost != nil &&
 				cost.Currency != s.Budget.MaxCost.Currency {
 				s.Spend.CostUnknown++
 			}
 		}
 	}
+	return nil
 }
 func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
@@ -268,7 +280,7 @@ func (s *replayState) apply(step Step) error {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
 			}
-			budget := *step.Started.Budget
+			budget := step.Started.Budget.Clone()
 			s.Budget = &budget
 		}
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
@@ -282,7 +294,9 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 	case StepContinued:
-		s.calculateSpend()
+		if err := s.calculateSpend(); err != nil {
+			return err
+		}
 		if !s.canContinueWithBudget(step.Budget) {
 			return errors.New("turn cannot continue")
 		}
@@ -297,9 +311,12 @@ func (s *replayState) apply(step Step) error {
 			if err := step.Budget.raisedFrom(old); err != nil {
 				return err
 			}
-			budget := *step.Budget
+			budget := step.Budget.Clone()
 			s.Budget = &budget
-			s.Raises = append(s.Raises, BudgetRaise{Budget: budget, At: step.At})
+			s.Raises = append(s.Raises, BudgetRaise{
+				Budget: budget.Clone(),
+				At:     step.At,
+			})
 		}
 		if s.Stop.Kind == StopInterrupted || s.Stop.Kind == "" {
 			s.Interruptions++

@@ -215,7 +215,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			CommandDigest: d,
 			Started: &StartFact{
 				Definition:         def,
-				Budget:             c.Budget,
+				Budget:             cloneBudget(c.Budget),
 				OutputSchema:       slices.Clone(c.OutputSchema),
 				Origin:             origin,
 				HistoryFingerprint: fingerprint,
@@ -277,7 +277,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			Kind:          StepContinued,
 			CommandID:     c.ID,
 			CommandDigest: d,
-			Budget:        c.Budget,
+			Budget:        cloneBudget(c.Budget),
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
 		if stored != "" && fingerprint != stored {
@@ -600,21 +600,29 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 		if err == nil {
 			switch reason {
 			case "model_attempts":
-				stop.Limit = &LimitDetail{Kind: LimitModelAttempts,
+				stop.Limit = &LimitDetail{
+					Kind:  LimitModelAttempts,
 					Limit: float64(r.def.Limits.ModelAttempts),
-					Used:  float64(state.ModelAttempts)}
+					Used:  float64(state.ModelAttempts),
+				}
 			case "interruptions":
-				stop.Limit = &LimitDetail{Kind: LimitInterruptions,
+				stop.Limit = &LimitDetail{
+					Kind:  LimitInterruptions,
 					Limit: float64(r.def.Limits.interruptionLimit()),
-					Used:  float64(state.Interruptions)}
+					Used:  float64(state.Interruptions),
+				}
 			case "provider_pauses":
-				stop.Limit = &LimitDetail{Kind: LimitProviderPauses,
+				stop.Limit = &LimitDetail{
+					Kind:  LimitProviderPauses,
 					Limit: float64(r.def.Limits.ProviderPauses),
-					Used:  float64(state.ProviderPauses)}
+					Used:  float64(state.ProviderPauses),
+				}
 			case "deadline":
-				stop.Limit = &LimitDetail{Kind: LimitDeadline,
+				stop.Limit = &LimitDetail{
+					Kind:  LimitDeadline,
 					Limit: float64(r.def.Limits.Deadline.Unix()),
-					Used:  float64(time.Now().Unix())}
+					Used:  float64(time.Now().Unix()),
+				}
 			}
 		}
 	}
@@ -846,7 +854,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, "prepared request changed original model input"), false
 	}
 	atRisk, remainingCost, costStop := checkSendBudget(
-		s, req, r.def.Model,
+		s,
+		req,
+		r.def.Model,
 	)
 	if costStop != nil {
 		return r.stopWith(costStop), false
@@ -866,8 +876,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			if limit.Kind != LimitHost || limit.Validate() != nil {
 				return r.stop(StopFailed, "invalid host limit"), false
 			}
-			return r.stopWith(&Stop{Kind: StopLimited,
-				Reason: authorization.Reason, Limit: &limit}), false
+			return r.stopWith(&Stop{
+				Kind:   StopLimited,
+				Reason: authorization.Reason,
+				Limit:  &limit,
+			}), false
 		}
 		return r.stop(StopRefused, authorization.Reason), false
 	}
@@ -902,7 +915,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		Unverified:           snapshot.Unverified,
 		Tools:                defs,
 	}
-	if o := r.commit(Step{Kind: StepModelIntent, Model: fact, Warnings: budgetWarnings}); o != nil {
+	if o := r.commit(Step{
+		Kind:     StepModelIntent,
+		Model:    fact,
+		Warnings: budgetWarnings,
+	}); o != nil {
 		return *o, false
 	}
 	if err := r.ctx.Err(); err != nil || r.pauseRequested() {

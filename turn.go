@@ -214,7 +214,8 @@ type StructuredOutput struct {
 }
 
 type StartFact struct {
-	Definition   Definition      `json:"definition"`
+	Definition Definition `json:"definition"`
+	// Budget pins the caller's cap at the start of the turn.
 	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
@@ -248,31 +249,34 @@ type ModelFact struct {
 	FinalAnswerOnly bool            `json:"final_answer_only,omitempty"`
 	Admission       json.RawMessage `json:"admission,omitempty"`
 	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
-	AtRisk               *llm.Cost              `json:"at_risk,omitempty"`
-	Charge               *llm.Cost              `json:"charge,omitempty"`
-	EstimatedInputTokens int                    `json:"estimated_input_tokens,omitempty"`
-	EstimatedUsage       bool                   `json:"estimated_usage,omitempty"`
-	Provider             string                 `json:"provider,omitempty"`
-	API                  string                 `json:"api,omitempty"`
-	Model                string                 `json:"model,omitempty"`
-	Effective            llm.Settings           `json:"effective,omitzero"`
-	Origin               content.Origin         `json:"origin,omitzero"`
-	Adjustments          []llm.Adjustment       `json:"adjustments,omitempty"`
-	ContentChanges       []llm.ContentChange    `json:"content_changes,omitempty"`
-	ModelInfo            *llm.ModelInfo         `json:"model_info,omitempty"`
-	CapabilityPolicy     llm.CapabilityPolicy   `json:"capability_policy"`
-	Unverified           []llm.Feature          `json:"unverified,omitempty"`
-	Tools                []tool.Definition      `json:"tools,omitempty"`
-	Result               *llm.Result            `json:"result,omitempty"`
-	Error                string                 `json:"error,omitempty"`
-	Failure              llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence             string                 `json:"evidence,omitempty"`
-	Uncertain            bool                   `json:"uncertain,omitempty"`
+	AtRisk *llm.Cost `json:"at_risk,omitempty"`
+	Charge *llm.Cost `json:"charge,omitempty"`
+	// EstimatedInputTokens is the recorded fallback when usage never arrives.
+	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
+	// EstimatedUsage marks settlements priced from a fallback token estimate.
+	EstimatedUsage   bool                   `json:"estimated_usage,omitempty"`
+	Provider         string                 `json:"provider,omitempty"`
+	API              string                 `json:"api,omitempty"`
+	Model            string                 `json:"model,omitempty"`
+	Effective        llm.Settings           `json:"effective,omitzero"`
+	Origin           content.Origin         `json:"origin,omitzero"`
+	Adjustments      []llm.Adjustment       `json:"adjustments,omitempty"`
+	ContentChanges   []llm.ContentChange    `json:"content_changes,omitempty"`
+	ModelInfo        *llm.ModelInfo         `json:"model_info,omitempty"`
+	CapabilityPolicy llm.CapabilityPolicy   `json:"capability_policy"`
+	Unverified       []llm.Feature          `json:"unverified,omitempty"`
+	Tools            []tool.Definition      `json:"tools,omitempty"`
+	Result           *llm.Result            `json:"result,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Failure          llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence         string                 `json:"evidence,omitempty"`
+	Uncertain        bool                   `json:"uncertain,omitempty"`
 
 	// Interrupted preserves partial output and usage without making them
 	// actionable. A later model call may safely replace this one.
 	Interrupted bool `json:"interrupted,omitempty"`
-	NoDispatch  bool `json:"no_dispatch,omitempty"`
+	// NoDispatch excludes an intent stopped before the provider call began.
+	NoDispatch bool `json:"no_dispatch,omitempty"`
 }
 
 // UnmarshalJSON reads capability_policy, or maps the legacy
@@ -339,9 +343,10 @@ const (
 )
 
 type Stop struct {
-	Kind   StopKind     `json:"kind"`
-	Reason string       `json:"reason,omitempty"`
-	Limit  *LimitDetail `json:"limit,omitempty"`
+	Kind   StopKind `json:"kind"`
+	Reason string   `json:"reason,omitempty"`
+	// Limit enables callers to handle a limited stop without parsing Reason.
+	Limit *LimitDetail `json:"limit,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool. The reason is a stable
@@ -390,6 +395,7 @@ type Command interface{ commandID() string }
 type Start struct {
 	ID     string
 	Origin StartOrigin
+	// Budget applies to this turn, independently of its definition.
 	Budget *Budget
 	// OutputSchema overrides the definition's default for this turn. The
 	// admitted schema is pinned in the start fact for replay and recovery.
@@ -407,7 +413,8 @@ type Deliver struct {
 type Continue struct {
 	ID      string
 	History []llm.Message
-	Budget  *Budget
+	// Budget carries the complete raised cap after host authorization.
+	Budget *Budget
 }
 type Accept struct {
 	ID             string
