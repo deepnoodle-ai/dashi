@@ -134,8 +134,11 @@ previews: never recorded, never replayed, and never shown to the model, so the
 tool's `Outcome` must still carry its full result. `Report` never blocks and
 does nothing when no one listens. When the consumer is slower than the tool,
 snapshots merge and the latest wins. On `Stream`, the last report before
-`Execute` returns arrives before the call's settled step; `Observer` is lossy
-and may drop progress. Nothing for a call follows its settled step. A snapshot
+`Execute` returns arrives before the call's settled step. `Observer` gets
+progress at the lowest priority and may drop it: progress fills at most half
+its queue, and steps and deltas evict queued progress when the queue is full.
+Nothing for a call follows its settled step, and no progress is delivered once
+the turn's context ends, such as after breaking a `Stream` range. A snapshot
 may wait while the runner authorizes or commits another call.
 Report at human rates, a few times a second at most, and throttle rendering
 if needed. To test a tool on its own, install a reporter with
@@ -168,8 +171,8 @@ func (r *pgRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error 
 // (optionally woken by a notify) until the request context ends.
 ```
 
-`Runner.Observer` is lossy: it drops events, including steps, when its buffer
-fills. Use it for in-process display hints such as text deltas, never as a
+`Runner.Observer` is lossy: it drops events, including steps, when its queue
+of 64 events fills; tool progress is dropped first. Use it for in-process display hints such as text deltas, never as a
 delivery channel. Treat deltas as previews that the committed model step
 supersedes.
 

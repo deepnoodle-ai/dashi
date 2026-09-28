@@ -30,9 +30,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	defer cancel()
 	results := make(chan toolResult, len(s.callOrder))
 	running := 0
-	progress := newProgressHub(
-		(r.emitter != nil && r.emitter.ch != nil) || r.opts.streamSink != nil,
-	)
+	progress := newProgressHub(r.emitter.active() || r.opts.streamSink != nil)
 	// fatal holds the stop reason of the first result that ends the turn.
 	// Once set, no further call starts; running calls still settle.
 	fatal := ""

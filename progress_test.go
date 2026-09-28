@@ -559,36 +559,129 @@ func TestRunWithObserverDeliversProgress(t *testing.T) {
 	}
 }
 
-func TestProgressNeverFillsObserverPastHalf(t *testing.T) {
+// Progress fills at most half of a parked Observer's queue, and steps then
+// evict it, so every step that fits the full queue still arrives.
+func TestObserverStepsEvictQueuedProgress(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
-	e := newEmitter(func(Event) {
+	var mu sync.Mutex
+	steps, progress := 0, 0
+	allSteps := make(chan struct{})
+	e := newEmitter(func(event Event) {
 		select {
 		case entered <- struct{}{}:
 		default:
 		}
 		<-release
+		mu.Lock()
+		defer mu.Unlock()
+		if event.Progress != nil {
+			progress++
+			return
+		}
+		steps++
+		if steps == observerQueue+1 {
+			close(allSteps)
+		}
 	})
-	defer func() {
-		close(release)
-		e.close()
-	}()
 	// Park the observer so the queue only fills from here on.
 	e.send(Event{Step: &Step{}})
 	<-entered
-	progress := Event{Progress: &ToolProgress{CallID: "c"}}
 	for range 1000 {
-		e.sendPreview(progress)
-		if len(e.ch) > cap(e.ch)/2 {
-			t.Fatalf("queue=%d of %d", len(e.ch), cap(e.ch))
+		e.sendProgress(Event{Progress: &ToolProgress{CallID: "c"}})
+	}
+	if n := e.len(); n != observerQueue/2 {
+		t.Fatalf("progress queued=%d, want %d", n, observerQueue/2)
+	}
+	for range observerQueue {
+		e.send(Event{Step: &Step{}})
+	}
+	close(release)
+	e.close()
+	select {
+	case <-allSteps:
+	case <-time.After(5 * time.Second):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("steps=%d progress=%d", steps, progress)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if progress != 0 {
+		t.Fatalf("progress=%d survived a full queue of steps", progress)
+	}
+}
+
+// Breaking a Stream on the first progress event cancels the turn; snapshots
+// still pending in other calls' slots must not reach the Observer.
+func TestStreamBreakStopsObserverProgress(t *testing.T) {
+	const reporters = 3
+	var reported sync.WaitGroup
+	reported.Add(reporters)
+	report := progressTool("report", func(
+		ctx context.Context,
+		call tool.Call,
+	) (tool.Outcome, error) {
+		tool.Report(ctx, tool.Progress{Message: call.ID})
+		reported.Done()
+		<-ctx.Done()
+		return tool.Outcome{}, ctx.Err()
+	})
+	hold := progressTool("hold", func(
+		ctx context.Context,
+		_ tool.Call,
+	) (tool.Outcome, error) {
+		<-ctx.Done()
+		return tool.Outcome{}, ctx.Err()
+	})
+	runner := progressRunner(
+		reporters+1,
+		[]llm.Result{namedCallsResult("report", "report", "report", "hold")},
+		report,
+		hold,
+	)
+	// Hold the runner before it starts the last call, so every reporter's
+	// snapshot is pending when it next drains.
+	runner.Recorder = notifyingRecorder{
+		Recorder: runner.Recorder,
+		onCommit: func(step Step) {
+			if step.Kind == StepToolStarted &&
+				step.Tool.Call.ID == fmt.Sprintf("c%d", reporters) {
+				reported.Wait()
+			}
+		},
+	}
+	var mu sync.Mutex
+	observed := 0
+	stopped := make(chan struct{})
+	runner.Observer = func(event Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		if event.Progress != nil {
+			observed++
+		}
+		if event.Step != nil && event.Step.Kind == StepStopped {
+			close(stopped)
 		}
 	}
-	for range cap(e.ch)/2 - 1 {
-		before := len(e.ch)
-		e.send(Event{Step: &Step{}})
-		if len(e.ch) != before+1 {
-			t.Fatal("step dropped while progress held the queue")
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	for event, err := range events {
+		if err != nil {
+			t.Fatal(err)
 		}
+		if event.Progress != nil {
+			break
+		}
+	}
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("observer did not see the stop")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if observed != 1 {
+		t.Fatalf("observer received %d progress events, want 1", observed)
 	}
 }
 

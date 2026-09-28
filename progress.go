@@ -141,12 +141,18 @@ func (s *progressSlot) close() {
 // copied out under each slot's lock and emitted after it is released.
 func (r *runtime) emitProgress(h *progressHub, order []string) {
 	for _, id := range order {
+		if r.ctx.Err() != nil {
+			return
+		}
 		r.emitToolProgress(h.take(id, false))
 	}
 }
 
+// emitToolProgress delivers nothing once the turn's context ends. Breaking a
+// Stream range cancels it, and the Observer must not keep receiving
+// snapshots of a turn that is stopping.
 func (r *runtime) emitToolProgress(p *ToolProgress) {
-	if p == nil {
+	if p == nil || r.ctx.Err() != nil {
 		return
 	}
 	r.emit(Event{TurnID: r.turn.ID, Progress: p})

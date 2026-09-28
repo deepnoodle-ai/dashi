@@ -674,7 +674,7 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
-	if (r.emitter != nil && r.emitter.ch != nil) || r.opts.streamSink != nil {
+	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
 			event.AttemptID = step.Model.AttemptID
@@ -686,9 +686,9 @@ func (r *runtime) commit(step Step) *Outcome {
 }
 
 func (r *runtime) emit(event Event) {
-	if r.emitter != nil && r.emitter.ch != nil {
+	if r.emitter.active() {
 		if event.Progress != nil {
-			r.emitter.sendPreview(cloneEvent(event))
+			r.emitter.sendProgress(cloneEvent(event))
 		} else {
 			r.emitter.send(cloneEvent(event))
 		}

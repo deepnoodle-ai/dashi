@@ -117,9 +117,11 @@ returns.
 **Lag.** Snapshots wait while the runner authorizes or commits another call.
 They merge; the latest is delivered at the next wait.
 
-**Observer headroom.** The Observer buffer is lossy (64 events). A progress
-event is queued only when the buffer is at most half full, so progress never
-crowds out steps.
+**Observer priority.** The Observer queue is lossy (64 events). A progress
+event is queued only while the queue is under half full, and a step or delta
+arriving at a full queue evicts the oldest queued progress event, so progress
+never costs the Observer an event that would otherwise fit. Once the turn's
+context ends (for example, a broken `Stream`), no more progress is emitted.
 
 **Edits.** New `tool/progress.go` and `progress.go`; `policy.go` (field and
 docs); `tools_loop.go`; `runner.go` (`cloneEvent`, Observer doc);
