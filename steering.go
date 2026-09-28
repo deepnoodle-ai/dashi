@@ -124,7 +124,7 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	if source == nil {
 		return nil
 	}
-	unlock := r.lockSteering()
+	unlock := r.lockSource()
 	steers, err := source.Steers(r.ctx, r.turn.ID)
 	var fresh []Steer
 	var again []string
@@ -283,7 +283,7 @@ func (r *runtime) steersDelivered(ids []string) {
 		steeringTimeout,
 	)
 	defer cancel()
-	unlock := r.lockSteering()
+	unlock := r.lockSource()
 	err := r.opts.steering.Delivered(ctx, r.turn.ID, ids)
 	unlock()
 	if err != nil {
