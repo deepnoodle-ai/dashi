@@ -130,14 +130,15 @@ runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
   depend on it. `WithHooks(Hooks)` adds hooks for one command, after the
   runner's, for extras such as a CLI prompt, never a required redactor.
   Kernel never appends into caller slices. Names are nonempty and unique
-  within each hook point. A name may repeat across points within one `Hooks` value, which shares its state (FR-5), but
-  `JoinHooks` and `WithHooks` reject a name that appears in two different
-  values, so unrelated hooks cannot collide. Violations make `Run` return an
-  error, as does `FailOpen` outside `AfterTool` and `BeforeFinish`.
+  within each hook point. A name may repeat across points within one `Hooks`
+  value, which shares its state (FR-5). `JoinHooks` and `WithHooks` reject a
+  name that appears in two different values, so unrelated hooks cannot
+  collide. `Run` reports violations, and `FailOpen` outside `AfterTool` and
+  `BeforeFinish`, as errors.
 - FR-2: Plans carry the turn ID, a `TurnView`, and the attempt or call ID.
   - `ToolPlan{Call, Definition}`.
-  - `ToolResultView{Call, Definition, Outcome}`, where `Outcome` includes
-    earlier hooks' changes.
+  - `ToolResultView{Call, Definition, Outcome, Presented}`: the actual
+    outcome, and what the model will see after earlier hooks' changes.
   - `FinishPlan{Result}`.
 - FR-3: Decisions:
   - `ModelDecision{Settings, Deliver, Hide, Stop, State}`.
