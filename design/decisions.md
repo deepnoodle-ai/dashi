@@ -196,3 +196,17 @@ happened, so raises are visible in an audit. Who may raise, and by how much, is
 the application's authorization. The review chose "allowed when marked as an
 override" of the definition ceiling; with no ceiling (decision 25) there is
 nothing to override, so the part kept is the audit trail.
+
+**27. Recorded values are compared by JSON meaning, not bytes.** Decided. Every
+digest or comparison of a recorded value against a live one (commands, tool
+definitions and arguments, approval argument digests, the agent definition,
+history fingerprints, idempotent step retries) hashes or compares a canonical
+JSON form: RFC 8785 layout (sorted keys, no whitespace, minimal string
+escapes, ECMAScript number layout), except that numbers keep their exact
+decimal value rather than rounding to a double, and a duplicate key keeps its
+last value. A recorder therefore only has to preserve JSON meaning; `jsonb`
+storage works. New digests carry a `v2:sha256:` prefix and history
+fingerprints move to `v2:`; bare-hex digests and `v1:` fingerprints in older
+records are still checked their original way. Rationale: jsonb is the most
+common store, and byte-exact digests made its reloaded turns fail recovery
+with "tool binding changed" or a false history mismatch.

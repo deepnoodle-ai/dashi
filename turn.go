@@ -3,8 +3,6 @@
 package kernel
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -436,20 +434,6 @@ func (c Deliver) commandID() string  { return c.ID }
 func (c Continue) commandID() string { return c.ID }
 func (c Accept) commandID() string   { return c.ID }
 func (c Cancel) commandID() string   { return c.ID }
-
-func commandDigest(c Command) (string, error) {
-	b, e := json.Marshal(c)
-	if e != nil {
-		return "", e
-	}
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:]), nil
-}
-func digest(v any) string {
-	b, _ := json.Marshal(v)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
 
 var (
 	ErrDefinitionChanged = errors.New("kernel: definition changed")

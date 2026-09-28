@@ -234,7 +234,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		var ex tool.Executor
 		for _, candidate := range bound {
-			if candidate.Definition.Name == v.Call.Name && digest(candidate.Definition) == digest(v.Definition) {
+			if candidate.Definition.Name == v.Call.Name && sameJSONValue(candidate.Definition, v.Definition) {
 				ex = candidate.Executor
 				break
 			}
