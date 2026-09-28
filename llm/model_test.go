@@ -4,10 +4,51 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
+
+func TestModelInfoValidateRejectsNegativeContextWindow(t *testing.T) {
+	info := ModelInfo{
+		Capabilities: Capabilities{ContextWindow: -1},
+		Evidence: ModelEvidence{
+			Model:       "m",
+			API:         "api",
+			Endpoint:    "https://example.test/v1",
+			Owner:       "test",
+			Source:      "fixture",
+			Method:      EvidenceFixture,
+			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	if err := info.Validate(); err == nil {
+		t.Fatal("negative context window was accepted")
+	}
+}
+
+func TestModelInfoDecodesRecordWithoutContextWindow(t *testing.T) {
+	// A record written before context_window existed must still decode.
+	raw := `{"capabilities":{"max_output_tokens":8192},` +
+		`"evidence":{"model":"m","api":"api",` +
+		`"endpoint":"https://example.test/v1","owner":"test",` +
+		`"source":"fixture","method":"fixture",` +
+		`"qualified_at":"2026-09-27T00:00:00Z"}}`
+	var info ModelInfo
+	if err := json.Unmarshal([]byte(raw), &info); err != nil {
+		t.Fatalf("decode older record: %v", err)
+	}
+	if info.Capabilities.ContextWindow != 0 {
+		t.Fatalf("context window = %d, want unknown", info.Capabilities.ContextWindow)
+	}
+	if info.Capabilities.MaxOutputTokens != 8192 {
+		t.Fatal("existing output limit was lost")
+	}
+	if err := info.Validate(); err != nil {
+		t.Fatalf("older record no longer validates: %v", err)
+	}
+}
 
 func TestCapabilitiesCheckIncludesToolResultMedia(t *testing.T) {
 	r := Input{Model: "m", Messages: []Message{UserMessage(Content{

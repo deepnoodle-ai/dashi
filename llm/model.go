@@ -98,6 +98,12 @@ type Capabilities struct {
 	// MaxOutputTokens is a known output limit; zero means no known constraint.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 
+	// ContextWindow is the documented context size in tokens; zero means
+	// unknown. Providers differ on whether output counts against it, so treat
+	// it as an upper bound on input. Preparation does not enforce it, because
+	// input cannot be counted offline.
+	ContextWindow int `json:"context_window,omitempty"`
+
 	// ReasoningEfforts lists accepted levels when known; an empty list adds no
 	// constraint.
 	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
@@ -185,7 +191,8 @@ func (m ModelInfo) Validate() error {
 		}
 	}
 	c := m.Capabilities
-	if c.MaxOutputTokens < 0 || c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 ||
+	if c.MaxOutputTokens < 0 || c.ContextWindow < 0 ||
+		c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 ||
 		(c.MaxReasoningBudget > 0 && c.MinReasoningBudget > c.MaxReasoningBudget) ||
 		!(c.MaxTemperature >= 0) || math.IsInf(c.MaxTemperature, 0) {
 		return errors.New("llm: invalid capability limits")
