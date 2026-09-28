@@ -216,6 +216,84 @@ func TestFirstWriteSyncsDirectories(t *testing.T) {
 	}
 }
 
+// TestNewSyncsEveryComponentOfANewDir creates Dir three levels below an
+// existing directory. Each new component's entry lives in its parent, so New
+// must sync Dir and every ancestor, including the existing one that now names
+// the topmost new directory.
+func TestNewSyncsEveryComponentOfANewDir(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "a", "b", "c")
+	var synced []string
+	_, err := newRecorder(Config{Dir: dir}, func(f *os.File) error {
+		synced = append(synced, f.Name())
+		return f.Sync()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		dir,
+		filepath.Join(base, "a", "b"),
+		filepath.Join(base, "a"),
+		base,
+	}
+	if len(synced) < len(want) || !slices.Equal(synced[:len(want)], want) {
+		t.Fatalf("New synced %q; want it to start with %q", synced, want)
+	}
+	if last := synced[len(synced)-1]; last != filepath.Dir(last) {
+		t.Fatalf("New stopped syncing at %s, before the root", last)
+	}
+}
+
+// TestNewRetriesAFailedDirectorySync fails the sync of one new component. A
+// second New finds every directory present and must sync them all anyway.
+func TestNewRetriesAFailedDirectorySync(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "a", "b")
+	failing := filepath.Join(base, "a")
+	_, err := newRecorder(Config{Dir: dir}, func(f *os.File) error {
+		if f.Name() == failing {
+			return errors.New("EIO")
+		}
+		return f.Sync()
+	})
+	if err == nil {
+		t.Fatal("New succeeded after a failed directory sync")
+	}
+	var synced []string
+	_, err = newRecorder(Config{Dir: dir}, func(f *os.File) error {
+		synced = append(synced, f.Name())
+		return f.Sync()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{dir, failing, base} {
+		if !slices.Contains(synced, want) {
+			t.Fatalf("retried New synced %q; want %s among them", synced, want)
+		}
+	}
+}
+
+// TestNewSkipsAnUnreadableExistingAncestor covers a directory the process may
+// search and write but not read, such as a shared drop directory: New cannot
+// sync it and must not fail because of it.
+func TestNewSkipsAnUnreadableExistingAncestor(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any directory")
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Chmod(locked, 0o700)
+	})
+	if _, err := New(Config{Dir: filepath.Join(locked, "turns")}); err != nil {
+		t.Fatalf("New failed on an unreadable existing ancestor: %v", err)
+	}
+}
+
 func TestFailedDirectorySyncIsUnknown(t *testing.T) {
 	r := newTestRecorder(t)
 	r.syncFile = func(f *os.File) error {

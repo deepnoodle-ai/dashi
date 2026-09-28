@@ -69,7 +69,9 @@ append one newline-terminated line in one write and fsync. A file fsync
 does not make the log's name durable, and the process that created the file
 or shard may have crashed before syncing them, so each process syncs the
 shard directory and `Dir` before its first acknowledged write to a log
-(`New` also syncs `Dir`'s parent when it creates `Dir`). A failed check,
+(`New` syncs `Dir` and every ancestor to the root, whether or not it
+created them, so a retry after a failed sync still syncs; it skips only an
+ancestor that existed before and cannot be opened or is read-only). A failed check,
 or a failed write truncated back, is rejected. A failed file or directory
 sync, or a write that cannot be truncated, is a `*dashi.CommitError` with
 `PersistenceUnknown`, and that log accepts no more commits in this process,

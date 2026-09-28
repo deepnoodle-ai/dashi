@@ -43,7 +43,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -70,7 +72,9 @@ var errLogFailed = errors.New(
 
 // Config configures a Recorder.
 type Config struct {
-	// Dir holds the turn logs. It is created if missing. Required.
+	// Dir holds the turn logs. It is created if missing, and New syncs it
+	// and its ancestors so its name survives a power loss. A relative Dir is
+	// resolved once, in New. Required.
 	Dir string
 
 	// DisableSync skips fsync after each write. Commits are then much faster
@@ -108,6 +112,16 @@ var (
 // New returns a recorder for the turn logs in cfg.Dir, creating the
 // directory if needed.
 func New(cfg Config) (*Recorder, error) {
+	return newRecorder(cfg, func(f *os.File) error {
+		return f.Sync()
+	})
+}
+
+// newRecorder is New with the sync operation tests inject failures into.
+func newRecorder(
+	cfg Config,
+	syncFile func(*os.File) error,
+) (*Recorder, error) {
 	if !supported {
 		return nil, fmt.Errorf(
 			"filerecorder: not supported on %s",
@@ -117,30 +131,74 @@ func New(cfg Config) (*Recorder, error) {
 	if cfg.Dir == "" {
 		return nil, errors.New("filerecorder: Config.Dir is required")
 	}
-	_, statErr := os.Stat(cfg.Dir)
-	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
+	abs, err := filepath.Abs(cfg.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("filerecorder: resolve Dir: %w", err)
+	}
+	existing := existingPath(abs)
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, fmt.Errorf("filerecorder: create Dir: %w", err)
 	}
 	r := &Recorder{
-		dir:    cfg.Dir,
+		dir:    abs,
 		sync:   !cfg.DisableSync,
 		failed: map[string]error{},
 		index:  newIndexCache(),
 		writeAt: func(f *os.File, b []byte, off int64) (int, error) {
 			return f.WriteAt(b, off)
 		},
-		syncFile: func(f *os.File) error {
-			return f.Sync()
-		},
+		syncFile: syncFile,
 	}
-	if errors.Is(statErr, fs.ErrNotExist) {
-		// Make the new Dir's own name durable, as each turn's first append
-		// does for the directories below it.
-		if err := r.syncDir(filepath.Dir(cfg.Dir)); err != nil {
-			return nil, err
-		}
+	if err := r.syncPath(abs, existing); err != nil {
+		return nil, err
 	}
 	return r, nil
+}
+
+// syncPath makes every directory entry on the path to dir durable by syncing
+// dir and each ancestor up to the root. It does not depend on whether this
+// call created them: MkdirAll may create several components, and a retry
+// after a failed sync finds them already present, so syncing only what this
+// call created would leave entries unsynced. It runs once per New.
+//
+// A directory that existed before this call and that this process cannot
+// open, or that sits on a read-only filesystem, is skipped: no entry this
+// recorder created can be pending there. existing is the deepest path that
+// existed before this call; everything above it existed too.
+func (r *Recorder) syncPath(dir, existing string) error {
+	for p := dir; ; p = filepath.Dir(p) {
+		err := r.syncDir(p)
+		preexisting := p == existing || within(existing, p)
+		if err != nil && !(preexisting && notOurs(err)) {
+			return err
+		}
+		if filepath.Dir(p) == p {
+			return nil
+		}
+	}
+}
+
+// existingPath returns the deepest ancestor of dir, or dir itself, that
+// exists.
+func existingPath(dir string) string {
+	for p := dir; ; p = filepath.Dir(p) {
+		if _, err := os.Stat(p); err == nil || filepath.Dir(p) == p {
+			return p
+		}
+	}
+}
+
+// within reports whether ancestor is a proper ancestor of path.
+func within(path, ancestor string) bool {
+	rel, err := filepath.Rel(ancestor, path)
+	return err == nil && rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// notOurs reports a sync failure on a directory this recorder cannot have
+// changed: one it may not open, or one on a read-only filesystem.
+func notOurs(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
 }
 
 // Path returns the file that holds turnID's log, whether or not it exists.
