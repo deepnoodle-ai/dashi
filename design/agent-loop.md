@@ -59,9 +59,10 @@ intent-before-effect constraint.
    error is a known, model-facing failure; one wrapped with `tool.Fatal` also
    stops the turn. Only a result the engine never observed (a panic or a crash
    after the start) is uncertain; see [decisions](decisions.md) entry 1.
-   External calls and waits become pending subjects. Complete siblings are recorded
-   immediately, while model projection returns tool results in call order. No
-   next model call occurs until every client call in the batch is resolved.
+   External calls and waits become pending subjects. Complete siblings are
+   recorded immediately, while model projection returns tool results in call
+   order. No next model call occurs until every client call in the batch is
+   resolved.
 4. Otherwise, check turn-wide limits and a requested soft stop. Resolve tools
    and context for this call, apply typed request policy, and prepare one
    `llm.Request`. Preparation rejects unsupported controls and records any
