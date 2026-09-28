@@ -774,7 +774,7 @@ func (r *runtime) current() Outcome {
 		if r.err == nil {
 			r.err = fmt.Errorf("%w: %w: %v", ErrRecordInvalid, ErrInvalidTurn, e)
 		}
-		return Outcome{Turn: cloneTurn(r.turn)}
+		return Outcome{Turn: cloneTurnSafe(r.turn)}
 	}
 	return outcome(r.turn, s)
 }

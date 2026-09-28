@@ -111,6 +111,7 @@ type replayState struct {
 	callOrder              []string
 	hosted                 map[string]llm.HostedApprovalRequest
 	hostedOrder            []string
+	hostedAttempts         map[string]string
 	commandDigests         map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
@@ -141,6 +142,7 @@ func replay(t Turn) (*replayState, error) {
 		TurnView:         TurnView{ID: t.ID, Tools: map[string]ToolView{}},
 		modelDefs:        map[string]tool.Definition{},
 		hosted:           map[string]llm.HostedApprovalRequest{},
+		hostedAttempts:   map[string]string{},
 		commandDigests:   map[string]string{},
 		modelIntents:     map[string]*ModelFact{},
 		modelSettlements: map[string]*ModelFact{},
@@ -892,7 +894,7 @@ func (s *replayState) pendingItems() []Pending {
 	var out []Pending
 	for _, id := range []string{s.modelIntent, s.unresolvedModel} {
 		if id != "" {
-			out = append(out, Pending{Kind: PendingModel, ID: id})
+			out = append(out, Pending{Kind: PendingModel, ID: id, AttemptID: id})
 		}
 	}
 	for _, id := range s.callOrder {
@@ -906,11 +908,12 @@ func (s *replayState) pendingItems() []Pending {
 			continue
 		}
 		out = append(out, Pending{
-			Kind: kind,
-			ID:   id,
-			Name: v.Call.Name,
-			Args: v.Call.Args,
-			Tool: &v,
+			Kind:      kind,
+			ID:        id,
+			AttemptID: s.callAttempts[id],
+			Name:      v.Call.Name,
+			Args:      v.Call.Args,
+			Tool:      &v,
 		})
 	}
 	for _, id := range s.hostedOrder {
@@ -919,11 +922,12 @@ func (s *replayState) pendingItems() []Pending {
 			continue
 		}
 		out = append(out, Pending{
-			Kind:   PendingApproval,
-			ID:     id,
-			Name:   a.Name,
-			Args:   a.Arguments,
-			Hosted: &a,
+			Kind:      PendingApproval,
+			ID:        id,
+			AttemptID: s.hostedAttempts[id],
+			Name:      a.Name,
+			Args:      a.Arguments,
+			Hosted:    &a,
 		})
 	}
 	return out
@@ -996,7 +1000,15 @@ func (s *replayState) recordResult(
 				if _, ok := s.hosted[a.ID]; ok {
 					return errors.New("repeated hosted approval ID")
 				}
+				// A provider may reuse an ID once its earlier request was
+				// answered. The attempt tells the two requests apart, so
+				// each gets its own answer command.
 				s.hosted[a.ID] = a
+				s.hostedAttempts[a.ID] = attempt
+				s.hostedOrder = slices.DeleteFunc(
+					s.hostedOrder,
+					func(id string) bool { return id == a.ID },
+				)
 				s.hostedOrder = append(s.hostedOrder, a.ID)
 			}
 		}

@@ -96,9 +96,12 @@ calls in call order, then hosted requests in the order the model made them.
 `Approve` and `Deny` fill the call ID, argument digest, and policy revision,
 or the request ID and origin for a hosted request. `Result` takes a value, so
 callers never write `new(...)`. Command IDs derive from the item
-(`approval:<id>`, `hosted-approval:<id>`, `result:<id>`): a retried answer is a
-duplicate, and a different second answer is `ErrCommandConflict`. A builder on
-the wrong kind of item produces a command `Run` rejects.
+(`approval:<id>`, `hosted-approval:<attempt>:<id>`, `result:<id>`): a retried
+answer is a duplicate, and a different second answer is `ErrCommandConflict`.
+Local call IDs are unique within a turn (replay rejects a repeat), but a
+provider may reuse a hosted request ID once the first was answered, so
+`Pending.AttemptID` scopes that command. A builder on the wrong kind of item
+produces a command `Run` rejects.
 
 `dashi.RequireApproval(tools ...string)` is a policy that allows local tools
 and defers the named ones, with a fixed revision derived from the names. It

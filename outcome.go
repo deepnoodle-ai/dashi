@@ -59,6 +59,8 @@ type Pending struct {
 	Kind PendingKind `json:"kind"`
 	// ID is the tool call, hosted request, or model attempt ID.
 	ID string `json:"id"`
+	// AttemptID is the model attempt that produced the item.
+	AttemptID string `json:"attempt_id,omitempty"`
 	// Name and Args describe what a person approves: the tool name and
 	// arguments of a local call or a hosted request.
 	Name string          `json:"name,omitempty"`
@@ -86,6 +88,7 @@ func (p Pending) Deny(reason string) Settle {
 // Result builds the Settle command that reports a final outcome for a
 // waiting, started, or uncertain local call.
 func (p Pending) Result(outcome tool.Outcome) Settle {
+	// Call IDs are unique within a turn; see answer.
 	return Settle{
 		CommandID: "result:" + p.ID,
 		CallID:    p.ID,
@@ -95,8 +98,10 @@ func (p Pending) Result(outcome tool.Outcome) Settle {
 
 func (p Pending) answer(approve bool, reason string) Settle {
 	if p.Hosted != nil {
+		// A provider may reuse a request ID after the earlier request was
+		// answered, so the attempt scopes the command ID to this request.
 		return Settle{
-			CommandID: "hosted-approval:" + p.ID,
+			CommandID: "hosted-approval:" + p.AttemptID + ":" + p.ID,
 			CallID:    p.ID,
 			HostedApproval: &llm.HostedApprovalResponse{
 				RequestID: p.ID,
@@ -111,8 +116,9 @@ func (p Pending) answer(approve bool, reason string) Settle {
 		Approve: approve,
 		Reason:  reason,
 	}
-	// An item that is not an approval gets an empty digest, which Run
-	// rejects as not pending.
+	// Replay rejects a repeated tool call ID anywhere in a turn, so the
+	// call ID alone identifies this answer. An item that is not an
+	// approval gets an empty digest, which Run rejects as not pending.
 	if p.Tool != nil {
 		fact.ArgsDigest = p.Tool.ArgsDigest
 		fact.PolicyRevision = p.Tool.Decision.Revision
@@ -164,7 +170,7 @@ func (p requireApproval) AuthorizeTool(
 func restingOutcome(turn Turn) Outcome {
 	s, err := replay(turn)
 	if err != nil {
-		return Outcome{Turn: cloneTurn(turn)}
+		return Outcome{Turn: cloneTurnSafe(turn)}
 	}
 	return outcome(turn, s)
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -546,6 +547,16 @@ func cloneTurn(t Turn) Turn {
 		out.Steps[i] = cloneStep(s)
 	}
 	return out
+}
+
+// cloneTurnSafe copies a turn that may not serialize, such as a caller's
+// turn that failed replay. cloneTurn would panic on it, so such a turn is
+// copied shallowly: its steps are new values that share nested data.
+func cloneTurnSafe(t Turn) Turn {
+	if _, err := json.Marshal(t); err != nil {
+		return Turn{ID: t.ID, Steps: slices.Clone(t.Steps)}
+	}
+	return cloneTurn(t)
 }
 
 // resolveCount applies the default to a zero count and normalizes any
