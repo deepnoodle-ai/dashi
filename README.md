@@ -51,7 +51,8 @@ for a recorded agent turn. Both make paid requests.
 
 - Anthropic Messages
 - OpenAI Responses, Chat Completions, and Images
-- Google Gemini API and Vertex
+- Google Gemini API and Vertex (a separate module:
+  `go get github.com/deepnoodle-ai/kernel/providers/google/gemini`)
 - xAI (Grok) conversations, images, and video
 - Configured destinations: DeepInfra, Mistral, OpenRouter, Meta, and Ollama
 
