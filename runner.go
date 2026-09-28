@@ -1357,8 +1357,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	// Every interrupt, whatever its cause, folds the estimate from all
 	// streamed deltas into the recorded output (U-9), so text that arrived
 	// after the cut still counts.
-	partial := func() *llm.Result {
+	partial := func(cause InterruptCause) *llm.Result {
 		return interruptedResult(
+			cause,
 			result,
 			observedContent,
 			observedUsage,
@@ -1385,7 +1386,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			s,
 			fact,
 			settled,
-			partial(),
+			partial(InterruptSteering),
 			sendErr,
 			result,
 		)
@@ -1394,7 +1395,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
 		settled.Uncertain = unsafeHosted(defs)
-		settled.Result = partial()
+		settled.Result = partial(InterruptRun)
 		setSettlementCharge(fact, settled)
 		step := Step{Kind: StepModelSettled, Model: settled}
 		if o := r.commit(step); o != nil {
@@ -1566,19 +1567,22 @@ func completeResult(result llm.Result, err error, agent Agent) bool {
 		validateModelResult(result, agent) == nil
 }
 
-// interruptedResult keeps what an interrupted call produced. Its partial
-// response is only the content streamed before the call's context ended
-// (U-6): a message the client returns may hold text generated after the
-// cut, which was never shown, so that message only adds to the output
-// estimate. A collected call shows nothing before the cut, so it keeps no
-// partial. The returned ID and usage stand, with the usage observed on the
-// stream. The output count is the larger of the reported count and the
-// estimate from every streamed delta or the returned message, so replay
-// and token caps count output that was generated but never shown
+// interruptedResult keeps what an interrupted call produced. For a steering
+// cut the partial response is only the content streamed before the call's
+// context ended (U-6), because it is projected into the next call: a message
+// the client returns may hold text generated after the cut, which was never
+// shown, so that message only adds to the output estimate, and a collected
+// call keeps no partial. Any other cause is never projected, so it keeps
+// the returned message for audit, including hosted-tool records, or else
+// the streamed content. The returned ID and usage stand, with the usage
+// observed on the stream. The output count is the larger of the reported
+// count and the estimate from every streamed delta or the returned message,
+// so replay and token caps count output that was generated but never shown
 // (decision 24). The estimate is capped at maxTokens when positive, since a
 // provider bills no more output than the call allowed. It returns nil when
 // the call left no trace.
 func interruptedResult(
+	cause InterruptCause,
 	result llm.Result,
 	content []llm.Content,
 	observed *llm.Usage,
@@ -1586,7 +1590,9 @@ func interruptedResult(
 	maxTokens int,
 ) *llm.Result {
 	streamedTokens = max(streamedTokens, estimatedOutputTokens(&result))
-	result.Message.Content = nil
+	if cause == InterruptSteering {
+		result.Message.Content = nil
+	}
 	result = mergeObserved(result, content, observed)
 	if maxTokens > 0 {
 		streamedTokens = min(streamedTokens, maxTokens)

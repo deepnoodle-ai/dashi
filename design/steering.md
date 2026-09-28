@@ -98,15 +98,17 @@ example sends lines starting with `!` as urgent.
   a context derived from the run's, cancelled with a private cause
   `errSteered`. The stream loop emits and accumulates partial text only while
   that context is live; later frames still count toward usage and the
-  estimate, as does a message returned after the cut, which is never kept as
-  the partial. The run marks the attempt *handed off* just before it calls
+  estimate, as does a message returned after the cut. For a steering cut
+  that message is never kept as the partial, since the partial is projected
+  into the next call; a run-cancelled call is never projected and keeps it
+  for audit. The run marks the attempt *handed off* just before it calls
   `llm.Stream`.
 - **U-7. Settlement order.** After the call returns:
   1. The run's context ended: cause `run`, as today.
   2. The result is complete (no error, a stop kind other than
-     `incomplete`, `validateModelResult` passes): the call stands and the steer waits for FR-6. If that result
-     stops the turn (an `output` or `context` limit), the steer goes to
-     `Leftovers`.
+     `incomplete`, `validateModelResult` passes): the call stands and the
+     steer waits for FR-6. If that result stops the turn (an `output` or
+     `context` limit), the steer goes to `Leftovers`.
   3. The call context's cause is `errSteered`: cause `steering`. It is
      `NoDispatch` only if the cancel came before the hand-off mark or the
      client reports `FailureNotDispatched`; a missing response proves
