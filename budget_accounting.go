@@ -32,9 +32,10 @@ func attemptSpend(
 	} else {
 		usage = usage.Copy()
 	}
-	if settlement != nil && settlement.Interrupted {
+	if modelUsageMayBePartial(settlement) {
 		// Streamed usage may describe only the input or an earlier output
-		// frame. Keep reported counts and include later visible output.
+		// frame. Keep reported counts and include later visible output only
+		// when the model result is incomplete or uncertain.
 		estimated = true
 		if usage.TotalInputTokens() == 0 {
 			usage.InputTokens = intent.EstimatedInputTokens
@@ -61,6 +62,27 @@ func attemptSpend(
 		}
 	}
 	return usage, nil, estimated, true
+}
+
+func modelUsageMayBePartial(settlement *ModelFact) bool {
+	if settlement == nil {
+		return false
+	}
+	if settlement.Interrupted || settlement.Uncertain {
+		return true
+	}
+	if settlement.Result == nil {
+		return false
+	}
+	// A validation error can follow a finished response with final usage.
+	// Missing or invalid stops, though, provide no terminal evidence.
+	switch settlement.Result.Stop.Kind {
+	case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit,
+		llm.StopContextLimit, llm.StopRefusal, llm.StopPause, llm.StopOther:
+		return false
+	default:
+		return true
+	}
 }
 
 // addUnreportedRequests covers hosted work whose billing the provider never

@@ -56,6 +56,8 @@ type Config struct {
 	// Client is shared and supplies transport and timeout behavior. Redirects
 	// are disabled; its transport must not retry requests internally.
 	Client *http.Client
+	// Timeouts bounds this client's HTTP model calls.
+	Timeouts llm.HTTPTimeouts
 
 	// Models supplies evidence for this API and endpoint, keyed by exact model
 	// ID. New validates scope and snapshots these values. An entry replaces
@@ -108,6 +110,7 @@ func New(config Config) (*Client, error) {
 		},
 		config.Models,
 		config.CapabilityPolicy,
+		config.Timeouts,
 	)
 	if err != nil {
 		return nil, err
@@ -349,18 +352,21 @@ func (p *Client) Send(
 	}
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
-		return wire.readStream(resp.Body, r, sink)
+		result, callErr = wire.readStream(resp.Body, r, sink)
+		if callErr == nil {
+			callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
+		}
+		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return r, providerhttp.Failure(
-			wire.origin.Provider,
-			llm.ErrorTransport,
-			"read response: %w",
-			err,
-		)
+		return r, providerhttp.ReadFailure(wire.origin.Provider, err)
 	}
-	return wire.decode(raw, r.Requested)
+	result, callErr = wire.decode(raw, r.Requested)
+	if callErr == nil {
+		callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
+	}
+	return result, callErr
 }
 
 // codec carries call-specific provenance through encoding and decoding.

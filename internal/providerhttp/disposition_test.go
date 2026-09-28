@@ -48,6 +48,7 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 				nil,
 				nil,
 				llm.CapabilityAdjust,
+				llm.HTTPTimeouts{},
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -102,6 +103,7 @@ func TestCanceledPostIsKnownNotDispatched(t *testing.T) {
 		nil,
 		nil,
 		llm.CapabilityAdjust,
+		llm.HTTPTimeouts{},
 	)
 	if err != nil {
 		t.Fatal(err)

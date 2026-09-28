@@ -37,6 +37,8 @@ type Config struct {
 	APIKey   string
 	Endpoint string
 	Client   *http.Client
+	// Timeouts bounds this client's HTTP model calls.
+	Timeouts llm.HTTPTimeouts
 	// Headers adds destination-specific headers such as OpenRouter attribution.
 	// Authorization is always set from APIKey after these values are copied.
 	Headers          http.Header
@@ -107,6 +109,7 @@ func New(config Config) (*Client, error) {
 		headers,
 		config.Models,
 		config.CapabilityPolicy,
+		config.Timeouts,
 	)
 	if err != nil {
 		return nil, err
@@ -318,18 +321,21 @@ func (p *Client) Send(
 	}
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
-		return wire.readStream(ctx, resp.Body, result, sink)
+		result, callErr = wire.readStream(ctx, resp.Body, result, sink)
+		if callErr == nil {
+			callErr = providerhttp.Complete(p.Provider(), resp.Body)
+		}
+		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return result, providerhttp.Failure(
-			p.Provider(),
-			llm.ErrorTransport,
-			"read response: %w",
-			err,
-		)
+		return result, providerhttp.ReadFailure(p.Provider(), err)
 	}
-	return wire.decode(raw, result.Requested)
+	result, callErr = wire.decode(raw, result.Requested)
+	if callErr == nil {
+		callErr = providerhttp.Complete(p.Provider(), resp.Body)
+	}
+	return result, callErr
 }
 
 type codec struct {

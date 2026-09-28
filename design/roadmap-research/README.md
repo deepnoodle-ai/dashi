@@ -5,7 +5,8 @@ Each item has a source review and a **draft** Dashi PRD. The PRDs are suggested
 approaches for discussion, not approved designs or implementation commitments.
 
 The comparative reviews inspected Dashi at `015b0ec`; their source paths and
-line references belong to that revision. Hooks and committed-step `Follow`
+line references belong to that revision unless a review states a later commit.
+Item 20 was rechecked at `018af90`. Hooks and committed-step `Follow`
 landed afterward, on `main` at `108cb52`. The roadmap and affected draft PRDs
 reflect those merged changes. Use `git show 015b0ec:<path>` for historical
 source citations such as `policy.go`.

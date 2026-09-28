@@ -277,12 +277,7 @@ func (wire codec) readStream(
 		return partial, ctx.Err()
 	}
 	if err := reader.Err(); err != nil {
-		return partial, providerhttp.Failure(
-			wire.provider,
-			llm.ErrorTransport,
-			"stream interrupted: %w",
-			err,
-		)
+		return partial, providerhttp.ReadFailure(wire.provider, err)
 	}
 	if !seen || reason == "" {
 		return partial, providerhttp.Failure(

@@ -15,9 +15,11 @@ const DefaultEndpoint = "http://localhost:11434/v1/messages"
 
 // Config supplies optional credentials, endpoint, and model evidence.
 type Config struct {
-	APIKey           string
-	Endpoint         string
-	Client           *http.Client
+	APIKey   string
+	Endpoint string
+	Client   *http.Client
+	// Timeouts bounds this client's HTTP model calls.
+	Timeouts         llm.HTTPTimeouts
 	Models           map[string]llm.ModelInfo
 	CapabilityPolicy llm.CapabilityPolicy
 }
@@ -46,6 +48,7 @@ func New(config Config) (*Client, error) {
 		APIKey:           config.APIKey,
 		Endpoint:         config.Endpoint,
 		Client:           config.Client,
+		Timeouts:         config.Timeouts,
 		Models:           config.Models,
 		CapabilityPolicy: config.CapabilityPolicy,
 	})

@@ -1258,8 +1258,8 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	var result llm.Result
 	var sendErr error
-	var partialText strings.Builder
-	var partialContent []llm.Content
+	var observedContent []llm.Content
+	lastTextIndex := -1
 	var observedUsage *llm.Usage
 	for item, err := range llm.Stream(
 		r.ctx,
@@ -1277,11 +1277,26 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				}
 				observedUsage.Absorb(item.Delta.Usage)
 			}
-			if item.Delta.Kind == llm.DeltaText {
-				partialText.WriteString(item.Delta.Text)
-			}
 			if item.Delta.Content != nil {
-				partialContent = append(partialContent, item.Delta.Content.Clone())
+				observedContent = append(
+					observedContent,
+					item.Delta.Content.Clone(),
+				)
+				lastTextIndex = item.Delta.Index
+			} else if item.Delta.Kind == llm.DeltaText &&
+				item.Delta.Text != "" {
+				last := len(observedContent) - 1
+				if last >= 0 && lastTextIndex == item.Delta.Index &&
+					observedContent[last].Block != nil &&
+					observedContent[last].Block.Text != nil {
+					observedContent[last].Block.Text.Text += item.Delta.Text
+				} else {
+					observedContent = append(
+						observedContent,
+						llm.Text(item.Delta.Text),
+					)
+				}
+				lastTextIndex = item.Delta.Index
 			}
 			if r.ctx.Err() == nil {
 				r.emit(Event{
@@ -1297,18 +1312,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			sendErr = err
 		}
 	}
-	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
-	if r.ctx.Err() != nil {
-		settled.Interrupted = true
-		settled.Error = context.Cause(r.ctx).Error()
-		settled.Uncertain = unsafeHosted(defs)
-		if len(result.Message.Content) == 0 {
-			switch {
-			case partialText.Len() > 0:
-				result.Message = llm.AssistantMessage(llm.Text(partialText.String()))
-			case len(partialContent) > 0:
-				result.Message = llm.AssistantMessage(partialContent...)
-			}
+	mergeObserved := func() {
+		if len(result.Message.Content) == 0 && len(observedContent) > 0 {
+			result.Message = llm.AssistantMessage(observedContent...)
 		}
 		if observedUsage != nil {
 			if result.Usage == nil {
@@ -1317,6 +1323,24 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				result.Usage.Absorb(observedUsage)
 			}
 		}
+		if result.Stop.Kind == "" &&
+			(len(result.Message.Content) > 0 || result.Usage != nil) {
+			result.Stop.Kind = llm.StopIncomplete
+		}
+	}
+	var sendReason llm.ErrorReason
+	if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
+		sendReason = failure.Reason
+	}
+	timeoutWon := sendReason == llm.ReasonResponseStartTimeout ||
+		sendReason == llm.ReasonStreamIdleTimeout ||
+		sendReason == llm.ReasonCallTimeout
+	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
+	if r.ctx.Err() != nil && !timeoutWon {
+		settled.Interrupted = true
+		settled.Error = context.Cause(r.ctx).Error()
+		settled.Uncertain = unsafeHosted(defs)
+		mergeObserved()
 		if result.ID != "" || len(result.Message.Content) > 0 ||
 			result.Usage != nil {
 			settled.Result = &result
@@ -1333,7 +1357,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	var validationErr error
 	if sendErr != nil {
+		mergeObserved()
 		settled.Error = sendErr.Error()
+		settled.ErrorReason = sendReason
 		settled.Failure = failureDisposition(sendErr, result)
 		settled.Uncertain = settled.Failure == llm.FailureUnknown
 		if !settled.Uncertain {
@@ -1362,7 +1388,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 		return *o, false
 	}
-	if r.ctx.Err() != nil {
+	if r.ctx.Err() != nil && !timeoutWon {
 		return r.contextStop(), false
 	}
 	if sendErr != nil {

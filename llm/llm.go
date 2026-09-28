@@ -652,6 +652,14 @@ const (
 	// cannot be decoded, or too many items. Removing or converting the media
 	// and sending again may succeed.
 	ReasonMediaRejected ErrorReason = "media_rejected"
+	// ReasonResponseStartTimeout means the Dashi response-start timer expired
+	// before the provider's response headers arrived.
+	ReasonResponseStartTimeout ErrorReason = "response_start_timeout"
+	// ReasonStreamIdleTimeout means no response-body bytes arrived during one
+	// blocking read of a model stream.
+	ReasonStreamIdleTimeout ErrorReason = "stream_idle_timeout"
+	// ReasonCallTimeout means Dashi's total model-call timer expired.
+	ReasonCallTimeout ErrorReason = "call_timeout"
 )
 
 // ErrNoAPIKey reports a client built without an API key for an endpoint that

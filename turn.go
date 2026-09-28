@@ -367,11 +367,14 @@ type ModelFact struct {
 	Tools            []tool.Definition    `json:"tools,omitempty"`
 	// Hidden names the tools BeforeModel hooks removed from this call. A
 	// call to one of them settles as not available, by this record.
-	Hidden   []string               `json:"hidden,omitempty"`
-	Result   *llm.Result            `json:"result,omitempty"`
-	Error    string                 `json:"error,omitempty"`
-	Failure  llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence string                 `json:"evidence,omitempty"`
+	Hidden []string    `json:"hidden,omitempty"`
+	Result *llm.Result `json:"result,omitempty"`
+	Error  string      `json:"error,omitempty"`
+	// ErrorReason is a stable, optional model failure code. It is absent on
+	// older records and does not replace the human-readable Error.
+	ErrorReason llm.ErrorReason        `json:"error_reason,omitempty"`
+	Failure     llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence    string                 `json:"evidence,omitempty"`
 	// Uncertain means the model effect cannot yet be classified as settled or
 	// safely not dispatched.
 	Uncertain bool `json:"uncertain,omitempty"`
