@@ -47,15 +47,11 @@ func Stream(ctx context.Context, client Client, call Call) iter.Seq2[StreamEvent
 			if stopped {
 				return
 			}
-			if delta.Content != nil {
-				value := delta.Content.Clone()
-				delta.Content = &value
-			}
-			if delta.Usage != nil {
-				delta.Usage = delta.Usage.Copy()
-			}
+			delta = detach(delta)
 			if observe != nil {
-				observe(delta)
+				// The observer gets its own copy so its edits cannot reach
+				// the yielded event.
+				observe(detach(delta))
 			}
 			if !yield(StreamEvent{Delta: &delta}, nil) {
 				stopped = true
@@ -70,4 +66,17 @@ func Stream(ctx context.Context, client Client, call Call) iter.Seq2[StreamEvent
 			yield(StreamEvent{Result: &result}, err)
 		}
 	}
+}
+
+// detach returns delta with its nested Content and Usage copied, so the
+// result shares no mutable state with the original.
+func detach(delta Delta) Delta {
+	if delta.Content != nil {
+		value := delta.Content.Clone()
+		delta.Content = &value
+	}
+	if delta.Usage != nil {
+		delta.Usage = delta.Usage.Copy()
+	}
+	return delta
 }

@@ -104,3 +104,33 @@ func TestStreamReturnsPartialResultWithError(t *testing.T) {
 		t.Fatalf("terminal=%+v err=%v", final, finalErr)
 	}
 }
+
+func TestStreamSinkCannotMutateYieldedDelta(t *testing.T) {
+	client := &iteratorClient{send: func(_ context.Context, sink Sink) (Result, error) {
+		content := Text("original")
+		sink(Delta{Kind: DeltaText, Text: "original", Content: &content, Usage: &Usage{OutputTokens: 5}})
+		return Result{Stop: Stop{Kind: StopFinished}}, nil
+	}}
+	mutate := func(d Delta) {
+		d.Content.Block.Text.Text = "corrupt"
+		d.Usage.OutputTokens = 99
+	}
+	var got *Delta
+	for event, err := range Stream(context.Background(), client, Call{Sink: mutate}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Delta != nil {
+			got = event.Delta
+		}
+	}
+	if got == nil {
+		t.Fatal("no delta yielded")
+	}
+	if text := got.Content.Block.Text.Text; text != "original" {
+		t.Fatalf("yielded content=%q, changed by the sink", text)
+	}
+	if got.Usage.OutputTokens != 5 {
+		t.Fatalf("yielded usage=%d, changed by the sink", got.Usage.OutputTokens)
+	}
+}
