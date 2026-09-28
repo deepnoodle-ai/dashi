@@ -29,7 +29,7 @@ func TestLiveVeoVideoJob(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_VIDEO_MODEL are required")
 	}
-	client, err := NewMedia(MediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+	client, err := NewMedia(MediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestLiveOmniVideoCall(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_OMNI_MODEL are required")
 	}
-	client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+	client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestLiveOmniVideoJob(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_OMNI_MODEL are required")
 	}
-	client, err := NewInteractionsVideoJobs(InteractionsMediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+	client, err := NewInteractionsVideoJobs(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

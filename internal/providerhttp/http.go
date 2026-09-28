@@ -40,14 +40,14 @@ type Client struct {
 	Headers http.Header
 	scope   string
 	models  map[string]llm.ModelInfo
-	unknown llm.UnknownPolicy
+	policy  llm.CapabilityPolicy
 }
 
 // NewClient snapshots configuration and derives a replay namespace from the
 // endpoint and credential. Credential rotation conservatively invalidates old
 // private replay data. Neither the credential nor endpoint appears in Origin.
 func NewClient(provider, api, endpoint, credential string, httpClient *http.Client,
-	headers http.Header, models map[string]llm.ModelInfo, unknown llm.UnknownPolicy) (Client, error) {
+	headers http.Header, models map[string]llm.ModelInfo, policy llm.CapabilityPolicy) (Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.Fragment != "" {
 		return Client{}, errors.New("providerhttp: invalid endpoint")
@@ -55,8 +55,8 @@ func NewClient(provider, api, endpoint, credential string, httpClient *http.Clie
 	if strings.TrimSpace(provider) == "" || api == "" {
 		return Client{}, errors.New("providerhttp: provider identity and API are required")
 	}
-	if unknown != llm.UnknownReject && unknown != llm.UnknownAllow {
-		return Client{}, errors.New("providerhttp: invalid unknown capability policy")
+	if !policy.Valid() {
+		return Client{}, errors.New("providerhttp: invalid capability policy")
 	}
 	catalog := make(map[string]llm.ModelInfo, len(models))
 	for model, info := range models {
@@ -74,7 +74,7 @@ func NewClient(provider, api, endpoint, credential string, httpClient *http.Clie
 	scopeData, _ := json.Marshal([]string{api, endpoint, credential})
 	scope := fmt.Sprintf("%x", sha256.Sum256(scopeData))
 	return Client{Provider: provider, API: api, Endpoint: endpoint, HTTP: httpClient,
-		Headers: headers.Clone(), scope: scope, models: catalog, unknown: unknown}, nil
+		Headers: headers.Clone(), scope: scope, models: catalog, policy: policy}, nil
 }
 
 // Origin binds model replay to the configured API, endpoint, and credentials.
@@ -88,10 +88,34 @@ func (c Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 	return info.Clone(), ok
 }
 
+// Policy reports the configured capability policy, for provider rules that
+// Fit cannot express.
+func (c Client) Policy() llm.CapabilityPolicy {
+	return c.policy
+}
+
+// Fit brings effective settings within the model's known limits combined with
+// limits api imposes on every model, under the configured policy. Providers
+// call it before encoding, so the body carries the fitted values.
+func (c Client) Fit(
+	effective llm.Input,
+	api llm.Capabilities,
+	adjustments []llm.Adjustment,
+) (llm.Input, []llm.Adjustment, error) {
+	info, _ := c.ModelInfo(effective.Model)
+	limits := info.Capabilities.Intersect(api)
+	fitted, adjustments, err := limits.Fit(effective, c.policy, adjustments)
+	if err != nil {
+		failure := Failure(c.Provider, llm.ErrorUnsupported, "%w", err)
+		return llm.Input{}, nil, failure
+	}
+	return fitted, adjustments, nil
+}
+
 // Prepare checks effective capabilities and snapshots the single wire body.
 func (c Client) Prepare(requested, effective llm.Input, body map[string]any, adjustments []llm.Adjustment, changes []llm.ContentChange) (llm.Request, error) {
 	info, known := c.ModelInfo(requested.Model)
-	unverified, err := info.Capabilities.Check(effective, c.unknown)
+	unverified, err := info.Capabilities.Check(effective, c.policy)
 	if err != nil {
 		return llm.Request{}, Failure(c.Provider, llm.ErrorUnsupported, "%w", err)
 	}
@@ -107,7 +131,7 @@ func (c Client) Prepare(requested, effective llm.Input, body map[string]any, adj
 	return llm.NewRequest(llm.RequestSnapshot{Origin: c.Origin(requested.Model),
 		Input: requested, Effective: effective.Settings, Body: raw,
 		Adjustments: adjustments, ContentChanges: changes, ModelInfo: snapshot,
-		UnknownCapabilities: c.unknown, Unverified: unverified})
+		CapabilityPolicy: c.policy, Unverified: unverified})
 }
 
 // Post performs at most one dispatch, without retries or redirects. Errors

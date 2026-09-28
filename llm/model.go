@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -74,14 +75,16 @@ func HostedToolFeature(toolType string) Feature {
 	return Feature("hosted_tool:" + toolType)
 }
 
-// UnknownPolicy is retained as an alias for existing model-call clients.
-type UnknownPolicy = model.UnknownPolicy
+// CapabilityPolicy is shared with media operations so one application setting
+// means the same thing for every model-backed call.
+type CapabilityPolicy = model.CapabilityPolicy
 
 const (
-	// UnknownReject declines a request with unknown required support.
-	UnknownReject = model.UnknownReject
-	// UnknownAllow records uncertainty and lets the provider validate it.
-	UnknownAllow = model.UnknownAllow
+	// CapabilityAdjust is the default: it sends unknown support and fits
+	// known limits to the nearest supported value with a warning.
+	CapabilityAdjust = model.CapabilityAdjust
+	// CapabilityStrict declines unknown support and out-of-range values.
+	CapabilityStrict = model.CapabilityStrict
 )
 
 // Capabilities describes model behavior, independently of pricing. Zero limits
@@ -104,40 +107,42 @@ type Capabilities struct {
 
 	// MaxReasoningBudget is a known upper bound; zero adds no constraint.
 	MaxReasoningBudget int `json:"max_reasoning_budget,omitempty"`
+
+	// MaxTemperature is a known upper bound on sampling temperature; zero
+	// adds no constraint.
+	MaxTemperature float64 `json:"max_temperature,omitempty"`
 }
 
-// Check validates requested features and known limits. Its returned features
-// are unverified under UnknownAllow, so callers can record that uncertainty.
+// Check validates requested features and known limits without changing the
+// request; call Fit first to bring settings within limits. Under
+// CapabilityAdjust the returned features have unknown support, so callers can
+// record that uncertainty. Known rejection fails under both policies.
 // Input.Settings should contain effective settings when checking defaults.
-func (c Capabilities) Check(r Input, policy UnknownPolicy) ([]Feature, error) {
-	if policy != UnknownReject && policy != UnknownAllow {
-		return nil, fmt.Errorf("llm: invalid unknown capability policy %q", policy)
+func (c Capabilities) Check(r Input, policy CapabilityPolicy) ([]Feature, error) {
+	if !policy.Valid() {
+		return nil, fmt.Errorf("llm: invalid capability policy %q", policy)
 	}
 	var unverified []Feature
 	for _, f := range requestedFeatures(r) {
 		switch c.Features[f] {
 		case SupportSupported:
 		case SupportUnknown:
-			if policy == UnknownReject {
-				return nil, fmt.Errorf("llm: model %q support for %s is unknown", r.Model, f)
+			if policy == CapabilityStrict {
+				return nil, fmt.Errorf(
+					"llm: model %q support for %s is unknown; "+
+						"add ModelInfo evidence for it or use the adjust capability policy",
+					r.Model, f,
+				)
 			}
 			unverified = append(unverified, f)
 		case SupportUnsupported:
-			return nil, fmt.Errorf("llm: model %q does not support %s", r.Model, f)
+			return nil, unsupportedError(r.Model, f)
 		default:
 			return nil, fmt.Errorf("llm: invalid support value for %s", f)
 		}
 	}
-	if c.MaxOutputTokens > 0 && r.Settings.MaxTokens > c.MaxOutputTokens {
-		return nil, fmt.Errorf("llm: max_tokens exceeds model limit %d", c.MaxOutputTokens)
-	}
-	if s := r.Settings.Reasoning; s != nil {
-		if s.Effort != "" && len(c.ReasoningEfforts) > 0 && !slices.Contains(c.ReasoningEfforts, s.Effort) {
-			return nil, fmt.Errorf("llm: reasoning effort %q is unsupported", s.Effort)
-		}
-		if s.BudgetTokens > 0 && (s.BudgetTokens < c.MinReasoningBudget || (c.MaxReasoningBudget > 0 && s.BudgetTokens > c.MaxReasoningBudget)) {
-			return nil, errors.New("llm: reasoning budget is outside model limits")
-		}
+	if _, _, err := c.Fit(r, CapabilityStrict, nil); err != nil {
+		return nil, err
 	}
 	return unverified, nil
 }
@@ -180,7 +185,9 @@ func (m ModelInfo) Validate() error {
 		}
 	}
 	c := m.Capabilities
-	if c.MaxOutputTokens < 0 || c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 || (c.MaxReasoningBudget > 0 && c.MinReasoningBudget > c.MaxReasoningBudget) {
+	if c.MaxOutputTokens < 0 || c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 ||
+		(c.MaxReasoningBudget > 0 && c.MinReasoningBudget > c.MaxReasoningBudget) ||
+		!(c.MaxTemperature >= 0) || math.IsInf(c.MaxTemperature, 0) {
 		return errors.New("llm: invalid capability limits")
 	}
 	if m.Pricing != nil {

@@ -60,15 +60,15 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context, input media.ImageI
 		return media.ImageRequest{}, c.failure(media.ErrorUnsupported, err)
 	}
 	request, err := media.NewImageRequest(media.ImageRequestSnapshot{
-		Origin:              c.origin(ImageAPI, input.Model),
-		Input:               input,
-		Effective:           input.Settings,
-		Body:                body,
-		ContentType:         "application/json",
-		ProviderOptions:     providerOptions,
-		ModelInfo:           info,
-		UnknownCapabilities: c.unknown,
-		Unverified:          unverified,
+		Origin:           c.origin(ImageAPI, input.Model),
+		Input:            input,
+		Effective:        input.Settings,
+		Body:             body,
+		ContentType:      "application/json",
+		ProviderOptions:  providerOptions,
+		ModelInfo:        info,
+		CapabilityPolicy: c.unknown,
+		Unverified:       unverified,
 	})
 	if err != nil {
 		return media.ImageRequest{}, c.failure(media.ErrorProtocol, err)
@@ -139,15 +139,15 @@ func (c *Client) PrepareVideoWithOptions(ctx context.Context, input media.VideoI
 		return media.VideoRequest{}, c.failure(media.ErrorUnsupported, err)
 	}
 	request, err := media.NewVideoRequest(media.VideoRequestSnapshot{
-		Origin:              c.origin(VideoAPI, input.Model),
-		Input:               input,
-		Effective:           input.Settings,
-		Body:                body,
-		ContentType:         "application/json",
-		ProviderOptions:     providerOptions,
-		ModelInfo:           info,
-		UnknownCapabilities: c.unknown,
-		Unverified:          unverified,
+		Origin:           c.origin(VideoAPI, input.Model),
+		Input:            input,
+		Effective:        input.Settings,
+		Body:             body,
+		ContentType:      "application/json",
+		ProviderOptions:  providerOptions,
+		ModelInfo:        info,
+		CapabilityPolicy: c.unknown,
+		Unverified:       unverified,
 	})
 	if err != nil {
 		return media.VideoRequest{}, c.failure(media.ErrorProtocol, err)

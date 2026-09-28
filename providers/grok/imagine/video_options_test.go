@@ -42,7 +42,7 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 		t.Fatal("preparation unexpectedly made a network request")
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownAllow)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityAdjust)
 	last := content.ImageBlock(content.Source{URL: "https://example.test/last.png"})
 	silent := false
 	input := media.VideoInput{
@@ -178,7 +178,7 @@ func TestVideoEditAndExtendUseSeparateJobEndpoints(t *testing.T) {
 				_, _ = io.WriteString(w, `{"request_id":"transform-1"}`)
 			}))
 			defer server.Close()
-			client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownAllow)
+			client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityAdjust)
 			source := content.VideoBlock(content.Source{URL: "https://example.test/source.mp4"})
 			source.Video.Duration = 5 * time.Second
 			input := media.VideoInput{
@@ -267,7 +267,7 @@ func TestVideoTransformAcceptsOpaqueSignedMP4URL(t *testing.T) {
 func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 	client, err := New(Config{
 		Provider: "test-grok", Endpoint: "https://example.test/v1", APIKey: "key",
-		UnknownCapabilities: model.UnknownAllow,
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

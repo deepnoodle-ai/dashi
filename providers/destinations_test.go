@@ -29,32 +29,32 @@ func TestDiveDestinationAdapters(t *testing.T) {
 		{"deepinfra", completions.API,
 			`{"model":"served","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"estimated_cost":0.25}}`,
 			func(url string) (llm.Client, error) {
-				return deepinfra.New(deepinfra.Config{Endpoint: url, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+				return deepinfra.New(deepinfra.Config{Endpoint: url, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 		{"ollama", messages.API,
 			`{"type":"message","id":"m","model":"served","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}`,
 			func(url string) (llm.Client, error) {
-				return ollama.New(ollama.Config{Endpoint: url, UnknownCapabilities: llm.UnknownAllow})
+				return ollama.New(ollama.Config{Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 		{"mistral", completions.API,
 			`{"model":"served","choices":[{"message":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"consider"}]},{"type":"text","text":"ok"}]},"finish_reason":"stop"}]}`,
 			func(url string) (llm.Client, error) {
-				return mistral.New(mistral.Config{Endpoint: url, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+				return mistral.New(mistral.Config{Endpoint: url, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 		{"openrouter", completions.API,
 			`{"model":"served","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"cost":0.5}}`,
 			func(url string) (llm.Client, error) {
-				return openrouter.New(openrouter.Config{Endpoint: url, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+				return openrouter.New(openrouter.Config{Endpoint: url, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 		{"grok", responses.API,
 			`{"object":"response","id":"r","model":"served","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`,
 			func(url string) (llm.Client, error) {
-				return grok.New(grok.Config{Endpoint: url, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+				return grok.New(grok.Config{Endpoint: url, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 		{"meta", responses.API,
 			`{"object":"response","id":"r","model":"served","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`,
 			func(url string) (llm.Client, error) {
-				return meta.New(meta.Config{Endpoint: url, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+				return meta.New(meta.Config{Endpoint: url, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			}},
 	}
 	for _, tt := range tests {
@@ -110,7 +110,7 @@ func TestDiveDestinationAdapters(t *testing.T) {
 
 func TestDeepInfraRejectsBinaryDocument(t *testing.T) {
 	client, err := deepinfra.New(deepinfra.Config{Endpoint: "http://localhost:1", APIKey: "test",
-		UnknownCapabilities: llm.UnknownAllow})
+		CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

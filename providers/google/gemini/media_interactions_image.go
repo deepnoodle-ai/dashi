@@ -12,10 +12,10 @@ import (
 func (p *InteractionsMediaClient) imageEvidence(in media.ImageInput) (*media.ModelInfo, []string, error) {
 	info, known := p.ImageModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.UnknownCapabilities)
+		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.CapabilityPolicy)
 		return nil, unverified, err
 	}
-	unverified, err := info.Image.Check(in, p.config.UnknownCapabilities)
+	unverified, err := info.Image.Check(in, p.config.CapabilityPolicy)
 	return &info, unverified, err
 }
 
@@ -90,7 +90,7 @@ func (p *InteractionsMediaClient) PrepareImage(ctx context.Context, in media.Ima
 	}
 	return media.NewImageRequest(media.ImageRequestSnapshot{Origin: p.origin(in.Model),
 		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, UnknownCapabilities: p.config.UnknownCapabilities, Unverified: unverified})
+		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
 }
 
 // SendImage dispatches one prepared Interactions image call.
@@ -107,7 +107,7 @@ func (p *InteractionsMediaClient) SendImage(ctx context.Context, request media.I
 }
 
 // validateImageModelResolution applies documented limits of current image
-// models. Unknown models still require capability evidence or UnknownAllow.
+// models. Unknown models follow capability evidence and the capability policy.
 func validateImageModelResolution(name, resolution string) error {
 	if resolution == "" {
 		return nil
@@ -129,7 +129,7 @@ func validateImageModelResolution(name, resolution string) error {
 	case "gemini-3.1-flash-image":
 		// All four documented sizes are available.
 	default:
-		// Other model names rely on scoped capability evidence or UnknownAllow.
+		// Other model names rely on scoped evidence and the capability policy.
 	}
 	return nil
 }

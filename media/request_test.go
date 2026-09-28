@@ -110,10 +110,11 @@ func TestImageRequestRequiresMultipartBoundary(t *testing.T) {
 func TestVideoRequestRecordsUnknownCapabilityPolicy(t *testing.T) {
 	snapshot := videoSnapshot()
 	snapshot.Unverified = []string{"video.generate"}
+	snapshot.CapabilityPolicy = model.CapabilityStrict
 	if _, err := NewVideoRequest(snapshot); err == nil {
-		t.Fatal("accepted unverified video support without explicit allowance")
+		t.Fatal("accepted unverified video support under strict policy")
 	}
-	snapshot.UnknownCapabilities = model.UnknownAllow
+	snapshot.CapabilityPolicy = model.CapabilityAdjust
 	request, err := NewVideoRequest(snapshot)
 	if err != nil {
 		t.Fatalf("explicitly allowed unknown support rejected: %v", err)

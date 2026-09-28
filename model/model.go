@@ -38,16 +38,29 @@ func (s Support) Valid() bool {
 	return false
 }
 
-// UnknownPolicy controls incomplete capability knowledge. It never overrides
-// known rejection or an encoding the client cannot perform.
-type UnknownPolicy string
+// CapabilityPolicy decides what preparation does when a request goes beyond
+// what is known about the model. The zero value adjusts, because a library
+// that fails on edge cases of uncertain meaning is harder to use than one that
+// sends the nearest valid request and says so (design/decisions.md, entry 4).
+// Strict keeps the older fail-closed behavior for applications that must not
+// send anything unqualified. Neither policy overrides known rejection where
+// no safe substitute exists, nor an encoding the client cannot perform.
+type CapabilityPolicy string
 
 const (
-	// UnknownReject declines an operation with unknown required support.
-	UnknownReject UnknownPolicy = ""
-	// UnknownAllow records uncertainty and lets the provider validate it.
-	UnknownAllow UnknownPolicy = "allow"
+	// CapabilityAdjust sends features whose support is unknown and records
+	// them as unverified. A known limit is met by the nearest supported value,
+	// recorded as an adjustment that carries a warning.
+	CapabilityAdjust CapabilityPolicy = ""
+	// CapabilityStrict declines an operation with unknown required support or
+	// a value outside a known limit.
+	CapabilityStrict CapabilityPolicy = "strict"
 )
+
+// Valid reports whether p is one of the defined policies.
+func (p CapabilityPolicy) Valid() bool {
+	return p == CapabilityAdjust || p == CapabilityStrict
+}
 
 // EvidenceMethod says how a capability claim was established, not whether a
 // later request will succeed.

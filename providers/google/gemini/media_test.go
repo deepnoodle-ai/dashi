@@ -21,9 +21,9 @@ import (
 func newMediaFixture(t *testing.T, server *httptest.Server) *MediaClient {
 	t.Helper()
 	p, err := NewMedia(MediaConfig{Provider: "google-test", APIKey: "fixture-key",
-		ImageEndpoint:       server.URL + "/v1/models/{model}:generateContent",
-		VideoEndpoint:       server.URL + "/v1beta/models/{model}:predictLongRunning",
-		UnknownCapabilities: model.UnknownAllow})
+		ImageEndpoint:    server.URL + "/v1/models/{model}:generateContent",
+		VideoEndpoint:    server.URL + "/v1beta/models/{model}:predictLongRunning",
+		CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,8 +209,8 @@ func (failingMediaTransport) RoundTrip(*http.Request) (*http.Response, error) {
 
 func TestMediaVeoUnknownSubmission(t *testing.T) {
 	p, err := NewMedia(MediaConfig{Provider: "google-test", APIKey: "fixture-key",
-		Client:              &http.Client{Transport: failingMediaTransport{}},
-		UnknownCapabilities: model.UnknownAllow})
+		Client:           &http.Client{Transport: failingMediaTransport{}},
+		CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,10 +315,10 @@ func TestMediaModelEvidenceControlsPreparation(t *testing.T) {
 			Owner:    "test", Source: "fixture", Method: model.EvidenceFixture,
 			QualifiedAt: time.Now()}}
 	p, err := NewMedia(MediaConfig{Provider: "google-test", APIKey: "fixture-key",
-		ImageEndpoint:       imageEndpoint,
-		VideoEndpoint:       server.URL + "/v1beta/models/{model}:predictLongRunning",
-		ImageModels:         map[string]media.ModelInfo{"gemini-image": info},
-		UnknownCapabilities: model.UnknownAllow})
+		ImageEndpoint:    imageEndpoint,
+		VideoEndpoint:    server.URL + "/v1beta/models/{model}:predictLongRunning",
+		ImageModels:      map[string]media.ModelInfo{"gemini-image": info},
+		CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

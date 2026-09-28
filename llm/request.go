@@ -12,7 +12,8 @@ import (
 // RequestSnapshot records preparation evidence without execution state. Input
 // keeps the caller's original history and settings; Effective includes provider
 // defaults. ContentChanges describes adaptations using original input positions.
-// Unverified names features allowed by an explicit unknown-support policy.
+// Unverified names features sent without known support. Warnings project the
+// adjustments that replaced a requested value, for callers to surface.
 // Body is the single encoded payload Send will send, including stream mode.
 // JSON encodes Body as base64 so recorded bytes survive without normalization.
 type RequestSnapshot struct {
@@ -32,6 +33,11 @@ type RequestSnapshot struct {
 	// Adjustments explains each default or change made during preparation.
 	Adjustments []Adjustment `json:"adjustments,omitempty"`
 
+	// Warnings lists, in order, the adjustments that replaced or dropped a
+	// value the caller asked for. NewRequest derives them from Adjustments;
+	// a supplied list must match.
+	Warnings []Warning `json:"warnings,omitempty"`
+
 	// ContentChanges explains each history transformation using original input
 	// positions. These decisions are separate from generation settings.
 	ContentChanges []ContentChange `json:"content_changes,omitempty"`
@@ -40,11 +46,12 @@ type RequestSnapshot struct {
 	// unknown.
 	ModelInfo *ModelInfo `json:"model_info,omitempty"`
 
-	// UnknownCapabilities records the policy used for this preparation.
-	UnknownCapabilities UnknownPolicy `json:"unknown_capabilities,omitempty"`
+	// CapabilityPolicy records the policy used for this preparation.
+	CapabilityPolicy CapabilityPolicy `json:"capability_policy,omitempty"`
 
-	// Unverified names features allowed by explicit unknown-support
-	// passthrough.
+	// Unverified names features sent under the adjust policy although their
+	// support is unknown. They are recorded, not warned about: until a model
+	// is described, every call would otherwise warn.
 	Unverified []Feature `json:"unverified,omitempty"`
 }
 
@@ -85,14 +92,19 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	if err := validateAdjustments(p.Input.Settings, p.Effective, p.Adjustments); err != nil {
 		return Request{}, err
 	}
+	warnings := Warnings(p.Adjustments)
+	if p.Warnings != nil && !slices.Equal(p.Warnings, warnings) {
+		return Request{}, errors.New("llm: warnings disagree with adjustments")
+	}
+	p.Warnings = warnings
 	if err := validateContentChanges(p); err != nil {
 		return Request{}, err
 	}
-	if p.UnknownCapabilities != UnknownReject && p.UnknownCapabilities != UnknownAllow {
-		return Request{}, errors.New("llm: invalid unknown capability policy")
+	if !p.CapabilityPolicy.Valid() {
+		return Request{}, errors.New("llm: invalid capability policy")
 	}
-	if len(p.Unverified) > 0 && p.UnknownCapabilities != UnknownAllow {
-		return Request{}, errors.New("llm: unverified features require explicit unknown capability policy")
+	if len(p.Unverified) > 0 && p.CapabilityPolicy != CapabilityAdjust {
+		return Request{}, errors.New("llm: unverified features require the adjust capability policy")
 	}
 	for _, feature := range p.Unverified {
 		if !knownFeature(feature) {
@@ -138,6 +150,12 @@ func (p Request) Body() []byte {
 // Adjustments explains each default or change made during preparation.
 func (p Request) Adjustments() []Adjustment {
 	return p.Snapshot().Adjustments
+}
+
+// Warnings returns what the caller asked for that was not sent as asked, so
+// an application can pass it on. The same warnings appear on the Result.
+func (p Request) Warnings() []Warning {
+	return p.Snapshot().Warnings
 }
 
 // ContentChanges returns independent decisions made while adapting history.

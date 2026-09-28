@@ -32,11 +32,11 @@ type ImageRequestSnapshot struct {
 	ContentType string         `json:"content_type"`
 	// ProviderOptions records adapter-specific per-call controls. Body remains
 	// the dispatch authority; options must be a JSON object when present.
-	ProviderOptions     json.RawMessage     `json:"provider_options,omitempty"`
-	Adjustments         []Adjustment        `json:"adjustments,omitempty"`
-	ModelInfo           *ModelInfo          `json:"model_info,omitempty"`
-	UnknownCapabilities model.UnknownPolicy `json:"unknown_capabilities,omitempty"`
-	Unverified          []string            `json:"unverified,omitempty"`
+	ProviderOptions  json.RawMessage        `json:"provider_options,omitempty"`
+	Adjustments      []Adjustment           `json:"adjustments,omitempty"`
+	ModelInfo        *ModelInfo             `json:"model_info,omitempty"`
+	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy,omitempty"`
+	Unverified       []string               `json:"unverified,omitempty"`
 }
 
 // Clone detaches source bytes, wire bytes, and capability evidence.
@@ -77,7 +77,7 @@ func NewImageRequest(snapshot ImageRequestSnapshot) (ImageRequest, error) {
 	}
 	if err := validatePrepared(
 		snapshot.Origin, snapshot.Input.Model, snapshot.ContentType,
-		snapshot.Body, snapshot.ModelInfo, snapshot.UnknownCapabilities,
+		snapshot.Body, snapshot.ModelInfo, snapshot.CapabilityPolicy,
 		snapshot.Unverified, snapshot.Adjustments,
 	); err != nil {
 		return ImageRequest{}, err
@@ -120,11 +120,11 @@ type VideoRequestSnapshot struct {
 	ContentType string         `json:"content_type"`
 	// ProviderOptions records adapter-specific per-call controls. Body remains
 	// the dispatch authority; options must be a JSON object when present.
-	ProviderOptions     json.RawMessage     `json:"provider_options,omitempty"`
-	Adjustments         []Adjustment        `json:"adjustments,omitempty"`
-	ModelInfo           *ModelInfo          `json:"model_info,omitempty"`
-	UnknownCapabilities model.UnknownPolicy `json:"unknown_capabilities,omitempty"`
-	Unverified          []string            `json:"unverified,omitempty"`
+	ProviderOptions  json.RawMessage        `json:"provider_options,omitempty"`
+	Adjustments      []Adjustment           `json:"adjustments,omitempty"`
+	ModelInfo        *ModelInfo             `json:"model_info,omitempty"`
+	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy,omitempty"`
+	Unverified       []string               `json:"unverified,omitempty"`
 }
 
 // Clone detaches source bytes, wire bytes, and capability evidence.
@@ -164,7 +164,7 @@ func NewVideoRequest(snapshot VideoRequestSnapshot) (VideoRequest, error) {
 	}
 	if err := validatePrepared(
 		snapshot.Origin, snapshot.Input.Model, snapshot.ContentType,
-		snapshot.Body, snapshot.ModelInfo, snapshot.UnknownCapabilities,
+		snapshot.Body, snapshot.ModelInfo, snapshot.CapabilityPolicy,
 		snapshot.Unverified, snapshot.Adjustments,
 	); err != nil {
 		return VideoRequest{}, err
@@ -237,7 +237,7 @@ func validatePrepared(
 	contentType string,
 	body []byte,
 	info *ModelInfo,
-	unknown model.UnknownPolicy,
+	unknown model.CapabilityPolicy,
 	unverified []string,
 	adjustments []Adjustment,
 ) error {
@@ -263,11 +263,11 @@ func validatePrepared(
 	default:
 		return errors.New("media: prepared request requires JSON or multipart content")
 	}
-	if unknown != model.UnknownReject && unknown != model.UnknownAllow {
-		return errors.New("media: invalid unknown capability policy")
+	if !unknown.Valid() {
+		return errors.New("media: invalid capability policy")
 	}
-	if len(unverified) > 0 && unknown != model.UnknownAllow {
-		return errors.New("media: unverified capabilities require explicit allowance")
+	if len(unverified) > 0 && unknown != model.CapabilityAdjust {
+		return errors.New("media: unverified capabilities require the adjust capability policy")
 	}
 	for i, feature := range unverified {
 		if feature == "" {

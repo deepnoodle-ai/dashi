@@ -20,7 +20,7 @@ const completeResponse = `{"id":"chat-1","model":"served","choices":[{"index":0,
 
 func testClient(t *testing.T, endpoint string) *Client {
 	t.Helper()
-	p, err := New(Config{Provider: "openai", Endpoint: endpoint, APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	p, err := New(Config{Provider: "openai", Endpoint: endpoint, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +133,12 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 			))
 			defer server.Close()
 			client, err := New(Config{
-				Provider:            "deepinfra",
-				Endpoint:            server.URL,
-				APIKey:              "test",
-				UnknownCapabilities: llm.UnknownAllow,
-				ReportedCostField:   "estimated_cost",
-				CostCurrency:        "USD",
+				Provider:          "deepinfra",
+				Endpoint:          server.URL,
+				APIKey:            "test",
+				CapabilityPolicy:  llm.CapabilityAdjust,
+				ReportedCostField: "estimated_cost",
+				CostCurrency:      "USD",
 			})
 			if err != nil {
 				t.Fatal(err)

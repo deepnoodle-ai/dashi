@@ -11,7 +11,7 @@ import (
 )
 
 func TestPrepareEncodesMultipleInlineImages(t *testing.T) {
-	client, err := New(Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,8 @@ func TestPrepareEncodesMultipleInlineImages(t *testing.T) {
 
 func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,8 +109,8 @@ func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 
 func TestPrepareRejectsForeignGeminiFileURI(t *testing.T) {
 	client, err := New(Config{
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

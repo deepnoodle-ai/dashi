@@ -18,7 +18,7 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
 			defer server.Close()
-			client, err := NewClient("test", "test.chat", server.URL, "", nil, nil, nil, llm.UnknownAllow)
+			client, err := NewClient("test", "test.chat", server.URL, "", nil, nil, nil, llm.CapabilityAdjust)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -38,7 +38,7 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 func TestCanceledPostIsKnownNotDispatched(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("request dispatched") }))
 	defer server.Close()
-	client, err := NewClient("test", "test.chat", server.URL, "", nil, nil, nil, llm.UnknownAllow)
+	client, err := NewClient("test", "test.chat", server.URL, "", nil, nil, nil, llm.CapabilityAdjust)
 	if err != nil {
 		t.Fatal(err)
 	}

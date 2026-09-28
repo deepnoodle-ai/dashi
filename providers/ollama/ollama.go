@@ -15,12 +15,12 @@ const DefaultEndpoint = "http://localhost:11434/v1/messages"
 
 // Config supplies optional credentials, endpoint, and model evidence.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
-	DefaultMaxTokens    int
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
+	DefaultMaxTokens int
 }
 
 // Client uses the Messages wire format with Ollama's destination identity.
@@ -47,7 +47,7 @@ func New(config Config) (*Client, error) {
 	}
 	client, err := messages.New(messages.Config{Provider: "ollama", APIKey: config.APIKey,
 		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		UnknownCapabilities: config.UnknownCapabilities, DefaultMaxTokens: config.DefaultMaxTokens})
+		CapabilityPolicy: config.CapabilityPolicy, DefaultMaxTokens: config.DefaultMaxTokens})
 	if err != nil {
 		return nil, err
 	}

@@ -16,10 +16,10 @@ import (
 func (p *MediaClient) imageEvidence(in media.ImageInput) (*media.ModelInfo, []string, error) {
 	info, known := p.ImageModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.UnknownCapabilities)
+		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.CapabilityPolicy)
 		return nil, unverified, err
 	}
-	unverified, err := info.Image.Check(in, p.config.UnknownCapabilities)
+	unverified, err := info.Image.Check(in, p.config.CapabilityPolicy)
 	return &info, unverified, err
 }
 
@@ -86,7 +86,7 @@ func (p *MediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (me
 	}
 	return media.NewImageRequest(media.ImageRequestSnapshot{Origin: p.imageOrigin(in.Model),
 		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, UnknownCapabilities: p.config.UnknownCapabilities, Unverified: unverified})
+		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
 }
 
 func (p *MediaClient) imagePart(b content.Block) (any, error) {

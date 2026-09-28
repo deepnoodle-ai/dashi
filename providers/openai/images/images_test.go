@@ -197,7 +197,10 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 }
 
 func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
-	strict, err := New(Config{APIKey: "test"})
+	strict, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityStrict,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +209,7 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 		t.Fatal("missing model evidence was silently accepted")
 	}
 	permissive, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +226,7 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 
 func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -258,7 +261,7 @@ func TestClientRejectsKnownUnsupportedCapability(t *testing.T) {
 
 func TestClientEditImagePreservesURLReference(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +357,7 @@ func TestClientClassifiesQuotaRejection(t *testing.T) {
 
 func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +412,7 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 
 func TestClientPreparesOpenAIOptions(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -449,7 +452,7 @@ func TestClientPreparesOpenAIOptions(t *testing.T) {
 
 func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +494,7 @@ func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 
 func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 	client, err := New(Config{
-		APIKey: "test", UnknownCapabilities: model.UnknownAllow,
+		APIKey: "test", CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)

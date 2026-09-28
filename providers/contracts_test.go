@@ -21,7 +21,7 @@ import (
 type clientConfig struct {
 	id, endpoint, key string
 	models            map[string]llm.ModelInfo
-	unknown           llm.UnknownPolicy
+	policy            llm.CapabilityPolicy
 }
 
 func TestCustomEndpointRequiresIdentity(t *testing.T) {
@@ -97,7 +97,7 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 }
 
 func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
-	p := newMessages(t, messages.Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	p := newMessages(t, messages.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	r := modelInput()
 	prep, err := p.Prepare(context.Background(), r)
 	if err != nil {
@@ -130,16 +130,23 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 			})
-			p := configured(t, tc, clientConfig{endpoint: server.URL})
+			p := configured(t, tc, clientConfig{
+				endpoint: server.URL,
+				policy:   llm.CapabilityStrict,
+			})
 			if _, known := p.ModelInfo("requested"); known {
 				t.Fatal("unknown model reported as known")
 			}
 			if _, err := p.Prepare(context.Background(), modelInput()); err == nil {
-				t.Fatal("strict default accepted unknown model")
+				t.Fatal("strict policy accepted unknown model")
 			}
 			info := textModel(tc, server.URL)
 			catalog := map[string]llm.ModelInfo{"requested": info}
-			strict := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			strict := configured(t, tc, clientConfig{
+				endpoint: server.URL,
+				models:   catalog,
+				policy:   llm.CapabilityStrict,
+			})
 			if _, err := strict.Prepare(context.Background(), modelInput()); err != nil {
 				t.Fatal("known supported model rejected", err)
 			}
@@ -149,24 +156,60 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			if _, err := strict.Prepare(context.Background(), r); err == nil || !strings.Contains(err.Error(), "temperature") {
 				t.Fatal("unknown setting support accepted", err)
 			}
-			allow := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog, unknown: llm.UnknownAllow})
+			allow := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
 			prep, err := allow.Prepare(context.Background(), r)
 			if err != nil || !slices.Equal(prep.Snapshot().Unverified, []llm.Feature{llm.FeatureTemperature}) {
 				t.Fatal("passthrough did not record unverified setting", err)
 			}
 			info.Capabilities.Features[llm.FeatureTemperature] = llm.SupportUnsupported
 			catalog["requested"] = info
-			deny := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog, unknown: llm.UnknownAllow})
+			deny := configured(t, tc, clientConfig{
+				endpoint: server.URL,
+				models:   catalog,
+				policy:   llm.CapabilityStrict,
+			})
 			if _, err := deny.Prepare(context.Background(), r); err == nil {
-				t.Fatal("passthrough overrode known unsupported setting")
+				t.Fatal("strict policy overrode known unsupported setting")
+			}
+			omit := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			prep, err = omit.Prepare(context.Background(), r)
+			if err != nil {
+				t.Fatal("known unsupported temperature was not omitted", err)
+			}
+			if prep.Effective().Temperature != nil {
+				t.Fatal("omitted temperature was still encoded")
+			}
+			wantOmit := []llm.Warning{{
+				Code:    llm.WarningSettingOmitted,
+				Field:   llm.SettingTemperature,
+				Message: "temperature is not accepted here; the model default applies",
+			}}
+			if !slices.Equal(prep.Warnings(), wantOmit) {
+				t.Fatalf("omission warnings = %+v", prep.Warnings())
 			}
 			info.Capabilities.Features[llm.FeatureTemperature] = llm.SupportSupported
 			info.Capabilities.MaxOutputTokens = 100
 			catalog["requested"] = info
-			limited := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			limited := configured(t, tc, clientConfig{
+				endpoint: server.URL,
+				models:   catalog,
+				policy:   llm.CapabilityStrict,
+			})
 			r.Settings.MaxTokens = 101
 			if _, err := limited.Prepare(context.Background(), r); err == nil || !strings.Contains(err.Error(), "max_tokens") {
 				t.Fatal("known output limit ignored", err)
+			}
+			clamp := configured(t, tc, clientConfig{endpoint: server.URL, models: catalog})
+			prep, err = clamp.Prepare(context.Background(), r)
+			if err != nil {
+				t.Fatal("output limit was not clamped", err)
+			}
+			if prep.Effective().MaxTokens != 100 {
+				t.Fatalf("clamped max tokens = %d, want 100", prep.Effective().MaxTokens)
+			}
+			warnings := prep.Warnings()
+			if len(warnings) != 1 || warnings[0].Code != llm.WarningSettingClamped {
+				t.Fatalf("clamp warnings = %+v", warnings)
 			}
 			if calls.Load() != 0 {
 				t.Fatal("preparation accessed network")
@@ -237,7 +280,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 				calls.Add(1)
 				io.WriteString(w, response)
 			})
-			base := clientConfig{id: "shared-name", endpoint: server.URL, key: "credential-one", unknown: llm.UnknownAllow}
+			base := clientConfig{id: "shared-name", endpoint: server.URL, key: "credential-one"}
 			p := configured(t, tc, base)
 			prep := preparedRequest(t, p)
 			result, err := p.Send(context.Background(), prep, nil)
@@ -384,9 +427,9 @@ func configured(t *testing.T, tc providerCase, c clientConfig) llm.Client {
 		c.key = "test"
 	}
 	if tc.name == "anthropic" {
-		return newMessages(t, messages.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, UnknownCapabilities: c.unknown})
+		return newMessages(t, messages.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, CapabilityPolicy: c.policy})
 	}
-	return newResponses(t, responses.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, UnknownCapabilities: c.unknown})
+	return newResponses(t, responses.Config{Provider: c.id, Endpoint: c.endpoint, APIKey: c.key, Models: c.models, CapabilityPolicy: c.policy})
 }
 
 func textModel(tc providerCase, endpoint string) llm.ModelInfo {

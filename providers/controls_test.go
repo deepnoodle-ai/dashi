@@ -150,35 +150,49 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 			})
-			p := configured(t, tc, clientConfig{endpoint: server.URL, unknown: llm.UnknownAllow})
+			// adjusts names cases that Messages can fit to a nearby valid
+			// request; every other case has no safe substitute.
 			for _, test := range []struct {
 				name     string
 				settings llm.Settings
 				prefill  bool
+				adjusts  bool
 			}{
 				{name: "effort and budget", settings: llm.Settings{Reasoning: &llm.ReasoningSettings{Effort: "low", BudgetTokens: 1024}}},
 				{name: "unknown effort", settings: llm.Settings{Reasoning: &llm.ReasoningSettings{Effort: "invented"}}},
-				{name: "budget below minimum", settings: llm.Settings{MaxTokens: 4096, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1023}}},
+				{name: "budget below minimum", adjusts: true, settings: llm.Settings{MaxTokens: 4096, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1023}}},
 				{name: "budget equals default limit", settings: llm.Settings{Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024}}},
-				{name: "budget equals explicit limit", settings: llm.Settings{MaxTokens: 2048, Reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}}},
-				{name: "budget and temperature", settings: llm.Settings{MaxTokens: 4096, Temperature: &temperature, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024}}},
+				{name: "budget equals explicit limit", adjusts: true, settings: llm.Settings{MaxTokens: 2048, Reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}}},
+				{name: "budget and temperature", adjusts: true, settings: llm.Settings{MaxTokens: 4096, Temperature: &temperature, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024}}},
 				{name: "budget and forced tool", settings: llm.Settings{MaxTokens: 4096, ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAny}, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024}}},
 				{name: "budget and prefill", prefill: true, settings: llm.Settings{MaxTokens: 4096, Reasoning: &llm.ReasoningSettings{BudgetTokens: 1024}}},
 			} {
-				t.Run(test.name, func(t *testing.T) {
-					r := modelInput()
-					r.Settings = test.settings
-					r.Tools = []tool.Definition{{Name: "act", Schema: json.RawMessage(`{}`)}}
-					if test.prefill {
-						r.Messages = append(r.Messages, llm.AssistantMessage(llm.Text("prefix")),
-							llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("system text")}})
-					}
-					prep, err := p.Prepare(context.Background(), r)
-					var failure *llm.Error
-					if !errors.As(err, &failure) || (failure.Category != llm.ErrorUnsupported && failure.Category != llm.ErrorInvalidRequest) || len(prep.Body()) != 0 {
-						t.Fatalf("invalid combination produced a callable request: %v", err)
-					}
-				})
+				for _, policy := range []llm.CapabilityPolicy{llm.CapabilityAdjust, llm.CapabilityStrict} {
+					t.Run(test.name+"/"+string(policy), func(t *testing.T) {
+						p := configured(t, tc, clientConfig{endpoint: server.URL, policy: policy})
+						r := modelInput()
+						r.Settings = test.settings
+						r.Tools = []tool.Definition{{Name: "act", Schema: json.RawMessage(`{}`)}}
+						if test.prefill {
+							r.Messages = append(r.Messages, llm.AssistantMessage(llm.Text("prefix")),
+								llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("system text")}})
+						}
+						prep, err := p.Prepare(context.Background(), r)
+						if test.adjusts && tc.name == "anthropic" && policy == llm.CapabilityAdjust {
+							if err != nil {
+								t.Fatalf("fittable combination was rejected: %v", err)
+							}
+							if len(prep.Warnings()) == 0 {
+								t.Fatal("fitted combination carried no warning")
+							}
+							return
+						}
+						var failure *llm.Error
+						if !errors.As(err, &failure) || (failure.Category != llm.ErrorUnsupported && failure.Category != llm.ErrorInvalidRequest) || len(prep.Body()) != 0 {
+							t.Fatalf("invalid combination produced a callable request: %v", err)
+						}
+					})
+				}
 			}
 			if calls.Load() != 0 {
 				t.Fatal("rejected preparation contacted provider")
@@ -187,22 +201,36 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 	}
 }
 
-func TestPrepareUsesConfiguredDefaultForBudgetValidation(t *testing.T) {
+func TestPrepareFitsBudgetBelowConfiguredDefault(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		limit    int
+		budget   int
 		accepted bool
-	}{{name: "package default"}, {name: "configured too small", limit: 1500}, {name: "configured sufficient", limit: 4096, accepted: true}} {
+	}{
+		{name: "package default leaves no room"},
+		{name: "configured small", limit: 1500, budget: 1499, accepted: true},
+		{name: "configured sufficient", limit: 4096, budget: 2048, accepted: true},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			p := newMessages(t, messages.Config{APIKey: "test", DefaultMaxTokens: test.limit, UnknownCapabilities: llm.UnknownAllow})
+			p := newMessages(t, messages.Config{APIKey: "test", DefaultMaxTokens: test.limit})
 			r := modelInput()
 			r.Settings.Reasoning = &llm.ReasoningSettings{BudgetTokens: 2048}
 			prep, err := p.Prepare(context.Background(), r)
 			if (err == nil) != test.accepted {
-				t.Fatalf("configured default was not used to validate budget: %v", err)
+				t.Fatalf("configured default was not used to fit budget: %v", err)
 			}
-			if test.accepted && (prep.Effective().Reasoning.BudgetTokens != 2048 || prep.Effective().MaxTokens != test.limit) {
-				t.Fatal("budget was clamped instead of preserved")
+			if !test.accepted {
+				return
+			}
+			if prep.Effective().Reasoning.BudgetTokens != test.budget {
+				t.Fatalf("budget = %d, want %d", prep.Effective().Reasoning.BudgetTokens, test.budget)
+			}
+			if prep.Effective().MaxTokens != test.limit {
+				t.Fatal("configured default was not applied")
+			}
+			if clamped := test.budget != 2048; clamped != (len(prep.Warnings()) == 1) {
+				t.Fatalf("budget warnings = %+v", prep.Warnings())
 			}
 		})
 	}
@@ -237,9 +265,9 @@ func TestModelEvidenceMustMatchConfiguredDestination(t *testing.T) {
 				catalog := map[string]llm.ModelInfo{"requested": info}
 				var err error
 				if tc.name == "anthropic" {
-					_, err = messages.New(messages.Config{Provider: "test", APIKey: "test", Endpoint: endpoint, Models: catalog, UnknownCapabilities: llm.UnknownAllow})
+					_, err = messages.New(messages.Config{Provider: "test", APIKey: "test", Endpoint: endpoint, Models: catalog, CapabilityPolicy: llm.CapabilityAdjust})
 				} else {
-					_, err = responses.New(responses.Config{Provider: "test", APIKey: "test", Endpoint: endpoint, Models: catalog, UnknownCapabilities: llm.UnknownAllow})
+					_, err = responses.New(responses.Config{Provider: "test", APIKey: "test", Endpoint: endpoint, Models: catalog, CapabilityPolicy: llm.CapabilityAdjust})
 				}
 				if err == nil {
 					t.Fatal("provider silently rebound evidence to a different destination")
@@ -258,16 +286,20 @@ func TestPrepareRecordsUnknownOutputControl(t *testing.T) {
 			catalog := map[string]llm.ModelInfo{"requested": info}
 			r := modelInput()
 			r.Settings.MaxTokens = 2048
-			strict := configured(t, tc, clientConfig{endpoint: endpoint, models: catalog})
+			strict := configured(t, tc, clientConfig{
+				endpoint: endpoint,
+				models:   catalog,
+				policy:   llm.CapabilityStrict,
+			})
 			if _, err := strict.Prepare(context.Background(), r); err == nil {
 				t.Fatal("unknown output control passed strict preparation")
 			}
-			allow := configured(t, tc, clientConfig{endpoint: endpoint, models: catalog, unknown: llm.UnknownAllow})
+			allow := configured(t, tc, clientConfig{endpoint: endpoint, models: catalog})
 			prep, err := allow.Prepare(context.Background(), r)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if prep.Snapshot().UnknownCapabilities != llm.UnknownAllow || !slices.Equal(prep.Snapshot().Unverified, []llm.Feature{llm.FeatureMaxTokens}) {
+			if prep.Snapshot().CapabilityPolicy != llm.CapabilityAdjust || !slices.Equal(prep.Snapshot().Unverified, []llm.Feature{llm.FeatureMaxTokens}) {
 				t.Fatal("output control uncertainty or explicit policy was lost")
 			}
 		})
@@ -332,17 +364,41 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 	}
 }
 
-func TestPrepareRejectsDefaultAboveModelLimit(t *testing.T) {
+func TestPrepareFitsDefaultToModelLimit(t *testing.T) {
 	for _, tc := range cases(t) {
 		if tc.name != "anthropic" {
 			continue
 		}
 		info := textModel(tc, "https://api.anthropic.com/v1/messages")
 		info.Capabilities.MaxOutputTokens = 2048
-		p := newMessages(t, messages.Config{APIKey: "test", DefaultMaxTokens: 4096,
-			Models: map[string]llm.ModelInfo{"requested": info}})
-		if _, err := p.Prepare(context.Background(), modelInput()); err == nil {
-			t.Fatal("configured default bypassed model limit")
+		models := map[string]llm.ModelInfo{"requested": info}
+		strict := newMessages(t, messages.Config{
+			APIKey:           "test",
+			DefaultMaxTokens: 4096,
+			Models:           models,
+			CapabilityPolicy: llm.CapabilityStrict,
+		})
+		if _, err := strict.Prepare(context.Background(), modelInput()); err == nil {
+			t.Fatal("strict policy let a default bypass the model limit")
+		}
+		p := newMessages(t, messages.Config{
+			APIKey:           "test",
+			DefaultMaxTokens: 4096,
+			Models:           models,
+		})
+		prep, err := p.Prepare(context.Background(), modelInput())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prep.Effective().MaxTokens != 2048 {
+			t.Fatalf("default max tokens = %d, want 2048", prep.Effective().MaxTokens)
+		}
+		adjustments := prep.Adjustments()
+		if len(adjustments) != 1 || adjustments[0].Action != llm.AdjustmentDefault {
+			t.Fatalf("fitted default recorded as %+v", adjustments)
+		}
+		if len(prep.Warnings()) != 0 {
+			t.Fatal("a default the caller never set produced a warning")
 		}
 	}
 }

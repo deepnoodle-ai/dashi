@@ -205,12 +205,13 @@ func (m ModelInfo) Validate() error {
 	return nil
 }
 
-// Check validates an image request against known claims. With UnknownAllow it
-// returns the explicit features whose support remains unverified; the caller
-// records them in the prepared request. It never overrides known rejection.
+// Check validates an image request against known claims. Under the default
+// adjust policy it returns the explicit features whose support remains
+// unverified; the caller records them in the prepared request. It never
+// overrides known rejection.
 func (c ImageCapabilities) Check(
 	input ImageInput,
-	policy model.UnknownPolicy,
+	policy model.CapabilityPolicy,
 ) ([]string, error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
@@ -278,10 +279,10 @@ func (c ImageCapabilities) Check(
 }
 
 // Check validates a video request against known claims and returns features
-// allowed only under an explicit unknown-support policy.
+// whose support is unknown, which only the adjust policy allows.
 func (c VideoCapabilities) Check(
 	input VideoInput,
-	policy model.UnknownPolicy,
+	policy model.CapabilityPolicy,
 ) ([]string, error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
@@ -352,13 +353,13 @@ func (c VideoCapabilities) Check(
 }
 
 type capabilityCheck struct {
-	policy     model.UnknownPolicy
+	policy     model.CapabilityPolicy
 	unverified []string
 }
 
-func newCapabilityCheck(policy model.UnknownPolicy) (*capabilityCheck, error) {
-	if policy != model.UnknownReject && policy != model.UnknownAllow {
-		return nil, errors.New("media: invalid unknown capability policy")
+func newCapabilityCheck(policy model.CapabilityPolicy) (*capabilityCheck, error) {
+	if !policy.Valid() {
+		return nil, errors.New("media: invalid capability policy")
 	}
 	return &capabilityCheck{policy: policy}, nil
 }
@@ -387,7 +388,7 @@ func (c *capabilityCheck) string(name, value string, values []string) error {
 }
 
 func (c *capabilityCheck) unknown(name string) error {
-	if c.policy == model.UnknownReject {
+	if c.policy == model.CapabilityStrict {
 		return fmt.Errorf("media: support for %s is unknown", name)
 	}
 	c.unverified = append(c.unverified, name)

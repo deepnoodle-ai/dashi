@@ -12,10 +12,10 @@ import (
 func (p *InteractionsMediaClient) videoEvidence(in media.VideoInput) (*media.ModelInfo, []string, error) {
 	info, known := p.VideoModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.VideoCapabilities{}).Check(in, p.config.UnknownCapabilities)
+		unverified, err := (media.VideoCapabilities{}).Check(in, p.config.CapabilityPolicy)
 		return nil, unverified, err
 	}
-	unverified, err := info.Video.Check(in, p.config.UnknownCapabilities)
+	unverified, err := info.Video.Check(in, p.config.CapabilityPolicy)
 	return &info, unverified, err
 }
 
@@ -97,7 +97,7 @@ func (p *InteractionsMediaClient) prepareVideo(ctx context.Context, in media.Vid
 	}
 	return media.NewVideoRequest(media.VideoRequestSnapshot{Origin: p.origin(in.Model),
 		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, UnknownCapabilities: p.config.UnknownCapabilities, Unverified: unverified})
+		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
 }
 
 // SendVideo dispatches one synchronous Interactions video call.

@@ -195,27 +195,27 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
-	AttemptID           string                 `json:"attempt_id"`
-	MessageID           string                 `json:"message_id,omitempty"`
-	RequestDigest       string                 `json:"request_digest,omitempty"`
-	FinalAnswerOnly     bool                   `json:"final_answer_only,omitempty"`
-	Admission           json.RawMessage        `json:"admission,omitempty"`
-	Provider            string                 `json:"provider,omitempty"`
-	API                 string                 `json:"api,omitempty"`
-	Model               string                 `json:"model,omitempty"`
-	Effective           llm.Settings           `json:"effective,omitzero"`
-	Origin              content.Origin         `json:"origin,omitzero"`
-	Adjustments         []llm.Adjustment       `json:"adjustments,omitempty"`
-	ContentChanges      []llm.ContentChange    `json:"content_changes,omitempty"`
-	ModelInfo           *llm.ModelInfo         `json:"model_info,omitempty"`
-	UnknownCapabilities llm.UnknownPolicy      `json:"unknown_capabilities,omitempty"`
-	Unverified          []llm.Feature          `json:"unverified,omitempty"`
-	Tools               []tool.Definition      `json:"tools,omitempty"`
-	Result              *llm.Result            `json:"result,omitempty"`
-	Error               string                 `json:"error,omitempty"`
-	Failure             llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence            string                 `json:"evidence,omitempty"`
-	Uncertain           bool                   `json:"uncertain,omitempty"`
+	AttemptID        string                 `json:"attempt_id"`
+	MessageID        string                 `json:"message_id,omitempty"`
+	RequestDigest    string                 `json:"request_digest,omitempty"`
+	FinalAnswerOnly  bool                   `json:"final_answer_only,omitempty"`
+	Admission        json.RawMessage        `json:"admission,omitempty"`
+	Provider         string                 `json:"provider,omitempty"`
+	API              string                 `json:"api,omitempty"`
+	Model            string                 `json:"model,omitempty"`
+	Effective        llm.Settings           `json:"effective,omitzero"`
+	Origin           content.Origin         `json:"origin,omitzero"`
+	Adjustments      []llm.Adjustment       `json:"adjustments,omitempty"`
+	ContentChanges   []llm.ContentChange    `json:"content_changes,omitempty"`
+	ModelInfo        *llm.ModelInfo         `json:"model_info,omitempty"`
+	CapabilityPolicy llm.CapabilityPolicy   `json:"capability_policy,omitempty"`
+	Unverified       []llm.Feature          `json:"unverified,omitempty"`
+	Tools            []tool.Definition      `json:"tools,omitempty"`
+	Result           *llm.Result            `json:"result,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Failure          llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence         string                 `json:"evidence,omitempty"`
+	Uncertain        bool                   `json:"uncertain,omitempty"`
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

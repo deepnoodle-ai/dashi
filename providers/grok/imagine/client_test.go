@@ -26,7 +26,7 @@ func TestImageCallUsesPreparedJSONAndReturnsURL(t *testing.T) {
 		_, _ = io.WriteString(w, `{"data":[{"url":"https://imgen.x.ai/temporary.jpeg","mime_type":"image/jpeg"}],"usage":{"cost_in_usd_ticks":200000000}}`)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	input := media.ImageInput{
 		Model:     "grok-imagine-image-2.0",
 		Operation: media.ImageGenerate,
@@ -76,7 +76,7 @@ func TestVideoJobSeparatesSubmitPollAndFetch(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	input := media.VideoInput{
 		Model:    "grok-imagine-video-1.5",
 		Prompt:   []content.Block{content.TextBlock("A quiet lake at sunrise")},
@@ -136,7 +136,7 @@ func TestVideoSubmitOutcomeStaysUnknownAfterTransportFailure(t *testing.T) {
 		t,
 		"https://example.test/v1",
 		&http.Client{Transport: transport},
-		model.UnknownAllow,
+		model.CapabilityAdjust,
 	)
 	request, err := client.PrepareVideo(context.Background(), media.VideoInput{
 		Model:  "unlisted-video-model",
@@ -169,7 +169,7 @@ func TestVideoSubmitHTTPOutcomes(t *testing.T) {
 				_, _ = io.WriteString(w, `{"error":{"code":"failure"}}`)
 			}))
 			defer server.Close()
-			client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+			client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 			request, err := client.PrepareVideo(context.Background(), media.VideoInput{
 				Model:  "grok-imagine-video-1.5",
 				Prompt: []content.Block{content.TextBlock("Waves")},
@@ -190,7 +190,7 @@ func TestVideoSubmitWithoutUsableHandleStaysUnknown(t *testing.T) {
 		_, _ = io.WriteString(w, `{"request_id":"  "}`)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	request, err := client.PrepareVideo(context.Background(), media.VideoInput{
 		Model:  "grok-imagine-video-1.5",
 		Prompt: []content.Block{content.TextBlock("Waves")},
@@ -209,7 +209,7 @@ func TestVideoPollTreatsModerationFilterAsFailedOutput(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"done","video":{"respect_moderation":false}}`)
 	}))
 	defer server.Close()
-	client := testClient(t, server.URL+"/v1", server.Client(), model.UnknownReject)
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
 	job := media.Job{
 		ID:     "filtered-request",
 		Kind:   media.KindVideo,
@@ -225,12 +225,12 @@ func TestVideoPollTreatsModerationFilterAsFailedOutput(t *testing.T) {
 }
 
 func TestPreparedImageCannotCrossCredentialScope(t *testing.T) {
-	clientA := testClient(t, "https://example.test/v1", nil, model.UnknownAllow)
+	clientA := testClient(t, "https://example.test/v1", nil, model.CapabilityAdjust)
 	clientB, err := New(Config{
-		Provider:            "test-grok",
-		APIKey:              "other-key",
-		Endpoint:            "https://example.test/v1",
-		UnknownCapabilities: model.UnknownAllow,
+		Provider:         "test-grok",
+		APIKey:           "other-key",
+		Endpoint:         "https://example.test/v1",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -256,10 +256,10 @@ func TestNewCustomEndpointRequiresProviderIdentity(t *testing.T) {
 		t.Fatal("custom endpoint inherited the public Grok identity")
 	}
 	client, err := New(Config{
-		Provider:            "private-grok",
-		APIKey:              "test-key",
-		Endpoint:            "https://example.test/v1",
-		UnknownCapabilities: model.UnknownAllow,
+		Provider:         "private-grok",
+		APIKey:           "test-key",
+		Endpoint:         "https://example.test/v1",
+		CapabilityPolicy: model.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func TestNewCustomEndpointRequiresProviderIdentity(t *testing.T) {
 	}
 }
 
-func testClient(t *testing.T, endpoint string, httpClient *http.Client, unknown model.UnknownPolicy) *Client {
+func testClient(t *testing.T, endpoint string, httpClient *http.Client, unknown model.CapabilityPolicy) *Client {
 	t.Helper()
 	models := map[string]media.ModelInfo{}
 	for _, entry := range []struct {
@@ -315,12 +315,12 @@ func testClient(t *testing.T, endpoint string, httpClient *http.Client, unknown 
 		models[entry.name] = info
 	}
 	client, err := New(Config{
-		Provider:            "test-grok",
-		APIKey:              "test-key",
-		Endpoint:            endpoint,
-		Client:              httpClient,
-		Models:              models,
-		UnknownCapabilities: unknown,
+		Provider:         "test-grok",
+		APIKey:           "test-key",
+		Endpoint:         endpoint,
+		Client:           httpClient,
+		Models:           models,
+		CapabilityPolicy: unknown,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -35,7 +35,7 @@ func TestLiveImageGeneration(t *testing.T) {
 		Prompt:   []content.Block{content.TextBlock("A simple blue ceramic cup on a plain warm white background, centered, no text.")},
 		Settings: media.ImageSettings{AspectRatio: "1:1", Resolution: "1K"}}
 	t.Run("generate_content", func(t *testing.T) {
-		client, err := NewMedia(MediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+		client, err := NewMedia(MediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestLiveImageGeneration(t *testing.T) {
 		checkLiveImage(t, result, ImageAPI, modelName, "generate-content")
 	})
 	t.Run("interactions", func(t *testing.T) {
-		client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+		client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +93,7 @@ func TestLiveImageEdit(t *testing.T) {
 		ReferenceImages: []content.Block{content.ImageBlock(content.Source{Data: encoded.Bytes(), MIMEType: "image/png"})},
 		Settings:        media.ImageSettings{AspectRatio: "1:1", Resolution: "1K"}}
 	t.Run("generate_content", func(t *testing.T) {
-		client, err := NewMedia(MediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+		client, err := NewMedia(MediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,7 +110,7 @@ func TestLiveImageEdit(t *testing.T) {
 		checkLiveImage(t, result, ImageAPI, modelName, "generate-content-edit")
 	})
 	t.Run("interactions", func(t *testing.T) {
-		client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, UnknownCapabilities: model.UnknownAllow})
+		client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -89,9 +89,9 @@ func TestPrepareRemapsToolIDAndSendsFrozenBody(t *testing.T) {
 
 func TestPrepareOverlaysUnsignedGeminiToolReplayID(t *testing.T) {
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,9 +121,9 @@ func TestPrepareOverlaysUnsignedGeminiToolReplayID(t *testing.T) {
 
 func TestPrepareRemapPreservesGeminiReplayArgumentNumber(t *testing.T) {
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,9 +152,9 @@ func TestPrepareRemapPreservesGeminiReplayArgumentNumber(t *testing.T) {
 
 func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,9 +203,9 @@ func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 
 func TestPrepareRejectsUnsafeGeminiToolIDRemap(t *testing.T) {
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,9 +251,9 @@ func TestPrepareRejectsUnsafeGeminiToolIDRemap(t *testing.T) {
 
 func TestPrepareKeepsSynthesizedGeminiToolID(t *testing.T) {
 	client, err := New(Config{
-		Provider:            "google",
-		APIKey:              "test",
-		UnknownCapabilities: llm.UnknownAllow,
+		Provider:         "google",
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -297,9 +297,9 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, err := New(Config{
-				Provider:            "google",
-				APIKey:              "test",
-				UnknownCapabilities: llm.UnknownAllow,
+				Provider:         "google",
+				APIKey:           "test",
+				CapabilityPolicy: llm.CapabilityAdjust,
 			})
 			if err != nil {
 				t.Fatal(err)

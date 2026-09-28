@@ -33,9 +33,9 @@ type Config struct {
 	Client   *http.Client
 	// Headers adds destination-specific headers such as OpenRouter attribution.
 	// Authorization is always set from APIKey after these values are copied.
-	Headers             http.Header
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
+	Headers          http.Header
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
 	// ReportedCostField selects a service-reported usage cost: "cost" for a
 	// charge or "estimated_cost" for an estimate. Empty ignores both.
 	ReportedCostField string
@@ -87,7 +87,7 @@ func New(config Config) (*Client, error) {
 	}
 	headers.Set("Authorization", "Bearer "+config.APIKey)
 	client, err := providerhttp.NewClient(config.Provider, API, config.Endpoint, config.APIKey,
-		config.Client, headers, config.Models, config.UnknownCapabilities)
+		config.Client, headers, config.Models, config.CapabilityPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +110,10 @@ func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 	return p.client.ModelInfo(model)
 }
 
-// Prepare validates and freezes exactly the body Send will dispatch. Unsupported
-// content and controls fail instead of being silently dropped.
+// Prepare validates and freezes exactly the body Send will dispatch. Under the
+// default capability policy, settings beyond known limits are fitted to the
+// nearest accepted value and recorded as warnings; unsupported content and
+// controls without a safe substitute fail instead of being silently dropped.
 func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) {
 	requested := r
 	if err := ctx.Err(); err != nil {
@@ -126,6 +128,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	r, changes, err = providercontent.Adapt(r, wire.origin, providercontent.AdaptOptions{
 		ReplayPlainReasoning: wire.supportsPlainReasoning(),
 	})
+	if err != nil {
+		return llm.Request{}, err
+	}
+	r, adjustments, err := p.client.Fit(r, apiLimits, nil)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -146,7 +152,7 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.BudgetTokens != 0 {
-			return llm.Request{}, wire.unsupported("reasoning token budget")
+			return llm.Request{}, wire.unsupported("reasoning token budget; use a reasoning effort")
 		}
 		body["reasoning_effort"] = s.Effort
 	}
@@ -193,7 +199,16 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		messages = append(messages, encoded...)
 	}
 	body["messages"] = messages
-	return p.client.Prepare(requested, r, body, nil, changes)
+	return p.client.Prepare(requested, r, body, adjustments, changes)
+}
+
+// apiLimits states what Chat Completions accepts from any model. Effort
+// names pass through because compatible services define their own.
+var apiLimits = llm.Capabilities{
+	Features: map[llm.Feature]llm.Support{
+		llm.FeatureReasoningBudget: llm.SupportUnsupported,
+	},
+	MaxTemperature: 2,
 }
 
 // Send performs at most one dispatch. A stream sink observes provisional data;
@@ -204,6 +219,9 @@ func (p *Client) Send(ctx context.Context, prepared llm.Request, sink llm.Sink) 
 	result = llm.Result{Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},
 		Message: llm.Message{Role: llm.RoleAssistant}}
 	defer func() {
+		// Warnings ride on every result, including partial ones, so a failed
+		// call still explains how its request differed from the input.
+		result.Warnings = prepared.Warnings()
 		if callErr != nil {
 			result.Stop.Kind = llm.StopIncomplete
 		}

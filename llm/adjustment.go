@@ -24,13 +24,20 @@ const (
 	SettingParallelTools Setting = "parallel_tools"
 )
 
-// AdjustmentAction names an authorized preparation behavior. Clamping,
-// emulation, and omission have no policy or action in the current contract.
+// AdjustmentAction names an authorized preparation behavior. Defaults fill
+// omissions silently; clamps and omissions replace a caller's value and are
+// therefore always warnings. Emulation has no action in the current contract.
 type AdjustmentAction string
 
 const (
 	// AdjustmentDefault fills an omitted setting without replacing user intent.
 	AdjustmentDefault AdjustmentAction = "default"
+	// AdjustmentClamp replaces a requested value with the nearest value the
+	// model or API is known to accept, such as effort "max" becoming "xhigh".
+	AdjustmentClamp AdjustmentAction = "clamp"
+	// AdjustmentOmit removes a setting the destination is known to reject when
+	// the model's own default keeps the request's meaning.
+	AdjustmentOmit AdjustmentAction = "omit"
 )
 
 // Adjustment records a setting change without requiring callers to parse
@@ -46,7 +53,8 @@ type Adjustment struct {
 	// Requested preserves the original setting value, or null for omission.
 	Requested json.RawMessage `json:"requested"`
 
-	// Effective records the value encoded in the prepared body.
+	// Effective records the value encoded in the prepared body, or null when
+	// the setting was omitted.
 	Effective json.RawMessage `json:"effective"`
 
 	// Reason supplies diagnostic context; branch on Field and Action instead.
@@ -60,6 +68,27 @@ func (a Adjustment) Clone() Adjustment {
 	return a
 }
 
+// Warning reports whether this decision replaced a value the caller asked
+// for, and describes it for the caller. Defaults are not warnings because
+// they fill an omission rather than overriding intent.
+func (a Adjustment) Warning() (Warning, bool) {
+	switch a.Action {
+	case AdjustmentClamp:
+		return Warning{
+			Code:    WarningSettingClamped,
+			Field:   a.Field,
+			Message: a.Reason,
+		}, true
+	case AdjustmentOmit:
+		return Warning{
+			Code:    WarningSettingOmitted,
+			Field:   a.Field,
+			Message: a.Reason,
+		}, true
+	}
+	return Warning{}, false
+}
+
 // Validate requires a supported action and values in canonical Settings form.
 // NewRequest also checks that each decision agrees with the actual snapshots.
 func (a Adjustment) Validate() error {
@@ -68,11 +97,61 @@ func (a Adjustment) Validate() error {
 	default:
 		return fmt.Errorf("llm: invalid adjustment field %q", a.Field)
 	}
-	if a.Action != AdjustmentDefault || !bytes.Equal(bytes.TrimSpace(a.Requested), []byte("null")) ||
-		!json.Valid(a.Effective) || bytes.Equal(bytes.TrimSpace(a.Effective), []byte("null")) || a.Reason == "" {
-		return errors.New("llm: adjustment requires a default action, omitted request, effective value, and reason")
+	requested := jsonValue(a.Requested)
+	effective := jsonValue(a.Effective)
+	switch {
+	case a.Reason == "":
+		return errors.New("llm: adjustment requires a reason")
+	case a.Action == AdjustmentDefault && jsonNull(a.Requested) && effective:
+		return nil
+	case a.Action == AdjustmentClamp && requested && effective &&
+		!bytes.Equal(compactJSON(a.Requested), compactJSON(a.Effective)):
+		return nil
+	case a.Action == AdjustmentOmit && requested && jsonNull(a.Effective):
+		return nil
 	}
-	return nil
+	return fmt.Errorf(
+		"llm: invalid %q adjustment values for %s", a.Action, a.Field,
+	)
+}
+
+// WarningCode is a stable reason an application can branch on or forward in
+// its own API responses.
+type WarningCode string
+
+const (
+	// WarningSettingClamped means a requested setting was replaced by the
+	// nearest value the model or API is known to accept.
+	WarningSettingClamped WarningCode = "setting_clamped"
+	// WarningSettingOmitted means a requested setting was not sent because the
+	// destination rejects it; the model's default applies.
+	WarningSettingOmitted WarningCode = "setting_omitted"
+)
+
+// Warning describes something the caller asked for that was not sent as
+// asked. It is a projection of the recorded Adjustment, flattened so an
+// application can surface it without decoding raw setting values.
+type Warning struct {
+	// Code identifies the kind of warning.
+	Code WarningCode `json:"code"`
+
+	// Field names the affected setting, when the warning concerns one.
+	Field Setting `json:"field,omitempty"`
+
+	// Message explains the change in prose for logs and end users.
+	Message string `json:"message"`
+}
+
+// Warnings returns the caller-facing warnings of the given decisions, in
+// order.
+func Warnings(adjustments []Adjustment) []Warning {
+	var warnings []Warning
+	for _, a := range adjustments {
+		if w, ok := a.Warning(); ok {
+			warnings = append(warnings, w)
+		}
+	}
+	return warnings
 }
 
 func validateAdjustments(requested, effective Settings, adjustments []Adjustment) error {
@@ -88,9 +167,9 @@ func validateAdjustments(requested, effective Settings, adjustments []Adjustment
 		if err := a.Validate(); err != nil {
 			return err
 		}
-		var compact bytes.Buffer
-		_ = json.Compact(&compact, a.Effective)
-		if seen[a.Field] || len(before[a.Field]) != 0 || !bytes.Equal(compact.Bytes(), after[a.Field]) {
+		if seen[a.Field] ||
+			!bytes.Equal(settingJSON(a.Requested), before[a.Field]) ||
+			!bytes.Equal(settingJSON(a.Effective), after[a.Field]) {
 			return fmt.Errorf("llm: adjustment for %s disagrees with settings", a.Field)
 		}
 		seen[a.Field] = true
@@ -103,4 +182,28 @@ func validateAdjustments(requested, effective Settings, adjustments []Adjustment
 		}
 	}
 	return nil
+}
+
+// settingJSON puts a decision value in the form Settings marshals to, where
+// an omitted field has no bytes at all.
+func settingJSON(raw json.RawMessage) []byte {
+	if !jsonValue(raw) {
+		return nil
+	}
+	return compactJSON(raw)
+}
+
+func compactJSON(raw json.RawMessage) []byte {
+	var compact bytes.Buffer
+	_ = json.Compact(&compact, raw)
+	return compact.Bytes()
+}
+
+// jsonValue reports whether raw is valid JSON other than null.
+func jsonValue(raw json.RawMessage) bool {
+	return json.Valid(raw) && !jsonNull(raw)
+}
+
+func jsonNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }

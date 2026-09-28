@@ -26,7 +26,7 @@ func TestPrepareKeepsSupportedPlainReasoningWithOmissionPolicy(t *testing.T) {
 		{name: "unsupported opt-in", provider: "openai", policy: llm.ReasoningOmit, omit: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			client, err := New(Config{Provider: tc.provider, Endpoint: "https://unused.invalid/api", APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+			client, err := New(Config{Provider: tc.provider, Endpoint: "https://unused.invalid/api", APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,7 +79,7 @@ func TestPrepareOmitsKnownPrivateReasoningForCompletions(t *testing.T) {
 }
 
 func TestPrepareKeepsDecodedMistralThinking(t *testing.T) {
-	client, err := New(Config{Provider: "mistral", Endpoint: "https://unused.invalid/api", APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	client, err := New(Config{Provider: "mistral", Endpoint: "https://unused.invalid/api", APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

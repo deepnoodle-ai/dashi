@@ -16,13 +16,13 @@ const DefaultEndpoint = "https://openrouter.ai/api/v1/chat/completions"
 // Config supplies credentials, endpoint, application-owned model evidence, and
 // the attribution headers OpenRouter displays to model providers and users.
 type Config struct {
-	APIKey              string
-	Endpoint            string
-	Client              *http.Client
-	Models              map[string]llm.ModelInfo
-	UnknownCapabilities llm.UnknownPolicy
-	SiteURL             string
-	SiteName            string
+	APIKey           string
+	Endpoint         string
+	Client           *http.Client
+	Models           map[string]llm.ModelInfo
+	CapabilityPolicy llm.CapabilityPolicy
+	SiteURL          string
+	SiteName         string
 }
 
 // Client retains OpenRouter's destination identity and reported usage cost.
@@ -49,7 +49,7 @@ func New(config Config) (*Client, error) {
 	}
 	client, err := completions.New(completions.Config{Provider: "openrouter", APIKey: config.APIKey,
 		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		UnknownCapabilities: config.UnknownCapabilities, SystemRole: llm.RoleSystem,
+		CapabilityPolicy: config.CapabilityPolicy, SystemRole: llm.RoleSystem,
 		ReportedCostField: "cost", CostCurrency: "USD",
 		Headers: http.Header{"Http-Referer": {config.SiteURL}, "X-Title": {config.SiteName}}})
 	if err != nil {

@@ -12,15 +12,15 @@ import (
 )
 
 func TestReminderPreparedWireAndEvidence(t *testing.T) {
-	openai, err := responses.New(responses.Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	openai, err := responses.New(responses.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
-	anthropic, err := messages.New(messages.Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	anthropic, err := messages.New(messages.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
-	google, err := gemini.New(gemini.Config{APIKey: "test", UnknownCapabilities: llm.UnknownAllow})
+	google, err := gemini.New(gemini.Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

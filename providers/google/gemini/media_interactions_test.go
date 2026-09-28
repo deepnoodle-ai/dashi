@@ -20,7 +20,7 @@ import (
 func newInteractionsFixture(t *testing.T, server *httptest.Server) *InteractionsMediaClient {
 	t.Helper()
 	p, err := NewInteractionsMedia(InteractionsMediaConfig{Provider: "google-test", APIKey: "fixture-key",
-		Endpoint: server.URL + "/v1beta/interactions", UnknownCapabilities: model.UnknownAllow})
+		Endpoint: server.URL + "/v1beta/interactions", CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestInteractionsPreparedRequestIsCredentialScoped(t *testing.T) {
 	}
 	second, err := NewInteractionsMedia(InteractionsMediaConfig{Provider: "google-test",
 		APIKey: "other-key", Endpoint: server.URL + "/v1beta/interactions",
-		UnknownCapabilities: model.UnknownAllow})
+		CapabilityPolicy: model.CapabilityAdjust})
 	if err != nil {
 		t.Fatal(err)
 	}

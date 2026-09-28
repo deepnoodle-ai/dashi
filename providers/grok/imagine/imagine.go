@@ -31,8 +31,9 @@ const (
 )
 
 // Config defines one xAI destination. Models holds application-owned evidence
-// for an exact model, API, and base endpoint. A model without evidence requires
-// explicit UnknownAllow before its operation can be prepared.
+// for an exact model, API, and base endpoint. A model without evidence is
+// prepared with its support recorded as unverified, unless CapabilityPolicy is
+// strict.
 type Config struct {
 	// Provider is the application's stable destination name. It defaults to
 	// "grok" only for DefaultEndpoint; custom endpoints require a name.
@@ -50,8 +51,8 @@ type Config struct {
 	// Models contains evidence keyed by exact model ID.
 	Models map[string]media.ModelInfo
 
-	// UnknownCapabilities controls how absent model claims are handled.
-	UnknownCapabilities model.UnknownPolicy
+	// CapabilityPolicy controls how absent model claims are handled.
+	CapabilityPolicy model.CapabilityPolicy
 }
 
 // Client prepares and executes dedicated xAI image calls and video jobs.
@@ -62,7 +63,7 @@ type Client struct {
 	apiKey   string
 	http     *http.Client
 	models   map[string]media.ModelInfo
-	unknown  model.UnknownPolicy
+	unknown  model.CapabilityPolicy
 	image    content.Origin
 	video    content.Origin
 	files    content.Origin
@@ -95,9 +96,8 @@ func New(config Config) (*Client, error) {
 	if strings.TrimSpace(config.Provider) == "" {
 		return nil, errors.New("imagine: provider identity is required")
 	}
-	if config.UnknownCapabilities != model.UnknownReject &&
-		config.UnknownCapabilities != model.UnknownAllow {
-		return nil, errors.New("imagine: invalid unknown capability policy")
+	if !config.CapabilityPolicy.Valid() {
+		return nil, errors.New("imagine: invalid capability policy")
 	}
 	models := make(map[string]media.ModelInfo, len(config.Models))
 	for name, info := range config.Models {
@@ -126,7 +126,7 @@ func New(config Config) (*Client, error) {
 		apiKey:   config.APIKey,
 		http:     config.Client,
 		models:   models,
-		unknown:  config.UnknownCapabilities,
+		unknown:  config.CapabilityPolicy,
 		image: content.Origin{
 			Provider: config.Provider,
 			API:      ImageAPI,
