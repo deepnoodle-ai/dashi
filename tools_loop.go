@@ -1,10 +1,12 @@
 package dashi
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -476,6 +478,37 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			},
 		})
 	}
+	// Context delivered while a BeforeFinish failure kept this submission
+	// supersedes it, when the model can still be asked again.
+	if deliveredSinceStart(r.turn, call.ID) && r.nextCallPossible(state, 0) {
+		return r.rejectSubmission(
+			call,
+			"new context arrived. Read it, then submit again.",
+			"delivered context",
+			nil,
+		)
+	}
+	plan := FinishPlan{
+		Turn:      snapshotView(state.TurnView),
+		AttemptID: state.callAttempts[call.ID],
+		CallID:    call.ID,
+		Output:    slices.Clone(call.Args),
+	}
+	if state.latestResult != nil {
+		plan.Answer = state.latestResult.Message.Text()
+	}
+	finish, o := r.finishPoint(state, plan, true)
+	if o != nil {
+		return o
+	}
+	if finish.rejects(true) {
+		return r.rejectSubmission(
+			call,
+			cmp.Or(finish.reason, "a check did not accept this output"),
+			"hook "+finish.hook,
+			finish.deliver,
+		)
+	}
 	out := tool.Outcome{
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("Output accepted.")),
@@ -484,6 +517,23 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		Kind: StepToolSettled,
 		Tool: &ToolFact{Call: call, Outcome: &out},
 	})
+}
+
+// deliveredSinceStart reports whether context was delivered after the call
+// started.
+func deliveredSinceStart(t Turn, callID string) bool {
+	started := false
+	for _, step := range t.Steps {
+		if step.Kind == StepToolStarted && step.Tool != nil &&
+			step.Tool.Call.ID == callID {
+			started = true
+			continue
+		}
+		if started && step.Kind == StepDelivered {
+			return true
+		}
+	}
+	return false
 }
 
 func boundedOutputError(err error) string {

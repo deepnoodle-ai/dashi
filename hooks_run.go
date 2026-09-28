@@ -327,10 +327,14 @@ func validToolDecision(
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
 }
 
-// finishResult is the combined BeforeFinish answer.
+// finishResult is the combined BeforeFinish answer. rejected means a hook
+// turned the candidate down: it delivered items, or gave a reason, which
+// only a submission can act on alone.
 type finishResult struct {
 	deliver     []ContextItem
 	acceptEmpty bool
+	reason      string
+	hook        string
 }
 
 // beforeFinish runs the BeforeFinish chain for a candidate answer. A failing
@@ -362,14 +366,23 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			o := r.stopWith(hookFailedStop())
 			return finishResult{}, &o
 		}
-		if len(d.Deliver) > 0 {
+		if len(d.Deliver) > 0 || d.Reason != "" {
 			for _, item := range d.Deliver {
 				out.deliver = append(out.deliver, cloneContextItem(item))
+			}
+			if out.hook == "" {
+				out.hook = h.Name
+				out.reason = d.Reason
+			}
+			verdict := VerdictDeliver
+			if len(d.Deliver) == 0 {
+				verdict = VerdictReject
 			}
 			r.addHookResult(HookResult{
 				Point:   HookBeforeFinish,
 				Name:    h.Name,
-				Verdict: VerdictDeliver,
+				Verdict: verdict,
+				Reason:  d.Reason,
 			})
 		}
 		if d.AcceptEmpty {
@@ -382,6 +395,92 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		}
 	}
 	return out, nil
+}
+
+// finishPoint is the one place a candidate final answer is decided, on both
+// the final-text path and the dashi_submit_output path. Steering's check for
+// waiting steers belongs first here, before the BeforeFinish hooks, so a
+// steer supersedes a candidate without asking the hooks about it. When the
+// hooks turn the candidate down but no further normal model call can
+// happen, their answer is dropped with a warning and the candidate stands:
+// a finish hook never spends the last answer. submission says whether a
+// reason alone turns the candidate down, which only a submission can act on.
+func (r *runtime) finishPoint(
+	s *replayState,
+	plan FinishPlan,
+	submission bool,
+) (finishResult, *Outcome) {
+	mark := r.hookMark()
+	finish, o := r.beforeFinish(plan)
+	if o != nil {
+		return finishResult{}, o
+	}
+	if r.ctx.Err() != nil {
+		r.dropHooks(mark)
+		o := r.contextStop()
+		return finishResult{}, &o
+	}
+	if !finish.rejects(submission) {
+		return finish, nil
+	}
+	if !r.nextCallFits(s, estimatedItemTokens(finish.deliver)) {
+		r.pendingWarnings = append(r.pendingWarnings, Warning{
+			Code: WarningDeliveryDropped,
+			Message: fmt.Sprintf(
+				"BeforeFinish hook %s asked for another model call, but none "+
+					"can happen before the reserved final answer or a limit; "+
+					"the answer stands",
+				finish.hook,
+			),
+		})
+		finish.deliver = nil
+		finish.reason = ""
+		finish.hook = ""
+	}
+	return finish, nil
+}
+
+// rejects reports whether the hooks turned the candidate down.
+func (f finishResult) rejects(submission bool) bool {
+	return len(f.deliver) > 0 || submission && f.hook != ""
+}
+
+// rejectSubmission settles a started dashi_submit_output call that a hook
+// or a steer turned down, as failed with the model-visible output
+// "Not accepted: <reason>". The items to deliver ride on the same step, so
+// a crash cannot record the rejection without them; projection places them
+// after the call's result. source names who rejected it for the record,
+// such as "hook <name>" or "steering". It is the same started-to-settled
+// transition a schema rejection uses, so the next successful submission is
+// the one recorded as output.
+func (r *runtime) rejectSubmission(
+	call tool.Call,
+	reason string,
+	source string,
+	items []ContextItem,
+) *Outcome {
+	out := tool.Outcome{
+		State:  tool.StateFailed,
+		Output: new(tool.TextOutput("Not accepted: " + reason)),
+	}
+	step := Step{
+		Kind: StepToolSettled,
+		Tool: &ToolFact{
+			Call:    call,
+			Outcome: &out,
+			Reason:  "not accepted: " + source,
+		},
+	}
+	if len(items) > 0 {
+		step.Context = &ContextFact{Items: items}
+	}
+	return r.commit(step)
+}
+
+// nextCallPossible is nextCallFits with a pause also refusing: steering
+// uses it, since a steer not delivered stays with its source.
+func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
+	return !r.pauseRequested() && r.nextCallFits(s, extraInputTokens)
 }
 
 // nextCallFits reports whether a further normal model call can happen: one

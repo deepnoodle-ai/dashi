@@ -63,11 +63,12 @@ func (h ToolHook) Hooks() Hooks {
 	return Hooks{BeforeTool: []ToolHook{h}}
 }
 
-// FinishHook sees each final text answer and may ask the model to continue
-// instead. Structured output submitted with dashi_submit_output does not
-// pass it yet. It fails closed: an error stops the turn as StopFailed with
-// StopReasonHookFailed, and Continue runs the hooks again on the same answer,
-// unless context was delivered since, in which case the model is asked again.
+// FinishHook sees each candidate final answer, final text or output
+// submitted with dashi_submit_output, and may turn it down so the model
+// continues. It fails closed: an error stops the turn as StopFailed with
+// StopReasonHookFailed, and Continue runs the hooks again on the same
+// answer, unless context was delivered since and a normal model call
+// remains, in which case the model is asked again.
 type FinishHook Hook[FinishPlan, FinishDecision]
 
 // Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
@@ -87,8 +88,8 @@ func (h FinishHook) Hooks() Hooks {
 //     recorded under its name.
 //   - BeforeTool: the first denial ends the chain; otherwise a deferral wins
 //     over an allow. A Rewrite restarts the chain on the new arguments.
-//   - BeforeFinish: deliveries append, and AcceptEmpty holds if any hook
-//     says so.
+//   - BeforeFinish: deliveries append, the first Reason is kept, and
+//     AcceptEmpty holds if any hook says so.
 //
 // When the run's context has ended, a hook's error gives the normal context
 // stop, and nothing is recorded for that hook. A panic counts as an error.
@@ -151,8 +152,11 @@ const (
 	VerdictAllow   HookVerdict = "allow"
 	VerdictDefer   HookVerdict = "defer"
 	VerdictRewrite HookVerdict = "rewrite"
-	// VerdictDeliver and VerdictAcceptEmpty are BeforeFinish answers.
+	// VerdictDeliver, VerdictReject and VerdictAcceptEmpty are BeforeFinish
+	// answers: delivered items, a reason alone, or accepting an empty
+	// answer.
 	VerdictDeliver     HookVerdict = "deliver"
+	VerdictReject      HookVerdict = "reject"
 	VerdictAcceptEmpty HookVerdict = "accept_empty"
 )
 
@@ -281,14 +285,18 @@ type ToolVerdict struct {
 }
 
 // FinishPlan gives BeforeFinish a candidate final answer: model text that
-// would end the turn.
+// would end the turn, or a schema-valid dashi_submit_output call.
 type FinishPlan struct {
 	Turn      TurnView
 	AttemptID string
-	// Answer is the candidate's text.
+	// CallID is the dashi_submit_output call for a submitted output, and
+	// empty for a final text answer.
+	CallID string
+	// Answer is the candidate model message's text.
 	Answer string
-	// Output is the parsed structured result on a turn with an output
-	// schema, or nil when parsing failed, in which case OutputErr says why.
+	// Output is the structured result on a turn with an output schema: the
+	// submitted value, or the value parsed from the text. It is nil when
+	// parsing failed, in which case OutputErr says why.
 	Output    json.RawMessage
 	OutputErr error
 }
@@ -297,9 +305,16 @@ type FinishPlan struct {
 // candidate.
 type FinishDecision struct {
 	// Deliver, when nonempty, asks the model again with these items instead
-	// of accepting the candidate. On the reserved final-answer call there is
-	// no further call, so the items are dropped with a warning.
+	// of accepting the candidate. When no further normal model call can
+	// happen, such as on the reserved final-answer call, the items are
+	// dropped with a warning and the candidate stands.
 	Deliver []ContextItem
+	// Reason says why the candidate is not accepted. It is recorded, and on
+	// a submitted output it is what the model sees ("Not accepted: " and the
+	// reason); a Reason alone turns a submission down. The first hook's
+	// reason is used. An empty reason on a turned-down submission gives
+	// "a check did not accept this output".
+	Reason string
 	// AcceptEmpty accepts a candidate with no text, which otherwise fails the
 	// turn as empty_response.
 	AcceptEmpty bool

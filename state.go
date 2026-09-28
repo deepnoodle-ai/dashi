@@ -740,6 +740,19 @@ func (s *replayState) apply(step Step) error {
 		if step.Tool == nil {
 			return errors.New("missing tool settlement")
 		}
+		if step.Context != nil {
+			if step.Tool.Call.Name != SubmitOutputTool ||
+				step.Tool.Outcome == nil ||
+				step.Tool.Outcome.State != tool.StateFailed ||
+				len(step.Context.Items) == 0 {
+				return errors.New("only a turned-down submission carries context")
+			}
+			for _, item := range step.Context.Items {
+				if err := validateContext(item); err != nil {
+					return err
+				}
+			}
+		}
 		v, ok := s.Tools[step.Tool.Call.ID]
 		if !ok || v.Status == ToolSettled || !sameJSONValue(v.Call, step.Tool.Call) {
 			return errors.New("tool settlement without pending call")
@@ -1297,7 +1310,7 @@ func validateModelAccounting(fact *ModelFact) error {
 // has been requested after them.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepDelivered, StepLoopContinued:
+	case StepDelivered, StepLoopContinued, StepToolSettled:
 		if step.Context == nil {
 			return
 		}
@@ -1334,6 +1347,21 @@ func (s *replayState) keptFinishCandidate() bool {
 		s.Stop.Reason == StopReasonHookFailed
 }
 
+// keptSubmission returns the started dashi_submit_output call that a
+// BeforeFinish failure stopped on, if any.
+func (s *replayState) keptSubmission() (tool.Call, bool) {
+	if s.Stop.Kind != StopFailed || s.Stop.Reason != StopReasonHookFailed {
+		return tool.Call{}, false
+	}
+	for _, id := range s.callOrder {
+		v := s.Tools[id]
+		if v.Call.Name == SubmitOutputTool && v.Status == ToolStarted {
+			return v.Call, true
+		}
+	}
+	return tool.Call{}, false
+}
+
 // roomForNormalCall reports whether one more model call fits before the
 // reserved final-answer call, or within ModelAttempts when there is no
 // reserve. A model call in flight, requested but not settled, counts as
@@ -1361,7 +1389,12 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 		VerdictRewrite,
 		VerdictFailed,
 	},
-	HookBeforeFinish: {VerdictDeliver, VerdictAcceptEmpty, VerdictFailed},
+	HookBeforeFinish: {
+		VerdictDeliver,
+		VerdictReject,
+		VerdictAcceptEmpty,
+		VerdictFailed,
+	},
 }
 
 func validateHookResult(result HookResult) error {
@@ -1475,6 +1508,11 @@ func validateStepPayload(step Step) error {
 	case StepLoopContinued:
 		if step.Context == nil {
 			expected = 0
+		}
+	case StepToolSettled:
+		// A turned-down submission carries the items to deliver.
+		if step.Context != nil {
+			expected = 2
 		}
 	}
 	if count != expected {

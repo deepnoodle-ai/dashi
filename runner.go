@@ -388,7 +388,9 @@ func (r Runner) apply(
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
 		}
-		if state.keptFinishCandidate() && !state.roomForNormalCall() {
+		_, submission := state.keptSubmission()
+		if (state.keptFinishCandidate() || submission) &&
+			!state.roomForNormalCall() {
 			step.Warnings = []Warning{{
 				Code: WarningDeliveryDropped,
 				Message: "no model call remains before the reserved final " +
@@ -1450,31 +1452,19 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
 		}
 	}
-	mark := r.hookMark()
-	finish, o := r.beforeFinish(plan)
+	finish, o := r.finishPoint(state, plan, false)
 	if o != nil {
 		return *o, false
 	}
-	if r.ctx.Err() != nil {
-		r.dropHooks(mark)
-		return r.contextStop(), false
-	}
-	if len(finish.deliver) > 0 {
-		if r.nextCallFits(state, estimatedItemTokens(finish.deliver)) {
-			step := Step{
-				Kind:    StepLoopContinued,
-				Context: &ContextFact{Items: finish.deliver},
-			}
-			if o := r.commit(step); o != nil {
-				return *o, false
-			}
-			return Outcome{}, true
+	if finish.rejects(false) {
+		step := Step{
+			Kind:    StepLoopContinued,
+			Context: &ContextFact{Items: finish.deliver},
 		}
-		r.pendingWarnings = append(r.pendingWarnings, Warning{
-			Code: WarningDeliveryDropped,
-			Message: "BeforeFinish items dropped: no further model call " +
-				"can run within the turn's limits",
-		})
+		if o := r.commit(step); o != nil {
+			return *o, false
+		}
+		return Outcome{}, true
 	}
 	if !structured {
 		if !useful && !finish.acceptEmpty {
