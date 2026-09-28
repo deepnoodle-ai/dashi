@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -36,4 +37,18 @@ func validateToolCall(def tool.Definition, call tool.Call) error {
 		return err
 	}
 	return schema.Validate(args)
+}
+
+// A typed executor can impose Go decoding rules that JSON Schema cannot
+// express. Keep those checks on the same effective arguments as the runner's
+// schema precheck, including arguments supplied by hook rewrites.
+type argumentValidator interface {
+	ValidateArguments(json.RawMessage) error
+}
+
+func validateBoundArguments(ex tool.Executor, args json.RawMessage) error {
+	if validator, ok := ex.(argumentValidator); ok {
+		return validator.ValidateArguments(args)
+	}
+	return nil
 }

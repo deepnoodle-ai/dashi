@@ -115,6 +115,157 @@ func TestRunnerStrictTypedToolRejectsExtrasBeforeHook(t *testing.T) {
 	}
 }
 
+func TestRunnerRejectsAmbiguousTypedArgumentsBeforeHook(t *testing.T) {
+	for _, tc := range []struct {
+		args string
+		want string
+	}{
+		{`{"query":"yes","QUERY":"evil"}`, "differs only in case"},
+		{`{"QUERY":"evil","query":"yes"}`, "differs only in case"},
+		{`{"query":"yes","QUERY":"no"}`, "differs only in case"},
+		{`{"QUERY":"no","query":"yes"}`, "differs only in case"},
+		{`{"query":"yes","query":"no"}`, "duplicate JSON object key"},
+		{`{"query":"yes","extra":{"k":1,"k":2}}`, "duplicate JSON object key"},
+	} {
+		t.Run(tc.args, func(t *testing.T) {
+			runs, hooks := 0, 0
+			lookup, err := tool.Func(
+				"lookup",
+				"",
+				func(context.Context, tool.Call, extraRunnerInput) (tool.Outcome, error) {
+					runs++
+					return tool.Succeeded("found"), nil
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &scriptedClient{results: []llm.Result{
+				extraCallResult(tc.args),
+				final("done"),
+			}}
+			gate := toolHook(
+				"inspect",
+				func(context.Context, ToolPlan) (ToolDecision, error) {
+					hooks++
+					return Allow("seen"), nil
+				},
+			)
+			out, err := runHooked(t, client, tool.List{lookup}, gate.Hooks())
+			if err != nil || out.Stop.Kind != StopCompleted ||
+				runs != 0 || hooks != 0 ||
+				out.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+				t.Fatalf("stop=%+v err=%v runs=%d hooks=%d",
+					out.Stop, err, runs, hooks)
+			}
+			result := toolResultText(t, out.Turn, "call-1")
+			if !strings.Contains(result, tc.want) {
+				t.Fatalf("model feedback = %q", result)
+			}
+		})
+	}
+}
+
+func TestRunnerRejectsAmbiguousHookRewrite(t *testing.T) {
+	for _, rewritten := range []string{
+		`{"query":"yes","QUERY":"evil"}`,
+		`{"query":"yes","query":"evil"}`,
+	} {
+		t.Run(rewritten, func(t *testing.T) {
+			runs, hooks := 0, 0
+			lookup, err := tool.Func(
+				"lookup",
+				"",
+				func(context.Context, tool.Call, extraRunnerInput) (tool.Outcome, error) {
+					runs++
+					return tool.Succeeded("found"), nil
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &scriptedClient{results: []llm.Result{
+				extraCallResult(`{"query":"yes"}`),
+				final("done"),
+			}}
+			gate := toolHook(
+				"rewrite",
+				func(context.Context, ToolPlan) (ToolDecision, error) {
+					hooks++
+					return Rewrite(json.RawMessage(rewritten))
+				},
+			)
+			out, err := runHooked(t, client, tool.List{lookup}, gate.Hooks())
+			if err != nil || out.Stop.Kind != StopCompleted ||
+				runs != 0 || hooks != 1 ||
+				out.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+				t.Fatalf("stop=%+v err=%v runs=%d hooks=%d",
+					out.Stop, err, runs, hooks)
+			}
+		})
+	}
+}
+
+func TestDeferredAliasWithoutExecutorCannotRunOnLaterBinding(t *testing.T) {
+	runs, hooks := 0, 0
+	lookup, err := tool.Func(
+		"lookup",
+		"",
+		func(context.Context, tool.Call, extraRunnerInput) (tool.Outcome, error) {
+			runs++
+			return tool.Succeeded("found"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedClient{results: []llm.Result{
+		extraCallResult(`{"query":"yes","QUERY":"evil"}`),
+		final("done"),
+	}}
+	gate := toolHook(
+		"approve",
+		func(context.Context, ToolPlan) (ToolDecision, error) {
+			hooks++
+			return Defer("operator approval"), nil
+		},
+	)
+	recorder := NewMemoryRecorder()
+	first, err := start(
+		t,
+		client,
+		tool.List{{Definition: lookup.Definition}},
+		recorder,
+		gate.Hooks(),
+	)
+	if err != nil || first.Stop.Kind != StopWaiting ||
+		len(first.Pending) != 1 || runs != 0 || hooks != 1 {
+		t.Fatalf("first=%+v err=%v runs=%d hooks=%d",
+			first.Stop, err, runs, hooks)
+	}
+	runner := Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    tool.List{lookup},
+		Recorder: recorder,
+		Hooks:    gate.Hooks(),
+	}
+	approved, err := runner.Run(
+		t.Context(),
+		first.Turn,
+		first.Pending[0].Approve(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runner.Run(t.Context(), approved.Turn, Continue{CommandID: "go"})
+	if err != nil || out.Stop.Kind != StopCompleted || runs != 0 || hooks != 1 ||
+		out.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("out=%+v err=%v runs=%d hooks=%d",
+			out.Stop, err, runs, hooks)
+	}
+}
+
 func TestRunnerRevalidatesRewrittenExtraArguments(t *testing.T) {
 	runs := 0
 	var received extraRunnerInput

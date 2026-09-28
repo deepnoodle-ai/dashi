@@ -29,6 +29,9 @@ import (
 // docs/guides/tools.md#defining-tools for the complete rules.
 // Unknown keys in struct arguments are ignored by default. Pass
 // WithStrictArguments to reject them, including in nested structs.
+// Keys that differ only in case from declared fields, and duplicate JSON
+// object keys, are rejected because Go decoding could otherwise pass values
+// to fn that differ from those validated against the schema.
 // Call.Args retains the effective raw JSON in either mode; it is not a
 // sanitized copy of the typed arguments.
 // The callback also receives the stable call identity, suitable for downstream
@@ -102,6 +105,22 @@ func Func[T any](
 	return Tool{Definition: d, Executor: executor}, nil
 }
 
+// ValidateArguments applies the same schema and Go field-name policy used by
+// Execute. The runner calls it before BeforeTool and after argument rewrites.
+func (e typedExecutor[T]) ValidateArguments(args json.RawMessage) error {
+	value, err := parseUniqueArguments(args)
+	if err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if err := e.schema.Validate(value); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	if err := rejectCaseAliases(value, reflect.TypeFor[T](), "$"); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	return nil
+}
+
 // FuncOption configures a typed tool. Its zero value leaves the default
 // argument behavior unchanged.
 type FuncOption struct {
@@ -142,12 +161,8 @@ func (e typedExecutor[T]) Execute(
 	if call.Name != e.name {
 		return notExecuted("tool name does not match executor"), nil
 	}
-	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(call.Args))
-	if err != nil {
-		return notExecuted("invalid input: " + err.Error()), nil
-	}
-	if err := e.schema.Validate(value); err != nil {
-		return notExecuted("invalid input: " + err.Error()), nil
+	if err := e.ValidateArguments(call.Args); err != nil {
+		return notExecuted(err.Error()), nil
 	}
 	var input T
 	decoder := json.NewDecoder(bytes.NewReader(call.Args))

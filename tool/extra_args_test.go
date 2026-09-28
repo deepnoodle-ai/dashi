@@ -3,11 +3,133 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
 type extraChild struct {
 	Label string `json:"label"`
+}
+
+func TestFuncRejectsCaseFoldAliasesBeforeCallback(t *testing.T) {
+	calls := 0
+	fn, err := Func(
+		"lookup",
+		"",
+		func(context.Context, Call, extraInput) (Outcome, error) {
+			calls++
+			return Succeeded("ok"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string]string{
+		"invalid alias after declared":     `{"query":"yes","QUERY":"evil"}`,
+		"invalid alias before declared":    `{"QUERY":"evil","query":"yes"}`,
+		"valid enum alias after declared":  `{"query":"yes","QUERY":"no"}`,
+		"valid enum alias before declared": `{"QUERY":"no","query":"yes"}`,
+		"nested": `{"query":"yes","nested":` +
+			`{"label":"a","LABEL":"b"}}`,
+		"slice value": `{"query":"yes","rows":` +
+			`[{"label":"a","LABEL":"b"}]}`,
+		"map value": `{"query":"yes","by_name":` +
+			`{"one":{"label":"a","LABEL":"b"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := fn.Executor.Execute(t.Context(), Call{
+				ID: "call-1", Name: "lookup", Args: []byte(args),
+			})
+			if err != nil || out.State != StateNotExecuted || calls != 0 {
+				t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
+			}
+			message := out.Output.Content[0].Text.Text
+			if !strings.Contains(message, "differs only in case") {
+				t.Fatalf("reason = %q", message)
+			}
+		})
+	}
+}
+
+func TestFuncRejectsCaseFoldAliasesInRecursiveAndEmbeddedStructs(t *testing.T) {
+	type embedded struct {
+		Label string `json:"label"`
+	}
+	type recursive struct {
+		*embedded
+		Children []recursive `json:"children,omitempty"`
+	}
+	fn, err := Func(
+		"tree",
+		"",
+		func(context.Context, Call, recursive) (Outcome, error) {
+			t.Fatal("callback ran for an alias")
+			return Succeeded("ok"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{
+		`{"label":"root","LABEL":"other"}`,
+		`{"label":"root","children":[{"label":"child","LABEL":"other"}]}`,
+	} {
+		out, err := fn.Executor.Execute(t.Context(), Call{
+			ID: "call-1", Name: "tree", Args: []byte(args),
+		})
+		if err != nil || out.State != StateNotExecuted {
+			t.Fatalf("%s: out=%+v err=%v", args, out, err)
+		}
+	}
+}
+
+func TestFuncRejectsDuplicateObjectKeys(t *testing.T) {
+	type child struct {
+		Label  string `json:"label"`
+		Region string `json:"region,omitempty" enum:"us,eu"`
+	}
+	type input struct {
+		Query string `json:"query" enum:"yes,no"`
+		Child child  `json:"child"`
+	}
+	calls := 0
+	fn, err := Func(
+		"lookup",
+		"",
+		func(_ context.Context, _ Call, in input) (Outcome, error) {
+			calls++
+			if in.Query != "yes" || in.Child.Region != "us" {
+				t.Fatalf("unexpected callback input: %+v", in)
+			}
+			return Succeeded("ok"), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{
+		`{"query":"evil","query":"yes","child":{"label":"a"}}`,
+		`{"query":"yes","child":{"label":"a","region":"evil"},` +
+			`"child":{"label":"b"}}`,
+	} {
+		out, err := fn.Executor.Execute(t.Context(), Call{
+			ID: "call-1", Name: "lookup", Args: []byte(args),
+		})
+		if err != nil || out.State != StateNotExecuted || calls != 0 {
+			t.Fatalf("%s: out=%+v err=%v calls=%d", args, out, err, calls)
+		}
+		message := out.Output.Content[0].Text.Text
+		if !strings.Contains(message, "duplicate JSON object key") {
+			t.Fatalf("reason = %q", message)
+		}
+	}
+	valid := `{"query":"yes","child":{"label":"a","region":"us"},"extra":1}`
+	out, err := fn.Executor.Execute(t.Context(), Call{
+		ID: "call-1", Name: "lookup", Args: []byte(valid),
+	})
+	if err != nil || out.State != StateSucceeded || calls != 1 {
+		t.Fatalf("valid call: out=%+v err=%v calls=%d", out, err, calls)
+	}
 }
 
 type extraInput struct {

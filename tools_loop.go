@@ -169,10 +169,36 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				continue
 			}
-			if err := validateToolCall(v.Definition, v.Call); err != nil {
-				message := "Invalid tool arguments: " + err.Error()
+			validationErr := validateToolCall(v.Definition, v.Call)
+			var ex tool.Executor
+			if validationErr == nil &&
+				v.Call.Name != SubmitOutputTool &&
+				v.Definition.Kind != tool.KindExternal &&
+				v.Definition.Kind != tool.KindProviderHosted &&
+				r.runner.Tools != nil {
+				bound, err := r.runner.Tools.Tools(ctx)
+				if ctx.Err() != nil {
+					return r.contextStop(), true
+				}
+				if err == nil {
+					for _, candidate := range bound {
+						if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+							candidate.Definition,
+							v.Definition,
+						) {
+							ex = candidate.Executor
+							break
+						}
+					}
+				}
+				validationErr = validateBoundArguments(ex, v.Call.Args)
+			}
+			if validationErr != nil {
+				message := "Invalid tool arguments: " + validationErr.Error()
 				if v.Call.Name == SubmitOutputTool {
-					message = "Output rejected: " + boundedOutputError(err) + ". Correct it and call " + SubmitOutputTool + " again."
+					message = "Output rejected: " +
+						boundedOutputError(validationErr) +
+						". Correct it and call " + SubmitOutputTool + " again."
 				}
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
@@ -222,7 +248,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}
 			if call.Name != SubmitOutputTool {
 				var o *Outcome
-				call, verdict, o = r.authorizeTool(ctx, v.Definition, call)
+				call, verdict, o = r.authorizeTool(ctx, v.Definition, call, ex)
 				if o != nil {
 					return *o, true
 				}
