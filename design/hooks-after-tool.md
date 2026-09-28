@@ -45,6 +45,12 @@ cannot inspect:
 ```go
 redact := dashi.ResultHook{Name: "redact", Func: func(
     _ context.Context, p dashi.ResultPlan) (dashi.ResultDecision, error) {
+    for _, block := range p.Result.Output.Content {
+        if block.Kind != content.KindText && block.Kind != content.KindImage {
+            return dashi.ResultDecision{}, errors.New("cannot inspect " +
+                string(block.Kind)) // withholds the result
+        }
+    }
     r := p.Result
     r.Output = r.Output.MapText(func(s string) string {
         return secrets.ReplaceAllString(s, "[redacted]")
@@ -73,14 +79,16 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
   was withheld: check "<name>" failed." (for a tool that returned
   `not_executed`, "The call finished without running, …"), not marked as an
   error so the model does not retry a call that took effect, with
-  `WarningHookFailed`. The hook name is shown to the model. With `FailOpen`,
-  the result so far stands and a warning is recorded. `BeforeFinish` with `FailOpen` treats an error as no
-  opinion, with a warning. An invalid replacement is a failure.
+  `WarningHookFailed`. The hook name is shown to the model. With `FailOpen`, the
+  result so far stands and a warning is recorded. `BeforeFinish` with `FailOpen`
+  treats an error as no opinion, with a warning. An invalid replacement is a
+  failure.
 - **Ended context.** If the run's context ends while the chain runs, the
-  settlement is still committed with a warning, withheld unless every hook
-  left to answer fails open; the outcome and its cost are kept. A `Settle`
-  runs its hooks under the command's context, not the turn's deadline. A context that ended before the chain started keeps
-  today's rule. `Project` never refuses a turn because of hooks.
+  settlement is still committed with a warning, withheld unless every hook left
+  to answer fails open; the outcome and its cost are kept. A `Settle` runs its
+  hooks under the command's context, not the turn's deadline. A context that
+  ended before the chain started keeps today's rule. `Project` never refuses a
+  turn because of hooks.
 
 **Recording.** `ToolFact.Result *llm.ToolResult` (JSON `result`) is set on
 the settlement only when a hook changed it; projection uses it, and
