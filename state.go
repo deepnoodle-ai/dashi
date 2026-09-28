@@ -29,24 +29,34 @@ type ToolView struct {
 	Decision   ToolDecision
 	Outcome    *tool.Outcome
 }
+
+// TurnView is the current state reconstructed from acknowledged steps.
 type TurnView struct {
-	ID             string
-	Definition     Definition
-	OutputSchema   json.RawMessage
-	Revision       int64
-	ModelAttempts  int
+	ID           string
+	Definition   Definition
+	OutputSchema json.RawMessage
+	Revision     int64
+	// ModelAttempts counts settled calls that were not interrupted.
+	ModelAttempts int
+	// Interruptions counts resumes after a context stop or worker crash.
+	Interruptions  int
 	ProviderPauses int
 	Usage          *llm.Usage
 	Stop           Stop
 	Output         *StructuredOutput
 	Pending        []string
-	Tools          map[string]ToolView
+	// ReadyToContinue means a Continue command can pick up this record.
+	ReadyToContinue bool
+	Tools           map[string]ToolView
 }
 type replayState struct {
 	TurnView
+	// modelCalls counts every requested call so retried calls get distinct IDs.
+	modelCalls             int
 	modelIntent            string
 	unresolvedModel        string
 	unresolvedPartial      bool
+	unresolvedInterrupted  bool
 	modelUsages            map[string]*llm.Usage
 	modelMessages          map[string]string
 	callAttempts           map[string]string
@@ -120,6 +130,7 @@ func replay(t Turn) (*replayState, error) {
 			s.Usage.Add(usage)
 		}
 	}
+	s.ReadyToContinue = s.canContinue()
 	return s, nil
 }
 func (s *replayState) apply(step Step) error {
@@ -133,17 +144,20 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("canceled turn only accepts late results")
 		}
 	}
-	// Once the validated output is recorded the turn's result is final; the
-	// only remaining fact is the completion stop, or the limited stop when
-	// the answer came from the reserved final attempt. Later context, tools,
-	// model calls, or cancellation are refused rather than silently ignored.
+	// Once validated output is recorded, execution has no more work. A
+	// context stop may still intervene before the completion stop is saved;
+	// Continue then completes the existing output without another model call.
 	if s.Output != nil {
 		switch {
 		case step.Kind == StepContinued:
 		case step.Kind == StepStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
 		case step.Kind == StepStopped && step.Stop != nil &&
+			step.Stop.Kind == StopInterrupted:
+		case step.Kind == StepStopped && step.Stop != nil &&
 			step.Stop.Kind == StopLimited &&
-			step.Stop.Reason == "model_attempts" && s.finalAnswerOnly:
+			(step.Stop.Reason == "deadline" ||
+				step.Stop.Reason == "interruptions" ||
+				step.Stop.Reason == "model_attempts" && s.finalAnswerOnly):
 		default:
 			return errors.New("turn with recorded output can only complete")
 		}
@@ -212,6 +226,9 @@ func (s *replayState) apply(step Step) error {
 		if !s.canContinue() {
 			return errors.New("turn cannot continue")
 		}
+		if s.Stop.Kind == StopInterrupted || s.Stop.Kind == "" {
+			s.Interruptions++
+		}
 		if s.Stop.Kind == StopFailed {
 			s.failedModel = ""
 		}
@@ -245,6 +262,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
 		s.modelIntent = step.Model.AttemptID
+		s.modelCalls++
 		s.finalAnswerOnly = step.Model.FinalAnswerOnly
 		s.unresolvedPartial = false
 		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
@@ -252,7 +270,6 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.modelMessages[step.Model.AttemptID] = step.Model.MessageID
 		s.awaitingClassification = false
-		s.ModelAttempts++
 		s.modelDefs = map[string]tool.Definition{}
 		outputTool := false
 		for _, d := range step.Model.Tools {
@@ -288,24 +305,39 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Uncertain && (step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched) {
 			return errors.New("known model failure marked uncertain")
 		}
+		if step.Model.Interrupted &&
+			(step.Model.Failure == llm.FailureRejected ||
+				step.Model.Failure == llm.FailureNotDispatched) {
+			return errors.New("interrupted model call cannot have known nonexecution")
+		}
 		if step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched {
 			if step.Model.Error == "" || step.Model.Evidence == "" || (step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) != 0 || step.Model.Result.Usage != nil)) {
 				return errors.New("known model failure lacks evidence or has partial result")
 			}
 		}
 		s.modelIntent = ""
+		if !step.Model.Interrupted {
+			s.ModelAttempts++
+		}
 		if step.Model.Uncertain {
 			s.unresolvedModel = step.Model.AttemptID
+			s.unresolvedInterrupted = step.Model.Interrupted
 			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
-		} else if step.Model.Error != "" {
+		} else if step.Model.Error != "" && !step.Model.Interrupted &&
+			step.Model.Failure != llm.FailureRejected &&
+			step.Model.Failure != llm.FailureNotDispatched {
 			s.failedModel = step.Model.Error
 		}
 		if step.Model.Result != nil {
-			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, step.Model.Error == "" && s.Stop.Kind != StopCanceled); err != nil {
+			actionable := step.Model.Error == "" && !step.Model.Interrupted &&
+				s.Stop.Kind != StopCanceled
+			if err := s.recordResult(
+				step.Model.AttemptID, step.Model.Result, actionable,
+			); err != nil {
 				return err
 			}
 		}
-		if step.Model.Error == "" {
+		if step.Model.Error == "" && !step.Model.Interrupted {
 			s.awaitingClassification = true
 		}
 	case StepModelReconciled:
@@ -313,18 +345,25 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("model reconciliation without uncertain attempt")
 		}
 		s.unresolvedModel = ""
-		if step.Model.Error != "" {
-			if step.Model.Result != nil || s.unresolvedPartial || (step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched) || step.Model.Evidence == "" {
-				return errors.New("model failure reconciliation lacks evidence")
-			}
-			s.failedModel = step.Model.Error
-		} else {
+		// Verified nonexecution clears uncertainty; Continue may retry.
+		if step.Model.Error != "" &&
+			(step.Model.Result != nil || s.unresolvedPartial ||
+				(step.Model.Failure != llm.FailureRejected &&
+					step.Model.Failure != llm.FailureNotDispatched) ||
+				step.Model.Evidence == "") {
+			return errors.New("model failure reconciliation lacks evidence")
+		}
+		if step.Model.Error == "" {
 			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
 				return err
+			}
+			if s.unresolvedInterrupted {
+				s.ModelAttempts++
 			}
 			s.awaitingClassification = true
 		}
 		s.unresolvedPartial = false
+		s.unresolvedInterrupted = false
 	case StepToolDecision:
 		s.awaitingClassification = false
 		if step.Tool == nil {
@@ -508,12 +547,15 @@ func (s *replayState) apply(step Step) error {
 		s.Output = &value
 		s.awaitingClassification = false
 	case StepStopped:
-		s.awaitingClassification = false
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
+		if step.Stop.Kind != StopInterrupted {
+			s.awaitingClassification = false
+		}
 		switch step.Stop.Kind {
-		case StopCompleted, StopWaiting, StopLimited, StopRefused, StopCanceled, StopFailed, StopUncertain:
+		case StopCompleted, StopWaiting, StopLimited, StopRefused,
+			StopCanceled, StopFailed, StopUncertain, StopInterrupted:
 		default:
 			return errors.New("invalid stop kind")
 		}
@@ -606,10 +648,33 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 }
 
 func (s *replayState) canContinue() bool {
-	if s.Revision == 0 || s.Stop.Kind == StopCompleted || s.Stop.Kind == StopCanceled || s.modelIntent != "" || s.unresolvedModel != "" || len(s.hosted) > 0 {
+	if s.Revision == 0 || s.Stop.Kind == StopCompleted ||
+		s.Stop.Kind == StopCanceled || s.unresolvedModel != "" ||
+		len(s.hosted) > 0 {
 		return false
 	}
-	if s.Stop.Kind == StopLimited && s.ModelAttempts >= s.Definition.Limits.ModelAttempts {
+	if s.Interruptions > s.Definition.Limits.interruptionLimit() {
+		return false
+	}
+	if s.interruptionLimitReached() {
+		return false
+	}
+	if s.Stop.Kind == StopUncertain {
+		// An explicit uncertain stop is evidence that the host must report
+		// the outcome. A missing stop means the worker may have crashed and
+		// Continue may first establish which work can safely be repeated.
+		if s.modelIntent != "" {
+			return false
+		}
+		for _, id := range s.callOrder {
+			if s.Tools[id].Status == ToolStarted {
+				return false
+			}
+		}
+	}
+	if s.Stop.Kind == StopLimited &&
+		(s.Stop.Reason == "deadline" || s.Stop.Reason == "interruptions" ||
+			s.ModelAttempts >= s.Definition.Limits.ModelAttempts) {
 		return false
 	}
 	for _, id := range s.callOrder {
@@ -617,14 +682,19 @@ func (s *replayState) canContinue() bool {
 		switch v.Status {
 		case ToolSettled, ToolRequested, ToolAllowed, ToolDenied:
 		case ToolStarted:
-			if v.Call.Name != SubmitOutputTool {
-				return false
-			}
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+func (s *replayState) interruptionLimitReached() bool {
+	if s.Revision == 0 || s.Interruptions <
+		s.Definition.Limits.interruptionLimit() {
+		return false
+	}
+	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""
 }
 
 func validateStepPayload(step Step) error {

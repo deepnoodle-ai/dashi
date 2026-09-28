@@ -146,7 +146,7 @@ func newHosted(name, toolType string, options any) (tool.Definition, error) {
 	if err != nil {
 		return tool.Definition{}, err
 	}
-	return tool.Definition{
+	definition := tool.Definition{
 		Name: name,
 		Kind: tool.KindProviderHosted,
 		Hosted: &tool.HostedSpec{
@@ -155,5 +155,11 @@ func newHosted(name, toolType string, options any) (tool.Definition, error) {
 			Type:     toolType,
 			Options:  raw,
 		},
-	}, nil
+	}
+	if toolType == "web_search" || toolType == "x_search" ||
+		toolType == "file_search" {
+		readOnly := true
+		definition.Annotations.ReadOnly = &readOnly
+	}
+	return definition, nil
 }

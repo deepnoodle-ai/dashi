@@ -22,7 +22,8 @@ package can compose the same engine with history and a store. Dependencies
 point toward `llm`/`tool` and never back into the engine from them.
 `Engine.Stream` exposes the same execution path as a backpressured `iter.Seq2`
 of recorded steps, provisional deltas, and a terminal outcome. Ending the
-range cancels the invocation while acknowledged facts remain in the record.
+range interrupts the invocation by default while acknowledged facts remain in
+the record. A caller can choose final cancellation for that invocation.
 
 ```text
 definition + turn record + command + bindings
@@ -57,24 +58,28 @@ intent-before-effect constraint.
 3. Record each permitted tool start before invocation. Execute local calls with
    bounded concurrency; record each known result as it finishes. A Go executor
    error is a known, model-facing failure; one wrapped with `tool.Fatal` also
-   stops the turn. Only a result the engine never observed (a panic or a crash
-   after the start) is uncertain; see [decisions](decisions.md) entry 1.
-   External calls and waits become pending subjects. Complete siblings are
-   recorded immediately, while model projection returns tool results in call
-   order. No next model call occurs until every client call in the batch is
-   resolved.
+   stops the turn. A panic is uncertain; after a crash, a tool known safe to
+   repeat can be rerun. See [decisions](decisions.md) entries 1 and 11.
+   External calls and waits become pending subjects. `Accept` records their
+   results or approvals; only `Continue` restarts execution. Complete siblings
+   are recorded immediately, while model projection returns tool results in
+   call order. No next model call occurs until every client call in the batch
+   is resolved.
 4. Otherwise, check turn-wide limits and a requested soft stop. Resolve tools
    and context for this call, apply typed request policy, and prepare one
-   `llm.Request`. Preparation rejects unsupported controls and records any
-   allowed adjustments. Authorize the effective request, then acknowledge its
-   safe intent and attempt ID together with any host spending reservation.
+   `llm.Request`. Preparation warns and adjusts unsupported controls when a
+   safe substitute exists; strict failure is opt-in. Authorize the effective
+   request, then acknowledge its safe intent and attempt ID together with any
+   host spending reservation.
    Call `Send` once. Commit the complete `llm.Result` or a typed failure before
    acting on its content. Stream deltas are tentative observations tied to the
    same attempt and message IDs; observer failure or
    disconnection cannot change execution or the committed result.
-   On failure, retain any partial result and usage. Proven non-dispatch and
-   explicit rejection are known failures; other receipt states need
-   reconciliation. Preview text alone is never a committed answer.
+   On failure, retain any partial result and usage. A call cut off by the
+   context is recorded as interrupted: its content is never acted on, but
+   `Continue` resends it and its usage still counts toward spend. Proven
+   non-dispatch and explicit rejection are known failures; other receipt
+   states need reconciliation. Preview text alone is never a committed answer.
 5. Classify the **full** result. `tool_use` and recognized finished responses
    with client calls enter step 2. A provider pause may repeat through the same
    preparation and recording path under a separate pause limit. Refusal,
@@ -83,16 +88,18 @@ intent-before-effect constraint.
    only if it contains a useful result or an explicitly accepted tool-only
    outcome; otherwise report an empty-response failure without inventing prose.
    A provider-hosted approval request is a pending decision about provider
-   continuation, not a client tool to execute; an explicit `Accept` supplies
-   its bound response before another model call.
+   continuation, not a client tool to execute; an explicit `Accept` records
+   its bound response and `Continue` starts the next model call.
 
 Model retry is a new recorded attempt of a prepared request and consumes the
-turn's call allowance. A known failure stops the invocation; `Continue` may
-authorize a new attempt. Ambiguous receipt needs a verified late result or
-nonexecution fact before advancement. It cannot infer free or exactly-once
-execution from a transport error. The same `Prepare`/`Send` and recording pipeline handles
-normal calls, any summarizing call, and child turns; hidden extra calls are not
-allowed.
+turn's call allowance. An interrupted model call does not consume that
+allowance, though its usage is retained. If it may have run a provider-hosted
+tool that is not known to be read-only or idempotent, the outcome is uncertain
+and requires an application report before resending. A known failure stops the
+invocation; `Continue` may authorize a new attempt. Ambiguous receipt needs a
+verified late result or nonexecution fact before advancement. The same
+`Prepare`/`Send` and recording pipeline handles normal calls, any summarizing
+call, and child turns; hidden extra calls are not allowed.
 
 ## Control and limits
 
@@ -105,14 +112,18 @@ new context through `Deliver` is safe at the next step boundary; it cannot
 mutate a model call already prepared or sent.
 
 Limits count across starts, retries, waits, continuations, and policy-driven
-extra calls. Begin with model attempts, provider pauses, tool concurrency, and
-deadlines; distinguish an unset bound from zero. A turn deadline persists across
-invocations. Account for known usage without promising a hard token/cost ceiling
-from post-call measurements. A host can refuse a model intent when it cannot
-reserve spending authority. A deadline for a local machine tool is separate
-from an open-ended human decision. Cancellation prevents new effects and marks
-in-flight effects uncertain until settled; late facts remain recordable but
-cannot restart canceled work.
+extra calls. An interruption has its own resume limit (default 10), separate
+from `ModelAttempts`. A turn deadline persists across invocations and stops
+the turn as limited; a host context deadline interrupts it. Account for known
+usage without promising a hard token/cost ceiling from post-call measurements.
+A host can refuse a model intent when it cannot reserve spending authority.
+Closing `Bindings.Pause` stops before the next model or tool call without
+cutting off running work. By default an ended context records an interrupted
+stop with its cause. `Bindings.OnContextDone: ContextCancel` makes it final
+cancellation for a caller that knows the turn will not resume. Late tool
+results after context end are dropped. A started tool without a result is
+rerun on `Continue` only when declared read-only or idempotent; other calls
+are uncertain and require `Accept` to record the application finding.
 
 `DefaultLimits` reserves the last attempt, after earlier attempts, for a final
 answer. It removes application and hosted tools from that request while keeping

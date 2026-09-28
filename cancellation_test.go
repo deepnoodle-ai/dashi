@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-func TestCanceledContextStopsToolBatchWithoutWaitingForExecutor(t *testing.T) {
+func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	a := tool.Call{ID: "a", Name: "first", Args: []byte(`{}`)}
 	b := tool.Call{ID: "b", Name: "second", Args: []byte(`{}`)}
 	client := &scriptedClient{results: []llm.Result{{Message: llm.AssistantMessage(
@@ -51,24 +51,35 @@ func TestCanceledContextStopsToolBatchWithoutWaitingForExecutor(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Apply waited for an executor that ignored cancellation")
 	}
-	if out.Stop.Kind != StopCanceled || secondRuns != 0 {
+	if out.Stop.Kind != StopInterrupted || secondRuns != 0 {
 		t.Fatalf("stop=%+v second runs=%d", out.Stop, secondRuns)
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Tools["a"].Status != ToolStarted || view.Tools["b"].Status != ToolSettled || view.Tools["b"].Outcome.State != tool.StateNotExecuted {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Tools["a"].Status != ToolStarted {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
-	if len(out.Pending) != 1 || out.Pending[0] != "a" {
+	if status := view.Tools["b"].Status; status != ToolRequested &&
+		status != ToolAllowed {
+		t.Fatalf("unstarted call status=%s, want pending", status)
+	}
+	if len(out.Pending) != 2 || out.Pending[0] != "a" || out.Pending[1] != "b" {
 		t.Fatalf("pending=%v", out.Pending)
 	}
 	late := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("late"))}
 	settled, err := (Engine{}).Apply(context.Background(), out.Turn, def, Accept{ID: "late", CallID: "a", Outcome: &late}, Bindings{Client: client, Recorder: rec})
-	if err != nil || settled.Stop.Kind != StopCanceled || len(settled.Pending) != 0 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.Stop.Kind != StopInterrupted || len(settled.Pending) != 1 ||
+		!settled.ReadyToContinue {
 		t.Fatalf("late=%+v err=%v", settled, err)
 	}
 }
 
-func TestCanceledParallelBatchDoesNotStartLaterSibling(t *testing.T) {
+func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	parts := []llm.Content{}
 	for _, name := range []string{"first", "second", "third"} {
 		call := tool.Call{ID: name, Name: name, Args: []byte(`{}`)}
@@ -112,12 +123,21 @@ func TestCanceledParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Apply waited for the parallel executors")
 	}
-	if out.Stop.Kind != StopCanceled || thirdRuns.Load() != 0 || len(out.Pending) != 2 {
+	if out.Stop.Kind != StopInterrupted || thirdRuns.Load() != 0 ||
+		len(out.Pending) != 3 {
 		t.Fatalf("out=%+v third runs=%d", out, thirdRuns.Load())
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Tools["first"].Status != ToolStarted || view.Tools["second"].Status != ToolStarted || view.Tools["third"].Status != ToolSettled || view.Tools["third"].Outcome.State != tool.StateNotExecuted {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Tools["first"].Status != ToolStarted ||
+		view.Tools["second"].Status != ToolStarted {
 		t.Fatalf("view=%+v err=%v", view, err)
+	}
+	if status := view.Tools["third"].Status; status != ToolRequested &&
+		status != ToolAllowed {
+		t.Fatalf("unstarted call status=%s, want pending", status)
 	}
 }
 
@@ -138,7 +158,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 	}
 }
 
-func TestCanceledAfterModelIntentDoesNotSend(t *testing.T) {
+func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
@@ -148,16 +168,24 @@ func TestCanceledAfterModelIntentDoesNotSend(t *testing.T) {
 		}
 	}}
 	out, err := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Recorder: rec})
-	if err != nil || out.Stop.Kind != StopCanceled || client.sends != 0 || len(out.Pending) != 0 {
+	if err != nil || out.Stop.Kind != StopInterrupted ||
+		client.sends != 0 || len(out.Pending) != 0 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
 	settled := out.Turn.Steps[len(out.Turn.Steps)-2]
-	if settled.Kind != StepModelSettled || settled.Model.Failure != llm.FailureNotDispatched {
+	if settled.Kind != StepModelSettled || !settled.Model.Interrupted {
 		t.Fatalf("settlement=%+v", settled)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ModelAttempts != 0 {
+		t.Fatalf("model attempts=%d, want 0", view.ModelAttempts)
 	}
 }
 
-func TestCanceledAfterModelResultDoesNotStartPendingTool(t *testing.T) {
+func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "work")}}
@@ -172,11 +200,15 @@ func TestCanceledAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 		return tool.Outcome{State: tool.StateSucceeded}, nil
 	})}
 	out, err := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
-	if err != nil || out.Stop.Kind != StopCanceled || runs != 0 || client.sends != 1 || len(out.Pending) != 0 {
+	if err != nil || out.Stop.Kind != StopInterrupted || runs != 0 ||
+		client.sends != 1 || len(out.Pending) != 1 {
 		t.Fatalf("out=%+v err=%v runs=%d sends=%d", out, err, runs, client.sends)
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Tools["call-1"].Status != ToolSettled || view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Tools["call-1"].Status != ToolRequested {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 }

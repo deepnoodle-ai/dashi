@@ -26,6 +26,20 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			valid: true,
 		},
 		{
+			name: "hosted with serialized missing schema",
+			definition: Definition{
+				Name:   "web_search",
+				Kind:   KindProviderHosted,
+				Schema: json.RawMessage(`null`),
+				Hosted: &HostedSpec{
+					Provider: "anthropic",
+					API:      "anthropic.messages",
+					Type:     "web_search_20250305",
+				},
+			},
+			valid: true,
+		},
+		{
 			name: "hosted with schema",
 			definition: Definition{
 				Name:   "web_search",
@@ -51,6 +65,21 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "local with null schema",
+			definition: Definition{
+				Name:   "lookup",
+				Kind:   KindLocal,
+				Schema: json.RawMessage(`null`),
+			},
+		},
+		{
+			name: "local without schema",
+			definition: Definition{
+				Name: "lookup",
+				Kind: KindLocal,
+			},
+		},
+		{
 			name: "malformed options",
 			definition: Definition{
 				Name: "web_search",
@@ -71,6 +100,32 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 				t.Fatalf("definition validity=%t want=%t: %v", err == nil, tt.valid, err)
 			}
 		})
+	}
+}
+
+func TestHostedDefinitionValidatesAfterJSONRoundTrip(t *testing.T) {
+	definition := Definition{
+		Name: "web_search",
+		Kind: KindProviderHosted,
+		Hosted: &HostedSpec{
+			Provider: "anthropic",
+			API:      "anthropic.messages",
+			Type:     "web_search_20250305",
+		},
+	}
+	raw, err := json.Marshal(definition.Clone())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved Definition
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if string(saved.Schema) != "null" {
+		t.Fatalf("saved schema=%s; want null", saved.Schema)
+	}
+	if err := saved.Validate(); err != nil {
+		t.Fatalf("saved hosted definition became invalid: %v", err)
 	}
 }
 

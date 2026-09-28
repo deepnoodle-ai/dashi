@@ -126,8 +126,23 @@ func TestExternalToolAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Stop.Kind != StopCompleted || client.sends != 2 {
-		t.Fatalf("accepted stop=%+v sends=%d", accepted.Stop, client.sends)
+	if !accepted.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{external},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 	if len(client.inputs[1].Messages) != 3 {
 		t.Fatalf("second model messages=%d", len(client.inputs[1].Messages))
@@ -136,7 +151,18 @@ func TestExternalToolAcceptance(t *testing.T) {
 	if last == nil || last.CallID != "call-1" {
 		t.Fatalf("missing paired tool result: %+v", last)
 	}
-	same, err := (Engine{}).Apply(context.Background(), accepted.Turn, definition(), Accept{ID: "result-1", CallID: "call-1", Outcome: &out}, Bindings{Client: client, Tools: fixedTools{external}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	same, err := (Engine{}).Apply(
+		context.Background(),
+		completed.Turn,
+		definition(),
+		Accept{ID: "result-1", CallID: "call-1", Outcome: &out},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{external},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,8 +316,23 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Stop.Kind != StopCompleted || runs != 1 {
-		t.Fatalf("accepted=%+v runs=%d", accepted.Stop, runs)
+	if !accepted.ReadyToContinue || runs != 0 {
+		t.Fatalf("accepted=%+v runs=%d", accepted, runs)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: rec,
+			Policy:   deferredPolicy{},
+		},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || runs != 1 {
+		t.Fatalf("completed=%+v err=%v runs=%d", completed, err, runs)
 	}
 }
 
@@ -318,8 +359,18 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Stop.Kind != StopCompleted || client.sends != 0 {
-		t.Fatalf("outcome=%+v sends=%d", got.Stop, client.sends)
+	if !got.ReadyToContinue || client.sends != 0 {
+		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		def,
+		Continue{ID: "continue"},
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 0 {
+		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
 
@@ -372,8 +423,18 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settled.Stop.Kind != StopCompleted || client.sends != 1 {
-		t.Fatalf("settled=%+v sends=%d", settled.Stop, client.sends)
+	if !settled.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("settled=%+v sends=%d", settled, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		settled.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 	view, err := Replay(settled.Turn)
 	if err != nil {
@@ -422,8 +483,18 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Stop.Kind != StopCompleted || client.sends != 2 {
-		t.Fatalf("stop=%+v sends=%d", accepted.Stop, client.sends)
+	if !accepted.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
 
@@ -595,8 +666,18 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Stop.Kind != StopCompleted || client.sends != 1 {
-		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
+	if !got.ReadyToContinue || client.sends != 0 {
+		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		def,
+		Continue{ID: "continue"},
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
 func TestIntentFailurePreventsSend(t *testing.T) {
@@ -681,8 +762,8 @@ func (r *lostAcknowledgment) Commit(ctx context.Context, req CommitRequest) erro
 	return nil
 }
 
-func TestUnknownCommitRequiresReloadAndReconciliation(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{final("must not send")}}
+func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("recovered")}}
 	base := NewMemoryRecorder()
 	rec := &lostAcknowledgment{base: base}
 	got, err := start(t, client, nil, rec, nil)
@@ -699,14 +780,19 @@ func TestUnknownCommitRequiresReloadAndReconciliation(t *testing.T) {
 	if len(saved.Steps) != 2 || saved.Steps[1].Kind != StepModelIntent {
 		t.Fatalf("saved steps=%+v", saved.Steps)
 	}
-	_, err = (Engine{}).Apply(context.Background(), saved, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})
-	if err == nil || client.sends != 0 {
-		t.Fatalf("unresolved intent retried: err=%v sends=%d", err, client.sends)
+	view, err := Replay(saved)
+	if err != nil || !view.ReadyToContinue {
+		t.Fatalf("saved intent is not ready: view=%+v err=%v", view, err)
 	}
-	answer := final("reconciled")
-	accepted, err := (Engine{}).Apply(context.Background(), saved, definition(), Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
-	if err != nil || accepted.Stop.Kind != StopCompleted || client.sends != 0 {
-		t.Fatalf("reconcile: stop=%+v err=%v sends=%d", accepted.Stop, err, client.sends)
+	recovered, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		definition(),
+		Continue{ID: "retry"},
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != nil || recovered.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("recovered=%+v err=%v sends=%d", recovered, err, client.sends)
 	}
 }
 

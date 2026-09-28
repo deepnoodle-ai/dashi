@@ -74,7 +74,8 @@ func Project(t Turn) ([]llm.Message, error) {
 				out = append(out, item.Message.Clone())
 			}
 		case StepModelSettled, StepModelReconciled:
-			if step.Model.Result == nil || step.Model.Error != "" {
+			if step.Model.Result == nil || step.Model.Error != "" ||
+				step.Model.Interrupted {
 				continue
 			}
 			m := step.Model.Result.Message.Clone()

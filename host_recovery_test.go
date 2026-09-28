@@ -103,6 +103,10 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Admission) == 0 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
+	view, err := Replay(saved)
+	if err != nil || !view.ReadyToContinue {
+		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
+	}
 	changed := definition()
 	changed.Revision = "r2"
 	if _, err := (Engine{}).Apply(context.Background(), saved, changed, Continue{ID: "config-drift"}, binding("owner-a")); !errors.Is(err, ErrDefinitionChanged) {
@@ -115,7 +119,8 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		t.Fatalf("stale owner: out=%+v err=%v balance=%d", stale, err, rec.balance)
 	}
 	proved, err := (Engine{}).Apply(context.Background(), saved, definition(), proof, binding("owner-b"))
-	if err != nil || proved.Stop.Kind != StopFailed || rec.balance != 10 || client.sends != 0 {
+	if err != nil || !proved.ReadyToContinue || rec.balance != 10 ||
+		client.sends != 0 {
 		t.Fatalf("no-dispatch reconciliation: out=%+v err=%v balance=%d sends=%d", proved, err, rec.balance, client.sends)
 	}
 	waiting, err := (Engine{}).Apply(context.Background(), proved.Turn, definition(), Continue{ID: "retry"}, binding("owner-b"))
@@ -129,7 +134,25 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || stale.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("stale external worker: out=%+v err=%v sends=%d", stale, err, client.sends)
 	}
-	done, err := (Engine{}).Apply(context.Background(), waiting.Turn, definition(), accept, binding("owner-c"))
+	accepted, err := (Engine{}).Apply(
+		context.Background(),
+		waiting.Turn,
+		definition(),
+		accept,
+		binding("owner-c"),
+	)
+	if err != nil || !accepted.ReadyToContinue || client.sends != 1 ||
+		rec.balance != 8 {
+		t.Fatalf("accepted: out=%+v err=%v sends=%d balance=%d",
+			accepted, err, client.sends, rec.balance)
+	}
+	done, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "finish"},
+		binding("owner-c"),
+	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Turn.AnswerText() != "done" {
 		t.Fatalf("done: out=%+v err=%v sends=%d balance=%d", done, err, client.sends, rec.balance)
 	}

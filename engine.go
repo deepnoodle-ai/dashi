@@ -16,21 +16,39 @@ import (
 )
 
 type Bindings struct {
-	Client     llm.Client
-	Tools      tool.Toolset
-	Recorder   Recorder
-	Policy     Policy
-	Observer   Observer
-	Stream     bool
-	Owner      string
-	streamSink func(Event)
+	Client   llm.Client
+	Tools    tool.Toolset
+	Recorder Recorder
+	Policy   Policy
+	Observer Observer
+	Stream   bool
+	Owner    string
+	// Pause requests a stop before the next model or tool call. Closing it
+	// does not interrupt work already in flight.
+	Pause <-chan struct{}
+	// OnContextDone controls whether an ended host context pauses or cancels.
+	OnContextDone ContextDone
+	streamSink    func(Event)
 }
+
+// ContextDone selects the meaning of an ended Go context for one invocation.
+type ContextDone string
+
+const (
+	// ContextInterrupt leaves the turn resumable and is the default.
+	ContextInterrupt ContextDone = "interrupt"
+	// ContextCancel ends the turn as an explicit Cancel command would.
+	ContextCancel ContextDone = "cancel"
+)
+
 type Engine struct{}
 
 // Stream advances a turn when iteration begins. A fully read sequence ends
 // with one Outcome event; command validation errors appear in the error slot.
-// Breaking the range cancels the work. Reload the turn by ID to inspect the
-// facts committed during cancellation, since no terminal event follows break.
+// Breaking the range ends the context. By default, the turn records an
+// interruption; ContextCancel on Bindings makes the break a final cancel.
+// Reload the turn by ID to inspect committed facts, since no final event
+// follows a break.
 // A second range yields ErrStreamConsumed instead of repeating work.
 func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Command, b Bindings) iter.Seq2[Event, error] {
 	var started atomic.Bool
@@ -39,8 +57,8 @@ func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Com
 			yield(Event{}, ErrStreamConsumed)
 			return
 		}
-		streamCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		streamCtx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
 		stopped := false
 		b.Stream = true
 		b.streamSink = func(event Event) {
@@ -49,7 +67,7 @@ func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Com
 			}
 			if !yield(event, nil) {
 				stopped = true
-				cancel()
+				cancel(errors.New("kernel: stream consumer stopped"))
 			}
 		}
 		out, err := (Engine{}).Apply(streamCtx, turn, def, command, b)
@@ -71,6 +89,10 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if command == nil || command.commandID() == "" {
 		return Outcome{}, errors.New("kernel: command ID is required")
 	}
+	if b.OnContextDone != "" && b.OnContextDone != ContextInterrupt &&
+		b.OnContextDone != ContextCancel {
+		return Outcome{}, errors.New("kernel: invalid context-done behavior")
+	}
 	if err := def.Validate(); err != nil {
 		return Outcome{}, err
 	}
@@ -87,7 +109,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if err != nil {
 		return Outcome{}, err
 	}
-	if len(turn.Steps) > 0 && digest(def) != digest(state.Definition) {
+	if len(turn.Steps) > 0 && !sameDefinition(def, state.Definition) {
 		return Outcome{}, ErrDefinitionChanged
 	}
 	d, err := commandDigest(command)
@@ -107,7 +129,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if replayErr != nil {
 				return Outcome{}, replayErr
 			}
-			if digest(def) != digest(current.Definition) {
+			if !sameDefinition(def, current.Definition) {
 				return Outcome{}, ErrDefinitionChanged
 			}
 			if current.commandDigests[command.commandID()] != d {
@@ -126,7 +148,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				return Outcome{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
-				if digest(def) != digest(current.Definition) {
+				if !sameDefinition(def, current.Definition) {
 					return Outcome{}, ErrDefinitionChanged
 				}
 				if old != d {
@@ -136,7 +158,21 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			}
 		}
 	}
-	rt := runtime{ctx: ctx, turn: cloneTurn(turn), def: def, b: b, emitter: newEmitter(b.Observer)}
+	runCtx := ctx
+	if !def.Limits.Deadline.IsZero() {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithDeadlineCause(
+			ctx, def.Limits.Deadline, errTurnDeadline,
+		)
+		defer cancel()
+	}
+	rt := runtime{
+		ctx:     runCtx,
+		turn:    cloneTurn(turn),
+		def:     def,
+		b:       b,
+		emitter: newEmitter(b.Observer),
+	}
 	defer rt.emitter.close()
 	switch c := command.(type) {
 	case Start:
@@ -167,6 +203,21 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		return rt.current(), nil
 	case Continue:
+		if state.interruptionLimitReached() {
+			step := Step{
+				Kind:          StepStopped,
+				CommandID:     c.ID,
+				CommandDigest: d,
+				Stop: &Stop{
+					Kind:   StopLimited,
+					Reason: "interruptions",
+				},
+			}
+			if o := rt.commit(step); o != nil {
+				return *o, nil
+			}
+			return rt.current(), nil
+		}
 		if !state.canContinue() {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
 		}
@@ -219,17 +270,6 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if o := rt.commit(Step{Kind: kind, CommandID: c.ID, CommandDigest: d, Model: fact}); o != nil {
 				return *o, nil
 			}
-			if state.Stop.Kind == StopCanceled {
-				return rt.current(), nil
-			}
-			if c.ModelFailure != nil {
-				return rt.stop(StopFailed, c.ModelFailure.Reason), nil
-			}
-			classified, again := rt.classify(*c.ModelResult)
-			if !again {
-				return classified, nil
-			}
-			return rt.run(), nil
 		} else if c.HostedApproval != nil {
 			if c.CallID != "" && c.CallID != c.HostedApproval.RequestID {
 				return Outcome{}, errors.New("kernel: hosted approval ID mismatch")
@@ -275,9 +315,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				return *o, nil
 			}
 		}
-		if state.Stop.Kind == StopCanceled {
-			return rt.current(), nil
-		}
+		return rt.current(), nil
 	case Cancel:
 		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil {
 			return Outcome{}, errors.New("kernel: turn cannot cancel")
@@ -298,6 +336,71 @@ type runtime struct {
 	def     Definition
 	b       Bindings
 	emitter *emitter
+}
+
+var errTurnDeadline = errors.New("kernel: turn deadline reached")
+
+func (r *runtime) contextStop() Outcome {
+	cause := context.Cause(r.ctx)
+	if errors.Is(cause, errTurnDeadline) {
+		return r.stop(StopLimited, "deadline")
+	}
+	if cause == nil {
+		cause = r.ctx.Err()
+	}
+	if cause == nil {
+		cause = context.Canceled
+	}
+	if r.b.OnContextDone == ContextCancel {
+		return r.stop(StopCanceled, cause.Error())
+	}
+	return r.stop(StopInterrupted, cause.Error())
+}
+
+func (r *runtime) pauseRequested() bool {
+	if r.b.Pause == nil {
+		return false
+	}
+	select {
+	case <-r.b.Pause:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *runtime) pauseStop() Outcome {
+	return r.stop(StopInterrupted, "pause requested")
+}
+
+func (r *runtime) failureOrContext(err error) Outcome {
+	if r.ctx.Err() != nil {
+		return r.contextStop()
+	}
+	return r.stop(StopFailed, err.Error())
+}
+
+func safeRepeat(def tool.Definition) bool {
+	return def.Annotations.ReadOnly != nil &&
+		*def.Annotations.ReadOnly ||
+		def.Annotations.Idempotent != nil && *def.Annotations.Idempotent
+}
+
+func unsafeHosted(defs []tool.Definition) bool {
+	for _, def := range defs {
+		if def.Kind == tool.KindProviderHosted && !safeRepeat(def) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameDefinition(a, b Definition) bool {
+	// Older turn records omit Interruptions. Its zero value already means the
+	// current default at runtime, so use that same meaning for revision checks.
+	a.Limits.Interruptions = a.Limits.interruptionLimit()
+	b.Limits.Interruptions = b.Limits.interruptionLimit()
+	return digest(a) == digest(b)
 }
 
 func (r *runtime) commit(step Step) *Outcome {
@@ -381,8 +484,10 @@ func (r *runtime) current() Outcome {
 func outcome(t Turn, s *replayState, p Persistence) Outcome {
 	stop := s.Stop
 	if stop.Kind == "" {
-		if s.modelIntent != "" || s.unresolvedModel != "" {
+		if s.unresolvedModel != "" {
 			stop = Stop{Kind: StopUncertain, Reason: "model attempt needs reconciliation"}
+		} else if s.modelIntent != "" || hasStartedTool(s) {
+			stop = Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
 		} else if len(s.Pending) > 0 {
 			stop = Stop{Kind: StopWaiting}
 		}
@@ -393,7 +498,23 @@ func outcome(t Turn, s *replayState, p Persistence) Outcome {
 		value.Value = slices.Clone(value.Value)
 		output = &value
 	}
-	return Outcome{Turn: cloneTurn(t), Stop: stop, Output: output, Pending: slices.Clone(s.Pending), Persistence: p}
+	return Outcome{
+		Turn:            cloneTurn(t),
+		Stop:            stop,
+		Output:          output,
+		Pending:         slices.Clone(s.Pending),
+		ReadyToContinue: s.ReadyToContinue,
+		Persistence:     p,
+	}
+}
+
+func hasStartedTool(s *replayState) bool {
+	for _, view := range s.Tools {
+		if view.Status == ToolStarted {
+			return true
+		}
+	}
+	return false
 }
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	o := r.commit(Step{Kind: StepStopped, Stop: &Stop{Kind: kind, Reason: reason}})
@@ -404,6 +525,9 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 }
 
 func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
+	if r.ctx.Err() != nil {
+		return r.contextStop()
+	}
 	if s.finalAnswerOnly {
 		return r.stop(StopLimited, "model_attempts")
 	}
@@ -419,10 +543,19 @@ func (r *runtime) run() Outcome {
 		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
 			return r.current()
 		}
-		if e := r.ctx.Err(); e != nil {
-			return r.stop(StopCanceled, e.Error())
+		if s.Interruptions > r.def.Limits.interruptionLimit() {
+			return r.stop(StopLimited, "interruptions")
 		}
-		if s.modelIntent != "" || s.unresolvedModel != "" {
+		if r.ctx.Err() != nil {
+			return r.contextStop()
+		}
+		if s.modelIntent != "" {
+			if o := r.recoverModelIntent(s); o != nil {
+				return *o
+			}
+			continue
+		}
+		if s.unresolvedModel != "" {
 			return r.stop(StopUncertain, "model attempt needs reconciliation")
 		}
 		if len(s.callOrder) > 0 && hasOpenTools(s) {
@@ -459,11 +592,39 @@ func (r *runtime) run() Outcome {
 		if !r.def.Limits.Deadline.IsZero() && !time.Now().Before(r.def.Limits.Deadline) {
 			return r.stop(StopLimited, "deadline")
 		}
+		if r.pauseRequested() {
+			return r.pauseStop()
+		}
 		o, again := r.model(s)
 		if !again {
 			return o
 		}
 	}
+}
+
+func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
+	unsafe := false
+	for _, def := range s.modelDefs {
+		if def.Kind == tool.KindProviderHosted && !safeRepeat(def) {
+			unsafe = true
+			break
+		}
+	}
+	fact := &ModelFact{
+		AttemptID:   s.modelIntent,
+		MessageID:   s.modelMessages[s.modelIntent],
+		Error:       "worker stopped before model result",
+		Interrupted: true,
+		Uncertain:   unsafe,
+	}
+	if o := r.commit(Step{Kind: StepModelSettled, Model: fact}); o != nil {
+		return o
+	}
+	if unsafe {
+		o := r.stop(StopUncertain, "provider-hosted tool may have run")
+		return &o
+	}
+	return nil
 }
 func hasOpenTools(s *replayState) bool {
 	for _, id := range s.callOrder {
@@ -484,7 +645,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if !finalAnswerOnly && r.b.Tools != nil {
 		tools, e := r.b.Tools.Tools(r.ctx)
 		if e != nil {
-			return r.stop(StopFailed, e.Error()), false
+			return r.failureOrContext(e), false
 		}
 		for _, t := range tools {
 			if e = t.Definition.Validate(); e != nil {
@@ -511,7 +672,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	decision, err := r.b.Policy.BeforeModel(r.ctx, ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)})
 	if err != nil {
-		return r.stop(StopFailed, err.Error()), false
+		return r.failureOrContext(err), false
 	}
 	if decision.Stop != nil {
 		return r.stop(decision.Stop.Kind, decision.Stop.Reason), false
@@ -542,7 +703,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	req, err := r.b.Client.Prepare(r.ctx, input)
 	if err != nil {
-		return r.stop(StopFailed, err.Error()), false
+		return r.failureOrContext(err), false
 	}
 	if origin := req.Origin(); origin.Provider != r.def.Provider || origin.API != r.def.API || origin.Model != r.def.Model {
 		return r.stop(StopFailed, "prepared request changed destination"), false
@@ -553,7 +714,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	authorization, err := r.b.Policy.BeforeSend(r.ctx, req, snapshotView(s.TurnView))
 	if err != nil {
-		return r.stop(StopFailed, err.Error()), false
+		return r.failureOrContext(err), false
 	}
 	if !authorization.Allow {
 		return r.stop(StopRefused, authorization.Reason), false
@@ -561,24 +722,65 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if len(authorization.Admission) > 0 && (!json.Valid(authorization.Admission) || len(authorization.Admission) > 16<<10) {
 		return r.stop(StopFailed, "invalid model admission metadata"), false
 	}
-	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.ModelAttempts+1)
+	if r.ctx.Err() != nil {
+		return r.contextStop(), false
+	}
+	if r.pauseRequested() {
+		return r.pauseStop(), false
+	}
+	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
 	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), FinalAnswerOnly: finalAnswerOnly, Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, CapabilityPolicy: snapshot.CapabilityPolicy, Unverified: snapshot.Unverified, Tools: defs}
 	if o := r.commit(Step{Kind: StepModelIntent, Model: fact}); o != nil {
 		return *o, false
 	}
-	if err := r.ctx.Err(); err != nil {
-		settled := &ModelFact{AttemptID: attempt, MessageID: messageID, Error: err.Error(), Failure: llm.FailureNotDispatched, Evidence: "context canceled before Send"}
+	if err := r.ctx.Err(); err != nil || r.pauseRequested() {
+		reason := "pause requested"
+		if err != nil {
+			reason = context.Cause(r.ctx).Error()
+		}
+		settled := &ModelFact{
+			AttemptID:   attempt,
+			MessageID:   messageID,
+			Error:       reason,
+			Interrupted: true,
+		}
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 			return *o, false
 		}
-		return r.stop(StopCanceled, err.Error()), false
+		if err != nil {
+			return r.contextStop(), false
+		}
+		return r.pauseStop(), false
 	}
 	var result llm.Result
 	var sendErr error
+	var partialText strings.Builder
+	var partialContent []llm.Content
+	var observedUsage *llm.Usage
 	for item, err := range llm.Stream(r.ctx, r.b.Client, req) {
 		if item.Delta != nil {
-			r.emit(Event{TurnID: r.turn.ID, AttemptID: attempt, MessageID: messageID, Delta: item.Delta})
+			if item.Delta.Usage != nil {
+				if observedUsage == nil {
+					observedUsage = &llm.Usage{}
+				}
+				observedUsage.Absorb(item.Delta.Usage)
+			}
+			if item.Delta.Kind == llm.DeltaText {
+				partialText.WriteString(item.Delta.Text)
+			}
+			if item.Delta.Content != nil {
+				partialContent = append(partialContent,
+					item.Delta.Content.Clone())
+			}
+			if r.ctx.Err() == nil {
+				r.emit(Event{
+					TurnID:    r.turn.ID,
+					AttemptID: attempt,
+					MessageID: messageID,
+					Delta:     item.Delta,
+				})
+			}
 		}
 		if item.Result != nil {
 			result = *item.Result
@@ -586,6 +788,42 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 	}
 	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
+	if r.ctx.Err() != nil {
+		settled.Interrupted = true
+		settled.Error = context.Cause(r.ctx).Error()
+		settled.Uncertain = unsafeHosted(defs)
+		if len(result.Message.Content) == 0 {
+			switch {
+			case partialText.Len() > 0:
+				result.Message = llm.AssistantMessage(
+					llm.Text(partialText.String()),
+				)
+			case len(partialContent) > 0:
+				result.Message = llm.AssistantMessage(partialContent...)
+			}
+		}
+		if observedUsage != nil {
+			if result.Usage == nil {
+				result.Usage = observedUsage
+			} else {
+				result.Usage.Absorb(observedUsage)
+			}
+		}
+		if result.ID != "" || len(result.Message.Content) > 0 ||
+			result.Usage != nil {
+			settled.Result = &result
+		}
+		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+			return *o, false
+		}
+		if settled.Uncertain && r.b.OnContextDone != ContextCancel &&
+			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
+			return r.stop(
+				StopUncertain, "provider-hosted tool may have run",
+			), false
+		}
+		return r.contextStop(), false
+	}
 	var validationErr error
 	if sendErr != nil {
 		settled.Error = sendErr.Error()
@@ -609,8 +847,8 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 		return *o, false
 	}
-	if err := r.ctx.Err(); err != nil {
-		return r.stop(StopCanceled, err.Error()), false
+	if r.ctx.Err() != nil {
+		return r.contextStop(), false
 	}
 	if sendErr != nil {
 		if settled.Uncertain {
@@ -633,6 +871,9 @@ func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
 }
 
 func (r *runtime) classify(result llm.Result) (Outcome, bool) {
+	if r.ctx.Err() != nil {
+		return r.contextStop(), false
+	}
 	if err := validateModelResult(result, r.def); err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
@@ -687,7 +928,10 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		state, _ := replay(r.turn)
 		sd, e := r.b.Policy.OnStop(r.ctx, snapshotView(state.TurnView))
 		if e != nil {
-			return r.stop(StopFailed, e.Error()), false
+			return r.failureOrContext(e), false
+		}
+		if r.ctx.Err() != nil {
+			return r.contextStop(), false
 		}
 		if !useful && !sd.AcceptEmpty && len(state.OutputSchema) == 0 {
 			return r.stop(StopFailed, "empty_response"), false

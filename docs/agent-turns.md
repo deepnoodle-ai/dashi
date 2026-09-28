@@ -22,15 +22,28 @@ settled assistant result; a valid tool-only turn may have no answer text.
 | `PersistenceRejected` | No new step was accepted. Fix the write or command before trying again. |
 | `PersistenceUnknown` | Reload the turn by ID before any retry. The write may have committed. |
 | `StopWaiting` | Inspect `Pending`; use `Accept` for external results or approvals. |
+| `StopInterrupted` | Reschedule the turn and call `Continue` with its saved record. |
 | `StopUncertain` | Reconcile the identified model or tool effect before advancing. |
 | `StopCompleted` | No further execution is allowed for this turn. |
 
 `StopFailed`, `StopRefused`, and `StopLimited` retain their reason and record.
-`Continue` can advance a continuable stopped turn; it does not reset attempt
-counts, deadlines, or a pending effect. `Deliver` records context without
-advancing execution. `Cancel` prevents further execution: unstarted calls
-become known not executed, while started effects can still receive late results
-for reconciliation and usage accounting.
+`Accept` records an external result, approval, or reconciliation; it never runs
+the turn. `Continue` is the command that resumes a stopped turn. After `Accept`,
+check `Outcome.ReadyToContinue` or replay the saved turn and check its
+`TurnView.ReadyToContinue` flag. Schedule `Continue` when true. `Deliver`
+records context without advancing execution. `Cancel` ends the turn: unstarted
+calls become known not executed, while started effects can still receive late
+results for reconciliation and usage accounting.
+
+By default, an ended Go context records `StopInterrupted`, a resumable stop
+whose reason is the context cause. A crash may leave no stop; `Continue` also
+recovers that record on another worker. `Bindings.Pause` closes to request a
+stop before the next model or tool call, without cutting off work already
+running. A request handler that treats a disconnect as final can set
+`Bindings.OnContextDone: ContextCancel`; an ended context then records
+`StopCanceled`. `Limits.Deadline` ends the turn with `StopLimited`; a host's
+context deadline interrupts it. `Limits.Interruptions` bounds resumptions
+after interruptions (10 in `DefaultLimits()`).
 
 ## Runtime reminders
 
@@ -103,16 +116,21 @@ other hosts should reload before retrying after an ambiguous write.
 
 The engine records a model intent before `Send` and a tool start before a local
 executor call. It records their outcomes before acting on them. After a crash,
-an intent without a result means the effect may have occurred. Reload, call
-`Replay` to validate the record and inspect `Pending`, then reconcile by the
-recorded attempt or call ID. `Accept{ModelResult: ...}` or
+reload and call `Replay` to inspect `Pending`. An interrupted model call keeps
+its partial result and usage for display and accounting, but its output is not
+acted on. `Continue` resends it unless a provider-hosted tool may have caused
+an effect. Interrupted calls do not use `ModelAttempts`; their usage still
+counts toward spend. A started tool with no result is rerun only when its
+definition says `ReadOnly` or `Idempotent`. Otherwise the effect is uncertain:
+reconcile by the recorded attempt or call ID. `Accept{ModelResult: ...}` or
 `Accept{Outcome: ...}` records a verified result; an external result must be a
 final `tool.Outcome`. A host can submit `Accept{ModelFailure: ...}` only with
 verified nonexecution evidence. An explicit HTTP rejection or pre-dispatch
 failure is recorded as known; ambiguous transport and protocol failures remain
-uncertain. Never infer nonexecution from an unclassified transport error or send
-the same unresolved intent again. A durable host also needs downstream
-idempotency or reconciliation for effects that cannot be queried.
+uncertain. Never infer nonexecution from an unclassified transport error.
+Provider-hosted tools follow the same safety rule as local tools. A durable
+host also needs downstream idempotency or reconciliation for effects that
+cannot be queried.
 
 ## Tool and policy boundaries
 
@@ -140,19 +158,21 @@ call settles the same way and the turn stops with `StopFailed` and reason
 `tool_fatal`. An outcome that fails `Validate` is an executor bug and stops
 with `tool_outcome_invalid`. Fix the cause, then `Continue`; the model sees
 the failure as the call's result. Uncertainty is the engine's finding, never a
-tool's: a recovered panic (reason `panic: ...`) or a recorded start without a
-result after a crash settles with no outcome and stops with `StopUncertain`.
-Reconcile it with `Accept`; nothing runs again.
+tool's: a recovered panic (reason `panic: ...`) stops with `StopUncertain`.
+After a crash, a started tool without a result stops uncertain if it was not
+declared safe to repeat. Reconcile it with `Accept`, then call `Continue`. A
+tool result that arrives after the running context ends is dropped.
 
 `Observer` receives bounded, lossy display events. Stream deltas are
 provisional and carry turn, attempt, and message IDs; the recorder's settled
 result is authoritative. `Engine.Stream` offers a backpressured iterator over
 acknowledged steps and provisional deltas. A fully consumed range ends with
 one `Event.Outcome`; command validation errors use the iterator's error slot.
-Stopping the range cancels the turn and suppresses the terminal event. Reload
-the record by turn ID to inspect what was committed, including partial model
-results or uncertain effects. The sequence is single-use; another range
-returns `ErrStreamConsumed`. `Bindings.Observer` remains an independent,
+Stopping the range interrupts the turn by default and suppresses the terminal
+event. Set `OnContextDone: ContextCancel` when leaving the range should end
+the turn instead. Reload the record by turn ID to inspect what was committed,
+including partial model results or pending tools. The sequence is single-use;
+another range returns `ErrStreamConsumed`. `Bindings.Observer` remains an independent,
 lossy hook, while `Engine.Apply` remains the collected call. The engine does
 not own session storage, durable leases, budget enforcement, child turns, or
 compaction. Its Go API and record shape are experimental.

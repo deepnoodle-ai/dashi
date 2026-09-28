@@ -95,7 +95,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	t.Fatal("missing final-answer intent")
 }
 
-func TestReplayRejectsLimitedStopAfterOutputUnlessFinalAttempt(t *testing.T) {
+func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
@@ -109,16 +109,18 @@ func TestReplayRejectsLimitedStopAfterOutputUnlessFinalAttempt(t *testing.T) {
 	recorded := out.Turn.Steps[i]
 
 	tests := []struct {
-		name string
-		stop Stop
+		name    string
+		stop    Stop
+		allowed bool
 	}{
 		{
 			name: "model attempts without final attempt",
 			stop: Stop{Kind: StopLimited, Reason: "model_attempts"},
 		},
 		{
-			name: "deadline",
-			stop: Stop{Kind: StopLimited, Reason: "deadline"},
+			name:    "deadline",
+			stop:    Stop{Kind: StopLimited, Reason: "deadline"},
+			allowed: true,
 		},
 	}
 	for _, tt := range tests {
@@ -132,8 +134,10 @@ func TestReplayRejectsLimitedStopAfterOutputUnlessFinalAttempt(t *testing.T) {
 				Kind:    StepStopped,
 				Stop:    &stop,
 			})
-			if _, err := Replay(turn); err == nil {
-				t.Fatalf("replay accepted %+v after recorded output", stop)
+			_, err := Replay(turn)
+			if (err == nil) != tt.allowed {
+				t.Fatalf("replay of %+v: allowed=%t err=%v",
+					stop, tt.allowed, err)
 			}
 		})
 	}
