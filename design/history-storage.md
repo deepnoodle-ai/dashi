@@ -1,6 +1,14 @@
 # Prior history storage
 
-**Status:** Proposal for [decision 5](decisions.md) · **Date:** 2026-09-27
+**Status:** Decided differently: see [decision 19](decisions.md) ·
+**Date:** 2026-09-27
+
+**Outcome (2026-09-28).** Kernel will not store prior history in the turn
+record at all. The application passes the earlier conversation on `Start` and
+on every `Continue`, as Eino's callers do, and the turn stores a fingerprint of
+it so a mismatched resume produces a warning. The analysis below, which
+recommended copying text and referencing attachments, is kept for its growth
+numbers and production evidence. Whether Kernel gains sessions is still open.
 
 An integrator runs a session as one Turn per user message. Kernel copies the
 prior conversation into each turn's first step so later invocations cannot

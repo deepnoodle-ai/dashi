@@ -120,3 +120,22 @@ turn, which today carry on immediately. The report is committed before `Accept`
 returns, and the outcome and saved turn say when the turn is ready to continue.
 Rationale: one consistent rule, and the request that records an approval should
 not run the model inline; the ready flag keeps a forgotten `Continue` visible.
+
+**19. The application passes prior history on each call; the turn record does
+not store it.** Decided; answers decision 5. `Start` and every `Continue`
+carry the earlier conversation, and the engine uses it for that call only. The
+turn-started step keeps the turn's own input and a fingerprint of the history,
+not the history itself. A `Continue` whose history does not match the
+fingerprint records a warning and proceeds. Rationale: none of the compared
+libraries copies history into each run, and a turn record that grows with the
+conversation stores what the application already keeps. The cost: a turn's
+record no longer shows the earlier conversation, and a wrong history on resume
+is the application's bug, which the fingerprint makes visible. Whether Kernel
+gains sessions or conversations is a separate, open question. Referencing
+attachments in a turn's own input or tool output (the proposal's content
+references) remains a later refinement.
+
+**20. The recorder is optional.** Decided. With no recorder bound, the engine
+uses an in-memory one, so a simple program needs no storage; an application
+that resumes turns across processes binds a durable recorder. Rationale:
+Kernel works by default.
