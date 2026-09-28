@@ -54,7 +54,7 @@ API acceptance. See [model controls](model-controls.md) for the contract.
 `Usage` records token measurements; `Result.Cost` holds a reported amount when
 available. Application-supplied `ModelInfo.Pricing` is one complete rate sheet.
 `Pricing.Estimate` returns unknown when usage cannot support a faithful
-estimate. Kernel does not select a price variant or silently replace missing
+estimate. Dashi does not select a price variant or silently replace missing
 provider cost. See [pricing](pricing-proposal.md).
 
 ## Replay and outcomes

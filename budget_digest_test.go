@@ -1,15 +1,15 @@
-package kernel
+package dashi
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/canonjson"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Canonical JSON compares strings by content, so "0.50" and "0.5" differ.
-// Kernel digests Go values, and money.Amount always marshals one trimmed
+// Dashi digests Go values, and money.Amount always marshals one trimmed
 // spelling, so every spelling a store or a caller may supply decodes to a
 // value with the same digest.
 func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {

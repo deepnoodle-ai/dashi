@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 func TestHostedApprovalResponseRejectsProviderReplay(t *testing.T) {

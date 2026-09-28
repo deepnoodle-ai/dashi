@@ -1,8 +1,8 @@
 package messages
 
 import (
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // errorReason classifies Anthropic Messages failures, which carry an error

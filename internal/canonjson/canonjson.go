@@ -2,7 +2,7 @@
 // that mean the same thing produce the same bytes and therefore the same
 // digest.
 //
-// Kernel digests recorded values (tool definitions, call arguments, commands,
+// Dashi digests recorded values (tool definitions, call arguments, commands,
 // history) and later compares them with live values. A recorder may store a
 // step in a form that keeps only the JSON meaning, such as a Postgres jsonb
 // column, which reorders keys, drops whitespace, and respells numbers and

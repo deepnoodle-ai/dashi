@@ -15,17 +15,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/media"
-	"github.com/deepnoodle-ai/kernel/model"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/media"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
-// Run with KERNEL_LIVE_MEDIA_TEST=1, GEMINI_API_KEY, and GEMINI_IMAGE_MODEL.
-// Each subtest makes one paid image call. KERNEL_LIVE_IMAGE_DIR
+// Run with DASHI_LIVE_MEDIA_TEST=1, GEMINI_API_KEY, and GEMINI_IMAGE_MODEL.
+// Each subtest makes one paid image call. DASHI_LIVE_IMAGE_DIR
 // optionally saves the generated image for visual inspection.
 func TestLiveImageGeneration(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_MEDIA_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_MEDIA_TEST=1 to make paid image calls")
+	if os.Getenv("DASHI_LIVE_MEDIA_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_MEDIA_TEST=1 to make paid image calls")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_IMAGE_MODEL")
 	if key == "" || modelName == "" {
@@ -82,8 +82,8 @@ func TestLiveImageGeneration(t *testing.T) {
 }
 
 func TestLiveImageEdit(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_MEDIA_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_MEDIA_TEST=1 to make paid image calls")
+	if os.Getenv("DASHI_LIVE_MEDIA_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_MEDIA_TEST=1 to make paid image calls")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_IMAGE_MODEL")
 	if key == "" || modelName == "" {
@@ -188,7 +188,7 @@ func checkLiveImage(
 				err,
 			)
 		}
-		if dir := os.Getenv("KERNEL_LIVE_IMAGE_DIR"); dir != "" {
+		if dir := os.Getenv("DASHI_LIVE_IMAGE_DIR"); dir != "" {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
 			}

@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // attemptClient records the attempt identity each Send receives.

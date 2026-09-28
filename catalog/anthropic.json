@@ -169,7 +169,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -208,7 +208,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -288,7 +288,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Fast-mode prices are omitted: Kernel's Messages client does not request fast mode.",
+      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -442,7 +442,7 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-opus-4-5-20251101",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -479,7 +479,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -517,7 +517,7 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-sonnet-4-5-20250929",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -549,7 +549,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -582,7 +582,7 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-haiku-4-5-20251001",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -614,7 +614,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Kernel's Messages client does not send.",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {

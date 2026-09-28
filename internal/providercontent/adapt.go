@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // AdaptOptions describes a destination capability that cannot be inferred from
@@ -96,7 +96,7 @@ func Adapt(
 						MessageIndex: mi,
 						ContentIndex: ci,
 						Action:       llm.ContentChangeRemapToolID,
-						Reason:       "tool ID is outside Kernel's portable subset",
+						Reason:       "tool ID is outside Dashi's portable subset",
 						FromID:       fromID,
 						ToID:         toID,
 					},
@@ -586,7 +586,7 @@ func toolIDRemaps(input llm.Input) map[string]string {
 	return remapped
 }
 
-// portableCallID is Kernel's conservative subset, not a claim about every ID
+// portableCallID is Dashi's conservative subset, not a claim about every ID
 // a provider accepts.
 func portableCallID(id string) bool {
 	if len(id) == 0 || len(id) > 64 {

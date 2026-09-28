@@ -13,17 +13,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/media"
-	"github.com/deepnoodle-ai/kernel/model"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/media"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
-// Run with KERNEL_LIVE_VIDEO_TEST=1, GEMINI_API_KEY, and GEMINI_VIDEO_MODEL.
+// Run with DASHI_LIVE_VIDEO_TEST=1, GEMINI_API_KEY, and GEMINI_VIDEO_MODEL.
 // This makes one paid video submission, then polls and downloads that job.
-// KERNEL_LIVE_VEO_JOB_ID resumes an existing job without submitting another.
+// DASHI_LIVE_VEO_JOB_ID resumes an existing job without submitting another.
 func TestLiveVeoVideoJob(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_VIDEO_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_VIDEO_TEST=1 to make a paid Veo call")
+	if os.Getenv("DASHI_LIVE_VIDEO_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_VIDEO_TEST=1 to make a paid Veo call")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_VIDEO_MODEL")
 	if key == "" || modelName == "" {
@@ -39,7 +39,7 @@ func TestLiveVeoVideoJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	job := media.Job{
-		ID:     os.Getenv("KERNEL_LIVE_VEO_JOB_ID"),
+		ID:     os.Getenv("DASHI_LIVE_VEO_JOB_ID"),
 		Kind:   media.KindVideo,
 		Origin: client.videoOrigin(modelName),
 	}
@@ -96,11 +96,11 @@ func TestLiveVeoVideoJob(t *testing.T) {
 	}
 }
 
-// Run with KERNEL_LIVE_VIDEO_TEST=1, GEMINI_API_KEY, and GEMINI_OMNI_MODEL.
+// Run with DASHI_LIVE_VIDEO_TEST=1, GEMINI_API_KEY, and GEMINI_OMNI_MODEL.
 // This makes one paid synchronous Interactions video call.
 func TestLiveOmniVideoCall(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_VIDEO_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_VIDEO_TEST=1 to make a paid Omni call")
+	if os.Getenv("DASHI_LIVE_VIDEO_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_VIDEO_TEST=1 to make a paid Omni call")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_OMNI_MODEL")
 	if key == "" || modelName == "" {
@@ -135,10 +135,10 @@ func TestLiveOmniVideoCall(t *testing.T) {
 	checkLiveVideo(t, result, modelName, InteractionsAPI, "omni")
 }
 
-// KERNEL_LIVE_OMNI_JOB_ID resumes a Files job without another paid submission.
+// DASHI_LIVE_OMNI_JOB_ID resumes a Files job without another paid submission.
 func TestLiveOmniVideoJob(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_VIDEO_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_VIDEO_TEST=1 to make a paid Omni call")
+	if os.Getenv("DASHI_LIVE_VIDEO_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_VIDEO_TEST=1 to make a paid Omni call")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_OMNI_MODEL")
 	if key == "" || modelName == "" {
@@ -154,7 +154,7 @@ func TestLiveOmniVideoJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	job := media.Job{
-		ID:     os.Getenv("KERNEL_LIVE_OMNI_JOB_ID"),
+		ID:     os.Getenv("DASHI_LIVE_OMNI_JOB_ID"),
 		Kind:   media.KindVideo,
 		Origin: client.client.origin(modelName),
 	}
@@ -265,7 +265,7 @@ func checkLiveVideo(
 				len(source.Data),
 			)
 		}
-		if dir := os.Getenv("KERNEL_LIVE_VIDEO_DIR"); dir != "" {
+		if dir := os.Getenv("DASHI_LIVE_VIDEO_DIR"); dir != "" {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
 			}

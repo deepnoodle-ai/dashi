@@ -1,13 +1,13 @@
-# Kernel
+# Dashi
 
-Kernel is the foundation of a new Go agent library by Deep Noodle, Inc. It is
+Dashi is the foundation of a new Go agent library by Deep Noodle, Inc. It is
 effectively Dive v2: the successor foundation to Dive, our existing Go library
 for cross-provider LLM support and agents. Its goal is a coherent, reusable
 agent foundation for our applications.
 
 ## Goals
 
-Kernel should give application developers a better foundation than Dive while
+Dashi should give application developers a better foundation than Dive while
 keeping what Dive does well.
 
 - Fix, at the library layer, the shortcomings our production applications

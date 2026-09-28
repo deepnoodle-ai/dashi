@@ -17,12 +17,12 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/catalog"
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/providercontent"
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providercontent"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // API identifies GenerateContent independently of a Google API-key
@@ -635,7 +635,7 @@ func (wire codec) encodeContent(
 					fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, false)
 					if !ok {
 						// Preserve signed ID-less calls exactly. Their generated
-						// canonical IDs pair Kernel's call and result, but do not
+						// canonical IDs pair Dashi's call and result, but do not
 						// authorize modifying the signed provider part.
 						names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name}
 						return c.Replay.Raw, nil

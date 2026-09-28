@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"context"
@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // amount keeps exact money literals short in budget tests.

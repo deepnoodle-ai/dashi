@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/catalog"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Events encodes values as a server-sent event stream.

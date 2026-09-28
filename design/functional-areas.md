@@ -1,6 +1,6 @@
 # Functional areas
 
-These are the functional areas Kernel's design must account for across the
+These are the functional areas Dashi's design must account for across the
 foundation and its optional integrations. They establish coverage; public names,
 package boundaries, priorities, and implementation sequence remain open.
 

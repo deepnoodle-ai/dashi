@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/media"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/media"
 )
 
 type fileOutputWire struct {

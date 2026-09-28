@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // Kind identifies where a tool runs. The empty Kind is accepted and leaves the

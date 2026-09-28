@@ -1,4 +1,4 @@
-// Ported from Dive (65c393f), Apache-2.0; adapted for Kernel.
+// Ported from Dive (65c393f), Apache-2.0; adapted for Dashi.
 
 package llm
 
@@ -42,13 +42,13 @@ const (
 	// timed-out or failed response, or a malformed tool call.
 	StopIncomplete StopKind = "incomplete"
 
-	// StopOther is a stop reason Kernel does not recognize, including an
+	// StopOther is a stop reason Dashi does not recognize, including an
 	// empty one. An agent treats such a response as finished only when it
 	// carries no client tool call, and never runs a call on it.
 	StopOther StopKind = "other"
 )
 
-// stopKinds maps every stop reason Kernel's providers report, lowercased, to
+// stopKinds maps every stop reason Dashi's providers report, lowercased, to
 // its kind. Adapters that normalize a provider's values say so where they
 // map them; the raw spellings below are the ones that reach a result.
 var stopKinds = map[string]StopKind{
@@ -99,7 +99,7 @@ var stopKinds = map[string]StopKind{
 
 // ClassifyStopReason maps a provider's stop reason, as Result.Stop.Raw
 // carries it, onto the kind an agent acts on. The match ignores case. A
-// value Kernel does not recognize, and an empty one, is StopOther.
+// value Dashi does not recognize, and an empty one, is StopOther.
 func ClassifyStopReason(reason string) StopKind {
 	if kind, ok := stopKinds[strings.ToLower(reason)]; ok {
 		return kind

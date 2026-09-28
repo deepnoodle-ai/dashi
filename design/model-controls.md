@@ -14,7 +14,7 @@ Anthropic preview assumes `DefaultMaxTokens`, while a provider instance can
 have a different default and therefore a different thinking-budget clamp
 ([review comment][preview-comment]).
 
-## Kernel's approach
+## Dashi's approach
 
 - `Client.ModelInfo(model)` returns exact-ID facts supplied to that client
   instance. `ModelEvidence` names the model, API, exact endpoint, owner, source,
@@ -65,7 +65,7 @@ thinking is omitted with a warning; other conflicting controls are rejected.
 Wire-name translations preserve canonical meaning; they are not reasoning
 emulation.
 
-Effective settings describe the controls Kernel encodes, not undisclosed server
+Effective settings describe the controls Dashi encodes, not undisclosed server
 defaults or proof that the model honored them. Unknown numerical bounds remain
 unknown even when feature support is supplied. The built-in catalog is dated
 documentation evidence; an application that needs fresher or verified claims

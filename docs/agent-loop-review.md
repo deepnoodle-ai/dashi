@@ -11,7 +11,7 @@ available from a fresh checkout.
 
 ## Direction
 
-| Concern | Dive v1 | Kernel now | Assessment |
+| Concern | Dive v1 | Dashi now | Assessment |
 | --- | --- | --- | --- |
 | Unit of work | Response creation owns the loop and session behavior. | An identified `Turn` advances through commands; a session can sit above it. | Addresses the central organizing problem. |
 | Durable authority | Transcript and callbacks carry much of the lifecycle. | Versioned steps are authoritative; `Project` derives model history. | Better recovery boundary, subject to a durable host test. |
@@ -22,7 +22,7 @@ available from a fresh checkout.
 
 The two Dive v2 proposals agree on this direction but differ on dispatch:
 one proposes host-dispatched effects, while the other puts dispatch in the
-engine behind an acknowledged recorder. Kernel has chosen the latter. Keep
+engine behind an acknowledged recorder. Dashi has chosen the latter. Keep
 that choice provisional until a real host demonstrates budget admission,
 worker ownership, and recovery without duplicate effects. A pure public
 reducer should follow evidence of need rather than precede it.
@@ -68,4 +68,4 @@ other models and routes, and Vertex ADC still need live qualification. The
 engine-dispatch decision stays provisional until durable consumer proof exists.
 Session runners, child turns, and compaction remain separate areas. A host
 must authenticate commands, operator origin, external results, and
-nonexecution evidence; Kernel validates correlation, not the external truth.
+nonexecution evidence; Dashi validates correlation, not the external truth.

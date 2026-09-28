@@ -6,17 +6,17 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/deepinfra"
-	"github.com/deepnoodle-ai/kernel/providers/grok"
-	"github.com/deepnoodle-ai/kernel/providers/meta"
-	"github.com/deepnoodle-ai/kernel/providers/mistral"
-	"github.com/deepnoodle-ai/kernel/providers/ollama"
-	"github.com/deepnoodle-ai/kernel/providers/openai/completions"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/providers/openrouter"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/deepinfra"
+	"github.com/deepnoodle-ai/dashi/providers/grok"
+	"github.com/deepnoodle-ai/dashi/providers/meta"
+	"github.com/deepnoodle-ai/dashi/providers/mistral"
+	"github.com/deepnoodle-ai/dashi/providers/ollama"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/providers/openrouter"
 )
 
 // TestProviderRejectionsCarryReasons sends each provider a realistic

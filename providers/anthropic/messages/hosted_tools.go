@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 const (

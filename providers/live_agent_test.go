@@ -6,14 +6,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 // Run only with explicit credentials and selected model IDs:
-// KERNEL_LIVE_TEST=1 OPENAI_MODEL=... ANTHROPIC_MODEL=...
+// DASHI_LIVE_TEST=1 OPENAI_MODEL=... ANTHROPIC_MODEL=...
 // go test -tags live ./providers -run TestLiveAgentFinalFacts -v
 // The full run makes four paid requests. A subtest filter selects one provider
 // and needs only that provider's key and model ID. The Gemini equivalent lives

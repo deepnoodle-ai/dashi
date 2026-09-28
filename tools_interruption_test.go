@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {

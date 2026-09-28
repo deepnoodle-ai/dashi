@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/catalog"
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Client executes at most one HTTP request and owns configured model knowledge.

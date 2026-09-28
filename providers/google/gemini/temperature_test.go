@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestPrepareClampsTemperatureUnderAdjust(t *testing.T) {

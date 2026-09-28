@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 // DefaultEndpoint is xAI's Responses URL.

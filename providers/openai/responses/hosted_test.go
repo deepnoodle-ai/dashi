@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestHostedItemsReplayWithoutExecution(t *testing.T) {
@@ -23,7 +23,7 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		"id":"resp_1","object":"response","model":"test-model",
 		"status":"completed","output":[
 			{"type":"web_search_call","id":"ws_1","status":"completed",
-			 "action":{"type":"search","query":"kernel"},
+			 "action":{"type":"search","query":"dashi"},
 			 "results":[{"url":"https://example.com","title":"Example","snippet":"Found"}]},
 			{"type":"message","id":"msg_1","role":"assistant",
 			 "content":[{"type":"output_text","text":"Answer"}]}
@@ -348,7 +348,7 @@ func TestFileSearchResultsKeepProviderFileID(t *testing.T) {
 	}
 	items, err := wire.decodeItem(json.RawMessage(`{
 		"type":"file_search_call","id":"fs_1","status":"completed",
-		"queries":["kernel"],"results":[{
+		"queries":["dashi"],"results":[{
 			"file_id":"file_1","filename":"guide.pdf","text":"Relevant passage"
 		}]
 	}`))

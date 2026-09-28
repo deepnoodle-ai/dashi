@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // NewGoogleSearchTool enables Google's managed grounding search.

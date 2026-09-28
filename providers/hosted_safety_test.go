@@ -3,11 +3,11 @@ package providers_test
 import (
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/grok"
-	"github.com/deepnoodle-ai/kernel/providers/meta"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/grok"
+	"github.com/deepnoodle-ai/dashi/providers/meta"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Gemini hosted tools are checked in the providers/google/gemini module.

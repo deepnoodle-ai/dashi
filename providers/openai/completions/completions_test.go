@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 const completeResponse = `{"id":"chat-1","model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"Hello","tool_calls":[{"id":"call-1","type":"function","function":{"name":"search","arguments":"{\"q\":\"yes\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":12,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":5},"completion_tokens_details":{"reasoning_tokens":2}}}`

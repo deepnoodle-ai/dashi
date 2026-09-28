@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/model"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
 func imageSnapshot() ImageRequestSnapshot {

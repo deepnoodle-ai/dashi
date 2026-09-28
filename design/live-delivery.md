@@ -7,7 +7,7 @@
 
 A UI host needs several readers on one turn, each replaying from its own cursor,
 reconnecting without loss or duplication, and never cancelling work by
-disconnecting. Kernel offers two things. `Runner.Stream` is one backpressured
+disconnecting. Dashi offers two things. `Runner.Stream` is one backpressured
 reader for the caller that runs the turn; it is single-use, and breaking the
 range cancels the turn (engine.go:30-34, 46-53). `Runner.Observer` is a
 64-slot channel that drops any event when full, committed steps included, with
@@ -47,12 +47,12 @@ Everyone else reads the record. A UI host runs the turn detached (a worker calls
 record by `Seq` under the request context, so a disconnect ends only the follow.
 Guides should steer hosts away from ranging `Stream` in a request handler.
 
-**(b) Kernel owns the contract; the host owns the store.** The read path is an
+**(b) Dashi owns the contract; the host owns the store.** The read path is an
 optional interface the host implements over the table its `Recorder` already
-writes. Kernel ships `MemoryRecorder`'s implementation, a small `Follow` loop,
-and a conformance test (`kerneltest.StepReader`): exact paging ("repeats
+writes. Dashi ships `MemoryRecorder`'s implementation, a small `Follow` loop,
+and a conformance test (`dashitest.StepReader`): exact paging ("repeats
 nothing, skips nothing"), ascending `Seq`, the limit honored, and a cursor past
-the head rejected. Kernel's case is simpler than nvoken's. `Seq` is assigned by
+the head rejected. Dashi's case is simpler than nvoken's. `Seq` is assigned by
 the single owner (engine.go:306) and the recorder enforces `ExpectedSeq`
 (recorder.go:85), so a turn's commits are serial and a reader can never see
 `Seq` 6 before 5. A plain `WHERE turn_id = $1 AND seq > $2 ORDER BY seq LIMIT
@@ -136,7 +136,7 @@ type Event struct {
 ## What not to build
 
 - **An in-process broadcast bus.** Any multi-instance host already needs a
-  cross-process one for previews (Redis, `NOTIFY`, its queue), and a Kernel bus
+  cross-process one for previews (Redis, `NOTIFY`, its queue), and a Dashi bus
   would be the wrong one there. A single-process host fans out with a map of
   bounded channels (nvoken's is 131 lines, liveevents/inprocess.go). Reconsider
   if two hosts write the same one.
@@ -144,15 +144,15 @@ type Event struct {
   slowest, serve only readers in the owning process, and end when the invocation
   ends, so a late or reconnecting reader gets nothing. The record already serves
   any number of readers across processes and restarts.
-- **A Kernel-owned event store.** The `Recorder` already writes each step to the
+- **A Dashi-owned event store.** The `Recorder` already writes each step to the
   host's database, atomically with budget and outbox writes (recorder.go:17-18).
-  A second store duplicates that data and can diverge from it. Kernel's job is
+  A second store duplicates that data and can diverge from it. Dashi's job is
   the read contract and its conformance test.
 
 ## Open questions
 
 - **Reasoning.** The record keeps reasoning blocks for provider replay (gaps/D,
-  redaction row). Should Kernel's per-step projection helper redact by default,
+  redaction row). Should Dashi's per-step projection helper redact by default,
   and should reasoning previews be suppressed when reasoning is not meant for
   display, as nvoken does (generation.go:888-891)?
 - **Tool progress.** Executors have no progress sink (tool/tool.go:312-315). If

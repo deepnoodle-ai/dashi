@@ -1,4 +1,4 @@
-// Package money holds Kernel's exact monetary amount. It depends only on the
+// Package money holds Dashi's exact monetary amount. It depends only on the
 // standard library so that every package that prices or reports charges,
 // including tool, can share one representation without an import cycle.
 //
@@ -22,7 +22,7 @@ import (
 )
 
 // Amount is an exact amount of one currency in nano-units (1e-9). The currency
-// is carried beside it, for example by kernel.Money or llm.Cost. The zero
+// is carried beside it, for example by dashi.Money or llm.Cost. The zero
 // value is zero.
 //
 // JSON encodes an Amount as a canonical decimal string such as "0.5", which is
@@ -31,7 +31,7 @@ import (
 //
 // Hosts that keep ledgers in coarser units convert with Nanos and choose their
 // own rounding. Integer micro-units are Nanos()/1000; round holds and
-// reservations up and settled charges half to even, as Kernel does for nanos.
+// reservations up and settled charges half to even, as Dashi does for nanos.
 type Amount int64
 
 // Nanos per whole currency unit.
@@ -80,7 +80,7 @@ func (a Amount) Nanos() int64 {
 }
 
 // Add returns a+b, or false when the sum is outside the int64 nano range.
-// Kernel never lets an amount wrap.
+// Dashi never lets an amount wrap.
 func (a Amount) Add(b Amount) (Amount, bool) {
 	sum := a + b
 	if (b > 0 && sum < a) || (b < 0 && sum > a) {

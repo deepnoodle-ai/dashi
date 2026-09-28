@@ -1,4 +1,4 @@
-package kernel_test
+package dashi_test
 
 import (
 	"bytes"
@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // These tests approve a tool call using only the public API, with a recorder
@@ -73,49 +73,49 @@ func (c *approvalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 }
 
 // approvalPolicy defers every tool call to a person.
-type approvalPolicy struct{ kernel.AllowLocalPolicy }
+type approvalPolicy struct{ dashi.AllowLocalPolicy }
 
 func (approvalPolicy) AuthorizeTool(
 	context.Context,
 	tool.Call,
-	kernel.TurnView,
-) (kernel.ToolDecision, error) {
-	return kernel.ToolDecision{
-		Kind:     kernel.DecisionDefer,
+	dashi.TurnView,
+) (dashi.ToolDecision, error) {
+	return dashi.ToolDecision{
+		Kind:     dashi.DecisionDefer,
 		Revision: "policy-v1",
 	}, nil
 }
 
 // jsonbStore wraps MemoryRecorder; Load returns each step re-encoded with
 // sorted keys, decoded escapes, and exponent numbers expanded.
-type jsonbStore struct{ *kernel.MemoryRecorder }
+type jsonbStore struct{ *dashi.MemoryRecorder }
 
-var _ kernel.Loader = jsonbStore{}
+var _ dashi.Loader = jsonbStore{}
 
-func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
+func (s jsonbStore) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	turn, err := s.MemoryRecorder.Load(ctx, id)
 	if err != nil {
-		return kernel.Turn{}, err
+		return dashi.Turn{}, err
 	}
 	for i, step := range turn.Steps {
 		raw, err := json.Marshal(step)
 		if err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
 		raw = bytes.ReplaceAll(raw, []byte(`1e2`), []byte(`100`))
 		var value any // Decoding into any sorts keys and drops escapes.
 		if err := json.Unmarshal(raw, &value); err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		enc.SetEscapeHTML(false)
 		if err := enc.Encode(value); err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
-		var out kernel.Step
+		var out dashi.Step
 		if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
 		turn.Steps[i] = out
 	}
@@ -124,15 +124,15 @@ func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
 
 func pendingApproval(
 	t *testing.T,
-) (kernel.Turn, kernel.Runner, *approvalClient, *int) {
+) (dashi.Turn, dashi.Runner, *approvalClient, *int) {
 	t.Helper()
-	def := kernel.Agent{
+	def := dashi.Agent{
 		ID:       "agent",
 		Revision: "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
-		Limits:   kernel.Limits{ModelAttempts: 3, ToolConcurrency: 1},
+		Limits:   dashi.Limits{ModelAttempts: 3, ToolConcurrency: 1},
 	}
 	runs := new(int)
 	write := tool.Tool{
@@ -150,8 +150,8 @@ func pendingApproval(
 		}),
 	}
 	client := &approvalClient{}
-	store := jsonbStore{kernel.NewMemoryRecorder()}
-	runner := kernel.Runner{
+	store := jsonbStore{dashi.NewMemoryRecorder()}
+	runner := dashi.Runner{
 		Agent:    def,
 		Client:   client,
 		Tools:    tools{write},
@@ -160,13 +160,13 @@ func pendingApproval(
 	}
 	out, err := runner.Run(
 		t.Context(),
-		kernel.Turn{ID: "t1"},
-		kernel.Start{
+		dashi.Turn{ID: "t1"},
+		dashi.Start{
 			CommandID: "start",
 			Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 		},
 	)
-	if err != nil || out.Stop.Kind != kernel.StopWaiting {
+	if err != nil || out.Stop.Kind != dashi.StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	// A host with durable storage reloads the turn before answering.
@@ -174,7 +174,7 @@ func pendingApproval(
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := kernel.Replay(turn)
+	view, err := dashi.Replay(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,18 +186,18 @@ func pendingApproval(
 
 func TestApprovalDigestFromPublicView(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
-	view, err := kernel.Replay(turn)
+	view, err := dashi.Replay(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pending := view.Tools["call-1"]
-	if pending.Status != kernel.ToolApprovalPending || pending.ArgsDigest == "" {
+	if pending.Status != dashi.ToolApprovalPending || pending.ArgsDigest == "" {
 		t.Fatalf("pending call=%+v", pending)
 	}
-	if pending.ArgsDigest != kernel.ArgsDigest(shownArgs) {
+	if pending.ArgsDigest != dashi.ArgsDigest(shownArgs) {
 		t.Fatal("view digest differs from the digest of the arguments first shown")
 	}
-	approval := kernel.ApprovalFact{
+	approval := dashi.ApprovalFact{
 		CallID:         "call-1",
 		Approve:        true,
 		ArgsDigest:     pending.ArgsDigest,
@@ -206,12 +206,12 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
 	}
-	view, err = kernel.Replay(accepted.Turn)
+	view, err = dashi.Replay(accepted.Turn)
 	if err != nil || view.Tools["call-1"].ArgsDigest != "" {
 		t.Fatalf(
 			"answered call keeps its approval digest: %+v err=%v",
@@ -222,9 +222,9 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	done, err := runner.Run(
 		t.Context(),
 		accepted.Turn,
-		kernel.Continue{CommandID: "continue"},
+		dashi.Continue{CommandID: "continue"},
 	)
-	if err != nil || done.Stop.Kind != kernel.StopCompleted || *runs != 1 {
+	if err != nil || done.Stop.Kind != dashi.StopCompleted || *runs != 1 {
 		t.Fatalf("continue=%+v err=%v runs=%d", done.Stop, err, *runs)
 	}
 }
@@ -232,16 +232,16 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 func TestApprovalDigestFromShownArguments(t *testing.T) {
 	turn, runner, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
-	approval := kernel.ApprovalFact{
+	approval := dashi.ApprovalFact{
 		CallID:         "call-1",
 		Approve:        true,
-		ArgsDigest:     kernel.ArgsDigest(shownArgs),
+		ArgsDigest:     dashi.ArgsDigest(shownArgs),
 		PolicyRevision: "policy-v1",
 	}
 	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
@@ -251,16 +251,16 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
-	approval := kernel.ApprovalFact{
+	approval := dashi.ApprovalFact{
 		CallID:         "call-1",
 		Approve:        true,
-		ArgsDigest:     kernel.ArgsDigest(changed),
+		ArgsDigest:     dashi.ArgsDigest(changed),
 		PolicyRevision: "policy-v1",
 	}
 	_, err := runner.Run(
 		t.Context(),
 		turn,
-		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err == nil || !strings.Contains(
 		err.Error(),
@@ -277,17 +277,17 @@ func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
 	canceled, err := runner.Run(
 		t.Context(),
 		turn,
-		kernel.Cancel{CommandID: "cancel", Reason: "user left"},
+		dashi.Cancel{CommandID: "cancel", Reason: "user left"},
 	)
-	if err != nil || canceled.Stop.Kind != kernel.StopCanceled {
+	if err != nil || canceled.Stop.Kind != dashi.StopCanceled {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
-	view, err := kernel.Replay(canceled.Turn)
+	view, err := dashi.Replay(canceled.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := view.Tools["call-1"]
-	if call.Status == kernel.ToolApprovalPending || call.ArgsDigest != "" || *runs != 0 {
+	if call.Status == dashi.ToolApprovalPending || call.ArgsDigest != "" || *runs != 0 {
 		t.Fatalf("canceled call=%+v runs=%d", call, *runs)
 	}
 }

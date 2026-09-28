@@ -1,5 +1,5 @@
 // Package deepinfra configures Dive's DeepInfra Chat Completions destination
-// for Kernel's prepared request contract. Adapted from Dive (65c393f),
+// for Dashi's prepared request contract. Adapted from Dive (65c393f),
 // Apache-2.0.
 package deepinfra
 
@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
 
 // DefaultEndpoint is DeepInfra's Chat Completions URL.

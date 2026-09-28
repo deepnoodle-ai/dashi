@@ -1,10 +1,10 @@
-package kernel
+package dashi
 
 import (
 	"errors"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Project returns this turn's own model messages without modifying the record.
@@ -25,15 +25,15 @@ func projectWithHistory(
 		return nil, err
 	}
 	if state.modelIntent != "" || state.unresolvedModel != "" {
-		return nil, errors.New("kernel: model intent needs reconciliation")
+		return nil, errors.New("dashi: model intent needs reconciliation")
 	}
 	for _, id := range state.callOrder {
 		if state.Tools[id].Status != ToolSettled {
-			return nil, errors.New("kernel: client tool call is unresolved")
+			return nil, errors.New("dashi: client tool call is unresolved")
 		}
 	}
 	if len(state.hosted) > 0 {
-		return nil, errors.New("kernel: hosted approval is unresolved")
+		return nil, errors.New("dashi: hosted approval is unresolved")
 	}
 	out := make([]llm.Message, 0, len(history)+len(t.Steps))
 	for _, m := range history {

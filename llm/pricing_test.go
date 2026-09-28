@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 func amt(s string) money.Amount {

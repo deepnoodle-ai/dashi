@@ -5,10 +5,10 @@
 
 ## Problem
 
-Kernel's extension point is a single `Policy` interface with four methods
+Dashi's extension point is a single `Policy` interface with four methods
 (`BeforeModel`, `BeforeSend`, `AuthorizeTool`, `OnStop`), plus a watch-only
 `Observer`. Its contract is right: each method gets a read-only view and returns
-a typed decision that Kernel records. Its packaging is not.
+a typed decision that Dashi records. Its packaging is not.
 
 - **The name misleads.** Elsewhere "policy" means allow/deny/ask rules (Codex,
   Gemini's policy engine, OpenHands). Developers look for "hooks" (Claude Code,
@@ -24,7 +24,7 @@ a typed decision that Kernel records. Its packaging is not.
 Most hook bugs elsewhere come from mutable, wrapped state or from hooks that
 skip some paths (claude-code #83353, ADK #1515, Pi #9773, Dive DIVE-11).
 
-## Approach: Pi's hooks, fitted to Kernel
+## Approach: Pi's hooks, fitted to Dashi
 
 We adopt from Pi's harness:
 
@@ -114,14 +114,14 @@ A permission gate:
 ```go
 type bashArgs struct{ Command string }
 
-gate := kernel.OnTool("gate", "bash",
-    func(_ context.Context, _ kernel.ToolPlan, in bashArgs) (kernel.ToolDecision, error) {
+gate := dashi.OnTool("gate", "bash",
+    func(_ context.Context, _ dashi.ToolPlan, in bashArgs) (dashi.ToolDecision, error) {
         if dangerous.MatchString(in.Command) {
-            return kernel.Defer("dangerous command"), nil
+            return dashi.Defer("dangerous command"), nil
         }
-        return kernel.ToolDecision{}, nil
+        return dashi.ToolDecision{}, nil
     })
-runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
+runner.Hooks = dashi.Hooks{BeforeTool: []dashi.ToolHook{gate}}
 ```
 
 - FR-1: `Runner.Hooks` replaces `Runner.Policy`. Like tools and the client, it
@@ -129,7 +129,7 @@ runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
   (`Run` with `Start`, `Continue`, `Settle`), because `AfterTool` and resume
   depend on it. `WithHooks(Hooks)` adds hooks for one command, after the
   runner's, for extras such as a CLI prompt, never a required redactor.
-  Kernel never appends into caller slices. Names are nonempty and unique
+  Dashi never appends into caller slices. Names are nonempty and unique
   within each hook point. A name may repeat across points within one `Hooks`
   value, which shares its state (FR-5). `JoinHooks` and `WithHooks` reject a
   name that appears in two different values, so unrelated hooks cannot
@@ -163,7 +163,7 @@ runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
   item, so an injector can tell whether its snapshot is current.
 - FR-6: **Tool visibility.** `ModelDecision.Hide []string` removes application
   tools from that call. Hidden names from all hooks combine. They are recorded
-  in `Step.Hooks` and in the intent's tool definitions. `kernel_submit_output`
+  in `Step.Hooks` and in the intent's tool definitions. `dashi_submit_output`
   cannot be hidden. A call to a hidden tool settles as not run ("tool
   unavailable") without calling hooks.
 - FR-7: `ModelFact.Admission` becomes `map[string]json.RawMessage` keyed by hook
@@ -187,7 +187,7 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
 - FR-8: **Validate, then hook.** Arguments are checked against the tool schema
   before `BeforeTool`. Invalid arguments go back to the model as a tool error
   without calling hooks, so hooks always see valid arguments.
-  `kernel_submit_output` is exempt from hooks.
+  `dashi_submit_output` is exempt from hooks.
 - FR-9: `AfterTool` runs once for every outcome whose content came from a tool
   or the host (executed, failed, or supplied through `Settle`). It does not run
   for denied or not-run outcomes. For `Settle`, it runs inside the command
@@ -198,7 +198,7 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
   cost. `AfterTool` cannot deliver context, which would
   split a model message's tool calls from their results.
 - FR-10: `BeforeFinish` replaces `OnStop` and runs at every candidate final
-  answer, on both the text and `kernel_submit_output` paths. It runs after the
+  answer, on both the text and `dashi_submit_output` paths. It runs after the
   steering check (design/steering.md FR-7). A `Continue` supersedes a candidate,
   including a submission, under the same rules as a steer (steering FR-7 and
   FR-9). When no model attempt would remain, `Continue` is ignored with a
@@ -210,7 +210,7 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
   - `ApprovalFact.PolicyRevision` becomes an optional `DecisionRevision`, which
     `Settle` checks only when it is set. The approval stays bound to the
     argument digest, as today.
-  - Kernel does not re-run hooks at `Settle`.
+  - Dashi does not re-run hooks at `Settle`.
 - FR-12: Panics are recovered as hook errors. Hooks honor the run's context. A
   CLI may block inside a `BeforeTool` hook on a prompt; a server uses `Defer`
   and `Settle`. The guide shows both.
@@ -225,15 +225,15 @@ A zero result means *no opinion*. Hooks run one at a time in registration order.
   including the reserved final answer and future summary or child calls. Every
   client call with valid arguments to a visible application tool passes through
   `BeforeTool`, and `AfterTool` runs per FR-9, whether streamed or not, and
-  after resume. Invalid, hidden, and `kernel_submit_output` calls are exempt. A
-  `kerneltest` conformance suite checks the order of hook calls on each path.
+  after resume. Invalid, hidden, and `dashi_submit_output` calls are exempt. A
+  `dashitest` conformance suite checks the order of hook calls on each path.
 - **Pure combining.** Replay reads recorded results and never calls hooks.
 - **Authorized on final values.** Hooks always authorize the arguments that will
   run.
 
 ## Packaging and defaults
 
-A reusable package exports a type with `Hooks() kernel.Hooks` and
+A reusable package exports a type with `Hooks() dashi.Hooks` and
 `Tools() tool.Toolset`. The app joins them with `JoinHooks` and a new
 `tool.Join(...tool.Toolset)`. The two share state through their closures, or
 durably through `HookState`. No new "extension" concept is needed.

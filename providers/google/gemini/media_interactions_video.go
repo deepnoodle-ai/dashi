@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/media"
+	"github.com/deepnoodle-ai/dashi/media"
 )
 
 func (p *InteractionsMediaClient) videoEvidence(

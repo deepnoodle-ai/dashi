@@ -1,6 +1,6 @@
 # Go Style Guide
 
-How Kernel code should read. Baseline: `gofmt`, `go vet`, and
+How Dashi code should read. Baseline: `gofmt`, `go vet`, and
 [Effective Go](https://go.dev/doc/effective_go). This guide covers what those
 don't enforce. `content/` is the reference example.
 

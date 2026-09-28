@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // WebSearchToolOptions controls Grok's web search domain and image features.

@@ -1,6 +1,6 @@
 package llm
 
-import "github.com/deepnoodle-ai/kernel/model"
+import "github.com/deepnoodle-ai/dashi/model"
 
 // EvidenceMethod is retained as an alias for existing model-call clients.
 type EvidenceMethod = model.EvidenceMethod

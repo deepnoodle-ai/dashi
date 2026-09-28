@@ -10,13 +10,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/internal/sse"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/internal/sse"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// readStream adapts Dive's Chat Completions chunk accumulation to Kernel's
+// readStream adapts Dive's Chat Completions chunk accumulation to Dashi's
 // provisional deltas and one authoritative final result. Finish reasons are
 // held until the trailing usage chunk has been read.
 func (wire codec) readStream(

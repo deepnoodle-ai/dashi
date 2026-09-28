@@ -1,13 +1,13 @@
 # D. Protocols and live turn streaming
 
-Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
+Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
 `Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
 `ID` as `CommandID`.
 
-Kernel's record model is already the right source for both protocols. It has a
+Dashi's record model is already the right source for both protocols. It has a
 gap-free per-turn `Seq`, steps emitted only after the recorder acknowledges
 them, a message ID reserved before the model call, a separate step kind for each
 fact, and richer outcomes than ACP or nvoken (uncertain, not executed, detached,
@@ -17,17 +17,17 @@ covers one invocation for one reader, is used once, and has no cursor.
 identity fields (offset, tool-call ID, execution epoch) that nvoken relies on.
 Lifecycle, approval, and failure facts are not self-describing enough to project
 live without host-side interpretation. An application that must serve a UI and
-resume it after reconnect can build this on Kernel today, but it must rebuild
+resume it after reconnect can build this on Dashi today, but it must rebuild
 the log reader, gap handling, phase fold, and preview bookkeeping itself.
 
 Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 (`acp-v2-and-streaming.md` §2–§6); nvoken spec
 `nvoken-cloud/docs/design/streaming-protocol-specification.md` (R1–R55,
-@deea133); Kernel `main` @9d28264.
+@deea133); Dashi `main` @9d28264.
 
 ## Model comparison
 
-| Concern | ACP (v1 → v2 draft) | nvoken streaming protocol | Kernel today |
+| Concern | ACP (v1 → v2 draft) | nvoken streaming protocol | Dashi today |
 |---|---|---|---|
 | Lifecycle | v1: `session/prompt` RPC is the turn. v2: prompt returns `{messageId}` on insertion; `state_update` running / requires_action / idle(+stopReason); session-scoped, no turn ID | `TurnChange.status`: queued, running, waiting, budget_hold → completed, incomplete, failed, cancelled; server-computed `terminal` flag; `current` marks latest revision | Steps `turn_started`, `turn_continued`, `approval_accepted`, … `turn_stopped{Stop}` (turn.go:118-134). No running/queued signal; phase is implicit in the step sequence. `Outcome` exists only at the end of `Apply`/`Stream` |
 | Update kinds | message/thought/user chunks and upserts; `tool_call_update`, `tool_call_content_chunk`, terminal, plan, usage, commands, config, info | Durable `transcript.update{messages[], turn_changes[]}`; ephemeral `message.delta{text,thinking,tool_arguments}`, `stream.resync`, `connection.closing` | `Event{Step xor Delta xor Outcome}` (policy.go:73-83); `llm.Delta` kinds text, reasoning, tool_arguments, content, usage (llm/llm.go:231-245) |
@@ -41,7 +41,7 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 
 ## ACP patterns
 
-| # | Pattern | Status | Kernel evidence | Reference | Direction |
+| # | Pattern | Status | Dashi evidence | Reference | Direction |
 |---|---|---|---|---|---|
 | 1 | Acceptance means the input was inserted (recorded) | Covered | `turn_started` committed before any work; steps are yielded only after ack (engine.go:158, 333-344) | v2 prompt-lifecycle §2 (acp-v2 §2.3) | State it as the contract: the first `Stream` event is the receipt |
 | 2 | Lifecycle kept separate from content (`state_update`) | Partial | Only `turn_stopped` is explicit; running/resumed are implicit | acp-v2 §2.3, §4.1(2) | Add a folded `Turn.Phase()` (Running, AwaitingHuman, AwaitingExternal, Stopped{Final}) |
@@ -63,11 +63,11 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 
 ## Streaming protocol mapping
 
-Status legend: **OK** = derivable losslessly from Kernel; **Host** = Kernel has
+Status legend: **OK** = derivable losslessly from Dashi; **Host** = Dashi has
 no concept, so the host must supply it (acceptable); **Gap** = no source, or not
 reliably available.
 
-| nvoken frame / field | Kernel source | Status |
+| nvoken frame / field | Dashi source | Status |
 |---|---|---|
 | Log position, `cursor` | `Step.Seq` (turn scope). No conversation-scope counter | OK (turn) / Host (conversation) |
 | `transcript.update` delivery, exactly once, in order | `Stream` yields acked steps in `Seq` order; `Observer` may drop them (observer.go:23-26) | Gap for multi-reader or observer delivery |
@@ -135,7 +135,7 @@ in a new place. Direction: have the provider adapters emit a normalized
 block-start event with call ID and name, add `Offset` to deltas, and carry an
 owner or epoch on events.
 
-**4. Lifecycle is not self-describing.** Kernel has no running signal, no
+**4. Lifecycle is not self-describing.** Dashi has no running signal, no
 `terminal`/final flag, and no folded phase. Waiting, limited, failed, refused,
 and uncertain are resting stops that `Continue` or `Accept` can reopen. Canceled
 accepts late settles after its stop. A consumer must hard-code which stops are

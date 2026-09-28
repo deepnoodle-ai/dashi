@@ -17,31 +17,31 @@ type Call struct {
 }
 
 // Attempt is the caller's identity for one model dispatch. A caller that
-// records model calls, such as Kernel's runner, sets it on Call so a
+// records model calls, such as Dashi's runner, sets it on Call so a
 // client can tie the dispatch to its own durable work: a queued job, an
 // idempotency key, or a credit hold. A client must still work when it is
 // zero.
 //
-// Kernel's runner sets AttemptID to the ModelFact.AttemptID it records in the
+// Dashi's runner sets AttemptID to the ModelFact.AttemptID it records in the
 // turn's StepModelIntent step and repeats in StepModelSettled or
 // StepModelReconciled, and to Event.AttemptID on live updates, so clients,
-// recorders, and observers can correlate by it. Under Kernel:
+// recorders, and observers can correlate by it. Under Dashi:
 //
 //   - Send receives an ID only after its intent is durably recorded, and
-//     Kernel calls Send at most once per ID. A client may use it as an
+//     Dashi calls Send at most once per ID. A client may use it as an
 //     idempotency key: if a job with this ID already exists (for example
 //     after the client's own lost acknowledgement), join or reuse it instead
 //     of dispatching again.
 //   - Recovery never reuses an ID. An interrupted call is settled under its
 //     own ID (Interrupted is set), and the resend is a new intent with a new
-//     ID. Work still running under the old ID is stale: Kernel will not act on
+//     ID. Work still running under the old ID is stale: Dashi will not act on
 //     its output, though its usage is the application's to account. After a
 //     worker crash leaves the intent unsettled, a host that finds the old job
 //     finished can record it with Settle{CallID: id, ModelResult: ...} before
-//     Continue, and Kernel will not send again. The same Settle settles an
+//     Continue, and Dashi will not send again. The same Settle settles an
 //     attempt left uncertain, for example by a provider-hosted tool.
 type Attempt struct {
-	// TurnID identifies the caller's unit of work, such as a Kernel turn.
+	// TurnID identifies the caller's unit of work, such as a Dashi turn.
 	TurnID string
 	// AttemptID identifies this dispatch. It is unique within the turn.
 	AttemptID string

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/deepnoodle-ai/kernel/media"
+	"github.com/deepnoodle-ai/dashi/media"
 )
 
 // Options holds controls specific to OpenAI's Images API. An unset field

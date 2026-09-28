@@ -1,5 +1,5 @@
 // Package messages implements the Messages API. Request encoding and response
-// handling are adapted from Dive (65c393f), Apache-2.0, for Kernel's
+// handling are adapted from Dive (65c393f), Apache-2.0, for Dashi's
 // contracts.
 // This package owns API conversion and dispatch, not agent or session state.
 package messages
@@ -15,11 +15,11 @@ import (
 	"os"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/providercontent"
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providercontent"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // API identifies the wire format independently of provider identity.
@@ -642,7 +642,7 @@ func (wire codec) decode(
 	return r, nil
 }
 
-// Anthropic reports service_tier inside usage. Kernel records it on Result,
+// Anthropic reports service_tier inside usage. Dashi records it on Result,
 // where callers can select the applicable price sheet, while Usage keeps only
 // token measurements. Keep the original response separately in Result.Raw.
 func decodeUsage(raw json.RawMessage) (*llm.Usage, string, error) {

@@ -3,11 +3,11 @@
 **Status:** Decided, [decisions 21–26](decisions.md) · **Date:** 2026-09-28
 · **Brief:** [decision 7](decisions.md)
 
-Kernel becomes the place where LLM spend is measured and limited. A **turn** is
+Dashi becomes the place where LLM spend is measured and limited. A **turn** is
 one run of an agent answering one input; it may make many model calls and tool
 calls, and it can stop and resume later. The application that starts a turn
 gives it a **budget**: optional caps on output tokens, total tokens, and
-model-call cost. Before each model call Kernel works out the **worst case**,
+model-call cost. Before each model call Dashi works out the **worst case**,
 the most that call could cost under its supplied prices and output allowance.
 If spent model-call cost plus that bound would pass the cap, the turn stops as
 `limited` (a resumable stop) and keeps the answer so far. Local tool charges
@@ -41,7 +41,7 @@ own cap ran out, `Continue` carries a raised budget, and the saved turn records
 the raise.
 
 **A call whose final bill never arrived.** A worker is redeployed while a
-reply is streaming. Kernel may have input usage and some text, but no final
+reply is streaming. Dashi may have input usage and some text, but no final
 output count. The call is sent again on resume ([decision 9](decisions.md));
 the lost try preserves the input count, counts the greater of streamed output
 and the visible-text estimate, and is marked estimated in the running total.
@@ -73,7 +73,7 @@ Server behavior lives in nvoken-cloud (`nc/`); nvoken has SDK and CLI mirrors.
   cost limit or credits apply (`generation.go:513-524`,
   `credit_authority.go:143-152`).
 
-Kernel keeps this shape and fixes two things: it compares the worst case with
+Dashi keeps this shape and fixes two things: it compares the worst case with
 the turn's own cost cap, and it charges a best guess, not a full hold, for a
 call whose usage never arrived (nvoken classes every provider error as
 uncertain, `generator.go:2343-2348`).
@@ -83,7 +83,7 @@ overshoot and counting calls without usage as zero (removed in `41cf9a886`).
 **Dive** prices usage from a global registry (`llm/cost.go:30-44`) and has no
 spending limits.
 
-## Proposal for Kernel
+## Proposal for Dashi
 
 **Where budgets are set.** The caller sets them; the agent does not.
 `Start` takes an optional `Budget` with `MaxOutputTokens` (turn total),
@@ -98,7 +98,7 @@ effective `MaxTokens` at the output rate, in the price tier the input selects.
 Input size starts as a safe, size-based estimate (nvoken's byte bound); a
 provider token count may replace it later. Prices come from the ported model
 catalog ([decision 4](decisions.md)), and an application supplies its own
-through the client's model info. With `MaxOutputTokens` set, Kernel lowers the
+through the client's model info. With `MaxOutputTokens` set, Dashi lowers the
 request's `MaxTokens` to the remaining token allowance and records a warning.
 It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
 
@@ -137,7 +137,7 @@ spending deny from `BeforeSend` becomes `StopLimited` with kind `host` and the
 application's code, not `StopRefused` (`engine.go:558-559`), which stays for
 refusals.
 
-**Actual and estimated spend.** After each call Kernel records its charge: the
+**Actual and estimated spend.** After each call Dashi records its charge: the
 provider-reported cost, else the price sheet applied to observed or estimated
 usage. A call without final usage (a crash or cut-off) keeps streamed counts,
 fills missing input, and counts the greater of streamed output and a
@@ -230,5 +230,5 @@ agent for life. Rejected ([decision 25](decisions.md)).
 - Should `ModelAttempts`, `Deadline`, and `Interruptions` also move from the
   agent to the caller?
 - May `Continue` lower a budget, or only raise it?
-- Child turns: how their spend rolls up to a parent waits until Kernel has
+- Child turns: how their spend rolls up to a parent waits until Dashi has
   child turns.

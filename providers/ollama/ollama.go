@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 )
 
 // DefaultEndpoint is Ollama's local Messages-compatible URL.

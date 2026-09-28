@@ -1,4 +1,4 @@
-package kerneltest_test
+package dashitest_test
 
 import (
 	"bytes"
@@ -12,18 +12,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/kerneltest"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/dashitest"
 )
 
 func TestMemoryRecorderConforms(t *testing.T) {
-	kerneltest.Run(t, func(*testing.T) kerneltest.Store {
-		return kernel.NewMemoryRecorder()
+	dashitest.Run(t, func(*testing.T) dashitest.Store {
+		return dashi.NewMemoryRecorder()
 	})
 }
 
 func TestJSONBStoreConforms(t *testing.T) {
-	kerneltest.Run(t, func(*testing.T) kerneltest.Store {
+	dashitest.Run(t, func(*testing.T) dashitest.Store {
 		return newJSONBStore()
 	})
 }
@@ -41,30 +41,30 @@ func TestJSONBStoreRespellsJSON(t *testing.T) {
 // brokenStores are recorders Run must fail, keyed by the environment value
 // that selects one in a child test process, with the subtest that must fail.
 var brokenStores = map[string]struct {
-	store   func() kerneltest.Store
+	store   func() dashitest.Store
 	failing string
 }{
 	"ignores-claim": {
-		store: func() kerneltest.Store {
-			return ignoresClaim{kernel.NewMemoryRecorder()}
+		store: func() dashitest.Store {
+			return ignoresClaim{dashi.NewMemoryRecorder()}
 		},
 		failing: "RejectsStaleOwner",
 	},
 	"dedupes-by-kind": {
-		store: func() kerneltest.Store {
-			return dedupesByKind{kernel.NewMemoryRecorder()}
+		store: func() dashitest.Store {
+			return dedupesByKind{dashi.NewMemoryRecorder()}
 		},
 		failing: "RejectsRetimedStep",
 	},
 	"changes-meaning": {
-		store: func() kerneltest.Store {
+		store: func() dashitest.Store {
 			return changesMeaning{newJSONBStore()}
 		},
 		failing: "AppendsInOrder",
 	},
 }
 
-const brokenEnv = "KERNELTEST_BROKEN_STORE"
+const brokenEnv = "DASHITEST_BROKEN_STORE"
 
 // TestBrokenStoresFail runs the suite against each broken store in a child
 // process, because a failing Run must fail its own *testing.T.
@@ -94,7 +94,7 @@ func TestBrokenStoreChild(t *testing.T) {
 	if !ok {
 		t.Skip("run by TestBrokenStoresFail")
 	}
-	kerneltest.Run(t, func(*testing.T) kerneltest.Store {
+	dashitest.Run(t, func(*testing.T) dashitest.Store {
 		return broken.store()
 	})
 }
@@ -104,26 +104,26 @@ func TestBrokenStoreChild(t *testing.T) {
 // changes, HTML characters are no longer escaped, and exponent numbers are
 // expanded (1e2 becomes 100).
 type jsonbStore struct {
-	*kernel.MemoryRecorder
+	*dashi.MemoryRecorder
 }
 
 func newJSONBStore() jsonbStore {
-	return jsonbStore{kernel.NewMemoryRecorder()}
+	return jsonbStore{dashi.NewMemoryRecorder()}
 }
 
-func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
+func (s jsonbStore) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	turn, err := s.MemoryRecorder.Load(ctx, id)
 	if err != nil {
-		return kernel.Turn{}, err
+		return dashi.Turn{}, err
 	}
 	for i, step := range turn.Steps {
 		raw, err := json.Marshal(step)
 		if err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
-		var stored kernel.Step
+		var stored dashi.Step
 		if err := json.Unmarshal(jsonbNormalize(raw), &stored); err != nil {
-			return kernel.Turn{}, err
+			return dashi.Turn{}, err
 		}
 		turn.Steps[i] = stored
 	}
@@ -189,7 +189,7 @@ func writeJSONB(buf *bytes.Buffer, value any) {
 
 // ignoresClaim accepts every owner, so it has no lease fence.
 type ignoresClaim struct {
-	*kernel.MemoryRecorder
+	*dashi.MemoryRecorder
 }
 
 func (ignoresClaim) Claim(context.Context, string, string) error {
@@ -200,12 +200,12 @@ func (ignoresClaim) Claim(context.Context, string, string) error {
 // kind as a retry, as an ON CONFLICT DO NOTHING keyed too loosely would. It
 // would let a worker with an old snapshot run past the record.
 type dedupesByKind struct {
-	*kernel.MemoryRecorder
+	*dashi.MemoryRecorder
 }
 
 func (s dedupesByKind) Commit(
 	ctx context.Context,
-	req kernel.CommitRequest,
+	req dashi.CommitRequest,
 ) error {
 	turn, err := s.Load(ctx, req.Step.TurnID)
 	if err == nil && int64(len(turn.Steps)) >= req.Step.Seq &&
@@ -224,7 +224,7 @@ type changesMeaning struct {
 func (s changesMeaning) Load(
 	ctx context.Context,
 	id string,
-) (kernel.Turn, error) {
+) (dashi.Turn, error) {
 	turn, err := s.jsonbStore.Load(ctx, id)
 	if err != nil || len(turn.Steps) == 0 || turn.Steps[0].Started == nil {
 		return turn, err

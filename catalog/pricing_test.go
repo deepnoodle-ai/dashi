@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // TestEveryCatalogPriceIsExactDecimalText keeps price data out of binary
 // floats: each rate is a JSON string that parses exactly and is already in
-// canonical form, so the file reads the same as the amount Kernel uses.
+// canonical form, so the file reads the same as the amount Dashi uses.
 func TestEveryCatalogPriceIsExactDecimalText(t *testing.T) {
 	type rawSheet struct {
 		Base     map[string]json.RawMessage                   `json:"base"`

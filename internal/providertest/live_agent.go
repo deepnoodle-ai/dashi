@@ -10,21 +10,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // The live agent checks make paid calls through Runner against one provider
 // client. Callers gate them behind the live build tag, and AgentCredentials
-// skips them unless KERNEL_LIVE_AGENT_TEST=1.
+// skips them unless DASHI_LIVE_AGENT_TEST=1.
 
 // AgentCredentials returns <PROVIDER>_API_KEY and <PROVIDER>_MODEL. It skips
-// the test unless KERNEL_LIVE_AGENT_TEST=1 and fails it when either is unset.
+// the test unless DASHI_LIVE_AGENT_TEST=1 and fails it when either is unset.
 func AgentCredentials(t *testing.T, provider string) (string, string) {
 	t.Helper()
-	if os.Getenv("KERNEL_LIVE_AGENT_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_AGENT_TEST=1 to make paid agent calls")
+	if os.Getenv("DASHI_LIVE_AGENT_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_AGENT_TEST=1 to make paid agent calls")
 	}
 	key, modelName := os.Getenv(provider+"_API_KEY"), os.Getenv(provider+"_MODEL")
 	if key == "" || modelName == "" {
@@ -39,28 +39,28 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Agent{
+	def := dashi.Agent{
 		ID:       "reminder-live",
 		Revision: "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
-		Limits: kernel.Limits{
+		Limits: dashi.Limits{
 			ModelAttempts:  1,
 			ProviderPauses: 1,
 		},
 	}
-	out, err := (kernel.Runner{
+	out, err := (dashi.Runner{
 		Agent:    def,
 		Client:   client,
-		Recorder: kernel.NewMemoryRecorder(),
+		Recorder: dashi.NewMemoryRecorder(),
 	}).Run(
 		ctx,
-		kernel.Turn{ID: "reminder-live"},
-		kernel.Start{
+		dashi.Turn{ID: "reminder-live"},
+		dashi.Start{
 			CommandID: "start",
-			Origin:    kernel.StartOperator,
+			Origin:    dashi.StartOperator,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder.")),
 				llm.ReminderMessage(llm.Reminder{
@@ -71,7 +71,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			},
 		},
 	)
-	if err != nil || out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted || !strings.Contains(
+	if err != nil || out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted || !strings.Contains(
 		strings.ToLower(out.Turn.AnswerText()),
 		"indigo",
 	) {
@@ -82,7 +82,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			err,
 		)
 	}
-	projected, err := kernel.Project(out.Turn)
+	projected, err := dashi.Project(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Agent{
+	def := dashi.Agent{
 		ID:       "iterator-live",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -112,16 +112,16 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 	}
-	var outcome *kernel.Outcome
+	var outcome *dashi.Outcome
 	previews, committed := 0, 0
-	for event, err := range (kernel.Runner{
+	for event, err := range (dashi.Runner{
 		Agent:    def,
 		Client:   client,
-		Recorder: kernel.NewMemoryRecorder(),
+		Recorder: dashi.NewMemoryRecorder(),
 	}).Stream(
 		ctx,
-		kernel.Turn{ID: "iterator-live"},
-		kernel.Start{
+		dashi.Turn{ID: "iterator-live"},
+		dashi.Start{
 			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
@@ -141,7 +141,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 			outcome = event.Outcome
 		}
 	}
-	if outcome == nil || outcome.Stop.Kind != kernel.StopCompleted || !strings.Contains(
+	if outcome == nil || outcome.Stop.Kind != dashi.StopCompleted || !strings.Contains(
 		strings.ToLower(outcome.Turn.AnswerText()),
 		"indigo",
 	) || previews == 0 || committed < 4 {
@@ -185,8 +185,8 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		t.Fatal(err)
 	}
 	counted := &countingClient{Client: client}
-	limits := kernel.Limits{ModelAttempts: 2}
-	def := kernel.Agent{
+	limits := dashi.Limits{ModelAttempts: 2}
+	def := dashi.Agent{
 		ID:           "limit-live",
 		Revision:     "1",
 		Provider:     client.Provider(),
@@ -199,23 +199,23 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		},
 		Limits: limits,
 	}
-	out, err := (kernel.Runner{
+	out, err := (dashi.Runner{
 		Agent:    def,
 		Client:   counted,
 		Tools:    toolset{typed},
-		Recorder: kernel.NewMemoryRecorder(),
-		Policy:   kernel.AllowLocalPolicy{},
+		Recorder: dashi.NewMemoryRecorder(),
+		Policy:   dashi.AllowLocalPolicy{},
 	}).Run(
 		ctx,
-		kernel.Turn{ID: "limit-live"},
-		kernel.Start{
+		dashi.Turn{ID: "limit-live"},
+		dashi.Start{
 			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8, then answer with the result.")),
 			},
 		},
 	)
-	if err != nil || out.Stop.Kind != kernel.StopLimited || out.Stop.Reason != "model_attempts" ||
+	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_attempts" ||
 		!strings.Contains(
 			out.Turn.AnswerText(),
 			"56",
@@ -228,12 +228,12 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			runs,
 		)
 	}
-	view, err := kernel.Replay(out.Turn)
+	view, err := dashi.Replay(out.Turn)
 	if err != nil || view.ModelAttempts != 2 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == kernel.StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == dashi.StepModelIntent && step.Model.FinalAnswerOnly {
 			if len(step.Model.Tools) != 0 {
 				t.Fatalf("final request advertised tools: %+v", step.Model.Tools)
 			}
@@ -250,36 +250,36 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 }
 
 // StructuredOutput makes one paid call and checks that a per-turn schema is
-// satisfied through a recorded kernel_submit_output call.
+// satisfied through a recorded dashi_submit_output call.
 func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	def := kernel.Agent{
+	def := dashi.Agent{
 		ID:       "live-structured",
 		Revision: "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 512},
-		Limits:   kernel.Limits{ModelAttempts: 1},
+		Limits:   dashi.Limits{ModelAttempts: 1},
 	}
-	start := kernel.Start{
+	start := dashi.Start{
 		CommandID:    "start",
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
 		Input: []llm.Message{
-			llm.UserMessage(llm.Text("Call kernel_submit_output with answer equal to 42. Do not write a final text answer.")),
+			llm.UserMessage(llm.Text("Call dashi_submit_output with answer equal to 42. Do not write a final text answer.")),
 		},
 	}
-	out, err := (kernel.Runner{
+	out, err := (dashi.Runner{
 		Agent:    def,
 		Client:   client,
-		Recorder: kernel.NewMemoryRecorder(),
-	}).Run(ctx, kernel.Turn{ID: "live-structured"}, start)
+		Recorder: dashi.NewMemoryRecorder(),
+	}).Run(ctx, dashi.Turn{ID: "live-structured"}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != kernel.StopCompleted || out.Output == nil || out.Output.Source != kernel.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
+	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
 		t.Fatalf(
 			"stop=%+v output=%+v persistence=%s write=%v",
 			out.Stop,
@@ -288,7 +288,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 			out.WriteError,
 		)
 	}
-	view, err := kernel.Replay(out.Turn)
+	view, err := dashi.Replay(out.Turn)
 	if err != nil || view.Output == nil || view.ModelAttempts != 1 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -311,7 +311,7 @@ func AgentTurn(
 	modelName string,
 ) {
 	t.Helper()
-	agent := kernel.Agent{
+	agent := dashi.Agent{
 		ID:       provider + "-live",
 		Revision: "1",
 		Provider: client.Provider(),
@@ -323,8 +323,8 @@ func AgentTurn(
 	t.Run("streamed_final", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		recorder := kernel.NewMemoryRecorder()
-		start := kernel.Start{
+		recorder := dashi.NewMemoryRecorder()
+		start := dashi.Start{
 			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
@@ -332,14 +332,14 @@ func AgentTurn(
 		}
 		out, err := streamOutcome(
 			ctx,
-			kernel.Runner{Agent: agent, Client: client, Recorder: recorder},
-			kernel.Turn{ID: provider + "-live-stream"},
+			dashi.Runner{Agent: agent, Client: client, Recorder: recorder},
+			dashi.Turn{ID: provider + "-live-stream"},
 			start,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted ||
+		if out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted ||
 			!strings.Contains(strings.ToLower(out.Turn.AnswerText()), "indigo") {
 			t.Fatalf(
 				"streamed turn: persistence=%s stop=%+v answer=%q write=%v",
@@ -349,7 +349,7 @@ func AgentTurn(
 				out.WriteError,
 			)
 		}
-		view, err := kernel.Replay(out.Turn)
+		view, err := dashi.Replay(out.Turn)
 		if err != nil || view.ModelAttempts != 1 || len(view.Pending) != 0 {
 			t.Fatalf("streamed record: view=%+v err=%v", view, err)
 		}
@@ -371,7 +371,7 @@ func AgentTurn(
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			turnID := provider + "-live-tool"
-			recorder := kernel.NewMemoryRecorder()
+			recorder := dashi.NewMemoryRecorder()
 			runs := 0
 			typed, err := tool.Func[struct {
 				A int `json:"a"`
@@ -384,7 +384,7 @@ func AgentTurn(
 				if err != nil {
 					return tool.Outcome{}, tool.Fatal(err)
 				}
-				if len(saved.Steps) == 0 || saved.Steps[len(saved.Steps)-1].Kind != kernel.StepToolStarted {
+				if len(saved.Steps) == 0 || saved.Steps[len(saved.Steps)-1].Kind != dashi.StepToolStarted {
 					return tool.Outcome{}, tool.Fatal(errors.New("tool started before its step was acknowledged"))
 				}
 				if args.A != 7 || args.B != 8 {
@@ -397,29 +397,29 @@ func AgentTurn(
 				t.Fatal(err)
 			}
 			agent.Instructions = "For multiplication, use multiply_numbers. After the tool result, answer with only the product."
-			start := kernel.Start{
+			start := dashi.Start{
 				CommandID: "start",
 				Input: []llm.Message{
 					llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8. Answer with the result.")),
 				},
 			}
 			counted := &countingClient{Client: client}
-			runner := kernel.Runner{
+			runner := dashi.Runner{
 				Agent:    agent,
 				Client:   counted,
 				Tools:    toolset{typed},
 				Recorder: recorder,
-				Policy:   kernel.AllowLocalPolicy{},
+				Policy:   dashi.AllowLocalPolicy{},
 			}
 			out, err := runner.Run(
 				ctx,
-				kernel.Turn{ID: turnID},
+				dashi.Turn{ID: turnID},
 				start,
 			)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if out.Persistence != kernel.PersistenceAcknowledged || out.Stop.Kind != kernel.StopCompleted ||
+			if out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted ||
 				!strings.Contains(
 					out.Turn.AnswerText(),
 					"56",
@@ -434,26 +434,26 @@ func AgentTurn(
 					out.WriteError,
 				)
 			}
-			view, err := kernel.Replay(out.Turn)
+			view, err := dashi.Replay(out.Turn)
 			if err != nil || view.ModelAttempts != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
 				t.Fatalf("tool record: view=%+v err=%v", view, err)
 			}
 			for _, observed := range view.Tools {
-				if observed.Status != kernel.ToolSettled || observed.Outcome == nil ||
+				if observed.Status != dashi.ToolSettled || observed.Outcome == nil ||
 					observed.Outcome.State != tool.StateSucceeded {
 					t.Fatalf("tool was not settled: %+v", observed)
 				}
 			}
-			expected := []kernel.StepKind{
-				kernel.StepStarted,
-				kernel.StepModelIntent,
-				kernel.StepModelSettled,
-				kernel.StepToolDecision,
-				kernel.StepToolStarted,
-				kernel.StepToolSettled,
-				kernel.StepModelIntent,
-				kernel.StepModelSettled,
-				kernel.StepStopped,
+			expected := []dashi.StepKind{
+				dashi.StepStarted,
+				dashi.StepModelIntent,
+				dashi.StepModelSettled,
+				dashi.StepToolDecision,
+				dashi.StepToolStarted,
+				dashi.StepToolSettled,
+				dashi.StepModelIntent,
+				dashi.StepModelSettled,
+				dashi.StepStopped,
 			}
 			if len(out.Turn.Steps) != len(expected) {
 				t.Fatalf(
@@ -475,10 +475,10 @@ func AgentTurn(
 			}
 			duplicate, err := runner.Run(
 				ctx,
-				kernel.Turn{ID: turnID},
+				dashi.Turn{ID: turnID},
 				start,
 			)
-			if err != nil || duplicate.Stop.Kind != kernel.StopCompleted ||
+			if err != nil || duplicate.Stop.Kind != dashi.StopCompleted ||
 				len(duplicate.Turn.Steps) != len(out.Turn.Steps) || runs != 1 || counted.sends != 2 {
 				t.Fatalf(
 					"duplicate start repeated work: stop=%+v err=%v runs=%d sends=%d",
@@ -522,19 +522,19 @@ func (c *countingClient) Send(
 // Outcome, so a check can exercise a streamed model request.
 func streamOutcome(
 	ctx context.Context,
-	runner kernel.Runner,
-	turn kernel.Turn,
-	command kernel.Command,
-) (kernel.Outcome, error) {
+	runner dashi.Runner,
+	turn dashi.Turn,
+	command dashi.Command,
+) (dashi.Outcome, error) {
 	for event, err := range runner.Stream(ctx, turn, command) {
 		if err != nil {
-			return kernel.Outcome{}, err
+			return dashi.Outcome{}, err
 		}
 		if event.Outcome != nil {
 			return *event.Outcome, nil
 		}
 	}
-	return kernel.Outcome{}, errors.New(
+	return dashi.Outcome{}, errors.New(
 		"providertest: stream ended without an outcome",
 	)
 }

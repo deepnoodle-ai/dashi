@@ -1,24 +1,24 @@
 # Agent turns and recovery
 
 A turn is one input processed until the agent settles; it can contain many
-model calls. Some SDKs call a single model call a "turn"; Kernel calls that a
+model calls. Some SDKs call a single model call a "turn"; Dashi calls that a
 model attempt.
 
-The root `kernel` package runs one identified turn at a time. An `Agent` pins
+The root `dashi` package runs one identified turn at a time. An `Agent` pins
 reusable behavior and limits as plain JSON data. A `Runner` holds the agent and
 its long-lived services: the model client, tool source, policy, and optional
 recorder and observer. An empty `Agent.Provider` or `Agent.API` is filled from
 the runner's client; a value that differs from the client's is an error. The
-caller supplies a stable turn ID (`kernel.NewTurn(id)`) and a unique `CommandID`
+caller supplies a stable turn ID (`dashi.NewTurn(id)`) and a unique `CommandID`
 for each `Start`, `Deliver`, `Continue`, `Settle`, or `Cancel` command. The
 command ID is an idempotency key: repeating it with the same payload
 acknowledges the recorded step without repeating an effect. Pass the returned
 `Outcome.Turn` to the next call, or reload it from a durable recorder. When the
-recorder implements `Loader`, Kernel can refresh a stale turn snapshot on a
+recorder implements `Loader`, Dashi can refresh a stale turn snapshot on a
 retried command. Reusing a command ID with different content fails. `Start`
 records its origin and own input, plus a fingerprint of `Start.History`. Pass
 the earlier conversation again in `Continue.History` on every resume, including
-after a crash. Kernel uses it for that call's model requests; the saved turn
+after a crash. Dashi uses it for that call's model requests; the saved turn
 holds its own input and output, not those earlier messages. A mismatch warns and
 proceeds. A host that must never resume with different history sets
 `Continue.OnHistoryMismatch: HistoryMismatchReject`; `Continue` then returns
@@ -56,7 +56,7 @@ results for reconciliation and usage accounting.
 By default, an ended Go context records `StopInterrupted`, a resumable stop
 whose reason is the context cause. A crash may leave no stop; `Continue` also
 recovers that record on another worker. Closing the channel passed with
-`kernel.WithPause(ch)` requests a stop before the next model or tool call,
+`dashi.WithPause(ch)` requests a stop before the next model or tool call,
 without cutting off work already running. A request handler that treats a
 disconnect as final can set `Runner.OnContextDone: ContextCancel`; an ended
 context then records `StopCanceled`. `Limits.Deadline` ends the turn with
@@ -81,13 +81,13 @@ role in `ContentChanges`. Operator-tier reminders use developer authority on
 first-party OpenAI Responses; other routes currently receive user-role text. See
 [runtime reminders](../design/runtime-reminders.md) for the tradeoffs.
 
-By default, Kernel reserves the last model attempt for a final answer after at
+By default, Dashi reserves the last model attempt for a final answer after at
 least one earlier attempt. That request omits application and provider-hosted
 tools and clears forced tool choice. It is prepared, authorized, recorded, and
 counted like any other attempt; there is no extra call beyond `ModelAttempts`.
 The final response ends with `StopLimited` and reason `model_attempts`, even
 when it contains useful text. Read that text with `Turn.AnswerText()`. A
-structured-output turn may still call the internal `kernel_submit_output` tool;
+structured-output turn may still call the internal `dashi_submit_output` tool;
 its validated value is available in `Outcome.Output`. Set
 `Limits.NoReservedFinalAnswer` to turn this behavior off.
 With only one allowed attempt, there is no earlier call from which to reserve
@@ -106,9 +106,9 @@ value; `AnswerText()` may be empty. Once the output is recorded the result is
 final: if the final stop was not acknowledged, `Continue` finishes the
 record, while `Deliver` and `Cancel` are rejected rather than silently ignored.
 
-The runner advertises `kernel_submit_output` as a reserved model tool. The
+The runner advertises `dashi_submit_output` as a reserved model tool. The
 model may use application tools first, then call it with the final object in a
-separate response. Kernel validates and records the submission; the host does
+separate response. Dashi validates and records the submission; the host does
 not bind, authorize, or settle this internal tool. An invalid submission
 returns a tool error so the model can correct it within the attempt limit. A
 final response containing only one JSON object (or one `json` fenced object)
@@ -121,7 +121,7 @@ tools cannot use the reserved name.
 ## Recorder contract
 
 `Recorder.Commit` acknowledges one versioned `Step` under `ExpectedSeq` and an
-optional `Owner` fencing token, passed with `kernel.WithOwner(token)`. A host
+optional `Owner` fencing token, passed with `dashi.WithOwner(token)`. A host
 recorder should atomically check the current revision and owner, append the
 step, and commit any related budget, accounting, or outbox rows. `BeforeSend`
 may supply bounded, non-secret admission JSON derived from the prepared request
@@ -129,7 +129,7 @@ for that transaction. Return `CommitError` with `PersistenceRejected` only when
 the write certainly did not commit. Return `PersistenceUnknown` for an ambiguous
 acknowledgement; plain errors are also treated as unknown. Provide a way to load
 the authoritative turn by ID after an unknown result. With nil
-`Runner.Recorder`, Kernel creates a fresh `MemoryRecorder` for that call; keep
+`Runner.Recorder`, Dashi creates a fresh `MemoryRecorder` for that call; keep
 `Outcome.Turn` for same-process continuation. Bind a durable recorder for
 cross-process recovery, and pass the earlier history on `Continue`.
 `MemoryRecorder` and its `Claim` method are local fixtures, not a production
@@ -142,12 +142,12 @@ committing, because the caller's snapshot may be stale.
 
 A recorder must preserve each step's JSON meaning, not its bytes. Storage that
 reorders keys, drops whitespace, or respells numbers and strings, such as a
-Postgres `jsonb` column, is fine: Kernel compares recorded values with live
+Postgres `jsonb` column, is fine: Dashi compares recorded values with live
 ones by their canonical JSON (RFC 8785 layout, numbers compared by exact
 decimal value), and history passed on `Continue` may round-trip the same way.
 
-Package `kerneltest` checks a host recorder against this contract with
-`kerneltest.Run`, and its `FaultRecorder` fails one chosen commit (rejected,
+Package `dashitest` checks a host recorder against this contract with
+`dashitest.Run`, and its `FaultRecorder` fails one chosen commit (rejected,
 lost write, or lost acknowledgement) so a host can test recovery end to end.
 
 The runner records a model intent before `Send` and a tool start before a local
@@ -167,7 +167,7 @@ uncertain. Never infer nonexecution from an unclassified transport error.
 Provider-hosted tools follow the same safety rule as local tools. A durable
 host also needs downstream idempotency or reconciliation for effects that
 cannot be queried. `Send` receives the recorded attempt ID in
-`llm.Call.Attempt`; Kernel sends each ID at most once and resends an
+`llm.Call.Attempt`; Dashi sends each ID at most once and resends an
 interrupted call under a new ID, so a client can key durable jobs by it.
 
 ## Tool and policy boundaries
@@ -179,7 +179,7 @@ effective arguments; the original arguments remain on the recorded call.
 `tool.KindExternal` produces pending work for a host to settle with `Settle`.
 Deferred decisions require an `ApprovalFact` bound to the call ID, argument
 digest, and policy revision. Copy the digest from the pending call's
-`ToolView.ArgsDigest` (from `Replay`), or compute it with `kernel.ArgsDigest`
+`ToolView.ArgsDigest` (from `Replay`), or compute it with `dashi.ArgsDigest`
 from the arguments shown; it binds the answer to the arguments' JSON meaning,
 so it survives a store that respells them. Provider-hosted approval is a
 separate response; it never becomes a locally executable tool call. The
@@ -199,7 +199,7 @@ when continuing would be wrong, such as lost credentials or an outage: the
 call settles the same way and the turn stops with `StopFailed` and reason
 `tool_fatal`. An outcome that fails `Validate` is an executor bug and stops
 with `tool_outcome_invalid`. Fix the cause, then `Continue`; the model sees
-the failure as the call's result. Uncertainty is Kernel's finding, never a
+the failure as the call's result. Uncertainty is Dashi's finding, never a
 tool's: a recovered panic (reason `panic: ...`) stops with `StopUncertain`.
 After a crash, a started tool without a result stops uncertain if it was not
 declared safe to repeat. Reconcile it with `Settle`, then call `Continue`. A
@@ -220,7 +220,7 @@ not range `Stream` in an HTTP handler for a durable turn: a client disconnect
 would end it. See [serving live
 updates](guides/running-turns.md#serving-live-updates).
 
-Kernel enforces an optional per-turn `Budget`: output-token, total-token, and
+Dashi enforces an optional per-turn `Budget`: output-token, total-token, and
 model-cost caps, with a resumable `limited` stop. `BeforeSend` admission lets
 the host hold credits and deny a call with the same resumable stop. The host
 owns credit balances, plan ceilings, and any ceiling on tool charges; see

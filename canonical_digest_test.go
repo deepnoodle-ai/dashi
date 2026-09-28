@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // jsonbRecorder stores steps like a Postgres jsonb column: Load returns each

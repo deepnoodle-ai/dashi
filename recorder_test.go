@@ -1,11 +1,11 @@
-package kernel
+package dashi
 
 import (
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {

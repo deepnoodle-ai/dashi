@@ -1,4 +1,4 @@
-// Ported from Dive (65c393f), Apache-2.0; adapted for Kernel.
+// Ported from Dive (65c393f), Apache-2.0; adapted for Dashi.
 
 package llm
 
@@ -145,7 +145,7 @@ func (u Usage) Validate() error {
 }
 
 // UnmarshalJSON accepts provider-native usage shapes and maps their cache and
-// reasoning breakdowns onto Kernel's canonical token buckets.
+// reasoning breakdowns onto Dashi's canonical token buckets.
 func (u *Usage) UnmarshalJSON(data []byte) error {
 	type usageAlias Usage
 	type inputTokensDetails struct {

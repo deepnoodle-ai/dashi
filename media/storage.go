@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // StoredOutput links one generated media block to an additional file held by

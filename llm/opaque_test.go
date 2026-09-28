@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 func TestOpaqueValidateRequiresRecognizedUnit(t *testing.T) {

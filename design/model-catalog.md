@@ -22,8 +22,8 @@ the cost:
 
 ## A catalog entry
 
-An entry is one exact model ID at one provider. It holds everything Kernel
-knows about that ID, in Kernel's own types:
+An entry is one exact model ID at one provider. It holds everything Dashi
+knows about that ID, in Dashi's own types:
 
 ```go
 type Entry struct {
@@ -41,7 +41,7 @@ type Entry struct {
 ```
 
 `Entry.Bind(api, endpoint)` returns an `llm.ModelInfo` whose evidence names the
-model, that API and endpoint, owner `kernel/catalog`, the source URL, method
+model, that API and endpoint, owner `dashi/catalog`, the source URL, method
 `documentation`, and the qualified date. The catalog never claims `live_probe`.
 Only claims a provider page states are recorded. Dive's probe tables were not
 carried over; each effort ladder and support value was checked against current
@@ -55,7 +55,7 @@ Decisions on the candidate gaps:
 - **Context window**: added to `llm.Capabilities` as `ContextWindow`, because
   compaction and budget code need it and it is a known limit like
   `MaxOutputTokens`. Providers differ on whether output counts against it, so
-  it is an upper bound on input. Kernel does not enforce it: it cannot count
+  it is an upper bound on input. Dashi does not enforce it: it cannot count
   input tokens offline.
 - **Kind**: not modeled. The catalog lists only models callable through
   `llm.Client`. Image, video, speech, and embedding models belong to their own
@@ -69,10 +69,10 @@ Decisions on the candidate gaps:
 - **Default model**: one per provider, `catalog.Default(provider)`. Dive's
   recommended flags, CLI order, descriptions, and display names are CLI
   presentation and were dropped.
-- **Feature names**: the JSON uses Kernel's `Feature` strings and `Support`
+- **Feature names**: the JSON uses Dashi's `Feature` strings and `Support`
   values directly. A feature is claimed only where the source states it; the
   rest stay unknown, so adjust sends them and records them as unverified.
-- **Knowledge cutoff**: not modeled; nothing in Kernel reads it.
+- **Knowledge cutoff**: not modeled; nothing in Dashi reads it.
 
 ## Storage and loading
 
@@ -116,13 +116,13 @@ upper bound for budget estimates. Long-context prices become one `PriceTier`
 at Dive's inclusive threshold with a complete rate set, including cache writes
 at the tier's rate. Gemini's per-modality input prices become complete
 `Modality` rate sets. Sheets describe the default service tier; Anthropic fast
-mode and OpenAI flex and priority prices are omitted because Kernel's clients do
+mode and OpenAI flex and priority prices are omitted because Dashi's clients do
 not request them.
 
 **Anthropic cache writes use the 5-minute rate (1.25x input).** The pricing
-proposal warned that this misprices mixed 5-minute and 1-hour writes. Kernel's
+proposal warned that this misprices mixed 5-minute and 1-hour writes. Dashi's
 Messages client sends no `cache_control`, so every cache write it can cause is
-a 5-minute write and the rate is exact. When Kernel adds cache TTL control, it
+a 5-minute write and the rate is exact. When Dashi adds cache TTL control, it
 must add a 1-hour usage bucket and rate together; tests pin the 1.25x rule so
 that change cannot land silently.
 

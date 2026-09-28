@@ -1,6 +1,6 @@
-// Package kernel runs identified, recordable agent turns over the independent
+// Package dashi runs identified, recordable agent turns over the independent
 // llm and tool foundations. Its API is experimental.
-package kernel
+package dashi
 
 import (
 	"cmp"
@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Agent is reusable, serializable behavior: what to ask which model, with
@@ -40,7 +40,7 @@ type Agent struct {
 // set only the fields you want to change. For counts where "none" is a
 // meaningful setting, a negative value means none.
 //
-// Kernel resolves defaults when it accepts an agent and records the
+// Dashi resolves defaults when it accepts an agent and records the
 // resolved values, so a recorded turn keeps its limits even if the library
 // defaults change later.
 type Limits struct {
@@ -80,12 +80,12 @@ func (a Agent) Validate() error {
 		a.API == "" ||
 		a.Model == "" {
 		return errors.New(
-			"kernel: agent requires ID, revision, provider, API, and model",
+			"dashi: agent requires ID, revision, provider, API, and model",
 		)
 	}
 	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
-			"kernel: model attempts and tool concurrency cannot be negative",
+			"dashi: model attempts and tool concurrency cannot be negative",
 		)
 	}
 	if len(a.OutputSchema) > 0 {
@@ -100,7 +100,7 @@ func (a Agent) Validate() error {
 }
 
 // resolved returns a with every zero limit replaced by its default and every
-// negative "none" count normalized to -1. Kernel records the result, so the
+// negative "none" count normalized to -1. Dashi records the result, so the
 // same agent always compares equal to its record. Runtime checks read -1 as
 // zero allowed, through max(count, 0).
 func (a Agent) resolved() Agent {
@@ -481,9 +481,9 @@ func (o Outcome) RecordingErr() error {
 	case o.Persistence == "" && o.WriteError == nil:
 		return nil
 	case o.WriteError == nil:
-		return fmt.Errorf("kernel: step write %s", o.Persistence)
+		return fmt.Errorf("dashi: step write %s", o.Persistence)
 	}
-	return fmt.Errorf("kernel: step write %s: %w", o.Persistence, o.WriteError)
+	return fmt.Errorf("dashi: step write %s: %w", o.Persistence, o.WriteError)
 }
 
 // Command carries a caller-assigned stable CommandID. A repeated ID with
@@ -571,31 +571,31 @@ func (c Cancel) commandID() string {
 
 var (
 	// ErrAgentChanged reports a turn continued with a different agent.
-	ErrAgentChanged = errors.New("kernel: agent changed")
+	ErrAgentChanged = errors.New("dashi: agent changed")
 	// ErrCommandConflict reports a reused command ID with different content.
-	ErrCommandConflict = errors.New("kernel: command conflict")
+	ErrCommandConflict = errors.New("dashi: command conflict")
 	// ErrInvalidTurn reports a turn record that fails replay validation.
-	ErrInvalidTurn = errors.New("kernel: invalid turn record")
+	ErrInvalidTurn = errors.New("dashi: invalid turn record")
 	// ErrRevisionConflict reports a recorder sequence or owner conflict.
-	ErrRevisionConflict = errors.New("kernel: revision conflict")
+	ErrRevisionConflict = errors.New("dashi: revision conflict")
 	// ErrStreamConsumed reports a second attempt to range one stream.
-	ErrStreamConsumed = errors.New("kernel: stream already consumed")
+	ErrStreamConsumed = errors.New("dashi: stream already consumed")
 	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.
-	ErrTurnNotFound = errors.New("kernel: turn not found")
+	ErrTurnNotFound = errors.New("dashi: turn not found")
 	// ErrHistoryMismatch rejects a Continue whose History differs from the
 	// turn's start when Continue.OnHistoryMismatch is HistoryMismatchReject.
 	// Nothing is committed; retry with the history the turn started with.
-	ErrHistoryMismatch = errors.New("kernel: history differs from turn start")
+	ErrHistoryMismatch = errors.New("dashi: history differs from turn start")
 )
 
 func cloneStep(s Step) Step {
 	b, e := json.Marshal(s)
 	if e != nil {
-		panic(fmt.Sprintf("kernel: invalid step: %v", e))
+		panic(fmt.Sprintf("dashi: invalid step: %v", e))
 	}
 	var out Step
 	if e = json.Unmarshal(b, &out); e != nil {
-		panic(fmt.Sprintf("kernel: invalid step: %v", e))
+		panic(fmt.Sprintf("dashi: invalid step: %v", e))
 	}
 	return out
 }

@@ -9,7 +9,7 @@ An application runs a Turn inside a Go context. That context ends for many
 reasons that have nothing to do with the user: a deploy restarts the server, the
 process crashes, the server loses its claim on the turn (its *lease*, the
 database row saying "this server is working on this turn") because a heartbeat
-missed, or a request timeout fires. Today Kernel records every one of these as
+missed, or a request timeout fires. Today Dashi records every one of these as
 `StopCanceled`, a final stop. A routine deploy therefore destroys every turn in
 progress.
 
@@ -37,7 +37,7 @@ turn from the database record. Both converge on the same practices:
    every write checks both the owner and that attempt number.
 5. **Moves are bounded,** by a requeue count or the turn's time budget.
 
-Kernel already meets points 1 and 4 (`Runner.Run` runs from the record;
+Dashi already meets points 1 and 4 (`Runner.Run` runs from the record;
 `Recorder.Commit` carries `Owner` and `ExpectedSeq`). The gap is what happens
 when the context ends.
 
@@ -56,7 +56,7 @@ A per-call option and a runner field let the caller say more:
 
 ```go
 // closed: pause at the next safe point
-out, err := runner.Run(ctx, turn, cmd, kernel.WithPause(pause))
+out, err := runner.Run(ctx, turn, cmd, dashi.WithPause(pause))
 
 type Runner struct {
     // ...agent and services...
@@ -104,7 +104,7 @@ One exception: *provider-hosted tools*, tools the provider runs itself during
 the model call, such as web search, code execution, or remote MCP connectors.
 If the interrupted call may have run a hosted tool that is not known to be
 read-only or idempotent (safe to repeat), resending it could repeat a real
-action, so the call is *uncertain* (below) and is not resent. Kernel marks the
+action, so the call is *uncertain* (below) and is not resent. Dashi marks the
 built-in hosted tools it knows are read-only, such as web search; a tool
 definition's annotations can say so for others.
 
@@ -121,7 +121,7 @@ a real outcome. The call stays marked as started with no result.
 - A local tool call that started but has no saved result is rerun if its
   definition is annotated `ReadOnly` or `Idempotent` (`tool/tool.go:33-43`).
 - Any other such call is **uncertain**: the tool started but no result was
-  saved, so Kernel cannot tell whether it ran. Running it again might send a
+  saved, so Dashi cannot tell whether it ran. Running it again might send a
   second email or charge a card twice. The turn stops `uncertain`, and the
   application must report what happened.
 

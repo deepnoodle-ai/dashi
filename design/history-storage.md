@@ -3,15 +3,15 @@
 **Status:** Decided differently: see [decision 19](decisions.md) ·
 **Date:** 2026-09-27
 
-**Outcome (2026-09-28).** Kernel will not store prior history in the turn
+**Outcome (2026-09-28).** Dashi will not store prior history in the turn
 record at all. The application passes the earlier conversation on `Start` and
 on every `Continue`, as Eino's callers do, and the turn stores a fingerprint of
 it so a mismatched resume produces a warning, or, when the host opts in, a
 rejected `Continue`. The analysis below, which
 recommended copying text and referencing attachments, is kept for its growth
-numbers and production evidence. Whether Kernel gains sessions is still open.
+numbers and production evidence. Whether Dashi gains sessions is still open.
 
-An integrator runs a session as one Turn per user message. Kernel copies the
+An integrator runs a session as one Turn per user message. Dashi copies the
 prior conversation into each turn's first step so later invocations cannot
 substitute different history, so the integrator stores the same messages, and
 every attachment, again on every turn. This document measures that cost and
@@ -116,7 +116,7 @@ leftover ref (`:994`). This is workaround A #14.
 ## The immutable session history question
 
 Yes, it addresses the problem, and it is (c) in a friendlier shape. What
-immutable would mean for Kernel: a session is an append-only sequence of entries
+immutable would mean for Dashi: a session is an append-only sequence of entries
 with positions. Entry p has a chained digest D(p) = H(D(p−1), H(entry)). A
 turn's start records (session, through p, D(p)) instead of a copy. The turn's
 input and projected outputs are appended as new entries after it. An edit is a
@@ -132,13 +132,13 @@ prior turns has nowhere to put "summary of turns 1-40".
 
 What it costs:
 
-- **A session concept** Kernel lacks by design ([turn.md](turn.md), Boundary):
+- **A session concept** Dashi lacks by design ([turn.md](turn.md), Boundary):
   entry kinds, positions, a compaction entry, and a projection rule.
 - **Cross-turn identity.** Session entries must map to turn facts (message and
   call IDs), or outputs are stored twice, as in the (d) row above.
 - **Writer fencing.** Two turns in one session must not append concurrently;
   that is a session-level lease the host must own.
-- **Digest stability.** A digest over Kernel's JSON encoding of `llm.Message`
+- **Digest stability.** A digest over Dashi's JSON encoding of `llm.Message`
   breaks when a field is added without `omitempty`. The digest must be over a
   versioned canonical form, or over host-assigned entry digests.
 - **Erasure.** Retention and user erasure (nvoken's `content_expires_at` and
@@ -149,7 +149,7 @@ What it costs:
 Is it the same idea as (c)? Yes. Both replace the copy with a name plus a digest
 and need a host resolver. They differ in who names the prefix: (c) names prior
 turns, (d) names a session position. (d) is the better name, because compaction
-and edits need one and because hosts already have the log. Kernel should not own
+and edits need one and because hosts already have the log. Dashi should not own
 the log: it needs only a reference type and a resolver.
 
 ## Content references
@@ -172,17 +172,17 @@ clear error.
 
 **Access and retention stay in the host.** The resolver runs with the host's
 context on every model call, so a revoked share, a deleted file, or a tenant
-mismatch is rechecked each time, as mobius does at resume. Kernel stores no
+mismatch is rechecked each time, as mobius does at resume. Dashi stores no
 bytes and sets no retention.
 
 **Missing bytes.** Resolution failure is a known pre-dispatch failure: no model
 intent is recorded, and the turn stops with a typed `content_unavailable` reason
 naming the reference. It is not uncertainty. A host may opt in to a substitution
 policy, recorded as a content change like `omit_reasoning`, that replaces the
-block with a text note; Kernel never drops it silently. Inspection of old turns
+block with a text note; Dashi never drops it silently. Inspection of old turns
 is unaffected because it never resolves.
 
-A tool returning large media stores it and returns a `Ref`; Kernel does not
+A tool returning large media stores it and returns a `Ref`; Dashi does not
 externalize bytes at commit. This removes mobius's dehydrate and restore pass:
 the record never holds the bytes, and the resolver is the recheck.
 
@@ -196,26 +196,26 @@ text into `turn_started`. Document the growth formula so integrators can see 7
 KB × N²/2 coming.
 
 **Defer** history by reference: the digest chain, session entries, and
-compaction semantics. No host runs Kernel sessions yet; we would be guessing.
+compaction semantics. No host runs Dashi sessions yet; we would be guessing.
 
 **Trigger.** Build (d)-shaped history references, as a `HistoryRef{Session,
 Through, Digest}` on the start fact and a host `HistorySource`, when either
-happens first: a host integrates Kernel under an existing append-only log
+happens first: a host integrates Dashi under an existing append-only log
 (nvoken), where copying would double-store every message; or measured
 `turn_started` rows exceed 1 MB at p95 in any host, which in this model is about
 145 turns of chat or 11 turns of tool-heavy work.
 
-**Not worth building yet.** A Kernel-owned session store; automatic
+**Not worth building yet.** A Dashi-owned session store; automatic
 externalization of large text; a per-turn chain of prior-turn references (c),
 which (d) supersedes.
 
 ## Open questions
 
 - Should large tool text (a 2 MB log) become a reference by tool convention, or
-  should Kernel adopt mobius's recorded size cap as a projection adjustment?
+  should Dashi adopt mobius's recorded size cap as a projection adjustment?
 - Does the resolver run once per Apply with a cache keyed by digest, or once per
   model call? Access recheck argues per call; cost argues per Apply.
 - For (d), who appends a finished turn's messages to the session: the host from
-  an exported "generated messages" projection (gap A #11), or a Kernel helper?
-- Is a digest over host-assigned entry digests enough, or must Kernel verify
+  an exported "generated messages" projection (gap A #11), or a Dashi helper?
+- Is a digest over host-assigned entry digests enough, or must Dashi verify
   message content itself to keep the substitution guarantee?

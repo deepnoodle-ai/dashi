@@ -1,11 +1,11 @@
-package kernel
+package dashi
 
 import (
 	"fmt"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func checkSendBudget(

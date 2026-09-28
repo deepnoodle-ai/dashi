@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestContentValidatePreservesToolResultIDThroughJSON(t *testing.T) {

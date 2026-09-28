@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // claimSource is one provider documentation page that states a behavioral

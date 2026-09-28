@@ -6,7 +6,7 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // RequestSnapshot records preparation evidence without execution state. Input

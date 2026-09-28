@@ -1,14 +1,14 @@
 # B. Developer experience, types, and modern Go
 
-Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
+Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
 `Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
 `ID` as `CommandID`.
 
-Kernel's model-call layer (`llm`, `tool`, `content`) is already a clear DX
-improvement over Dive (see "Already strong"). The agent layer (the root `kernel`
+Dashi's model-call layer (`llm`, `tool`, `content`) is already a clear DX
+improvement over Dive (see "Already strong"). The agent layer (the root `dashi`
 package) is where the stated goals are not met yet. It exposes the engine's
 recovery protocol directly as the application API. Approval and crash recovery
 require reimplementing unexported logic and classifying opaque pending IDs,
@@ -16,25 +16,25 @@ failure causes become strings, and several core nouns mean different things in
 different packages. The conceptual proposals said "the facade must make the
 one-line case one line"
 (`tmp/research/design/2026-09-26-dive-v2-conceptual-model.md:955-957`,
-`…-conceptual-design.md:124-140`). Kernel has no facade yet, and none of its
+`…-conceptual-design.md:124-140`). Dashi has no facade yet, and none of its
 docs or examples shows a tool, an approval, or a recovery.
 
 ## Happy paths
 
-| Path | Kernel (concepts / ~lines / friction) | Dive (concepts / ~lines) |
+| Path | Dashi (concepts / ~lines / friction) | Dive (concepts / ~lines) |
 | --- | --- | --- |
 | (a) One model call | Client+Config, `UnknownPolicy`, `Input`, `Message`/`Content`; ~5 lines via `llm.Generate`. `Model` is required, and strict capability checking rejects every model unless you set `UnknownAllow` or supply dated evidence. | `anthropic.New()`, `Generate(ctx, llm.WithMessages(...))`, `AnswerText()`; ~3 lines, default model. |
-| (b) Streamed call | Adds `Prepare`, `Input.Stream: true`, and `llm.Stream`; ~12 lines. There is no Input-level stream helper, and forgetting `Stream: true` yields a result with no deltas. | Type-assert `StreamingLLM`, then Next/Event/Err/Close plus manual accumulation; ~15 lines. **Kernel is better.** |
+| (b) Streamed call | Adds `Prepare`, `Input.Stream: true`, and `llm.Stream`; ~12 lines. There is no Input-level stream helper, and forgetting `Stream: true` yields a result with no deltas. | Type-assert `StreamingLLM`, then Next/Event/Err/Close plus manual accumulation; ~15 lines. **Dashi is better.** |
 | (c) Agent turn with a tool | `tool.Func`, a hand-written `Toolset` type, `Definition` (ID, Revision, Provider, API, Model, Limits), `Turn{ID}`, `Start{ID, Input}`, `Bindings`, `MemoryRecorder`, `AllowLocalPolicy`, then checks on `Persistence` and `Stop`; ~25 lines, **4 IDs, 5 structs, 1 interface**. | `NewAgent(AgentOptions{Model, Tools})` and `CreateResponse(WithInput)`; ~8 lines, 0 IDs, 1 struct. |
 | (d) Resume after a crash | Host-specific `Load` (not part of `Recorder`), `Replay`, classify each `Pending` string (model attempt, tool call, or hosted request), gather evidence, then `Accept{…ModelFailure/Outcome}` or `Continue`. You must re-supply a byte-identical `Definition`. ~30-40 lines. | Session store, `CreateResponse` with resume or tool results, and `TurnOutcome.Next` says what to do; ~6-10 lines. |
-| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionDefer` with a `Revision`. On `StopWaiting`: `Replay`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalFact{CallID, Approve, ArgsDigest, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Kernel's model is more correct** (binding to args and revision). |
+| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionDefer` with a `Revision`. On `StopWaiting`: `Replay`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalFact{CallID, Approve, ArgsDigest, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Dashi's model is more correct** (binding to args and revision). |
 
 ## Findings
 
 **1. The agent API has no facade: every turn is a raw engine protocol call.**
 Evidence: `examples/agent/main.go:28-30` (one 300-character line, IDs
 `"example"`, `"1"`, `"example-turn"`, `"example-start"`); `engine.go:18-28`
-(`Engine struct{}`, so the call reads `(kernel.Engine{}).Apply(...)`);
+(`Engine struct{}`, so the call reads `(dashi.Engine{}).Apply(...)`);
 `engine.go:70-82` (a command ID, a turn ID, a client, and a recorder are all
 mandatory); `turn.go:49-51` (a Definition needs ID, Revision, Provider, API, and
 Model). `Provider: client.Provider(), API: client.API()` restates data the
@@ -54,7 +54,7 @@ sha256 over `json.Marshal(json.RawMessage)`, which compacts whitespace. So
 `sha256(args)` computed by a caller can differ. Only tests compute it
 (`engine_test.go:288`). `Accept.CallID` must also repeat `Approval.CallID`
 (`engine.go:246`). Direction: expose `TurnView.Tools[id].Approval()`, or a
-helper such as `kernel.Approve(view, callID, bool)` that builds the fact.
+helper such as `dashi.Approve(view, callID, bool)` that builds the fact.
 Consider a separate `Approve` command rather than a fourth `Accept` payload.
 **High.**
 
@@ -63,7 +63,7 @@ Consider a separate `Approve` command rather than a fourth `Accept` payload.
 `state.go:406-410` marks the call `ToolUncertain`, and `tools_loop.go:247-249`
 stops with `StopUncertain`. `tool.Func` passes the callback's error straight
 through (`tool/function.go:88-91`). Dive turned the same `return nil, err` into
-an `IsError` result the model sees (`dive/agent.go:3482-3498`). A Kernel live
+an `IsError` result the model sees (`dive/agent.go:3482-3498`). A Dashi live
 test also returns `errors.New` for bad arguments (`agent_live_test.go:221-223`).
 Why it matters: this is the most common Go habit and the most likely migration
 bug. A routine "not found" freezes the turn until someone reconciles it by hand.
@@ -162,7 +162,7 @@ Evidence: `tool.Func[T]` generates a schema from `T` (`tool/function.go:22-47`).
 `json.RawMessage` (`turn.go:31,287`), and the value comes back as
 `json.RawMessage` through a triple return `(StructuredOutput, bool, error)`
 (`turn.go:84`). Dive had `Message.DecodeInto` (`dive/llm/message.go:164`).
-Direction: add `kernel.OutputSchemaFor[T]()` and `kernel.OutputAs[T](Outcome)`.
+Direction: add `dashi.OutputSchemaFor[T]()` and `dashi.OutputAs[T](Outcome)`.
 **Medium.**
 
 **12. Ergonomic gaps for everyday values.** Evidence: `tool.Func` callbacks must
@@ -202,13 +202,13 @@ polling helpers (an iterator candidate). **Low.**
 
 | Term | Where used | Conflict | Suggested direction |
 | --- | --- | --- | --- |
-| Stop / StopKind | `llm.Stop{Kind,Raw}` (finished, refusal, output_limit); `kernel.Stop{Kind,Reason}` (completed, refused, limited) | Two same-named types with parallel but different enums (`StopRefusal` vs `StopRefused`). `StopRefused` also covers a host `BeforeSend` denial (`engine.go:559`). | Rename the llm one to `Finish`/`FinishKind`; split policy refusal from model refusal. |
-| Outcome | `kernel.Outcome` (invocation result); `tool.Outcome` (execution state); `Accept.Outcome`, `ToolFact.Outcome` | `Accept{Outcome: …}` means a *tool* outcome passed to a call that returns a *turn* Outcome. | Keep `tool.Outcome`; call the turn one `Result` or `Report`. |
+| Stop / StopKind | `llm.Stop{Kind,Raw}` (finished, refusal, output_limit); `dashi.Stop{Kind,Reason}` (completed, refused, limited) | Two same-named types with parallel but different enums (`StopRefusal` vs `StopRefused`). `StopRefused` also covers a host `BeforeSend` denial (`engine.go:559`). | Rename the llm one to `Finish`/`FinishKind`; split policy refusal from model refusal. |
+| Outcome | `dashi.Outcome` (invocation result); `tool.Outcome` (execution state); `Accept.Outcome`, `ToolFact.Outcome` | `Accept{Outcome: …}` means a *tool* outcome passed to a call that returns a *turn* Outcome. | Keep `tool.Outcome`; call the turn one `Result` or `Report`. |
 | Result | `llm.Result`, `media.Result`, `Accept.ModelResult`, `llm.ToolResult` (a model content item) | `llm.ToolResult` vs `tool.Outcome`/`tool.Output` are two shapes for the same fact (`project.go:125-132` converts). | One tool-result term per layer. |
-| Definition | `kernel.Definition` (agent), `tool.Definition`, `StartFact.Definition`, `ToolFact.Definition` | The glossary says "Agent definition… tools" (`ubiquitous-language.md:10-11`), but the type has no tools, and no `Agent` type exists. | `AgentDefinition`, or an `Agent` facade. |
+| Definition | `dashi.Definition` (agent), `tool.Definition`, `StartFact.Definition`, `ToolFact.Definition` | The glossary says "Agent definition… tools" (`ubiquitous-language.md:10-11`), but the type has no tools, and no `Agent` type exists. | `AgentDefinition`, or an `Agent` facade. |
 | Origin | `content.Origin` (endpoint/credential scope struct); `StartOrigin` (user/scheduled/operator, typed); `ContextItem.Origin string` (user/library/tool/operator, untyped, `state.go:709-720`) | Three meanings, two overlapping closed vocabularies, one of them untyped. | `content.Scope` for replay; one typed `Authority` enum for starts and context. |
 | Revision | `Definition.Revision` (version string), `TurnView.Revision` (int64 sequence), `ToolDecision.Revision` (policy version), `ErrRevisionConflict` (sequence) | Three meanings. | `Version`, `Seq`, and `PolicyVersion`. |
-| Step / Fact / Event | `Step` holds `*Fact` payloads; `ApprovalFact` is also a command input; `kernel.Event` vs `llm.StreamEvent` vs `Delta` | "Fact" is used both for records and inputs. The glossary says "Event and observer… callback" only. | Keep Step as the record; make inputs `Approval`, not `ApprovalFact`. |
+| Step / Fact / Event | `Step` holds `*Fact` payloads; `ApprovalFact` is also a command input; `dashi.Event` vs `llm.StreamEvent` vs `Delta` | "Fact" is used both for records and inputs. The glossary says "Event and observer… callback" only. | Keep Step as the record; make inputs `Approval`, not `ApprovalFact`. |
 | StepKind names vs values | `StepStarted="turn_started"`, `StepModelIntent="model_requested"`, `StepApproval="approval_accepted"` (also used for denials) | Constant names, JSON values, and meaning disagree. | Align names with values; use `approval_recorded`. |
 | Input | `llm.Input` (model input), `Start.Input []llm.Message` | The glossary says turn input is "context items" (`ubiquitous-language.md:48-49`). | Update the glossary or accept `[]ContextItem`. |
 | Accept / Continue | Code: `Accept` carries 5 payloads (tool, approval, hosted approval, model result, model failure); `Continue{ID}` only | The glossary: Accept is "a tool call's… outcome", Continue is "optionally with more context" (`ubiquitous-language.md:38-40`). | Split `Approve` and `Reconcile`; fix the glossary. |

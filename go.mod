@@ -1,4 +1,4 @@
-module github.com/deepnoodle-ai/kernel
+module github.com/deepnoodle-ai/dashi
 
 go 1.26.0
 

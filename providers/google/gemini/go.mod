@@ -1,11 +1,11 @@
-module github.com/deepnoodle-ai/kernel/providers/google/gemini
+module github.com/deepnoodle-ai/dashi/providers/google/gemini
 
 go 1.26.0
 
 toolchain go1.26.8
 
 require (
-	github.com/deepnoodle-ai/kernel v0.0.0
+	github.com/deepnoodle-ai/dashi v0.0.0
 	google.golang.org/genai v1.71.0
 )
 
@@ -39,4 +39,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/deepnoodle-ai/kernel => ../../..
+replace github.com/deepnoodle-ai/dashi => ../../..

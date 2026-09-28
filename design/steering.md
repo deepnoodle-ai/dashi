@@ -6,7 +6,7 @@
 ## Problem
 
 People type while an agent works: "use the staging database", "stop, wrong
-file", "also update the README". Kernel has no natural way to get that message
+file", "also update the README". Dashi has no natural way to get that message
 into a running turn.
 
 - `Deliver` works only between runs. While `Runner.Run` owns the turn, a second
@@ -36,7 +36,7 @@ and each change discards the provider's prompt cache. Dive always sends it.
    clearly scoped guarantee from the built-in inbox.
 3. Steers land only where the transcript stays valid for every provider.
 4. An urgent steer can cut a model response short, but never a running tool,
-   and Kernel never knowingly gives up the turn's last possible answer.
+   and Dashi never knowingly gives up the turn's last possible answer.
 5. Steering never gets around limits, budgets, deadlines, pause, or cancel.
 6. The system prompt no longer depends on whether reminders are present.
 
@@ -46,7 +46,7 @@ and each change discards the provider's prompt cache. Dive always sends it.
   once. Whether a steer was delivered is answered by the record, never by the
   source.
 - **Sources present at least once.** A source keeps returning a steer from
-  `Pending` until it is acknowledged as recorded. Kernel filters IDs already in
+  `Pending` until it is acknowledged as recorded. Dashi filters IDs already in
   the record, so repeats are harmless.
 - **Model visibility follows lifetime rules.** A recorded steer is seen on the
   next model call, if one happens, subject to `Snapshot` and `NextCallOnly`.
@@ -64,20 +64,20 @@ and each change discards the provider's prompt cache. Dive always sends it.
   host uses `Cancel`.
 - Waking a turn that waits on an external tool or approval. The model cannot be
   called while a call is unanswered.
-- Rewriting steer text. Kernel records what the app sent and adds no framing.
+- Rewriting steer text. Dashi records what the app sent and adds no framing.
 
 ## Developer experience
 
 A CLI reuses one inbox across turns, one active run at a time:
 
 ```go
-inbox := kernel.NewInbox()
+inbox := dashi.NewInbox()
 go func() {
     for line := range input {
         inbox.SendText(line) // returns the generated ID
     }
 }()
-out, err := runner.Run(ctx, turn, start, kernel.WithSteering(inbox))
+out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 switch {
 case err != nil:
     // command rejected; nothing new was recorded
@@ -103,7 +103,7 @@ recorder transaction that saves the step, since the step carries the IDs.
 - FR-1: `WithSteering(Steering) RunOption`, per run like `WithPause`.
 - FR-2: The interface and value below. `Delivered` is idempotent; an error is
   recorded as a warning and retried on the next acknowledgment or run.
-- FR-3: `kernel.NewInbox()` returns a concurrency-safe `*Inbox`, reusable across
+- FR-3: `dashi.NewInbox()` returns a concurrency-safe `*Inbox`, reusable across
   turns. It has these methods:
   - `Send(Steer) (string, error)` validates and generates a missing ID.
   - `SendText(text string) (string, error)` sends user-origin text.
@@ -151,7 +151,7 @@ type Steer struct {
   user-role tool result with an arbitrary call ID passes validation, and Gemini
   rejects it.
 
-**Delivery points.** Kernel always calls `Pending` at these points (not gated on
+**Delivery points.** Dashi always calls `Pending` at these points (not gated on
 `Ready`), and nowhere else:
 
 - FR-6: **Before each model call**, including the first after `Start` or
@@ -160,14 +160,14 @@ type Steer struct {
   hooks, so the hooks see them.
 - FR-7: **At a candidate final answer**, before the `BeforeFinish` hooks and
   before structured output is recorded, on both the final-text path and the
-  `kernel_submit_output` path. A pending steer is recorded as a
+  `dashi_submit_output` path. A pending steer is recorded as a
   `StepLoopContinued` that names the superseded candidate (attempt ID or
   submission call ID). Replay allows this step after a successful submission and
   selects the latest eligible submission, not the first.
 - FR-8: **Never between a tool call and its result.** Projection already places
   delivered items after the preceding call's results; tests lock this in.
 - FR-9: **Never on the last possible answer.** Before superseding a candidate or
-  interrupting a call, Kernel checks that the next call is still possible:
+  interrupting a call, Dashi checks that the next call is still possible:
   - attempts remain beyond the reserved final answer;
   - the budget is not spent;
   - the deadline has not passed;
@@ -181,7 +181,7 @@ type Steer struct {
 
 **Contract details**
 
-- FR-10: Kernel calls `Delivered` after each acknowledged step that records
+- FR-10: Dashi calls `Delivered` after each acknowledged step that records
   steers, and for filtered IDs already in the record. It uses
   `context.WithoutCancel` with a short timeout, so it runs after the run's
   context ends. At run end it calls `Release` for claimed, unacknowledged IDs.
@@ -206,14 +206,14 @@ same PR)
   Cancelling it abandons that call without ending the turn. It works for
   streamed and non-streamed calls alike, so steering does not force streaming.
 - FR-17: While a call is active, a listener waits on `Ready`, then calls
-  `Pending`. If an urgent steer is pending and FR-9 allows it, Kernel cancels
+  `Pending`. If an urgent steer is pending and FR-9 allows it, Dashi cancels
   the call, records the attempt as interrupted with a new field
   `ModelFact.InterruptedBy: "steering"`, and delivers at FR-6. The existing
   interruption path settles the attempt: provider ID, usage, cost, and partial
   output are recorded but never acted on. A call that completes before the
   cancel takes effect stands, and the steer waits for FR-6. `InterruptedBy`
   tells `Stream` consumers to discard partial deltas.
-- FR-18: Kernel does not interrupt a call whose request included a
+- FR-18: Dashi does not interrupt a call whose request included a
   provider-hosted tool that is unsafe to repeat. The steer waits, with a
   warning.
 - FR-19: An urgent steer during a tool batch stops new calls from starting.

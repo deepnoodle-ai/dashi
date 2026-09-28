@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {

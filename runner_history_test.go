@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {

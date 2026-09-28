@@ -1,13 +1,13 @@
 # C. Adjacent libraries: ideas to borrow, pitfalls to avoid
 
-Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
+Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
 `Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
 `ID` as `CommandID`.
 
-Kernel already adopts the survey's hardest-won structural ideas. Its turn record
+Dashi already adopts the survey's hardest-won structural ideas. Its turn record
 acknowledges each step before execution continues. Approvals are made per call
 and bound to the recorded arguments. Limits stop the turn gracefully and do not
 reset on continuation. Streaming and collected runs share one execution path,
@@ -29,7 +29,7 @@ yet; they are noted as N/A where relevant.
 
 ## Ideas
 
-| # | Idea | Seen in | Why it worked | Kernel status | Evidence | Direction |
+| # | Idea | Seen in | Why it worked | Dashi status | Evidence | Direction |
 |---|---|---|---|---|---|---|
 | 1 | `iter.Seq2` from provider to agent; `break` cancels | ADK-Go, MAF-Go | One type for streaming and collected results, backpressure, no leaks | Covered | `engine.go:35-65`, `llm/stream.go:27` | Keep. Document that the `Stream` consumer is the caller, not a display fan-out (see note 5 on design-pitfalls.md) |
 | 2 | Commit before proceeding; intent before effect; fencing | ADK-Go, Nvoken, pi harness | Tells "never ran" apart from "may have run" | Covered | `recorder.go:11-21`, `engine.go:303-344,567,216`, `turn.go` recording rule | Keep. Add recorder conformance cases (idea 14) |
@@ -44,7 +44,7 @@ yet; they are noted as N/A where relevant.
 | 11 | Cached incremental projection | OpenHands | Record as the truth without O(history) rebuild per step | Missing | `Project` and `replay` rebuild from step 1 on every model call, on every tool in a batch, and on every `MemoryRecorder.Commit` (`project.go:13-14`, `tools_loop.go:50`, `engine.go:415,479`, `recorder.go:107`) | Implement design principle 5 before sessions land |
 | 12 | Write-time invariants plus recorded cold-load repair ("view properties") | OpenHands, pi (63 bricked-session issues) | Stops one bad fact from breaking every later request | Partial | Replay validates each step (`state.go:84-92,580-582`); projection drops unsettled calls (`project.go:94-105`); no repair path, so a violating fact wedges the turn (pitfall 4) | Add typed repairs: record a projection adjustment and never rewrite a fact |
 | 13 | Resource-keyed tool concurrency | OpenHands | Strictly better than a boolean "concurrency-safe" flag | Missing (safe default) | `Limits.ToolConcurrency` defaults to 1 (`turn.go:46`) | Add an optional `Resources(call)` interface before raising the default |
-| 14 | Public scripted model and storage and dialect conformance suites | pi (`faux`, `ConformanceCase[]`), ADK (`sessiontestsuite`), Eino (#1029) | Users can test their agents; hosts prove their recorder matches | Missing | `scriptedClient` is test-only (`engine_test.go:15`); there is one fixture dir (`providers/openai/responses/testdata`) | Ship a `kerneltest` package: scripted client, recorder cases, dialect corpus |
+| 14 | Public scripted model and storage and dialect conformance suites | pi (`faux`, `ConformanceCase[]`), ADK (`sessiontestsuite`), Eino (#1029) | Users can test their agents; hosts prove their recorder matches | Missing | `scriptedClient` is test-only (`engine_test.go:15`); there is one fixture dir (`providers/openai/responses/testdata`) | Ship a `dashitest` package: scripted client, recorder cases, dialect corpus |
 | 15 | Stock policies: stuck detection with one nudge; token/cost budget | OpenHands, MAF (#7472) | Loops and runaway spend are top complaints everywhere | Partial | The seams exist (`policy.go:49-54`; `BeforeSend` admission, `engine.go:554-563`), but no stock policy and no token or cost field in `Limits` | Ship opt-in policies and a way to compose them, so hosts don't write a four-method policy for each concern |
 
 Also covered, and not repeated as rows:
@@ -56,7 +56,7 @@ Also covered, and not repeated as rows:
 
 ## Pitfalls
 
-| # | Pitfall | Seen in (project, theme) | Kernel status | Evidence | Direction |
+| # | Pitfall | Seen in (project, theme) | Dashi status | Evidence | Direction |
 |---|---|---|---|---|---|
 | 1 | Deciding tool use from early stream chunks; streaming path diverges from collected | Eino #806/#892; MAF #3848 | Avoided | The full result is classified (`engine.go:635-665`); both modes use `llm.Stream` (`engine.go:579`) | Keep a parity test per provider |
 | 2 | OpenAI-compatible tool-call assembly: missing `index`, reused index with a new ID, empty arguments | Eino #631, #927, #493; pi #4228 | Exposed | Calls keyed by `index` only; a new ID overwrites the old one (`completions/stream.go:118-133`); empty arguments fail `Call.Validate` (`tool/tool.go:178`), which becomes a protocol error and then an uncertain stop | Key by ID, then index; start a new call on an ID change; normalize `""` to `{}`; add recorded fixtures |
@@ -82,7 +82,7 @@ Also at risk:
 
 ## Top recommendations
 
-**1. Kernel should own tool-call identity.** When a model result settles, give
+**1. Dashi should own tool-call identity.** When a model result settles, give
 each client call a turn-scoped effect ID (for example `<attempt>:call:<n>`).
 Keep the provider ID as a wire attribute that preparation maps back. That
 resolves the repeated or empty ID wedge (pitfall 4), gives tools a globally
@@ -120,7 +120,7 @@ through a recorded projection adjustment. Otherwise the session layer will
 inherit quadratic storage and per-step rebuilds, which are ADK's and OpenHands'
 scaling bugs.
 
-**5. Ship a `kerneltest` package and a dialect corpus.**
+**5. Ship a `dashitest` package and a dialect corpus.**
 - Export the scripted client and a table of recorder conformance cases.
 - Add recorded completions fixtures: missing index, reused IDs, empty arguments,
   `reasoning_content` echo, metadata-only chunks.
@@ -157,7 +157,7 @@ files show that the corpus is the product.
    system-prompt volatility breaking the cache, and docs or examples drifting
    from releases (Eino #614, ADK #443) all recur in the trackers and have no
    entry.
-7. **#12 is well placed but not yet applied to Kernel itself.** Kernel's own
+7. **#12 is well placed but not yet applied to Dashi itself.** Dashi's own
    guarantees are proven by local fixtures and three live routes. Add a line
    that each guarantee should name the test that pins it (MAF go#492: "tests as
    the design spec").

@@ -6,12 +6,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/model"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
 // Job is a provider handle for polling an accepted remote operation. The ID
-// is meaningful only within Origin's destination scope. Kernel does not own
+// is meaningful only within Origin's destination scope. Dashi does not own
 // persistence or retries.
 type Job struct {
 	ID        string         `json:"id"`

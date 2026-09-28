@@ -46,7 +46,7 @@ type Source struct {
 	ID string `json:"id,omitempty"`
 
 	// URI names provider-managed media such as a Gemini Files API object.
-	// Unlike URL, it requires MIME type and origin; Kernel never fetches it.
+	// Unlike URL, it requires MIME type and origin; Dashi never fetches it.
 	URI string `json:"uri,omitempty"`
 
 	// Origin binds ID or URI to its provider, API, and endpoint/credential

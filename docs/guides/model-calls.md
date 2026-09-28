@@ -84,7 +84,7 @@ The snapshot always records the resolved `capability_policy`, `adjust` or
 ## Send, Stream, and Generate
 
 `Send` takes an `llm.Call`: the prepared `Request`, an optional `Sink`, and an
-`Attempt` that a recording caller such as a Kernel turn sets and a direct call
+`Attempt` that a recording caller such as a Dashi turn sets and a direct call
 leaves zero. `Input.Stream` selects streaming; a sink observes deltas without
 changing the request. A nil sink still collects a streaming result. Each `Send`
 makes at most one HTTP dispatch; the caller handles recording, admission, and

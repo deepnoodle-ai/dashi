@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"bytes"
@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/internal/canonjson"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -18,7 +18,7 @@ func validateOutputToolChoice(settings llm.Settings) error {
 		(choice.Mode == llm.ToolChoiceNone ||
 			(choice.Mode == llm.ToolChoiceTool &&
 				choice.Name != SubmitOutputTool)) {
-		return errors.New("kernel: output schema requires the submission tool to remain available")
+		return errors.New("dashi: output schema requires the submission tool to remain available")
 	}
 	return nil
 }
@@ -26,7 +26,7 @@ func validateOutputToolChoice(settings llm.Settings) error {
 const (
 	// SubmitOutputTool is reserved for a turn that declares OutputSchema. Its
 	// argument object is the candidate final value, not an application tool.
-	SubmitOutputTool     = "kernel_submit_output"
+	SubmitOutputTool     = "dashi_submit_output"
 	maxOutputSchemaBytes = 32 << 10
 	maxOutputValueBytes  = 256 << 10
 )
@@ -34,13 +34,13 @@ const (
 func compileOutputSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 	if len(raw) == 0 || len(raw) > maxOutputSchemaBytes {
 		return nil, fmt.Errorf(
-			"kernel: output schema must be 1-%d bytes",
+			"dashi: output schema must be 1-%d bytes",
 			maxOutputSchemaBytes,
 		)
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
-		return nil, errors.New("kernel: output schema must be a JSON Schema object")
+		return nil, errors.New("dashi: output schema must be a JSON Schema object")
 	}
 	// Tool declarations and the public turn result carry an object. Requiring
 	// the root type prevents a provider from receiving an unrepresentable
@@ -50,24 +50,24 @@ func compileOutputSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 		object["type"],
 		&rootType,
 	); err != nil || rootType != "object" {
-		return nil, errors.New("kernel: output schema root must have type object")
+		return nil, errors.New("dashi: output schema root must have type object")
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("kernel: invalid output schema: %w", err)
+		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	// No network or file fetches are permitted while admitting or replaying a
 	// turn. Local $defs remain available through the registered resource.
 	compiler.UseLoader(jsonschema.SchemeURLLoader{})
-	const location = "https://kernel.invalid/output-schema.json"
+	const location = "https://dashi.invalid/output-schema.json"
 	if err := compiler.AddResource(location, value); err != nil {
-		return nil, fmt.Errorf("kernel: invalid output schema: %w", err)
+		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
 	}
 	schema, err := compiler.Compile(location)
 	if err != nil {
-		return nil, fmt.Errorf("kernel: invalid output schema: %w", err)
+		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
 	}
 	return schema, nil
 }
@@ -77,18 +77,18 @@ func validateOutputValue(
 	raw json.RawMessage,
 ) error {
 	if schema == nil || len(raw) == 0 || len(raw) > maxOutputValueBytes {
-		return errors.New("kernel: structured output is missing or too large")
+		return errors.New("dashi: structured output is missing or too large")
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
 	if err != nil {
-		return fmt.Errorf("kernel: structured output is invalid JSON: %w", err)
+		return fmt.Errorf("dashi: structured output is invalid JSON: %w", err)
 	}
 	if _, ok := value.(map[string]any); !ok {
-		return errors.New("kernel: structured output must be an object")
+		return errors.New("dashi: structured output must be an object")
 	}
 	if err := schema.Validate(value); err != nil {
 		return fmt.Errorf(
-			"kernel: structured output does not satisfy schema: %w",
+			"dashi: structured output does not satisfy schema: %w",
 			err,
 		)
 	}
@@ -106,24 +106,24 @@ func parseOutputText(
 			body,
 			"```",
 		) {
-			return nil, errors.New("kernel: structured output must be one JSON object")
+			return nil, errors.New("dashi: structured output must be one JSON object")
 		}
 		trimmed = strings.TrimSpace(strings.TrimSuffix(body, "```"))
 	}
 	if len(trimmed) > maxOutputValueBytes {
-		return nil, errors.New("kernel: structured output is too large")
+		return nil, errors.New("dashi: structured output is too large")
 	}
 	decoder := json.NewDecoder(strings.NewReader(trimmed))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return nil, errors.New("kernel: structured output is not valid JSON")
+		return nil, errors.New("dashi: structured output is not valid JSON")
 	}
 	if decoder.Decode(new(any)) != io.EOF {
-		return nil, errors.New("kernel: structured output must contain one JSON value")
+		return nil, errors.New("dashi: structured output must contain one JSON value")
 	}
 	if _, ok := value.(map[string]any); !ok {
-		return nil, errors.New("kernel: structured output must be an object")
+		return nil, errors.New("dashi: structured output must be an object")
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {

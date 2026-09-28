@@ -7,7 +7,7 @@
 
 A **turn** is one input processed until the agent settles, possibly across
 many model calls. It is identified, may span invocations and processes, and
-need not belong to a session. (Some SDKs call one model call a "turn"; Kernel
+need not belong to a session. (Some SDKs call one model call a "turn"; Dashi
 calls that a model attempt.) A session, reserved for later, organizes turns and
 supplies conversation history; it does not own a turn's execution rules. An
 `Agent` describes reusable behavior. The turn records which agent revision
@@ -115,7 +115,7 @@ deadline interrupts the turn.
 prepared request for the recorder's atomic spending reservation. An explicit
 HTTP rejection or proven pre-dispatch failure is known nonexecution; transport
 and protocol failures remain uncertain. A host can reconcile an unresolved
-attempt with verified nonexecution and an evidence reference. Kernel cannot
+attempt with verified nonexecution and an evidence reference. Dashi cannot
 verify that external evidence itself.
 
 The initial implementation includes an in-memory recorder and a storage-neutral
@@ -126,7 +126,7 @@ already identified in [resources and hosted tools](2026-09-27-resources-and-host
 
 **Tradeoff:** per-effect acknowledgements add writes and explicit recovery
 states. They let hosts make their own transaction authoritative without making
-Kernel a database or queue framework.
+Dashi a database or queue framework.
 
 Sources: [primary conceptual model](../tmp/research/design/2026-09-26-dive-v2-conceptual-model.md),
 [companion design](../tmp/research/design/2026-09-26-dive-v2-conceptual-design.md),

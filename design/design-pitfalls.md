@@ -1,6 +1,6 @@
 # Design pitfalls
 
-Failure patterns to avoid when reviewing Kernel's design, derived from Dive's
+Failure patterns to avoid when reviewing Dashi's design, derived from Dive's
 [framework comparisons][survey] dated 2026-09-26. Framework examples describe
 that research snapshot; issue reports are evidence of failure modes, not a claim
 that every version still has them. Pair this checklist with

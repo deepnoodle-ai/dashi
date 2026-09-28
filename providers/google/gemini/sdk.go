@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"google.golang.org/genai"
 )
 
