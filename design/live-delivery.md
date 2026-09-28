@@ -32,7 +32,7 @@ work". `Runner.Observer` is the in-process, never-blocking view of an
 invocation. `Follow` serves everyone else: it reads the record by cursor, from
 any process, and yields committed steps only. Previews exist only in the
 runner's process, while a follower may be anywhere, so a host merges them
-itself (see the handler below).
+itself, through a fan-out helper (PR C).
 
 **2. The Observer carries every acknowledged step; previews are lossy with a
 gap.** The emitter keeps one ordered queue. Steps always enter it; only
@@ -190,20 +190,16 @@ func (s Step) Settles() string
 var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 ```
 
-**The web handler** in the guide is complete, not a sketch. It authorizes the
-turn and checks it exists (`Follow` on an unknown turn waits forever); reads
-the cursor from `Last-Event-ID`, falling back to `?after=`; subscribes to the
-host's preview fan-out (bounded channels fed by `Runner.Observer`) before
-following, when the runner is in-process; merges steps and previews with
-a goroutine, dropping any preview whose `MessageID` or `CallID` a sent
-step settled (`Step.Settles`); sends `end` at a terminal stop and answers
-`204` to a reconnect at one, so `EventSource` stops; sends steps with
-`id: Seq` and
-previews and gaps without one; projects every step; and, on `ErrCursorAhead`
-(a wrong turn, a replica read, a filerecorder line lost to a failed fsync),
-tells the client to reset and reconnect from 0 rather than retry. `Follow`
-needs the store the `Runner` commits to; the default private recorder cannot
-be followed.
+**The web handler** in the guide serves committed steps and runs in the
+tests. It authorizes the turn first (`Follow` on an unknown turn waits
+forever); reads the cursor from `Last-Event-ID`, falling back to `?after=`;
+projects every step and sends it with `id: Seq`; sends `end` at a terminal
+stop and answers `204` to a reconnect at one, so `EventSource` stops; and, on
+`ErrCursorAhead` (a wrong turn, a replica read, a filerecorder line lost to a
+failed fsync), tells the client to reset rather than retry. `Follow` needs
+the store the `Runner` commits to; the default private recorder cannot be
+followed. Merging live previews needs a fan-out with subtle rules, so it
+becomes a library helper (PR C) rather than guide code.
 
 **Recorders.** `MemoryRecorder` implements both (check under its lock, else
 a per-turn channel closed on commit). `filerecorder` implements `StepReader`

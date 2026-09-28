@@ -290,20 +290,22 @@ follow; any number of clients can follow one turn.
 
 `Follow` reads through the recorder's optional `dashi.StepReader`.
 `MemoryRecorder` and `filerecorder` implement it; a host recorder implements
-`StepsAfter` as one range query on the table it commits to. Selecting from
-the cursor's own row tells a cursor at the last step (an empty page) from one
-past it (`dashi.ErrCursorAhead`):
+`StepsAfter` as one range query on the table it commits to. To tell a
+cursor at the last step (an empty page) from one past it
+(`dashi.ErrCursorAhead`), a positive cursor also selects its own row:
 
 ```sql
--- $2 is after, $3 is limit+1
+-- $2 is after; $3 is limit, plus 1 when after > 0 for the cursor's row
 SELECT seq, step FROM turn_steps
 WHERE turn_id = $1 AND seq >= $2 ORDER BY seq LIMIT $3
 ```
 
 When `after > 0`, the first row must be `seq = after`; if it is missing,
-return `dashi.ErrCursorAhead`, and otherwise drop it from the page. (At
-`after = 0` there is no such row.) Read from the primary and keep
-`(turn_id, seq)` unique; `dashitest.Run` checks these rules. `Follow` pages until it catches up, then
+return `dashi.ErrCursorAhead`, and otherwise drop it, leaving at most
+`limit` steps. At `after = 0` there is no such row, so the query asks for
+`limit` rows (`seq >= 0` is every step). Read from the primary and keep
+`(turn_id, seq)` unique; `dashitest.Run` checks these rules.
+`Follow` pages until it catches up, then
 polls every second, or every 30 seconds while the turn rests at a stop that
 is not terminal. For faster updates, also implement `dashi.StepWaiter`: for
 example, `pg_notify` in the commit transaction and one shared `LISTEN`
@@ -316,105 +318,7 @@ the terminal stop, it ends at once. A late result of work started before the
 stop can still be recorded after it; a reload, or `StepsAfter` from the
 stop's `Seq`, shows it.
 
-Previews (model deltas and tool progress) never enter the record. When the
-worker runs in the same process as the handler, set `Runner.Observer` to a
-small fan-out with one bounded channel per connection, and merge it with
-`Follow` in the handler. The fan-out must not send a preview the client's
-steps already settle. It sees every committed step in order, so it records
-what `Step.Settles` names, and it holds previews back from a connection until
-it has observed the step at that connection's cursor; a reconnecting client
-otherwise gets a delta the Observer delivered late. A multi-process host
-carries previews on its own bus, with the same two rules.
-
-```go
-// Hub fans Runner.Observer's previews out to live connections, one bounded
-// channel each. The Observer delivers every committed step in order, so the
-// hub knows which messages and calls are settled and drops their previews.
-// It also holds previews back from a connection until it has observed the
-// step at that connection's cursor: a preview observed earlier belongs to
-// work the client's steps already settle, even if the settling step has not
-// reached the hub yet.
-type Hub struct {
-	mu    sync.Mutex
-	turns map[string]*hubTurn
-}
-
-type hubTurn struct {
-	seen    int64                      // the last Seq observed
-	settled map[string]bool            // Step.Settles IDs observed
-	subs    map[chan dashi.Event]int64 // each connection's cursor
-	ended   bool                       // a terminal stop was observed
-}
-
-func (h *Hub) turn(id string) *hubTurn {
-	if h.turns == nil {
-		h.turns = map[string]*hubTurn{}
-	}
-	t := h.turns[id]
-	if t == nil {
-		t = &hubTurn{settled: map[string]bool{}, subs: map[chan dashi.Event]int64{}}
-		h.turns[id] = t
-	}
-	return t
-}
-
-// Subscribe returns the turn's previews for a connection following from
-// cursor after, and a function that ends the subscription.
-func (h *Hub) Subscribe(id string, after int64) (<-chan dashi.Event, func()) {
-	ch := make(chan dashi.Event, 256)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.turn(id).subs[ch] = after
-	return ch, func() {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		t := h.turns[id]
-		delete(t.subs, ch)
-		close(ch)
-		if t.ended && len(t.subs) == 0 {
-			delete(h.turns, id)
-		}
-	}
-}
-
-// Observe is the Runner's Observer.
-func (h *Hub) Observe(e dashi.Event) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	t := h.turn(e.TurnID)
-	if e.Step != nil {
-		t.seen = max(t.seen, e.Step.Seq)
-		if key := e.Step.Settles(); key != "" {
-			t.settled[key] = true
-		}
-		if e.Step.Stop != nil && e.Step.Stop.Terminal {
-			t.ended = true
-			if len(t.subs) == 0 {
-				delete(h.turns, e.TurnID)
-			}
-		}
-		return
-	}
-	key := e.MessageID
-	if e.Progress != nil {
-		key = e.Progress.CallID
-	}
-	if t.settled[key] {
-		return
-	}
-	for ch, after := range t.subs {
-		if t.seen < after {
-			continue // observed before this connection's cursor
-		}
-		select {
-		case ch <- e:
-		default: // the connection is behind; previews are lossy
-		}
-	}
-}
-```
-
-The whole handler:
+The handler serves committed steps:
 
 ```go
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
@@ -441,81 +345,33 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	flush := w.(http.Flusher).Flush
 
-	// Subscribe before following, so no preview falls between the two.
-	previews, unsubscribe := s.hub.Subscribe(id, after) // fed by Runner.Observer
-	defer unsubscribe()
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	type read struct {
-		step dashi.Step
-		err  error
-	}
-	steps := make(chan read)
-	go func() {
-		defer close(steps)
-		for step, err := range dashi.Follow(ctx, s.store, id, after) {
-			select {
-			case steps <- read{step, err}:
-			case <-ctx.Done():
-				return
-			}
+	for step, err := range dashi.Follow(r.Context(), s.store, id, after) {
+		switch {
+		case errors.Is(err, dashi.ErrCursorAhead):
+			send(w, "", "reset", nil) // the client drops its state, follows from 0
+			flush()
+			return
+		case err != nil:
+			return // the client reconnects from its last id
 		}
-	}()
-
-	settled := map[string]bool{} // messages and calls a sent step settled
-	for {
-		select {
-		case got, ok := <-steps:
-			switch {
-			case !ok:
-				return // the client left
-			case errors.Is(got.err, dashi.ErrCursorAhead):
-				send(w, "", "reset", nil) // the client drops its state, follows from 0
-				return
-			case got.err != nil:
-				return // the client reconnects from its last id
-			}
-			step := got.step
-			if key := step.Settles(); key != "" {
-				settled[key] = true
-			}
-			send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
-			if step.Stop != nil && step.Stop.Terminal {
-				send(w, "", "end", nil) // the page calls EventSource.close
-				flush()
-				return
-			}
-		case e, ok := <-previews:
-			switch {
-			case !ok:
-				previews = nil // the hub closed; keep following steps
-			case e.Gap: // this message's preview has a hole; wait for its step
-				settled[e.MessageID] = true
-				send(w, "", "gap", e.MessageID)
-			case e.Delta != nil && !settled[e.MessageID]:
-				send(w, "", "delta", projectDelta(e))
-			case e.Progress != nil && !settled[e.Progress.CallID]:
-				send(w, "", "progress", e.Progress)
-			}
+		send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
+		if step.Stop != nil && step.Stop.Terminal {
+			send(w, "", "end", nil) // the page calls EventSource.close
 		}
 		flush()
 	}
 }
 ```
 
-Steps go out with an SSE `id`, so the browser resumes from them; previews
-and gaps go out without one, since they cannot be replayed. `Step.Settles`
-names the message or tool call a step supersedes (only `model_settled`,
-`model_reconciled`, and `tool_settled` settle anything; `model_requested`
-carries the same `MessageID` as the deltas that follow it), and `settled`
-drops a preview that arrives on the channel after the handler sent its step,
-a race the hub cannot see. A connection whose channel is full misses
-previews, as the Observer's own queue does; its steps still arrive.
-At a terminal stop the handler sends `end`, so the page calls
+Steps go out with an SSE `id`, so the browser resumes from them. At a
+terminal stop the handler sends `end`, so the page calls
 `EventSource.close()`; a browser that reconnects anyway gets `204 No
 Content`, which stops `EventSource` from reconnecting. This handler runs in
 Dashi's tests (`serve_public_test.go`).
+
+Live previews (token streaming and tool progress) never enter the record;
+they come from `Runner.Observer` in the runner's process. A tested fan-out
+helper that merges them into this stream is coming.
 
 **Never send a `Step` to a browser as it is.** A step is the internal record:
 it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
