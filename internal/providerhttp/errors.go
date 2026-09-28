@@ -173,7 +173,11 @@ func parseRetryAfter(header http.Header, now time.Time) (time.Duration, bool) {
 		) {
 			return 0, false
 		}
-		return time.Duration(seconds * float64(time.Second)), true
+		nanoseconds := seconds * float64(time.Second)
+		if nanoseconds < 1 || nanoseconds >= float64(math.MaxInt64) {
+			return 0, false
+		}
+		return time.Duration(nanoseconds), true
 	}
 	if deadline, err := http.ParseTime(value); err == nil {
 		if wait := deadline.Sub(now); wait > 0 {

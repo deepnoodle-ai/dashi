@@ -454,6 +454,7 @@ func TestSendTranscriptionDistinguishesRateLimitFromQuota(t *testing.T) {
 		retryable  bool
 	}{
 		{"throttled", "rate_limit_exceeded", "3", 3 * time.Second, true},
+		{"oversized retry hint", "rate_limit_exceeded", "1e100", 0, true},
 		{"quota exhausted", "insufficient_quota", "12", 12 * time.Second, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

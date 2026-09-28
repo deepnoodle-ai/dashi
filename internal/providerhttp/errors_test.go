@@ -260,6 +260,8 @@ func TestParseRetryAfterAcceptsHeaderFormats(t *testing.T) {
 		},
 		{name: "zero", value: "0"},
 		{name: "negative", value: "-5"},
+		{name: "subnanosecond", value: "1e-100"},
+		{name: "finite overflow", value: "1e100"},
 		{name: "not a number", value: "soon"},
 		{name: "infinity", value: "Inf"},
 		{name: "empty"},
