@@ -134,6 +134,10 @@ Postgres `jsonb` column, is fine: Kernel compares recorded values with live
 ones by their canonical JSON (RFC 8785 layout, numbers compared by exact
 decimal value), and history passed on `Continue` may round-trip the same way.
 
+Package `kerneltest` checks a host recorder against this contract with
+`kerneltest.Run`, and its `FaultRecorder` fails one chosen commit (rejected,
+lost write, or lost acknowledgement) so a host can test recovery end to end.
+
 The engine records a model intent before `Send` and a tool start before a local
 executor call. It records their outcomes before acting on them. After a crash,
 reload and call `Replay` to inspect `Pending`. An interrupted model call keeps
