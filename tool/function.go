@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/wonton/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -27,6 +28,13 @@ import (
 // model.
 // Arguments that do not match the schema are refused before fn runs; see
 // docs/guides/tools.md#defining-tools for the complete rules.
+// Unknown keys in struct arguments are ignored by default. Pass
+// WithStrictArguments to reject them, including in nested structs.
+// Keys that differ only in case from declared fields are rejected because Go
+// decoding could otherwise pass values to fn that differ from those validated
+// against the schema. Duplicate object keys keep their last value.
+// Call.Args retains the effective raw JSON in either mode; it is not a
+// sanitized copy of the typed arguments.
 // The callback also receives the stable call identity, suitable for downstream
 // idempotency and reconciliation. An error from the callback is returned
 // unchanged, so it follows the Executor contract: a plain error goes to the
@@ -34,6 +42,7 @@ import (
 func Func[T any](
 	name, description string,
 	fn func(context.Context, Call, T) (Outcome, error),
+	options ...FuncOption,
 ) (Tool, error) {
 	if fn == nil {
 		return Tool{}, errors.New("tool: nil function")
@@ -42,10 +51,14 @@ func Func[T any](
 		return Tool{}, fmt.Errorf("tool: %q: %w", name, err)
 	}
 	var zero T
+	strictArguments := false
+	for _, option := range options {
+		strictArguments = strictArguments || option.strictArguments
+	}
 	s, err := schema.Generate(
 		zero,
 		schema.GenerateOptions{
-			DisallowAdditionalProperties: true,
+			DisallowAdditionalProperties: strictArguments,
 		},
 	)
 	if err != nil {
@@ -84,17 +97,65 @@ func Func[T any](
 			err,
 		)
 	}
-	executor := typedExecutor[T]{name: name, schema: compiled, fn: fn}
+	executor := typedExecutor[T]{
+		name:            name,
+		schema:          compiled,
+		strictArguments: strictArguments,
+		fn:              fn,
+	}
 	return Tool{Definition: d, Executor: executor}, nil
+}
+
+// ValidateArguments applies the same schema and Go field-name policy used by
+// Execute. The runner calls it before BeforeTool and after argument rewrites.
+func (e typedExecutor[T]) ValidateArguments(args json.RawMessage) error {
+	_, err := e.validatedArguments(args)
+	return err
+}
+
+// validatedArguments returns the same last-key-wins JSON meaning used for
+// schema validation and typed decoding, without changing the raw Call.Args.
+func (e typedExecutor[T]) validatedArguments(
+	args json.RawMessage,
+) ([]byte, error) {
+	canonical, err := canonjson.Canonicalize(args)
+	if err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(canonical))
+	if err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+	if err := e.schema.Validate(value); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+	if err := rejectCaseAliases(value, reflect.TypeFor[T](), "$"); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+	return canonical, nil
+}
+
+// FuncOption configures a typed tool. Its zero value leaves the default
+// argument behavior unchanged.
+type FuncOption struct {
+	strictArguments bool
+}
+
+// WithStrictArguments rejects unknown keys in struct arguments instead of
+// ignoring them. The generated schema is closed at the root and at nested
+// struct locations, and direct execution uses the same policy.
+func WithStrictArguments() FuncOption {
+	return FuncOption{strictArguments: true}
 }
 
 // typedExecutor runs fn only for calls whose arguments satisfy the compiled
 // schema and decode into T. Rejected calls return StateNotExecuted, never an
 // error, because nothing ran and the result is therefore certain.
 type typedExecutor[T any] struct {
-	name   string
-	schema *jsonschema.Schema
-	fn     func(context.Context, Call, T) (Outcome, error)
+	name            string
+	schema          *jsonschema.Schema
+	strictArguments bool
+	fn              func(context.Context, Call, T) (Outcome, error)
 }
 
 // Execute passes fn a clone of call, so the callback cannot alter the
@@ -114,16 +175,15 @@ func (e typedExecutor[T]) Execute(
 	if call.Name != e.name {
 		return notExecuted("tool name does not match executor"), nil
 	}
-	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(call.Args))
+	canonical, err := e.validatedArguments(call.Args)
 	if err != nil {
-		return notExecuted("invalid input: " + err.Error()), nil
-	}
-	if err := e.schema.Validate(value); err != nil {
-		return notExecuted("invalid input: " + err.Error()), nil
+		return notExecuted(err.Error()), nil
 	}
 	var input T
-	decoder := json.NewDecoder(bytes.NewReader(call.Args))
-	decoder.DisallowUnknownFields()
+	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	if e.strictArguments {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(&input); err != nil {
 		return notExecuted("invalid input: " + err.Error()), nil
 	}

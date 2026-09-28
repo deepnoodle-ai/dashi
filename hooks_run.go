@@ -354,6 +354,7 @@ func (r *runtime) authorizeTool(
 	ctx context.Context,
 	def tool.Definition,
 	call tool.Call,
+	ex tool.Executor,
 ) (tool.Call, ToolVerdict, *Outcome) {
 	pass := 0
 	mark := r.hookMark()
@@ -372,7 +373,7 @@ restart:
 			Turn:       snapshotView(view),
 		})
 		if err == nil {
-			err = validToolDecision(d, def, call)
+			err = validToolDecision(d, def, call, ex)
 		}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -464,6 +465,7 @@ func validToolDecision(
 	d ToolDecision,
 	def tool.Definition,
 	call tool.Call,
+	ex tool.Executor,
 ) error {
 	if len(d.Rewrite) > 0 {
 		if !json.Valid(d.Rewrite) {
@@ -472,6 +474,9 @@ func validToolDecision(
 		call.Args = d.Rewrite
 		if err := validateToolCall(def, call); err != nil {
 			return fmt.Errorf("rewrite does not match the tool schema: %w", err)
+		}
+		if err := validateBoundArguments(ex, call.Args); err != nil {
+			return fmt.Errorf("rewrite does not match tool arguments: %w", err)
 		}
 		return nil
 	}

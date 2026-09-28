@@ -56,9 +56,12 @@ function runs. The rules:
   type. `nullable:"true"` on a non-pointer field, and `nullable:"false"` on an
   unconstrained `*any` or `*json.RawMessage`, fail when the tool is built.
   Malformed `nullable` tags and tags on flattened embedded structs fail too.
-- Nested structs are closed at every level: unknown properties are refused.
-  An embedded struct without a `json` name is flattened, and its fields are
-  optional when it is embedded by pointer; with a name it is a regular field.
+- Structs are open at every level by default: unknown properties are accepted
+  by validation and ignored by ordinary Go struct decoding. Pass
+  `tool.WithStrictArguments()` to `tool.Func` to reject them at the root and
+  in nested structs. An embedded struct without a `json` name is flattened,
+  and its fields are optional when it is embedded by pointer; with a name it
+  is a regular field.
 - In fields, `[]byte` is a base64 string, `time.Time` a date-time string, and
   `any` or `json.RawMessage` accept any value. Maps need string keys;
   channels, functions, complex numbers, and the `json` `,string` option fail
@@ -72,6 +75,42 @@ The runner checks every call's arguments against the schema before any
 as `not_executed` with the reason `invalid arguments`, and the model sees
 `Invalid tool arguments: …` so it can retry. An executor called directly refuses
 such a call the same way, with an `invalid input: …` message.
+
+### Unknown-key migration note
+
+`tool.Func` now accepts extra object keys by default. For example, a tool with
+required `query` and optional `region` accepts
+`{"query":"yes","regoin":"us"}`; `region` remains unset. A misspelled
+**required** field still fails. Choose `tool.WithStrictArguments()` for a tool
+whose exact argument names matter, including a side-effecting tool whose
+approval display lists only declared fields:
+
+```go
+deploy, err := tool.Func("deploy", "Deploy a version", deployFn,
+    tool.WithStrictArguments())
+```
+
+Case-only aliases of declared names are rejected even in default mode:
+`{"query":"yes","QUERY":"evil"}` could otherwise validate `query` as
+`"yes"` but decode `"evil"` into the Go field. Duplicate object keys keep
+their last value, including when a nested object repeats. The typed callback
+decodes that same last-key JSON meaning, while `Call.Args` stays raw. Ordinary
+surplus keys are still accepted. When the matching typed executor is bound,
+case-alias checks run before `BeforeTool` hooks and after hook rewrites. A definition
+advertised without its executor can still reach a deferred approval; the
+call cannot gain an executor later in that same run. On resume, the bound
+executor checks again before its callback runs. A Toolset lookup error stops
+the turn before the hook sees the call.
+
+The schema sent to a provider guides generation and Dashi validates returned
+arguments locally. It does not guarantee a provider will sample only declared
+keys. `Call.Args` and `BeforeTool` hooks see the effective raw JSON, including
+ignored keys; if a hook rewrites it, `Call.RequestedArgs` retains the model's
+original JSON. The typed callback's ordinary struct fields do not receive
+unknown sibling keys, but `Call.Args`, `any`, `json.RawMessage`, and custom
+decoders are not sanitized. Declare a map or write a custom tool when dynamic
+keys have meaning. Existing hand-written schemas keep their own
+`additionalProperties` policy.
 
 ## Outcomes and errors
 

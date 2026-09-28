@@ -1,54 +1,49 @@
-# Tolerance of extra tool arguments — draft PRD
+# PRD: tolerate surplus typed-tool arguments
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for discussion, 2026-09-28 |
-| Roadmap | [Item 10](../remaining-work.md), size S, difficulty Medium |
-| References | [Source survey](10-extra-tool-args-research.md), [adjacent-library findings](../gaps/C-adjacent-libraries.md), [tools guide](../../docs/guides/tools.md) |
+| Status | Implemented; independently reviewed; PR open, 2026-09-28 |
+| Roadmap | [Item 10](../remaining-work.md), S / medium difficulty |
+| Evidence | [Source survey](10-extra-tool-args-research.md), [tools guide](../../docs/guides/tools.md), [Pi edit-call report](https://github.com/earendil-works/pi/issues/6278) |
 
-## User problem
+## Problem and outcome
 
-A model may send a correct local tool call with one surplus key. Today `tool.Func` rejects it before the application function runs, returns `not_executed`, and asks the model to try again. The next attempt spends time, tokens, and one of Dashi's limited model calls; it can fail again for the same harmless mistake. Dive and Pi's ordinary typed-tool path show that a callback can still get only its declared Go fields. A developer who intentionally needs a closed argument contract should retain that choice.
+An application author declares a typed tool with `tool.Func[T]`. A model supplies every required value correctly but adds a key that `T` does not declare. Dashi rejects the call before the callback or authorization hook runs and asks the model to try again. This costs latency, tokens, and a model attempt for an argument the ordinary Go struct decoder could ignore. Pi reports this failure mode in real edit calls; Dashi's own tests prove rejection but do not establish its frequency in production.
 
-## Goals
+The outcome is predictable typed-tool behavior: a harmless surplus key does not block the common case, declared constraints still protect the callback, and an author can choose the existing closed-object contract for a particular tool. A scripted runner test should show **one** callback execution for `{"query":"yes","extra":1}` and no additional model call to repair its shape. Rejected malformed or missing declared values must still result in zero callback executions.
 
-- Make `tool.Func[T]` tolerate unknown object keys **by default** at the top level and within typed nested structs, while still validating all declared fields and required values.
-- Keep the model-facing schema, runner precheck, and typed decoder consistent; an argument accepted before `BeforeTool` hooks must not be rejected later merely for the same extra key.
-- Preserve original JSON in the Turn and in `tool.Call.Args` for hook review, audit, and replay; give the callback `T` containing only declared fields.
-- Provide one per-tool strict option for callers who require the current closed-object behavior. Avoid changing hand-written `tool.Definition` or external/hosted tool contracts.
+## Proposed user contract
 
-Success: `{"query":"yes","extra":1}` invokes a typed tool once with `Query=="yes"`, using no repair model call. `{"query":3,"extra":1}` and `{"extra":1}` remain `not_executed`; strict mode rejects the first example before any `BeforeTool` hook or executor runs.
+Keep the existing `tool.Func` call working. By default, its generated JSON Schema leaves ordinary struct objects open at the root and at nested struct locations; absent `additionalProperties` means unknown keys are allowed. The runner validates the effective JSON before `BeforeTool` hooks. The typed executor rejects case-only aliases of declared Go fields. For duplicate object keys, it applies Dashi's decided last-key JSON meaning before both schema validation and Go decoding; a repeated nested object replaces its earlier value instead of merging with it. This keeps raw and JSONB-normalized replay equivalent. For plain Go structs, other undeclared sibling keys are ignored, while declared fields retain their required, type, enum, range, and pointer-null rules. Declared map fields remain maps: their keys and value constraints are not discarded.
 
-## Smallest API direction and user flow
-
-Keep the existing `tool.Func` call shape and add one optional constructor argument, conceptually `tool.WithStrictArguments()`:
+Add one per-tool opt-in, provisionally named `tool.WithStrictArguments()`, to retain closed root and nested struct schemas and unknown-field rejection:
 
 ```go
-lookup, err := tool.Func("lookup", "Find a record", handler)
-strictLookup, err := tool.Func("lookup", "Find a record", handler,
+lookup, err := tool.Func("lookup", "Find a record", lookupFn)
+strictLookup, err := tool.Func("lookup", "Find a record", lookupFn,
     tool.WithStrictArguments())
 ```
 
-The default generates schemas whose typed struct objects allow unknown properties. Do not introduce an `Extras` map into the callback type or silently add unknown values to a declared map field. The runner validates the **original** JSON against the generated schema before `BeforeTool` hooks; the typed executor validates that same schema and decodes without `DisallowUnknownFields`. Its known fields retain all existing type, required, enum, range, nullability, and nested checks. A strict option generates closed objects and keeps strict decoding, matching today's behavior. Hand-authored schemas retain their exact `additionalProperties` semantics, and tools with no typed `Func` wrapper do not change.
+The option controls local `tool.Func` validation and its published schema, **not** provider-side constrained sampling. An open schema guides the model and governs Dashi's local validation; it cannot guarantee what arguments a provider will generate or accept. Hand-written `tool.Definition` schemas, external/MCP tools, and hosted tools keep their existing semantics. No global policy or new argument-normalization type is needed.
 
-The runner still records and exposes the full original `Call.Args`. `BeforeTool` hooks see those raw arguments and can deny or replace them; any replacement is revalidated under the selected tool schema. The callback receives the decoded `T` plus the original cloned `Call`, so the docs must say explicitly that unknown JSON keys are absent from `T` but may remain in `Call.Args`. A callback that needs to act on dynamic keys should declare a map field or use a custom tool; it should not treat unknown keys in `Call.Args` as validated inputs. No new Turn event, normalization layer, or provider-wide switch is needed.
+`Call.Args` continues to carry the effective raw JSON. A `BeforeTool` hook can inspect, deny, or rewrite it. If rewritten, `Call.RequestedArgs` retains the model's original bytes and the replacement is validated before execution. The callback receives `T` and a cloned `Call`; `Call.Args` is **not sanitized**. Dynamic `any`/`json.RawMessage` fields and custom `UnmarshalJSON` methods can still inspect data within their declared locations. Authors should use a declared map or a custom tool when unknown keys have intended meaning, and choose strict mode when extra keys should fail.
 
 ## Acceptance criteria
 
-1. Default `tool.Func` advertises permissive `additionalProperties` behavior for each typed struct object. Its runner precheck and direct executor agree: top-level and nested surplus keys are ignored by `T`, the callback runs exactly once, and the original JSON stays unchanged in the recorded call and callback's `Call.Args`.
-2. Required fields, type/range/enum constraints, malformed JSON, trailing values, wrong tool name, and unsupported null remain rejected before callback execution. Declared map fields preserve their keys and schema constraints. A typo that omits a required field is not healed by ignoring its misspelled key.
-3. The strict option reproduces today's closed schema and direct/runner rejection for extra keys. It is per tool, requires no global setting, and remains stable across a Toolset refresh and recorded-definition comparison.
-4. A `BeforeTool` hook can inspect raw extras, deny, or rewrite arguments; a rewritten call is revalidated. The Turn and model-visible outcome correctly show either one execution or `not_executed`, with no phantom side effect or hidden extra model attempt.
-5. Tests include Dashi's existing unknown-field case updated for the new default, a strict-mode counterpart, nested structs, a required-field typo, a declared map, and a runner flow with a scripted model that emits a surplus key. One provider fixture verifies the advertised schema is transmitted unchanged; live provider acceptance remains a separately labeled qualification.
-6. The tools guide and `Func` godoc explain the default, strict option, raw-versus-typed difference, and migration impact in a short example.
+1. **Default path:** Schema, runner precheck, and direct executor agree that ordinary surplus keys at the root, inside nested structs, and inside struct values of slices/maps are permitted. A plain typed callback sees its declared values and runs once. Raw `Args` in the recorded call and callback retain the surplus key.
+2. **Validation retained:** Missing required fields (including a misspelled required name), wrong types, enum/range failures, unsupported null, malformed/trailing JSON, case-only aliases of declared fields, and wrong tool identity prevent callback execution. Alias checks cover nested structs and struct values in slices/maps; both key orders are rejected. Duplicate keys use the last value at every object depth for validation and decoding; tests prove raw and JSONB-like replay agree for valid and invalid last values. Declared map values remain schema checked. A misspelled optional field may be ignored; this is documented as a deliberate tradeoff.
+3. **Strict path:** The per-tool option emits `additionalProperties:false` for ordinary struct objects and rejects surplus keys in both runner and direct execution before callback. A runner call rejected this way never reaches `BeforeTool`.
+4. **Authorization and record:** A hook sees the raw accepted arguments, can deny them, and can rewrite them. Rewrites are revalidated under the chosen policy, including last-key meaning and alias checks. When the matching typed executor is bound, alias checks run before `BeforeTool`; its binding is reused for immediate execution. A Toolset lookup error stops before hooks. A definition advertised without its executor may reach deferred approval, but cannot gain a new binding and execute in that same run; later binding rechecks before callback execution. `Args`, `RequestedArgs`, outcome state, and model-visible correction text reflect what actually happened; no phantom execution or extra retry is introduced.
+5. **Provider wire:** Offline preparation tests inspect both default and strict generated schemas in all four currently relevant wire shapes: OpenAI Responses `tools[].parameters` (`strict:false` remains separate), OpenAI Chat Completions `tools[].function.parameters`, Anthropic `tools[].input_schema`, and Gemini `tools[].functionDeclarations[].parametersJsonSchema`. They prove neither route silently closes an open schema or opens a strict one. Live provider sampling or acceptance requires separate route/model qualification.
+6. **Migration and documentation:** Audit every in-repo `tool.Func` call site. Keep the read-only `skill` loader lenient unless its contract gives reason otherwise; use strict opt-in in the approval `deploy`, durable approval `deploy`, and detached `send_email` examples, where an exact argument set should be visible before external effects. Document that this does not replace approval or idempotency. The tools guide and `Func` godoc explain the default, strict option, raw-versus-typed boundary, and an optional-field typo example: `{"query":"yes","regoin":"us"}` silently leaves optional `region` unset in default mode but is refused in strict mode. Release notes call out the changed default.
 
-## Non-goals
+## Scope and tradeoffs
 
-No fuzzy renaming, coercion of wrong types, arbitrary JSON repair, automatic retry, new validation engine, or change to provider-hosted/MCP/external tools. This PRD does not loosen output schemas or authorize unknown keys to affect a typed callback's behavior.
+This changes the default of existing `tool.Func` calls, including downstream tools whose authors implicitly relied on rejection. Optional-field typos can now go unnoticed; strict mode is appropriate when an exact field set is part of the tool's meaning. There is no fuzzy renaming, type coercion, JSON repair, automatic retry, provider-wide strictness switch, or change to output schemas.
 
-## Risks and open decisions
+Two alternatives were considered. Keeping strictness by default and adding a lenient option avoids a behavior change but leaves every ordinary tool exposed to a needless repair step. Stripping extras into a new effective `Call.Args` would mislead hooks or audit records. Canonicalizing only for validation and typed decoding preserves the raw recorded call and Dashi's existing JSON meaning; hand-written and external tool contracts are unaffected.
 
-- **Compatibility:** Existing applications may rely on extra keys being rejected, especially for sensitive tools. The strict option preserves that path; release notes must call out the changed default and show how to opt in. Decide whether any built-in Dashi local tool should select strict mode explicitly.
-- **Provider constraints:** Some provider-side strict sampling requires closed schemas. Dashi's current OpenAI Responses adapter sends `strict:false`; if a later adapter forces strict sampling, it must negotiate that separately rather than silently change `tool.Func` runtime semantics.
-- **Schema generator:** Verify how `wonton/schema.Generate` represents open nested structs and whether `additionalProperties` must be postprocessed. The emitted schema, runner, and decoder must pass the same cases before publishing the option.
-- **Visibility:** Raw extras remain auditable, but a user-facing view need not list ignored keys by default. If real support cases show confusion, add a small diagnostic on the existing call record rather than a new event type.
+## Review outcomes
+
+- The PRD received independent feedback. `WithStrictArguments()` was chosen as the small per-tool opt-in; the call-site audit selected the three side-effecting examples above.
+- Two independent code review rounds caught case-folded aliases, a duplicate-key replay mismatch against [decision 27](../decisions.md), and an extra Toolset lookup. The implementation and tests now cover those cases.

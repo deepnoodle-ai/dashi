@@ -82,6 +82,8 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		state, _ := replay(r.turn)
 		v := state.Tools[id]
+		var boundExecutor tool.Executor
+		prehookBindingChecked := false
 		if v.Status == ToolSettled ||
 			v.Status == ToolWaiting ||
 			v.Status == ToolApprovalPending ||
@@ -169,10 +171,37 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				continue
 			}
-			if err := validateToolCall(v.Definition, v.Call); err != nil {
-				message := "Invalid tool arguments: " + err.Error()
+			validationErr := validateToolCall(v.Definition, v.Call)
+			if validationErr == nil &&
+				v.Call.Name != SubmitOutputTool &&
+				v.Definition.Kind != tool.KindExternal &&
+				v.Definition.Kind != tool.KindProviderHosted &&
+				r.runner.Tools != nil {
+				prehookBindingChecked = true
+				bound, err := r.runner.Tools.Tools(ctx)
+				if ctx.Err() != nil {
+					return r.contextStop(), true
+				}
+				if err != nil {
+					return r.failureOrContext(err), true
+				}
+				for _, candidate := range bound {
+					if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+						candidate.Definition,
+						v.Definition,
+					) {
+						boundExecutor = candidate.Executor
+						break
+					}
+				}
+				validationErr = validateBoundArguments(boundExecutor, v.Call.Args)
+			}
+			if validationErr != nil {
+				message := "Invalid tool arguments: " + validationErr.Error()
 				if v.Call.Name == SubmitOutputTool {
-					message = "Output rejected: " + boundedOutputError(err) + ". Correct it and call " + SubmitOutputTool + " again."
+					message = "Output rejected: " +
+						boundedOutputError(validationErr) +
+						". Correct it and call " + SubmitOutputTool + " again."
 				}
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
@@ -222,7 +251,12 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}
 			if call.Name != SubmitOutputTool {
 				var o *Outcome
-				call, verdict, o = r.authorizeTool(ctx, v.Definition, call)
+				call, verdict, o = r.authorizeTool(
+					ctx,
+					v.Definition,
+					call,
+					boundExecutor,
+				)
 				if o != nil {
 					return *o, true
 				}
@@ -287,27 +321,30 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if v.Definition.Kind == tool.KindProviderHosted {
 			return r.stop(StopFailed, "hosted tool cannot execute locally"), true
 		}
-		if r.runner.Tools == nil {
-			return r.stop(StopFailed, "tool binding unavailable"), true
-		}
-		bound, err := r.runner.Tools.Tools(ctx)
-		if err != nil {
-			return r.failureOrContext(err), true
-		}
-		if ctx.Err() != nil {
-			return r.contextStop(), true
-		}
-		var ex tool.Executor
-		for _, candidate := range bound {
-			if candidate.Definition.Name == v.Call.Name && sameJSONValue(
-				candidate.Definition,
-				v.Definition,
-			) {
-				ex = candidate.Executor
-				break
+		// A requested call uses only the binding checked before hooks. A
+		// resumed allowed call resolves a binding in this new run.
+		if boundExecutor == nil && !prehookBindingChecked {
+			if r.runner.Tools == nil {
+				return r.stop(StopFailed, "tool binding unavailable"), true
+			}
+			bound, err := r.runner.Tools.Tools(ctx)
+			if err != nil {
+				return r.failureOrContext(err), true
+			}
+			if ctx.Err() != nil {
+				return r.contextStop(), true
+			}
+			for _, candidate := range bound {
+				if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+					candidate.Definition,
+					v.Definition,
+				) {
+					boundExecutor = candidate.Executor
+					break
+				}
 			}
 		}
-		if ex == nil {
+		if boundExecutor == nil {
 			return r.stop(StopFailed, "tool binding changed or unavailable"), true
 		}
 		if running >= r.agent.Limits.ToolConcurrency {
@@ -340,7 +377,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		call := v.Call.Clone()
 		slot := progress.open(call)
 		go func() {
-			results <- execute(ctx, ex, call, slot)
+			results <- execute(ctx, boundExecutor, call, slot)
 		}()
 	}
 	for running > 0 {
