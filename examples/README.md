@@ -3,8 +3,7 @@
 Small programs that each show one part of Dashi. Run them from the repository
 root with `go run ./examples/<name>`. Every example makes paid requests; the
 package comment at the top of each `main.go` names the environment variables
-it needs. A provider key is required; `ANTHROPIC_MODEL` or `OPENAI_MODEL`
-optionally picks the model, and otherwise the model catalog picks one.
+it needs, and which of them are optional. Every example needs a provider key.
 
 | Example             | Provider  | Shows                                                          |
 | ------------------- | --------- | -------------------------------------------------------------- |

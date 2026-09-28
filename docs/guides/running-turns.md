@@ -81,17 +81,21 @@ runs twice. What can happen is a second turn from a `Start` retried with no
 turn ID, or a `Deliver` recorded twice.
 
 On an existing turn, a zero `Agent` runs with the turn's recorded agent, which
-suits commands such as `Settle` and `Cancel`. A partly set agent takes its
-empty `Model` and `Revision` from the record. Any other difference fails with
-`ErrAgentChanged`, whose message names the fields.
+suits commands such as `Settle` and `Cancel`. Setting any field, even only
+`Limits.Deadline`, makes the agent partly set: it takes its empty `ID`,
+`Model`, and `Revision` from the record, and any other difference fails with
+`ErrAgentChanged`, whose message names the fields. A zero `Agent` trusts the
+agent recorded in the turn you pass in, so load that turn from your own store.
+When the recorder implements `Loader`, Dashi checks the snapshot's agent
+against the stored record and returns `ErrAgentChanged` if they differ.
 
 A turn can span workers; its saved record holds the steps needed to resume its
-own work. When the running Go context ends, Dashi
-normally records `StopInterrupted` with the context cause. Reload the record and
-call `Continue` with the earlier conversation on any worker. `Continue` also
-recovers a crash that happened before the stop was written. Close the channel
-passed with `dashi.WithPause` for a graceful stop before the next model or tool
-call. Work already running finishes.
+own work. When the running Go context ends, Dashi normally records
+`StopInterrupted` with the context cause. Reload the record and call `Continue`
+with the earlier conversation on any worker. `Continue` also recovers a crash
+that happened before the stop was written. Close the channel passed with
+`dashi.WithPause` for a graceful stop before the next model or tool call. Work
+already running finishes.
 
 `Runner.Recorder` may be omitted. Dashi uses a fresh in-memory recorder
 for that call, and you can pass the returned `Outcome.Turn` to a later call in

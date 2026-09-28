@@ -10,16 +10,17 @@ its long-lived services: the model client, tool source, policy, and optional
 recorder and observer. An empty `Agent.Provider` or `Agent.API` is filled from
 the runner's client; a value that differs from the client's is an error. An
 empty `Model` is the provider's `catalog.Default`, and an empty `Revision` is
-derived from the agent's behavior fields. On an existing turn, a zero `Agent`
-is the recorded one, and a partly set agent takes its empty `ID`, `Model`, and
-`Revision` from the record. The turn ID (`dashi.NewTurn(id)`) and each
-command's `CommandID` are generated when empty (`dashi.NewID`), but a durable
-host should choose and save them before the call. The command ID is an
-idempotency key: repeating it with the same payload acknowledges the recorded
-step without repeating an effect, which a generated ID cannot do for a retry. Pass the returned
-`Outcome.Turn` to the next call, or reload it from a durable recorder. When the
-recorder implements `Loader`, Dashi can refresh a stale turn snapshot on a
-retried command. Reusing a command ID with different content fails. `Start`
+derived from the agent's behavior fields. On an existing turn, a zero `Agent` is
+the recorded one, and a partly set agent takes its empty `ID`, `Model`, and
+`Revision` from the record. The turn ID (`dashi.NewTurn(id)`) and each command's
+`CommandID` are generated when empty (`dashi.NewID`), but a durable host should
+choose and save them before the call. The command ID is an idempotency key:
+repeating it with the same payload acknowledges the recorded step without
+repeating an effect, which a generated ID cannot do for a retry. Pass the
+returned `Outcome.Turn` to the next call, or reload it from a durable recorder.
+When the recorder implements `Loader`, Dashi can refresh a stale turn snapshot
+on a retried command, and rejects a snapshot whose recorded agent differs from
+the stored one. Reusing a command ID with different content fails. `Start`
 records its origin and own input, plus a fingerprint of `Start.History`. Pass
 the earlier conversation again in `Continue.History` on every resume, including
 after a crash. Dashi uses it for that call's model requests; the saved turn

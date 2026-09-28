@@ -250,6 +250,15 @@ func (r Runner) run(
 				}
 				return outcome(saved, current, PersistenceAcknowledged), nil
 			}
+			// The runner trusts the snapshot's recorded agent, and a zero
+			// Agent runs with it, so it must be the recorder's.
+			if len(turn.Steps) > 0 && len(saved.Steps) > 0 &&
+				!sameAgent(state.Agent, current.Agent) {
+				return Outcome{}, fmt.Errorf(
+					"%w: the turn's recorded agent differs from the recorder's; load the turn from the recorder",
+					ErrAgentChanged,
+				)
+			}
 		}
 	}
 	runCtx := ctx

@@ -414,3 +414,104 @@ func callResultFrom(provider, model string) llm.Result {
 	r.Requested = llm.ModelRef{Provider: provider, Model: model}
 	return r
 }
+
+func TestZeroAgentRejectsSnapshotWithTamperedAgent(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "lookup"), final("ok")},
+	}
+	rec := NewMemoryRecorder()
+	external := tool.List{{Definition: tool.Definition{
+		Name:   "lookup",
+		Schema: []byte(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}}
+	runner := Runner{
+		Agent:    Agent{Model: "fixture", Instructions: "safe"},
+		Client:   client,
+		Tools:    external,
+		Recorder: rec,
+	}
+	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := cloneTurn(got.Turn)
+	tampered.Steps[0].Started.Agent.Instructions = "EVIL"
+	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
+	zero := Runner{Client: client, Tools: external, Recorder: rec}
+	_, err = zero.Run(t.Context(), tampered, Settle{CallID: "call-1", Outcome: &out})
+	if !errors.Is(err, ErrAgentChanged) {
+		t.Fatalf("tampered snapshot error = %v, want ErrAgentChanged", err)
+	}
+	saved, err := rec.Load(t.Context(), got.Turn.ID)
+	if err != nil || len(saved.Steps) != len(got.Turn.Steps) {
+		t.Fatalf("recorder changed: steps=%d err=%v", len(saved.Steps), err)
+	}
+	// The untampered snapshot still works with a zero Agent.
+	if _, err := zero.Run(
+		t.Context(),
+		got.Turn,
+		Settle{CallID: "call-1", Outcome: &out},
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	runner := Runner{
+		Agent:    Agent{Model: "fixture"},
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+	}
+	start := Start{Input: userInput("hi")}
+	out, err := runner.Run(t.Context(), Turn{}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Repeating the command under the generated ID it was recorded with is
+	// the same command, so it returns the recorded result.
+	start.CommandID = out.Turn.Steps[0].CommandID
+	again, err := runner.Run(t.Context(), out.Turn, start)
+	if err != nil || len(again.Turn.Steps) != len(out.Turn.Steps) ||
+		client.sends != 1 {
+		t.Fatalf("repeat: steps=%d sends=%d err=%v",
+			len(again.Turn.Steps), client.sends, err)
+	}
+}
+
+func TestAgentRevisionIsPinned(t *testing.T) {
+	// A change to this value changes the revision of every recorded agent
+	// that relied on the derived one; make it deliberately.
+	agent := Agent{
+		Provider:     "anthropic",
+		API:          "anthropic.messages",
+		Model:        "claude-sonnet-5",
+		Instructions: "Be brief.",
+	}.resolved()
+	if got := agentRevision(agent); got != "auto:730adb85021b2479" {
+		t.Fatalf("agentRevision = %q", got)
+	}
+}
+
+func TestEmptyNonNilFieldsCountAsZeroAgent(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
+	external := tool.List{{Definition: tool.Definition{
+		Name:   "lookup",
+		Schema: []byte(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}}
+	runner := Runner{
+		Agent:  Agent{Model: "fixture", Instructions: "v1"},
+		Client: client,
+		Tools:  external,
+	}
+	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := Runner{Agent: Agent{OutputSchema: json.RawMessage{}}, Client: client}
+	if _, err := empty.Run(t.Context(), got.Turn, Cancel{}); err != nil {
+		t.Fatalf("empty non-nil schema: %v", err)
+	}
+}

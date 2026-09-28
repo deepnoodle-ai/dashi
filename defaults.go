@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -19,7 +18,8 @@ import (
 
 // NewID returns a new random UUIDv7 string, such as
 // "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b". The first 48 bits are the Unix time
-// in milliseconds, so IDs sort by creation time, and the string fits a
+// in milliseconds, so IDs sort by creation time to the millisecond (IDs from
+// the same millisecond are in random order), and the string fits a
 // Postgres uuid column. The runner uses it for an empty turn ID or CommandID.
 // To make retries safe across restarts, call NewID yourself, save the ID
 // before the call, and reuse it on retry.
@@ -85,14 +85,17 @@ func agentRevision(a Agent) string {
 	return revisionPrefix + sum[:16]
 }
 
-// agentFor returns the resolved agent a command runs with. A whole-empty
-// agent on an existing turn is the recorded agent. Otherwise Provider and API
+// agentFor returns the resolved agent a command runs with. An agent that
+// encodes like Agent{} on an existing turn is the recorded agent; comparing
+// by JSON meaning treats an empty non-nil schema or slice as unset. The
+// recorded agent comes from the caller's snapshot; run checks it against a
+// Loader's record. Otherwise Provider and API
 // come from the client, and on an existing turn an empty ID, Model, or
 // Revision comes from the record. On a new turn, an empty Model is the
 // catalog default and an empty Revision is derived from the agent.
 func (r Runner) agentFor(state *replayState, existing bool) (Agent, error) {
 	agent := r.Agent
-	if existing && reflect.DeepEqual(agent, Agent{}) {
+	if existing && sameJSONValue(agent, Agent{}) {
 		agent = state.Agent
 	} else {
 		agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
