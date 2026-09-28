@@ -269,78 +269,85 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	}
 }
 
-// reminderDeliveryHooks deliver a contextual reminder before each call.
-func reminderDeliveryHooks() Hooks {
-	return ModelHook{
-		Name: "reminder",
-		Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-			reminder := llm.Reminder{
-				Name:    "scope",
-				Tier:    llm.ReminderContextual,
-				Content: "delivered",
-			}
-			item := ContextItem{
-				Origin:  ContextRuntime,
-				Message: llm.ReminderMessage(reminder),
-			}
-			return ModelDecision{Deliver: []ContextItem{item}}, nil
-		},
-	}.Hooks()
-}
-
-func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
+// TestSystemPromptStableAcrossReminders checks that the reminder
+// instruction is always sent, so the system prompt, and with it the
+// provider's prompt cache, does not change when a reminder appears on one
+// call and drops out on the next.
+func TestSystemPromptStableAcrossReminders(t *testing.T) {
 	const tag = "<system-reminder>"
-	reminder := llm.Reminder{
-		Name:    "scope",
-		Tier:    llm.ReminderContextual,
-		Content: "ctx",
+	client := &scriptedClient{
+		results: []llm.Result{
+			callResult("c1", "lookup"),
+			callResult("c2", "lookup"),
+			final("done"),
+		},
 	}
-	run := func(t *testing.T, input []llm.Message, hooks Hooks) string {
-		t.Helper()
-		client := &scriptedClient{results: []llm.Result{final("done")}}
-		got, err := (Runner{
-			Agent:    testAgent(),
-			Client:   client,
-			Recorder: NewMemoryRecorder(),
-			Hooks:    hooks,
-		}).Run(
-			t.Context(),
-			Turn{ID: "r6"},
-			Start{CommandID: "start", Input: input},
-		)
-		if err != nil {
-			t.Fatalf("run failed: %v", err)
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: json.RawMessage(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: new(tool.TextOutput("found")),
+			}, nil
+		}),
+	}
+	// The hook delivers a one-call reminder on the second call only, so the
+	// first call has none, the second has one, and the third has none again.
+	calls := 0
+	hooks := Hooks{BeforeModel: []ModelHook{{
+		Name: "once",
+		Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+			calls++
+			if calls != 2 {
+				return ModelDecision{}, nil
+			}
+			return ModelDecision{Deliver: []ContextItem{{
+				Origin: ContextRuntime,
+				Message: llm.ReminderMessage(llm.Reminder{
+					Name:    "scope",
+					Tier:    llm.ReminderContextual,
+					Content: "ctx",
+				}),
+				NextCallOnly: true,
+			}}}, nil
+		},
+	}}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 5
+	got, err := (Runner{
+		Agent:    agent,
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+		Tools:    tool.List{binding},
+		Hooks:    hooks,
+	}).Run(
+		t.Context(),
+		Turn{ID: "r6"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+	)
+	if err != nil || got.Stop.Kind != StopCompleted || len(client.inputs) != 3 {
+		t.Fatalf("stop=%+v err=%v inputs=%d", got.Stop, err, len(client.inputs))
+	}
+	if hasReminder(client.inputs[0].Messages, "scope") ||
+		!hasReminder(client.inputs[1].Messages, "scope") ||
+		hasReminder(client.inputs[2].Messages, "scope") {
+		t.Fatal("the reminder should reach only the second call")
+	}
+	first := client.inputs[0].System
+	if !strings.Contains(first, tag) {
+		t.Fatalf("reminder instruction missing: %q", first)
+	}
+	for i, in := range client.inputs {
+		if in.System != first {
+			t.Fatalf("system prompt of call %d differs:\n%q\n%q", i+1, in.System, first)
 		}
-		if got.Stop.Kind != StopCompleted {
-			t.Fatalf("turn did not complete: %+v", got.Stop)
-		}
-		if len(client.inputs) != 1 {
-			t.Fatalf("expected one model call, got %d", len(client.inputs))
-		}
-		return client.inputs[0].System
-	}
-	plain := []llm.Message{llm.UserMessage(llm.Text("go"))}
-	if system := run(
-		t,
-		plain,
-		Hooks{},
-	); strings.Contains(system, tag) {
-		t.Fatalf("reminder instruction sent without a reminder: %q", system)
-	}
-	withReminder := []llm.Message{llm.ReminderMessage(reminder)}
-	if system := run(
-		t,
-		withReminder,
-		Hooks{},
-	); !strings.Contains(system, tag) {
-		t.Fatalf("reminder instruction missing for start reminder: %q", system)
-	}
-	delivered := run(t, plain, reminderDeliveryHooks())
-	if !strings.Contains(delivered, tag) {
-		t.Fatalf(
-			"reminder instruction missing for delivered reminder: %q",
-			delivered,
-		)
 	}
 }
 
