@@ -16,8 +16,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"os/signal"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -136,28 +139,94 @@ func newClient(provider string) (llm.Client, error) {
 	return client, nil
 }
 
-// cost prefers a provider-reported charge, such as OpenRouter's, and falls
-// back to a list-price estimate from the model catalog when one is known.
+// cost prefers a provider-reported charge, such as OpenRouter's. A catalog
+// estimate requires a matching served model and the unmodified catalog sheet.
 func cost(client llm.Client, model string, result llm.Result) string {
 	if c := result.Cost; c != nil {
-		return fmt.Sprintf("%s %s (%s)", c.Total, c.Currency, c.Source)
+		return formatCost(*c)
 	}
 	info, ok := client.ModelInfo(model)
 	if !ok || info.Pricing == nil {
 		return "unknown (no price sheet for this model)"
 	}
-	c, ok := info.Pricing.Estimate(result.Usage)
-	if !ok {
+	if !catalogPriceQualified(client, model, result, info) {
+		return "unknown (served model or catalog price sheet not qualified)"
+	}
+	if !defaultServiceTier(client.Provider(), result.ServiceTier) {
+		return "unknown (service tier not covered by price sheet)"
+	}
+	if result.Usage == nil {
 		return "unknown (usage not reported)"
 	}
+	c, ok := info.Pricing.Estimate(result.Usage)
+	if !ok {
+		return "unknown (usage cannot support a price estimate)"
+	}
+	return formatCost(c)
+}
+
+func catalogPriceQualified(
+	client llm.Client,
+	model string,
+	result llm.Result,
+	info llm.ModelInfo,
+) bool {
+	evidence := info.Evidence
+	if evidence.Owner != catalog.Owner || evidence.Model != model ||
+		evidence.API != client.API() ||
+		result.Requested.Provider != client.Provider() ||
+		result.Requested.Model != model ||
+		result.Served.Provider != client.Provider() {
+		return false
+	}
+	documented, ok := catalog.Lookup(
+		evidence.API,
+		evidence.Endpoint,
+		model,
+	)
+	if !ok || documented.Pricing == nil ||
+		!reflect.DeepEqual(evidence, documented.Evidence) ||
+		!reflect.DeepEqual(info.Pricing, documented.Pricing) {
+		return false
+	}
+	entry, ok := catalog.Find(client.Provider(), model)
+	return ok && reflect.DeepEqual(entry.Pricing, documented.Pricing) &&
+		entry.Serves(result.Served.Model)
+}
+
+// All clients this example constructs use their public default tier. An
+// explicit tier must be one whose name identifies that default for its
+// provider; an unfamiliar value cannot use the default price sheet.
+func defaultServiceTier(provider, tier string) bool {
+	switch provider {
+	case "anthropic":
+		return tier == "" || tier == "standard"
+	case "openai", "grok":
+		return tier == "" || tier == "default"
+	case "meta", "mistral":
+		return tier == ""
+	default:
+		return false
+	}
+}
+
+func formatCost(c llm.Cost) string {
 	if c.Partial() {
-		// Hosted requests without a list price are left out of Total.
+		meters := slices.Sorted(maps.Keys(c.UnpricedRequests))
+		parts := make([]string, 0, len(meters))
+		for _, meter := range meters {
+			parts = append(parts, fmt.Sprintf(
+				"%s=%d",
+				meter,
+				c.UnpricedRequests[meter],
+			))
+		}
 		return fmt.Sprintf(
-			"at least %s %s (%s; unpriced hosted requests %v)",
+			"at least %s %s (%s; unpriced hosted requests: %s)",
 			c.Total,
 			c.Currency,
 			c.Source,
-			c.UnpricedRequests,
+			strings.Join(parts, ", "),
 		)
 	}
 	return fmt.Sprintf("%s %s (%s)", c.Total, c.Currency, c.Source)
