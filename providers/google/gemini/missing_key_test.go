@@ -48,9 +48,73 @@ func TestMediaMissingAPIKeyFailsAtSend(t *testing.T) {
 	if _, err := interactions.do(t.Context(), nil); !errors.Is(err, llm.ErrNoAPIKey) {
 		t.Fatalf("interactions send error = %v, want ErrNoAPIKey", err)
 	}
-	custom, err := NewMedia(MediaConfig{Client: &http.Client{}})
-	if err != nil || custom.noKey != nil {
-		t.Fatalf("custom HTTP client: noKey=%v err=%v", custom.noKey, err)
+	// A custom HTTP client may add credentials itself.
+	custom, err := NewMedia(MediaConfig{
+		Client: &http.Client{Transport: failingTransport{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = custom.do(t.Context(), http.MethodPost, custom.imageURL("m"), nil, "", 1, false)
+	if errors.Is(err, llm.ErrNoAPIKey) || !errors.Is(err, errFixtureTransport) {
+		t.Fatalf("custom HTTP client error = %v, want the transport's", err)
+	}
+}
+
+var errFixtureTransport = errors.New("fixture transport")
+
+type failingTransport struct{}
+
+func (failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errFixtureTransport
+}
+
+// Image and video endpoints are configured separately, so each operation
+// checks the key for the endpoint it calls.
+func TestMediaMissingKeyFollowsEachEndpoint(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	const (
+		gatewayImage = "http://127.0.0.1:1/v1/models/{model}:generateContent"
+		gatewayVideo = "http://127.0.0.1:1/v1beta/models/{model}:predictLongRunning"
+	)
+	cases := []struct {
+		name                   string
+		config                 MediaConfig
+		imageNoKey, videoNoKey bool
+	}{
+		{
+			name: "custom image, public video",
+			config: MediaConfig{
+				Provider:      "gateway",
+				ImageEndpoint: gatewayImage,
+			},
+			videoNoKey: true,
+		},
+		{
+			name: "public image, custom video",
+			config: MediaConfig{
+				Provider:      "gateway",
+				VideoEndpoint: gatewayVideo,
+			},
+			imageNoKey: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := NewMedia(tc.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.do(t.Context(), http.MethodPost, client.imageURL("m"), nil, "", 1, false)
+			if got := errors.Is(err, llm.ErrNoAPIKey); got != tc.imageNoKey {
+				t.Errorf("image send error = %v, want ErrNoAPIKey: %v", err, tc.imageNoKey)
+			}
+			_, err = client.do(t.Context(), http.MethodPost, client.videoURL("m"), nil, "", 1, true)
+			if got := errors.Is(err, llm.ErrNoAPIKey); got != tc.videoNoKey {
+				t.Errorf("video send error = %v, want ErrNoAPIKey: %v", err, tc.videoNoKey)
+			}
+		})
 	}
 }
 
@@ -66,6 +130,26 @@ func TestGeminiKeyStaysWithGoogle(t *testing.T) {
 	}
 	if proxy.config.APIKey != "" {
 		t.Fatal("a non-Google destination read GEMINI_API_KEY")
+	}
+	mediaProxy, err := NewMedia(MediaConfig{
+		Provider:      "proxy",
+		ImageEndpoint: "https://proxy.example/v1/models/{model}:generateContent",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaProxy.config.APIKey != "" {
+		t.Fatal("a non-Google media destination read GEMINI_API_KEY")
+	}
+	interactionsProxy, err := NewInteractionsMedia(InteractionsMediaConfig{
+		Provider: "proxy",
+		Endpoint: "https://proxy.example/v1beta/interactions",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interactionsProxy.config.APIKey != "" {
+		t.Fatal("a non-Google Interactions destination read GEMINI_API_KEY")
 	}
 	google, err := New(Config{})
 	if err != nil {

@@ -60,7 +60,6 @@ type MediaConfig struct {
 // artifacts. It never retries a remote submission.
 type MediaClient struct {
 	config      MediaConfig
-	noKey       error
 	imageModels map[string]media.ModelInfo
 	videoModels map[string]media.ModelInfo
 }
@@ -115,13 +114,7 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		config.Client = &client
 	}
 	p := &MediaClient{
-		config: config,
-		noKey: mediaNoKey(
-			config.APIKey,
-			config.ImageEndpoint == DefaultImageEndpoint &&
-				config.VideoEndpoint == DefaultVideoEndpoint &&
-				config.Client == nil,
-		),
+		config:      config,
 		imageModels: make(map[string]media.ModelInfo, len(config.ImageModels)),
 		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels)),
 	}
@@ -266,8 +259,13 @@ func (p *MediaClient) do(
 	maxBytes int64,
 	expectVideo bool,
 ) ([]byte, error) {
-	if p.noKey != nil {
-		return nil, p.noKey
+	// Image and video endpoints are configured separately, so the key check
+	// follows the endpoint this operation actually calls.
+	if err := mediaNoKey(
+		p.config.APIKey,
+		p.config.Client == nil && publicGeminiHost(endpoint),
+	); err != nil {
+		return nil, err
 	}
 	return doGeminiMedia(
 		ctx,
@@ -394,6 +392,13 @@ func doGeminiMedia(
 		}
 	}
 	return raw, nil
+}
+
+// publicGeminiHost reports whether endpoint is on Google's public Gemini API
+// host, which needs an API key.
+func publicGeminiHost(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && u.Host == "generativelanguage.googleapis.com"
 }
 
 // mediaNoKey returns the error a media send reports when the public
