@@ -87,8 +87,9 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
 
 ## Guide execution and follow progress
 
-- **Policy**: Application decisions about model requests, tool authorization,
-  and whether a turn should continue.
+- **Hook**: A named application function called at one point of a turn
+  (`BeforeModel`, `BeforeSend`, `BeforeTool`, `BeforeFinish`) to shape or
+  decide it; its answer is recorded with the step it leads to.
 - **Dialog**: A prompt asking a person for approval, selection, or text input.
 - **Event and observer**: Live text, tool progress, and execution updates
   delivered to an observer callback.

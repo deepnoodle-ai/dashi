@@ -61,8 +61,8 @@ function runs. The rules:
   `type Node struct{ Children []Node }`; `type Nodes []Nodes` fails when the
   tool is built.
 
-The runner checks every call's arguments against the schema before the
-`Policy` sees it. A call that does not match is not run: it is recorded as
+The runner checks every call's arguments against the schema before any
+`BeforeTool` hook sees it. A call that does not match is not run: it is recorded as
 `not_executed` with the reason `invalid arguments`, and the model sees
 `Invalid tool arguments: …` so it can retry. An executor called directly
 refuses such a call the same way, with an `invalid input: …` message.
@@ -86,8 +86,8 @@ Provider packages construct tools that the provider runs inside the model
 call, such as `messages.NewWebSearchTool` or `gemini.NewGoogleSearchTool`.
 Each takes an options struct whose zero value works where the provider allows
 it, and returns an error only when its options can be invalid. The result is a
-`tool.Tool` with no executor: the runner never dispatches it and no `Policy`
-is consulted. For a direct model call, pass its `Definition` in
+`tool.Tool` with no executor: the runner never dispatches it and no hook sees
+its calls. For a direct model call, pass its `Definition` in
 `llm.Input.Tools`.
 
 A hosted tool is bound to one configured destination, named by the client's

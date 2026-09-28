@@ -32,8 +32,9 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 - **IDs.** A `Start` on the zero `Turn` gets a generated turn ID, and a command
   with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
   step's `CommandID` show them; see [IDs and recovery](#ids-and-recovery).
-- **Tools.** A nil `Policy` allows every bound local and external tool. To
-  ask a person first, see [approving tool calls](#approving-tool-calls).
+- **Tools.** Every bound local and external tool runs: binding a tool is the
+  app's statement that the model may use it. To check or ask first, add a
+  [hook](#hooks).
 - **Keys.** A client built without an API key fails on its first call with an
   error matching `llm.ErrNoAPIKey`, which names the environment variable.
 
@@ -57,16 +58,77 @@ failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()` a
 `out.Turn.HostedUses()` collect sources and provider-run tool calls from every
 model call in the turn.
 
-## Approving tool calls
+## Hooks
 
-A command-line program can ask inside the policy: `AuthorizeTool` prompts, then
-allows or denies, all within one `Run`; a denial's `Reason` is what the model
-sees ([example](../../examples/approval/main.go)). A server that cannot wait
-defers instead. `dashi.RequireApproval("deploy")` allows local tools and defers
-the named ones; the turn stops with `StopWaiting`, and each pending item builds
-its own answer ([example](../../examples/durable_approval/main.go)):
+A hook is a named function that Dashi calls at one point of a turn. Set them
+on `Runner.Hooks`; any number run at each point, in order:
+
+| Point | Runs | Can | If it fails |
+|---|---|---|---|
+| `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
+| `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
+| `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
+| `BeforeFinish` | on each final text answer | ask the model to continue, accept an empty answer | the turn stops failed |
+
+A zero answer means no opinion. Each hook's answer is saved in the turn record
+with the step it leads to (`Step.HookResults`), and replay never calls hooks.
+A failed stop has the reason `dashi.StopReasonHookFailed`: fix the cause, then
+`Continue` resumes where the turn stopped; for `BeforeFinish` it asks the hooks
+again about the same answer, without another model call. If the run's context
+ends while a hook runs, the turn stops as it would for any ended context.
+
+Supply the same `Runner.Hooks` on every command for a turn: each command runs
+only the hooks it is given, and a change is recorded as a warning.
+`dashi.WithHooks` adds hooks for one call, for extras such as a terminal
+prompt. Hook names must be unique within a point; reusable packages should
+prefix theirs. `dashi.JoinHooks` combines hook sets.
+
+A hook that defers every tool not marked read-only:
 
 ```go
+gate := dashi.ToolHook{Name: "read-only-gate", Func: func(
+	_ context.Context, p dashi.ToolPlan) (dashi.ToolDecision, error) {
+	if ro := p.Definition.Annotations.ReadOnly; ro != nil && *ro {
+		return dashi.ToolDecision{}, nil
+	}
+	return dashi.Defer("changes something"), nil
+}}
+runner.Hooks = gate.Hooks()
+```
+
+`BeforeModel` runs before every model call in the turn, so a hook that
+delivers context should check `p.Turn.Context(origin, name)` first and skip an
+item that is already current. `BeforeFinish` can ask the model to continue
+only while a further model call is possible; on the reserved final-answer call
+its items are dropped with a warning.
+
+## Approving tool calls
+
+A command-line program asks inside a `BeforeTool` hook, all within one `Run`.
+`dashi.OnTool` runs only for one tool and decodes its arguments; a denial's
+reason is what the model sees
+([example](../../examples/approval/main.go)):
+
+```go
+ask := dashi.OnTool("deploy", func(
+	_ context.Context, _ dashi.ToolPlan, in deployArgs,
+) (dashi.ToolDecision, error) {
+	if confirm(in) {
+		return dashi.Allow("operator approved"), nil
+	}
+	return dashi.Deny("The operator declined this deploy."), nil
+})
+runner.Hooks = ask.Hooks()
+```
+
+A server that cannot wait defers instead. `dashi.RequireApproval("deploy")`
+defers the named tools (every tool when none are named); the turn stops with
+`StopWaiting`, and each pending item builds its own answer
+([example](../../examples/durable_approval/main.go)):
+
+```go
+runner.Hooks = dashi.RequireApproval("deploy")
+// ... Run, then:
 for _, p := range out.Pending {
 	if p.Kind != dashi.PendingApproval {
 		continue
@@ -82,9 +144,9 @@ for _, p := range out.Pending {
 out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
 ```
 
-`Approve` and `Deny` bind the answer to the exact arguments shown and the
-policy revision that deferred the call. `Result(outcome)` reports the result of
-a waiting external call the same way. Each builder derives its command ID from
+`Approve` and `Deny` bind the answer to the call and the exact arguments
+shown; hooks do not run again. `Result(outcome)` reports the result of a
+waiting external call the same way. Each builder derives its command ID from
 the call, so a retried answer is a duplicate and a different second answer
 fails with `ErrCommandConflict`. `Settle` only records; `Continue` runs the
 approved calls and returns `ErrNotReady` while any call is unanswered. Once

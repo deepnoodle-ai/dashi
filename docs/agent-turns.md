@@ -6,7 +6,7 @@ model attempt.
 
 An `Agent` pins reusable behavior and limits as plain JSON data. A `Runner`
 holds the agent and its long-lived services: the model client, tool source,
-policy, and optional recorder and observer. An empty `Agent.Provider` or
+hooks, and optional recorder and observer. An empty `Agent.Provider` or
 `Agent.API` is filled from the client, an empty `Model` is the provider's
 `catalog.Default`, and an empty `Revision` is derived from the agent's
 behavior fields. On an existing turn, a zero `Agent` is the recorded one, and a
@@ -102,8 +102,8 @@ result contract; the provider may not constrain generation.
 `Recorder.Commit` acknowledges one versioned `Step` under `ExpectedSeq` and an
 optional `Owner` token (`dashi.WithOwner`). A host recorder should atomically
 check revision and owner, append the step, and commit related budget,
-accounting, or outbox rows; `BeforeSend` may supply non-secret admission JSON
-for that transaction. Return `CommitError` with `PersistenceRejected` only when
+accounting, or outbox rows; each `BeforeSend` hook may supply non-secret
+admission JSON for that transaction, recorded under the hook's name. Return `CommitError` with `PersistenceRejected` only when
 the write certainly did not commit, and `PersistenceUnknown` (or a plain error)
 when it may have. A recorder that also implements `Loader` lets `Run` answer a
 command retried with a stale snapshot from the stored record; `Load` reports a
@@ -129,21 +129,20 @@ verified nonexecution evidence; never infer nonexecution from an unclassified
 transport error. `llm.Call.Attempt` carries the recorded attempt ID, sent at
 most once, so a client can key durable jobs by it.
 
-## Tool and policy boundaries
+## Tool and hook boundaries
 
 Tools resolve before each model request, and the intent records their
 definitions. A local executor runs only after valid arguments and an allowed
-policy decision; a policy rewrite is authorized again with its effective
-arguments. `tool.KindExternal` calls wait for the host's `Settle`. A deferred
-call needs an answer bound to its arguments and policy revision:
-`Pending.Approve` and `Pending.Deny(reason)` build it, and `dashi.ArgsDigest`
-computes the digest from arguments shown earlier. The digest compares JSON
-meaning, so it survives a store that respells the arguments. A denial's reason
-becomes the call's result for the model. A nil `Runner.Policy` allows every
-bound local and external tool and records decision revision `default-v1`;
-binding a tool is the app's statement that the model may use it.
-`dashi.RequireApproval(names...)` defers the named tools and allows other
-local ones. Provider-hosted approval is a separate response that never becomes
+`BeforeTool` verdict; a hook's rewrite is checked against the schema and every
+hook is asked again about the new arguments. `tool.KindExternal` calls wait
+for the host's `Settle`. A deferred call needs an answer bound to its call ID
+and arguments: `Pending.Approve` and `Pending.Deny(reason)` build it, and
+`dashi.ArgsDigest` computes the digest from arguments shown earlier. The
+digest compares JSON meaning, so it survives a store that respells the
+arguments. A denial's reason becomes the call's result for the model. With no
+hook opinion, every bound local and external tool runs, recorded with the
+reason `no hook opinion`; binding a tool is the app's statement that the model
+may use it. `dashi.RequireApproval(names...)` defers the named tools. Provider-hosted approval is a separate response that never becomes
 a local call.
 
 Context from the user (`ContextUser`, also the meaning of an empty origin),
