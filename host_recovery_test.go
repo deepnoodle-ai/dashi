@@ -18,8 +18,8 @@ type testAdmission struct {
 
 type budgetPolicy struct{ AllowLocalPolicy }
 
-func (budgetPolicy) BeforeSend(_ context.Context, request llm.Request, _ TurnView) (ModelAuthorization, error) {
-	admission, err := json.Marshal(testAdmission{Units: 3, RequestProof: digest(request.Body())})
+func (budgetPolicy) BeforeSend(_ context.Context, plan SendPlan) (ModelAuthorization, error) {
+	admission, err := json.Marshal(testAdmission{Units: 3, RequestProof: digest(plan.Request.Body())})
 	return ModelAuthorization{Allow: true, Admission: admission}, err
 }
 

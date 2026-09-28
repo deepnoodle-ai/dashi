@@ -10,6 +10,8 @@ Task-oriented guides for building with Kernel.
   call, with validation, replay, tools, and cost.
 - [Running turns](running-turns.md): running an agent turn, recovering effects,
   structured output, and turn streaming.
+- [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
+  reservations.
 
 ## Reference
 

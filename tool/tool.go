@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/kernel/content"
@@ -279,11 +281,30 @@ type Outcome struct {
 
 	// Handle is required only for StateDetached.
 	Handle *Handle `json:"handle,omitempty"`
+	// Cost is the application-reported charge for completed tool work.
+	Cost *Cost `json:"cost,omitempty"`
+}
+
+// Cost is an application-reported charge for one completed tool call.
+type Cost struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"`
 }
 
 // Validate reports whether o carries exactly the payloads its State permits
 // and whether any output content is well formed.
 func (o Outcome) Validate() error {
+	if o.Cost != nil {
+		if strings.TrimSpace(o.Cost.Currency) == "" ||
+			strings.TrimSpace(o.Cost.Currency) != o.Cost.Currency ||
+			o.Cost.Amount < 0 ||
+			math.IsNaN(o.Cost.Amount) || math.IsInf(o.Cost.Amount, 0) {
+			return errors.New("tool: cost requires finite nonnegative amount and currency")
+		}
+		if o.State != StateSucceeded && o.State != StateFailed {
+			return errors.New("tool: cost requires completed execution")
+		}
+	}
 	switch o.State {
 	case StateSucceeded, StateFailed:
 		if o.Output == nil || o.Wait != nil || o.Handle != nil {

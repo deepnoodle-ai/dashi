@@ -54,8 +54,8 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(t *testing.T)
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	view, err := Replay(first.Turn)
-	if err != nil || view.Usage == nil || view.Usage.InputTokens != 4 {
-		t.Fatalf("usage=%+v err=%v", view.Usage, err)
+	if err != nil || view.Spend.Usage.InputTokens != 4 {
+		t.Fatalf("usage=%+v err=%v", view.Spend.Usage, err)
 	}
 	falseProof, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "false-proof", CallID: "t1:model:1", ModelFailure: &ModelFailure{Disposition: llm.FailureNotDispatched, Reason: "not sent", Evidence: "claim"}}, Bindings{Client: client, Recorder: rec})
 	if err != nil || falseProof.Persistence != PersistenceRejected {

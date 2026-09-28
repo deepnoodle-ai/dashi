@@ -10,6 +10,11 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
+func limitedForAttempts(stop Stop) bool {
+	return stop.Kind == StopLimited && stop.Reason == "model_attempts" &&
+		stop.Limit != nil && stop.Limit.Kind == LimitModelAttempts
+}
+
 func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	def := definition()
 	def.Limits = DefaultLimits()
@@ -26,7 +31,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "limit"}, def,
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))}},
 		Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
-	if err != nil || out.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) ||
+	if err != nil || !limitedForAttempts(out.Stop) ||
 		out.Turn.AnswerText() != "Found 42; further work is unfinished." || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d runs=%d", out, err, client.sends, runs)
 	}
@@ -72,7 +77,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "limit"}, def,
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("look up 42"))}},
 		Bindings{Client: client, Tools: fixedTools{binding}, Recorder: NewMemoryRecorder(), Policy: AllowLocalPolicy{}})
-	if err != nil || out.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) ||
+	if err != nil || !limitedForAttempts(out.Stop) ||
 		out.Output == nil || out.Output.Source != OutputFromTool || string(out.Output.Value) != `{"answer":42}` || client.sends != 2 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
@@ -175,7 +180,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay rejected limited stop after final attempt: %v", err)
 	}
-	if view.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) {
+	if !limitedForAttempts(view.Stop) {
 		t.Fatalf("stop=%+v", view.Stop)
 	}
 }
@@ -227,7 +232,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	}
 	second, err := (Engine{}).Apply(context.Background(), saved, def, Continue{ID: "recover"},
 		Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
-	if err != nil || second.Stop != (Stop{Kind: StopLimited, Reason: "model_attempts"}) ||
+	if err != nil || !limitedForAttempts(second.Stop) ||
 		second.Turn.AnswerText() != "42" || client.sends != 2 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
 	}

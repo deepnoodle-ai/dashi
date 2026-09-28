@@ -20,9 +20,19 @@ type ModelDecision struct {
 type ModelAuthorization struct {
 	Allow  bool
 	Reason string
+	Limit  *LimitDetail
 	// Admission is host-owned, non-secret JSON copied into the model intent.
 	// The recorder can atomically reserve spending against these exact terms.
 	Admission json.RawMessage
+}
+
+// SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
+// and the cost of allowing this call. A nil AtRisk is not a zero-cost call.
+type SendPlan struct {
+	Request   llm.Request
+	Turn      TurnView
+	AtRisk    *llm.Cost
+	Remaining *Money
 }
 type DecisionKind string
 
@@ -48,7 +58,7 @@ type StopDecision struct {
 // again. BeforeSend sees the final prepared request but cannot mutate it.
 type Policy interface {
 	BeforeModel(context.Context, ModelPlan) (ModelDecision, error)
-	BeforeSend(context.Context, llm.Request, TurnView) (ModelAuthorization, error)
+	BeforeSend(context.Context, SendPlan) (ModelAuthorization, error)
 	AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error)
 	OnStop(context.Context, TurnView) (StopDecision, error)
 }
@@ -60,7 +70,10 @@ type AllowLocalPolicy struct{}
 func (AllowLocalPolicy) BeforeModel(context.Context, ModelPlan) (ModelDecision, error) {
 	return ModelDecision{}, nil
 }
-func (AllowLocalPolicy) BeforeSend(context.Context, llm.Request, TurnView) (ModelAuthorization, error) {
+func (AllowLocalPolicy) BeforeSend(
+	context.Context,
+	SendPlan,
+) (ModelAuthorization, error) {
 	return ModelAuthorization{Allow: true}, nil
 }
 func (AllowLocalPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {

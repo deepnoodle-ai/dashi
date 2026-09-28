@@ -4,6 +4,7 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 )
@@ -37,6 +38,8 @@ type ModalityTokenUsage struct {
 // This differs deliberately from ReasoningTokens, which is a subset of
 // OutputTokens rather than an additive bucket.
 type Usage struct {
+	// Requests counts billable provider-hosted operations by price-sheet key.
+	Requests map[string]int `json:"requests,omitempty"`
 	// InputTokens counts input excluding cache reads and cache creation.
 	InputTokens int `json:"input_tokens"`
 
@@ -86,6 +89,30 @@ type Usage struct {
 // token buckets.
 func (u Usage) TotalInputTokens() int {
 	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// Validate rejects negative counters before they affect turn limits.
+func (u Usage) Validate() error {
+	for _, count := range []int{
+		u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens,
+		u.CacheReadInputTokens, u.ToolUseInputTokens, u.ReasoningTokens,
+	} {
+		if count < 0 {
+			return errors.New("llm: usage counters cannot be negative")
+		}
+	}
+	for _, count := range u.Requests {
+		if count < 0 {
+			return errors.New("llm: request counts cannot be negative")
+		}
+	}
+	for _, detail := range u.ModalityTokens {
+		if detail.InputTokens < 0 || detail.OutputTokens < 0 ||
+			detail.CacheCreationInputTokens < 0 || detail.CacheReadInputTokens < 0 {
+			return errors.New("llm: modality counters cannot be negative")
+		}
+	}
+	return nil
 }
 
 // UnmarshalJSON accepts provider-native usage shapes and maps their cache and
@@ -164,6 +191,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 // Copy returns a deep copy of the usage data.
 func (u *Usage) Copy() *Usage {
 	cp := &Usage{
+		Requests:                                maps.Clone(u.Requests),
 		InputTokens:                             u.InputTokens,
 		OutputTokens:                            u.OutputTokens,
 		CacheCreationInputTokens:                u.CacheCreationInputTokens,
@@ -200,6 +228,14 @@ func (u *Usage) Absorb(other *Usage) {
 	u.CacheReadInputTokens = max(u.CacheReadInputTokens, other.CacheReadInputTokens)
 	u.ToolUseInputTokens = max(u.ToolUseInputTokens, other.ToolUseInputTokens)
 	u.ReasoningTokens = max(u.ReasoningTokens, other.ReasoningTokens)
+	if len(other.Requests) > 0 {
+		if u.Requests == nil {
+			u.Requests = map[string]int{}
+		}
+		for name, count := range other.Requests {
+			u.Requests[name] = max(u.Requests[name], count)
+		}
+	}
 	if len(other.ModalityTokens) > 0 {
 		if u.ModalityTokens == nil {
 			u.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))
@@ -228,6 +264,14 @@ func (u *Usage) Add(other *Usage) {
 	u.CacheReadInputTokens += other.CacheReadInputTokens
 	u.ToolUseInputTokens += other.ToolUseInputTokens
 	u.ReasoningTokens += other.ReasoningTokens
+	if len(other.Requests) > 0 {
+		if u.Requests == nil {
+			u.Requests = map[string]int{}
+		}
+		for name, count := range other.Requests {
+			u.Requests[name] += count
+		}
+	}
 	if len(other.ModalityTokens) > 0 {
 		if u.ModalityTokens == nil {
 			u.ModalityTokens = make(map[string]ModalityTokenUsage, len(other.ModalityTokens))

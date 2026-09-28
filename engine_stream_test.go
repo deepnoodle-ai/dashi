@@ -164,9 +164,10 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 1 {
 		t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
 	}
-	if view.ModelAttempts != 0 || view.Usage == nil ||
-		view.Usage.InputTokens != 3 || view.Usage.OutputTokens != 2 {
-		t.Fatalf("attempts=%d usage=%+v", view.ModelAttempts, view.Usage)
+	if view.ModelAttempts != 0 || view.Spend.Usage.InputTokens != 3 ||
+		view.Spend.Usage.OutputTokens != 2 {
+		t.Fatalf("attempts=%d usage=%+v", view.ModelAttempts,
+			view.Spend.Usage)
 	}
 	found := false
 	for _, step := range turn.Steps {

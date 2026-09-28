@@ -75,8 +75,8 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 			t.Fatal(err)
 		}
 		if view.ModelAttempts != 0 || view.Interruptions != i ||
-			view.Usage == nil || view.Usage.InputTokens != 2*(i+1) ||
-			view.Usage.OutputTokens != i+1 {
+			view.Spend.Usage.InputTokens != 2*(i+1) ||
+			view.Spend.Usage.OutputTokens != i+1 {
 			t.Fatalf("interruption %d: view=%+v", i, view)
 		}
 		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||
@@ -95,7 +95,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 	}
 	view, err := Replay(limited.Turn)
 	if err != nil || view.ModelAttempts != 0 || view.Interruptions != 2 ||
-		view.Usage == nil || view.Usage.InputTokens != 6 ||
+		view.Spend.Usage.InputTokens != 6 ||
 		view.ReadyToContinue || limited.ReadyToContinue {
 		t.Fatalf("limited view=%+v err=%v", view, err)
 	}
@@ -277,8 +277,8 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
 			view, err := Replay(out.Turn)
-			if err != nil || view.ModelAttempts != 0 || view.Usage == nil ||
-				view.Usage.InputTokens != 4 {
+			if err != nil || view.ModelAttempts != 0 ||
+				view.Spend.Usage.InputTokens != 4 {
 				t.Fatalf("view=%+v err=%v", view, err)
 			}
 		})

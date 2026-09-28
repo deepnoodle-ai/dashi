@@ -158,14 +158,16 @@ const (
 // Step is an acknowledged fact, never a model-facing synthetic message.
 // Exactly one payload is present for kinds that require one.
 type Step struct {
-	Version        int                         `json:"version"`
-	TurnID         string                      `json:"turn_id"`
-	Seq            int64                       `json:"seq"`
-	At             time.Time                   `json:"at"`
-	Kind           StepKind                    `json:"kind"`
-	CommandID      string                      `json:"command_id,omitempty"`
-	CommandDigest  string                      `json:"command_digest,omitempty"`
-	Started        *StartFact                  `json:"started,omitempty"`
+	Version       int        `json:"version"`
+	TurnID        string     `json:"turn_id"`
+	Seq           int64      `json:"seq"`
+	At            time.Time  `json:"at"`
+	Kind          StepKind   `json:"kind"`
+	CommandID     string     `json:"command_id,omitempty"`
+	CommandDigest string     `json:"command_digest,omitempty"`
+	Started       *StartFact `json:"started,omitempty"`
+	// Budget on a continuation records the entire raised budget for audit.
+	Budget         *Budget                     `json:"budget,omitempty"`
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`
 	Tool           *ToolFact                   `json:"tool,omitempty"`
@@ -184,6 +186,8 @@ const (
 	// WarningHistoryMismatch means Continue received different prior history
 	// from Start. The turn still runs with the history supplied to Continue.
 	WarningHistoryMismatch WarningCode = "history_mismatch"
+	// WarningBudgetClamp records an output allowance reduced by a turn cap.
+	WarningBudgetClamp WarningCode = "budget_clamp"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -211,6 +215,7 @@ type StructuredOutput struct {
 
 type StartFact struct {
 	Definition   Definition      `json:"definition"`
+	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
 	// HistoryFingerprint identifies the caller-owned prior conversation at
@@ -237,31 +242,37 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
-	AttemptID        string                 `json:"attempt_id"`
-	MessageID        string                 `json:"message_id,omitempty"`
-	RequestDigest    string                 `json:"request_digest,omitempty"`
-	FinalAnswerOnly  bool                   `json:"final_answer_only,omitempty"`
-	Admission        json.RawMessage        `json:"admission,omitempty"`
-	Provider         string                 `json:"provider,omitempty"`
-	API              string                 `json:"api,omitempty"`
-	Model            string                 `json:"model,omitempty"`
-	Effective        llm.Settings           `json:"effective,omitzero"`
-	Origin           content.Origin         `json:"origin,omitzero"`
-	Adjustments      []llm.Adjustment       `json:"adjustments,omitempty"`
-	ContentChanges   []llm.ContentChange    `json:"content_changes,omitempty"`
-	ModelInfo        *llm.ModelInfo         `json:"model_info,omitempty"`
-	CapabilityPolicy llm.CapabilityPolicy   `json:"capability_policy"`
-	Unverified       []llm.Feature          `json:"unverified,omitempty"`
-	Tools            []tool.Definition      `json:"tools,omitempty"`
-	Result           *llm.Result            `json:"result,omitempty"`
-	Error            string                 `json:"error,omitempty"`
-	Failure          llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence         string                 `json:"evidence,omitempty"`
-	Uncertain        bool                   `json:"uncertain,omitempty"`
+	AttemptID       string          `json:"attempt_id"`
+	MessageID       string          `json:"message_id,omitempty"`
+	RequestDigest   string          `json:"request_digest,omitempty"`
+	FinalAnswerOnly bool            `json:"final_answer_only,omitempty"`
+	Admission       json.RawMessage `json:"admission,omitempty"`
+	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
+	AtRisk               *llm.Cost              `json:"at_risk,omitempty"`
+	Charge               *llm.Cost              `json:"charge,omitempty"`
+	EstimatedInputTokens int                    `json:"estimated_input_tokens,omitempty"`
+	EstimatedUsage       bool                   `json:"estimated_usage,omitempty"`
+	Provider             string                 `json:"provider,omitempty"`
+	API                  string                 `json:"api,omitempty"`
+	Model                string                 `json:"model,omitempty"`
+	Effective            llm.Settings           `json:"effective,omitzero"`
+	Origin               content.Origin         `json:"origin,omitzero"`
+	Adjustments          []llm.Adjustment       `json:"adjustments,omitempty"`
+	ContentChanges       []llm.ContentChange    `json:"content_changes,omitempty"`
+	ModelInfo            *llm.ModelInfo         `json:"model_info,omitempty"`
+	CapabilityPolicy     llm.CapabilityPolicy   `json:"capability_policy"`
+	Unverified           []llm.Feature          `json:"unverified,omitempty"`
+	Tools                []tool.Definition      `json:"tools,omitempty"`
+	Result               *llm.Result            `json:"result,omitempty"`
+	Error                string                 `json:"error,omitempty"`
+	Failure              llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence             string                 `json:"evidence,omitempty"`
+	Uncertain            bool                   `json:"uncertain,omitempty"`
 
 	// Interrupted preserves partial output and usage without making them
 	// actionable. A later model call may safely replace this one.
 	Interrupted bool `json:"interrupted,omitempty"`
+	NoDispatch  bool `json:"no_dispatch,omitempty"`
 }
 
 // UnmarshalJSON reads capability_policy, or maps the legacy
@@ -328,8 +339,9 @@ const (
 )
 
 type Stop struct {
-	Kind   StopKind `json:"kind"`
-	Reason string   `json:"reason,omitempty"`
+	Kind   StopKind     `json:"kind"`
+	Reason string       `json:"reason,omitempty"`
+	Limit  *LimitDetail `json:"limit,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool. The reason is a stable
@@ -365,7 +377,7 @@ type Outcome struct {
 	// Warnings are recorded, nonfatal conditions visible on replay.
 	Warnings []Warning
 
-	// ReadyToContinue is true when Continue can pick up the saved turn.
+	// ReadyToContinue is true when Continue needs no budget raise to run.
 	ReadyToContinue bool
 	Persistence     Persistence
 	Unacknowledged  *Step
@@ -378,6 +390,7 @@ type Command interface{ commandID() string }
 type Start struct {
 	ID     string
 	Origin StartOrigin
+	Budget *Budget
 	// OutputSchema overrides the definition's default for this turn. The
 	// admitted schema is pinned in the start fact for replay and recovery.
 	OutputSchema json.RawMessage
@@ -394,6 +407,7 @@ type Deliver struct {
 type Continue struct {
 	ID      string
 	History []llm.Message
+	Budget  *Budget
 }
 type Accept struct {
 	ID             string
