@@ -237,5 +237,7 @@ default. `DefaultLimits` was removed. Kernel resolves defaults when it accepts
 a definition and records the concrete values, so a saved turn keeps its limits.
 Known cost, accepted: after a default changes, continuing an older turn with
 zero limits returns `ErrDefinitionChanged`; pin the recorded values instead.
+Turns recorded before this change are not supported: Kernel had no users or
+stored turns, so there is no migration, and such a turn must be restarted.
 Rationale: `Limits{}` used to be rejected, and a forgotten bool silently turned
 off the final-answer reserve.
