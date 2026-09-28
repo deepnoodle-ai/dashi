@@ -223,12 +223,13 @@ same PR)
   Tests cover `Ready` firing between sibling tools at concurrency 1 and
   above. Unstarted allowed calls settle as `StateNotExecuted` with the output
   "Not run: the user sent new input." This is a new replay transition, from
-  allowed to not executed, with the reason `steering`. Running calls finish. Calls awaiting
-  approval and waiting external calls stay pending.
+  allowed to not executed, with the reason `steering`. Running calls finish.
+  Calls awaiting approval and waiting external calls stay pending.
 - FR-20: An attempt actually cancelled for a steer counts toward `ModelAttempts`
   and the budget. This supersedes part of decision 12 (decision 32), so
   replay counts only `InterruptedBy: "steering"`. Update the
-  `Limits.ModelAttempts` comment and `docs/agent-turns.md`. It does not count toward `Limits.Interruptions`.
+  `Limits.ModelAttempts` comment and `docs/agent-turns.md`. It does not count
+  toward `Limits.Interruptions`.
 
 **Reminder instruction**
 
