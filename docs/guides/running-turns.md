@@ -33,8 +33,7 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
   with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
   step's `CommandID` show them; see [IDs and recovery](#ids-and-recovery).
 - **Tools.** A nil `Policy` allows every bound local and external tool. To
-  ask a person first, supply a policy whose `AuthorizeTool` returns
-  `DecisionDefer`.
+  ask a person first, see [approving tool calls](#approving-tool-calls).
 - **Keys.** A client built without an API key fails on its first call with an
   error matching `llm.ErrNoAPIKey`, which names the environment variable.
 
@@ -80,7 +79,7 @@ for _, p := range out.Pending {
 		return err
 	}
 }
-out, err = runner.Run(ctx, out.Turn, dashi.Continue{CommandID: "continue-1"})
+out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
 ```
 
 `Approve` and `Deny` bind the answer to the exact arguments shown and the

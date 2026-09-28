@@ -2,7 +2,9 @@
 // policy defers each deploy call, so the turn stops waiting; each answer is
 // recorded with its own Run, and Continue resumes the turn. With a durable
 // recorder, each of those Runs could happen in a different request or
-// process. Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// process, given IDs the host chose and saved. Set ANTHROPIC_API_KEY before
+// running it; ANTHROPIC_MODEL optionally overrides the catalog's default
+// model.
 package main
 
 import (
@@ -26,9 +28,6 @@ type deployArgs struct {
 
 func main() {
 	log.SetFlags(0)
-	if os.Getenv("ANTHROPIC_MODEL") == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		log.Fatal("durable_approval: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
-	}
 	ctx := context.Background()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -48,17 +47,14 @@ func main() {
 	}
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			ID:           "release-manager",
-			Revision:     "1",
-			Instructions: "You are a release manager. Use the deploy tool to deploy.",
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "You are a release manager. Use the deploy tool to deploy.",
 		},
 		Client: client,
 		Tools:  tool.List{deploy},
 		Policy: dashi.RequireApproval("deploy"),
 	}
-	out, err := runner.Run(ctx, dashi.NewTurn("deploy-turn"), dashi.Start{
-		CommandID: "start",
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},
@@ -66,7 +62,7 @@ func main() {
 	// The model may ask again after an answer, so repeat until the turn
 	// stops for another reason.
 	answers := bufio.NewReader(os.Stdin)
-	for round := 1; err == nil && out.Stop.Kind == dashi.StopWaiting; round++ {
+	for err == nil && out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
 			if p.Kind != dashi.PendingApproval {
 				continue // Continue reports anything left unanswered.
@@ -81,9 +77,7 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		out, err = runner.Run(ctx, out.Turn, dashi.Continue{
-			CommandID: fmt.Sprintf("continue-%d", round),
-		})
+		out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
 	}
 	if err != nil {
 		log.Fatal(err)

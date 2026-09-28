@@ -3,7 +3,8 @@
 // denies it, so the whole turn is one Run; a denial's reason is what the
 // model sees as the call's result. A server that cannot wait for a person
 // uses the deferred form in examples/durable_approval instead. Set
-// ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model.
 package main
 
 import (
@@ -59,10 +60,6 @@ func (p askPolicy) AuthorizeTool(
 
 func main() {
 	log.SetFlags(0)
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		log.Fatal("approval: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
-	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		log.Fatal(err)
@@ -81,10 +78,8 @@ func main() {
 	}
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			ID:           "release-manager",
-			Revision:     "1",
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "You are a release manager. Use the deploy tool to deploy.",
-			Model:        model,
 		},
 		Client: client,
 		Tools:  tool.List{deploy},
@@ -92,16 +87,11 @@ func main() {
 	}
 	// If the model asks again after an answer, the policy asks again, all
 	// within this one Run.
-	out, err := runner.Run(
-		context.Background(),
-		dashi.NewTurn("deploy-turn"),
-		dashi.Start{
-			CommandID: "start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
-			},
+	out, err := runner.Run(context.Background(), dashi.Turn{}, dashi.Start{
+		Input: []llm.Message{
+			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},
-	)
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
