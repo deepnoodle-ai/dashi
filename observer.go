@@ -32,3 +32,12 @@ func (e *emitter) close() {
 		close(e.ch)
 	}
 }
+
+// sendPreview queues a best-effort preview, such as tool progress, only while
+// the buffer is at most half full, so frequent previews never crowd out steps.
+func (e *emitter) sendPreview(event Event) {
+	if e == nil || e.ch == nil || len(e.ch) >= cap(e.ch)/2 {
+		return
+	}
+	e.send(event)
+}

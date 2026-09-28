@@ -28,9 +28,10 @@ type Runner struct {
 	Recorder Recorder
 	// Policy defaults to denying tool calls when nil.
 	Policy Policy
-	// Observer receives committed steps and provisional deltas. When it is
-	// set, Run requests streamed model output so the Observer sees text as it
-	// arrives; Stream always does.
+	// Observer receives committed steps, provisional deltas, and tool
+	// progress. When it is set, Run requests streamed model output and
+	// delivers tool.Report snapshots so the Observer sees work as it happens;
+	// Stream always does.
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
@@ -685,7 +686,11 @@ func (r *runtime) commit(step Step) *Outcome {
 
 func (r *runtime) emit(event Event) {
 	if r.emitter != nil && r.emitter.ch != nil {
-		r.emitter.send(cloneEvent(event))
+		if event.Progress != nil {
+			r.emitter.sendPreview(cloneEvent(event))
+		} else {
+			r.emitter.send(cloneEvent(event))
+		}
 	}
 	if r.opts.streamSink != nil {
 		r.opts.streamSink(cloneEvent(event))
@@ -696,6 +701,9 @@ func cloneEvent(event Event) Event {
 	if event.Step != nil {
 		step := cloneStep(*event.Step)
 		event.Step = &step
+	}
+	if event.Progress != nil {
+		event.Progress = cloneToolProgress(event.Progress)
 	}
 	if event.Delta != nil {
 		delta := *event.Delta

@@ -129,17 +129,22 @@ func (AllowLocalPolicy) OnStop(
 	return StopDecision{}, nil
 }
 
-// Event carries a committed step or provisional model delta from Runner.Stream.
+// Event carries one committed step, provisional model delta, or tool progress
+// snapshot, from Runner.Stream or to an Observer.
 type Event struct {
 	TurnID    string
 	AttemptID string
 	MessageID string
 	Step      *Step
 	Delta     *llm.Delta
+	// Progress is the latest tool.Report snapshot of a running tool call. It
+	// is a preview, like Delta: never recorded and never replayed.
+	Progress *ToolProgress
 	// Outcome is set only on the final Runner.Stream event. Observer receives
-	// committed steps and provisional deltas, not this terminal event.
+	// steps, deltas, and progress, not this terminal event.
 	Outcome *Outcome
 }
 
-// Observer receives progress while a run is in progress.
+// Observer receives events while a run is in progress. It runs on its own
+// goroutine behind a bounded, lossy queue, so it never blocks the turn.
 type Observer func(Event)
