@@ -131,6 +131,9 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 	if body.Tools[0]["type"] != WebSearchType {
 		t.Fatal("web search wire version changed")
 	}
+	if _, ok := body.Tools[0]["max_uses"]; ok {
+		t.Fatal("web search sent max_uses though the caller left it unset")
+	}
 	if body.Tools[1]["max_uses"] != float64(2) {
 		t.Fatal("web fetch limit was omitted")
 	}

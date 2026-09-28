@@ -1,6 +1,7 @@
 package providers_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +134,51 @@ func TestCatalogLimitsFailUnderStrictPolicy(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("strict policy accepted max tokens above the documented limit")
+	}
+}
+
+// The catalog records max_tokens support, so strict policy applies the
+// default output limit to catalog models.
+func TestStrictPolicyDefaultsMaxTokensForCatalogModels(t *testing.T) {
+	p := newMessages(
+		t,
+		messages.Config{
+			APIKey:           "k",
+			CapabilityPolicy: llm.CapabilityStrict,
+		},
+	)
+	prep, err := p.Prepare(
+		t.Context(),
+		llm.Input{
+			Model:    "claude-opus-4-7",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+	)
+	if err != nil {
+		t.Fatalf("strict policy rejected a catalog model: %v", err)
+	}
+	if got := prep.Effective().MaxTokens; got != llm.DefaultMaxTokens {
+		t.Fatalf("max tokens = %d, want %d", got, llm.DefaultMaxTokens)
+	}
+}
+
+// Without evidence of max_tokens support, strict never defaults it; Messages
+// requires it and must say so instead of sending a bad body.
+func TestStrictMessagesNamesMissingMaxTokensEvidence(t *testing.T) {
+	const endpoint = "https://api.anthropic.com/v1/messages"
+	info := textModel(providerCase{name: "anthropic"}, endpoint)
+	delete(info.Capabilities.Features, llm.FeatureMaxTokens)
+	p := newMessages(
+		t,
+		messages.Config{
+			APIKey:           "k",
+			Models:           map[string]llm.ModelInfo{"requested": info},
+			CapabilityPolicy: llm.CapabilityStrict,
+		},
+	)
+	_, err := p.Prepare(t.Context(), modelInput())
+	if err == nil || !strings.Contains(err.Error(), "max_tokens") {
+		t.Fatalf("strict Messages without max_tokens evidence: %v", err)
 	}
 }
 

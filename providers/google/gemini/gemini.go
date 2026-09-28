@@ -233,7 +233,11 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
-	input, adjustments, err := httpClient.Fit(input, apiLimits, nil)
+	input, adjustments, err := httpClient.Fit(
+		input,
+		limits(input, httpClient),
+		nil,
+	)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -392,14 +396,37 @@ func (p *Client) Prepare(
 
 // apiLimits states what this Gemini encoding accepts from any model. It has
 // no parallel tool control, since Gemini decides that itself, and it maps
-// reasoning only from token budgets. The API documents temperature as 0 to 2
+// reasoning only from token budgets. The API documents maxOutputTokens for
+// every model and temperature as 0 to 2
 // (https://ai.google.dev/api/generate-content).
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
+		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureParallelTools:   llm.SupportUnsupported,
 		llm.FeatureReasoningEffort: llm.SupportUnsupported,
 	},
 	MaxTemperature: 2,
+}
+
+// limits adds the per-request thinking cap to apiLimits. Gemini counts
+// thinking tokens against maxOutputTokens, so a budget at or above the
+// effective output limit could leave no room for an answer; the budget is
+// kept below it, as Messages requires.
+func limits(
+	input llm.Input,
+	client providerhttp.Client,
+) llm.Capabilities {
+	maxTokens := input.Settings.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = llm.DefaultMaxTokens
+	}
+	info, _ := client.ModelInfo(input.Model)
+	if limit := info.Capabilities.MaxOutputTokens; limit > 0 {
+		maxTokens = min(maxTokens, limit)
+	}
+	api := apiLimits
+	api.MaxReasoningBudget = max(maxTokens-1, 1)
+	return api
 }
 
 func hasClientFunctionCalls(input llm.Input) bool {

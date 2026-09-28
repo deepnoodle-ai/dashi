@@ -32,6 +32,11 @@ var effortAliases = map[string]string{
 }
 
 // Fit brings settings within known limits before a provider encodes them.
+// It first fills an unset MaxTokens with DefaultMaxTokens, lowered to a known
+// MaxOutputTokens, and records that as an AdjustmentDefault. The default is
+// skipped when the model is known to reject an output limit, and under
+// CapabilityStrict when support for one is unknown, because strict never
+// sends a value of unknown support that the caller did not ask for.
 // Under CapabilityAdjust a value beyond a known limit becomes the nearest
 // accepted value, and a setting the destination rejects is omitted when the
 // model default keeps the request's meaning; each change is an Adjustment that
@@ -60,6 +65,23 @@ func (c Capabilities) Fit(
 		adjustments: slices.Clone(prior),
 	}
 	s := &r.Settings
+	if s.MaxTokens == 0 && c.acceptsDefaultMaxTokens(policy) {
+		s.MaxTokens = DefaultMaxTokens
+		reason := fmt.Sprintf(
+			"max_tokens is unset; using the default %d",
+			DefaultMaxTokens,
+		)
+		if limit := c.MaxOutputTokens; limit > 0 && limit < s.MaxTokens {
+			s.MaxTokens = limit
+			reason = fmt.Sprintf(
+				"max_tokens is unset; using the model's output limit %d, "+
+					"below the default %d",
+				limit,
+				DefaultMaxTokens,
+			)
+		}
+		f.fill(SettingMaxTokens, s.MaxTokens, reason)
+	}
 	if limit := c.MaxOutputTokens; limit > 0 && s.MaxTokens > limit {
 		err := f.clamp(
 			SettingMaxTokens,
@@ -294,6 +316,17 @@ func (c Capabilities) fitReasoning(
 	)
 }
 
+// acceptsDefaultMaxTokens reports whether Fit may fill an unset MaxTokens.
+func (c Capabilities) acceptsDefaultMaxTokens(policy CapabilityPolicy) bool {
+	switch c.Features[FeatureMaxTokens] {
+	case SupportUnsupported:
+		return false
+	case SupportSupported:
+		return true
+	}
+	return policy != CapabilityStrict
+}
+
 // fitter accumulates Fit's decisions and applies the policy to each one.
 type fitter struct {
 	model       string
@@ -314,6 +347,22 @@ func (f *fitter) clamp(
 		effective,
 		reason,
 		strict,
+	)
+}
+
+// fill records a default for an omitted setting. A default replaces no
+// caller value, so it applies under both policies.
+func (f *fitter) fill(field Setting, effective any, reason string) {
+	value, _ := json.Marshal(effective)
+	f.adjustments = append(
+		f.adjustments,
+		Adjustment{
+			Field:     field,
+			Action:    AdjustmentDefault,
+			Requested: json.RawMessage("null"),
+			Effective: value,
+			Reason:    reason,
+		},
 	)
 }
 

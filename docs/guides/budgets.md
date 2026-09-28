@@ -24,16 +24,19 @@ start := kernel.Start{
 Kernel lowers the next request's output allowance to the remaining output
 tokens and records a warning. The total-token cap is checked after each call.
 For a cost cap, the prepared request must carry model prices and a finite
-effective output allowance. Kernel estimates the full input and output cost
+effective output allowance. An unset `MaxTokens` becomes
+`llm.DefaultMaxTokens` (32,768, or the model's smaller documented limit), so
+the default settings are bounded on every provider. Kernel estimates the full input and output cost
 before `BeforeSend`. If it cannot bound the call or the call would exceed the
 cap, the turn stops `limited` before dispatch. It does not shrink the reply to
 fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case
 (`CostLimit`, `CostUsed`, `CostAtRisk`), and the output-token allowance that
 would fit. A call whose worst case reaches the cap exactly is admitted. If input alone consumes the remaining
 cap, no positive allowance fits; raise the cap or reduce input/history.
-A model without prices has an explicit `UnpricedModel` detail. A call without
-a finite `MaxTokens` or with provider-hosted tools also stops before dispatch,
-since its cost cannot be bounded.
+A model without prices has an explicit `UnpricedModel` detail. A call with
+provider-hosted tools also stops before dispatch, since its cost cannot be
+bounded; so does one without an output limit, which happens only under the
+strict capability policy when the model's `max_tokens` support is unknown.
 
 `Replay(turn).Spend` contains token totals, model costs by currency, counts of
 calls with estimated usage, and counts of calls with unknown or

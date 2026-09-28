@@ -24,6 +24,8 @@ import (
 // API identifies Chat Completions independently of the configured destination.
 const API = "openai.completions"
 
+const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
+
 // Config describes one Chat Completions destination. Compatible services must
 // supply their own stable Provider name and Endpoint.
 type Config struct {
@@ -59,15 +61,14 @@ var _ llm.Client = (*Client)(nil)
 // New snapshots destination identity and model evidence. Custom endpoints
 // require a provider name so replay cannot confuse separate services.
 func New(config Config) (*Client, error) {
-	const endpoint = "https://api.openai.com/v1/chat/completions"
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
 	if config.Endpoint == "" {
-		config.Endpoint = endpoint
+		config.Endpoint = openAIEndpoint
 	}
 	if config.Provider == "" {
-		if config.Endpoint != endpoint {
+		if config.Endpoint != openAIEndpoint {
 			return nil, errors.New("completions: custom endpoint requires provider identity")
 		}
 		config.Provider = "openai"
@@ -165,13 +166,8 @@ func (p *Client) Prepare(
 		return llm.Request{}, err
 	}
 	body := map[string]any{"model": r.Model}
-	if r.Settings.MaxTokens > 0 {
-		key := "max_tokens"
-		// Dive selects the newer field for OpenAI reasoning-model families.
-		if strings.HasPrefix(r.Model, "o") || strings.HasPrefix(r.Model, "gpt-5") {
-			key = "max_completion_tokens"
-		}
-		body[key] = r.Settings.MaxTokens
+	if n := r.Settings.MaxTokens; n > 0 {
+		body[maxTokensField(p.client.Endpoint, r.Model)] = n
 	}
 	if r.Settings.Temperature != nil {
 		if *r.Settings.Temperature > 2 {
@@ -252,10 +248,12 @@ func (p *Client) Prepare(
 	return p.client.Prepare(requested, r, body, adjustments, changes)
 }
 
-// apiLimits states what Chat Completions accepts from any model. Effort
-// names pass through because compatible services define their own.
+// apiLimits states what Chat Completions accepts from any model. Every model
+// takes an output limit. Effort names pass through because compatible
+// services define their own.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
+		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
 	},
 	MaxTemperature: 2,
@@ -327,6 +325,22 @@ func (wire codec) unsupported(format string, args ...any) error {
 		format,
 		args...,
 	)
+}
+
+// maxTokensField names the wire output limit. OpenAI deprecated max_tokens in
+// favor of max_completion_tokens, which its reasoning models require and its
+// other chat models accept. Compatible services such as Mistral, OpenRouter,
+// and DeepInfra document max_tokens, so other endpoints keep it unless the
+// model is named like an OpenAI reasoning model, as behind a proxy. Matching
+// "o" plus a digit keeps IDs such as "openai/gpt-4o" and "open-mistral-nemo"
+// on max_tokens.
+func maxTokensField(endpoint, model string) string {
+	reasoning := strings.HasPrefix(model, "gpt-5") ||
+		len(model) > 1 && model[0] == 'o' && '0' <= model[1] && model[1] <= '9'
+	if endpoint == openAIEndpoint || reasoning {
+		return "max_completion_tokens"
+	}
+	return "max_tokens"
 }
 
 // supportsPlainReasoning keeps adaptation aligned with the encodings below.

@@ -20,7 +20,6 @@ type Config struct {
 	Client           *http.Client
 	Models           map[string]llm.ModelInfo
 	CapabilityPolicy llm.CapabilityPolicy
-	DefaultMaxTokens int
 }
 
 // Client uses the Messages wire format with Ollama's destination identity.
@@ -42,9 +41,6 @@ func New(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		config.APIKey = "ollama"
 	}
-	if config.DefaultMaxTokens == 0 {
-		config.DefaultMaxTokens = 32768
-	}
 	client, err := messages.New(messages.Config{
 		Provider:         "ollama",
 		APIKey:           config.APIKey,
@@ -52,7 +48,6 @@ func New(config Config) (*Client, error) {
 		Client:           config.Client,
 		Models:           config.Models,
 		CapabilityPolicy: config.CapabilityPolicy,
-		DefaultMaxTokens: config.DefaultMaxTokens,
 	})
 	if err != nil {
 		return nil, err

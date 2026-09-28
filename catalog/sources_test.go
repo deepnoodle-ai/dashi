@@ -313,9 +313,40 @@ func openAIModelPage(model string) string {
 	return "https://developers.openai.com/api/docs/models/" + model
 }
 
-// allClaimSources expands the per-model OpenAI tables into rows.
+// maxTokensReference is each provider's API reference, which documents an
+// output limit parameter for every model the API serves: max_tokens
+// (required) on Messages, max_output_tokens on Responses, maxOutputTokens on
+// generateContent, and max_tokens on Mistral's chat completions.
+var maxTokensReference = map[string]string{
+	"anthropic": "https://platform.claude.com/docs/en/api/messages",
+	"google":    "https://ai.google.dev/api/generate-content",
+	"grok": "https://docs.x.ai/developers/rest-api-reference/" +
+		"inference/responses",
+	"meta":    "https://dev.meta.ai/docs/protocols/responses",
+	"mistral": "https://docs.mistral.ai/api/",
+	"openai": "https://developers.openai.com/api/reference/resources/" +
+		"responses/methods/create",
+}
+
+// allClaimSources expands the per-model OpenAI tables and the API-wide
+// output limit claim into rows.
 func allClaimSources() []claimSource {
 	sources := slices.Clone(claimSources)
+	for _, provider := range Providers() {
+		var models []string
+		for _, e := range Entries(provider) {
+			models = append(models, e.Model)
+		}
+		sources = append(
+			sources,
+			claimSource{
+				url:     maxTokensReference[provider],
+				models:  models,
+				feature: llm.FeatureMaxTokens,
+				support: llm.SupportSupported,
+			},
+		)
+	}
 	for _, model := range slices.Sorted(maps.Keys(openAIEfforts)) {
 		sources = append(
 			sources,

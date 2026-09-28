@@ -273,9 +273,10 @@ func (p *Client) Prepare(
 }
 
 // apiLimits states what the Responses API accepts from any model. It takes
-// effort levels, not token budgets.
+// effort levels, not token budgets, and an output limit for every model.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
+		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
 	},
 	ReasoningEfforts: []string{

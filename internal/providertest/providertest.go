@@ -60,7 +60,8 @@ func CatalogDefaults(t *testing.T, client llm.Client, model string) {
 }
 
 // CatalogModelsPrepare checks that every catalog model the provider serves
-// at the client's API prepares a plain request. Catalog facts must never make
+// at the client's API prepares a plain request, with the shared default output
+// limit lowered to the model's documented limit. Catalog facts must never make
 // a request fail that would succeed without them.
 func CatalogModelsPrepare(t *testing.T, provider string, client llm.Client) {
 	t.Helper()
@@ -69,7 +70,7 @@ func CatalogModelsPrepare(t *testing.T, provider string, client llm.Client) {
 		if !slices.Contains(entry.APIs, client.API()) {
 			continue
 		}
-		_, err := client.Prepare(
+		request, err := client.Prepare(
 			context.Background(),
 			llm.Input{
 				Model:    entry.Model,
@@ -80,6 +81,19 @@ func CatalogModelsPrepare(t *testing.T, provider string, client llm.Client) {
 		)
 		if err != nil {
 			t.Fatalf("%s at %s: %v", entry.Model, client.API(), err)
+		}
+		want := llm.DefaultMaxTokens
+		if limit := entry.Capabilities.MaxOutputTokens; limit > 0 {
+			want = min(want, limit)
+		}
+		if got := request.Effective().MaxTokens; got != want {
+			t.Fatalf(
+				"%s at %s: default max tokens = %d, want %d",
+				entry.Model,
+				client.API(),
+				got,
+				want,
+			)
 		}
 	}
 }

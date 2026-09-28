@@ -54,10 +54,13 @@ a matching decision. Snapshots and model facts always record the resolved
 policy; a record written before the policy existed decodes as strict, which was
 its default then.
 
-Messages applies its configured `DefaultMaxTokens` (1024 when unset) and an
-automatic tool choice when parallel-tool controls require one. Both appear in
-effective settings and decisions. Reasoning budgets are checked against that
-same output limit, and a budget beyond it is clamped below it. Temperature with
+`Fit` fills an unset `MaxTokens` with `llm.DefaultMaxTokens` (32,768), lowered
+to the model's known output limit, for every provider. Messages also applies
+an automatic tool choice when parallel-tool controls require one. Both appear
+in effective settings as `default` decisions, which are not warnings. Under
+strict policy the output-limit default needs evidence of `max_tokens` support.
+Reasoning budgets are checked against the effective output limit, and a budget
+beyond it is clamped below it. Temperature with
 thinking is omitted with a warning; other conflicting controls are rejected.
 Wire-name translations preserve canonical meaning; they are not reasoning
 emulation.
