@@ -162,6 +162,11 @@ example sends lines starting with `!` as urgent.
   the recorder with the intent.
 - An answer's provider-pause chain restarts after a steering interrupt, so
   text from before the steer is never joined to the answer after it.
+- A provider pause that leaves a hosted call unfinished (an Anthropic
+  `pause_turn` during web search) is treated like a tool call awaiting its
+  result. FR-6 holds steers and the listener does not cut the continuation,
+  since providers reject a request that does not end with the paused
+  result. The steer lands after the continuation.
 - Under `MaxOutputTokens`, a cut late in a long call can leave the
   replacement a small clamp. Accepted for now; the fix would publish the
   streamed estimate for `replacementFits` to subtract.

@@ -17,13 +17,15 @@ import (
 // urgentCall scripts one model call for urgentClient. The client streams
 // deltas, then runs during; when block is set it then waits for the call's
 // context to end and streams late, the frames a provider sends after the
-// cancel. It returns result, with the context's error when it blocked.
+// cancel. It returns result, with err, or else the context's error, when it
+// blocked.
 type urgentCall struct {
 	deltas []llm.Delta
 	during func(ctx context.Context)
 	block  bool
 	late   []llm.Delta
 	result llm.Result
+	err    error
 }
 
 // urgentClient is a deterministic model client for urgent steers. Prepare
@@ -79,6 +81,9 @@ func (c *urgentClient) Send(
 	}
 	<-ctx.Done()
 	emit(script.late)
+	if script.err != nil {
+		return script.result, script.err
+	}
 	return script.result, ctx.Err()
 }
 
@@ -356,18 +361,22 @@ func (h *intentHook) Commit(ctx context.Context, req CommitRequest) error {
 	return nil
 }
 
-func TestUrgentSteerBeforeSendGoesBackForTheSteer(t *testing.T) {
+func TestUrgentSteerAfterBeforeModelGoesBackForTheSteer(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := newUrgentClient(urgentCall{result: final("ok")})
 	asked := 0
 	hook := ModelHook{
 		Name: "late",
-		Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		Func: func(
+			_ context.Context,
+			plan ModelPlan,
+		) (ModelDecision, error) {
 			asked++
 			if asked == 1 {
 				inbox.sendUrgent(t, "use staging")
 			}
-			return ModelDecision{}, nil
+			settings := plan.Input.Settings
+			return ModelDecision{Settings: &settings}, nil
 		},
 	}
 	out := runUrgent(t, client, inbox, func(r *Runner) {
@@ -386,6 +395,12 @@ func TestUrgentSteerBeforeSendGoesBackForTheSteer(t *testing.T) {
 		t.Fatalf(
 			"BeforeModel ran %d times; the pass after the steer asks again",
 			asked,
+		)
+	}
+	if n := len(hookResultsOf(out.Turn, HookBeforeModel)); n != 1 {
+		t.Fatalf(
+			"%d BeforeModel results recorded; the abandoned pass left its own",
+			n,
 		)
 	}
 	if hasText(client.lastMessages(), "use staging") < 0 {

@@ -1204,8 +1204,12 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	callCtx, cancelCall := context.WithCancelCause(r.ctx)
 	defer cancelCall(nil)
 	never := ""
-	if unsafeHosted(defs) {
+	switch {
+	case unsafeHosted(defs):
 		never = "it offers a provider-hosted tool that is not safe to repeat"
+	case s.pausedHosted:
+		// The steer could not follow the paused result anyway (FR-6).
+		never = "it finishes a hosted tool call the provider paused"
 	}
 	call, back := r.registerCall(cancelCall, never)
 	defer r.dropCall(call)

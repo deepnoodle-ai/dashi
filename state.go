@@ -160,6 +160,11 @@ type replayState struct {
 	// answerVetoed is set while the latest answer is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
+	// pausedHosted is set while the latest actionable result is a provider
+	// pause that left a hosted call unfinished. The next request must end
+	// with that result so the provider can finish the call, so no steer may
+	// follow it yet.
+	pausedHosted bool
 	// deliveredOnKept sizes the context delivered while a final text answer
 	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
@@ -1147,6 +1152,7 @@ func (s *replayState) recordResult(
 	if result.Stop.Kind == llm.StopPause {
 		s.ProviderPauses++
 	}
+	s.pausedHosted = pausedMidHostedCall(*result)
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {

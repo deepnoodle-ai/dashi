@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Steering is a source of messages a person sends while a turn runs, such
@@ -118,10 +120,11 @@ func (st *steerState) claim(id string) {
 // not yet record, in order. A steer already recorded is acknowledged again.
 // A failing source or an invalid steer never fails the turn: it is
 // recorded as a WarningSteering on the next step, and the steer stays with
-// its source.
+// its source. Steers wait while a provider pause leaves a hosted call
+// unfinished, and reach the call after its continuation.
 func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	source := r.opts.steering
-	if source == nil {
+	if source == nil || s.pausedHosted {
 		return nil
 	}
 	unlock := r.lockSource()
@@ -442,4 +445,26 @@ func recordedItems(t Turn) map[string]ContextItem {
 		}
 	}
 	return out
+}
+
+// pausedMidHostedCall reports whether result is a provider pause that left
+// a hosted call unfinished, as an Anthropic pause_turn during a web search
+// does. Such a call is like a tool call awaiting its result: a steer may
+// not land between them, and providers reject a request that does not end
+// with the paused result.
+func pausedMidHostedCall(result llm.Result) bool {
+	if result.Stop.Kind != llm.StopPause {
+		return false
+	}
+	open := map[string]bool{}
+	for _, part := range result.Message.Content {
+		switch {
+		case part.HostedUse != nil && part.HostedUse.Status != "completed" &&
+			part.HostedUse.Status != "failed":
+			open[part.HostedUse.ID] = true
+		case part.HostedResult != nil:
+			delete(open, part.HostedResult.CallID)
+		}
+	}
+	return len(open) > 0
 }
