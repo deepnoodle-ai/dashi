@@ -27,6 +27,10 @@ import (
 // model.
 // Arguments that do not match the schema are refused before fn runs; see
 // docs/guides/tools.md#defining-tools for the complete rules.
+// Unknown keys in struct arguments are ignored by default. Pass
+// WithStrictArguments to reject them, including in nested structs.
+// Call.Args retains the effective raw JSON in either mode; it is not a
+// sanitized copy of the typed arguments.
 // The callback also receives the stable call identity, suitable for downstream
 // idempotency and reconciliation. An error from the callback is returned
 // unchanged, so it follows the Executor contract: a plain error goes to the
@@ -34,6 +38,7 @@ import (
 func Func[T any](
 	name, description string,
 	fn func(context.Context, Call, T) (Outcome, error),
+	options ...FuncOption,
 ) (Tool, error) {
 	if fn == nil {
 		return Tool{}, errors.New("tool: nil function")
@@ -42,10 +47,14 @@ func Func[T any](
 		return Tool{}, fmt.Errorf("tool: %q: %w", name, err)
 	}
 	var zero T
+	strictArguments := false
+	for _, option := range options {
+		strictArguments = strictArguments || option.strictArguments
+	}
 	s, err := schema.Generate(
 		zero,
 		schema.GenerateOptions{
-			DisallowAdditionalProperties: true,
+			DisallowAdditionalProperties: strictArguments,
 		},
 	)
 	if err != nil {
@@ -84,17 +93,36 @@ func Func[T any](
 			err,
 		)
 	}
-	executor := typedExecutor[T]{name: name, schema: compiled, fn: fn}
+	executor := typedExecutor[T]{
+		name:            name,
+		schema:          compiled,
+		strictArguments: strictArguments,
+		fn:              fn,
+	}
 	return Tool{Definition: d, Executor: executor}, nil
+}
+
+// FuncOption configures a typed tool. Its zero value leaves the default
+// argument behavior unchanged.
+type FuncOption struct {
+	strictArguments bool
+}
+
+// WithStrictArguments rejects unknown keys in struct arguments instead of
+// ignoring them. The generated schema is closed at the root and at nested
+// struct locations, and direct execution uses the same policy.
+func WithStrictArguments() FuncOption {
+	return FuncOption{strictArguments: true}
 }
 
 // typedExecutor runs fn only for calls whose arguments satisfy the compiled
 // schema and decode into T. Rejected calls return StateNotExecuted, never an
 // error, because nothing ran and the result is therefore certain.
 type typedExecutor[T any] struct {
-	name   string
-	schema *jsonschema.Schema
-	fn     func(context.Context, Call, T) (Outcome, error)
+	name            string
+	schema          *jsonschema.Schema
+	strictArguments bool
+	fn              func(context.Context, Call, T) (Outcome, error)
 }
 
 // Execute passes fn a clone of call, so the callback cannot alter the
@@ -123,7 +151,9 @@ func (e typedExecutor[T]) Execute(
 	}
 	var input T
 	decoder := json.NewDecoder(bytes.NewReader(call.Args))
-	decoder.DisallowUnknownFields()
+	if e.strictArguments {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(&input); err != nil {
 		return notExecuted("invalid input: " + err.Error()), nil
 	}

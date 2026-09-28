@@ -20,11 +20,11 @@ func TestFuncRejectsInvalidArgumentsBeforeExecuting(t *testing.T) {
 		args string
 	}{
 		{name: "missing required field", args: `{}`},
+		{name: "misspelled required field", args: `{"qurey":"yes"}`},
 		{name: "null", args: `null`},
 		{name: "wrong type", args: `{"query":3}`},
 		{name: "outside enum", args: `{"query":"maybe"}`},
 		{name: "below minimum", args: `{"query":"yes","count":0}`},
-		{name: "unknown field", args: `{"query":"yes","extra":1}`},
 		{name: "trailing value", args: `{"query":"yes"} {}`},
 	}
 	for _, test := range tests {

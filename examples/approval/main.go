@@ -40,6 +40,7 @@ func main() {
 			fmt.Println(text)
 			return tool.Succeeded(text), nil
 		},
+		tool.WithStrictArguments(),
 	)
 	if err != nil {
 		log.Fatal(err)

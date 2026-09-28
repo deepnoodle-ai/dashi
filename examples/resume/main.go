@@ -95,6 +95,7 @@ func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 			fmt.Printf("Queued email to %s: %q\n", in.To, in.Subject)
 			return tool.Detached("msg-" + call.ID), nil
 		},
+		tool.WithStrictArguments(),
 	)
 	if err != nil {
 		return dashi.Runner{}, fmt.Errorf("resume: create tool: %w", err)
