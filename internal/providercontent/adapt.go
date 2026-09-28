@@ -230,12 +230,19 @@ func Adapt(
 					return fail("tool result requires user role and an unanswered earlier call")
 				}
 				delete(pending, id)
-				if c.ToolResult.IsError &&
-					origin.API == "openai.responses" {
-					record(
-						llm.ContentChangeEncodeToolError,
-						"Responses represents the tool error flag with a visible failure prefix",
-					)
+				if c.ToolResult.IsError {
+					switch origin.API {
+					case "openai.responses":
+						record(
+							llm.ContentChangeEncodeToolError,
+							"Responses represents the tool error flag with a visible failure prefix",
+						)
+					case "openai.completions":
+						record(
+							llm.ContentChangeEncodeToolError,
+							"Chat Completions represents the tool error flag with a visible failure prefix",
+						)
+					}
 				}
 			}
 			if m.Role == llm.RoleDeveloper &&

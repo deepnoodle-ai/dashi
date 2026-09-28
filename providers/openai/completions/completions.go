@@ -415,9 +415,6 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 			if m.Role != llm.RoleUser {
 				return nil, wire.unsupported("tool result in %s message", m.Role)
 			}
-			if c.ToolResult.IsError {
-				return nil, wire.unsupported("tool error flag in Chat Completions")
-			}
 			results = append(results, *c.ToolResult)
 		case llm.ContentReasoning:
 			if m.Role != llm.RoleAssistant || !wire.supportsPlainReasoning() {
@@ -494,6 +491,11 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	}
 	for _, tr := range results {
 		var text []string
+		// A tool message has no error flag, so failure is stated to the model
+		// in text ahead of the output, as the Responses adapter does.
+		if tr.IsError {
+			text = append(text, toolFailedPrefix)
+		}
 		for _, b := range tr.Output.Content {
 			if b.Kind != content.KindText || len(b.Text.Citations) != 0 {
 				return nil, wire.unsupported("non-text or cited tool result")
@@ -511,6 +513,9 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	}
 	return encoded, nil
 }
+
+// toolFailedPrefix leads the text of a tool result flagged as an error.
+const toolFailedPrefix = "Tool failed:"
 
 func (wire codec) encodeBlock(b content.Block) (ContentPart, error) {
 	switch b.Kind {
