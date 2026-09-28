@@ -1,6 +1,6 @@
 # Hooks after tools, hiding, and state
 
-**Status:** 2a in progress; 2b and 2c planned (decision 31) · **Date:**
+**Status:** 2a (#55) and 2b in review; 2c planned (decision 31) · **Date:**
 2026-09-28 · **Owner:** Curtis · **Builds on:** [hooks.md](hooks.md)
 
 ## Plan
@@ -106,11 +106,22 @@ non-text blocks; and the redactor example run live.
 
 ## 2b and 2c
 
-- **2b, `Hide`:** hooks' lists union; the submit tool cannot be hidden; the
-  hide clears a forced tool choice naming a hidden tool, with a warning; a
-  hidden tool is not guaranteed unused, since `BeforeModel` fails open; and
-  changing the offered tools resets the provider's prompt cache. Plus
-  `tool.Join`, which fails `Tools` on a duplicate name.
+- **2b, `ModelDecision.Hide`:** hooks' lists union and must match exactly;
+  names no tool of the call has (with a dynamic toolset, also a tool absent
+  from this call) and the submit tool are ignored with one
+  `WarningHideIgnored` per call; no effect on the reserved final-answer call.
+  A forced tool choice naming a tool any hook so far hid, or a forced choice
+  with no tools left, is cleared with `WarningToolChoiceCleared`, whatever the
+  hooks' order. With no tools left, the tool choice and `ParallelTools` are
+  cleared too, as providers reject them without tools. Each hook's candidate
+  input is validated on top of earlier hooks, so an invalid answer skips that
+  hook, hides included. The intent records the offered `Tools` and the
+  `Hidden` names; a call to a hidden tool settles as not run, "This tool is
+  not available now.", by that record, without hooks, and never reaches
+  `BeforeTool`. `BeforeModel` fails open, so a hide is not a guarantee: fail
+  closed by handling errors in the hook, or pair it with a `BeforeTool` deny.
+  Changing the offered tools resets the whole cached prompt. Plus
+  `tool.Join`, which fails `Tools` on a duplicate name and names the set.
 - **2c, state:** recorded only when it changes, keyed by hook name and shared
   across a bundle's points, with a typed accessor.
 

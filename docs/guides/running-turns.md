@@ -65,7 +65,7 @@ on `Runner.Hooks`; any number run at each point, in order:
 
 | Point | Runs | Can | If it fails |
 |---|---|---|---|
-| `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
+| `BeforeModel` | before each model request is prepared | change settings, deliver context, hide tools, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
 | `AfterTool` | on each final result from a tool, or from the host through `Settle` | replace what the model sees | the result is withheld from the model, with a warning |
@@ -85,6 +85,36 @@ sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
 `Continue` that raises the `Budget`; a limit the host owns, such as prepaid
 credits, uses `dashi.LimitHost`.
+
+A `BeforeModel` hook's `Hide` removes tools from one call, such as a plan mode
+that offers no write tools until the host approves the plan:
+
+```go
+plan := dashi.ModelHook{Name: "plan", Func: func(
+	context.Context, dashi.ModelPlan) (dashi.ModelDecision, error) {
+	if approved.Load() {
+		return dashi.ModelDecision{}, nil
+	}
+	return dashi.ModelDecision{Hide: []string{"write_file", "bash"}}, nil
+}}
+```
+
+Names must match exactly; a name no tool of this call has, including a tool a
+dynamic toolset left out this time, is ignored with a `WarningHideIgnored`, and
+`dashi_submit_output` cannot be hidden. A hide wins over a forced tool choice
+that names a tool any hook hid: the choice is cleared, with a
+`WarningToolChoiceCleared`. If no tools are left, the tool choice and
+parallel-tools setting are cleared too. The hidden names are recorded in the
+intent's `ModelFact.Hidden`, and a call to a hidden tool is not run and reads
+"This tool is not available now."
+
+A hide shapes the offer only: a failing hook is skipped and offers the tools
+again. To fail closed, handle errors inside the hook and return the hide, or
+pair it with a `BeforeTool` deny. A hidden call never reaches `BeforeTool`, so
+the deny acts only when a failed hook offered the tool again. Changing the
+offered tools resets the whole cached prompt, not only the tools, so keep hides
+stable. A package can export `Hooks()` and `Tools()`; join them with
+`dashi.JoinHooks` and `tool.Join`, which fails on a duplicate tool name.
 
 An `AfterTool` hook changes only what the model sees of a result: the next model
 call, and the next turn's history through `dashi.Project`. The record,

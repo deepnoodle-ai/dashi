@@ -256,6 +256,15 @@ const (
 	// steer, or waiting steers could not be delivered because no further
 	// model call can happen. The steers stay with their source.
 	WarningSteering WarningCode = "steering"
+	// WarningToolChoiceCleared means a BeforeModel hook hid the tool a forced
+	// tool choice named, or every tool while a tool call was required, so
+	// the choice was cleared for that call: the hide wins.
+	WarningToolChoiceCleared WarningCode = "tool_choice_cleared"
+	// WarningHideIgnored means a BeforeModel hook asked to hide a name that
+	// no tool of the call has, or dashi_submit_output, which cannot be
+	// hidden. A name that does not match exactly hides nothing. With a
+	// dynamic toolset, a tool absent from this call warns as unknown too.
+	WarningHideIgnored WarningCode = "hide_ignored"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -344,22 +353,25 @@ type ModelFact struct {
 	// EstimatedInputTokens is the recorded fallback when input usage is absent.
 	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
 	// EstimatedUsage marks settlements with missing or partial token usage.
-	EstimatedUsage   bool                   `json:"estimated_usage,omitempty"`
-	Provider         string                 `json:"provider,omitempty"`
-	API              string                 `json:"api,omitempty"`
-	Model            string                 `json:"model,omitempty"`
-	Effective        llm.Settings           `json:"effective,omitzero"`
-	Origin           content.Origin         `json:"origin,omitzero"`
-	Adjustments      []llm.Adjustment       `json:"adjustments,omitempty"`
-	ContentChanges   []llm.ContentChange    `json:"content_changes,omitempty"`
-	ModelInfo        *llm.ModelInfo         `json:"model_info,omitempty"`
-	CapabilityPolicy llm.CapabilityPolicy   `json:"capability_policy"`
-	Unverified       []llm.Feature          `json:"unverified,omitempty"`
-	Tools            []tool.Definition      `json:"tools,omitempty"`
-	Result           *llm.Result            `json:"result,omitempty"`
-	Error            string                 `json:"error,omitempty"`
-	Failure          llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence         string                 `json:"evidence,omitempty"`
+	EstimatedUsage   bool                 `json:"estimated_usage,omitempty"`
+	Provider         string               `json:"provider,omitempty"`
+	API              string               `json:"api,omitempty"`
+	Model            string               `json:"model,omitempty"`
+	Effective        llm.Settings         `json:"effective,omitzero"`
+	Origin           content.Origin       `json:"origin,omitzero"`
+	Adjustments      []llm.Adjustment     `json:"adjustments,omitempty"`
+	ContentChanges   []llm.ContentChange  `json:"content_changes,omitempty"`
+	ModelInfo        *llm.ModelInfo       `json:"model_info,omitempty"`
+	CapabilityPolicy llm.CapabilityPolicy `json:"capability_policy"`
+	Unverified       []llm.Feature        `json:"unverified,omitempty"`
+	Tools            []tool.Definition    `json:"tools,omitempty"`
+	// Hidden names the tools BeforeModel hooks removed from this call. A
+	// call to one of them settles as not available, by this record.
+	Hidden   []string               `json:"hidden,omitempty"`
+	Result   *llm.Result            `json:"result,omitempty"`
+	Error    string                 `json:"error,omitempty"`
+	Failure  llm.FailureDisposition `json:"failure,omitempty"`
+	Evidence string                 `json:"evidence,omitempty"`
 	// Uncertain means the model effect cannot yet be classified as settled or
 	// safely not dispatched.
 	Uncertain bool `json:"uncertain,omitempty"`

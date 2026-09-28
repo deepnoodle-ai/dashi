@@ -532,6 +532,9 @@ func (s *replayState) apply(step Step) error {
 		if err := validateAdmission(step.Model.Admission); err != nil {
 			return err
 		}
+		if err := validateHidden(step.Model); err != nil {
+			return err
+		}
 		if step.Model.Provider != s.Agent.Provider ||
 			step.Model.API != s.Agent.API ||
 			step.Model.Model != s.Agent.Model {
@@ -1460,6 +1463,13 @@ func (s *replayState) trackIDs(step Step) error {
 	return nil
 }
 
+// hiddenAt reports whether a BeforeModel hook hid the named tool from the
+// model call that made the call id, according to its recorded intent.
+func (s *replayState) hiddenAt(id, name string) bool {
+	intent := s.modelIntents[s.callAttempts[id]]
+	return intent != nil && slices.Contains(intent.Hidden, name)
+}
+
 // roomForAnyCall reports whether one more model call fits ModelAttempts,
 // the reserved final-answer call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {
@@ -1551,6 +1561,26 @@ func (a ActiveHooks) validate() error {
 	return nil
 }
 
+// validateHidden checks the tools recorded as hidden from a model call:
+// named once each, never the submit tool, and not also offered. The
+// reserved final-answer call runs no hides, so it records none.
+func validateHidden(fact *ModelFact) error {
+	if fact.FinalAnswerOnly && len(fact.Hidden) > 0 {
+		return errors.New("invalid hidden tools")
+	}
+	seen := map[string]bool{}
+	for _, name := range fact.Hidden {
+		offered := slices.ContainsFunc(fact.Tools, func(d tool.Definition) bool {
+			return d.Name == name
+		})
+		if name == "" || name == SubmitOutputTool || seen[name] || offered {
+			return errors.New("invalid hidden tools")
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
 // validateAdmission checks the BeforeSend admissions recorded on an intent.
 func validateAdmission(admission map[string]json.RawMessage) error {
 	total := 0
@@ -1585,7 +1615,7 @@ func validateStepPayload(step Step) error {
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
 		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
-			WarningSteering:
+			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored:
 			valid = true
 		}
 		if !valid || warning.Message == "" {

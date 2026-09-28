@@ -133,13 +133,19 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		if v.Status == ToolRequested {
 			if v.Definition.Name == "" {
+				// A bound tool the call did not offer, such as one a hook
+				// hid, is unavailable rather than unknown.
+				text, reason := "Unknown tool.", "unknown tool"
+				if state.hiddenAt(id, v.Call.Name) {
+					text, reason = "This tool is not available now.", "tool unavailable"
+				}
 				o := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: new(tool.TextOutput("Unknown tool.")),
+					Output: new(tool.TextOutput(text)),
 				}
 				if x := r.commit(Step{
 					Kind: StepToolSettled,
-					Tool: &ToolFact{Call: v.Call, Outcome: &o, Reason: "unknown tool"},
+					Tool: &ToolFact{Call: v.Call, Outcome: &o, Reason: reason},
 				}); x != nil {
 					return *x, true
 				}
