@@ -10,6 +10,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `basic`             | OpenAI    | One streamed model call, without an agent                      |
 | `agent`             | OpenAI    | One recorded agent turn                                        |
 | `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
+| `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
 | `approval`          | Anthropic | A person approves or denies a tool call during the run         |
 | `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
