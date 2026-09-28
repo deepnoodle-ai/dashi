@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -416,5 +417,54 @@ func TestMessagesDecodesDocumentCitations(t *testing.T) {
 	if search := cites[2]; search.URL != "https://example.com/r" ||
 		search.Title != "Result" || search.Location != nil {
 		t.Fatalf("search result citation = %+v", search)
+	}
+}
+
+func TestCitationsSupportIsChecked(t *testing.T) {
+	r := documentInput()
+	r.Settings.Citations = true
+
+	// An unknown model records citations as unverified, or fails under strict.
+	adjust := anthropicClient(t, "http://unused.invalid", llm.CapabilityAdjust)
+	prepared, err := adjust.Prepare(t.Context(), r)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if !slices.Contains(prepared.Snapshot().Unverified, llm.FeatureCitations) {
+		t.Fatalf("unverified = %v", prepared.Snapshot().Unverified)
+	}
+	// Evidence covers everything else the request uses, so only citations
+	// support is unknown.
+	const endpoint = "http://unused.invalid"
+	info := textModel(cases(t)[0], endpoint)
+	info.Capabilities.Features[llm.FeatureDocument] = llm.SupportSupported
+	info.Capabilities.Features[llm.FeatureTools] = llm.SupportSupported
+	strict := newMessages(t, messages.Config{
+		Provider:         "anthropic",
+		APIKey:           "test",
+		Endpoint:         endpoint,
+		CapabilityPolicy: llm.CapabilityStrict,
+		Models:           map[string]llm.ModelInfo{"requested": info},
+	})
+	_, err = strict.Prepare(t.Context(), r)
+	if err == nil || !strings.Contains(err.Error(), "citations") {
+		t.Fatalf("strict unknown err = %v", err)
+	}
+
+	// A catalog model at the public endpoint is known to support documents
+	// and citations, so a strict request goes through.
+	p := newMessages(t, messages.Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityStrict,
+	})
+	r.Model = "claude-haiku-4-5"
+	prepared, err = p.Prepare(t.Context(), r)
+	if err != nil {
+		t.Fatalf("strict known model: %v", err)
+	}
+	for _, doc := range wireDocuments(wireBody(t, prepared)) {
+		if doc["citations"] == nil {
+			t.Fatalf("citations not sent: %v", doc)
+		}
 	}
 }

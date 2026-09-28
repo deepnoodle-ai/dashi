@@ -68,8 +68,9 @@ const (
 	// FeatureStreaming describes support for streamed responses.
 	FeatureStreaming Feature = "streaming"
 	// FeatureCitations describes support for citing request documents. It is
-	// a property of the API encoding; APIs that cannot request citations
-	// declare it unsupported.
+	// requested when Settings.Citations is set and the request carries a
+	// document. APIs that cannot request citations declare it unsupported,
+	// and Fit omits the setting; elsewhere it is checked like any feature.
 	FeatureCitations Feature = "citations"
 )
 
@@ -279,6 +280,10 @@ func requestedFeatures(r Input) []Feature {
 	}
 	if r.Settings.MaxTokens > 0 {
 		add(FeatureMaxTokens)
+	}
+	// Citations change the request only when it carries a document.
+	if r.Settings.Citations && hasDocument(r) {
+		add(FeatureCitations)
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.Effort != "" {
