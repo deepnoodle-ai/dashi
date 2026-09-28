@@ -1,23 +1,24 @@
-# Speech transport — draft PRD
+# Batch speech transport — draft PRD and lightweight spec
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for discussion, 2026-09-28 |
+| Status | Draft for independent review, 2026-09-28 |
 | Roadmap | [Item 8](../remaining-work.md), size M, difficulty Medium |
-| References | [Source survey](08-speech-transport-research.md), [media and speech proposal](../media-and-speech-proposal.md), `speech/speech.go`, `speech/capabilities.go` |
+| Workflow | Research → spec → independent feedback → implementation |
+| References | [Source survey](08-speech-transport-research.md), [media and speech proposal](../media-and-speech-proposal.md), `speech/`, `providers/openai/images/` |
 
 ## User problem
 
-A Go application can already carry an audio block in Dashi, but cannot ask a provider to transcribe it or synthesize spoken audio through a Dashi client. The developer must wire provider SDKs directly and invent validation, results, provenance, and errors for each route. Dive offers easy batch functions, yet its global routing and shared settings bag hide what will actually be sent. A developer needs a short, predictable path from an audio source to a transcript and from text to an audio block, with provider differences surfaced before a billable request. Streamed speech and a live voice agent are valuable, but have different lifecycle contracts.
+A Go application can carry an audio block in Dashi, but cannot ask a provider to transcribe it or synthesize spoken audio through a Dashi client. Developers must call a provider SDK and recreate validation, provenance, and failure handling. Dive offers convenient batch calls but hides provider selection in a global registry and mixes speech with other media settings. The first useful Dashi experience is: choose a destination explicitly, prepare and inspect one call, send it, then receive a typed result. A silent recording may produce valid empty text. Generated audio is data for the application to store or play.
 
 ## Goals
 
-- Ship small **batch** recognition and synthesis contracts grounded in the existing `speech` inputs/results and explicit provider clients.
-- Show the configured route, effective settings, and unsupported options during preparation; keep request/response provenance and honest silence semantics.
-- Make one OpenAI-style upload endpoint and one differently shaped Gemini-style speech route usable and qualified, including distinct provider examples.
-- Set a clear, reviewable contract for later one-way speech streams without making batch callers handle frames, sessions, or playback.
+- Ship small **batch** recognition and synthesis contracts grounded in the existing `speech` inputs/results and an explicit provider client.
+- Show destination, effective settings, unsupported options, and safe intent metadata during preparation. Preserve provenance and valid silence semantics.
+- Cover one real OpenAI transcription route and one real OpenAI synthesis route, with exact wire fixtures and named opt-in live probes.
+- Keep streaming and realtime voice outside this slice; they have different lifecycle contracts.
 
-Success: an application can select a client, prepare one transcription or synthesis request, inspect the planned operation, send it, and consume a typed result. Unsupported hints fail before dispatch, and examples demonstrate the same vocabulary across two providers.
+Success: one documented Go example completes each operation through the same `speech` vocabulary, with no hidden fetch, dropped setting, automatic retry, or device/session concern. This is a contract and adapter milestone, not a production quality claim about either model.
 
 ## Smallest proposed API and flow
 
@@ -34,28 +35,34 @@ type Synthesizer interface {
 }
 ```
 
-Conceptual use: construct a provider client explicitly; `PrepareTranscription` checks the model, endpoint, source origin/expiry, MIME and requested controls and returns a detached, origin-bound plan. The caller can record its **safe metadata** and knows whether a fallback/adjustment occurred before calling `SendTranscription`. `Transcription.Text == ""` is a valid completed result when no speech is recognized. `PrepareSynthesis` resolves voice/format/speed/instructions in the same way; `SendSynthesis` returns `Synthesis.Audio` as a `content.Block` the application can save or play. The library does not open a microphone, fetch remote URLs implicitly, or claim audio was heard.
+Conceptual use: construct `providers/openai/speech.Client` with an explicit destination and key; build an existing `speech.TranscribeInput` or `SynthesizeInput`; Prepare, inspect **safe metadata**, then Send with a context. Prepare makes no network call. It checks source, model, settings, and known capability evidence and fixes the route, effective settings, content type, and wire body. Unsupported or unencodable controls fail before dispatch. Unknown catalog support follows Dashi's `model.CapabilityPolicy` and is marked unverified; it never overrides a known wire incompatibility. Send accepts only a request bound to that client's destination and credential scope and makes one attempt.
 
-The prepared request owns the exact dispatch bytes or a bounded, immutable upload source, including multipart boundaries and content type. It must not require copying arbitrarily large audio into several public snapshots. Expose origin, effective settings, model evidence, and recorded adjustments without making credentials or large media safe to persist by default. Provider options stay scoped to that provider API; a setting unsupported by the selected route is an error or an explicit, inspectable adjustment under the existing capability policy. Results identify requested and served model, API, response ID when supplied, and the actual output media type/format. Errors distinguish invalid input, unsupported capability, provider rejection, cancellation, and a possible unknown send outcome; the library must not silently replay a possibly accepted request.
+| Operation | First route and model | Accepted values |
+| --- | --- | --- |
+| Transcribe | `POST /v1/audio/transcriptions`, `gpt-4o-mini-transcribe`, multipart upload, JSON result | Inline MP3 or WAV up to 25 MB; optional language and prompt. Reject `Granularity` and `Diarization`, which this model/response shape cannot fulfill. |
+| Synthesize | `POST /v1/audio/speech`, `gpt-4o-mini-tts`, JSON request, MP3 result | Required text up to 4096 characters; voice, instructions, speed 0.25–4.0. Empty voice becomes documented `alloy`, visible in preparation. Empty `OutputMIMEType` becomes `audio/mpeg`; reject other output types and `Language`/`Format`. |
 
-The first implementation slice uses existing `TranscribeInput`, `SynthesizeInput`, `Transcription`, `Synthesis`, and `ModelInfo`. It adds one dedicated-upload transcription route and one synthesis route from **different providers**, plus local fixture tests and explicitly opt-in live tests. The [current proposal](../media-and-speech-proposal.md) suggests batch first. Before publishing streaming interfaces, write a small follow-up contract covering audio frame format, who closes input, ordered partial/final transcript events, synthesis chunk identity and finalization, backpressure, cancellation, and failure after partial output. Validate it against two genuinely different provider transports. `Listen` and incremental-text synthesis should remain separate capabilities; a one-way stream does not promise live turn-taking.
+These exact models and options are implementation scope, not a universal speech contract. Other models get explicit unsupported errors until qualified. OpenAI's [transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text) and [speech endpoint reference](https://developers.openai.com/api/reference/cli/resources/audio/subresources/speech/methods/create) ground the limits. A second provider is a follow-on qualification. Gemini's [dedicated Transcribe route](https://ai.google.dev/gemini-api/docs/transcribe) first uploads through Files API, then invokes Interactions. Hiding those two remote outcomes and file lifetime behind one Send would undermine prepared-call clarity; the earlier two-provider plan is too broad for this slice.
+
+The prepared value owns the **bounded exact request bytes**, so changing caller data after Prepare cannot change dispatch. Transcription accepts inline `content.Source.Data` only; URL, provider ID, and URI are rejected rather than fetched or treated as uploadable. Require a supported, coherent MIME and filename mapping, and reject unknown or recognizable conflicting formats. Encode one multipart body of at most the provider's 25 MB file allowance plus small form overhead. Expose a safe summary with destination, non-content effective settings, upload byte count, capability evidence, and redacted adjustments. Do not put audio bytes, text, credentials, content digest, or raw wire body in a summary advertised as safe to log or persist. A raw-body accessor, if needed, must return a copy and be named/documented as sensitive. Request lifetime is process-local; persisting intent does not authorize replay.
+
+On success, parse a bounded JSON transcription response with a present string `text`. Empty text means valid silence; missing or wrongly typed text is a protocol error. Preserve requested model and API. Set `Served` and `ResponseID` only if the provider actually supplies them; a request header ID is not a response ID. For synthesis, bound the audio response read (initial 64 MiB ceiling), reject empty or clearly conflicting output, and return an inline `content.AudioBlock` with `audio/mpeg` MIME. Storage and playback remain with the host. Report invalid input, unsupported settings, provider rejection, cancellation, transport uncertainty, and malformed or oversized responses distinctly enough for callers to decide what to show or retry. Never automatically retry a possibly accepted request.
 
 ## Acceptance criteria
 
-1. A documented example shows explicit construction, Prepare → inspect → Send for both operations, with the same `speech` concepts across two providers. No global registry or image/video settings bag is required.
-2. Preparation rejects invalid audio sources, missing/unsupported models, expired or wrong-origin provider references, unsupported hints, and incompatible voice, language, timestamp, or output formats before any remote request. Unknown catalog evidence is reported as unknown rather than treated as support.
-3. A prepared request pins destination, effective settings, content type, and dispatch payload; caller mutation after preparation cannot change the send. Large upload handling has an explicit size/memory bound and no implicit remote fetch. Sensitive bytes and credentials are excluded from any advertised safe record.
-4. Successful transcription returns text, optional segments/language, and provenance. Empty text from a completed, well-formed provider response is valid. Successful synthesis returns a valid audio block with actual MIME/format and provenance; storage/playback remain caller-owned.
-5. Tests cover the two selected real wire shapes with deterministic fixtures, option rejection, cancellation, malformed/oversized responses, and no automatic retry of uncertain sends. Named opt-in live probes distinguish actual provider acceptance from fixture proof and state exact routes/models.
-6. A short reviewed stream contract records event ordering, finalization, flow control, and cancellation decisions. Streaming implementation and realtime voice are not implied by passing the batch tests.
+1. A short Go example shows explicit client construction, Prepare → inspect safe metadata → Send for both operations. The same `speech` terms and result types work for transcription and synthesis.
+2. Offline preparation rejects unsupported source/model/control, oversized upload, MIME mismatch, and wrong-client origin. Mutation after preparation leaves the exact outgoing bytes unchanged. Default voice and MP3 format are visible before Send; no unsupported hint silently disappears.
+3. Deterministic HTTP fixtures assert method, URL, headers, multipart filename/MIME/body, JSON fields, and decoded results. Silence succeeds. Missing text, wrong media, empty/oversized output, cancellation, and provider rejection fail appropriately. Tests prove no hidden retry. Fixture evidence is labeled `fixture`, not `live_probe`.
+4. Named opt-in live probes for both exact OpenAI routes/models run only with explicit credentials. Until run, provider acceptance, output validity, and model behavior remain **unverified live**; fixture success does not establish cross-provider qualification.
+5. Streaming remains a separate design requiring frame format, partial/final events, input close ownership, backpressure, cancellation, and failure after partial output. Batch tests do not imply stream or live voice support.
 
 ## Non-goals
 
-No microphone/speaker device API, artifact store, speech-to-speech voice agent, realtime session, or universal audio transcoder. No promise that every model accepting audio content supports a dedicated recognition endpoint. Batch clients do not adopt a generic `Client[I,O]` abstraction or expose provider SDK types in the common API.
+No microphone/speaker API, artifact store, speech-to-speech voice agent, realtime session, streaming transport, transcription chunking, diarization, timestamped segments, translation, PCM/WAV synthesis, or universal audio transcoder. No claim that every audio-capable chat model supports dedicated speech endpoints. No generic `Client[I,O]` abstraction or provider SDK types in common `speech` APIs.
 
 ## Risks and open decisions
 
-- **Upload representation:** A byte-backed exact snapshot is simple, but too costly for large audio. Choose a bounded immutable source/spool representation after measuring the first two adapters; document its lifetime and replay behavior.
-- **Gemini transcription semantics:** Prompted `GenerateContent` produces text that may include paraphrase or extra prose, unlike a dedicated ASR response. Decide whether this route meets the typed transcription contract under live qualification; if it does not, choose another provider rather than weakening `Transcription`.
-- **Output verification:** Provider headers, inline MIME and actual bytes can disagree. Define which is authoritative, when to detect/reject a mismatch, and whether a documented conversion (as Dive does for Gemini WAV) counts as an adjustment.
-- **Stream timing:** The proposal names `Listen` and streaming synthesis, but no transport is qualified yet. Keep public stream names/events provisional until provider probes demonstrate the necessary frame and finalization behavior.
+- **Two providers now:** better cross-provider evidence, but Gemini's dedicated ASR path adds upload lifetime and two uncertain remote outcomes. Defer until the one-call contract is sound; this slice makes no cross-provider parity claim.
+- **Dive-style single call:** shortest call site, but global routing and shared options hide the chosen operation. Prepared values cost an extra call for inspectability; add convenience only if real use proves repetition painful.
+- **Stream the upload:** lower peak memory, but a caller-owned reader can change, close, or fail between Prepare and Send. The 25 MB provider cap makes one owned payload a reasonable first tradeoff. Revisit for larger provider limits or host-managed files.
+- **Review question:** Should a prepared request expose a sensitive raw-body copy at all, or only a safe summary while the adapter keeps bytes private? Either choice must preserve immutable dispatch and destination binding.
