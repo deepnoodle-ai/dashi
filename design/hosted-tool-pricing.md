@@ -31,11 +31,14 @@ action, not `open_page` or `find_in_page` (our reading of the docs, matched by
 OpenAI's counter in a captured response); the key is `web_search_preview` when
 that tool was declared, alone or with `web_search`, since its rate is never
 lower. Meta counts the queries each search item shows, at least one
-(unverified). Gemini counts every non-empty `webSearchQueries` entry (at least
-one when web sources appear), plus one `grounded_prompt` for a response grounded
-by web search. Gemini fixtures are built from the documented response shape,
-since no key was available; a live-tagged test checks them. The runner no longer
-counts blocks.
+(unverified). xAI sends X search as `custom_tool_call` items billed per fetched
+post and profile, which only its counters report; when `x_search` was declared
+and those counters are absent, each such item counts as
+`unrecognized:custom_tool_call`, so the cost shows as partial. Gemini counts
+every non-empty `webSearchQueries` entry (at least one when web sources appear),
+plus one `grounded_prompt` for a response grounded by web search. Gemini
+fixtures are built from the documented response shape, since no key was
+available; a live-tagged test checks them. The runner no longer counts blocks.
 
 Two **reserved keys** are never priced (`Pricing.Validate` rejects them):
 `unrecognized:<wire type>` for hosted work an adapter does not recognize, and

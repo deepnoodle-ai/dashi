@@ -68,11 +68,13 @@ func (wire codec) hostedRequests(
 ) map[string]int {
 	requests := map[string]int{}
 	reported := map[string]bool{}
-	webSearch := wire.webSearchMeter(fields)
+	declared := wire.declaredTypes(fields)
+	webSearch := webSearchMeter(declared)
 	wire.countToolUsage(requests, reported, fields.ToolUsage, webSearch)
 	countXAIDetails(requests, reported, fields.Usage)
+	xSearch := slices.Contains(declared, "x_search")
 	for _, raw := range output {
-		meter, count := wire.itemRequests(raw, webSearch)
+		meter, count := wire.itemRequests(raw, webSearch, xSearch)
 		if meter == "" || count <= 0 || reported[meter] {
 			continue
 		}
@@ -84,17 +86,23 @@ func (wire codec) hostedRequests(
 	return requests
 }
 
-// webSearchMeter chooses the key for billed web searches from the declared
-// tool types. OpenAI prices web_search_preview separately; when a request
-// declares both tools, the response echoes only the preview tool, and its
-// price is never lower, so searches count as preview then too.
-func (wire codec) webSearchMeter(fields meterFields) string {
+// declaredTypes returns the request's hosted tool types, or the tools the
+// response echoes when the codec was not given them.
+func (wire codec) declaredTypes(fields meterFields) []string {
 	declared := wire.hostedTypes
 	if len(declared) == 0 {
 		for _, t := range fields.Tools {
 			declared = append(declared, t.Type)
 		}
 	}
+	return declared
+}
+
+// webSearchMeter chooses the key for billed web searches from the declared
+// tool types. OpenAI prices web_search_preview separately; when a request
+// declares both tools, the response echoes only the preview tool, and its
+// price is never lower, so searches count as preview then too.
+func webSearchMeter(declared []string) string {
 	if slices.Contains(declared, "web_search_preview") {
 		return llm.MeterWebSearchPreview
 	}
@@ -148,6 +156,10 @@ func countXAIDetails(
 		switch {
 		case !ok:
 			meter = llm.UnrecognizedMeter(name)
+		case meter == llm.MeterXSearchPost || meter == llm.MeterXSearchProfile:
+			// X search counters bill the custom_tool_call items X search
+			// arrives as.
+			reported[xSearchItemMeter] = true
 		case meter == "":
 			reported[llm.UnrecognizedMeter("x_search_call")] = true
 			continue
@@ -159,11 +171,20 @@ func countXAIDetails(
 	}
 }
 
+// xSearchItemMeter marks X search work seen only as output items. xAI sends X
+// search as custom_tool_call items (x_keyword_search, for example) and bills
+// the posts and profiles they fetch, which only its usage counters report.
+// Without those counters the items are unpriced, never free.
+var xSearchItemMeter = llm.UnrecognizedMeter("custom_tool_call")
+
 // itemRequests returns the meter and count one output item bills. Items the
-// codec does not treat as hosted work return an empty meter.
+// codec does not treat as hosted work return an empty meter. A
+// custom_tool_call is a client tool call on OpenAI, but when the request
+// declared xAI's x_search it may be X search, so it counts as unpriced work.
 func (wire codec) itemRequests(
 	raw json.RawMessage,
 	webSearch string,
+	xSearch bool,
 ) (string, int) {
 	var item struct {
 		Type   string `json:"type"`
@@ -174,6 +195,12 @@ func (wire codec) itemRequests(
 		} `json:"action"`
 	}
 	if json.Unmarshal(raw, &item) != nil {
+		return "", 0
+	}
+	if item.Type == "custom_tool_call" {
+		if xSearch {
+			return xSearchItemMeter, 1
+		}
 		return "", 0
 	}
 	if item.Type != "web_search_call" {
