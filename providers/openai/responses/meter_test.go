@@ -422,14 +422,12 @@ func TestSendMetersSearchByDeclaredTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview, err := hostedDefinition(
+	// No constructor offers the legacy preview type, so build it directly.
+	preview := newHosted(
 		"web_search",
 		"web_search_preview",
-		WebSearchOptions{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+		WebSearchToolOptions{},
+	).Definition
 	request, err := client.Prepare(
 		t.Context(),
 		llm.Input{

@@ -742,7 +742,7 @@ func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 	runner := Runner{
 		Agent:  def,
 		Client: client,
-		Tools:  fixedTools{budgetLookup(nil)},
+		Tools:  tool.List{budgetLookup(nil)},
 		Policy: AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
