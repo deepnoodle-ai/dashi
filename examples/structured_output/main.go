@@ -1,12 +1,12 @@
 // Command structured_output runs one agent turn whose final answer must match
 // a JSON schema, then decodes the validated value into a Go struct. Set
-// OPENAI_API_KEY and OPENAI_MODEL before running it.
+// OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
+// catalog's default model.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -38,10 +38,6 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	model := os.Getenv("OPENAI_MODEL")
-	if model == "" || os.Getenv("OPENAI_API_KEY") == "" {
-		return errors.New("structured_output: set OPENAI_MODEL and OPENAI_API_KEY")
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -64,24 +60,16 @@ func run(ctx context.Context) error {
 	// an object that validates against it.
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			ID:           "person-generator",
-			Revision:     "1",
-			Model:        model,
+			Model:        os.Getenv("OPENAI_MODEL"),
 			OutputSchema: rawSchema,
 		},
-		Client:   client,
-		Recorder: dashi.NewMemoryRecorder(),
+		Client: client,
 	}
-	outcome, err := runner.Run(
-		ctx,
-		dashi.NewTurn("person-turn"),
-		dashi.Start{
-			CommandID: "person-start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("Invent a fictional person.")),
-			},
+	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Input: []llm.Message{
+			llm.UserMessage(llm.Text("Invent a fictional person.")),
 		},
-	)
+	})
 	if err != nil {
 		return fmt.Errorf("structured_output: run start: %w", err)
 	}

@@ -1,6 +1,7 @@
 // Command tools runs one agent turn in which the model calls typed Go
 // function tools, then prints the answer and the turn's usage and cost. Set
-// ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model.
 package main
 
 import (
@@ -40,10 +41,6 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New("tools: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -55,30 +52,22 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tools: create client: %w", err)
 	}
+	// Bound tools are allowed by default; a Policy can deny or defer calls.
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			ID:           "weather",
-			Revision:     "1",
-			Model:        model,
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "Answer weather questions using the tools.",
 		},
 		Client: client,
 		Tools:  tools,
-		// A nil Policy denies every tool call, so allow the local tools.
-		Policy: dashi.AllowLocalPolicy{},
 	}
-	outcome, err := runner.Run(
-		ctx,
-		dashi.NewTurn("weather-turn"),
-		dashi.Start{
-			CommandID: "weather-start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text(
-					"What's the weather in Tokyo, in Fahrenheit?",
-				)),
-			},
+	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Input: []llm.Message{
+			llm.UserMessage(llm.Text(
+				"What's the weather in Tokyo, in Fahrenheit?",
+			)),
 		},
-	)
+	})
 	if err != nil {
 		return fmt.Errorf("tools: run start: %w", err)
 	}

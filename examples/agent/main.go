@@ -1,10 +1,10 @@
-// Command agent runs one recorded turn against the OpenAI Responses API and
-// prints the answer. Set OPENAI_API_KEY and OPENAI_MODEL before running it.
+// Command agent runs one agent turn against the OpenAI Responses API and
+// prints the answer. Set OPENAI_API_KEY before running it; OPENAI_MODEL
+// optionally overrides the catalog's default model.
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -26,10 +26,6 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	model := os.Getenv("OPENAI_MODEL")
-	if model == "" || os.Getenv("OPENAI_API_KEY") == "" {
-		return errors.New("agent: set OPENAI_MODEL and OPENAI_API_KEY")
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -37,34 +33,27 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("agent: create client: %w", err)
 	}
-	// Provider and API are left empty; the runner fills them from client.
+	// Every Agent field may be left empty. An empty Model is the provider's
+	// catalog default; the turn and command IDs are generated.
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			ID:       "example",
-			Revision: "1",
-			Model:    model,
-		},
-		Client:   client,
-		Recorder: dashi.NewMemoryRecorder(),
+		Agent:  dashi.Agent{Model: os.Getenv("OPENAI_MODEL")},
+		Client: client,
 	}
-	outcome, err := runner.Run(
-		ctx,
-		dashi.NewTurn("example-turn"),
-		dashi.Start{
-			CommandID: "example-start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("Say hello in one sentence.")),
-			},
+	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Input: []llm.Message{
+			llm.UserMessage(llm.Text("Say hello in one sentence.")),
 		},
-	)
+	})
 	if err != nil {
-		return fmt.Errorf("agent: run start: %w", err)
-	}
-	// Run returns an error only for an invalid command. A failed recorder
-	// write is reported in the outcome, so check it separately.
-	if err := outcome.RecordingErr(); err != nil {
 		return fmt.Errorf("agent: %w", err)
 	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
+	if outcome.Stop.Kind != dashi.StopCompleted {
+		return fmt.Errorf(
+			"agent: turn stopped %s: %s",
+			outcome.Stop.Kind,
+			outcome.Stop.Reason,
+		)
+	}
+	fmt.Println(outcome.Turn.AnswerText())
 	return nil
 }

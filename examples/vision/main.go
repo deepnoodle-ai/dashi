@@ -1,5 +1,6 @@
 // Command vision asks a model to describe an image, given by URL or as a
-// local file. Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL before running it.
+// local file. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
+// optionally overrides the catalog's small model.
 //
 //	go run ./examples/vision
 //	go run ./examples/vision -image ./photo.jpg -prompt "What breed is this dog?"
@@ -7,7 +8,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
@@ -39,8 +40,8 @@ func run(ctx context.Context) error {
 	flag.Parse()
 
 	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return errors.New("vision: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
+	if model == "" {
+		model, _ = catalog.Small("anthropic")
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
