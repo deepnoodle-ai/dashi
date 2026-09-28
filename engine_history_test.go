@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -138,6 +139,122 @@ func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 	}
 	if !reflect.DeepEqual(client.inputs[0].Messages[0], changed[0]) {
 		t.Fatal("model request did not use the supplied history")
+	}
+}
+
+func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("original history")),
+	}
+	changed := []llm.Message{
+		llm.UserMessage(llm.Text("compacted history")),
+	}
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, history)
+	strict := Bindings{
+		Client:            client,
+		Recorder:          recorder,
+		OnHistoryMismatch: HistoryMismatchReject,
+	}
+	_, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue", History: changed},
+		strict,
+	)
+	if !errors.Is(err, ErrHistoryMismatch) {
+		t.Fatalf("error = %v, want ErrHistoryMismatch", err)
+	}
+	if len(client.inputs) != 0 {
+		t.Fatal("rejected continue called the model")
+	}
+	saved, err := recorder.Load(first.Turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != len(first.Turn.Steps) {
+		t.Fatal("rejected continue changed the saved turn")
+	}
+
+	// The same command ID with the original history resumes the turn.
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		definition(),
+		Continue{ID: "continue", History: history},
+		strict,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("strict continue did not complete: %+v", out.Stop)
+	}
+	if len(out.Warnings) != 0 {
+		t.Fatalf("matching history caused warning: %#v", out.Warnings)
+	}
+	if !reflect.DeepEqual(client.inputs[0].Messages[0], history[0]) {
+		t.Fatal("model request did not use the original history")
+	}
+}
+
+func TestEngineStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, nil)
+	changed := []llm.Message{llm.UserMessage(llm.Text("new session input"))}
+	var events int
+	var got error
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue", History: changed},
+		Bindings{
+			Client:            client,
+			Recorder:          recorder,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
+	) {
+		if err != nil {
+			got = err
+			continue
+		}
+		if event.Outcome != nil {
+			events++
+		}
+	}
+	if !errors.Is(got, ErrHistoryMismatch) || events != 0 {
+		t.Fatalf("stream error = %v, outcomes = %d", got, events)
+	}
+}
+
+func TestEngineStrictContinueWithoutFingerprintProceeds(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	first := startPausedHistoryTurn(t, client, nil, nil)
+	// A record written before fingerprints has nothing to compare.
+	legacy := cloneTurn(first.Turn)
+	legacy.Steps[0].Started.HistoryFingerprint = ""
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		legacy,
+		definition(),
+		Continue{
+			ID:      "continue",
+			History: []llm.Message{llm.UserMessage(llm.Text("history"))},
+		},
+		Bindings{
+			Client:            client,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted || len(out.Warnings) != 0 {
+		t.Fatalf("legacy turn stop = %+v, warnings = %#v", out.Stop, out.Warnings)
 	}
 }
 

@@ -30,7 +30,10 @@ type Bindings struct {
 	Pause <-chan struct{}
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
-	streamSink    func(Event)
+	// OnHistoryMismatch controls what Continue does when its History differs
+	// from the fingerprint recorded at Start. The default warns and proceeds.
+	OnHistoryMismatch HistoryMismatch
+	streamSink        func(Event)
 }
 
 // ContextDone selects the meaning of an ended Go context for one invocation.
@@ -41,6 +44,21 @@ const (
 	ContextInterrupt ContextDone = "interrupt"
 	// ContextCancel ends the turn as an explicit Cancel command would.
 	ContextCancel ContextDone = "cancel"
+)
+
+// HistoryMismatch selects how Continue treats prior history that differs
+// from the history fingerprinted at Start.
+type HistoryMismatch string
+
+const (
+	// HistoryMismatchWarn records WarningHistoryMismatch on the continued step
+	// and runs with the supplied history. It is the default.
+	HistoryMismatchWarn HistoryMismatch = "warn"
+	// HistoryMismatchReject rejects the Continue with ErrHistoryMismatch before
+	// any step is committed, so the turn stays resumable once the host supplies
+	// the history it started with. A turn recorded without a fingerprint has
+	// nothing to compare and continues without a warning.
+	HistoryMismatchReject HistoryMismatch = "reject"
 )
 
 type Engine struct{}
@@ -94,6 +112,10 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if b.OnContextDone != "" && b.OnContextDone != ContextInterrupt &&
 		b.OnContextDone != ContextCancel {
 		return Outcome{}, errors.New("kernel: invalid context-done behavior")
+	}
+	if b.OnHistoryMismatch != "" && b.OnHistoryMismatch != HistoryMismatchWarn &&
+		b.OnHistoryMismatch != HistoryMismatchReject {
+		return Outcome{}, errors.New("kernel: invalid history-mismatch behavior")
 	}
 	if err := def.Validate(); err != nil {
 		return Outcome{}, err
@@ -272,6 +294,11 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if err != nil {
 			return Outcome{}, err
 		}
+		stored := turn.Steps[0].Started.HistoryFingerprint
+		mismatch := stored != "" && fingerprint != stored
+		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
+			return Outcome{}, ErrHistoryMismatch
+		}
 		rt.history = cloneMessages(c.History)
 		step := Step{
 			Kind:          StepContinued,
@@ -279,8 +306,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			CommandDigest: d,
 			Budget:        cloneBudget(c.Budget),
 		}
-		stored := turn.Steps[0].Started.HistoryFingerprint
-		if stored != "" && fingerprint != stored {
+		if mismatch {
 			step.Warnings = []Warning{{
 				Code:    WarningHistoryMismatch,
 				Message: "prior history differs from turn start",

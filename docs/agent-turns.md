@@ -13,7 +13,11 @@ Reusing an ID with different content fails. `Start` records its origin and own
 input, plus a fingerprint of `Start.History`. Pass the earlier conversation
 again in `Continue.History` on every resume, including after a crash. Kernel
 uses it for that call's model requests; the saved turn holds its own input and
-output, not those earlier messages. A mismatch warns and proceeds. If `Start`
+output, not those earlier messages. A mismatch warns and proceeds. A host that
+must never resume with different history sets `Bindings.OnHistoryMismatch:
+HistoryMismatchReject`; `Continue` then returns `ErrHistoryMismatch` and commits
+nothing, so the turn resumes once the host passes the history it started with.
+Turns recorded without a fingerprint continue unchecked. If `Start`
 had no history, omit `History` on `Continue` or pass an empty slice.
 
 See [the runnable example](../examples/agent/main.go) for setup. `Engine.Apply`
