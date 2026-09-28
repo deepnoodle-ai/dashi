@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/deepnoodle-ai/dashi/internal/wake"
 )
 
 // CommitRequest proposes one step at an expected turn revision and owner.
@@ -59,7 +61,8 @@ type CommitRequest struct {
 //
 // Validating that the appended steps form a well-formed turn is optional;
 // the runner validates what it loads. A recorder that can read a turn back
-// should also implement Loader, which recovery needs.
+// should also implement Loader, which recovery needs, and StepReader, which
+// serves live readers through Follow.
 //
 // The dashitest package checks these rules (dashitest.Run) and injects commit
 // faults for recovery tests. MemoryRecorder and the filerecorder package are
@@ -132,11 +135,19 @@ func (e *CommitError) Unwrap() error {
 }
 
 // MemoryRecorder provides a fenced in-memory record for tests and local use.
+// It is also a StepReader and StepWaiter, so Follow can serve its turns to
+// readers in the same process.
 type MemoryRecorder struct {
 	mu     sync.Mutex
 	turns  map[string]Turn
 	owners map[string]string
+	wakes  wake.Set
 }
+
+var (
+	_ StepReader = (*MemoryRecorder)(nil)
+	_ StepWaiter = (*MemoryRecorder)(nil)
+)
 
 // NewMemoryRecorder creates an empty in-memory recorder.
 func NewMemoryRecorder() *MemoryRecorder {
@@ -173,6 +184,62 @@ func (r *MemoryRecorder) Load(_ context.Context, turnID string) (Turn, error) {
 	}
 	return cloneTurn(t), nil
 }
+
+// StepsAfter returns copies of up to limit committed steps after the
+// cursor, following the StepReader rules.
+func (r *MemoryRecorder) StepsAfter(
+	_ context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]Step, error) {
+	if limit <= 0 {
+		limit = defaultStepsLimit
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	steps := r.turns[turnID].Steps
+	after = max(after, 0)
+	if after > int64(len(steps)) {
+		return nil, fmt.Errorf(
+			"%w: turn %q has %d steps; cursor %d",
+			ErrCursorAhead,
+			turnID,
+			len(steps),
+			after,
+		)
+	}
+	page := steps[after:min(int64(len(steps)), after+int64(limit))]
+	out := make([]Step, len(page))
+	for i, step := range page {
+		out[i] = cloneStep(step)
+	}
+	return out, nil
+}
+
+// Wait returns once the turn has a step after the cursor, or when ctx ends.
+func (r *MemoryRecorder) Wait(
+	ctx context.Context,
+	turnID string,
+	after int64,
+) error {
+	woken := r.wakes.Watch(turnID)
+	r.mu.Lock()
+	n := int64(len(r.turns[turnID].Steps))
+	r.mu.Unlock()
+	if n > after {
+		return nil
+	}
+	select {
+	case <-woken:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// defaultStepsLimit is the page size StepsAfter uses for a limit of zero.
+const defaultStepsLimit = 100
 
 // Commit appends a step only when its expected sequence and owner are valid.
 func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
@@ -240,5 +307,6 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		return &CommitError{Persistence: PersistenceRejected, Err: err}
 	}
 	r.turns[t.ID] = t
+	r.wakes.Notify(t.ID)
 	return nil
 }
