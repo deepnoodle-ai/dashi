@@ -123,6 +123,12 @@ func shouldRetry(statusCode int, code string) bool {
 		statusCode == 529 // Anthropic overloaded_error
 }
 
+// RetryableStatus classifies a provider rejection without retrying it. A
+// caller must still decide whether another attempt is safe for its operation.
+func RetryableStatus(statusCode int, code string) bool {
+	return shouldRetry(statusCode, code)
+}
+
 // errorCodeFromBody pulls the error code out of a JSON error body. It accepts
 // both the nested shape OpenAI and Anthropic use, {"error":{"code":...}}, and
 // the flat {"code":...} some OpenAI-compatible providers return. A body that
@@ -167,7 +173,11 @@ func parseRetryAfter(header http.Header, now time.Time) (time.Duration, bool) {
 		) {
 			return 0, false
 		}
-		return time.Duration(seconds * float64(time.Second)), true
+		nanoseconds := seconds * float64(time.Second)
+		if nanoseconds < 1 || nanoseconds >= float64(math.MaxInt64) {
+			return 0, false
+		}
+		return time.Duration(nanoseconds), true
 	}
 	if deadline, err := http.ParseTime(value); err == nil {
 		if wait := deadline.Sub(now); wait > 0 {
