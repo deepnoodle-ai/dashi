@@ -326,6 +326,9 @@ func TestStreamCountsHostedMeters(t *testing.T) {
 				!maps.Equal(result.Usage.Requests, tc.want) {
 				t.Fatalf("result requests = %+v, want %v", result.Usage, tc.want)
 			}
+			if !result.Usage.RequestsFinal {
+				t.Fatal("a finished stream's counts are not marked final")
+			}
 			if !maps.Equal(live.Requests, tc.want) {
 				t.Fatalf("delta requests = %v, want %v", live.Requests, tc.want)
 			}
@@ -360,4 +363,25 @@ func meterOrigin(t *testing.T) content.Origin {
 		t.Fatal(err)
 	}
 	return httpClient.Origin("test-model")
+}
+
+// Built from documentation, not captured. A stream cut off before its
+// finishReason may lack grounding metadata, so its counts are not final.
+func TestStreamWithoutFinishReasonIsNotFinal(t *testing.T) {
+	chunk := `{"responseId":"cut","modelVersion":"gemini-3-flash-preview",` +
+		`"candidates":[{"content":{"role":"model","parts":[{"text":"Spain"}]}}],` +
+		`"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":1,"totalTokenCount":13}}`
+	wire := codec{origin: meterOrigin(t)}
+	result, _ := wire.readStream(
+		t.Context(),
+		io.NopCloser(strings.NewReader("data: "+chunk+"\n\n")),
+		llm.Result{},
+		func(llm.Delta) {},
+	)
+	if result.Usage == nil {
+		t.Fatal("usage was lost")
+	}
+	if result.Usage.RequestsFinal {
+		t.Fatal("counts from an unfinished stream are marked final")
+	}
 }

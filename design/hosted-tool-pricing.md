@@ -39,14 +39,16 @@ counts blocks.
 
 Two **reserved keys** are never priced (`Pricing.Validate` rejects them):
 `unrecognized:<wire type>` for hosted work an adapter does not recognize, and
-`unreported` for hosted uses in a call whose final usage never arrived (a
-cut-off stream, or a response without usage). The runner records the difference
-between hosted blocks and counted requests under `unreported`, so such a call
-shows as partial, not complete. Anthropic's first streamed usage frame has no
-request counts, so this is the common case there. Uses with an error result are
-skipped, since providers do not bill refused uses. Gemini grounding leaves no
-block, so a cut-off call that declared a hosted tool but shows no hosted work
-records one `unreported` request.
+`unreported` for hosted work in a call whose final usage never arrived (a
+cut-off stream, or a response without usage). Adapters set `Usage.RequestsFinal`
+only when counts come from the provider's complete response: Anthropic when the
+stop reason (sent with the final `server_tool_use` counters) arrived, Responses
+on the terminal response object, Gemini when the candidate has a `finishReason`.
+For a call with hosted activity (counted requests, visible uses, or a declared
+hosted tool) whose counts are not final, the runner keeps the known counts and
+adds `unreported`: the visible uses beyond those counted, and at least one, so
+such a call shows as partial. Uses with an error result are skipped, since
+providers do not bill refused uses.
 
 ## Prices
 

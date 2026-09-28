@@ -641,6 +641,10 @@ func (wire codec) decode(
 	var fields meterFields
 	if r.Usage != nil && json.Unmarshal(raw, &fields) == nil {
 		r.Usage.Requests = wire.hostedRequests(fields, v.Output)
+		// Usage arrives only in a terminal response object (the stream's
+		// response.completed or response.incomplete event), whose counters
+		// and output items are complete.
+		r.Usage.RequestsFinal = true
 		r.Cost = reportedCost(fields.Usage)
 	}
 	switch v.Status {

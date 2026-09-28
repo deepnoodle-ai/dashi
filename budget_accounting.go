@@ -46,7 +46,7 @@ func attemptSpend(
 			)
 		}
 	}
-	if estimated && settlement != nil {
+	if settlement != nil && !usage.RequestsFinal {
 		addUnreportedRequests(usage, intent, settlement.Result)
 	}
 	if settlement != nil && settlement.Charge != nil {
@@ -64,17 +64,17 @@ func attemptSpend(
 }
 
 // addUnreportedRequests covers hosted work whose billing the provider never
-// reported. Adapters count hosted requests from the final usage, so a call
-// cut off before it (or one with no usage at all) can show hosted activity
-// with fewer counted requests. The difference is recorded under
-// llm.MeterUnreported, which no sheet prices, so the cost shows as partial
-// rather than complete. Uses with an error result are skipped, since
-// providers do not bill refused or failed uses.
+// reported: the call's usage is missing or not final (Usage.RequestsFinal),
+// as for a stream cut off before its final usage. Counts an adapter inferred
+// from the blocks seen so far are kept, but they may miss billed work, so
+// the call gets at least one llm.MeterUnreported request, which no sheet
+// prices, and its cost shows as partial rather than complete. Visible uses
+// beyond the counted requests are all unreported. Uses with an error result
+// are skipped, since providers do not bill refused or failed uses.
 //
 // Some hosted work leaves no block at all: Gemini reports search grounding
-// only in metadata near the end of a stream. So when nothing was counted or
-// seen but the request declared a hosted tool, one unreported request marks
-// the call as possibly incomplete.
+// only in metadata near the end of a stream. So a request that declared a
+// hosted tool counts as hosted activity even with no visible use.
 func addUnreportedRequests(
 	usage *llm.Usage,
 	intent *ModelFact,
@@ -100,16 +100,13 @@ func addUnreportedRequests(
 	for _, count := range usage.Requests {
 		counted += max(count, 0)
 	}
-	if uses == 0 && counted == 0 && declaresHostedTool(intent) {
-		uses = 1
-	}
-	if uses <= counted {
+	if uses == 0 && counted == 0 && !declaresHostedTool(intent) {
 		return
 	}
 	if usage.Requests == nil {
 		usage.Requests = map[string]int{}
 	}
-	usage.Requests[llm.MeterUnreported] += uses - counted
+	usage.Requests[llm.MeterUnreported] += max(uses-counted, 1)
 }
 
 func declaresHostedTool(intent *ModelFact) bool {

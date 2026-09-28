@@ -673,6 +673,10 @@ func (wire codec) decode(
 		if len(r.Usage.Requests) == 0 {
 			r.Usage.Requests = nil
 		}
+		// A stop reason arrives with the final usage (in message_delta when
+		// streaming). Without one, the response was cut off and its counts
+		// may be inferred from the blocks seen so far.
+		r.Usage.RequestsFinal = v.StopReason != ""
 	}
 	return r, nil
 }

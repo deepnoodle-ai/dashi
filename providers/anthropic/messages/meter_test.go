@@ -197,6 +197,9 @@ func TestHostedRequestsStreamMatchBlocking(t *testing.T) {
 		!maps.Equal(streaming.Usage.Requests, want) {
 		t.Fatalf("streamed usage = %+v, want requests %v", streaming.Usage, want)
 	}
+	if !streaming.Usage.RequestsFinal {
+		t.Fatal("a complete stream's counts are not marked final")
+	}
 	if streaming.Usage.InputTokens != 10982 ||
 		streaming.Usage.OutputTokens != 160 {
 		t.Fatalf("streamed tokens lost: %+v", streaming.Usage)
@@ -264,4 +267,29 @@ func readFixture(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// A stream cut off before message_delta has no final server_tool_use
+// counters. The visible block is counted, but the counts are not final, so
+// the runner treats the call's hosted billing as possibly incomplete.
+func TestHostedRequestsFromCutStreamAreNotFinal(t *testing.T) {
+	fixture := readFixture(t, "websearch-max-uses-exceeded-stream.sse")
+	marker := "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+	end := strings.Index(fixture, marker)
+	if end < 0 {
+		t.Fatal("fixture lacks the first block's stop event")
+	}
+	wire := meterCodec()
+	result, _ := wire.readStream(
+		io.NopCloser(strings.NewReader(fixture[:end+len(marker)])),
+		llm.Result{Requested: llm.ModelRef{Provider: "anthropic", Model: "model"}},
+		func(llm.Delta) {},
+	)
+	if result.Usage == nil ||
+		result.Usage.Requests[llm.MeterWebSearch] != 1 {
+		t.Fatalf("usage = %+v, want one inferred search", result.Usage)
+	}
+	if result.Usage.RequestsFinal {
+		t.Fatal("counts inferred from a cut stream are marked final")
+	}
 }

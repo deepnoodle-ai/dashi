@@ -282,6 +282,9 @@ func (wire codec) readStream(
 					result.ServiceTier = tier
 				}
 				if delta != nil {
+					// The message_delta that carries the stop reason also
+					// carries the final server_tool_use counters.
+					delta.RequestsFinal = e.Delta.StopReason != ""
 					var fields map[string]json.RawMessage
 					if err := json.Unmarshal(e.Usage, &fields); err != nil {
 						return build(), providerhttp.Failure(

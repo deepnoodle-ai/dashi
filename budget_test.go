@@ -661,6 +661,8 @@ func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
 		InputTokens:  10,
 		OutputTokens: 10,
 		Requests:     map[string]int{llm.MeterWebSearch: 1},
+		// A complete adapter response carries final counts.
+		RequestsFinal: true,
 	}
 	result.Message.Content = append(
 		[]llm.Content{hostedUse("search-1"), hostedUse("search-2")},
@@ -697,6 +699,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 			llm.MeterWebSearch:     1,
 			llm.MeterCodeExecution: 2,
 		},
+		RequestsFinal: true,
 	}
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, nil)
@@ -732,9 +735,10 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{
-		InputTokens:  10,
-		OutputTokens: 10,
-		Requests:     map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
+		InputTokens:   10,
+		OutputTokens:  10,
+		Requests:      map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
+		RequestsFinal: true,
 	}
 	client := newPricedClient(first, final("done"))
 	def := testAgent()
@@ -1258,5 +1262,23 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 	if view.Spend.CostPartial != 1 ||
 		view.Spend.UnpricedRequests[llm.MeterUnreported] != 1 {
 		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
+func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
+	inferred := &llm.Result{Message: llm.Message{Content: []llm.Content{
+		hostedUse("search-1"),
+	}}}
+	// Counts inferred from the one visible block, with no final report.
+	usage := &llm.Usage{Requests: map[string]int{llm.MeterWebSearch: 1}}
+	addUnreportedRequests(usage, &ModelFact{}, inferred)
+	if usage.Requests[llm.MeterWebSearch] != 1 ||
+		usage.Requests[llm.MeterUnreported] != 1 {
+		t.Fatalf("non-final counts left the call complete: %v", usage.Requests)
+	}
+	usage = &llm.Usage{InputTokens: 10}
+	addUnreportedRequests(usage, &ModelFact{}, &llm.Result{})
+	if len(usage.Requests) != 0 {
+		t.Fatalf("call without hosted activity marked unreported: %v", usage.Requests)
 	}
 }
