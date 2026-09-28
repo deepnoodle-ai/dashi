@@ -356,6 +356,73 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	}
 }
 
+func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
+	answer := final(strings.Repeat("x", 48))
+	answer.Requested.Model = "different-model"
+	answer.Usage = &llm.Usage{InputTokens: 7, OutputTokens: 1}
+	client := newPricedClient(answer)
+	out := runBudgetTurn(t, client, nil, llm.Settings{}, nil, Hooks{})
+	if out.Stop.Kind != StopFailed {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	settled := out.Turn.Steps[2].Model
+	if settled == nil || settled.Error == "" || settled.Result == nil ||
+		settled.Result.Stop.Kind != llm.StopFinished {
+		t.Fatalf("settlement=%+v", settled)
+	}
+	if settled.EstimatedUsage {
+		t.Fatal("finished provider usage was marked estimated")
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.Usage.InputTokens != 7 ||
+		view.Spend.Usage.OutputTokens != 1 || view.Spend.Estimated != 0 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+	wantCharge, ok := client.pricing.Estimate(answer.Usage)
+	if !ok || !reflect.DeepEqual(settled.Charge, &wantCharge) {
+		t.Fatalf("charge=%+v, want %+v", settled.Charge, wantCharge)
+	}
+}
+
+func TestInvalidStopKeepsPartialUsageEstimated(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind llm.StopKind
+	}{
+		{name: "missing"},
+		{name: "invalid", kind: "invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answer := final(strings.Repeat("x", 48))
+			answer.Stop.Kind = tc.kind
+			answer.Usage = &llm.Usage{InputTokens: 7, OutputTokens: 1}
+			out := runBudgetTurn(
+				t,
+				newPricedClient(answer),
+				nil,
+				llm.Settings{},
+				nil,
+				Hooks{},
+			)
+			if out.Stop.Kind != StopFailed {
+				t.Fatalf("stop=%+v", out.Stop)
+			}
+			settled := out.Turn.Steps[2].Model
+			if settled == nil || !settled.EstimatedUsage ||
+				settled.Error == "" {
+				t.Fatalf("settlement=%+v", settled)
+			}
+			if out.Spend.Usage.OutputTokens != 12 ||
+				out.Spend.Estimated != 1 {
+				t.Fatalf("spend=%+v", out.Spend)
+			}
+		})
+	}
+}
+
 func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 100}
