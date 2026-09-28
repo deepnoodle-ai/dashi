@@ -26,13 +26,6 @@ type ProcessInput struct {
 	Dataset string `json:"dataset" description:"Name of the dataset to process"`
 }
 
-// toolset serves a fixed list of tools.
-type toolset []tool.Tool
-
-func (s toolset) Tools(context.Context) ([]tool.Tool, error) {
-	return s, nil
-}
-
 func main() {
 	log.SetFlags(0)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -69,7 +62,7 @@ func run(ctx context.Context) error {
 				"when asked to process a dataset.",
 		},
 		Client: client,
-		Tools:  toolset{process},
+		Tools:  tool.List{process},
 		// A nil Policy denies every tool call, so allow the local tool.
 		Policy: dashi.AllowLocalPolicy{},
 	}
@@ -163,15 +156,12 @@ func newProcessTool() (tool.Tool, error) {
 					Data:    data,
 				})
 			}
-			return tool.Outcome{
-				State: tool.StateSucceeded,
-				Output: new(tool.TextOutput(fmt.Sprintf(
-					"Processed %d records from %q (%d bytes).",
-					total,
-					in.Dataset,
-					bytes,
-				))),
-			}, nil
+			return tool.Succeeded(fmt.Sprintf(
+				"Processed %d records from %q (%d bytes).",
+				total,
+				in.Dataset,
+				bytes,
+			)), nil
 		},
 	)
 }

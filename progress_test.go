@@ -29,13 +29,6 @@ func progressTool(
 	}
 }
 
-func succeededOutcome() tool.Outcome {
-	return tool.Outcome{
-		State:  tool.StateSucceeded,
-		Output: new(tool.TextOutput("ok")),
-	}
-}
-
 // namedCallsResult requests one call per name, with IDs c0, c1, and so on.
 func namedCallsResult(names ...string) llm.Result {
 	var parts []llm.Content
@@ -72,7 +65,7 @@ func progressRunner(
 	return Runner{
 		Agent:    agent,
 		Client:   &scriptedClient{results: results},
-		Tools:    fixedTools(tools),
+		Tools:    tool.List(tools),
 		Recorder: NewMemoryRecorder(),
 		Policy:   AllowLocalPolicy{},
 	}
@@ -158,7 +151,7 @@ func TestStreamDeliversToolProgress(t *testing.T) {
 			}
 		}
 		tool.Report(ctx, tool.Progress{Message: "done", Done: 3, Total: 3})
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	order := newProgressOrder(t)
 	runner := progressRunner(1, oneCall("work"), work)
@@ -206,7 +199,7 @@ func TestSlowStreamConsumerDoesNotBlockReporting(t *testing.T) {
 		for i := 1; i <= reports; i++ {
 			tool.Report(ctx, tool.Progress{Done: float64(i), Total: reports})
 		}
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	order := newProgressOrder(t)
 	runner := progressRunner(1, oneCall("work"), work)
@@ -250,7 +243,7 @@ func TestParallelToolProgressUnderRace(t *testing.T) {
 			})
 		}
 		wg.Wait()
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	}
 	names := []string{"a", "b", "c", "d", "e"}
 	var tools []tool.Tool
@@ -351,7 +344,7 @@ func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 				for late.Load() < 50 {
 					time.Sleep(100 * time.Microsecond)
 				}
-				return succeededOutcome(), nil
+				return tool.Succeeded("ok"), nil
 			})
 			runner := progressRunner(
 				2,
@@ -430,7 +423,7 @@ func TestNestedRunnerProgressStaysInItsTurn(t *testing.T) {
 		_ tool.Call,
 	) (tool.Outcome, error) {
 		tool.Report(ctx, tool.Progress{Message: "inner"})
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	outer := progressTool("outer", func(
 		ctx context.Context,
@@ -446,7 +439,7 @@ func TestNestedRunnerProgressStaysInItsTurn(t *testing.T) {
 		if err != nil || out.Stop.Kind != StopCompleted {
 			return tool.Outcome{}, fmt.Errorf("child: %v %+v", err, out.Stop)
 		}
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	order := newProgressOrder(t)
 	order.stream(progressRunner(
@@ -469,7 +462,7 @@ func TestRunWithoutListenerShadowsOuterReporter(t *testing.T) {
 		_ tool.Call,
 	) (tool.Outcome, error) {
 		tool.Report(ctx, tool.Progress{Message: "nobody listens"})
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	runner := progressRunner(1, oneCall("work"), work)
 	out, err := runner.Run(ctx, Turn{ID: "t1"}, streamStart())
@@ -490,7 +483,7 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 			Message: "m",
 			Data:    json.RawMessage(`{"n":1}`),
 		})
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	var mu sync.Mutex
 	var observed []ToolProgress
@@ -536,7 +529,7 @@ func TestRunWithObserverDeliversProgress(t *testing.T) {
 		_ tool.Call,
 	) (tool.Outcome, error) {
 		tool.Report(ctx, tool.Progress{Message: "observed"})
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	got := make(chan string, 1)
 	runner := progressRunner(1, oneCall("work"), work)
@@ -702,7 +695,7 @@ func TestProgressFloodKeepsObserverSteps(t *testing.T) {
 				return tool.Outcome{}, errors.New("progress not delivered")
 			}
 		}
-		return succeededOutcome(), nil
+		return tool.Succeeded("ok"), nil
 	})
 	release := make(chan struct{})
 	stopped := make(chan struct{})
