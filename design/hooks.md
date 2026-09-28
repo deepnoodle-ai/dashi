@@ -157,23 +157,50 @@ then the empty-answer and schema checks, unless a hook delivered items.
 
 - **Text path.** Deliveries are recorded in a `StepLoopContinued`, which
   already means the answer was not accepted. No new record field is needed.
-- **Submission path.** The finish point runs after the submission's
-  `tool_started` step. If a hook delivers, the submission settles as failed
-  with the output "Not accepted: `<Reason>`", and the items are recorded before
-  the next model call. Steering uses the same function with its own text. The
-  submission never succeeded, so replay needs no new rule.
+- **Submission path.** A submission skips `BeforeTool`: the runner records
+  its `tool_decision` itself (allow, revision `dashi-output-v1`), so its
+  status goes requested, allowed, started. The finish point runs after the
+  `tool_started` step and after the schema check passes.
 - **No further call.** Deliveries are dropped with a warning unless
   `nextCallPossible` holds; `AcceptEmpty` still applies.
 
-`nextCallPossible(state)` (in `state.go`, next to the `Stop.Terminal` rule) is
-true when one more model call still leaves the reserved final-answer call
-available, the budget is not spent, the deadline has not passed, no pause is
-requested, and the context is live. With the defaults (8 attempts, reserve on),
-call 8 is the reserved final answer:
+**Not accepted.** One function, `rejectSubmission(call, reason)`, settles a
+started submission that a hook or a steer turns down. It records the existing
+transition started → settled, with `tool.StateFailed`, the model-visible
+output `Not accepted: <reason>`, and `ToolFact.Reason` naming the source
+(`hook <name>` or `steering`). This is the same transition a schema
+rejection uses today, so replay needs no new rule, and the next successful
+submission is the one recorded as output. The items to deliver are then
+recorded in their own `StepDelivered` before the next model call; after a
+crash between the two steps the model still sees the reason. `BeforeFinish`
+passes its hook's `Reason` (default "a check did not accept this output");
+steering passes "the user sent new input. Read it, then submit again." A
+crash after `tool_started` re-runs the finish point on resume, since the
+submission is still started. A `loop_continued` step on the text path needs
+no `Supersedes` field: its position says which answer it replaced.
+
+`nextCallPossible(s, extraInputTokens)` is the one check, used by both
+`BeforeFinish` and steering, of whether a further non-final model call can
+happen. It is a runtime method, since it reads pause, the context, and model
+prices. It is true only when all of these hold:
+
+- **Attempts.** One more call still leaves the reserved final-answer call
+  available (or, with `NoReservedFinalAnswer`, one more call fits in
+  `ModelAttempts`).
+- **Deadline** not passed, **no pause** requested, **context** live.
+- **Budget.** Every cap in `Budget` (cost, output and total tokens) holds for
+  the next call's worst case: the current projection's estimated input plus
+  `extraInputTokens`, and the maximum output, priced as `checkSendBudget`
+  prices a prepared request. A cost cap whose worst case cannot be priced
+  fails the check, since that call would stop anyway. Steering passes the
+  waiting steers' tokens; `BeforeFinish` passes its `Deliver` items' tokens.
+
+With the defaults (8 attempts, reserve on), call 8 is the reserved final
+answer:
 
 | Candidate from call | Next call | Possible? |
 |---|---|---|
-| 1 to 6 | 2 to 7, a normal call | Yes |
+| 1 to 6 | 2 to 7, a normal call | Yes, if the other checks hold |
 | 7 | 8, the reserved final answer | No |
 | 8 | none | No |
 
