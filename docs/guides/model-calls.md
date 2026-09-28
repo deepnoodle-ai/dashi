@@ -42,6 +42,8 @@ sends the request and records the features whose support is unknown in
 `RequestSnapshot.Unverified`. When a value exceeds a known limit, such as an
 effort level the API lacks, a temperature above its range, or `MaxTokens` above
 the model's output limit, preparation sends the nearest accepted value instead.
+An effort is never lowered to `none`, and `extra-high`, `extra_high`, and
+`extra high` are treated as `xhigh` when fitting.
 Each such change is a typed `Adjustment` and appears as an `llm.Warning` on the
 `Request`, its snapshot, and the `Result`, so an application can pass warnings
 on in its own responses. Requests fail only where no safe substitute exists,
@@ -60,6 +62,8 @@ supplied yet. See [decision 4](../../design/decisions.md) for the rationale.
 and recordable `RequestSnapshot` preserve the original input, effective
 settings, typed adjustments and their warnings, content changes, model
 evidence, and one exact body. Preparation is not proof of dispatch or receipt.
+The snapshot always records the resolved `capability_policy`, `adjust` or
+`strict`.
 
 ## Send, Stream, and Generate
 

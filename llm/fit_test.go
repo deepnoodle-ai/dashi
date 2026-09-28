@@ -18,16 +18,132 @@ func TestNearestEffortPrefersLowerLevels(t *testing.T) {
 		want      string
 		ok        bool
 	}{
-		{name: "xhigh on Messages", requested: "xhigh", accepted: messages, want: "high", ok: true},
-		{name: "max on Responses", requested: "max", accepted: responses, want: "xhigh", ok: true},
-		{name: "minimal raised to lowest", requested: "minimal", accepted: messages, want: "low", ok: true},
-		{name: "none is never raised", requested: "none", accepted: messages},
-		{name: "unranked name", requested: "extra-high", accepted: messages},
+		{
+			name:      "xhigh on Messages",
+			requested: "xhigh",
+			accepted:  messages,
+			want:      "high",
+			ok:        true,
+		},
+		{
+			name:      "max on Responses",
+			requested: "max",
+			accepted:  responses,
+			want:      "xhigh",
+			ok:        true,
+		},
+		{
+			name:      "minimal raised to lowest",
+			requested: "minimal",
+			accepted:  messages,
+			want:      "low",
+			ok:        true,
+		},
+		{
+			name:      "none is never raised",
+			requested: "none",
+			accepted:  messages,
+		},
+		{
+			name:      "unranked name",
+			requested: "ultra",
+			accepted:  messages,
+		},
+		{
+			name:      "minimal never lowered to none",
+			requested: "minimal",
+			accepted:  []string{"none", "low", "medium", "high"},
+			want:      "low",
+			ok:        true,
+		},
+		{
+			name:      "low with only none",
+			requested: "low",
+			accepted:  []string{"none"},
+		},
+		{
+			name:      "xhigh lowered to high",
+			requested: "xhigh",
+			accepted:  []string{"low", "medium", "high"},
+			want:      "high",
+			ok:        true,
+		},
+		{
+			name:      "medium raised past none",
+			requested: "medium",
+			accepted:  []string{"none", "high"},
+			want:      "high",
+			ok:        true,
+		},
+		{
+			name:      "extra-high alias",
+			requested: "extra-high",
+			accepted:  responses,
+			want:      "xhigh",
+			ok:        true,
+		},
+		{
+			name:      "extra_high alias",
+			requested: "extra_high",
+			accepted:  messages,
+			want:      "high",
+			ok:        true,
+		},
+		{
+			name:      "extra high alias",
+			requested: "extra high",
+			accepted:  responses,
+			want:      "xhigh",
+			ok:        true,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := nearestEffort(test.requested, test.accepted)
 			if got != test.want || ok != test.ok {
 				t.Fatalf("nearestEffort = %q, %v; want %q, %v", got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
+func TestFitRanksEffortAliasesUnderBothPolicies(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		accepted []string
+		want     string
+	}{
+		{
+			name:     "xhigh accepted",
+			accepted: []string{"low", "medium", "high", "xhigh"},
+			want:     "xhigh",
+		},
+		{
+			name:     "xhigh not accepted",
+			accepted: []string{"low", "medium", "high"},
+			want:     "high",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := Capabilities{ReasoningEfforts: test.accepted}
+			r := Input{
+				Model: "m",
+				Settings: Settings{
+					Reasoning: &ReasoningSettings{Effort: "extra-high"},
+				},
+			}
+			if _, _, err := c.Fit(r, CapabilityStrict, nil); err == nil {
+				t.Fatal("strict policy sent an alias it had to adjust")
+			}
+			fitted, adjustments, err := c.Fit(r, CapabilityAdjust, nil)
+			if err != nil {
+				t.Fatalf("adjust policy rejected a ranked alias: %v", err)
+			}
+			if got := fitted.Settings.Reasoning.Effort; got != test.want {
+				t.Fatalf("effort = %q, want %q", got, test.want)
+			}
+			warnings := Warnings(adjustments)
+			if len(warnings) != 1 || warnings[0].Code != WarningSettingClamped {
+				t.Fatalf("alias adjustment warnings = %+v", warnings)
 			}
 		})
 	}

@@ -126,7 +126,7 @@ func New(config Config) (*Client, error) {
 		apiKey:   config.APIKey,
 		http:     config.Client,
 		models:   models,
-		unknown:  config.CapabilityPolicy,
+		unknown:  config.CapabilityPolicy.Resolved(),
 		image: content.Origin{
 			Provider: config.Provider,
 			API:      ImageAPI,

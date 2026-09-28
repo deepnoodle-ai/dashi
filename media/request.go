@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"slices"
 
 	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/kernel/internal/policyrecord"
 	"github.com/deepnoodle-ai/kernel/model"
 )
 
@@ -35,7 +37,7 @@ type ImageRequestSnapshot struct {
 	ProviderOptions  json.RawMessage        `json:"provider_options,omitempty"`
 	Adjustments      []Adjustment           `json:"adjustments,omitempty"`
 	ModelInfo        *ModelInfo             `json:"model_info,omitempty"`
-	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy,omitempty"`
+	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy"`
 	Unverified       []string               `json:"unverified,omitempty"`
 }
 
@@ -59,9 +61,31 @@ type ImageRequest struct {
 	snapshot ImageRequestSnapshot
 }
 
+// UnmarshalJSON reads capability_policy, or maps the legacy
+// unknown_capabilities field it replaced; see decodePolicy.
+func (s *ImageRequestSnapshot) UnmarshalJSON(data []byte) error {
+	type plain ImageRequestSnapshot
+	var raw struct {
+		plain
+		CapabilityPolicy    *model.CapabilityPolicy `json:"capability_policy"`
+		UnknownCapabilities *string                 `json:"unknown_capabilities"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	policy, err := decodePolicy(raw.CapabilityPolicy, raw.UnknownCapabilities)
+	if err != nil {
+		return err
+	}
+	*s = ImageRequestSnapshot(raw.plain)
+	s.CapabilityPolicy = policy
+	return nil
+}
+
 // NewImageRequest validates and owns one provider-prepared image request.
 // Restoring a snapshot does not requalify its evidence or authorize dispatch.
 func NewImageRequest(snapshot ImageRequestSnapshot) (ImageRequest, error) {
+	snapshot.CapabilityPolicy = snapshot.CapabilityPolicy.Resolved()
 	if err := snapshot.Input.Validate(); err != nil {
 		return ImageRequest{}, err
 	}
@@ -123,7 +147,7 @@ type VideoRequestSnapshot struct {
 	ProviderOptions  json.RawMessage        `json:"provider_options,omitempty"`
 	Adjustments      []Adjustment           `json:"adjustments,omitempty"`
 	ModelInfo        *ModelInfo             `json:"model_info,omitempty"`
-	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy,omitempty"`
+	CapabilityPolicy model.CapabilityPolicy `json:"capability_policy"`
 	Unverified       []string               `json:"unverified,omitempty"`
 }
 
@@ -147,8 +171,30 @@ type VideoRequest struct {
 	snapshot VideoRequestSnapshot
 }
 
+// UnmarshalJSON reads capability_policy, or maps the legacy
+// unknown_capabilities field it replaced; see decodePolicy.
+func (s *VideoRequestSnapshot) UnmarshalJSON(data []byte) error {
+	type plain VideoRequestSnapshot
+	var raw struct {
+		plain
+		CapabilityPolicy    *model.CapabilityPolicy `json:"capability_policy"`
+		UnknownCapabilities *string                 `json:"unknown_capabilities"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	policy, err := decodePolicy(raw.CapabilityPolicy, raw.UnknownCapabilities)
+	if err != nil {
+		return err
+	}
+	*s = VideoRequestSnapshot(raw.plain)
+	s.CapabilityPolicy = policy
+	return nil
+}
+
 // NewVideoRequest validates and owns one provider-prepared video request.
 func NewVideoRequest(snapshot VideoRequestSnapshot) (VideoRequest, error) {
+	snapshot.CapabilityPolicy = snapshot.CapabilityPolicy.Resolved()
 	if err := snapshot.Input.Validate(); err != nil {
 		return VideoRequest{}, err
 	}
@@ -231,6 +277,21 @@ func validateProviderOptions(raw json.RawMessage) error {
 	return nil
 }
 
+// decodePolicy maps legacy "allow" to adjust and "reject" to strict. A
+// snapshot with neither field predates both and decodes as strict, because the
+// legacy zero value rejected unknown support; reading it as the current default
+// would change what the evidence says.
+func decodePolicy(
+	current *model.CapabilityPolicy,
+	legacy *string,
+) (model.CapabilityPolicy, error) {
+	policy, err := policyrecord.Decode(current, legacy)
+	if err != nil {
+		return "", fmt.Errorf("media: %w", err)
+	}
+	return policy, nil
+}
+
 func validatePrepared(
 	origin content.Origin,
 	requestedModel string,
@@ -266,7 +327,7 @@ func validatePrepared(
 	if !unknown.Valid() {
 		return errors.New("media: invalid capability policy")
 	}
-	if len(unverified) > 0 && unknown != model.CapabilityAdjust {
+	if len(unverified) > 0 && unknown.Resolved() != model.CapabilityAdjust {
 		return errors.New("media: unverified capabilities require the adjust capability policy")
 	}
 	for i, feature := range unverified {

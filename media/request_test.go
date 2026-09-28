@@ -173,3 +173,63 @@ func TestJobPollCloneCopiesOutputReference(t *testing.T) {
 		t.Fatal("polled usage bytes were shared")
 	}
 }
+
+func TestVideoRequestSnapshotDecodesLegacyCapabilityPolicy(t *testing.T) {
+	request, err := NewVideoRequest(videoSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(request.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"capability_policy":"adjust"`)) {
+		t.Fatalf("snapshot omitted the resolved policy: %s", raw)
+	}
+	tests := []struct {
+		name   string
+		legacy string
+		want   model.CapabilityPolicy
+	}{
+		{
+			name: "no policy",
+			want: model.CapabilityStrict,
+		},
+		{
+			name:   "legacy allow",
+			legacy: `"allow"`,
+			want:   model.CapabilityAdjust,
+		},
+		{
+			name:   "legacy reject",
+			legacy: `"reject"`,
+			want:   model.CapabilityStrict,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatal(err)
+			}
+			delete(fields, "capability_policy")
+			if test.legacy != "" {
+				fields["unknown_capabilities"] = json.RawMessage(test.legacy)
+			}
+			legacy, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var snapshot VideoRequestSnapshot
+			if err := json.Unmarshal(legacy, &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.CapabilityPolicy != test.want {
+				t.Fatalf(
+					"legacy snapshot decoded as %q, want %q",
+					snapshot.CapabilityPolicy, test.want,
+				)
+			}
+		})
+	}
+}

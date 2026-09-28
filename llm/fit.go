@@ -9,7 +9,8 @@ import (
 
 // effortOrder ranks the reasoning effort names used across supported APIs,
 // from least to most reasoning. Fit uses it to find the nearest accepted level;
-// a name outside this list has no known neighbor and cannot be adjusted.
+// a name outside this list or effortAliases has no known neighbor and cannot
+// be adjusted.
 var effortOrder = []string{
 	"none",
 	"minimal",
@@ -18,6 +19,16 @@ var effortOrder = []string{
 	"high",
 	"xhigh",
 	"max",
+}
+
+// effortAliases ranks other spellings of a level as that level, so an effort
+// written as "extra-high" fits like "xhigh" (design/decisions.md, entry 4). An
+// alias is never sent: when no model lists it, Fit replaces it with an
+// accepted name and records the change.
+var effortAliases = map[string]string{
+	"extra-high": "xhigh",
+	"extra_high": "xhigh",
+	"extra high": "xhigh",
 }
 
 // Fit brings settings within known limits before a provider encodes them.
@@ -303,14 +314,16 @@ func (f *fitter) record(
 
 // nearestEffort picks the highest accepted level at or below the request, so
 // an adjustment never adds reasoning spend, and otherwise the lowest accepted
-// level above it. "none" is never raised, because turning reasoning on is not
-// a nearer version of turning it off.
+// level above it. The downward search stops above "none": a caller who asked
+// for reasoning must not have it silently turned off. For the same reason
+// "none" is never raised, because turning reasoning on is not a nearer version
+// of turning it off. With no level on either side there is no safe substitute.
 func nearestEffort(requested string, accepted []string) (string, bool) {
-	rank := slices.Index(effortOrder, requested)
-	if rank < 0 || requested == "none" {
+	rank := effortRank(requested)
+	if rank <= 0 {
 		return "", false
 	}
-	for i := rank; i >= 0; i-- {
+	for i := rank; i > 0; i-- {
 		if slices.Contains(accepted, effortOrder[i]) {
 			return effortOrder[i], true
 		}
@@ -321,6 +334,15 @@ func nearestEffort(requested string, accepted []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// effortRank returns the index of name, or of the level it aliases, in
+// effortOrder, and -1 for an unranked name.
+func effortRank(name string) int {
+	if level, ok := effortAliases[name]; ok {
+		name = level
+	}
+	return slices.Index(effortOrder, name)
 }
 
 // unsupportedError names the fix for a feature the model is known to reject.

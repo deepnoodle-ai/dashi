@@ -39,27 +39,44 @@ func (s Support) Valid() bool {
 }
 
 // CapabilityPolicy decides what preparation does when a request goes beyond
-// what is known about the model. The zero value adjusts, because a library
-// that fails on edge cases of uncertain meaning is harder to use than one that
-// sends the nearest valid request and says so (design/decisions.md, entry 4).
-// Strict keeps the older fail-closed behavior for applications that must not
-// send anything unqualified. Neither policy overrides known rejection where
-// no safe substitute exists, nor an encoding the client cannot perform.
+// what is known about the model. The zero value means the default, adjust,
+// because a library that fails on edge cases of uncertain meaning is harder to
+// use than one that sends the nearest valid request and says so
+// (design/decisions.md, entry 4). Strict keeps the older fail-closed behavior
+// for applications that must not send anything unqualified. Neither policy
+// overrides known rejection where no safe substitute exists, nor an encoding
+// the client cannot perform.
+//
+// Recorded evidence always carries the resolved, non-empty value, so a record
+// never depends on what the default was when it was written.
 type CapabilityPolicy string
 
 const (
 	// CapabilityAdjust sends features whose support is unknown and records
 	// them as unverified. A known limit is met by the nearest supported value,
 	// recorded as an adjustment that carries a warning.
-	CapabilityAdjust CapabilityPolicy = ""
+	CapabilityAdjust CapabilityPolicy = "adjust"
 	// CapabilityStrict declines an operation with unknown required support or
 	// a value outside a known limit.
 	CapabilityStrict CapabilityPolicy = "strict"
 )
 
-// Valid reports whether p is one of the defined policies.
+// Valid reports whether p is the zero value or one of the defined policies.
 func (p CapabilityPolicy) Valid() bool {
-	return p == CapabilityAdjust || p == CapabilityStrict
+	switch p {
+	case "", CapabilityAdjust, CapabilityStrict:
+		return true
+	}
+	return false
+}
+
+// Resolved returns the policy that applies: CapabilityAdjust for the zero
+// value, and p otherwise. Compare policies only after resolving them.
+func (p CapabilityPolicy) Resolved() CapabilityPolicy {
+	if p == "" {
+		return CapabilityAdjust
+	}
+	return p
 }
 
 // EvidenceMethod says how a capability claim was established, not whether a

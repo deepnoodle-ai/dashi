@@ -18,8 +18,9 @@ have a different default and therefore a different thinking-budget clamp
 
 - `Client.ModelInfo(model)` returns exact-ID facts supplied to that client
   instance. `ModelEvidence` names the model, API, exact endpoint, owner, source,
-  date, and method: live probe, documentation, inference, or fixture. Construction
-  rejects mismatched scope; supplied facts are not automatically verified.
+  date, and method: live probe, documentation, inference, or fixture.
+  Construction rejects mismatched scope; supplied facts are not automatically
+  verified.
 - `Client.Prepare(ctx, input)` checks the **whole input** and encodes it
   offline. Its snapshot contains requested and effective settings, adjustments,
   model evidence, content changes, and the exact body `Send` will send. Record
@@ -30,7 +31,9 @@ have a different default and therefore a different thinking-budget clamp
   accepted value or, where the model default keeps the meaning, omitted. Each
   change is a machine-readable `Adjustment` and a caller-facing `Warning`.
   `CapabilityStrict` restores fail-closed preparation. Known unsupported
-  features with no safe substitute fail under both policies.
+  features with no safe substitute fail under both policies. An effort fits to
+  the nearest accepted level but never down to `none`, and the spellings
+  `extra-high`, `extra_high`, and `extra high` rank as `xhigh`.
 - Keep effective settings with each model attempt. Aggregate token usage cannot
   truthfully represent a run that used different settings. The result records
   the served model when the provider reports it.
@@ -46,7 +49,9 @@ warning), `clamp`, and `omit`; the last two replace caller intent and always
 project to a `Warning` on the request, its snapshot, and the result. `Fit`
 applies API-wide limits intersected with model evidence before encoding.
 Emulation is not implemented. `NewRequest` checks that every setting change has
-a matching decision.
+a matching decision. Snapshots and model facts always record the resolved
+policy; a record written before the policy existed decodes as strict, which was
+its default then.
 
 Messages applies its configured `DefaultMaxTokens` (1024 when unset) and an
 automatic tool choice when parallel-tool controls require one. Both appear in

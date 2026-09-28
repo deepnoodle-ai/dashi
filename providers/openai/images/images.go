@@ -119,7 +119,7 @@ func New(config Config) (*Client, error) {
 		http:     config.Client,
 		scope:    fmt.Sprintf("%x", sha256.Sum256(scopeBytes)),
 		models:   catalog,
-		unknown:  config.CapabilityPolicy,
+		unknown:  config.CapabilityPolicy.Resolved(),
 	}, nil
 }
 

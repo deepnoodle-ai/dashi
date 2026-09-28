@@ -328,12 +328,14 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 
 // apiLimits states what this Gemini encoding accepts from any model. It has
 // no parallel tool control, since Gemini decides that itself, and it maps
-// reasoning only from token budgets.
+// reasoning only from token budgets. The API documents temperature as 0 to 2
+// (https://ai.google.dev/api/generate-content).
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
 		llm.FeatureParallelTools:   llm.SupportUnsupported,
 		llm.FeatureReasoningEffort: llm.SupportUnsupported,
 	},
+	MaxTemperature: 2,
 }
 
 func hasClientFunctionCalls(input llm.Input) bool {

@@ -74,7 +74,7 @@ func NewClient(provider, api, endpoint, credential string, httpClient *http.Clie
 	scopeData, _ := json.Marshal([]string{api, endpoint, credential})
 	scope := fmt.Sprintf("%x", sha256.Sum256(scopeData))
 	return Client{Provider: provider, API: api, Endpoint: endpoint, HTTP: httpClient,
-		Headers: headers.Clone(), scope: scope, models: catalog, policy: policy}, nil
+		Headers: headers.Clone(), scope: scope, models: catalog, policy: policy.Resolved()}, nil
 }
 
 // Origin binds model replay to the configured API, endpoint, and credentials.
@@ -88,8 +88,8 @@ func (c Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 	return info.Clone(), ok
 }
 
-// Policy reports the configured capability policy, for provider rules that
-// Fit cannot express.
+// Policy reports the resolved capability policy, for provider rules that Fit
+// cannot express. It is never the zero value.
 func (c Client) Policy() llm.CapabilityPolicy {
 	return c.policy
 }
