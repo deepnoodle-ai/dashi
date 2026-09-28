@@ -52,6 +52,22 @@ type ToolView struct {
 	// Approval is the host's answer to a deferred call, recorded by Settle.
 	// Verdict remains the hooks' deferral.
 	Approval *ApprovalFact
+	// result is what AfterTool hooks showed the model instead of the
+	// outcome; see Result.
+	result *llm.ToolResult
+}
+
+// Result is what the model sees for a settled call: the outcome's output,
+// or what an AfterTool hook replaced it with. It is the zero value before
+// the call settles.
+func (v ToolView) Result() llm.ToolResult {
+	if v.result != nil {
+		return cloneToolResult(*v.result)
+	}
+	if v.Outcome == nil || v.Status != ToolSettled {
+		return llm.ToolResult{}
+	}
+	return modelToolResult(v.Call.ID, v.Outcome)
 }
 
 // TurnView is the current state reconstructed from acknowledged steps.
@@ -173,6 +189,13 @@ func snapshotView(v TurnView) TurnView {
 	b, _ := json.Marshal(v)
 	var out TurnView
 	_ = json.Unmarshal(b, &out)
+	for id, tv := range v.Tools {
+		if tv.result != nil {
+			copied := out.Tools[id]
+			copied.result = new(cloneToolResult(*tv.result))
+			out.Tools[id] = copied
+		}
+	}
 	if len(v.live) > 0 {
 		out.live = make(map[string]ContextItem, len(v.live))
 		for k, item := range v.live {
@@ -232,7 +255,7 @@ func replay(t Turn) (*replayState, error) {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		s.Warnings = append(s.Warnings, step.Warnings...)
-		if step.Kind == StepStarted || step.Kind == StepContinued {
+		if recordsActiveHooks(step) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
@@ -839,8 +862,24 @@ func (s *replayState) apply(step Step) error {
 			default:
 				return errors.New("tool result without execution or denial")
 			}
+			if step.Tool.Result != nil {
+				// Only a tool's or host's content passes AfterTool.
+				if v.Call.Name == SubmitOutputTool ||
+					(v.Status != ToolStarted && v.Status != ToolWaiting &&
+						v.Status != ToolUncertain) ||
+					step.Tool.Result.CallID != v.Call.ID {
+					return errors.New("result replacement without a tool result")
+				}
+				if err := validToolResult(*step.Tool.Result); err != nil {
+					return err
+				}
+				v.result = new(cloneToolResult(*step.Tool.Result))
+			}
 			v.Status = ToolSettled
 			v.Outcome = step.Tool.Outcome
+		}
+		if step.Tool.Result != nil && step.Tool.Outcome == nil {
+			return errors.New("result replacement without an outcome")
 		}
 		s.Tools[v.Call.ID] = v
 	case StepApprovalSettled:
@@ -1447,6 +1486,14 @@ func (s *replayState) roomForNormalCall() bool {
 	return used+1 < limit
 }
 
+// recordsActiveHooks reports the steps that record ActiveHooks: the first
+// step of the commands that run hooks, Start, Continue, and a Settle with a
+// tool result, which runs AfterTool.
+func recordsActiveHooks(step Step) bool {
+	return step.Kind == StepStarted || step.Kind == StepContinued ||
+		step.Kind == StepToolSettled && step.CommandID != ""
+}
+
 // hookVerdicts lists the verdicts each hook point can record.
 var hookVerdicts = map[HookPoint][]HookVerdict{
 	HookBeforeModel: {VerdictChange, VerdictStop, VerdictFailed},
@@ -1458,6 +1505,7 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 		VerdictRewrite,
 		VerdictFailed,
 	},
+	HookAfterTool: {VerdictReplace, VerdictFailed},
 	HookBeforeFinish: {
 		VerdictDeliver,
 		VerdictReject,
@@ -1489,6 +1537,7 @@ func (a ActiveHooks) validate() error {
 		a.BeforeModel,
 		a.BeforeSend,
 		a.BeforeTool,
+		a.AfterTool,
 		a.BeforeFinish,
 	} {
 		seen := map[string]bool{}
@@ -1571,8 +1620,8 @@ func validateStepPayload(step Step) error {
 		}
 	}
 	if step.ActiveHooks != nil {
-		if step.Kind != StepStarted && step.Kind != StepContinued {
-			return errors.New("active hooks require a start or continuation step")
+		if !recordsActiveHooks(step) {
+			return errors.New("active hooks require a start, continuation, or settled result")
 		}
 		if err := step.ActiveHooks.validate(); err != nil {
 			return err

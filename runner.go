@@ -590,11 +590,13 @@ func (r Runner) apply(
 				c.Outcome.State == tool.StateDetached {
 				return Outcome{}, errors.New("dashi: settle requires a final tool outcome")
 			}
+			fact := &ToolFact{Call: v.Call, Outcome: c.Outcome}
+			rt.afterTool(rt.ctx, fact)
 			if o := rt.commit(Step{
 				Kind:          StepToolSettled,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
-				Tool:          &ToolFact{Call: v.Call, Outcome: c.Outcome},
+				Tool:          fact,
 			}); o != nil {
 				return rt.result(*o)
 			}
@@ -736,9 +738,9 @@ func (r *runtime) commit(step Step) *Outcome {
 			step.Context = &fact
 		}
 	}
-	if step.Kind == StepStarted || step.Kind == StepContinued {
+	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
-		if step.Kind == StepContinued &&
+		if step.Kind != StepStarted &&
 			!sameJSONValue(r.lastHooks, r.activeHooks) {
 			step.Warnings = append(step.Warnings, Warning{
 				Code:    WarningHooksChanged,

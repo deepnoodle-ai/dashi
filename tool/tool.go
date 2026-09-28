@@ -231,6 +231,20 @@ func TextOutput(text string) Output {
 	return Output{Content: []content.Block{content.TextBlock(text)}}
 }
 
+// MapText returns a copy of o whose text blocks are rewritten by f. Other
+// blocks, such as images, and Display are kept unchanged.
+func (o Output) MapText(f func(string) string) Output {
+	out := o.Clone()
+	for i, block := range out.Content {
+		if block.Text != nil {
+			text := *block.Text
+			text.Text = f(text.Text)
+			out.Content[i].Text = &text
+		}
+	}
+	return out
+}
+
 // Clone returns a deep copy of o whose content blocks share no data with the
 // original.
 func (o Output) Clone() Output {

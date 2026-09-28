@@ -14,8 +14,8 @@ import (
 )
 
 // Hook is the shape of every hook: a named function Dashi calls at one hook
-// point of a turn. Use it through ModelHook, SendHook, ToolHook and
-// FinishHook, one per point. Every hook at a point runs, one at a time and in
+// point of a turn. Use it through ModelHook, SendHook, ToolHook, ResultHook
+// and FinishHook, one per point. Every hook at a point runs, one at a time and in
 // order, and their answers combine by the point's rule; see Hooks. A zero
 // answer means no opinion. Dashi records each hook's answer with the step it
 // leads to, and replay reads that record instead of calling hooks again, so a
@@ -34,6 +34,12 @@ type Hook[P, D any] struct {
 	// details out of it.
 	Name string
 	Func func(context.Context, P) (D, error)
+	// FailOpen makes an error or invalid answer a warning instead of a
+	// guard, for hooks that only improve a result. It is allowed only for
+	// AfterTool, where the result stands as earlier hooks left it, and
+	// BeforeFinish, where the error counts as no opinion. Run rejects it at
+	// the other points.
+	FailOpen bool
 }
 
 // ModelHook runs before each model request is prepared. It fails open: an
@@ -76,6 +82,17 @@ func (h FinishHook) Hooks() Hooks {
 	return Hooks{BeforeFinish: []FinishHook{h}}
 }
 
+// ResultHook sees each final tool result from a tool or the host and may
+// replace what the model sees of it; see ResultPlan. It fails closed: an
+// error withholds the result from the model, with a WarningHookFailed,
+// unless FailOpen is set.
+type ResultHook Hook[ResultPlan, ResultDecision]
+
+// Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
+func (h ResultHook) Hooks() Hooks {
+	return Hooks{AfterTool: []ResultHook{h}}
+}
+
 // Hooks holds the hooks for each hook point. The zero value has none, and
 // then Dashi runs every bound tool and every model call.
 //
@@ -88,6 +105,7 @@ func (h FinishHook) Hooks() Hooks {
 //     recorded under its name.
 //   - BeforeTool: the first denial ends the chain; otherwise a deferral wins
 //     over an allow. A Rewrite restarts the chain on the new arguments.
+//   - AfterTool: each hook sees the result as earlier hooks replaced it.
 //   - BeforeFinish: deliveries append, the first Reason is kept, and
 //     AcceptEmpty holds if any hook says so.
 //
@@ -97,6 +115,7 @@ type Hooks struct {
 	BeforeModel  []ModelHook
 	BeforeSend   []SendHook
 	BeforeTool   []ToolHook
+	AfterTool    []ResultHook
 	BeforeFinish []FinishHook
 }
 
@@ -108,6 +127,7 @@ func JoinHooks(hs ...Hooks) Hooks {
 		out.BeforeModel = append(out.BeforeModel, h.BeforeModel...)
 		out.BeforeSend = append(out.BeforeSend, h.BeforeSend...)
 		out.BeforeTool = append(out.BeforeTool, h.BeforeTool...)
+		out.AfterTool = append(out.AfterTool, h.AfterTool...)
 		out.BeforeFinish = append(out.BeforeFinish, h.BeforeFinish...)
 	}
 	return out
@@ -130,6 +150,7 @@ const (
 	HookBeforeModel  HookPoint = "before_model"
 	HookBeforeSend   HookPoint = "before_send"
 	HookBeforeTool   HookPoint = "before_tool"
+	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"
 )
 
@@ -158,6 +179,9 @@ const (
 	VerdictDeliver     HookVerdict = "deliver"
 	VerdictReject      HookVerdict = "reject"
 	VerdictAcceptEmpty HookVerdict = "accept_empty"
+	// VerdictReplace is an AfterTool answer: the model sees a replaced
+	// result.
+	VerdictReplace HookVerdict = "replace"
 )
 
 // HookResult records one hook's answer: every answer that was not "no
@@ -177,13 +201,15 @@ type HookResult struct {
 }
 
 // ActiveHooks lists the names of the Runner's hooks per point, recorded on
-// the first step of each Start and Continue, the commands that run hooks.
+// the first step of each Start and Continue and on a Settle with a tool
+// result, the commands that run hooks.
 // Hooks added with WithHooks are left out, since they are per-command by
 // design.
 type ActiveHooks struct {
 	BeforeModel  []string `json:"before_model,omitempty"`
 	BeforeSend   []string `json:"before_send,omitempty"`
 	BeforeTool   []string `json:"before_tool,omitempty"`
+	AfterTool    []string `json:"after_tool,omitempty"`
 	BeforeFinish []string `json:"before_finish,omitempty"`
 }
 
@@ -282,6 +308,31 @@ type ToolVerdict struct {
 	Reason   string       `json:"reason,omitempty"`
 	Hook     string       `json:"hook,omitempty"`
 	Revision string       `json:"revision,omitempty"`
+}
+
+// ResultPlan gives AfterTool one final tool result. Outcome is what
+// happened and stays the record of execution state and cost; Result is what
+// the model will see, as earlier hooks left it.
+//
+// A result hook changes only what the model sees: the next model call, and
+// the next turn's history through Project. The record, Observer and Stream
+// events, and ToolView.Outcome keep the raw output, so a result hook is not
+// storage redaction; keep a secret out of the record in the executor.
+type ResultPlan struct {
+	Call       tool.Call
+	Definition tool.Definition
+	Outcome    tool.Outcome
+	Result     llm.ToolResult
+	// Turn is the state before this result is recorded.
+	Turn TurnView
+}
+
+// ResultDecision is an AfterTool answer. The zero value keeps the result.
+type ResultDecision struct {
+	// Replace is what the model sees instead of Result. The runner sets its
+	// CallID. A replacement with the same JSON meaning as Result is no
+	// opinion, so a hook may return one on every call.
+	Replace *llm.ToolResult
 }
 
 // FinishPlan gives BeforeFinish a candidate final answer: model text that
@@ -424,6 +475,7 @@ func (h Hooks) validate() error {
 		validatePoint(HookBeforeModel, h.BeforeModel),
 		validatePoint(HookBeforeSend, h.BeforeSend),
 		validatePoint(HookBeforeTool, h.BeforeTool),
+		validatePoint(HookAfterTool, h.AfterTool),
 		validatePoint(HookBeforeFinish, h.BeforeFinish),
 	)
 }
@@ -432,8 +484,9 @@ func (h Hooks) validate() error {
 // helpers below serve every hook point.
 type hookShape[P, D any] interface {
 	~struct {
-		Name string
-		Func func(context.Context, P) (D, error)
+		Name     string
+		Func     func(context.Context, P) (D, error)
+		FailOpen bool
 	}
 }
 
@@ -453,6 +506,13 @@ func validatePoint[H hookShape[P, D], P, D any](
 		if h.Func == nil {
 			return fmt.Errorf("dashi: %s hook %q has no function", point, h.Name)
 		}
+		if h.FailOpen && point != HookAfterTool && point != HookBeforeFinish {
+			return fmt.Errorf(
+				"dashi: %s hook %q cannot fail open; only after_tool and before_finish hooks can",
+				point,
+				h.Name,
+			)
+		}
 		seen[h.Name] = true
 	}
 	return nil
@@ -464,10 +524,11 @@ func (h Hooks) active() *ActiveHooks {
 		BeforeModel:  hookNames(h.BeforeModel),
 		BeforeSend:   hookNames(h.BeforeSend),
 		BeforeTool:   hookNames(h.BeforeTool),
+		AfterTool:    hookNames(h.AfterTool),
 		BeforeFinish: hookNames(h.BeforeFinish),
 	}
 	if a.BeforeModel == nil && a.BeforeSend == nil &&
-		a.BeforeTool == nil && a.BeforeFinish == nil {
+		a.BeforeTool == nil && a.AfterTool == nil && a.BeforeFinish == nil {
 		return nil
 	}
 	return a
