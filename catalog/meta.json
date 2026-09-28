@@ -20,7 +20,6 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1048576,
@@ -29,7 +28,8 @@
           "low",
           "medium",
           "high",
-          "xhigh"
+          "xhigh",
+          "max"
         ]
       },
       "pricing": {
@@ -55,7 +55,6 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1048576,
@@ -89,7 +88,6 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1048576,
@@ -124,7 +122,6 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1048576,
@@ -158,7 +155,6 @@
         "features": {
           "text": "supported",
           "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1048576,

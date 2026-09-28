@@ -18,8 +18,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -44,8 +43,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -70,8 +68,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -95,8 +92,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -120,8 +116,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -147,8 +142,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -185,8 +179,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -222,8 +215,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -256,8 +248,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -282,8 +273,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -316,8 +306,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -352,8 +341,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -385,8 +373,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "max_tokens": "supported"
+          "text": "supported"
         },
         "context_window": 1000000
       },

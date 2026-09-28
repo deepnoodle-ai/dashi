@@ -43,9 +43,12 @@ type Entry struct {
 `Entry.Bind(api, endpoint)` returns an `llm.ModelInfo` whose evidence names the
 model, that API and endpoint, owner `kernel/catalog`, the source URL, method
 `documentation`, and the qualified date. The catalog never claims `live_probe`.
-Effort ladders and temperature rejections come from Dive's tables, which Dive
-recorded by probing the APIs; Kernel did not repeat the probes, so they are
-recorded as documentation.
+Only claims a provider page states are recorded. Dive's probe tables were not
+carried over; each effort ladder and support value was checked against current
+provider documentation, and `catalog/sources_test.go` names the page for every
+one. A claim no page states is left unknown, so adjust sends it and records it
+as unverified. The entry's `Source` is the page that documents most of it,
+usually the models overview.
 
 Decisions on the candidate gaps:
 

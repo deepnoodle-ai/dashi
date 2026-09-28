@@ -18,8 +18,6 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 500000,
@@ -62,8 +60,6 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 500000,
@@ -105,19 +101,9 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
-          "reasoning_effort": "supported"
+          "text": "supported"
         },
-        "context_window": 500000,
-        "reasoning_efforts": [
-          "minimal",
-          "low",
-          "medium",
-          "high",
-          "xhigh"
-        ]
+        "context_window": 500000
       },
       "pricing": {
         "currency": "USD",
@@ -151,14 +137,11 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported"
         },
         "context_window": 1000000,
         "reasoning_efforts": [
           "none",
-          "minimal",
           "low",
           "medium",
           "high",
@@ -196,10 +179,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
-          "reasoning_effort": "unsupported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -234,10 +214,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
-          "reasoning_effort": "unsupported"
+          "text": "supported"
         },
         "context_window": 1000000
       },
@@ -272,21 +249,9 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
-          "reasoning_effort": "supported"
+          "text": "supported"
         },
-        "context_window": 1000000,
-        "reasoning_efforts": [
-          "none",
-          "minimal",
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ]
+        "context_window": 1000000
       },
       "pricing": {
         "currency": "USD",
@@ -319,10 +284,7 @@
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
-          "text": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
-          "reasoning_effort": "unsupported"
+          "text": "supported"
         },
         "context_window": 256000
       },

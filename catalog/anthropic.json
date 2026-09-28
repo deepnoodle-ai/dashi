@@ -20,14 +20,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -62,14 +58,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -103,15 +95,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
-          "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -146,15 +133,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
-          "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -189,14 +171,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -231,15 +209,11 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -274,15 +248,11 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -317,15 +287,11 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -359,15 +325,11 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
           "temperature": "unsupported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "unsupported",
-          "streaming": "supported"
+          "reasoning_budget": "unsupported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -401,15 +363,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -442,15 +399,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -485,15 +437,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -526,15 +473,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "supported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -568,15 +510,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "unsupported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -604,15 +541,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "unsupported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -641,15 +573,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "unsupported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -677,15 +604,10 @@
         "features": {
           "text": "supported",
           "image": "supported",
-          "document": "supported",
           "tools": "supported",
           "tool_choice": "supported",
-          "parallel_tools": "supported",
-          "temperature": "supported",
-          "max_tokens": "supported",
           "reasoning_effort": "unsupported",
-          "reasoning_budget": "supported",
-          "streaming": "supported"
+          "reasoning_budget": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
