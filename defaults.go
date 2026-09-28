@@ -1,0 +1,160 @@
+package dashi
+
+import (
+	"cmp"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/deepnoodle-ai/dashi/catalog"
+)
+
+// NewID returns a new random UUIDv7 string, such as
+// "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b". The first 48 bits are the Unix time
+// in milliseconds, so IDs sort by creation time, and the string fits a
+// Postgres uuid column. The runner uses it for an empty turn ID or CommandID.
+// To make retries safe across restarts, call NewID yourself, save the ID
+// before the call, and reuse it on retry.
+func NewID() string {
+	var b [16]byte
+	var ms [8]byte
+	binary.BigEndian.PutUint64(ms[:], uint64(time.Now().UnixMilli()))
+	copy(b[:6], ms[2:])
+	_, _ = rand.Read(b[6:])
+	b[6] = b[6]&0x0f | 0x70 // version 7
+	b[8] = b[8]&0x3f | 0x80 // RFC 9562 variant
+	var s [36]byte
+	hex.Encode(s[0:8], b[0:4])
+	s[8] = '-'
+	hex.Encode(s[9:13], b[4:6])
+	s[13] = '-'
+	hex.Encode(s[14:18], b[6:8])
+	s[18] = '-'
+	hex.Encode(s[19:23], b[8:10])
+	s[23] = '-'
+	hex.Encode(s[24:], b[10:])
+	return string(s[:])
+}
+
+// withCommandID returns c with an empty CommandID replaced by a new ID. The
+// ID is part of the command digest, so it is filled before the digest is
+// computed.
+func withCommandID(c Command) Command {
+	if c.commandID() != "" {
+		return c
+	}
+	switch v := c.(type) {
+	case Start:
+		v.CommandID = NewID()
+		return v
+	case Deliver:
+		v.CommandID = NewID()
+		return v
+	case Continue:
+		v.CommandID = NewID()
+		return v
+	case Settle:
+		v.CommandID = NewID()
+		return v
+	case Cancel:
+		v.CommandID = NewID()
+		return v
+	}
+	return c
+}
+
+// revisionPrefix marks a revision the runner derived from the agent.
+const revisionPrefix = "auto:"
+
+// agentRevision derives a revision from a resolved agent's behavior. ID,
+// Revision, and Limits.Deadline are left out: the first two name the agent
+// rather than describe it, and a deadline is a per-turn time that would make
+// every revision unique.
+func agentRevision(a Agent) string {
+	a.ID, a.Revision = "", ""
+	a.Limits.Deadline = time.Time{}
+	sum := strings.TrimPrefix(digest(a), digestPrefix)
+	return revisionPrefix + sum[:16]
+}
+
+// agentFor returns the resolved agent a command runs with. A whole-empty
+// agent on an existing turn is the recorded agent. Otherwise Provider and API
+// come from the client, and on an existing turn an empty ID, Model, or
+// Revision comes from the record. On a new turn, an empty Model is the
+// catalog default and an empty Revision is derived from the agent.
+func (r Runner) agentFor(state *replayState, existing bool) (Agent, error) {
+	agent := r.Agent
+	if existing && reflect.DeepEqual(agent, Agent{}) {
+		agent = state.Agent
+	} else {
+		agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
+		agent.API = cmp.Or(agent.API, r.Client.API())
+		if existing {
+			recorded := state.Agent
+			agent.ID = cmp.Or(agent.ID, recorded.ID)
+			agent.Model = cmp.Or(agent.Model, recorded.Model)
+			agent.Revision = cmp.Or(agent.Revision, recorded.Revision)
+		}
+		if agent.Model == "" {
+			model, ok := catalog.Default(agent.Provider)
+			if ok {
+				_, ok = r.Client.ModelInfo(model)
+			}
+			if !ok {
+				return Agent{}, fmt.Errorf(
+					"dashi: agent has no model, and the catalog has no default for provider %q at this client's endpoint; set Agent.Model",
+					agent.Provider,
+				)
+			}
+			agent.Model = model
+		}
+		if err := agent.Validate(); err != nil {
+			return Agent{}, err
+		}
+		agent = agent.resolved()
+		if agent.Revision == "" {
+			agent.Revision = agentRevision(agent)
+		}
+	}
+	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
+		return Agent{}, errors.New("dashi: client does not match agent provider and API")
+	}
+	return agent, nil
+}
+
+// agentChanged returns nil when agent matches the recorded one, and otherwise
+// an ErrAgentChanged that names the differing fields and the fix.
+func agentChanged(agent, recorded Agent) error {
+	if sameAgent(agent, recorded) {
+		return nil
+	}
+	var a, b map[string]json.RawMessage
+	ab, _ := json.Marshal(agent)
+	bb, _ := json.Marshal(recorded)
+	_ = json.Unmarshal(ab, &a)
+	_ = json.Unmarshal(bb, &b)
+	var fields []string
+	for _, k := range slices.Sorted(maps.Keys(a)) {
+		if !sameJSONValue(a[k], b[k]) {
+			fields = append(fields, k)
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(b)) {
+		if _, ok := a[k]; !ok {
+			fields = append(fields, k)
+		}
+	}
+	return fmt.Errorf(
+		"%w: %s differ from the recorded agent; run the turn with its recorded agent (TurnView.Agent, or an empty Agent), or cancel it and start a new turn",
+		ErrAgentChanged,
+		strings.Join(fields, ", "),
+	)
+}

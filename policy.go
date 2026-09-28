@@ -96,9 +96,25 @@ type Policy interface {
 	OnStop(context.Context, TurnView) (StopDecision, error)
 }
 
-// AllowLocalPolicy explicitly permits bound local and external tools. Hosts
-// with approval or spending rules should supply their own policy.
+// AllowLocalPolicy permits bound local and external tools and every model
+// call. A nil Runner.Policy behaves the same way, so use this type to embed
+// in a policy that overrides one method, such as AuthorizeTool to defer some
+// calls for approval.
 type AllowLocalPolicy struct{}
+
+// defaultPolicy is used when Runner.Policy is nil. It allows every bound local
+// and external tool; binding a tool is the app's statement that the model may
+// use it. Its revision tells an audit that the default, not a host policy,
+// allowed the call.
+type defaultPolicy struct{ AllowLocalPolicy }
+
+func (defaultPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	TurnView,
+) (ToolDecision, error) {
+	return ToolDecision{Kind: DecisionAllow, Revision: "default-v1"}, nil
+}
 
 func (AllowLocalPolicy) BeforeModel(
 	context.Context,

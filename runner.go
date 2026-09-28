@@ -1,7 +1,6 @@
 package dashi
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,13 +19,16 @@ import (
 // holds configuration only, so one value can serve many turns; per-call
 // controls are RunOption values, and each turn's state lives in its Turn.
 type Runner struct {
+	// Agent may be the zero value: see Agent for the defaults. On an existing
+	// turn, a zero Agent runs with the turn's recorded agent.
 	Agent  Agent
 	Client llm.Client
 	Tools  tool.Toolset
 	// Recorder acknowledges steps. When nil, Run uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
-	// Policy defaults to denying tool calls when nil.
+	// Policy decides model calls and tool calls. When nil, every bound local
+	// and external tool is allowed; supply a policy to deny or defer calls.
 	Policy Policy
 	// Observer receives committed steps, provisional deltas, and tool
 	// progress. When it is set, Run requests streamed model output and
@@ -131,7 +133,7 @@ func (r Runner) Stream(
 			yield(Event{}, err)
 			return
 		}
-		yield(Event{TurnID: turn.ID, Outcome: &out}, nil)
+		yield(Event{TurnID: out.Turn.ID, Outcome: &out}, nil)
 	}
 }
 
@@ -157,41 +159,47 @@ func (r Runner) run(
 	command Command,
 	opts runOptions,
 ) (Outcome, error) {
-	if command == nil || command.commandID() == "" {
-		return Outcome{}, errors.New("dashi: command ID is required")
+	if command == nil {
+		return Outcome{}, errors.New("dashi: command is required")
 	}
 	if r.OnContextDone != "" && r.OnContextDone != ContextInterrupt &&
 		r.OnContextDone != ContextCancel {
 		return Outcome{}, errors.New("dashi: invalid context-done behavior")
 	}
-	if turn.ID == "" || r.Client == nil {
-		return Outcome{}, errors.New("dashi: turn ID and client are required")
+	if r.Client == nil {
+		return Outcome{}, errors.New("dashi: client is required")
 	}
-	agent := r.Agent
-	// An agent may leave its destination to the client. The filled values are
-	// validated and pinned like explicit ones, so replay and Continue compare
-	// the same resolved agent.
-	agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
-	agent.API = cmp.Or(agent.API, r.Client.API())
-	if err := agent.Validate(); err != nil {
-		return Outcome{}, err
+	// Empty IDs are generated before anything reads them: the turn ID before
+	// replay, recorder setup, and loading, and the command ID before its
+	// digest, which covers the ID.
+	if turn.ID == "" {
+		if _, ok := command.(Start); !ok {
+			return Outcome{}, errors.New("dashi: turn ID is required for commands other than Start")
+		}
+		turn.ID = NewID()
 	}
-	agent = agent.resolved()
-	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
-		return Outcome{}, errors.New("dashi: client does not match agent provider and API")
-	}
+	command = withCommandID(command)
 	if r.Policy == nil {
-		r.Policy = denyToolPolicy{}
+		r.Policy = defaultPolicy{}
 	}
 	state, err := replay(turn)
+	if err != nil {
+		return Outcome{}, err
+	}
+	// An agent may leave its destination, model, and revision to defaults. The
+	// filled values are pinned like explicit ones, so replay and Continue
+	// compare the same resolved agent.
+	agent, err := r.agentFor(state, len(turn.Steps) > 0)
 	if err != nil {
 		return Outcome{}, err
 	}
 	if r.Recorder == nil {
 		r.Recorder = newMemoryRecorderForTurn(turn)
 	}
-	if len(turn.Steps) > 0 && !sameAgent(agent, state.Agent) {
-		return Outcome{}, ErrAgentChanged
+	if len(turn.Steps) > 0 {
+		if err := agentChanged(agent, state.Agent); err != nil {
+			return Outcome{}, err
+		}
 	}
 	d, err := commandDigest(command)
 	if err != nil {
@@ -210,8 +218,8 @@ func (r Runner) run(
 			if replayErr != nil {
 				return Outcome{}, replayErr
 			}
-			if !sameAgent(agent, current.Agent) {
-				return Outcome{}, ErrAgentChanged
+			if err := agentChanged(agent, current.Agent); err != nil {
+				return Outcome{}, err
 			}
 			if current.commandDigests[command.commandID()] != d {
 				return Outcome{}, ErrRevisionConflict
@@ -234,8 +242,8 @@ func (r Runner) run(
 				return Outcome{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
-				if !sameAgent(agent, current.Agent) {
-					return Outcome{}, ErrAgentChanged
+				if err := agentChanged(agent, current.Agent); err != nil {
+					return Outcome{}, err
 				}
 				if old != d {
 					return Outcome{}, ErrCommandConflict
@@ -1482,19 +1490,6 @@ func validateModelResult(result llm.Result, agent Agent) error {
 		return errors.New("dashi: invalid model stop")
 	}
 	return nil
-}
-
-type denyToolPolicy struct{ AllowLocalPolicy }
-
-func (denyToolPolicy) AuthorizeTool(
-	context.Context,
-	tool.Call,
-	TurnView,
-) (ToolDecision, error) {
-	return ToolDecision{
-		Kind:   DecisionDeny,
-		Reason: "no tool policy configured",
-	}, nil
 }
 
 func cloneMessages(ms []llm.Message) []llm.Message {

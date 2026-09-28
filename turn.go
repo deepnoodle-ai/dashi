@@ -18,17 +18,27 @@ import (
 
 // Agent is reusable, serializable behavior: what to ask which model, with
 // which settings and limits. Clients, credentials, tools, and storage are
-// supplied separately on a Runner. Provider and API may be left empty; the
-// Runner fills them from its client before pinning the agent at Start.
+// supplied separately on a Runner. The zero value works: the Runner fills
+// empty fields before pinning the agent at Start, and the turn records the
+// result, which TurnView.Agent shows.
 type Agent struct {
+	// ID names the agent for the host, for example in reports. It may be
+	// empty; nothing in Dashi reads it.
 	ID string `json:"id"`
 	// Revision pins behavior so a continued turn cannot silently change it.
-	Revision     string       `json:"revision"`
-	Instructions string       `json:"instructions,omitempty"`
-	Provider     string       `json:"provider"`
-	API          string       `json:"api"`
-	Model        string       `json:"model"`
-	Settings     llm.Settings `json:"settings"`
+	// When empty, it is derived from the agent's behavior fields as
+	// "auto:" and 16 hex digits, so it changes exactly when they do. The
+	// derivation leaves out Limits.Deadline and cannot see tools, which are
+	// not part of the agent; set Revision yourself to version those.
+	Revision     string `json:"revision"`
+	Instructions string `json:"instructions,omitempty"`
+	// Provider and API default to the Runner client's.
+	Provider string `json:"provider"`
+	API      string `json:"api"`
+	// Model defaults to the provider's catalog.Default when the client knows
+	// that model; otherwise it is required.
+	Model    string       `json:"model"`
+	Settings llm.Settings `json:"settings"`
 	// OutputSchema is the default final-result schema for turns using this
 	// agent. Start.OutputSchema may override it for one turn.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
@@ -72,17 +82,9 @@ const (
 	defaultToolConcurrency = 1
 )
 
-// Validate checks required identity fields, limits, and output settings.
+// Validate checks limits and output settings. Every identity field may be
+// empty, since the Runner fills them; a zero Agent is valid.
 func (a Agent) Validate() error {
-	if a.ID == "" ||
-		a.Revision == "" ||
-		a.Provider == "" ||
-		a.API == "" ||
-		a.Model == "" {
-		return errors.New(
-			"dashi: agent requires ID, revision, provider, API, and model",
-		)
-	}
 	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
 			"dashi: model attempts and tool concurrency cannot be negative",
@@ -132,7 +134,10 @@ type Turn struct {
 	Steps []Step `json:"steps"`
 }
 
-// NewTurn returns an empty turn to start under the caller-assigned id.
+// NewTurn returns an empty turn to start under the caller-assigned id. A
+// Start on the zero Turn gets a generated ID instead (see NewID), which the
+// outcome's Turn and every step event carry. Choose the ID yourself and save
+// it before the call when a retry after a crash must find the same turn.
 func NewTurn(id string) Turn {
 	return Turn{ID: id}
 }
@@ -486,9 +491,13 @@ func (o Outcome) RecordingErr() error {
 	return fmt.Errorf("dashi: step write %s: %w", o.Persistence, o.WriteError)
 }
 
-// Command carries a caller-assigned stable CommandID. A repeated ID with
-// identical content acknowledges the first application without advancing
-// again.
+// Command carries a CommandID. A repeated ID with identical content
+// acknowledges the first application without advancing again. An empty
+// CommandID gets a generated one (see NewID), recorded on the command's
+// steps. A generated ID cannot recognize a retry, since the retry cannot know
+// it: to make a retry after a crash safe, choose the ID, save it before the
+// call, and reuse it. Without that, a retry from an old turn snapshot is still
+// refused by the recorder, so no model call or tool runs twice.
 type Command interface{ commandID() string }
 
 // Start begins a turn with caller-owned prior history and initial input.
@@ -570,7 +579,8 @@ func (c Cancel) commandID() string {
 }
 
 var (
-	// ErrAgentChanged reports a turn continued with a different agent.
+	// ErrAgentChanged reports a command run with an agent that differs from
+	// the turn's recorded one. The wrapping error names the fields.
 	ErrAgentChanged = errors.New("dashi: agent changed")
 	// ErrCommandConflict reports a reused command ID with different content.
 	ErrCommandConflict = errors.New("dashi: command conflict")
