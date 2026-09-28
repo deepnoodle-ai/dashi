@@ -453,11 +453,14 @@ func googleModelPage(model string) string {
 	return "https://ai.google.dev/gemini-api/docs/models/" + model
 }
 
+// mistralModels is Mistral's models endpoint. Its max_context_length is the
+// limit the API enforces; the doc pages round sizes ("256k", "1M"), so
+// Mistral context windows come from the endpoint instead.
+const mistralModels = "https://api.mistral.ai/v1/models"
+
 // contextWindowSources lists the context windows stated on pages other than
 // the per-model OpenAI, Google, Anthropic, and xAI pages, which the tables
-// below cover. Mistral's pages state rounded sizes ("256k", "1M"); the
-// catalog reads k as 1,000 and M as 1,000,000, the lower of the two
-// readings.
+// below cover.
 var contextWindowSources = []contextWindowSource{
 	{
 		// The page's model details table lists both IDs under Versions and
@@ -482,59 +485,36 @@ var contextWindowSources = []contextWindowSource{
 		window: 1_048_576,
 	},
 	{
-		// The Magistral aliases resolve to Mistral Medium and Small, as the
-		// catalog notes say. The retired Magistral 1.2 pages still list them
-		// at "128k".
-		url: "https://docs.mistral.ai/models/mistral-medium-3-5-26-04",
+		url: mistralModels,
 		models: []string{
 			"mistral-medium-latest",
 			"magistral-medium-latest",
-		},
-		window: 256_000,
-	},
-	{
-		url: "https://docs.mistral.ai/models/mistral-small-4-0-26-03",
-		models: []string{
 			"mistral-small-latest",
 			"magistral-small-latest",
 			"mistral-small-2603",
+			"mistral-large-2512",
+			"mistral-large-latest",
+			"ministral-14b-latest",
+			"ministral-14b-2512",
+			"ministral-8b-latest",
+			"ministral-8b-2512",
 		},
-		window: 256_000,
+		window: 262_144,
 	},
 	{
-		url:    "https://docs.mistral.ai/models/mistral-large-3-25-12",
-		models: []string{"mistral-large-2512", "mistral-large-latest"},
-		window: 256_000,
-	},
-	{
-		url:    "https://docs.mistral.ai/models/mistral-large-2-1-24-11",
-		models: []string{"mistral-large-2411"},
-		window: 128_000,
-	},
-	{
-		url:    "https://docs.mistral.ai/models/zai-glm-5-2",
-		models: []string{"glm-5-2", "zai-glm-5-2"},
-		window: 1_000_000,
-	},
-	{
-		url:    "https://docs.mistral.ai/models/ministral-3-14b-25-12",
-		models: []string{"ministral-14b-latest", "ministral-14b-2512"},
-		window: 256_000,
-	},
-	{
-		url:    "https://docs.mistral.ai/models/ministral-3-8b-25-12",
-		models: []string{"ministral-8b-latest", "ministral-8b-2512"},
-		window: 256_000,
-	},
-	{
-		url:    "https://docs.mistral.ai/models/ministral-3-3b-25-12",
+		url:    mistralModels,
 		models: []string{"ministral-3b-latest", "ministral-3b-2512"},
+		window: 131_072,
+	},
+	{
+		url:    mistralModels,
+		models: []string{"codestral-latest", "codestral-2508"},
 		window: 256_000,
 	},
 	{
-		url:    "https://docs.mistral.ai/models/codestral-25-08",
-		models: []string{"codestral-latest", "codestral-2508"},
-		window: 128_000,
+		url:    mistralModels,
+		models: []string{"glm-5-2", "zai-glm-5-2"},
+		window: 1_048_576,
 	},
 }
 
