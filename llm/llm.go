@@ -605,6 +605,11 @@ type Client interface {
 	// result, reporting deltas to call.Sink. Calling Send again is a new
 	// attempt; a failure may occur before dispatch. See Attempt for what
 	// call.Attempt guarantees when it is set.
+	//
+	// Ending the context must stop generation at the provider, not only stop
+	// reading it: close the stream or cancel the remote job. Dashi cancels a
+	// call when a person interrupts it and charges it as sent, so output
+	// generated after the cancel is paid for and never seen.
 	Send(context.Context, Call) (Result, error)
 }
 

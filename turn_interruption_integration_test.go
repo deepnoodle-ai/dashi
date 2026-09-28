@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -105,7 +106,8 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		t.Fatalf("excess continue ran work: %+v", last)
 	}
 	for _, step := range limited.Turn.Steps {
-		if step.Kind == StepModelSettled && !step.Model.Interrupted {
+		if step.Kind == StepModelSettled &&
+			step.Model.Interrupted == InterruptNone {
 			t.Fatalf("model settlement was actionable: %+v", step.Model)
 		}
 	}
@@ -144,7 +146,8 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 			partial = step.Model
 		}
 	}
-	if partial == nil || !partial.Interrupted || partial.Result == nil ||
+	if partial == nil || partial.Interrupted != InterruptRun ||
+		partial.Result == nil ||
 		partial.Result.Message.Text() != "partial" ||
 		partial.Result.Usage == nil || partial.Result.Usage.InputTokens != 5 {
 		t.Fatalf("partial result=%+v", partial)
@@ -176,14 +179,15 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	if err != nil || view.Interruptions != 1 || view.ModelAttempts != 1 {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
-	interrupted := 0
+	var causes []InterruptCause
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled && step.Model.Interrupted {
-			interrupted++
+		if step.Kind == StepModelSettled &&
+			step.Model.Interrupted != InterruptNone {
+			causes = append(causes, step.Model.Interrupted)
 		}
 	}
-	if interrupted != 1 {
-		t.Fatalf("recorded interrupted calls=%d", interrupted)
+	if !slices.Equal(causes, []InterruptCause{InterruptWorker}) {
+		t.Fatalf("recovered call causes=%v, want one worker", causes)
 	}
 }
 

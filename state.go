@@ -160,6 +160,11 @@ type replayState struct {
 	// answerVetoed is set while the latest answer is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
+	// pausedHosted is set while the latest actionable result is a provider
+	// pause that left a hosted call unfinished. The next request must end
+	// with that result so the provider can finish the call, so no steer may
+	// follow it yet.
+	pausedHosted bool
 	// deliveredOnKept sizes the context delivered while a final text answer
 	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
@@ -616,7 +621,7 @@ func (s *replayState) apply(step Step) error {
 				step.Model.Failure == llm.FailureNotDispatched) {
 			return errors.New("known model failure marked uncertain")
 		}
-		if step.Model.Interrupted &&
+		if step.Model.Interrupted != InterruptNone &&
 			(step.Model.Failure == llm.FailureRejected ||
 				step.Model.Failure == llm.FailureNotDispatched) {
 			return errors.New("interrupted model call cannot have known nonexecution")
@@ -634,20 +639,22 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.modelIntent = ""
 		s.modelSettlements[step.Model.AttemptID] = step.Model
-		if !step.Model.Interrupted {
+		if step.Model.Interrupted == InterruptNone {
 			s.ModelAttempts++
 		}
 		if step.Model.Uncertain {
 			s.unresolvedModel = step.Model.AttemptID
-			s.unresolvedInterrupted = step.Model.Interrupted
+			s.unresolvedInterrupted = step.Model.Interrupted != InterruptNone
 			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
-		} else if step.Model.Error != "" && !step.Model.Interrupted &&
+		} else if step.Model.Error != "" &&
+			step.Model.Interrupted == InterruptNone &&
 			step.Model.Failure != llm.FailureRejected &&
 			step.Model.Failure != llm.FailureNotDispatched {
 			s.failedModel = step.Model.Error
 		}
 		if step.Model.Result != nil {
-			actionable := step.Model.Error == "" && !step.Model.Interrupted &&
+			actionable := step.Model.Error == "" &&
+				step.Model.Interrupted == InterruptNone &&
 				!s.Stop.Terminal
 			if err := s.recordResult(
 				step.Model.AttemptID,
@@ -657,7 +664,8 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if step.Model.Error == "" && !step.Model.Interrupted {
+		if step.Model.Error == "" &&
+			step.Model.Interrupted == InterruptNone {
 			s.awaitingClassification = true
 		}
 		if err := s.checkStillOpen(); err != nil {
@@ -1144,6 +1152,7 @@ func (s *replayState) recordResult(
 	if result.Stop.Kind == llm.StopPause {
 		s.ProviderPauses++
 	}
+	s.pausedHosted = pausedMidHostedCall(*result)
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
@@ -1367,8 +1376,11 @@ func (s *replayState) interruptionLimitReached() bool {
 }
 
 func validateModelAccounting(fact *ModelFact) error {
-	if fact.NoDispatch && (!fact.Interrupted || fact.Result != nil ||
-		fact.Charge != nil || fact.Uncertain) {
+	if !fact.Interrupted.valid() {
+		return errors.New("unknown model interrupt cause")
+	}
+	if fact.NoDispatch && (fact.Interrupted == InterruptNone ||
+		fact.Result != nil || fact.Charge != nil || fact.Uncertain) {
 		return errors.New("known nondispatch cannot have a model result or charge")
 	}
 	if fact.Result != nil {

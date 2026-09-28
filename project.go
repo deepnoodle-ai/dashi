@@ -2,6 +2,8 @@ package dashi
 
 import (
 	"errors"
+	"strings"
+	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -105,8 +107,12 @@ func projectWithHistory(
 				out = append(out, item.Message.Clone())
 			}
 		case StepModelSettled, StepModelReconciled:
+			if step.Model.Interrupted == InterruptSteering {
+				out = append(out, steeredPartial(step.Model.Result)...)
+				continue
+			}
 			if step.Model.Result == nil || step.Model.Error != "" ||
-				step.Model.Interrupted {
+				step.Model.Interrupted != InterruptNone {
 				continue
 			}
 			m := step.Model.Result.Message.Clone()
@@ -189,6 +195,42 @@ func projectWithHistory(
 	return out, nil
 }
 
+// steeredPartial projects a call an urgent steer cut short: its partial
+// text as one assistant message, then a reminder that the user interrupted
+// it; the steer itself follows in its own step. This refines decision 9,
+// which keeps interrupted output from the model, for steering only: the
+// person saw that text, and their steer may refer to it. Only text is kept,
+// without citations, tool calls, reasoning, or replay data, which a partial
+// response cannot carry validly. Trailing whitespace is trimmed and an
+// empty partial adds nothing, since providers reject a blank assistant
+// message; with no partial, the reminder would describe nothing.
+func steeredPartial(result *llm.Result) []llm.Message {
+	if result == nil {
+		return nil
+	}
+	text := strings.TrimRightFunc(
+		joinText(result.Message.Content),
+		unicode.IsSpace,
+	)
+	if text == "" {
+		return nil
+	}
+	return []llm.Message{
+		llm.AssistantMessage(llm.Text(text)),
+		steeringReminder(),
+	}
+}
+
+// steeringReminder tells the model its previous response was cut short. It
+// is projected, never recorded, so its wording can change between versions.
+func steeringReminder() llm.Message {
+	return llm.ReminderMessage(llm.Reminder{
+		Name:    "steering-interrupted",
+		Tier:    llm.ReminderContextual,
+		Content: steeringInterruptedText,
+	})
+}
+
 // lastDispatchedIntent returns the sequence number of the latest model
 // request whose call was dispatched, or zero.
 func lastDispatchedIntent(t Turn) int64 {
@@ -214,9 +256,12 @@ func lastDispatchedIntent(t Turn) int64 {
 // settlement without such evidence, such as a call stopped before dispatch
 // or one recovered after a worker crash, does not count; a recovered call is
 // resent on resume, so an item kept for it goes with the resend, and a
-// NextCallOnly item may reach the model twice rather than never.
+// NextCallOnly item may reach the model twice rather than never. A call an
+// urgent steer cut short does not count either: its replacement is the
+// call the item was meant for.
 func modelDispatched(f *ModelFact) bool {
-	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched ||
+		f.Interrupted == InterruptSteering {
 		return false
 	}
 	if f.Failure == llm.FailureRejected {

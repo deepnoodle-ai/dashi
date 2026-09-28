@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -587,4 +589,370 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 		t.Fatalf("delivered %d steers; want 1", delivered)
 	}
 	t.Logf("model=%s answer=%q", modelName, out.Answer)
+}
+
+// UrgentSteerCutsStream makes two paid calls. An urgent steer sent once a
+// long streamed answer has begun must cut that call short, and the provider
+// must accept the next request: the partial answer, the interruption
+// reminder, and the steer.
+func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	inbox := dashi.NewInbox()
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
+			Provider: client.Provider(),
+			API:      client.API(),
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 2048},
+			Limits:   dashi.Limits{ModelAttempts: 3},
+		},
+		Client: client,
+	}
+	var streamed strings.Builder
+	sent := false
+	var out dashi.Outcome
+	for event, err := range runner.Stream(
+		ctx,
+		dashi.Turn{},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Write a 600-word essay on the history of bridges.",
+		))}},
+		dashi.WithSteering(inbox),
+	) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+		if event.Outcome != nil {
+			out = *event.Outcome
+		}
+		if event.Delta == nil || event.Delta.Kind != llm.DeltaText || sent {
+			continue
+		}
+		streamed.WriteString(event.Delta.Text)
+		if streamed.Len() >= 80 {
+			sent = true
+			if _, err := inbox.SendUrgent(
+				"Stop the essay. Reply with only the word PINEAPPLE.",
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var cut *dashi.ModelFact
+	for _, step := range out.Turn.Steps {
+		if step.Kind == dashi.StepModelSettled &&
+			step.Model.Interrupted == dashi.InterruptSteering {
+			cut = step.Model
+		}
+	}
+	if cut == nil || cut.Result == nil || cut.Result.Message.Text() == "" {
+		t.Fatalf(
+			"no call was cut short with a partial: stop=%+v calls=%s",
+			out.Stop,
+			describeCalls(out.Turn),
+		)
+	}
+	if out.Stop.Kind != dashi.StopCompleted ||
+		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	}
+	t.Logf(
+		"model=%s partial=%d chars answer=%q",
+		modelName,
+		len(cut.Result.Message.Text()),
+		out.Answer,
+	)
+}
+
+// UrgentSteerPartialEndsInWhitespace makes two paid calls. It cuts a
+// streamed answer where the text so far ends in whitespace, and checks that
+// the provider accepts the next request, whose partial Dashi trims.
+func UrgentSteerPartialEndsInWhitespace(
+	t *testing.T,
+	client llm.Client,
+	modelName string,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	inbox := dashi.NewInbox()
+	cutter := &whitespaceCutClient{Client: client, inbox: inbox}
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
+			Provider: client.Provider(),
+			API:      client.API(),
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 8192},
+			Limits:   dashi.Limits{ModelAttempts: 3},
+		},
+		Client: cutter,
+	}
+	var out dashi.Outcome
+	// Stream, since only a streamed call hands the client a delta sink.
+	for event, err := range runner.Stream(
+		ctx,
+		dashi.Turn{},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Write the numbers from one to two hundred in English words, " +
+				"one per line.",
+		))}},
+		dashi.WithSteering(inbox),
+	) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+		if event.Outcome != nil {
+			out = *event.Outcome
+		}
+	}
+	cut := steeringCut(out.Turn)
+	if cut == nil || cut.Result == nil {
+		t.Fatalf(
+			"no call was cut short with a partial: stop=%+v calls=%s",
+			out.Stop,
+			describeCalls(out.Turn),
+		)
+	}
+	partial := cut.Result.Message.Text()
+	if partial == strings.TrimRightFunc(partial, unicode.IsSpace) {
+		t.Fatalf(
+			"the recorded partial does not end in whitespace: %q",
+			partial,
+		)
+	}
+	if out.Stop.Kind != dashi.StopCompleted ||
+		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	}
+	t.Logf(
+		"model=%s partial=%d chars ending %q answer=%q",
+		modelName,
+		len(partial),
+		partial[max(0, len(partial)-6):],
+		out.Answer,
+	)
+}
+
+// whitespaceCutClient forwards a call's deltas until its text is at least
+// 80 bytes long, then forwards the next text delta only through its first
+// whitespace. Providers tend to start chunks with whitespace rather than
+// end them with it, so the delta is split. It then sends an urgent steer,
+// forwards nothing more, and drops the client's result for the cut call,
+// so the partial the run keeps is the forwarded text.
+type whitespaceCutClient struct {
+	llm.Client
+	inbox *dashi.Inbox
+	sent  bool
+}
+
+func (c *whitespaceCutClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	sink := call.Sink
+	forwarded := 0
+	held := false
+	call.Sink = func(delta llm.Delta) {
+		if held {
+			return
+		}
+		space := strings.IndexFunc(delta.Text, unicode.IsSpace)
+		if c.sent || delta.Kind != llm.DeltaText || forwarded < 80 ||
+			space < 0 {
+			forwarded += len(delta.Text)
+			if sink != nil {
+				sink(delta)
+			}
+			return
+		}
+		_, size := utf8.DecodeRuneInString(delta.Text[space:])
+		delta.Text = delta.Text[:space+size]
+		if sink != nil {
+			sink(delta)
+		}
+		c.sent = true
+		held = true
+		if _, err := c.inbox.SendUrgent(
+			"Stop the list. Reply with only the word PINEAPPLE.",
+		); err != nil {
+			panic(err)
+		}
+	}
+	result, err := c.Client.Send(ctx, call)
+	if held && err != nil {
+		return llm.Result{}, err
+	}
+	return result, err
+}
+
+// UrgentSteerAfterPause makes three paid calls with many web searches, so
+// it costs about $1.30 on claude-haiku-4-5. The first call must end in a
+// provider pause (Anthropic's pause_turn after ten server iterations); it
+// skips when the model finishes without pausing. An urgent steer then
+// arrives during the continuation. When the pause left a hosted call
+// unfinished, as a pause during web search does, the continuation must not
+// be cut: the steer lands after it. Otherwise the continuation is cut.
+// Either way the provider must accept the request that carries the steer.
+func UrgentSteerAfterPause(
+	t *testing.T,
+	client llm.Client,
+	modelName string,
+	search tool.Tool,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	inbox := dashi.NewInbox()
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
+			Provider: client.Provider(),
+			API:      client.API(),
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 4096},
+			Limits: dashi.Limits{
+				ModelAttempts:  4,
+				ProviderPauses: 2,
+			},
+		},
+		Client: client,
+		Tools:  tool.List{search},
+	}
+	paused := ""
+	sent := false
+	var out dashi.Outcome
+	for event, err := range runner.Stream(
+		ctx,
+		dashi.Turn{},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Run 14 separate web searches, one per query and one at a time, " +
+				"never combining them: the current mayor of each of Oslo, " +
+				"Lima, Quito, Accra, Hanoi, Perth, Porto, Turin, Leeds, " +
+				"Graz, Bergen, Tampere, Cork, and Basel. After all 14 " +
+				"searches, list the mayors.",
+		))}},
+		dashi.WithSteering(inbox),
+	) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+		if event.Outcome != nil {
+			out = *event.Outcome
+		}
+		if step := event.Step; paused == "" && step != nil &&
+			step.Kind == dashi.StepModelSettled && step.Model.Result != nil &&
+			step.Model.Result.Stop.Kind == llm.StopPause {
+			paused = step.Model.AttemptID
+		}
+		if paused == "" || sent || event.Delta == nil ||
+			event.AttemptID == paused {
+			continue
+		}
+		sent = true
+		if _, err := inbox.SendUrgent(
+			"Stop searching. Reply with only the word PINEAPPLE.",
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if paused == "" {
+		t.Skipf(
+			"the model finished without a provider pause: stop=%+v",
+			out.Stop,
+		)
+	}
+	cut := steeringCut(out.Turn)
+	pending := unfinishedHosted(out.Turn, paused)
+	switch {
+	case pending && cut != nil:
+		t.Fatal("the continuation of an unfinished hosted call was cut")
+	case pending && !hasWarning(out.Turn, "provider paused"):
+		t.Fatal("the declined cut was not reported")
+	case !pending && cut == nil:
+		t.Fatalf("the continuation was not cut short: stop=%+v", out.Stop)
+	}
+	answer := strings.TrimSpace(out.Answer)
+	if out.Stop.Kind != dashi.StopCompleted ||
+		!strings.Contains(strings.ToUpper(answer), "PINEAPPLE") ||
+		len(answer) > 40 {
+		t.Fatalf(
+			"stop=%+v answer=%q calls=%s",
+			out.Stop,
+			out.Answer,
+			describeCalls(out.Turn),
+		)
+	}
+	t.Logf(
+		"model=%s unfinished hosted call=%t cut=%t answer=%q spend=%v",
+		modelName,
+		pending,
+		cut != nil,
+		out.Answer,
+		out.Spend.Cost,
+	)
+}
+
+// unfinishedHosted reports whether the result of the attempt left a hosted
+// call without its result.
+func unfinishedHosted(turn dashi.Turn, attempt string) bool {
+	for _, step := range turn.Steps {
+		if step.Kind != dashi.StepModelSettled ||
+			step.Model.AttemptID != attempt || step.Model.Result == nil {
+			continue
+		}
+		open := map[string]bool{}
+		for _, part := range step.Model.Result.Message.Content {
+			switch {
+			case part.HostedUse != nil:
+				open[part.HostedUse.ID] = true
+			case part.HostedResult != nil:
+				delete(open, part.HostedResult.CallID)
+			}
+		}
+		return len(open) > 0
+	}
+	return false
+}
+
+func hasWarning(turn dashi.Turn, text string) bool {
+	for _, step := range turn.Steps {
+		for _, w := range step.Warnings {
+			if w.Code == dashi.WarningSteering &&
+				strings.Contains(w.Message, text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// describeCalls summarizes a turn's model settlements for a failure.
+func describeCalls(turn dashi.Turn) string {
+	var b strings.Builder
+	for _, step := range turn.Steps {
+		if step.Kind != dashi.StepModelSettled {
+			continue
+		}
+		m := step.Model
+		b.WriteString("[" + string(m.Interrupted) + " err=" + m.Error)
+		if m.Result != nil {
+			b.WriteString(" stop=" + string(m.Result.Stop.Kind) +
+				" text=" + strconv.Quote(m.Result.Message.Text()))
+		}
+		b.WriteString("] ")
+	}
+	return b.String()
+}
+
+// steeringCut returns the last model call an urgent steer cut short.
+func steeringCut(turn dashi.Turn) *dashi.ModelFact {
+	var cut *dashi.ModelFact
+	for _, step := range turn.Steps {
+		if step.Kind == dashi.StepModelSettled &&
+			step.Model.Interrupted == dashi.InterruptSteering {
+			cut = step.Model
+		}
+	}
+	return cut
 }

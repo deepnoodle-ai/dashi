@@ -132,7 +132,10 @@ type ContextItem struct {
 	// NextCallOnly keeps this item until a later model call shows evidence
 	// of dispatch (a provider response or rejection), then omits it. A call
 	// with no such evidence, such as one recovered after a crash, is resent
-	// with the item, so the model may see it twice rather than never.
+	// with the item, so the model may see it twice rather than never. A
+	// call an urgent steer cut short does not expire it either: the
+	// replacement call sees it again. For a value that must reflect each
+	// call, such as the current time, use a named Snapshot item instead.
 	NextCallOnly bool `json:"next_call_only,omitempty"`
 }
 
@@ -379,11 +382,44 @@ type ModelFact struct {
 	// safely not dispatched.
 	Uncertain bool `json:"uncertain,omitempty"`
 
-	// Interrupted preserves partial output and usage without making them
-	// actionable. A later model call may safely replace this one.
-	Interrupted bool `json:"interrupted,omitempty"`
+	// Interrupted, when set, names why the call was cut short. The settlement
+	// preserves partial output and usage without making them actionable, and
+	// a later model call may safely replace this one.
+	Interrupted InterruptCause `json:"interrupted,omitempty"`
 	// NoDispatch excludes an intent stopped before the provider call began.
 	NoDispatch bool `json:"no_dispatch,omitempty"`
+}
+
+// InterruptCause records why a model call was cut short before it produced a
+// complete result. The zero value, InterruptNone, means it was not. The cause
+// is recorded rather than a flag so replay, accounting, and live consumers can
+// tell a crash recovery from a stop the run chose.
+type InterruptCause string
+
+const (
+	// InterruptNone means the call was not interrupted.
+	InterruptNone InterruptCause = ""
+	// InterruptWorker settles a call recovered after the worker stopped
+	// before its result was recorded (decision 24).
+	InterruptWorker InterruptCause = "worker"
+	// InterruptRun settles a call the run stopped: its context ended, the
+	// turn deadline passed, or a pause arrived before dispatch.
+	InterruptRun InterruptCause = "run"
+	// InterruptSteering settles a call an urgent steer cut short. Unlike the
+	// other causes it does not stop the run: the next call sees the partial
+	// output and the steer. It does not count toward ModelAttempts, but it
+	// does count toward spend and every Budget cap.
+	InterruptSteering InterruptCause = "steering"
+)
+
+// valid reports whether c is a cause this version records. Replay rejects
+// any other value rather than guessing how to account for it.
+func (c InterruptCause) valid() bool {
+	switch c {
+	case InterruptNone, InterruptWorker, InterruptRun, InterruptSteering:
+		return true
+	}
+	return false
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

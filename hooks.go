@@ -102,7 +102,9 @@ func (h ResultHook) Hooks() Hooks {
 //     deliveries append, and the first Stop ends the chain without
 //     committing any deliveries.
 //   - BeforeSend: the first denial stops the turn. Each hook's Admission is
-//     recorded under its name.
+//     recorded under its name. An urgent steer that arrives before the
+//     request is recorded sends the run back for the steer, so BeforeSend
+//     may be asked again for the same reply.
 //   - BeforeTool: the first denial ends the chain; otherwise a deferral wins
 //     over an allow. A Rewrite restarts the chain on the new arguments.
 //   - AfterTool: each hook sees the result as earlier hooks replaced it.
@@ -281,6 +283,8 @@ type SendDecision struct {
 	// Admission is host-owned, non-secret JSON recorded with the model intent
 	// under this hook's name, so a recorder can atomically reserve spending
 	// against these exact terms. All hooks' admissions share a 16 KiB limit.
+	// BeforeSend may be asked again for the same reply, so reserve in the
+	// recorder with the intent, not in the hook.
 	Admission json.RawMessage
 }
 

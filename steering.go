@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Steering is a source of messages a person sends while a turn runs, such
@@ -18,7 +20,10 @@ import (
 //
 // Dashi calls Steers before each model call and at each candidate final
 // answer, and nowhere else, so a steer never lands between a tool call and
-// its result. Steers must be cheap: it runs before every model call.
+// its result. Steers must be cheap: it runs before every model call. A
+// source that also implements SteeringNotifier is asked again when it
+// signals, so an urgent steer can cut a model call short. Dashi never calls
+// one source's methods concurrently from one run.
 type Steering interface {
 	// Steers returns the steers waiting for turnID, oldest first. Each
 	// steer's Item.ID is required.
@@ -40,11 +45,29 @@ type SteeringReleaser interface {
 	Release(ctx context.Context, turnID string, unrecorded, inDoubt []string)
 }
 
+// SteeringNotifier is implemented by sources that can wake a run, as Inbox
+// does. Ready is a coalesced hint that an urgent steer may be waiting, for
+// the one run the source serves: a run with such a source watches Ready,
+// calls Steers when it fires, and cuts short the model call in flight for a
+// new urgent steer. Signal only after the steer is visible to Steers. A
+// source without Ready still delivers urgent steers, at the next safe point.
+type SteeringNotifier interface {
+	// Ready returns the same channel on every call, or nil when the source
+	// never signals.
+	Ready() <-chan struct{}
+}
+
 // Steer is one message for a running turn.
 type Steer struct {
 	// Item is the message and its lifetime. Item.ID is required, and an
 	// empty Origin means ContextUser.
 	Item ContextItem
+	// Urgent asks Dashi to cut short the model call in flight, when the
+	// source is a SteeringNotifier and the call can be replaced within the
+	// turn's limits; the next call sees the partial response and the steer.
+	// Urgent is not recorded: the record shows its effect, a model call
+	// settled with InterruptSteering. It never interrupts a running tool.
+	Urgent bool
 }
 
 // WithSteering delivers steers from source into this run's turn. Use one
@@ -76,6 +99,11 @@ type steerState struct {
 	warned map[string]bool
 	// sourceFailed records that a failing source was already reported.
 	sourceFailed bool
+	// urgentUnheard and declined record that the run already warned that
+	// its source cannot signal urgent steers, or that a call could not be
+	// cut short. Each is reported once per run.
+	urgentUnheard bool
+	declined      bool
 }
 
 func (st *steerState) claim(id string) {
@@ -92,13 +120,23 @@ func (st *steerState) claim(id string) {
 // not yet record, in order. A steer already recorded is acknowledged again.
 // A failing source or an invalid steer never fails the turn: it is
 // recorded as a WarningSteering on the next step, and the steer stays with
-// its source.
+// its source. Steers wait while a provider pause leaves a hosted call
+// unfinished, and reach the call after its continuation.
 func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	source := r.opts.steering
-	if source == nil {
+	if source == nil || s.pausedHosted {
 		return nil
 	}
+	unlock := r.lockSource()
 	steers, err := source.Steers(r.ctx, r.turn.ID)
+	var fresh []Steer
+	var again []string
+	var invalid []steerProblem
+	if err == nil {
+		fresh, again, invalid = classifySteers(s.contextIDs, steers)
+		r.listen.keepUrgent(fresh)
+	}
+	unlock()
 	if err != nil {
 		// Reported once per run: the source is asked before every model
 		// call and at every answer.
@@ -108,44 +146,87 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 		}
 		return nil
 	}
-	var fresh []ContextItem
-	var again []string
+	for _, steer := range steers {
+		if steer.Item.ID != "" {
+			r.steers.claim(steer.Item.ID)
+		}
+	}
+	for _, p := range invalid {
+		r.warnSteerOnce(p.id, p.message)
+	}
+	if len(again) > 0 {
+		r.steersDelivered(again)
+	}
+	items := make([]ContextItem, 0, len(fresh))
+	for _, steer := range fresh {
+		items = append(items, steer.Item)
+		if steer.Urgent && r.listen == nil && !r.steers.urgentUnheard {
+			r.steers.urgentUnheard = true
+			r.warnSteering(
+				"urgent steers wait for the next model call: the steering " +
+					"source does not signal them (see SteeringNotifier)",
+			)
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
+// steerProblem is a steer that cannot be delivered, and why.
+type steerProblem struct {
+	id      string
+	message string
+}
+
+// classifySteers sorts what a source returned against the turn's recorded
+// context items: fresh steers the turn does not record, once each and in
+// order; IDs the turn records with the same content (again); and steers
+// that cannot be delivered (invalid). It is pure, so the run and the
+// listener share one definition of a waiting steer.
+func classifySteers(
+	record map[string]ContextItem,
+	steers []Steer,
+) (fresh []Steer, again []string, invalid []steerProblem) {
 	batch := map[string]bool{}
 	for _, steer := range steers {
 		item := cloneContextItem(steer.Item)
 		if item.ID == "" {
-			r.warnSteerOnce("", "steer skipped: it has no ID")
+			invalid = append(invalid, steerProblem{
+				message: "steer skipped: it has no ID",
+			})
 			continue
 		}
-		r.steers.claim(item.ID)
 		if batch[item.ID] {
 			continue
 		}
 		batch[item.ID] = true
 		if err := validateContext(item); err != nil {
-			r.warnSteerOnce(
-				item.ID,
-				fmt.Sprintf("steer %s skipped: %v", item.ID, err),
-			)
+			invalid = append(invalid, steerProblem{
+				id:      item.ID,
+				message: fmt.Sprintf("steer %s skipped: %v", item.ID, err),
+			})
 			continue
 		}
-		if recorded, ok := s.contextIDs[item.ID]; ok {
+		if recorded, ok := record[item.ID]; ok {
 			if sameJSONValue(recorded, item) {
 				again = append(again, item.ID)
 				continue
 			}
-			r.warnSteerOnce(item.ID, fmt.Sprintf(
-				"steer %s skipped: the turn records a different item with its ID",
-				item.ID,
-			))
+			invalid = append(invalid, steerProblem{
+				id: item.ID,
+				message: fmt.Sprintf(
+					"steer %s skipped: the turn records a different item "+
+						"with its ID",
+					item.ID,
+				),
+			})
 			continue
 		}
-		fresh = append(fresh, item)
+		fresh = append(fresh, Steer{Item: item, Urgent: steer.Urgent})
 	}
-	if len(again) > 0 {
-		r.steersDelivered(again)
-	}
-	return fresh
+	return fresh, again, invalid
 }
 
 // commitSteers records a step that carries steers and settles the steers'
@@ -205,7 +286,10 @@ func (r *runtime) steersDelivered(ids []string) {
 		steeringTimeout,
 	)
 	defer cancel()
-	if err := r.opts.steering.Delivered(ctx, r.turn.ID, ids); err != nil {
+	unlock := r.lockSource()
+	err := r.opts.steering.Delivered(ctx, r.turn.ID, ids)
+	unlock()
+	if err != nil {
 		r.warnSteering(fmt.Sprintf("steering acknowledgment failed: %v", err))
 	}
 }
@@ -361,4 +445,26 @@ func recordedItems(t Turn) map[string]ContextItem {
 		}
 	}
 	return out
+}
+
+// pausedMidHostedCall reports whether result is a provider pause that left
+// a hosted call unfinished, as an Anthropic pause_turn during a web search
+// does. Such a call is like a tool call awaiting its result: a steer may
+// not land between them, and providers reject a request that does not end
+// with the paused result.
+func pausedMidHostedCall(result llm.Result) bool {
+	if result.Stop.Kind != llm.StopPause {
+		return false
+	}
+	open := map[string]bool{}
+	for _, part := range result.Message.Content {
+		switch {
+		case part.HostedUse != nil && part.HostedUse.Status != "completed" &&
+			part.HostedUse.Status != "failed":
+			open[part.HostedUse.ID] = true
+		case part.HostedResult != nil:
+			delete(open, part.HostedResult.CallID)
+		}
+	}
+	return len(open) > 0
 }

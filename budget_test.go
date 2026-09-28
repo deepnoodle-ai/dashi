@@ -966,8 +966,10 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if settled.Result == nil || settled.Result.Usage == nil {
 				t.Fatalf("partial usage was not recorded: %+v", settled)
 			}
-			if settled.Result.Usage.OutputTokens != tc.reportedOutput {
-				t.Fatalf("observed output count was altered: %+v", settled.Result.Usage)
+			// The recorded count is the larger of the reported count and
+			// the estimate from every streamed delta, for every cause.
+			if got := settled.Result.Usage.OutputTokens; got != 2 {
+				t.Fatalf("recorded output tokens=%d, want the estimate 2", got)
 			}
 			if !settled.EstimatedUsage {
 				t.Fatal("partial usage was not marked estimated")
@@ -1123,6 +1125,74 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	if view.Spend.Usage.Requests[llm.MeterUnreported] != 2 ||
 		view.Spend.CostPartial != 1 ||
 		view.Spend.UnpricedRequests[llm.MeterUnreported] != 2 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
+// hostedCollectedCancelClient streams nothing; after the run's context ends
+// it returns a message holding hosted-tool records, with no ID or usage.
+type hostedCollectedCancelClient struct {
+	*pricedClient
+	cancel context.CancelFunc
+}
+
+func (c *hostedCollectedCancelClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	c.cancel()
+	return llm.Result{Message: llm.AssistantMessage(
+		hostedUse("search-1"),
+		hostedUse("search-2"),
+		hostedUse("search-3"),
+	)}, ctx.Err()
+}
+
+// A run-cancelled call is never projected, so it keeps the message the
+// client returned: its hosted-tool records stay for audit and count as
+// unreported requests.
+func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &hostedCollectedCancelClient{
+		pricedClient: newPricedClient(),
+		cancel:       cancel,
+	}
+	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+		ctx,
+		Turn{ID: "cut"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("search"))},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settled *ModelFact
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelSettled {
+			settled = step.Model
+		}
+	}
+	if settled == nil || settled.Interrupted != InterruptRun ||
+		settled.Result == nil {
+		t.Fatalf("settled=%+v", settled)
+	}
+	uses := 0
+	for _, part := range settled.Result.Message.Content {
+		if part.Kind == llm.ContentHostedUse {
+			uses++
+		}
+	}
+	if uses != 3 {
+		t.Fatalf("kept hosted uses=%d, want 3", uses)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.Usage.Requests[llm.MeterUnreported] != 3 {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 }

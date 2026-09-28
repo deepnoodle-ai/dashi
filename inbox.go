@@ -19,9 +19,15 @@ import (
 // When the run ends, claims it did not record are released. A steer in a
 // write whose outcome is unknown is in doubt: it goes only to runs of the
 // same turn until Leftovers reconciles it against the reloaded turn.
+//
+// Inbox is a SteeringNotifier: an urgent steer signals Ready, so the run
+// can cut short the model call in flight. The zero value is ready to use.
 type Inbox struct {
 	mu      sync.Mutex
 	entries []*inboxEntry
+	// ready is created on first use, so Inbox{} works. Its buffer of one
+	// coalesces signals: a run that has not yet looked still finds one.
+	ready chan struct{}
 }
 
 type inboxEntry struct {
@@ -38,7 +44,8 @@ func NewInbox() *Inbox {
 
 // Send queues a steer and returns its ID, generating one when Item.ID is
 // empty. An empty Origin means ContextUser. It returns an error for an
-// invalid item or an ID the inbox already holds.
+// invalid item or an ID the inbox already holds. An urgent steer signals
+// Ready once it is queued.
 func (in *Inbox) Send(steer Steer) (string, error) {
 	item := cloneContextItem(steer.Item)
 	if item.ID == "" {
@@ -55,8 +62,48 @@ func (in *Inbox) Send(steer Steer) (string, error) {
 	if in.find(item.ID) >= 0 {
 		return "", fmt.Errorf("dashi: steer ID %q is already queued", item.ID)
 	}
-	in.entries = append(in.entries, &inboxEntry{steer: Steer{Item: item}})
+	in.entries = append(
+		in.entries,
+		&inboxEntry{steer: Steer{Item: item, Urgent: steer.Urgent}},
+	)
+	if steer.Urgent {
+		select {
+		case in.readyLocked() <- struct{}{}:
+		default:
+		}
+	}
 	return item.ID, nil
+}
+
+// SendUrgent queues text from the user as an urgent steer, which may cut
+// short the model call in flight, and returns the steer's ID.
+func (in *Inbox) SendUrgent(text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("dashi: steer text is empty")
+	}
+	return in.Send(Steer{
+		Item: ContextItem{
+			Origin:  ContextUser,
+			Message: llm.UserMessage(llm.Text(text)),
+		},
+		Urgent: true,
+	})
+}
+
+// Ready signals, coalesced, that an urgent steer may be waiting. It returns
+// the same channel on every call. Only one run should watch it at a time,
+// as for the inbox itself.
+func (in *Inbox) Ready() <-chan struct{} {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return in.readyLocked()
+}
+
+func (in *Inbox) readyLocked() chan struct{} {
+	if in.ready == nil {
+		in.ready = make(chan struct{}, 1)
+	}
+	return in.ready
 }
 
 // SendText queues text from the user and returns the steer's ID.
@@ -95,7 +142,10 @@ func (in *Inbox) Steers(_ context.Context, turnID string) ([]Steer, error) {
 			continue
 		}
 		e.turn = turnID
-		out = append(out, Steer{Item: cloneContextItem(e.steer.Item)})
+		out = append(out, Steer{
+			Item:   cloneContextItem(e.steer.Item),
+			Urgent: e.steer.Urgent,
+		})
 	}
 	return out, nil
 }
@@ -170,7 +220,10 @@ func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 		if old, ok := recorded[item.ID]; ok && sameJSONValue(old, item) {
 			continue
 		}
-		out = append(out, Steer{Item: cloneContextItem(item)})
+		out = append(out, Steer{
+			Item:   cloneContextItem(item),
+			Urgent: e.steer.Urgent,
+		})
 	}
 	clear(in.entries[len(kept):])
 	in.entries = kept
@@ -186,4 +239,5 @@ func (in *Inbox) find(id string) int {
 var (
 	_ Steering         = (*Inbox)(nil)
 	_ SteeringReleaser = (*Inbox)(nil)
+	_ SteeringNotifier = (*Inbox)(nil)
 )

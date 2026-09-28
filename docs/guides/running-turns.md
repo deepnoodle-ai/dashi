@@ -150,9 +150,14 @@ runner.Hooks = gate.Hooks()
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. `BeforeFinish` vetoes an answer with a
-`Reason`, which the model sees as "Not accepted: …" before it answers again,
-or nudges with `Deliver` items alone. A nudge never spends the reserved
+item that is already current. It may run more than once for one reply, and
+`BeforeSend` may be asked again for the same reply, when an urgent steer
+sends the run back before the request is sent. Deliver a value that must
+reflect each call as a named `Snapshot` item, and reserve spending in the
+recorder with the model intent, not in the hook.
+
+`BeforeFinish` vetoes an answer with a `Reason`, which the model sees as "Not
+accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the reserved
 final-answer call: when no normal model call is possible (on the reserved
 call or the one before it, past the deadline, or when the next call would
 exceed a cost cap), it is dropped with a warning and the answer stands. A
@@ -312,7 +317,10 @@ transaction with your own rows:
 - `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.
 
 An interrupted model call is sent again; its partial output is display-only,
-while its usage still counts toward spend. A started tool without a result is
+while its usage still counts toward spend. Its settlement's
+`ModelFact.Interrupted` names the cause: `InterruptRun` when the run stopped
+the call, `InterruptWorker` when recovery settles a call left open by a
+worker that stopped. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
 `Continue`. `Settle` only records, including for approvals and external tool
@@ -610,6 +618,18 @@ if out.Stop.Terminal {
   for the next turn, and a `WarningSteering` on the record says why.
   Interactive agents should raise `Limits.ModelAttempts` from its default
   of 8.
+- **Urgent steers.** `inbox.SendUrgent(text)` also cuts short the model call
+  in flight, when a replacement call fits the turn's limits. The next call
+  sees the partial text, a reminder that the user interrupted it, and the
+  steer. The cut call is recorded with `Interrupted: "steering"`; it does not
+  count toward `ModelAttempts`, but its cost counts, and under a `MaxCost`
+  cap it is charged its worst case. A call that offers a provider-hosted
+  tool unsafe to repeat is never cut once sent. A cut that does not happen
+  leaves one `WarningSteering` saying why, and the steer waits for the next
+  call. The cut call's settlement closes its live preview; a UI should keep
+  its partial text visible, marked as interrupted, since `out.Answer` and
+  the transcript helpers skip interrupted results. A durable source signals
+  urgent steers by implementing `dashi.SteeringNotifier`.
 
 A durable host implements `dashi.Steering` over its own table, keyed by turn:
 `Steers` returns the rows not yet acknowledged, and `Delivered` consumes them.

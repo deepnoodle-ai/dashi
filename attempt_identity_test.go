@@ -133,7 +133,9 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 		t.Fatalf("sent=%v intents=%v", got, intents)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled && step.Model.AttemptID == "t1:model:1" && !step.Model.Interrupted {
+		if step.Kind == StepModelSettled &&
+			step.Model.AttemptID == "t1:model:1" &&
+			step.Model.Interrupted == InterruptNone {
 			t.Fatalf("first attempt settled without interruption: %+v", step.Model)
 		}
 	}

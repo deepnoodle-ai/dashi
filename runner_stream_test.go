@@ -158,7 +158,7 @@ func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 				found := false
 				for _, step := range turn.Steps {
 					if step.Kind == StepModelSettled && step.Model != nil &&
-						step.Model.Interrupted {
+						step.Model.Interrupted != InterruptNone {
 						found = true
 					}
 				}
@@ -217,7 +217,8 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	found := false
 	for _, step := range turn.Steps {
 		if step.Kind == StepModelSettled && step.Model != nil &&
-			step.Model.Interrupted && step.Model.Result != nil &&
+			step.Model.Interrupted == InterruptRun &&
+			step.Model.Result != nil &&
 			step.Model.Result.ID == "partial" {
 			found = true
 		}

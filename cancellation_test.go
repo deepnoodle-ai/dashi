@@ -280,7 +280,8 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
 	settled := out.Turn.Steps[len(out.Turn.Steps)-2]
-	if settled.Kind != StepModelSettled || !settled.Model.Interrupted {
+	if settled.Kind != StepModelSettled ||
+		settled.Model.Interrupted != InterruptRun {
 		t.Fatalf("settlement=%+v", settled)
 	}
 	view, err := Replay(out.Turn)

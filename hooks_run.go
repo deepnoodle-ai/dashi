@@ -732,28 +732,40 @@ func (r *runtime) callFits(
 	} else if !s.roomForNormalCall() {
 		return false
 	}
+	return r.callBlocked(s, extraInputTokens) == ""
+}
+
+// callBlocked is callFits without the ModelAttempts term: it reports why no
+// further model call fits the deadline, the run's context, and every Budget
+// cap, or "" when one does. A model call in flight counts at its worst
+// case against a cost cap, and a cap it cannot price blocks the call. It
+// reads only r's immutable fields and s, so the steering listener can call
+// it on a state captured for it.
+func (r *runtime) callBlocked(s *replayState, extraInputTokens int) string {
 	if d := r.agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
-		return false
+		return "the turn deadline passed"
 	}
 	if r.ctx.Err() != nil {
-		return false
+		return "the run is ending"
 	}
 	if budgetSpentStop(s) != nil {
-		return false
+		return "the turn's budget is spent"
 	}
 	if s.Budget == nil || s.Budget.MaxCost == nil {
-		return true
+		return ""
 	}
 	req, ok := estimatedNextRequest(s, extraInputTokens)
 	if !ok {
-		return false
+		return "the next call cannot be priced under the cost cap"
 	}
 	spent, ok := spendWithCallInFlight(s)
 	if !ok {
-		return false
+		return "the call's worst-case cost is unknown under the cost cap"
 	}
-	_, _, stop := checkSendBudget(spent, req, r.agent.Model)
-	return stop == nil
+	if _, _, stop := checkSendBudget(spent, req, r.agent.Model); stop != nil {
+		return "a replacement call would not fit the cost cap"
+	}
+	return ""
 }
 
 // spendWithCallInFlight returns s with a model call in flight counted at its

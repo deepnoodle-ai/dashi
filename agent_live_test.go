@@ -123,3 +123,43 @@ func TestLiveSteerAfterToolBatch(t *testing.T) {
 		})
 	}
 }
+
+// Each subtest makes two paid calls: an urgent steer cuts a streamed
+// answer, and the provider accepts the partial, reminder, and steer.
+func TestLiveUrgentSteerCutsStream(t *testing.T) {
+	for _, p := range liveProviders {
+		t.Run(p.name, func(t *testing.T) {
+			client, modelName := liveClient(t, p.name)
+			providertest.UrgentSteerCutsStream(t, client, modelName)
+		})
+	}
+}
+
+// Each subtest makes two paid calls: the cut partial ends in whitespace,
+// and the provider accepts the next request.
+func TestLiveUrgentSteerPartialEndsInWhitespace(t *testing.T) {
+	for _, p := range liveProviders {
+		t.Run(p.name, func(t *testing.T) {
+			client, modelName := liveClient(t, p.name)
+			providertest.UrgentSteerPartialEndsInWhitespace(
+				t,
+				client,
+				modelName,
+			)
+		})
+	}
+}
+
+// Three paid calls with about 14 web searches, about $1.30 on
+// claude-haiku-4-5: an urgent steer arrives after a pause_turn, and the
+// provider accepts the request that carries it.
+func TestLiveAnthropicUrgentSteerAfterPause(t *testing.T) {
+	client, modelName := liveClient(t, "anthropic")
+	search, err := messages.NewWebSearchTool(messages.WebSearchToolOptions{
+		MaxUses: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providertest.UrgentSteerAfterPause(t, client, modelName, search)
+}
