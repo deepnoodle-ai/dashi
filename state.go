@@ -757,6 +757,16 @@ func (s *replayState) apply(step Step) error {
 		if step.Tool == nil {
 			return errors.New("missing tool settlement")
 		}
+		if step.Tool.Vetoed {
+			if step.Tool.Call.Name != SubmitOutputTool ||
+				s.Tools[step.Tool.Call.ID].Status != ToolStarted ||
+				!strings.HasPrefix(step.Tool.Reason, "not accepted: ") ||
+				step.Tool.Outcome == nil ||
+				step.Tool.Outcome.State != tool.StateFailed {
+				return errors.New("only a turned-down submission records a veto")
+			}
+			s.answerVetoed = true
+		}
 		if step.Context != nil {
 			started := s.Tools[step.Tool.Call.ID].Status == ToolStarted
 			if step.Tool.Call.Name != SubmitOutputTool || !started ||

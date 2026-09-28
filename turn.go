@@ -357,8 +357,12 @@ type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
 	Verdict    ToolVerdict     `json:"verdict,omitzero"`
-	Outcome    *tool.Outcome   `json:"outcome,omitempty"`
-	Reason     string          `json:"reason,omitempty"`
+	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
+	// veto. Until a new model result arrives, the text of the message that
+	// made the call never reaches the host through TurnView.Answer.
+	Vetoed  bool          `json:"vetoed,omitempty"`
+	Outcome *tool.Outcome `json:"outcome,omitempty"`
+	Reason  string        `json:"reason,omitempty"`
 }
 
 // ApprovalFact answers a deferred tool call. Settle accepts it only while

@@ -487,6 +487,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 				"new context arrived. Read it, then submit again.",
 				"delivered context",
 				nil,
+				false,
 			)
 		}
 		r.deliveryDropped()
@@ -510,6 +511,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			cmp.Or(finish.reason, "a check did not accept this output"),
 			"hook "+finish.hook,
 			finish.deliver,
+			finish.reason != "",
 		); o != nil || !finish.noCall {
 			return o
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -586,5 +587,68 @@ func TestPauseDuringFinishKeepsTheRejection(t *testing.T) {
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "resume"})
 	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "fixed" {
 		t.Fatalf("resumed stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+}
+
+// textAndSubmission is one model result with text beside a submission.
+func textAndSubmission(id, text, args string) llm.Result {
+	result := submitResult(id, args)
+	result.Message.Content = append(
+		[]llm.Content{llm.Text(text)},
+		result.Message.Content...,
+	)
+	return result
+}
+
+func TestVetoedSubmissionHidesItsMessageText(t *testing.T) {
+	veto := FinishHook{Name: "pii", Func: func(_ context.Context, p FinishPlan) (FinishDecision, error) {
+		if strings.Contains(p.Answer, "ssn") {
+			return FinishDecision{Reason: "contains PII"}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	t.Run("output_rejected", func(t *testing.T) {
+		agent := structuredAgent()
+		agent.Limits.ModelAttempts = 1
+		client := &scriptedClient{results: []llm.Result{
+			textAndSubmission("out-1", "ssn 123", `{"answer":1}`),
+		}}
+		runner, out, err := runStructured(t, agent, client, veto.Hooks())
+		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
+			out.Answer != "" || out.Output != nil {
+			t.Fatalf("stop=%+v answer=%q output=%+v err=%v", out.Stop, out.Answer, out.Output, err)
+		}
+		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "again"})
+		if err != nil || out.Stop.Kind != StopLimited || out.Answer != "" {
+			t.Fatalf("limited stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+		if _, err := Replay(out.Turn); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("a new result clears it", func(t *testing.T) {
+		client := &scriptedClient{results: []llm.Result{
+			textAndSubmission("out-1", "ssn 123", `{"answer":1}`),
+			textAndSubmission("out-2", "clean", `{"answer":2}`),
+		}}
+		_, out, err := runStructured(t, structuredAgent(), client, veto.Hooks())
+		if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "clean" {
+			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+	})
+}
+
+func TestBoundedReasonStaysWithinTheLimit(t *testing.T) {
+	bad := string([]byte{0xff})
+	for name, reason := range map[string]string{
+		"invalid bytes near the limit":   strings.Repeat("x", maxHookReason-2) + bad + bad + bad,
+		"invalid bytes inside the limit": strings.Repeat(bad, maxHookReason),
+		"a rune across the limit":        strings.Repeat("x", maxHookReason-1) + "é",
+		"short":                          "ok" + bad,
+	} {
+		got := boundedReason(reason)
+		if len(got) > maxHookReason || !utf8.ValidString(got) {
+			t.Fatalf("%s: %d bytes, valid=%v", name, len(got), utf8.ValidString(got))
+		}
 	}
 }

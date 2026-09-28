@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -493,11 +494,16 @@ func (r *runtime) deliveryDropped() {
 // such as "hook <name>" or "steering". It is the same started-to-settled
 // transition a schema rejection uses, so the next successful submission is
 // the one recorded as output.
+//
+// vetoed records a BeforeFinish veto, which keeps the text of the model
+// message that made the call out of TurnView.Answer until a new model result
+// arrives.
 func (r *runtime) rejectSubmission(
 	call tool.Call,
 	reason string,
 	source string,
 	items []ContextItem,
+	vetoed bool,
 ) *Outcome {
 	out := tool.Outcome{
 		State:  tool.StateFailed,
@@ -509,6 +515,7 @@ func (r *runtime) rejectSubmission(
 			Call:    call,
 			Outcome: &out,
 			Reason:  "not accepted: " + source,
+			Vetoed:  vetoed,
 		},
 	}
 	if len(items) > 0 {
@@ -736,11 +743,18 @@ func hookFailedStop() *Stop {
 	return &Stop{Kind: StopFailed, Reason: StopReasonHookFailed}
 }
 
+// boundedReason makes a reason valid UTF-8, then cuts it at a rune boundary
+// so it never exceeds maxHookReason bytes.
 func boundedReason(reason string) string {
-	if len(reason) > maxHookReason {
-		reason = reason[:maxHookReason]
+	reason = strings.ToValidUTF8(reason, "\uFFFD")
+	if len(reason) <= maxHookReason {
+		return reason
 	}
-	return strings.ToValidUTF8(reason, "\uFFFD")
+	cut := maxHookReason
+	for cut > 0 && !utf8.RuneStart(reason[cut]) {
+		cut--
+	}
+	return reason[:cut]
 }
 
 func boundedHookError(err error) string {
