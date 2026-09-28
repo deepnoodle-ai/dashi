@@ -61,12 +61,14 @@ call's `tool_started` and `tool_settled`. An unplaced preview (`Seq` 0) is dropp
 - **Steps are hints, never delivery.** They wake `feed.Follow`'s read of the
   record, so previews are not held for a poll interval, and they close the
   turn's open message. Without the reader's own `StepWaiter`, `feed.Follow`
-  still reads the record every second for runs in other processes, except
-  while the turn rests at a stop, when it reads as rarely as `dashi.Follow`.
+  still reads the record for runs in other processes, every second, or
+  every 30 seconds while the turn rests at a stop, as `dashi.Follow` does.
 - **Mid-stream joins.** The hub remembers each turn's streaming message
   (`MessageID`, `Seq`), set by its deltas and gaps (never by an older run's,
   placed earlier) and cleared by its settling step
-  or a terminal stop, and forgotten after ten idle minutes as a fallback. A
+  or a terminal stop, and forgotten after ten idle minutes as a fallback.
+  It also remembers the last 64 settled messages per turn, so a delayed
+  delta or gap from an overlapping run cannot reopen one. A
   new reader starts with a gap for it, placed at its `Seq`, so a reader
   already past it drops the gap.
 - **Queues.** Each reader queues up to 256 previews in the hub, and

@@ -34,9 +34,14 @@ import (
 // count against either; each message has at most one.
 const queueLimit = 256
 
-// openTimeout forgets an open message whose deltas stopped without a
-// settling step, as when its run died.
+// openTimeout forgets a turn nobody follows once it has been quiet this
+// long: a message whose deltas stopped without a settling step, as when its
+// run died, or the settled messages it remembers.
 const openTimeout = 10 * time.Minute
+
+// settledLimit bounds the settled messages a turn remembers. A delayed
+// delta comes from a recent message, so the latest few suffice.
+const settledLimit = 64
 
 // Hub fans a Runner's previews out to the readers following its turns in
 // this process. Set Runner.Observer to hub.Observe and pass the hub to
@@ -45,8 +50,10 @@ const openTimeout = 10 * time.Minute
 //
 // Steps reach the Hub too, but only as hints: they wake readers waiting for
 // the record and mark a streaming message settled. Readers always take steps
-// from the record. The Hub keeps one entry per turn with readers or a
-// message streaming, so a turn nobody follows costs little.
+// from the record. The Hub keeps one small entry per turn with readers, a
+// message streaming, or recently settled messages (so a delayed delta from
+// an overlapping run cannot reopen one); a terminal stop, or ten quiet
+// minutes with no readers, removes it.
 type Hub struct {
 	mu        sync.Mutex
 	turns     map[string]*turnState
@@ -66,6 +73,13 @@ type turnState struct {
 	// when it grows.
 	stepSeq int64
 	wake    chan struct{}
+	// settled holds messages whose settling step was observed, oldest
+	// first in settledOrder, so a delayed delta or gap from an overlapping
+	// run cannot reopen one.
+	settled      map[string]bool
+	settledOrder []string
+	// last is when the turn last had an event, for the sweep.
+	last time.Time
 }
 
 type openMessage struct {
@@ -98,6 +112,11 @@ func (h *Hub) Observe(e dashi.Event) {
 		h.observeStep(e)
 	case e.Delta != nil:
 		t := h.lock(e.TurnID, true)
+		t.last = time.Now()
+		if t.settled[e.MessageID] {
+			t.mu.Unlock()
+			return
+		}
 		t.streaming(e)
 		for r := range t.readers {
 			r.delta(e)
@@ -107,6 +126,11 @@ func (h *Hub) Observe(e dashi.Event) {
 		// A gap also marks its message streaming, so a reader that joins
 		// before its next delta starts with a gap for it.
 		t := h.lock(e.TurnID, true)
+		t.last = time.Now()
+		if t.settled[e.MessageID] {
+			t.mu.Unlock()
+			return
+		}
 		t.streaming(e)
 		for r := range t.readers {
 			r.gap(e)
@@ -123,19 +147,33 @@ func (h *Hub) Observe(e dashi.Event) {
 }
 
 func (h *Hub) observeStep(e dashi.Event) {
-	t := h.lock(e.TurnID, false)
+	// A settled model message is remembered even for a turn nobody follows
+	// yet, so a delayed delta cannot reopen it.
+	settles := ""
+	if e.Step.Model != nil {
+		settles = e.Step.Settles()
+	}
+	t := h.lock(e.TurnID, settles != "")
 	if t == nil {
 		return
 	}
+	t.last = time.Now()
 	if e.Step.Seq > t.stepSeq {
 		t.stepSeq = e.Step.Seq
 		close(t.wake)
 		t.wake = make(chan struct{})
 	}
-	terminal := e.Step.Stop != nil && e.Step.Stop.Terminal
-	if t.open != nil &&
-		(terminal || e.Step.Settles() == t.open.messageID) {
+	if settles != "" {
+		t.markSettled(settles)
+		if t.open != nil && t.open.messageID == settles {
+			t.open = nil
+		}
+	}
+	if e.Step.Stop != nil && e.Step.Stop.Terminal {
+		// Nothing streams after the end; forget the turn's messages.
 		t.open = nil
+		clear(t.settled)
+		t.settledOrder = nil
 	}
 	idle := t.idle()
 	t.mu.Unlock()
@@ -172,6 +210,8 @@ func (h *Hub) lock(turnID string, create bool) *turnState {
 			t = &turnState{
 				readers: map[*reader]struct{}{},
 				wake:    make(chan struct{}),
+				settled: map[string]bool{},
+				last:    time.Now(),
 			}
 			h.turns[turnID] = t
 			h.sweep()
@@ -188,10 +228,24 @@ func (h *Hub) lock(turnID string, create bool) *turnState {
 	}
 }
 
+// markSettled remembers a settled message, forgetting the oldest past
+// settledLimit. The caller holds t.mu.
+func (t *turnState) markSettled(id string) {
+	if t.settled[id] {
+		return
+	}
+	t.settled[id] = true
+	t.settledOrder = append(t.settledOrder, id)
+	if len(t.settledOrder) > settledLimit {
+		delete(t.settled, t.settledOrder[0])
+		t.settledOrder = t.settledOrder[1:]
+	}
+}
+
 // idle reports whether the entry holds nothing worth keeping. The caller
 // holds t.mu.
 func (t *turnState) idle() bool {
-	return len(t.readers) == 0 && t.open == nil
+	return len(t.readers) == 0 && t.open == nil && len(t.settled) == 0
 }
 
 // forget removes an idle turn's entry.
@@ -210,8 +264,8 @@ func (h *Hub) forget(turnID string) {
 	}
 }
 
-// sweep drops, at most once a minute, entries whose only content is a
-// message that stopped streaming long ago. The caller holds h.mu.
+// sweep drops, at most once a minute, entries nobody follows that have been
+// quiet for openTimeout. The caller holds h.mu.
 func (h *Hub) sweep() {
 	now := time.Now()
 	if now.Sub(h.lastSweep) < time.Minute {
@@ -222,8 +276,7 @@ func (h *Hub) sweep() {
 		if !t.mu.TryLock() {
 			continue
 		}
-		if len(t.readers) == 0 &&
-			(t.open == nil || now.Sub(t.open.last) > openTimeout) {
+		if len(t.readers) == 0 && now.Sub(t.last) > openTimeout {
 			t.dead = true
 			delete(h.turns, id)
 		}

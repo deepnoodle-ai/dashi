@@ -22,8 +22,8 @@ import (
 // falls between the two; a message already streaming then arrives as a gap.
 // Steps the hub observes wake the read of the record, so previews are not
 // held back by the reader's poll interval. r's own StepWaiter, if any, still
-// applies; without one the record is read every second, or as rarely as
-// dashi.Follow reads it while the turn rests at a stop.
+// applies; without one the record is also polled, every second, or every 30
+// seconds while the turn rests at a stop, as dashi.Follow does.
 //
 // Each call starts one goroutine to read the record. Placement is exact
 // because the Runner stamps Seq on the goroutine that commits.
@@ -227,9 +227,14 @@ func (h *Hub) take(turnID string, r *reader) []dashi.Event {
 	return r.take()
 }
 
-// followPoll bounds a wait when the reader has no StepWaiter of its own,
-// matching dashi.Follow's poll. It is a variable so tests can shorten it.
-var followPoll = time.Second
+// followPoll and followResting bound a wait when the reader has no
+// StepWaiter of its own, matching dashi.Follow's poll while the turn runs
+// and while it rests at a stop. They are variables so tests can shorten
+// them.
+var (
+	followPoll    = time.Second
+	followResting = 30 * time.Second
+)
 
 // wakingReader lets steps the Hub observes wake dashi.Follow. dashi.Follow
 // calls it from one goroutine, so its fields need no lock.
@@ -237,8 +242,7 @@ type wakingReader struct {
 	dashi.StepReader
 	hub *Hub
 	// resting records that the last step read is a stop. dashi.Follow then
-	// reads the record only every 30 seconds, and so does Wait: it skips its
-	// one-second poll and relies on the hub's wake.
+	// reads the record only every 30 seconds, and so does Wait.
 	resting bool
 }
 
@@ -263,8 +267,13 @@ func (w *wakingReader) Wait(ctx context.Context, turnID string, after int64) err
 	var poll <-chan time.Time
 	if waiter, ok := w.StepReader.(dashi.StepWaiter); ok {
 		go func() { inner <- waiter.Wait(ctx, turnID, after) }()
-	} else if !w.resting {
-		timer := time.NewTimer(followPoll)
+	} else {
+		// A commit from another process reaches no hub, so poll too.
+		interval := followPoll
+		if w.resting {
+			interval = followResting
+		}
+		timer := time.NewTimer(interval)
 		defer timer.Stop()
 		poll = timer.C
 	}

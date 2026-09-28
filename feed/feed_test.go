@@ -479,7 +479,9 @@ func TestManyDisconnectsLeaveNoEntries(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
 	client := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
-	if _, err := runner(client, rec, hub.Observe).Run(
+	// The run is not observed, so the hub has nothing of its own to keep
+	// for the turn (it remembers settled messages of observed runs).
+	if _, err := runner(client, rec, nil).Run(
 		t.Context(), dashi.Turn{ID: "t1"}, start(),
 	); err != nil {
 		t.Fatal(err)
@@ -562,6 +564,76 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 
 // An Observer gap for a turn nobody follows yet still marks its message
 // streaming, so a reader that joins before the next delta gets a gap.
+// Once the hub observes a message's settling step, a delayed delta or gap
+// from an overlapping run cannot reopen it: readers do not get it, and a
+// reader that joins gets no gap for it. A terminal stop forgets the turn.
+func TestSettledMessageStaysClosed(t *testing.T) {
+	var hub Hub
+	rd := hub.subscribe("t1")
+	delta := dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}}
+	hub.Observe(delta)
+	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		Model: &dashi.ModelFact{MessageID: "m"},
+	}})
+	hub.take("t1", rd)
+	hub.Observe(delta)
+	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Gap: true})
+	if events := hub.take("t1", rd); len(events) != 0 {
+		t.Fatalf("a settled message reopened for a reader: %q", shape(events))
+	}
+	hub.unsubscribe("t1", rd)
+	late := hub.subscribe("t1")
+	if events := hub.take("t1", late); len(events) != 0 {
+		t.Fatalf("a new reader joined with %q; want nothing", shape(events))
+	}
+	hub.unsubscribe("t1", late)
+	hub.Observe(dashi.Event{TurnID: "t1", Seq: 4, Step: &dashi.Step{
+		TurnID: "t1", Seq: 4, Kind: dashi.StepStopped,
+		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Terminal: true},
+	}})
+	if n := hub.entries(); n != 0 {
+		t.Fatalf("hub holds %d turns after a terminal stop", n)
+	}
+}
+
+// A reader of a resting turn with no StepWaiter still sees a step committed
+// by another process, which no hub observes, within the resting poll.
+func TestRestingTurnSeesOtherProcessCommits(t *testing.T) {
+	old := followResting
+	followResting = 50 * time.Millisecond
+	t.Cleanup(func() { followResting = old })
+	var hub Hub
+	rec := dashi.NewMemoryRecorder()
+	resting := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
+	first, err := runner(resting, rec, hub.Observe).Run(t.Context(), dashi.Turn{ID: "t1"}, start())
+	if err != nil {
+		t.Fatal(err)
+	}
+	follow := collect(t.Context(), &hub, readerOnly{rec}, 0)
+	waitReaders(t, &hub, 1)
+	time.Sleep(20 * time.Millisecond)
+	// Another process resumes the turn: this runner has no Observer.
+	began := time.Now()
+	out, err := runner(&streamClient{words: []string{"b"}}, rec, nil).Run(
+		t.Context(), first.Turn, dashi.Continue{CommandID: "resume"},
+	)
+	if err != nil || !out.Stop.Terminal {
+		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
+	}
+	events, err := follow(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waited := time.Since(began); waited > 2*time.Second {
+		t.Fatalf("the reader saw the other process's steps after %v", waited)
+	}
+	last := events[len(events)-1]
+	if last.Step == nil || last.Step.Stop == nil || !last.Step.Stop.Terminal {
+		t.Fatalf("follow ended at %q", shape(events))
+	}
+}
+
 func TestObserverGapOpensTheTurn(t *testing.T) {
 	var hub Hub
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Gap: true})
