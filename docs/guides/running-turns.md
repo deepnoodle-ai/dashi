@@ -68,7 +68,7 @@ on `Runner.Hooks`; any number run at each point, in order:
 | `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
-| `BeforeFinish` | on each final text answer (not yet on output submitted with `dashi_submit_output`) | ask the model to continue, accept an empty answer | the turn stops failed |
+| `BeforeFinish` | on each final answer: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty answer | the turn stops failed |
 
 A zero answer means no opinion. Each hook's answer is saved in the turn record
 with the step it leads to (`Step.HookResults`), and replay never calls hooks.
@@ -106,9 +106,13 @@ runner.Hooks = gate.Hooks()
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. `BeforeFinish` can ask the model to continue
-only while a further model call is possible; on the reserved final-answer call
-its items are dropped with a warning.
+item that is already current. `BeforeFinish` turns an answer down with
+`Deliver` items, or, for submitted output, with a `Reason` alone, which the
+model sees as "Not accepted: …" and then submits again. It can do so only
+while a further normal model call is possible: not on the reserved
+final-answer call or the one before it, past the deadline, or when the next
+call would exceed a cost cap. Then its answer is dropped with a warning and
+the candidate stands.
 
 ## Approving tool calls
 
