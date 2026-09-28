@@ -58,7 +58,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
@@ -105,7 +105,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
@@ -139,7 +139,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
@@ -173,7 +173,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Policy:   AllowLocalPolicy{},
 	}).Run(
 		t.Context(),
@@ -194,7 +194,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {

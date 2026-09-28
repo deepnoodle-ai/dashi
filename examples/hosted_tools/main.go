@@ -25,14 +25,6 @@ const defaultPrompt = "Use web search to find the capital of Tanzania and " +
 	"its approximate population. Then use code execution to calculate 53^4. " +
 	"Answer briefly."
 
-// toolset serves a fixed list of tools. Hosted tools have no executor: the
-// provider runs them inside the model call.
-type toolset []tool.Tool
-
-func (s toolset) Tools(context.Context) ([]tool.Tool, error) {
-	return s, nil
-}
-
 func main() {
 	log.SetFlags(0)
 	prompt := flag.String("prompt", defaultPrompt, "prompt to send")
@@ -71,9 +63,11 @@ func run(ctx context.Context, prompt string) error {
 			Model:    model,
 		},
 		Client: client,
-		Tools: toolset{
-			{Definition: search},
-			{Definition: messages.NewCodeExecutionTool("")},
+		// Hosted tools have no executor: Anthropic runs them inside the
+		// model call.
+		Tools: tool.List{
+			search,
+			messages.NewCodeExecutionTool(messages.CodeExecutionToolOptions{}),
 		},
 		Recorder: dashi.NewMemoryRecorder(),
 	}

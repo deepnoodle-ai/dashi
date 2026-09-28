@@ -34,13 +34,6 @@ type emailArgs struct {
 	Body    string `json:"body" description:"Email body"`
 }
 
-// tools is a fixed tool.Toolset.
-type tools []tool.Tool
-
-func (ts tools) Tools(context.Context) ([]tool.Tool, error) {
-	return ts, nil
-}
-
 func main() {
 	log.SetFlags(0)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -99,10 +92,7 @@ func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 			// A real tool would pass call.ID to the mail service as an
 			// idempotency key and use the message ID it returns.
 			fmt.Printf("Queued email to %s: %q\n", in.To, in.Subject)
-			return tool.Outcome{
-				State:  tool.StateDetached,
-				Handle: &tool.Handle{ID: "msg-" + call.ID},
-			}, nil
+			return tool.Detached("msg-" + call.ID), nil
 		},
 	)
 	if err != nil {
@@ -116,7 +106,7 @@ func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 			Model:        model,
 		},
 		Client:   client,
-		Tools:    tools{sendEmail},
+		Tools:    tool.List{sendEmail},
 		Recorder: recorder,
 		Policy:   dashi.AllowLocalPolicy{},
 	}, nil
@@ -183,10 +173,8 @@ func resume(
 		outcome, err := apply(ctx, runner, turn, dashi.Settle{
 			CommandID: "delivered-" + message,
 			CallID:    id,
-			Outcome: &tool.Outcome{
-				State:  tool.StateSucceeded,
-				Output: new(tool.TextOutput("Delivered as " + message + ".")),
-			},
+			// Settle takes a pointer; new(expr) points at a new copy.
+			Outcome: new(tool.Succeeded("Delivered as " + message + ".")),
 		})
 		if err != nil {
 			return err

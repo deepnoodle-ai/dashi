@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 type searchInput struct {
@@ -303,4 +305,135 @@ func newSearchTool(t *testing.T, calls *int) Tool {
 
 func searchCall(args string) Call {
 	return Call{ID: "call-1", Name: "search", Args: json.RawMessage(args)}
+}
+
+func TestListReturnsCopy(t *testing.T) {
+	list := List{{Definition: Definition{Name: "a"}}}
+	got, err := list.Tools(t.Context())
+	if err != nil || len(got) != 1 || got[0].Definition.Name != "a" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	got[0].Definition.Name = "changed"
+	if list[0].Definition.Name != "a" {
+		t.Fatalf("list shares its backing array: %+v", list)
+	}
+}
+
+func TestOutcomeConstructors(t *testing.T) {
+	valid := map[string]Outcome{
+		"succeeded":       Succeeded("done"),
+		"succeeded empty": Succeeded(""),
+		"failed":          Failed("broken"),
+		"waiting":         Waiting("needs review"),
+		"detached":        Detached("job-1"),
+	}
+	for name, out := range valid {
+		if err := out.Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if s := Succeeded("done"); s.State != StateSucceeded ||
+		s.Output.Content[0].Text.Text != "done" {
+		t.Errorf("succeeded = %+v", s)
+	}
+	if f := Failed("broken"); f.State != StateFailed ||
+		f.Output.Content[0].Text.Text != "broken" {
+		t.Errorf("failed = %+v", f)
+	}
+	for name, out := range map[string]Outcome{
+		"waiting without reason":  Waiting(""),
+		"detached without handle": Detached(""),
+	} {
+		if err := out.Validate(); err == nil {
+			t.Errorf("%s: want invalid", name)
+		}
+	}
+}
+
+type quotedInput struct {
+	Inner struct {
+		Count int `json:"count,string"`
+	} `json:"inner"`
+}
+
+func buildFunc[T any]() error {
+	_, err := Func(
+		"f",
+		"",
+		func(context.Context, Call, T) (Outcome, error) {
+			return Succeeded(""), nil
+		},
+	)
+	return err
+}
+
+func TestFuncRequiresStructArguments(t *testing.T) {
+	refused := map[string]error{
+		"string":         buildFunc[string](),
+		"map":            buildFunc[map[string]any](),
+		"any":            buildFunc[any](),
+		"time":           buildFunc[*time.Time](),
+		"nested ,string": buildFunc[quotedInput](),
+	}
+	for name, err := range refused {
+		if err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	if err := buildFunc[*searchInput](); err != nil {
+		t.Fatalf("pointer to struct: %v", err)
+	}
+}
+
+type (
+	recursiveSlice []recursiveSlice
+	recursiveMap   map[string]recursiveMap
+	treeNode       struct {
+		Name     string     `json:"name"`
+		Children []treeNode `json:"children,omitempty"`
+	}
+	listThroughStruct []wrapsList
+	wrapsList         struct {
+		Next listThroughStruct `json:"next,omitempty"`
+	}
+)
+
+// buildFuncWithin fails the test instead of hanging if construction does not
+// return promptly.
+func buildFuncWithin[T any](t *testing.T) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- buildFunc[T]() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool.Func did not return")
+		return nil
+	}
+}
+
+func TestFuncRecursiveArgumentTypes(t *testing.T) {
+	refused := map[string]error{
+		"recursive slice": buildFuncWithin[struct {
+			Items recursiveSlice `json:"items"`
+		}](t),
+		"recursive map": buildFuncWithin[struct {
+			Items recursiveMap `json:"items"`
+		}](t),
+	}
+	for name, err := range refused {
+		if err == nil || !strings.Contains(err.Error(), "recursive type") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	allowed := map[string]error{
+		"struct":               buildFuncWithin[treeNode](t),
+		"slice through struct": buildFuncWithin[wrapsList](t),
+	}
+	for name, err := range allowed {
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 }

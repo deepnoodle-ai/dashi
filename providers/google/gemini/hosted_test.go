@@ -23,9 +23,9 @@ func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
 			Tools: []tool.Definition{
-				NewGoogleSearchTool(""),
-				NewURLContextTool(""),
-				NewCodeExecutionTool(""),
+				NewGoogleSearchTool(GoogleSearchToolOptions{}).Definition,
+				NewURLContextTool(URLContextToolOptions{}).Definition,
+				NewCodeExecutionTool(CodeExecutionToolOptions{}).Definition,
 			},
 		},
 	)
@@ -49,12 +49,9 @@ func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 }
 
 func TestFileSearchRequiresV1Beta(t *testing.T) {
-	definition, err := NewFileSearchTool(
-		"",
-		FileSearchOptions{
-			StoreNames: []string{"fileSearchStores/store-1"},
-		},
-	)
+	definition, err := NewFileSearchTool(FileSearchToolOptions{
+		StoreNames: []string{"fileSearchStores/store-1"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +67,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	input := llm.Input{
 		Model:    "test-model",
 		Messages: []llm.Message{llm.UserMessage(llm.Text("Find"))},
-		Tools:    []tool.Definition{definition},
+		Tools:    []tool.Definition{definition.Definition},
 	}
 	if _, err := client.Prepare(t.Context(), input); err == nil {
 		t.Fatal("file search used v1 without evidence")
@@ -139,5 +136,100 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("replay code execution: %v", err)
+	}
+}
+
+func TestHostedToolBindingAcrossGoogleBackends(t *testing.T) {
+	vertex, err := New(Config{
+		Vertex:           true,
+		Project:          "p",
+		Location:         "us-central1",
+		CredentialScope:  "service-account",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := NewFileSearchTool(FileSearchToolOptions{
+		StoreNames: []string{"fileSearchStores/store-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepare := func(client *Client, d tool.Definition) error {
+		_, err := client.Prepare(t.Context(), llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
+			Tools:    []tool.Definition{d},
+		})
+		return err
+	}
+	const vx = "google-vertex"
+	tests := []struct {
+		name   string
+		client *Client
+		tool   tool.Tool
+		ok     bool
+	}{
+		{
+			name:   "zero value search on Vertex",
+			client: vertex,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "zero value URL context on Vertex",
+			client: vertex,
+			tool:   NewURLContextTool(URLContextToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "zero value code execution on Vertex",
+			client: vertex,
+			tool:   NewCodeExecutionTool(CodeExecutionToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "explicit Vertex search on Vertex",
+			client: vertex,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{Provider: vx}),
+			ok:     true,
+		},
+		{
+			name:   "Vertex search on Gemini API",
+			client: api,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{Provider: vx}),
+		},
+		{
+			name:   "other destination on Vertex",
+			client: vertex,
+			tool: NewGoogleSearchTool(
+				GoogleSearchToolOptions{Provider: "proxy"},
+			),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := prepare(tc.client, tc.tool.Definition)
+			if (err == nil) != tc.ok ||
+				(err != nil && !strings.Contains(err.Error(), "own destination")) {
+				t.Fatalf("err=%v; want ok=%t", err, tc.ok)
+			}
+		})
+	}
+	// Vertex refuses file search earlier, for its endpoint, so check the
+	// binding rule directly: file search stores never cross destinations.
+	if boundTo(files.Definition.Hosted, "google-vertex") {
+		t.Fatal("file search bound to google crossed to google-vertex")
+	}
+	if strings.Contains(string(files.Definition.Hosted.Options), "Provider") {
+		t.Fatal("file search options recorded the provider binding")
 	}
 }

@@ -64,7 +64,7 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 			out, err := (Runner{
 				Agent:    testAgent(),
 				Client:   client,
-				Tools:    fixedTools{bound},
+				Tools:    tool.List{bound},
 				Recorder: rec,
 				Policy:   AllowLocalPolicy{},
 			}).Run(t.Context(), turn, Continue{CommandID: "resume"})
@@ -150,7 +150,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 		out, err := (Runner{
 			Agent:    def,
 			Client:   client,
-			Tools:    fixedTools{first, second},
+			Tools:    tool.List{first, second},
 			Recorder: rec,
 			Policy:   AllowLocalPolicy{},
 		}).Run(
@@ -201,7 +201,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	resumed, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{first, second},
+		Tools:    tool.List{first, second},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), got.out.Turn, Continue{CommandID: "resume"})
@@ -237,7 +237,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 	out, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(

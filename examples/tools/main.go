@@ -30,14 +30,6 @@ type ConvertInput struct {
 	Celsius float64 `json:"celsius" description:"Temperature in Celsius"`
 }
 
-// toolset serves a fixed list of tools. Runner.Tools takes a tool.Toolset so
-// the available tools can change between model calls; this one never does.
-type toolset []tool.Tool
-
-func (s toolset) Tools(context.Context) ([]tool.Tool, error) {
-	return s, nil
-}
-
 func main() {
 	log.SetFlags(0)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -115,7 +107,10 @@ func run(ctx context.Context) error {
 
 // newTools builds the typed tools. tool.Func generates each input schema from
 // its Go type and validates the model's arguments before the function runs.
-func newTools() (toolset, error) {
+//
+// Runner.Tools takes a tool.Toolset so the available tools can change between
+// model calls; tool.List is a fixed one.
+func newTools() (tool.List, error) {
 	weather, err := tool.Func(
 		"get_weather",
 		"Get the current weather for a city, in Celsius.",
@@ -129,7 +124,7 @@ func newTools() (toolset, error) {
 				// A plain error is returned to the model as a failed call.
 				return tool.Outcome{}, errors.New("city is required")
 			}
-			return succeeded("18°C, partly cloudy"), nil
+			return tool.Succeeded("18°C, partly cloudy"), nil
 		},
 	)
 	if err != nil {
@@ -145,18 +140,11 @@ func newTools() (toolset, error) {
 		) (tool.Outcome, error) {
 			fmt.Printf("-> celsius_to_fahrenheit(%g)\n", in.Celsius)
 			f := in.Celsius*9/5 + 32
-			return succeeded(fmt.Sprintf("%.1f°F", f)), nil
+			return tool.Succeeded(fmt.Sprintf("%.1f°F", f)), nil
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-	return toolset{weather, convert}, nil
-}
-
-func succeeded(text string) tool.Outcome {
-	return tool.Outcome{
-		State:  tool.StateSucceeded,
-		Output: new(tool.TextOutput(text)),
-	}
+	return tool.List{weather, convert}, nil
 }

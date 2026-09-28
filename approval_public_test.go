@@ -154,7 +154,7 @@ func pendingApproval(
 	runner := dashi.Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    tools{write},
+		Tools:    tool.List{write},
 		Recorder: store,
 		Policy:   approvalPolicy{},
 	}
@@ -290,12 +290,6 @@ func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
 	if call.Status == dashi.ToolApprovalPending || call.ArgsDigest != "" || *runs != 0 {
 		t.Fatalf("canceled call=%+v runs=%d", call, *runs)
 	}
-}
-
-type tools []tool.Tool
-
-func (ts tools) Tools(context.Context) ([]tool.Tool, error) {
-	return ts, nil
 }
 
 type toolFunc func(context.Context, tool.Call) (tool.Outcome, error)

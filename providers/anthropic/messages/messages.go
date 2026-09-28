@@ -2,6 +2,18 @@
 // handling are adapted from Dive (65c393f), Apache-2.0, for Dashi's
 // contracts.
 // This package owns API conversion and dispatch, not agent or session state.
+//
+// # Hosted tools
+//
+// Hosted tool constructors return a definition-only tool.Tool: Anthropic runs
+// it inside the model call, so it has no Executor and needs no Policy. Add it
+// to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
+// constructor returns an error only when its options can be invalid.
+//
+// Each options struct has a Provider field that binds the tool to one
+// configured destination. Empty means "anthropic", the default name of
+// Config.Provider; set it to the client's Provider() for a destination with a
+// custom name, since a destination refuses hosted tools bound to another.
 package messages
 
 import (
@@ -214,7 +226,7 @@ func (p *Client) Prepare(
 			}
 			defs = append(defs, config)
 			if d.Hosted.Type == MCPToolsetType {
-				var options MCPToolsetOptions
+				var options MCPToolOptions
 				if err := decodeHostedOptions(d.Hosted.Options, &options); err != nil {
 					return llm.Request{}, wire.unsupported("MCP toolset options: %v", err)
 				}

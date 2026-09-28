@@ -129,7 +129,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		History:   history,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("run job"))},
 	}
-	tools := fixedTools{
+	tools := tool.List{
 		tool.Tool{
 			Definition: tool.Definition{
 				Name:   "work",

@@ -9,6 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/wonton/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,6 +21,11 @@ import (
 // Func builds a local tool from typed Go arguments. The input schema is
 // generated from T once, at construction, and both the returned Definition and
 // argument validation use it; construct a new tool when the contract changes.
+// T must be a struct or a pointer to one: each field is required unless its
+// json tag has omitempty, and description and enum tags describe it to the
+// model.
+// Arguments that do not match the schema are refused before fn runs; see
+// docs/guides/tools.md#defining-tools for the complete rules.
 // The callback also receives the stable call identity, suitable for downstream
 // idempotency and reconciliation. An error from the callback is returned
 // unchanged, so it follows the Executor contract: a plain error goes to the
@@ -27,6 +36,9 @@ func Func[T any](
 ) (Tool, error) {
 	if fn == nil {
 		return Tool{}, errors.New("tool: nil function")
+	}
+	if err := checkArgumentsType(reflect.TypeFor[T]()); err != nil {
+		return Tool{}, fmt.Errorf("tool: %q: %w", name, err)
 	}
 	var zero T
 	s, err := schema.Generate(
@@ -121,6 +133,76 @@ func (e typedExecutor[T]) Execute(
 		))
 	}
 	return outcome, nil
+}
+
+// checkArgumentsType requires a struct, or a pointer to one, other than
+// time.Time: providers need an input schema with named properties, and strict
+// modes reject open objects such as maps. It also refuses the json ",string"
+// option at any depth, because the schema describes the plain value while
+// decoding would expect it quoted, so every call would fail, and recursion
+// that does not pass through a struct, which has no finite schema.
+func checkArgumentsType(t reflect.Type) error {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
+		return fmt.Errorf("arguments type %s must be a struct", t)
+	}
+	return checkFieldTypes(
+		t,
+		map[reflect.Type]bool{},
+		map[reflect.Type]bool{},
+	)
+}
+
+// checkFieldTypes refuses what the schema cannot describe. It records every
+// type it visits, so recursive types terminate. Recursion through a struct,
+// such as type Node struct{ Children []Node }, is supported. Recursion only
+// through pointers, slices, arrays, or maps, such as type Nodes []Nodes, has
+// no finite schema, so it is refused: chain holds the collection types seen
+// since the last struct.
+func checkFieldTypes(
+	t reflect.Type,
+	seen map[reflect.Type]bool,
+	chain map[reflect.Type]bool,
+) error {
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		if chain[t] {
+			return fmt.Errorf(
+				"recursive type %s must recurse through a struct",
+				t,
+			)
+		}
+		chain[t] = true
+		if seen[t] {
+			return nil
+		}
+		seen[t] = true
+		return checkFieldTypes(t.Elem(), seen, chain)
+	case reflect.Struct:
+	default:
+		return nil
+	}
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	for field := range t.Fields() {
+		_, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if slices.Contains(strings.Split(opts, ","), "string") {
+			return fmt.Errorf(
+				"field %s.%s: the json \",string\" option is not supported",
+				t,
+				field.Name,
+			)
+		}
+		err := checkFieldTypes(field.Type, seen, map[reflect.Type]bool{})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compileSchema compiles a generated schema. Generated schemas are

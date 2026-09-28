@@ -244,7 +244,7 @@ func TestRunnerStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	for event, err := range (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{local},
+		Tools:    tool.List{local},
 		Recorder: recorder,
 		Policy:   AllowLocalPolicy{},
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {

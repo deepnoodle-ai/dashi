@@ -122,10 +122,11 @@ history and execution IDs remain unchanged; unsafe private replay edits fail.
 ## Tools, outcomes, and errors
 
 Tool definitions use raw JSON Schema. `tool.Func` generates and validates a
-schema before executing the callback. A tool's Go error is a failure the model
-sees; wrap it with `tool.Fatal` to stop the turn instead. Only a panic or a
-lost result makes a call uncertain. Deltas are provisional: inspect the final
-result and stop kind before acting on tool calls.
+schema before executing the callback; see [tools](tools.md) for its rules. A
+tool's Go error is a failure the model sees; wrap it with `tool.Fatal` to stop
+the turn instead. Only a panic or a lost result makes a call uncertain. Deltas
+are provisional: inspect the final result and stop kind before acting on tool
+calls.
 
 ## Usage and cost
 

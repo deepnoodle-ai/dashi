@@ -366,7 +366,7 @@ func toolRunner(
 ) Runner {
 	return Runner{
 		Client:   client,
-		Tools:    fixedTools{localTool("remote", executor)},
+		Tools:    tool.List{localTool("remote", executor)},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}

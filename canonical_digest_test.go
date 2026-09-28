@@ -271,7 +271,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	runner := Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   deferredPolicy{},
 	}
@@ -393,7 +393,7 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	runner := Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}

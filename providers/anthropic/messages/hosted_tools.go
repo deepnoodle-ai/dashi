@@ -39,9 +39,8 @@ type UserLocation struct {
 }
 
 // WebSearchToolOptions retains Dive's domain, location, and usage controls.
-// Provider defaults to the public Anthropic destination.
 type WebSearchToolOptions struct {
-	// Provider identifies the configured Messages destination.
+	// Provider names the configured destination; empty means "anthropic".
 	Provider string
 	// Type selects the wire tool version; empty selects WebSearchType.
 	Type string
@@ -56,143 +55,137 @@ type WebSearchToolOptions struct {
 	UserLocation *UserLocation
 }
 
-// NewWebSearchTool returns a server-executed definition with no local schema.
-// The destination validates the wire options again during preparation.
-func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
-	if opts.Provider == "" {
-		opts.Provider = "anthropic"
+// NewWebSearchTool declares Anthropic's server-side web search.
+func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
+	if options.Type == "" {
+		options.Type = WebSearchType
 	}
-	if opts.Type == "" {
-		opts.Type = WebSearchType
-	}
-	if opts.Type != WebSearchType {
-		return tool.Definition{}, errors.New(
+	if options.Type != WebSearchType {
+		return tool.Tool{}, errors.New(
 			"messages: unsupported web search tool version",
 		)
 	}
-	if opts.MaxUses < 0 ||
-		(len(opts.AllowedDomains) > 0 && len(opts.BlockedDomains) > 0) {
-		return tool.Definition{}, errors.New(
+	if options.MaxUses < 0 ||
+		(len(options.AllowedDomains) > 0 && len(options.BlockedDomains) > 0) {
+		return tool.Tool{}, errors.New(
 			"messages: invalid web search limits or domains",
 		)
 	}
-	options := webSearchOptions{
-		MaxUses:        opts.MaxUses,
-		AllowedDomains: slices.Clone(opts.AllowedDomains),
-		BlockedDomains: slices.Clone(opts.BlockedDomains),
-		UserLocation:   opts.UserLocation,
+	wire := webSearchOptions{
+		MaxUses:        options.MaxUses,
+		AllowedDomains: slices.Clone(options.AllowedDomains),
+		BlockedDomains: slices.Clone(options.BlockedDomains),
+		UserLocation:   options.UserLocation,
 	}
-	if options.UserLocation != nil {
-		location := *options.UserLocation
+	if wire.UserLocation != nil {
+		location := *wire.UserLocation
 		if location.Type == "" {
 			location.Type = "approximate"
 		}
 		if location.Type != "approximate" {
-			return tool.Definition{}, errors.New(
+			return tool.Tool{}, errors.New(
 				"messages: web search location must be approximate",
 			)
 		}
-		options.UserLocation = &location
+		wire.UserLocation = &location
 	}
-	raw, err := json.Marshal(options)
+	raw, err := json.Marshal(wire)
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name:        "web_search",
-		Kind:        tool.KindProviderHosted,
-		Annotations: tool.Annotations{ReadOnly: new(true)},
-		Hosted: &tool.HostedSpec{
-			Provider: opts.Provider,
-			API:      API,
-			Type:     opts.Type,
-			Options:  raw,
-		},
-	}, nil
+	return newHosted("web_search", options.Provider, options.Type, raw), nil
 }
 
-// NewCodeExecutionTool declares Anthropic's provider-executed sandbox. It
-// never exposes an application executor.
-func NewCodeExecutionTool(provider string) tool.Definition {
-	if provider == "" {
-		provider = "anthropic"
-	}
-	return tool.Definition{
-		Name: "code_execution",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
-			Provider: provider,
-			API:      API,
-			Type:     CodeExecutionType,
-		},
-	}
+// CodeExecutionToolOptions binds Anthropic's code execution sandbox to a
+// destination.
+type CodeExecutionToolOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	Provider string
 }
 
-// NewWebFetchTool declares Anthropic's server-side page fetch tool. maxUses
-// limits fetches in one request; zero leaves the cap to the provider and sends
-// no max_uses.
-func NewWebFetchTool(provider string, maxUses int) (tool.Definition, error) {
-	if maxUses < 0 {
-		return tool.Definition{}, errors.New(
+// NewCodeExecutionTool declares Anthropic's provider-executed sandbox with
+// bash and file editing.
+func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
+	return newHosted(
+		"code_execution",
+		options.Provider,
+		CodeExecutionType,
+		nil,
+	)
+}
+
+// WebFetchToolOptions configures Anthropic's server-side page fetch tool.
+type WebFetchToolOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	Provider string
+	// MaxUses caps fetches in one request; zero leaves the cap to the
+	// provider and sends no max_uses. It cannot be negative.
+	MaxUses int
+}
+
+// NewWebFetchTool declares Anthropic's server-side page fetch tool.
+func NewWebFetchTool(options WebFetchToolOptions) (tool.Tool, error) {
+	if options.MaxUses < 0 {
+		return tool.Tool{}, errors.New(
 			"messages: web fetch max uses cannot be negative",
 		)
 	}
-	if provider == "" {
-		provider = "anthropic"
-	}
-	options, err := json.Marshal(struct {
+	raw, err := json.Marshal(struct {
 		MaxUses int `json:"max_uses,omitempty"`
-	}{MaxUses: maxUses})
+	}{MaxUses: options.MaxUses})
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name:        "web_fetch",
-		Kind:        tool.KindProviderHosted,
-		Annotations: tool.Annotations{ReadOnly: new(true)},
-		Hosted: &tool.HostedSpec{
-			Provider: provider,
-			API:      API,
-			Type:     WebFetchType,
-			Options:  options,
-		},
-	}, nil
+	return newHosted("web_fetch", options.Provider, WebFetchType, raw), nil
 }
 
-// MCPToolsetOptions describes an unauthenticated remote MCP server. Tokens
-// are excluded because tool definitions are stored in request snapshots.
-type MCPToolsetOptions struct {
+// MCPToolOptions describes an unauthenticated remote MCP server. Tokens are
+// excluded because tool definitions are stored in request snapshots.
+type MCPToolOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	// It is not sent to the server.
+	Provider string `json:"-"`
 	// Name is the label used by toolset and server declarations.
 	Name string `json:"name"`
 	// URL is the public HTTPS endpoint without query or embedded credentials.
 	URL string `json:"url"`
 }
 
-// NewMCPToolset declares an unauthenticated server-side MCP connector.
-func NewMCPToolset(
-	provider string,
-	options MCPToolsetOptions,
-) (tool.Definition, error) {
-	if err := validateMCPToolset(options); err != nil {
-		return tool.Definition{}, err
-	}
-	if provider == "" {
-		provider = "anthropic"
+// NewMCPTool declares an unauthenticated server-side MCP connector. It is sent
+// as Anthropic's mcp_toolset, which exposes the server's tools to the model.
+func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
+	if err := validateMCPTool(options); err != nil {
+		return tool.Tool{}, err
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name: "mcp:" + options.Name,
+	name := "mcp:" + options.Name
+	return newHosted(name, options.Provider, MCPToolsetType, raw), nil
+}
+
+func newHosted(
+	name, provider, toolType string,
+	options json.RawMessage,
+) tool.Tool {
+	if provider == "" {
+		provider = "anthropic"
+	}
+	d := tool.Definition{
+		Name: name,
 		Kind: tool.KindProviderHosted,
 		Hosted: &tool.HostedSpec{
 			Provider: provider,
 			API:      API,
-			Type:     MCPToolsetType,
-			Options:  raw,
+			Type:     toolType,
+			Options:  options,
 		},
-	}, nil
+	}
+	if toolType == WebSearchType || toolType == WebFetchType {
+		d.Annotations.ReadOnly = new(true)
+	}
+	return tool.Tool{Definition: d}
 }
 
 type webSearchOptions struct {
@@ -274,11 +267,11 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 			config["max_uses"] = options.MaxUses
 		}
 	case MCPToolsetType:
-		var options MCPToolsetOptions
+		var options MCPToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, wire.unsupported("mcp toolset options: %w", err)
 		}
-		if err := validateMCPToolset(options); err != nil {
+		if err := validateMCPTool(options); err != nil {
 			return nil, wire.unsupported("mcp toolset options: %w", err)
 		}
 		if d.Name != "mcp:"+options.Name {
@@ -292,7 +285,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 	return config, nil
 }
 
-func validateMCPToolset(options MCPToolsetOptions) error {
+func validateMCPTool(options MCPToolOptions) error {
 	if options.Name == "" {
 		return errors.New("messages: mcp toolset requires a server name")
 	}

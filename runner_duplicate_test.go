@@ -19,7 +19,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 			Kind:   tool.KindExternal,
 		},
 	}
-	first, err := start(t, client, fixedTools{external}, rec, AllowLocalPolicy{})
+	first, err := start(t, client, tool.List{external}, rec, AllowLocalPolicy{})
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
@@ -30,7 +30,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	accepted, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -44,7 +44,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	completed, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})

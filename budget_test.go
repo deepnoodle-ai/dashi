@@ -362,7 +362,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	runner := Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{lookup},
+		Tools:    tool.List{lookup},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}
@@ -503,7 +503,7 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 		client,
 		&Budget{MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"}},
 		llm.Settings{MaxTokens: 100},
-		fixedTools{lookup},
+		tool.List{lookup},
 		nil,
 	)
 	view, err := Replay(out.Turn)
@@ -539,7 +539,7 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 	runner := Runner{
 		Agent:  def,
 		Client: client,
-		Tools:  fixedTools{lookup},
+		Tools:  tool.List{lookup},
 		Policy: AllowLocalPolicy{},
 	}
 	out, err := runner.Run(
@@ -829,7 +829,7 @@ func TestBudgetTotalTokensStopsBetweenCalls(t *testing.T) {
 		client,
 		&Budget{MaxTotalTokens: 60},
 		llm.Settings{MaxTokens: 100},
-		fixedTools{lookup},
+		tool.List{lookup},
 		nil,
 	)
 	limit := requireBudgetLimit(t, out, LimitTotalTokens)
@@ -855,7 +855,7 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 		client,
 		&Budget{MaxTotalTokens: math.MaxInt},
 		llm.Settings{MaxTokens: 100},
-		fixedTools{budgetLookup(nil)},
+		tool.List{budgetLookup(nil)},
 		nil,
 	)
 	if out.Persistence != PersistenceRejected {

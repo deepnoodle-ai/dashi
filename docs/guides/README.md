@@ -8,6 +8,8 @@ Task-oriented guides for building with Dashi.
   media and speech client status.
 - [Model calls](model-calls.md): preparing, sending, and streaming one model
   call, with validation, replay, tools, and cost.
+- [Tools](tools.md): defining typed tools, returning outcomes, and adding
+  provider-hosted tools.
 - [Running turns](running-turns.md): running an agent turn, recovering effects,
   structured output, turn streaming, and serving live updates.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit

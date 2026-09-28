@@ -179,7 +179,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			return tool.Outcome{}, tool.Fatal(errors.New("unexpected multiplication arguments"))
 		}
 		runs++
-		return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("56"))}, nil
+		return tool.Succeeded("56"), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 	out, err := (dashi.Runner{
 		Agent:    def,
 		Client:   counted,
-		Tools:    toolset{typed},
+		Tools:    tool.List{typed},
 		Recorder: dashi.NewMemoryRecorder(),
 		Policy:   dashi.AllowLocalPolicy{},
 	}).Run(
@@ -391,7 +391,7 @@ func AgentTurn(
 					return tool.Outcome{}, tool.Fatal(errors.New(provider + " supplied unexpected tool arguments"))
 				}
 				runs++
-				return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput(strconv.Itoa(args.A * args.B)))}, nil
+				return tool.Succeeded(strconv.Itoa(args.A * args.B)), nil
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -407,7 +407,7 @@ func AgentTurn(
 			runner := dashi.Runner{
 				Agent:    agent,
 				Client:   counted,
-				Tools:    toolset{typed},
+				Tools:    tool.List{typed},
 				Recorder: recorder,
 				Policy:   dashi.AllowLocalPolicy{},
 			}
@@ -497,12 +497,6 @@ func AgentTurn(
 			)
 		},
 	)
-}
-
-type toolset []tool.Tool
-
-func (s toolset) Tools(context.Context) ([]tool.Tool, error) {
-	return []tool.Tool(s), nil
 }
 
 type countingClient struct {

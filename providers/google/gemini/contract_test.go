@@ -27,46 +27,46 @@ func TestReminderPreparedWireAndEvidence(t *testing.T) {
 func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string
-		makeTool func() (tool.Definition, error)
+		makeTool func() (tool.Tool, error)
 		readOnly bool
 	}{
 		{
 			name: "search",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewGoogleSearchTool(""), nil
+			makeTool: func() (tool.Tool, error) {
+				return gemini.NewGoogleSearchTool(gemini.GoogleSearchToolOptions{}), nil
 			},
 			readOnly: true,
 		},
 		{
 			name: "URL context",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewURLContextTool(""), nil
+			makeTool: func() (tool.Tool, error) {
+				return gemini.NewURLContextTool(gemini.URLContextToolOptions{}), nil
 			},
 			readOnly: true,
 		},
 		{
 			name: "file search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return gemini.NewFileSearchTool(
-					"",
-					gemini.FileSearchOptions{StoreNames: []string{"store"}},
+					gemini.FileSearchToolOptions{StoreNames: []string{"store"}},
 				)
 			},
 			readOnly: true,
 		},
 		{
 			name: "code execution",
-			makeTool: func() (tool.Definition, error) {
-				return gemini.NewCodeExecutionTool(""), nil
+			makeTool: func() (tool.Tool, error) {
+				return gemini.NewCodeExecutionTool(gemini.CodeExecutionToolOptions{}), nil
 			},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			definition, err := tc.makeTool()
+			hosted, err := tc.makeTool()
 			if err != nil {
 				t.Fatal(err)
 			}
+			definition := hosted.Definition
 			got := definition.Annotations.ReadOnly != nil &&
 				*definition.Annotations.ReadOnly
 			if got != tc.readOnly {
