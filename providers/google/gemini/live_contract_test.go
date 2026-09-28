@@ -93,3 +93,9 @@ func TestLiveSteerAfterToolBatch(t *testing.T) {
 	client, modelName := liveAgentClient(t)
 	providertest.SteerAfterToolBatch(t, client, modelName)
 }
+
+// Two paid calls.
+func TestLiveUrgentSteerCutsStream(t *testing.T) {
+	client, modelName := liveAgentClient(t)
+	providertest.UrgentSteerCutsStream(t, client, modelName)
+}

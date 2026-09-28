@@ -588,3 +588,74 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	}
 	t.Logf("model=%s answer=%q", modelName, out.Answer)
 }
+
+// UrgentSteerCutsStream makes two paid calls. An urgent steer sent once a
+// long streamed answer has begun must cut that call short, and the provider
+// must accept the next request: the partial answer, the interruption
+// reminder, and the steer.
+func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	inbox := dashi.NewInbox()
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
+			Provider: client.Provider(),
+			API:      client.API(),
+			Model:    modelName,
+			Settings: llm.Settings{MaxTokens: 2048},
+			Limits:   dashi.Limits{ModelAttempts: 3},
+		},
+		Client: client,
+	}
+	var streamed strings.Builder
+	sent := false
+	var out dashi.Outcome
+	for event, err := range runner.Stream(
+		ctx,
+		dashi.Turn{},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Write a 600-word essay on the history of bridges.",
+		))}},
+		dashi.WithSteering(inbox),
+	) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+		if event.Outcome != nil {
+			out = *event.Outcome
+		}
+		if event.Delta == nil || event.Delta.Kind != llm.DeltaText || sent {
+			continue
+		}
+		streamed.WriteString(event.Delta.Text)
+		if streamed.Len() >= 80 {
+			sent = true
+			if _, err := inbox.SendUrgent(
+				"Stop the essay. Reply with only the word PINEAPPLE.",
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var cut *dashi.ModelFact
+	for _, step := range out.Turn.Steps {
+		if step.Kind == dashi.StepModelSettled &&
+			step.Model.Interrupted == dashi.InterruptSteering {
+			cut = step.Model
+		}
+	}
+	if cut == nil || cut.Result == nil || cut.Result.Message.Text() == "" {
+		t.Fatalf("no call was cut short with a partial: %+v", cut)
+	}
+	if out.Stop.Kind != dashi.StopCompleted ||
+		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	}
+	t.Logf(
+		"model=%s partial=%d chars answer=%q",
+		modelName,
+		len(cut.Result.Message.Text()),
+		out.Answer,
+	)
+}
