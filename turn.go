@@ -129,7 +129,9 @@ type ContextItem struct {
 	Message llm.Message   `json:"message"`
 	// Snapshot replaces an earlier item with the same name.
 	Snapshot bool `json:"snapshot,omitempty"`
-	// NextCallOnly omits this item from later model calls.
+	// NextCallOnly keeps this item until a model call that follows it is
+	// dispatched, then omits it; a request stopped before dispatch does not
+	// count.
 	NextCallOnly bool `json:"next_call_only,omitempty"`
 }
 

@@ -150,6 +150,11 @@ type replayState struct {
 	// contextIDs maps each recorded context item ID to its item, so a
 	// repeated delivery is recognized.
 	contextIDs map[string]ContextItem
+	// liveSeq holds the step that recorded each live item, and intentSeq
+	// the step that recorded each model request, so a NextCallOnly item
+	// expires only after a later dispatched call.
+	liveSeq   map[string]int64
+	intentSeq map[string]int64
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -1343,7 +1348,7 @@ func validateModelAccounting(fact *ModelFact) error {
 
 // trackContext keeps the named items the next model call would see: the
 // latest item per origin and name, less NextCallOnly items once a model call
-// has been requested after them.
+// that was dispatched follows them, as Project does.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
 	case StepDelivered, StepLoopContinued, StepToolSettled:
@@ -1356,12 +1361,24 @@ func (s *replayState) trackContext(step Step) {
 			}
 			if s.live == nil {
 				s.live = map[string]ContextItem{}
+				s.liveSeq = map[string]int64{}
 			}
-			s.live[contextKey(item)] = cloneContextItem(item)
+			key := contextKey(item)
+			s.live[key] = cloneContextItem(item)
+			s.liveSeq[key] = step.Seq
 		}
 	case StepModelIntent:
+		if s.intentSeq == nil {
+			s.intentSeq = map[string]int64{}
+		}
+		s.intentSeq[step.Model.AttemptID] = step.Seq
+	case StepModelSettled, StepModelReconciled:
+		if !modelDispatched(step.Model) {
+			return
+		}
+		intent := s.intentSeq[step.Model.AttemptID]
 		for key, item := range s.live {
-			if item.NextCallOnly {
+			if item.NextCallOnly && s.liveSeq[key] < intent {
 				delete(s.live, key)
 			}
 		}

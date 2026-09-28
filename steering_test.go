@@ -492,49 +492,109 @@ func (p pauseOnIntent) Commit(ctx context.Context, req CommitRequest) error {
 // TestRecordedSteerReachesNextTurnThroughHistory records a steer and then
 // pauses before its model call is dispatched. The host gives the turn up:
 // Leftovers returns nothing, because the steer is in the turn's record, and
-// the steer reaches the next turn exactly once through Project.
+// the steer reaches the next turn exactly once through Project. A
+// NextCallOnly steer does too: a call that was never dispatched does not
+// expire it, in Project or in the replayed view.
 func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
+	for _, nextCallOnly := range []bool{false, true} {
+		name := "plain"
+		if nextCallOnly {
+			name = "next call only"
+		}
+		t.Run(name, func(t *testing.T) {
+			inbox := NewInbox()
+			if _, err := inbox.Send(Steer{Item: ContextItem{
+				Name:         "correction",
+				Message:      llm.UserMessage(llm.Text("use the staging database")),
+				NextCallOnly: nextCallOnly,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			pause := make(chan struct{})
+			client := &scriptedClient{results: []llm.Result{final("done")}}
+			runner := Runner{
+				Agent:    testAgent(),
+				Client:   client,
+				Recorder: pauseOnIntent{NewMemoryRecorder(), pause},
+			}
+			out, err := runner.Run(
+				t.Context(), Turn{ID: "t1"}, startInput(),
+				WithSteering(inbox), WithPause(pause),
+			)
+			if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 0 {
+				t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+			}
+			if len(stepsOf(out.Turn, StepModelIntent)) != 1 {
+				t.Fatal("the model request was not recorded")
+			}
+			if _, ok := out.Context(ContextUser, "correction"); !ok {
+				t.Fatal("the replayed view expired a steer no call saw")
+			}
+			left, err := inbox.Leftovers(out.Turn)
+			if err != nil || len(left) != 0 {
+				t.Fatalf("leftovers = %+v err=%v", left, err)
+			}
+			history, err := Project(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner.Recorder = nil
+			next, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("go on"))},
+				History:   history,
+			}, WithSteering(inbox))
+			if err != nil || next.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", next.Stop, err)
+			}
+			count := 0
+			for _, m := range client.inputs[0].Messages {
+				if strings.Contains(m.Text(), "staging") {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatalf("the steer appears %d times in the next request", count)
+			}
+		})
+	}
+}
+
+// TestNextCallOnlyExpiresAfterDispatchedCall checks the other side: once a
+// dispatched call follows a NextCallOnly item, later calls and the replayed
+// view no longer carry it.
+func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
 	inbox := NewInbox()
-	mustSend(t, inbox, "use the staging database")
-	pause := make(chan struct{})
-	client := &scriptedClient{results: []llm.Result{final("done")}}
-	runner := Runner{
-		Agent:    testAgent(),
-		Client:   client,
-		Recorder: pauseOnIntent{NewMemoryRecorder(), pause},
-	}
-	out, err := runner.Run(
-		t.Context(), Turn{ID: "t1"}, startInput(),
-		WithSteering(inbox), WithPause(pause),
-	)
-	if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 0 {
-		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
-	}
-	left, err := inbox.Leftovers(out.Turn)
-	if err != nil || len(left) != 0 {
-		t.Fatalf("leftovers = %+v err=%v", left, err)
-	}
-	history, err := Project(out.Turn)
-	if err != nil {
+	if _, err := inbox.Send(Steer{Item: ContextItem{
+		Name:         "hint",
+		Message:      llm.UserMessage(llm.Text("once only")),
+		NextCallOnly: true,
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	runner.Recorder = nil
-	next, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
-		CommandID: "start",
-		Input:     []llm.Message{llm.UserMessage(llm.Text("go on"))},
-		History:   history,
-	}, WithSteering(inbox))
-	if err != nil || next.Stop.Kind != StopCompleted {
-		t.Fatalf("stop=%+v err=%v", next.Stop, err)
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "lookup"), final("done")}}
+	lookup := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: json.RawMessage(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
+		}),
 	}
-	count := 0
-	for _, m := range client.inputs[0].Messages {
-		if strings.Contains(m.Text(), "staging") {
-			count++
-		}
+	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if count != 1 {
-		t.Fatalf("the steer appears %d times in the next request", count)
+	if hasText(client.inputs[0].Messages, "once only") < 0 ||
+		hasText(client.inputs[1].Messages, "once only") >= 0 {
+		t.Fatal("the one-call steer should reach only the first call")
+	}
+	if _, ok := out.Context(ContextUser, "hint"); ok {
+		t.Fatal("the replayed view kept an expired item")
 	}
 }
 
