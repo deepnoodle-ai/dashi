@@ -199,8 +199,9 @@ should pick up ready turns with no active worker.
 A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
 **waiting on the host** (approvals, results, a budget raise), or **ended**
 (`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
-completed, canceled, or limited by its deadline, its interruptions, its model
-attempts, or a cost cap that can no longer be checked. After that, only
+completed, canceled, limited by its deadline or its interruptions, any limit
+reached after its last model attempt, or a cost cap that can no longer be
+checked. Raising a budget does not revive such a turn. After that, only
 `Settle` reporting the result of work that had already started is accepted;
 every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
 as not executed, so no approval stays pending on an ended turn.
@@ -238,9 +239,9 @@ streaming, yields acknowledged steps and provisional deltas in order, then one
 final `Outcome`. Breaking the range interrupts the turn by default; reload
 its record and call `Continue` when ready. Set
 `Runner.OnContextDone: ContextCancel` when a disconnect should instead end
-the turn as canceled. The iterator is backpressured and never drops
-an event; `Runner.Observer` is the separate, never-blocking hook. Ranging the same turn sequence again
-returns `dashi.ErrStreamConsumed`.
+the turn as canceled. The iterator is backpressured and never drops an
+event; `Runner.Observer` is the separate, never-blocking hook. Ranging the
+same turn sequence again returns `dashi.ErrStreamConsumed`.
 
 ## Tool progress
 
@@ -309,23 +310,28 @@ goroutine and must return promptly.
   holds its goroutine and a copy of every step it has not received until it
   returns.
 - **Previews may be dropped.** Deltas and tool progress wait in a queue of 64
-  previews. Progress goes first; a dropped delta is reported by one event with
-  `Gap` set. On a gap, discard in-flight previews for `Event.TurnID` and wait
-  for the step that settles them (the `model_settled` step carries the whole
-  message). A gap with no step after it means the run ended early; load the
-  turn.
+  previews. Progress is dropped first; dropped deltas are reported by one
+  event with `Gap` set, naming the message in `MessageID`. That message's
+  preview now has a hole: discard it and ignore its later deltas until its
+  `model_settled` step arrives with the whole message. A gap with no such step
+  after it means the run ended early; load the turn.
 - **Delivery runs behind the call.** `Run` can return before the Observer has
   every event, and a `Continue` issued before the previous call's events
   drain may deliver concurrently with them. Order steps by `Seq`.
 
 ```go
+holed := map[string]bool{} // messages that lost deltas; one Observer call at a time
 runner.Observer = func(e dashi.Event) {
 	switch {
 	case e.Gap:
-		ui.DiscardPreviews(e.TurnID)
+		holed[e.MessageID] = true
+		ui.DiscardPreview(e.MessageID) // or show a placeholder
 	case e.Step != nil:
+		if e.Step.Model != nil {
+			delete(holed, e.MessageID)
+		}
 		ui.ApplyStep(*e.Step) // supersedes previews for its message or call
-	case e.Delta != nil:
+	case e.Delta != nil && !holed[e.MessageID]:
 		ui.Preview(e.MessageID, *e.Delta) // filter e.Delta.Kind to hide reasoning
 	case e.Progress != nil:
 		ui.Progress(*e.Progress)

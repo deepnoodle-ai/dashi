@@ -51,7 +51,12 @@ func parkedEmitter(t *testing.T) (*emitter, func() []Event) {
 }
 
 func delta(i int) Event {
-	return Event{TurnID: "t1", Delta: &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))}}
+	return Event{
+		TurnID:    "t1",
+		AttemptID: "t1:model:1",
+		MessageID: "t1:model:1:message",
+		Delta:     &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))},
+	}
 }
 
 func stepEvent(seq int64) Event {
@@ -128,6 +133,72 @@ func TestObserverGapFollowsQueuedPreviews(t *testing.T) {
 	want = append(want, "g", "s1", "g")
 	if !slices.Equal(got, want) {
 		t.Fatalf("events=%v\nwant %v", got, want)
+	}
+}
+
+// The gap names the message that lost deltas. Progress refused by a full
+// queue neither flushes nor adds a gap.
+func TestObserverGapNamesMessage(t *testing.T) {
+	e, drain := parkedEmitter(t)
+	for i := range observerQueue + 1 {
+		e.send(delta(i))
+	}
+	e.sendProgress(Event{TurnID: "t1", Progress: &ToolProgress{CallID: "c"}})
+	events := drain()
+	got := kinds(events)
+	want := append(slices.Repeat([]string{"d"}, observerQueue), "g")
+	if !slices.Equal(got, want) {
+		t.Fatalf("events=%v\nwant %v", got, want)
+	}
+	gap := events[observerQueue]
+	if gap.TurnID != "t1" || gap.AttemptID != "t1:model:1" ||
+		gap.MessageID != "t1:model:1:message" || gap.Delta != nil {
+		t.Fatalf("gap=%+v", gap)
+	}
+}
+
+// Progress can be queued once the queue drains below half, and a pending
+// gap still precedes it.
+func TestObserverGapPrecedesLaterProgress(t *testing.T) {
+	e := &emitter{}
+	e.ready = sync.NewCond(&e.mu)
+	for i := range observerQueue + 1 {
+		e.send(delta(i))
+	}
+	for range observerQueue {
+		if _, ok := e.next(); !ok {
+			t.Fatal("queue closed early")
+		}
+	}
+	e.sendProgress(Event{TurnID: "t1", Progress: &ToolProgress{CallID: "c"}})
+	gap, _ := e.next()
+	progress, _ := e.next()
+	if !gap.Gap || progress.Progress == nil {
+		t.Fatalf("gap=%+v progress=%+v", gap, progress)
+	}
+}
+
+// An Observer that panics keeps receiving later events.
+func TestPanickingObserverKeepsReceiving(t *testing.T) {
+	got := make(chan int64, 3)
+	e := newEmitter(func(event Event) {
+		got <- event.Step.Seq
+		if event.Step.Seq == 1 {
+			panic("observer bug")
+		}
+	})
+	e.send(stepEvent(1))
+	e.send(stepEvent(2))
+	e.close()
+	for want := int64(1); want <= 2; want++ {
+		select {
+		case seq := <-got:
+			if seq != want {
+				t.Fatalf("seq=%d, want %d", seq, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("observer stopped after a panic at seq %d", want-1)
+		}
 	}
 }
 

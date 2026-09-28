@@ -18,12 +18,13 @@ type Event struct {
 	// is a preview, like Delta: never recorded and never replayed.
 	Progress *ToolProgress
 	// Gap marks model deltas the Observer dropped because it fell behind.
-	// Previews received before the gap are incomplete: discard in-flight
-	// previews for the turn and wait for the step that settles them. A gap
-	// with no step after it means the run ended early, as after a failed
-	// commit; load the turn from the recorder. Dropped tool progress makes
-	// no gap, since each snapshot replaces the last. Runner.Stream never
-	// drops, so it never yields a gap.
+	// AttemptID and MessageID name the message that lost them. Its preview
+	// now has a hole: discard it, and ignore further deltas for that
+	// MessageID until the step that settles it (model_settled) arrives. A
+	// gap with no such step after it means the run ended early, as after a
+	// failed commit; load the turn from the recorder. Dropped tool progress
+	// makes no gap, since each snapshot replaces the last. Runner.Stream
+	// never drops, so it never yields a gap.
 	Gap bool
 	// Outcome is set only on the final Runner.Stream event. Observer receives
 	// steps, deltas, progress, and gaps, not this terminal event.
@@ -58,15 +59,21 @@ const observerQueue = 64
 // progress is queued only while fewer than half the slots hold previews,
 // and a delta arriving at a full queue evicts the oldest queued progress,
 // or else is dropped. A dropped delta makes the next event enqueued, or
-// close, first enqueue one gap marker.
+// close, first enqueue one gap marker naming the delta's message.
+//
+// Eviction scans the queue, but only while progress is queued, and no new
+// progress enters a full queue, so a backlog of steps is scanned at most
+// once per evicted snapshot.
 type emitter struct {
-	mu       sync.Mutex
-	ready    *sync.Cond
-	queue    []Event
+	mu    sync.Mutex
+	ready *sync.Cond
+	queue []Event
+	// previews counts queued deltas and progress; progress counts the
+	// progress among them, so a full queue with none skips the scan.
 	previews int
-	// gap records dropped deltas not yet reported; gapFor is their turn.
-	gap    bool
-	gapFor string
+	progress int
+	// gap is the marker for dropped deltas not yet enqueued, or nil.
+	gap    *Event
 	closed bool
 }
 
@@ -106,14 +113,18 @@ func (e *emitter) send(event Event) {
 		return
 	}
 	if event.Step == nil && e.previews >= observerQueue {
-		i := e.oldestProgress()
-		if i < 0 {
-			e.gap = true
-			e.gapFor = event.TurnID
+		if e.progress == 0 {
+			if e.gap == nil {
+				e.gap = &Event{
+					TurnID:    event.TurnID,
+					AttemptID: event.AttemptID,
+					MessageID: event.MessageID,
+					Gap:       true,
+				}
+			}
 			return
 		}
-		e.queue = append(e.queue[:i], e.queue[i+1:]...)
-		e.previews--
+		e.remove(e.oldestProgress())
 	}
 	e.enqueue(event)
 }
@@ -136,19 +147,35 @@ func (e *emitter) sendProgress(event Event) {
 func (e *emitter) enqueue(event Event) {
 	e.flushGap()
 	e.queue = append(e.queue, event)
-	if preview(event) {
-		e.previews++
-	}
+	e.count(event, 1)
 	e.ready.Signal()
+}
+
+// remove deletes the queued event at i. The caller holds mu.
+func (e *emitter) remove(i int) {
+	e.count(e.queue[i], -1)
+	copy(e.queue[i:], e.queue[i+1:])
+	e.queue[len(e.queue)-1] = Event{}
+	e.queue = e.queue[:len(e.queue)-1]
+}
+
+// count adjusts the preview counts by n for event. The caller holds mu.
+func (e *emitter) count(event Event, n int) {
+	if preview(event) {
+		e.previews += n
+	}
+	if event.Progress != nil {
+		e.progress += n
+	}
 }
 
 // flushGap enqueues the pending gap marker, if any. The caller holds mu.
 func (e *emitter) flushGap() {
-	if !e.gap {
+	if e.gap == nil {
 		return
 	}
-	e.queue = append(e.queue, Event{TurnID: e.gapFor, Gap: true})
-	e.gap, e.gapFor = false, ""
+	e.queue = append(e.queue, *e.gap)
+	e.gap = nil
 }
 
 // close reports any pending gap, then lets the observer goroutine deliver
@@ -175,11 +202,9 @@ func (e *emitter) next() (Event, bool) {
 		return Event{}, false
 	}
 	event := e.queue[0]
+	e.count(event, -1)
 	e.queue[0] = Event{}
 	e.queue = e.queue[1:]
-	if preview(event) {
-		e.previews--
-	}
 	return event, true
 }
 

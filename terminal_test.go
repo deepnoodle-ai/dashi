@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +116,13 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 	if err != nil || paused.Stop.Kind != StopInterrupted || paused.Stop.Terminal {
 		t.Fatalf("interrupted stop=%+v err=%v", paused.Stop, err)
 	}
+	raw, err = json.Marshal(paused.Turn.Steps[len(paused.Turn.Steps)-1].Stop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "terminal") {
+		t.Fatalf("non-terminal stop recorded %s", raw)
+	}
 }
 
 func TestReplayRejectsMisstatedTerminal(t *testing.T) {
@@ -122,12 +130,18 @@ func TestReplayRejectsMisstatedTerminal(t *testing.T) {
 		{Kind: StopCompleted},
 		{Kind: StopWaiting, Terminal: true},
 		{Kind: StopLimited, Reason: "deadline", Limit: &LimitDetail{Kind: LimitDeadline}},
+		{
+			Kind:     StopLimited,
+			Reason:   "cost",
+			Limit:    &LimitDetail{Kind: LimitCost, CostLimit: 100, Currency: "USD"},
+			Terminal: true,
+		},
 	} {
 		turn := interruptionRecord(
 			interruptionStart(testAgent()),
 			Step{Kind: StepStopped, Stop: stop},
 		)
-		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) || !strings.Contains(err.Error(), "terminal") {
 			t.Fatalf("replay of %+v: err=%v", stop, err)
 		}
 	}
@@ -284,6 +298,120 @@ func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
 	}
 	if len(out.Tools) != 0 || len(out.Pending) != 0 || out.ReadyToContinue {
 		t.Fatalf("tools=%+v pending=%+v", out.Tools, out.Pending)
+	}
+}
+
+func TestHostedApprovalAfterEndIsRefused(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, writeTool(), rec, deferredPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(t.Context(), canceled.Turn, Settle{
+		CommandID:      "hosted",
+		CallID:         "req-1",
+		HostedApproval: &llm.HostedApprovalResponse{RequestID: "req-1", Approve: true},
+	})
+	if !errors.Is(err, ErrTurnEnded) || err.Error() != "dashi: turn has ended: canceled" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// A started tool's late result is accepted after a deadline stop too.
+func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		panic("boom")
+	})
+	first, err := startTurn(testAgent(), toolRunner(client, NewMemoryRecorder(), panics))
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start=%+v err=%v", first.Stop, err)
+	}
+	turn := cloneTurn(first.Turn)
+	turn.Steps = append(turn.Steps, Step{
+		Version: 1,
+		TurnID:  turn.ID,
+		Seq:     int64(len(turn.Steps) + 1),
+		Kind:    StepStopped,
+		Stop:    testStop(StopLimited, LimitDeadline),
+	})
+	runner := toolRunner(client, nil, panics)
+	late, err := runner.Run(t.Context(), turn, Settle{
+		CommandID: "late",
+		CallID:    "call-1",
+		Outcome:   new(tool.Succeeded("done late")),
+	})
+	if err != nil || late.Tools["call-1"].Status != ToolSettled || !late.Stop.Terminal {
+		t.Fatalf("late=%+v err=%v", late.Stop, err)
+	}
+	_, err = runner.Run(t.Context(), late.Turn, Cancel{CommandID: "cancel"})
+	if err == nil || err.Error() != "dashi: turn has ended: limited (deadline)" {
+		t.Fatalf("cancel err=%v", err)
+	}
+}
+
+// A budget stop after the last model attempt is terminal end to end: no
+// raise can resume it, and replay agrees with the recorded flag.
+func TestBudgetStopAfterLastAttemptIsTerminal(t *testing.T) {
+	def := testAgent()
+	def.Limits.ModelAttempts = 1
+	call := callResult("call-1", "remote")
+	call.Usage = &llm.Usage{OutputTokens: 50}
+	client := &scriptedClient{results: []llm.Result{call}}
+	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		return tool.Succeeded("done"), nil
+	})
+	runner := toolRunner(client, NewMemoryRecorder(), ok)
+	runner.Agent = def
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		Budget:    &Budget{MaxOutputTokens: 10},
+	})
+	if err != nil || out.Stop.Kind != StopLimited ||
+		out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitOutputTokens {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if !out.Stop.Terminal {
+		t.Fatal("budget stop after the last attempt is not terminal")
+	}
+	if _, err := Replay(out.Turn); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID: "raise",
+		Budget:    &Budget{MaxOutputTokens: 1000},
+	})
+	if !errors.Is(err, ErrTurnEnded) {
+		t.Fatalf("raise err=%v", err)
+	}
+}
+
+// A late model result that would make a non-terminal limited stop terminal
+// is rejected: a turn ends only through a recorded stop. No runner path
+// reaches this today, so the check is exercised on the replay state that
+// model_settled and model_reconciled consult.
+func TestLateResultCannotEndTurnSilently(t *testing.T) {
+	s := &replayState{}
+	s.Agent.Limits.ModelAttempts = 2
+	s.Stop = Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitHost, Code: "plan"}}
+	s.ModelAttempts = 1
+	if err := s.checkStillOpen(); err != nil {
+		t.Fatalf("open stop: %v", err)
+	}
+	s.ModelAttempts = 2 // a late result used the last attempt
+	if err := s.checkStillOpen(); err == nil {
+		t.Fatal("a late result ended the turn without a stop")
+	}
+	s.Stop.Terminal = true
+	if err := s.checkStillOpen(); err != nil {
+		t.Fatalf("terminal stop: %v", err)
 	}
 }
 

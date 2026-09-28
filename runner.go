@@ -31,9 +31,9 @@ type Runner struct {
 	// and external tool is allowed; supply a policy to deny or defer calls.
 	Policy Policy
 	// Observer receives every committed step, plus provisional deltas and
-	// tool progress, which it may drop (see Observer). When it is set, Run requests streamed model output and
-	// delivers tool.Report snapshots so the Observer sees work as it happens;
-	// Stream always does.
+	// tool progress, which it may drop (see Observer). When it is set, Run
+	// requests streamed model output and delivers tool.Report snapshots so
+	// the Observer sees work as it happens; Stream always does.
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
@@ -808,33 +808,36 @@ func hasStartedTool(s *replayState) bool {
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	stop := &Stop{Kind: kind, Reason: reason}
 	if kind == StopLimited {
+		// A limit kind is recorded even when the counts are unavailable,
+		// since whether the stop ends the turn depends on it.
 		state, err := replay(r.turn)
-		if err == nil {
-			switch reason {
-			case "model_attempts":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitModelAttempts,
-					Limit: int64(r.agent.Limits.ModelAttempts),
-					Used:  int64(state.ModelAttempts),
-				}
-			case "interruptions":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitInterruptions,
-					Limit: int64(max(r.agent.Limits.Interruptions, 0)),
-					Used:  int64(state.Interruptions),
-				}
-			case "provider_pauses":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitProviderPauses,
-					Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
-					Used:  int64(state.ProviderPauses),
-				}
-			case "deadline":
-				stop.Limit = &LimitDetail{
-					Kind:  LimitDeadline,
-					Limit: r.agent.Limits.Deadline.Unix(),
-					Used:  time.Now().Unix(),
-				}
+		if err != nil {
+			state = &replayState{}
+		}
+		switch reason {
+		case "model_attempts":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitModelAttempts,
+				Limit: int64(r.agent.Limits.ModelAttempts),
+				Used:  int64(state.ModelAttempts),
+			}
+		case "interruptions":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitInterruptions,
+				Limit: int64(max(r.agent.Limits.Interruptions, 0)),
+				Used:  int64(state.Interruptions),
+			}
+		case "provider_pauses":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitProviderPauses,
+				Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
+				Used:  int64(state.ProviderPauses),
+			}
+		case "deadline":
+			stop.Limit = &LimitDetail{
+				Kind:  LimitDeadline,
+				Limit: r.agent.Limits.Deadline.Unix(),
+				Used:  time.Now().Unix(),
 			}
 		}
 	}

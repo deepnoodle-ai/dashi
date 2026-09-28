@@ -38,13 +38,14 @@ itself (see the handler below).
 gap.** The emitter keeps one ordered queue. Steps always enter it; only
 previews count against the 64-slot bound. A preview that does not fit, after
 evicting the oldest queued progress as today, is dropped and sets a flag. The
-next event *enqueued*, or `close`, first enqueues one `Event{TurnID, Gap:
-true}`; markers do not count against the bound, and consecutive drops make one
+next event *enqueued*, or `close`, first enqueues one `Event{TurnID,
+AttemptID, MessageID, Gap: true}` naming the message that lost deltas;
+markers do not count against the bound, and consecutive drops make one
 marker. Evicted progress sets no gap: each snapshot replaces the last and the
-settled step follows (tool-progress.md). Consumer rules: a gap followed by a
-step means discard in-flight previews, since the step settles them; a gap at
-the end with no step after it (only when a commit failed and the run ended)
-means load the turn. A step whose commit ended with unknown persistence is
+settled step follows (tool-progress.md). Consumer rules: after a gap, discard
+that message's preview and ignore its later deltas until its `model_settled`
+step arrives; a gap with no such step after it (only when a commit failed and
+the run ended) means load the turn. A step whose commit ended with unknown persistence is
 only in the record. `Stream` never drops, so it never yields a gap.
 
 *Order.* Events from one invocation arrive in order. Each `Run` or `Stream`
@@ -108,8 +109,10 @@ Not terminal: `waiting`, `interrupted`, `failed` (including reason
 `output_tokens`, `total_tokens`, `host`, or cost with an unpriced model or no
 raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
 any raise. Every input only grows (attempts, unknown cost) or is fixed at
-Start (agent limits, deadline), so a later command cannot make a recorded
-value untrue. Cost of a field over a method: if decision 25 later lets
+Start (agent limits, deadline), so a recorded `true` stays true. A recorded
+`false` stays accurate because a turn becomes non-continuable only through a
+recorded stop: only model results raise those counts, and replay rejects one
+that would make an open limited stop terminal. Cost of a field over a method: if decision 25 later lets
 `Continue` raise agent limits, old records carry a stale value; acceptable
 before release.
 
@@ -149,7 +152,7 @@ cursor belongs to the host (decision 19); no helper.
 ```go
 // observer.go (Event and Observer move here from policy.go, unchanged,
 // in their own commit). Event gains:
-Gap bool // previews were dropped here; discard in-flight previews
+Gap bool // MessageID lost deltas here; ignore it until its step
 
 // Stop, "a turn's terminal or resumable condition", gains:
 // Terminal means the turn is over: no command can run it again.

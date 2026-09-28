@@ -300,14 +300,13 @@ func (s *replayState) apply(step Step) error {
 		case step.Kind == StepStopped && step.Stop != nil &&
 			step.Stop.Kind == StopInterrupted:
 		case step.Kind == StepStopped && step.Stop != nil &&
-			step.Stop.Kind == StopLimited &&
-			(step.Stop.Reason == "deadline" ||
-				step.Stop.Reason == "interruptions" ||
-				step.Stop.Reason == "model_attempts" && s.finalAnswerOnly ||
-				step.Stop.Limit != nil &&
-					(step.Stop.Limit.Kind == LimitOutputTokens ||
-						step.Stop.Limit.Kind == LimitTotalTokens ||
-						step.Stop.Limit.Kind == LimitCost)):
+			step.Stop.Kind == StopLimited && step.Stop.Limit != nil &&
+			(step.Stop.Limit.Kind == LimitDeadline ||
+				step.Stop.Limit.Kind == LimitInterruptions ||
+				step.Stop.Limit.Kind == LimitModelAttempts && s.finalAnswerOnly ||
+				step.Stop.Limit.Kind == LimitOutputTokens ||
+				step.Stop.Limit.Kind == LimitTotalTokens ||
+				step.Stop.Limit.Kind == LimitCost):
 		default:
 			return errors.New("turn with recorded output can only complete")
 		}
@@ -570,6 +569,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Error == "" && !step.Model.Interrupted {
 			s.awaitingClassification = true
 		}
+		if err := s.checkStillOpen(); err != nil {
+			return err
+		}
 	case StepModelReconciled:
 		if step.Model == nil ||
 			step.Model.AttemptID != s.unresolvedModel ||
@@ -606,6 +608,9 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.unresolvedPartial = false
 		s.unresolvedInterrupted = false
+		if err := s.checkStillOpen(); err != nil {
+			return err
+		}
 	case StepToolDecision:
 		s.awaitingClassification = false
 		if step.Tool == nil {
@@ -892,7 +897,6 @@ func (s *replayState) apply(step Step) error {
 			}
 			clear(s.hosted)
 		}
-		s.Stop = *step.Stop
 	default:
 		return fmt.Errorf("unknown step kind %q", step.Kind)
 	}
@@ -1128,8 +1132,10 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 // terminal reports whether the current stop ends the turn for good: no
 // settlement or raise lets Continue run it again. It reads only the stop,
 // the agent's fixed limits, and counts that never shrink (model attempts
-// and unknown costs), so a recorded answer stays true. Cost stops read
-// Spend, which the caller must have calculated.
+// and unknown costs), so a recorded true stays true. A recorded false stays
+// accurate because only model results raise those counts, and replay
+// rejects one that would flip a limited stop (checkStillOpen). Cost stops
+// read Spend, which the caller must have calculated.
 func (s *replayState) terminal() bool {
 	switch s.Stop.Kind {
 	case StopCompleted, StopCanceled:
@@ -1172,7 +1178,28 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: turn %s", ErrTurnEnded, s.Stop.Kind)
+	if s.Stop.Reason != "" {
+		return fmt.Errorf("%w: %s (%s)", ErrTurnEnded, s.Stop.Kind, s.Stop.Reason)
+	}
+	return fmt.Errorf("%w: %s", ErrTurnEnded, s.Stop.Kind)
+}
+
+// checkStillOpen enforces that a turn becomes non-continuable only through
+// a recorded stop: a late model result after a limited stop that was not
+// terminal must not make it terminal, or the recorded Terminal would be
+// stale. The runner records uncertain before any budget stop while a model
+// call is unresolved, so no record it writes fails this.
+func (s *replayState) checkStillOpen() error {
+	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+		return nil
+	}
+	if err := s.calculateSpend(); err != nil {
+		return err
+	}
+	if s.terminal() {
+		return errors.New("late model result ended the turn without a stop")
+	}
+	return nil
 }
 
 func (s *replayState) interruptionLimitReached() bool {
