@@ -26,8 +26,10 @@
 // saw the turn, using an in-process index of recently used turns; Load reads
 // the whole log. The Recorder is also a dashi.StepReader, so dashi.Follow
 // can serve a turn to live readers, and a dashi.StepWaiter that wakes them
-// on this process's commits; commits from other processes reach them by
-// poll.
+// at once on this process's commits and within a quarter second of another
+// process's. Each read takes a shared lock on the log, which a commit waits
+// for, so many followers reading one turn add latency to its commits; a
+// dashboard with many readers serves them from its own fan-out instead.
 //
 // The package supports Linux, macOS, iOS, Android, FreeBSD, OpenBSD, and
 // NetBSD on local filesystems. Advisory locks on network filesystems are
@@ -115,9 +117,6 @@ var (
 	_ dashi.StepReader = (*Recorder)(nil)
 	_ dashi.StepWaiter = (*Recorder)(nil)
 )
-
-// defaultStepsLimit is the page size StepsAfter uses for a limit of zero.
-const defaultStepsLimit = 100
 
 // New returns a recorder for the turn logs in cfg.Dir, creating the
 // directory if needed.
@@ -367,9 +366,7 @@ func (r *Recorder) StepsAfter(
 	after int64,
 	limit int,
 ) ([]dashi.Step, error) {
-	if limit <= 0 {
-		limit = defaultStepsLimit
-	}
+	limit = max(limit, 1)
 	after = max(after, 0)
 	ahead := func(n int64) error {
 		return fmt.Errorf(
@@ -419,23 +416,61 @@ func (r *Recorder) StepsAfter(
 	return steps, nil
 }
 
-// Wait returns once the turn has a step after the cursor, when this process
-// commits to the turn, or when ctx ends. It does not see commits from other
-// processes; dashi.Follow polls for those.
+// waitCheck is how often Wait looks for commits from other processes.
+var waitCheck = 250 * time.Millisecond
+
+// Wait returns when the turn may have a step after the cursor: at once when
+// one exists, on this process's next commit to the turn, or within
+// waitCheck of another process's commit, which it notices by the log's size.
+// It returns ctx's error when ctx ends first. It reads the log only when
+// this process's index is behind it; a false wake costs one read.
 func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
-	woken := r.wakes.Watch(turnID)
-	steps, err := r.StepsAfter(ctx, turnID, after, 1)
-	if err != nil || len(steps) > 0 {
-		// A read error is for StepsAfter to report; return and let the
-		// caller read.
+	woken, done := r.wakes.Watch(turnID)
+	defer done()
+	size := r.logSize(turnID)
+	r.mu.Lock()
+	cached := r.index.get(turnID)
+	r.mu.Unlock()
+	if int64(len(cached.steps)) > after {
 		return nil
 	}
-	select {
-	case <-woken:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	if size != cached.size {
+		// The index is behind the log (a commit updates it only before
+		// appending), so read to learn whether a newer step exists. A read
+		// error is for the caller's next read to report.
+		steps, err := r.StepsAfter(ctx, turnID, after, 1)
+		if err != nil || len(steps) > 0 {
+			return nil
+		}
 	}
+	tick := time.NewTicker(waitCheck)
+	defer tick.Stop()
+	for {
+		select {
+		case <-woken:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+			if r.logSize(turnID) != size {
+				return nil
+			}
+		}
+	}
+}
+
+// logSize returns the size of the turn's log, or 0 when it has none. An
+// unreadable log reports -1, which differs from any size Wait compares it
+// to, so the caller reads and learns the error.
+func (r *Recorder) logSize(turnID string) int64 {
+	info, err := os.Stat(r.Path(turnID))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return 0
+	case err != nil:
+		return -1
+	}
+	return info.Size()
 }
 
 // scan updates the turn's cached index from its log. The caller holds the

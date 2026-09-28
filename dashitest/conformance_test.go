@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"math/big"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -59,6 +61,24 @@ var brokenStores = map[string]struct {
 	"skips-a-step": {
 		store: func() dashitest.Store {
 			return skipsStep{dashi.NewMemoryRecorder()}
+		},
+		failing: "ReadsAfterCursor",
+	},
+	"ignores-turn": {
+		store: func() dashitest.Store {
+			return &ignoresTurn{MemoryRecorder: dashi.NewMemoryRecorder()}
+		},
+		failing: "ReadsOneTurn",
+	},
+	"reorders": {
+		store: func() dashitest.Store {
+			return reorders{dashi.NewMemoryRecorder()}
+		},
+		failing: "ReadsAfterCursor",
+	},
+	"never-ahead": {
+		store: func() dashitest.Store {
+			return neverAhead{dashi.NewMemoryRecorder()}
 		},
 		failing: "ReadsAfterCursor",
 	},
@@ -236,6 +256,68 @@ func (s skipsStep) StepsAfter(
 	steps, err := s.MemoryRecorder.StepsAfter(ctx, turnID, after, limit)
 	if len(steps) > 1 {
 		steps = steps[1:]
+	}
+	return steps, err
+}
+
+// ignoresTurn reads whichever turn was committed last, as a cache keyed by
+// the wrong field would. It would serve one tenant's steps to another.
+type ignoresTurn struct {
+	*dashi.MemoryRecorder
+	mu   sync.Mutex
+	last string
+}
+
+func (s *ignoresTurn) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	s.mu.Lock()
+	s.last = req.Step.TurnID
+	s.mu.Unlock()
+	return s.MemoryRecorder.Commit(ctx, req)
+}
+
+func (s *ignoresTurn) StepsAfter(
+	ctx context.Context,
+	_ string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	s.mu.Lock()
+	last := s.last
+	s.mu.Unlock()
+	return s.MemoryRecorder.StepsAfter(ctx, last, after, limit)
+}
+
+// reorders returns each page newest first.
+type reorders struct {
+	*dashi.MemoryRecorder
+}
+
+func (s reorders) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	steps, err := s.MemoryRecorder.StepsAfter(ctx, turnID, after, limit)
+	slices.Reverse(steps)
+	return steps, err
+}
+
+// neverAhead answers a cursor past the end with an empty page, so a client
+// with a foreign cursor would wait forever instead of resetting.
+type neverAhead struct {
+	*dashi.MemoryRecorder
+}
+
+func (s neverAhead) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	steps, err := s.MemoryRecorder.StepsAfter(ctx, turnID, after, limit)
+	if errors.Is(err, dashi.ErrCursorAhead) {
+		return nil, nil
 	}
 	return steps, err
 }

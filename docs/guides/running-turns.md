@@ -303,11 +303,14 @@ matching `dashi.ErrCursorAhead` for a cursor past the last step
 polls every second, or every 30 seconds while the turn rests at a stop that
 is not terminal. For faster updates, also implement `dashi.StepWaiter`: for
 example, `pg_notify` in the commit transaction and one shared `LISTEN`
-connection that wakes waiting readers. A missed wake costs one poll.
+connection that wakes waiting readers. With a waiter, `Follow` still reads
+every 15 seconds, so a missed wake delays a step by up to that long.
 
 `Follow` ends when the request ends, or after a terminal stop (see
-[the three turn states](#ids-and-recovery)). A late result of work
-started before the stop can still be recorded after it; a reload shows it.
+[the three turn states](#ids-and-recovery)); from a cursor that is already
+the terminal stop, it ends at once. A late result of work started before the
+stop can still be recorded after it; a reload, or `StepsAfter` from the
+stop's `Seq`, shows it.
 
 Previews (model deltas and tool progress) never enter the record. When the
 worker runs in the same process as the handler, feed `Runner.Observer` into a
@@ -327,6 +330,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	after, _ := strconv.ParseInt(cmp.Or(
 		r.Header.Get("Last-Event-ID"), r.URL.Query().Get("after"),
 	), 10, 64)
+	// A client reconnecting after the end gets 204, which tells
+	// EventSource to stop reconnecting.
+	if after > 0 {
+		last, err := s.store.StepsAfter(r.Context(), id, after-1, 1)
+		if err == nil && len(last) == 1 && last[0].Stop != nil &&
+			last[0].Stop.Terminal {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	flush := w.(http.Flusher).Flush
 
@@ -352,13 +365,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	done := map[string]bool{} // messages and calls a sent step settled
+	settled := map[string]bool{} // messages and calls a sent step settled
 	for {
 		select {
 		case got, ok := <-steps:
 			switch {
 			case !ok:
-				return // a terminal stop, or the client left
+				return // the client left
 			case errors.Is(got.err, dashi.ErrCursorAhead):
 				send(w, "", "reset", nil) // the client drops its state, follows from 0
 				return
@@ -366,21 +379,25 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return // the client reconnects from its last id
 			}
 			step := got.step
-			if step.Model != nil {
-				done[step.Model.MessageID] = true
-			}
-			if step.Kind == dashi.StepToolSettled {
-				done[step.Tool.Call.ID] = true
+			if id := step.Settles(); id != "" {
+				settled[id] = true
 			}
 			send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
-		case e := <-previews:
+			if step.Stop != nil && step.Stop.Terminal {
+				send(w, "", "end", nil) // the page calls EventSource.close
+				flush()
+				return
+			}
+		case e, ok := <-previews:
 			switch {
+			case !ok:
+				previews = nil // the hub closed; keep following steps
 			case e.Gap: // this message's preview has a hole; wait for its step
-				done[e.MessageID] = true
+				settled[e.MessageID] = true
 				send(w, "", "gap", e.MessageID)
-			case e.Delta != nil && !done[e.MessageID]:
+			case e.Delta != nil && !settled[e.MessageID]:
 				send(w, "", "delta", projectDelta(e))
-			case e.Progress != nil && !done[e.Progress.CallID]:
+			case e.Progress != nil && !settled[e.Progress.CallID]:
 				send(w, "", "progress", e.Progress)
 			}
 		}
@@ -390,10 +407,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 ```
 
 Steps go out with an SSE `id`, so the browser resumes from them; previews
-and gaps go out without one, since they cannot be replayed. When a preview
-channel overflows, the fan-out drops previews and sends a gap, as the
-Observer does. `done` drops a preview that arrives after the step that
-supersedes it.
+and gaps go out without one, since they cannot be replayed. `Step.Settles`
+names the message or tool call a step supersedes (only `model_settled`,
+`model_reconciled`, and `tool_settled` settle anything; `model_requested`
+carries the same `MessageID` as the deltas that follow it), and `settled`
+drops a preview that arrives after its step. When a preview channel
+overflows, the fan-out drops previews and sends a gap, as the Observer does.
+At a terminal stop the handler sends `end`, so the page calls
+`EventSource.close()`; a browser that reconnects anyway gets `204 No
+Content`, which stops `EventSource` from reconnecting. This handler runs in
+Dashi's tests (`serve_public_test.go`).
 
 **Never send a `Step` to a browser as it is.** A step is the internal record:
 it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
@@ -434,8 +457,8 @@ runner.Observer = func(e dashi.Event) {
 		holed[e.MessageID] = true
 		ui.DiscardPreview(e.MessageID) // or show a placeholder
 	case e.Step != nil:
-		if e.Step.Model != nil {
-			delete(holed, e.MessageID)
+		if id := e.Step.Settles(); id != "" {
+			delete(holed, id)
 		}
 		ui.ApplyStep(*e.Step) // supersedes previews for its message or call
 	case e.Delta != nil && !holed[e.MessageID]:

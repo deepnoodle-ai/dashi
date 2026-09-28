@@ -75,37 +75,53 @@ func run(ctx context.Context) error {
 		"What is the weather in Lisbon and in Oslo?",
 	))}}
 
+	// Followers get their own context: when the worker stops without
+	// ending the turn (a failure, a pause), Follow would keep waiting for
+	// the turn to resume, so the program cancels them itself.
+	followCtx, stopFollowing := context.WithCancel(ctx)
+	defer stopFollowing()
 	var wg sync.WaitGroup
+	// Tab A follows from the beginning until the turn ends. Once it has
+	// read seq 2, tab B opens from that cursor, reads three steps, and
+	// closes; its leaving ends only its own follow.
+	wg.Go(func() {
+		follow(followCtx, store, "A", turnID, 0, 0, func(seq int64) {
+			if seq == 2 {
+				wg.Go(func() { follow(followCtx, store, "B", turnID, 2, 3, nil) })
+			}
+		})
+	})
+
 	// The worker runs the turn under its own context, not a reader's.
-	var out dashi.Outcome
-	var runErr error
-	wg.Go(func() {
-		out, runErr = runner.Run(ctx, dashi.Turn{ID: turnID}, start)
-	})
-	// Tab A follows from the beginning until the turn ends.
-	wg.Go(func() { follow(ctx, store, "A", turnID, 0, 0) })
-	// Tab B joins a moment later from cursor 2, reads three steps, and
-	// closes. Its leaving ends only its own follow.
-	wg.Go(func() {
-		time.Sleep(500 * time.Millisecond)
-		follow(ctx, store, "B", turnID, 2, 3)
-	})
+	out, runErr := runner.Run(ctx, dashi.Turn{ID: turnID}, start)
+	if runErr != nil || !out.Stop.Terminal {
+		// The turn did not end, so the followers would wait for it.
+		stopFollowing()
+	}
 	wg.Wait()
 	if runErr != nil {
 		return fmt.Errorf("live_follow: %w", runErr)
+	}
+	if !out.Stop.Terminal {
+		return fmt.Errorf(
+			"live_follow: the worker stopped without ending the turn: %s %s",
+			out.Stop.Kind,
+			out.Stop.Reason,
+		)
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }
 
 // follow prints the turn's steps after the cursor, leaving after limit steps
-// when limit is positive.
+// when limit is positive, and calls onStep with each Seq it reads.
 func follow(
 	ctx context.Context,
 	store dashi.StepReader,
 	tab, turnID string,
 	after int64,
 	limit int,
+	onStep func(seq int64),
 ) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -116,12 +132,17 @@ func follow(
 			return
 		}
 		fmt.Printf("[%s] seq %d %s%s\n", tab, step.Seq, step.Kind, detail(step))
+		if onStep != nil {
+			onStep(step.Seq)
+		}
 		if read++; limit > 0 && read == limit {
 			fmt.Printf("[%s] leaves at seq %d\n", tab, step.Seq)
 			return
 		}
+		if step.Stop != nil && step.Stop.Terminal {
+			fmt.Printf("[%s] the turn ended\n", tab)
+		}
 	}
-	fmt.Printf("[%s] the turn ended\n", tab)
 }
 
 func detail(step dashi.Step) string {

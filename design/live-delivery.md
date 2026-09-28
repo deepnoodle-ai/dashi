@@ -46,7 +46,8 @@ settled step follows (tool-progress.md). Consumer rules: after a gap, discard
 that message's preview and ignore its later deltas until its `model_settled`
 step arrives; a gap with no such step after it (only when a commit failed and
 the run ended) means load the turn. A step whose commit ended with unknown
-persistence is only in the record. `Stream` never drops, so it never yields a gap.
+persistence is only in the record. `Stream` never drops, so it never yields a
+gap.
 
 *Order.* Events from one invocation arrive in order. Each `Run` or `Stream`
 has its own delivery goroutine that keeps draining after the call returns, so
@@ -82,6 +83,10 @@ cursor is owner-independent: a `Claim` or a new worker continues the same
   falls back to polling;
 - polls every 30 s while the last step is a non-terminal stop, so a turn
   waiting days for approval does not cost a query per second per tab;
+- rereads the step at a positive cursor first, so a reader resuming at a
+  terminal stop ends at once and one resuming at a resting stop polls slowly;
+- pauses briefly after a wake that found nothing, so a waiter that wakes
+  falsely cannot make it spin;
 - ends when ctx ends, after a terminal stop (decision 4), or after yielding a
   read error. Ending never affects the turn.
 
@@ -107,7 +112,8 @@ against the code:
 Not terminal: `waiting`, `interrupted`, `failed` (including reason
 `hook_failed` from hooks, which is not counted as an interruption),
 `refused`, `uncertain`, and `limited` by `provider_pauses`, `output_tokens`,
-`total_tokens`, `host`, or cost with an unpriced model or no raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
+`total_tokens`, `host`, or cost with an unpriced model or no raise yet.
+Invariant, tested: `terminal()` implies `Continue` is refused with
 any raise. Every input only grows (attempts, unknown cost) or is fixed at
 Start (agent limits, deadline), so a recorded `true` stays true. A recorded
 `false` stays accurate because a turn becomes non-continuable only through a
@@ -129,8 +135,8 @@ the runner rejects `Deliver`, approvals, `Cancel`, raises, new work, and a
 `Settle` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
 turn has ended"). `canContinue` also keys on `Limit.Kind`, so the two checks
 cannot disagree. Late results may therefore follow a
-terminal stop: `Follow` ending there is a display convenience; a reload or a
-later read from the same cursor shows them. A reader that must see every step
+terminal stop: `Follow` ending there is a display convenience; a reload or
+`StepsAfter` from the stop's `Seq` shows them. A reader that must see every step
 (accounting, mirroring) keeps its cursor.
 
 **5. Reasoning is never altered in the record; previews are tagged by kind.**
@@ -162,8 +168,8 @@ var ErrTurnEnded = errors.New("dashi: turn has ended")
 
 // StepReader is an optional Recorder capability for live readers.
 type StepReader interface {
-	// StepsAfter returns up to limit committed steps with Seq > after, in
-	// ascending order; limit <= 0 means 100. after == 0 on a turn with no
+	// StepsAfter returns up to limit (positive) committed steps with Seq >
+	// after, in ascending order. after == 0 on a turn with no
 	// steps, or after == the last Seq, gives none. An after past the last
 	// Seq gives an error matching ErrCursorAhead.
 	StepsAfter(ctx context.Context, turnID string, after int64,
@@ -171,12 +177,16 @@ type StepReader interface {
 }
 // StepWaiter is optional on a StepReader. Wait returns at once when a step
 // after the cursor exists, otherwise when one may have been committed or
-// ctx ends. It is a latency hint: a missed wake costs one poll.
+// ctx ends. It is a latency hint: a missed wake costs up to the 15 s
+// backstop, so a waiter that sees other processes notices them within ~1 s.
 type StepWaiter interface {
 	Wait(ctx context.Context, turnID string, after int64) error
 }
 func Follow(ctx context.Context, r StepReader, turnID string,
 	after int64) iter.Seq2[Step, error]
+// Settles names the previews a step supersedes: the MessageID of
+// model_settled or model_reconciled, or the call ID of tool_settled.
+func (s Step) Settles() string
 var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 ```
 
@@ -185,8 +195,10 @@ turn and checks it exists (`Follow` on an unknown turn waits forever); reads
 the cursor from `Last-Event-ID`, falling back to `?after=`; subscribes to the
 host's preview fan-out (bounded channels fed by `Runner.Observer`) before
 following, when the runner is in-process; merges steps and previews with
-`iter.Pull2` and a goroutine, dropping any preview whose `MessageID` or
-`CallID` already has a settled step sent; sends steps with `id: Seq` and
+a goroutine, dropping any preview whose `MessageID` or `CallID` a sent
+step settled (`Step.Settles`); sends `end` at a terminal stop and answers
+`204` to a reconnect at one, so `EventSource` stops; sends steps with
+`id: Seq` and
 previews and gaps without one; projects every step; and, on `ErrCursorAhead`
 (a wrong turn, a replica read, a filerecorder line lost to a failed fsync),
 tells the client to reset and reconnect from 0 rather than retry. `Follow`
@@ -195,34 +207,22 @@ be followed.
 
 **Recorders.** `MemoryRecorder` implements both (check under its lock, else
 a per-turn channel closed on commit). `filerecorder` implements `StepReader`
-over its line index, and a `StepWaiter` for this process's commits. A Postgres
+over its line index, and a `StepWaiter` that wakes on this process's
+commits and notices other processes' by the log's size within 250 ms. A Postgres
 recorder needs a unique `(turn_id, seq)`, reads the primary, selects `seq >=
 after LIMIT limit+1` to detect `ErrCursorAhead` in one query (special-casing
 `after == 0`), and may wake via `pg_notify` and one shared `LISTEN`.
 `dashitest.Run` checks any store that implements `StepReader` (and
 `StepWaiter`) against these rules.
 
-## Plan and tests
+## Plan
 
-**PR A (small, lands first).** Move `Event`/`Observer` to `observer.go`
-(own commit); lossless steps and the gap; `Stop.Terminal`, `terminal()`, the
-replay check, and the terminal-stop tightening. `runner.go` changes are the
-commit hook and the command guards. Tests: a blocked-then-released Observer
-and thousands of deltas lose no step; one gap per run of drops, placed after
-earlier events, and one at close; evicted progress alone gives none; a slow
-Observer with a back-to-back `Continue` still gets every step; a table over
-every stop and limit kind for `Terminal`, with `Continue` refused under any
-raise when terminal; replay rejects a mismatched `terminal`; cancel with a
-started tool then a late settle is accepted; `Deliver`, approval, `Cancel`,
-and a raise after a terminal `limited` stop give `ErrTurnEnded`.
+**PR A** (#48, merged): `Event`/`Observer` moved to `observer.go`; lossless
+steps and the gap; `Stop.Terminal` and the terminal-stop tightening.
 
-**PR B.** `StepReader`, `StepWaiter`, `Follow`, memory and file
-implementations, conformance, the guide ("Serving live updates", with ready,
-waiting on the host, and terminal side by side) and an example with two
-followers on one turn. Tests: replay then live; two cursors; a follower's
-cancel leaves the run untouched; ends on a terminal stop; `Follow` from a
-cancel's `Seq` yields a late settle; poll path without a waiter; waiter error
-falls back; `Seq` discontinuity errors.
+**PR B**: `StepReader`, `StepWaiter`, `Follow`, `Step.Settles`, the memory
+and file implementations, conformance, the guide's web handler (run by
+`serve_public_test.go`), and `examples/live_follow`.
 
 ## What not to build
 

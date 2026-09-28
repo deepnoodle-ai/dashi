@@ -193,9 +193,7 @@ func (r *MemoryRecorder) StepsAfter(
 	after int64,
 	limit int,
 ) ([]Step, error) {
-	if limit <= 0 {
-		limit = defaultStepsLimit
-	}
+	limit = max(limit, 1)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	steps := r.turns[turnID].Steps
@@ -223,7 +221,8 @@ func (r *MemoryRecorder) Wait(
 	turnID string,
 	after int64,
 ) error {
-	woken := r.wakes.Watch(turnID)
+	woken, done := r.wakes.Watch(turnID)
+	defer done()
 	r.mu.Lock()
 	n := int64(len(r.turns[turnID].Steps))
 	r.mu.Unlock()
@@ -237,9 +236,6 @@ func (r *MemoryRecorder) Wait(
 		return ctx.Err()
 	}
 }
-
-// defaultStepsLimit is the page size StepsAfter uses for a limit of zero.
-const defaultStepsLimit = 100
 
 // Commit appends a step only when its expected sequence and owner are valid.
 func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {

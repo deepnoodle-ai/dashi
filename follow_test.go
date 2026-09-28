@@ -145,8 +145,9 @@ func TestFollowerLeavingDoesNotCancel(t *testing.T) {
 	}
 }
 
-// A late result recorded after a terminal stop is read from the stop's Seq.
-func TestFollowFromTerminalStopSeesLateResult(t *testing.T) {
+// Follow ends at a terminal stop; a late result recorded after it is read
+// with StepsAfter from the stop's Seq, as an accounting reader would.
+func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
 	rec := NewMemoryRecorder()
 	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
@@ -162,17 +163,10 @@ func TestFollowFromTerminalStopSeesLateResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopSeq := int64(len(canceled.Turn.Steps))
-	for step, err := range Follow(t.Context(), rec, "t1", 0) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		if step.Seq > stopSeq {
-			t.Fatalf("follow read past the terminal stop: seq %d", step.Seq)
-		}
+	got, err := collect(t.Context(), rec, "t1", 0)(t)
+	if err != nil || int64(len(got)) != stopSeq {
+		t.Fatalf("followed %d steps to the stop at %d: err=%v", len(got), stopSeq, err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	late := collect(ctx, rec, "t1", stopSeq)
 	if _, err := runner.Run(t.Context(), canceled.Turn, Settle{
 		CommandID: "late",
 		CallID:    "call-1",
@@ -180,11 +174,12 @@ func TestFollowFromTerminalStopSeesLateResult(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	got, err := late(t)
-	if err != nil || len(got) != 1 || got[0].Kind != StepToolSettled {
-		t.Fatalf("late steps=%+v err=%v", got, err)
+	if got, err := collect(t.Context(), rec, "t1", stopSeq)(t); err != nil || len(got) != 0 {
+		t.Fatalf("follow from an ended turn's stop: steps=%d err=%v", len(got), err)
+	}
+	late, err := rec.StepsAfter(t.Context(), "t1", stopSeq, 10)
+	if err != nil || len(late) != 1 || late[0].Kind != StepToolSettled {
+		t.Fatalf("late steps=%+v err=%v", late, err)
 	}
 }
 
@@ -318,6 +313,122 @@ func TestFollowPollsSlowlyWhileResting(t *testing.T) {
 	}
 	if got := pollInterval(followPoll, true); got != followResting {
 		t.Fatalf("resting poll=%v, want %v", got, followResting)
+	}
+}
+
+// Settles names what a step supersedes in a real run: model_requested
+// carries the deltas' MessageID but settles nothing.
+func TestStepSettles(t *testing.T) {
+	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		return tool.Succeeded("done"), nil
+	})
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "hi"}},
+	}
+	runner := toolRunner(client, NewMemoryRecorder(), ok)
+	runner.Agent = testAgent()
+	deltaMessages := map[string]bool{}
+	var steps []Step
+	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Delta != nil {
+			deltaMessages[event.MessageID] = true
+		}
+		if event.Step != nil {
+			steps = append(steps, *event.Step)
+		}
+	}
+	settled := map[string]bool{}
+	for _, step := range steps {
+		id := step.Settles()
+		switch step.Kind {
+		case StepModelIntent:
+			if !deltaMessages[step.Model.MessageID] {
+				t.Fatalf("intent message %q has no deltas", step.Model.MessageID)
+			}
+			if id != "" {
+				t.Fatalf("model_requested settles %q", id)
+			}
+		case StepModelSettled:
+			if id != step.Model.MessageID || !deltaMessages[id] {
+				t.Fatalf("model_settled settles %q; want its message", id)
+			}
+		case StepToolSettled:
+			if id != "call-1" {
+				t.Fatalf("tool_settled settles %q; want call-1", id)
+			}
+		default:
+			if id != "" {
+				t.Fatalf("%s settles %q", step.Kind, id)
+			}
+		}
+		if id != "" {
+			settled[id] = true
+		}
+	}
+	if len(settled) != len(deltaMessages)+1 {
+		t.Fatalf("settled=%v deltas=%v", settled, deltaMessages)
+	}
+}
+
+// A reader whose cursor is already the terminal stop ends at once.
+func TestFollowFromTerminalCursorEndsAtOnce(t *testing.T) {
+	setFollowIntervals(t, time.Hour, time.Hour, time.Hour)
+	rec := NewMemoryRecorder()
+	first, runner := pausedTurn(t, rec)
+	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
+	if err != nil || !out.Stop.Terminal {
+		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
+	}
+	last := int64(len(out.Turn.Steps))
+	got, err := collect(t.Context(), rec, "t1", last)(t)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("steps=%d err=%v", len(got), err)
+	}
+	// One past the end is ahead.
+	_, err = collect(t.Context(), rec, "t1", last+1)(t)
+	if !errors.Is(err, ErrCursorAhead) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// eagerWaiter's Wait always reports a step, which is wrong while the turn
+// rests; Follow must not spin on it.
+type eagerWaiter struct {
+	*MemoryRecorder
+	reads atomic.Int64
+}
+
+func (w *eagerWaiter) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]Step, error) {
+	w.reads.Add(1)
+	return w.MemoryRecorder.StepsAfter(ctx, turnID, after, limit)
+}
+
+func (w *eagerWaiter) Wait(context.Context, string, int64) error {
+	return nil
+}
+
+func TestFollowBacksOffAnEagerWaiter(t *testing.T) {
+	rec := NewMemoryRecorder()
+	pausedTurn(t, rec)
+	w := &eagerWaiter{MemoryRecorder: rec}
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	for _, err := range Follow(ctx, w, "t1", 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := w.reads.Load(); n > 10 {
+		t.Fatalf("%d reads in 200ms; Follow spun on a waiter that woke falsely", n)
 	}
 }
 

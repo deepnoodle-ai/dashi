@@ -52,8 +52,9 @@ import (
 // dashi.Follow relies on; otherwise those subtests are skipped:
 //
 //   - StepsAfter pages exactly: ascending, contiguous Seq from after+1, each
-//     step with its committed JSON meaning, the limit honored, and zero
-//     meaning the default. A cursor at the last step gives no steps.
+//     step with its committed JSON meaning, only the requested turn's
+//     steps, and the limit honored. A cursor at the last step gives no
+//     steps.
 //   - A turn without steps gives no steps for cursor zero, and a cursor past
 //     the last step gives an error matching dashi.ErrCursorAhead.
 //   - Claims never appear as steps, and a reader paging while the owner

@@ -49,7 +49,7 @@ func waiter(t *testing.T, s Store) dashi.StepWaiter {
 func testReadsAfterCursor(t *testing.T, s Store) {
 	r := reader(t, s)
 	steps := seed(t, s, turnID, 5)
-	requirePage(t, r, turnID, 0, 0, steps)
+	requirePage(t, r, turnID, 0, 100, steps)
 	requirePage(t, r, turnID, 0, 2, steps[:2])
 	requirePage(t, r, turnID, 2, 2, steps[2:4])
 	requirePage(t, r, turnID, 4, 2, steps[4:])
@@ -66,8 +66,8 @@ func testReadsAfterCursor(t *testing.T, s Store) {
 
 func testReadsMissingTurn(t *testing.T, s Store) {
 	r := reader(t, s)
-	requirePage(t, r, "dashitest-missing", 0, 0, nil)
-	_, err := r.StepsAfter(t.Context(), "dashitest-missing", 1, 0)
+	requirePage(t, r, "dashitest-missing", 0, 100, nil)
+	_, err := r.StepsAfter(t.Context(), "dashitest-missing", 1, 1)
 	if !errors.Is(err, dashi.ErrCursorAhead) {
 		t.Fatalf(
 			"StepsAfter(1) on a turn without steps returned %v; want "+
@@ -86,17 +86,20 @@ func testReadsPastClaims(t *testing.T, s Store) {
 		t.Fatalf("commit after claim: %v", err)
 	}
 	claim(t, s, turnID, owner)
-	requirePage(t, r, turnID, 0, 0, append(steps, next))
-	requirePage(t, r, turnID, 2, 0, []dashi.Step{next})
+	requirePage(t, r, turnID, 0, 100, append(steps, next))
+	requirePage(t, r, turnID, 2, 100, []dashi.Step{next})
 }
 
 func testReadsOneTurn(t *testing.T, s Store) {
 	r := reader(t, s)
 	const other = "dashitest-other-turn"
-	seed(t, s, turnID, 3)
+	first := seed(t, s, turnID, 3)
 	steps := seed(t, s, other, 2)
-	requirePage(t, r, other, 0, 0, steps)
-	if _, err := r.StepsAfter(t.Context(), other, 3, 0); !errors.Is(err, dashi.ErrCursorAhead) {
+	// Read both, so a store that ignores the turn ID fails either way.
+	requirePage(t, r, other, 0, 100, steps)
+	requirePage(t, r, turnID, 0, 100, first)
+	requirePage(t, r, turnID, 2, 100, first[2:])
+	if _, err := r.StepsAfter(t.Context(), other, 3, 1); !errors.Is(err, dashi.ErrCursorAhead) {
 		t.Fatalf("another turn's length leaked into a cursor check: %v", err)
 	}
 }
