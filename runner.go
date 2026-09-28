@@ -1118,7 +1118,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	deliver, hookStop, ctxStop := r.beforeModel(s, &input)
+	deliver, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly)
+	// The intent records the tools offered, after any hides.
+	defs = input.Tools
 	if ctxStop != nil {
 		return *ctxStop, false
 	}

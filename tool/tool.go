@@ -503,6 +503,38 @@ type Toolset interface {
 	Tools(context.Context) ([]Tool, error)
 }
 
+// Join returns a Toolset holding the tools of every set, in order, so a
+// package can export its tools beside its hooks. Nil sets are skipped. Its
+// Tools fails when two tools share a name, so one set never silently shadows
+// another's tool.
+func Join(sets ...Toolset) Toolset {
+	return joined(slices.Clone(sets))
+}
+
+type joined []Toolset
+
+func (j joined) Tools(ctx context.Context) ([]Tool, error) {
+	var out []Tool
+	seen := map[string]bool{}
+	for _, set := range j {
+		if set == nil {
+			continue
+		}
+		tools, err := set.Tools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tools {
+			if seen[t.Definition.Name] {
+				return nil, fmt.Errorf("tool: %q is bound twice", t.Definition.Name)
+			}
+			seen[t.Definition.Name] = true
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 // List is a fixed Toolset: every model call sees the same tools.
 //
 //	runner.Tools = tool.List{weather, search}

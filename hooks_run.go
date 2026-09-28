@@ -35,6 +35,7 @@ const maxRewrites = 3
 func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
+	finalAnswerOnly bool,
 ) ([]ContextItem, *Stop, *Outcome) {
 	var deliver []ContextItem
 	mark := r.hookMark()
@@ -43,8 +44,19 @@ func (r *runtime) beforeModel(
 			Input: cloneInput(*input),
 			Turn:  snapshotView(s.TurnView),
 		})
+		// The candidate input is this hook's settings and hides applied, so
+		// validation sees what the call would send.
+		candidate := cloneInput(*input)
+		var warnings []Warning
+		hid := false
 		if err == nil {
-			err = validModelDecision(d, *input)
+			if d.Settings != nil {
+				candidate.Settings = *d.Settings
+			}
+			if !finalAnswerOnly {
+				hid, warnings = applyHide(&candidate, h.Name, d.Hide)
+			}
+			err = validModelDecision(d, candidate)
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
@@ -69,12 +81,13 @@ func (r *runtime) beforeModel(
 			}
 			return nil, &stop, nil
 		}
-		if d.Settings == nil && len(d.Deliver) == 0 {
+		if d.Settings == nil && len(d.Deliver) == 0 && !hid {
+			r.pendingWarnings = append(r.pendingWarnings, warnings...)
 			continue
 		}
-		if d.Settings != nil {
-			input.Settings = *d.Settings
-		}
+		r.pendingWarnings = append(r.pendingWarnings, warnings...)
+		input.Settings = candidate.Settings
+		input.Tools = candidate.Tools
 		for _, item := range d.Deliver {
 			deliver = append(deliver, cloneContextItem(item))
 		}
@@ -87,12 +100,60 @@ func (r *runtime) beforeModel(
 	return deliver, nil, nil
 }
 
+// applyHide removes the named tools from in.Tools and reports whether any
+// was removed. It never hides dashi_submit_output, ignores names the call
+// does not offer, and clears a forced tool choice the hide leaves without
+// its tool, since the hide wins.
+func applyHide(in *llm.Input, hook string, names []string) (bool, []Warning) {
+	var warnings []Warning
+	hide := map[string]bool{}
+	for _, name := range names {
+		if name == SubmitOutputTool {
+			warnings = append(warnings, Warning{
+				Code: WarningHookFailed,
+				Message: fmt.Sprintf(
+					"before_model hook %q cannot hide %s; the name was ignored",
+					hook,
+					SubmitOutputTool,
+				),
+			})
+			continue
+		}
+		hide[name] = true
+	}
+	kept := make([]tool.Definition, 0, len(in.Tools))
+	for _, def := range in.Tools {
+		if !hide[def.Name] {
+			kept = append(kept, def)
+		}
+	}
+	if len(kept) == len(in.Tools) {
+		return false, warnings
+	}
+	in.Tools = kept
+	if choice := in.Settings.ToolChoice; choice != nil {
+		named := choice.Mode == llm.ToolChoiceTool && hide[choice.Name]
+		empty := choice.Mode == llm.ToolChoiceAny && len(kept) == 0
+		if named || empty {
+			in.Settings.ToolChoice = nil
+			warnings = append(warnings, Warning{
+				Code: WarningToolChoiceCleared,
+				Message: fmt.Sprintf(
+					"before_model hook %q hid the tools the forced tool "+
+						"choice needed; the choice was cleared for this call",
+					hook,
+				),
+			})
+		}
+	}
+	return true, warnings
+}
+
 // validModelDecision checks a BeforeModel answer before any of it applies,
 // including its settings against the rest of the input, so an invalid
 // answer skips the hook instead of failing request preparation.
 func validModelDecision(d ModelDecision, input llm.Input) error {
-	if d.Settings != nil {
-		input.Settings = *d.Settings
+	if d.Settings != nil || len(d.Hide) > 0 {
 		if err := input.Validate(); err != nil {
 			return fmt.Errorf("invalid settings: %w", err)
 		}

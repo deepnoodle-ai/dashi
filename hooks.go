@@ -231,6 +231,18 @@ type ModelDecision struct {
 	Settings *llm.Settings
 	// Deliver records additional context before preparing the model request.
 	Deliver []ContextItem
+	// Hide removes the named tools from this call; every hook's list
+	// applies. Names the call does not offer are ignored, and
+	// dashi_submit_output cannot be hidden (that name is ignored with a
+	// warning). A hide wins over a forced tool choice naming a hidden tool:
+	// the choice is cleared, with WarningToolChoiceCleared. It has no effect
+	// on the reserved final-answer call, which offers no application tools.
+	//
+	// Hide shapes what the model is offered; it does not forbid a call. A
+	// failing BeforeModel hook is skipped, which offers the tools again, so
+	// pair a hide that matters with a BeforeTool deny. Changing the offered
+	// tools also resets the provider's prompt cache, so keep hides stable.
+	Hide []string
 	// Stop ends this run before a model call when non-nil. Its kind must be
 	// StopRefused, StopFailed, or StopLimited with a host, cost or token
 	// Limit; other stops could end the turn for good by accident.

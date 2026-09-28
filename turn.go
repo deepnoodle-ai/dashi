@@ -256,6 +256,10 @@ const (
 	// steer, or waiting steers could not be delivered because no further
 	// model call can happen. The steers stay with their source.
 	WarningSteering WarningCode = "steering"
+	// WarningToolChoiceCleared means a BeforeModel hook hid the tool a forced
+	// tool choice named, or every tool while a tool call was required, so
+	// the choice was cleared for that call: the hide wins.
+	WarningToolChoiceCleared WarningCode = "tool_choice_cleared"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does

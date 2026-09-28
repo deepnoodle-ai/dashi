@@ -1585,7 +1585,7 @@ func validateStepPayload(step Step) error {
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
 		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
-			WarningSteering:
+			WarningSteering, WarningToolChoiceCleared:
 			valid = true
 		}
 		if !valid || warning.Message == "" {
