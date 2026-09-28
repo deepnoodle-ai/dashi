@@ -103,8 +103,7 @@ is not cut off. Rationale: `Policy` is a four-method interface every app would
 have to wrap, and `BeforeModel` does not fire during a long tool loop.
 
 **16. `Accept` on an interrupted turn only records.** Decided. `Continue`
-resumes the turn. Rationale: `Continue` resuming an interrupted turn is always
-consistent.
+resumes the turn. Generalized by decision 18.
 
 **17. The caller can declare that an ended context means cancel.** Decided.
 Interrupted is the default; a per-call option (such as
@@ -113,5 +112,9 @@ Interrupted is the default; a per-call option (such as
 client disconnected knows the turn will not resume, and `net/http` cancels
 without a cause, so the cause alone cannot say so.
 
-Still open: whether `Accept` should ever run the turn, given that an approval
-accepted on a waiting turn carries on immediately today.
+**18. `Accept` only records; only `Continue` runs a turn.** Decided. This
+applies everywhere, including approvals and tool results delivered to a waiting
+turn, which today carry on immediately. The report is committed before `Accept`
+returns, and the outcome and saved turn say when the turn is ready to continue.
+Rationale: one consistent rule, and the request that records an approval should
+not run the model inline; the ready flag keeps a forgotten `Continue` visible.

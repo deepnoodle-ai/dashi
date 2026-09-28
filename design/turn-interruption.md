@@ -127,10 +127,15 @@ a real outcome. The call stays marked as started with no result.
 The application reports with `Accept`: the tool's result if it can find it (for
 example by looking up an idempotency key in the downstream system), or a
 failure; for an uncertain model call, the result or evidence that it never ran.
-Or it can `Cancel` the turn. On an interrupted turn, `Accept` only records the
-report; `Continue` resumes the turn. Asking for `Continue` to resume an
-interrupted turn is always consistent. (An approval delivered with `Accept` on
-a *waiting* turn still carries on immediately today; see Open questions.)
+Or it can `Cancel` the turn. `Accept` only records the report; `Continue`
+resumes the turn. The same holds everywhere `Accept` is used, including an
+approval or a tool result delivered to a waiting turn, which today carries on
+immediately: one rule, and the request that records an approval does not run
+the model inline. The report is committed before `Accept` returns, so a
+forgotten `Continue` loses nothing; the turn stays stopped. To make that
+visible, `Outcome` and the saved turn say when nothing blocks the turn and it
+is ready to continue, so an application calls `Continue` and a host's sweeper
+can find ready turns that no worker is running.
 
 This refines [turn.md](turn.md)'s rule that work is "never blindly repeated": it
 still holds for actions with uncertain effects, but repeating a model call, or
@@ -181,10 +186,7 @@ behavior for little gain; rerunning safe tools covers the common case.
 
 ## Open questions
 
-1. **Should `Accept` ever run the turn?** On an interrupted turn it only
-   records; on a waiting turn, an approval delivered with `Accept` carries on
-   immediately today. Should both require `Continue`, or is the difference
-   intended?
+None for decision 6; naming of the ready flag is left to implementation.
 
 ## Migration
 
