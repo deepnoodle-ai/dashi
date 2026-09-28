@@ -1,10 +1,10 @@
-# Batch speech transport — draft PRD and lightweight spec
+# Batch speech transport — PRD and lightweight spec
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for independent review, 2026-09-28 |
+| Status | Implemented and independently reviewed; [PR #63](https://github.com/deepnoodle-ai/dashi/pull/63) open, 2026-09-28 |
 | Roadmap | [Item 8](../remaining-work.md), size M, difficulty Medium |
-| Workflow | Research → spec → independent feedback → implementation |
+| Workflow | Research → PRD feedback → implementation → code review and re-review → PR |
 | References | [Source survey](08-speech-transport-research.md), [media and speech proposal](../media-and-speech-proposal.md), `speech/`, `providers/openai/images/` |
 
 ## User problem
