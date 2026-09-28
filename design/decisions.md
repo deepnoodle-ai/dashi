@@ -267,3 +267,21 @@ plus its tool calls as a turn; Kernel calls that a model attempt, as in
 denial; `Settle` matches the step names `model_settled` and `tool_settled`. A
 command's `ID` looked like the turn ID; `CommandID` names its idempotency role.
 Kernel had no users, so there is no migration.
+
+**31. Hooks replace `Policy`, and bound tools run by default.** Decided
+2026-09-28; the design is [hooks.md](hooks.md). `Runner.Hooks` replaces
+`Runner.Policy`, and `denyToolPolicy` is removed. With no hook opinion, local
+and external tools the app binds are allowed; a gate is one `BeforeTool` hook
+that denies or defers. Rationale: Kernel works by default, and binding a tool is
+the app's statement that the model may use it. Pi and most agent libraries
+behave this way, while deny-by-default made the first run of every new app
+fail. Kernel had no users, so there is no migration.
+
+**32. Steering interruptions count as model attempts.** Decided 2026-09-28;
+supersedes part of decision 12. The design is [steering.md](steering.md). A
+model call cancelled because of an urgent steer (`ModelFact.InterruptedBy:
+"steering"`) counts toward `ModelAttempts` and spend, and not toward
+`Interruptions`. Every other interrupted call keeps decision 12's rule. A call
+that completes before the cancel takes effect is not interrupted. Rationale: a
+steering interruption is the user's choice, not the hosting's fault, and
+counting it bounds a flood of urgent steers.
