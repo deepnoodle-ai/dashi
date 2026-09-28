@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and independently reviewed; [PR #63](https://github.com/deepnoodle-ai/dashi/pull/63) open, 2026-09-28 |
+| Status | First OpenAI batch slice merged in [PR #63](https://github.com/deepnoodle-ai/dashi/pull/63); live qualification and streaming remain open, 2026-09-28 |
 | Roadmap | [Item 8](../remaining-work.md), size M, difficulty Medium |
-| Workflow | Research → PRD feedback → implementation → code review and re-review → PR |
+| Workflow | Research → PRD feedback → implementation → code review and re-review → merged PR |
 | References | [Source survey](08-speech-transport-research.md), [media and speech proposal](../media-and-speech-proposal.md), `speech/`, `providers/openai/images/` |
 
 ## User problem

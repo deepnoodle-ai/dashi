@@ -1,6 +1,6 @@
-# Draft PRD: optional skill catalog and loader
+# PRD: optional skill catalog and loader
 
-**Roadmap item 12 · Draft · 2026-09-28.** Based on [source research](12-skills-research.md). This is a proposal for independent review, not an approved implementation contract.
+**Roadmap item 12 · First slice merged in PR #59 · 2026-09-28.** Based on [source research](12-skills-research.md). Further expansion needs application-consumer qualification.
 
 ## User problem
 
@@ -14,7 +14,7 @@ An app with approved task instructions must hand-build a short catalog, a matchi
 
 ## Proposed smallest API and flow
 
-Add an optional skill package. The host supplies a filtered, immutable list of definitions with display name, optional description, and required instructions. Construction trims names, checks the raw description byte limit **before** folding its whitespace to one line, rejects blank names/bodies and remaining control characters in catalog metadata, and uses strings.EqualFold for both duplicate detection and lookup; it preserves readable names with spaces. Limits are 256 skills, 80 bytes/name (Mobius's limit), 1,024 raw bytes/description (a conservative byte cap), 64 KiB/body, and 64 KiB/rendered catalog; construction reports the offending field and limit. Mobius's checked-in document playbooks are below 6.4 KiB, but stored assigned-skill sizes remain a migration check. A stable sort makes the catalog and digest independent of input order. The bundle exposes Catalog() and Digest() and implements tool.Toolset with one read-only named loader, or no tool for an empty bundle. The default tool name is load_skill; an explicit option permits Mobius's invoke_skill name. Exact Go names are provisional:
+Add an optional skill package. The host supplies a filtered, immutable list of definitions with display name, optional description, and required instructions. Construction trims names, checks the raw description byte limit **before** folding its whitespace to one line, rejects blank names/bodies and remaining control characters in catalog metadata, and uses strings.EqualFold for both duplicate detection and lookup; it preserves readable names with spaces. Limits are 256 skills, 80 bytes/name (Mobius's limit), 1,024 raw bytes/description (a conservative byte cap), 64 KiB/body, and 64 KiB/rendered catalog; construction reports the offending field and limit. Mobius's checked-in document playbooks are below 6.4 KiB, but stored assigned-skill sizes remain a migration check. A stable sort makes the catalog and digest independent of input order. The bundle exposes Catalog() and Digest() and implements tool.Toolset with one read-only named loader, or no tool for an empty bundle. The default tool name is load_skill; an explicit option permits Mobius's invoke_skill name. The implemented API uses these names:
 
 ```go
 bundle, err := skill.New(defs, skill.Options{ToolName: "invoke_skill"})

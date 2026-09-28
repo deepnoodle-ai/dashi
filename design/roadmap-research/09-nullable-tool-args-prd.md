@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for independent review |
+| Status | Implemented and independently reviewed; merged in PR #57 |
 | Date | 2026-09-28 |
 | Roadmap | [Item 9](../remaining-work.md), size S / low difficulty |
 | Evidence | [Source review](09-nullable-tool-args-research.md), [example-port follow-up](../gaps/F-example-ports.md) |

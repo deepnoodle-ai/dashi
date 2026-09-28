@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Independent PRD and code reviews incorporated; implementation in PR |
+| Status | First Chat Completions slice merged in PR #60; broader conformance open |
 | Date | 2026-09-28 |
 | Roadmap | [Item 4](../remaining-work.md), size M / medium difficulty |
 | Evidence | [Source review](04-provider-dialect-research.md), [content replay contract](../provider-content-replay.md), Dashi `018af907` |

@@ -1,6 +1,6 @@
-# 22. Qualify displayed provider cost — draft PRD
+# 22. Qualify displayed provider cost — first-slice PRD
 
-**Status:** Narrow slice accepted for implementation, 2026-09-28; implementation review pending. **Size/difficulty:** S / Low. **Research:** [comparative findings](22-provider-price-gaps-research.md). **References:** `design/remaining-work.md:252-262`, `design/model-catalog.md:111-134`, `design/pricing-proposal.md:89-100`. This slice qualifies the existing estimate path; **no new provider price is qualified, and roadmap item 22 remains open**.
+**Status:** Narrow slice merged in PR #58, 2026-09-28. **Size/difficulty:** S / Low. **Research:** [comparative findings](22-provider-price-gaps-research.md). **References:** [roadmap item](../remaining-work.md#22-remaining-provider-price-gaps), [model catalog](../model-catalog.md), [pricing proposal](../pricing-proposal.md). This slice qualifies the existing estimate path; **no new provider price is qualified, and roadmap item 22 remains open**.
 
 ## User problem
 
