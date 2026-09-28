@@ -94,8 +94,8 @@ func (c *urgentClient) lastMessages() []llm.Message {
 
 // watchedInbox reports each Steers call on fetched. A test that sends an
 // urgent steer while the run goroutine waits on it can then wait until the
-// listener has taken the steer: the listener holds its lock from that call
-// until it has decided, so the run's next look sees the decision.
+// listener has taken the steer: the listener holds the source lock from
+// that call until it has decided, and the run takes that lock to look.
 type watchedInbox struct {
 	*Inbox
 	fetched chan struct{}
