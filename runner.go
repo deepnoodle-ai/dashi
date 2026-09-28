@@ -52,6 +52,7 @@ type runOptions struct {
 	stream     bool
 	streamSink func(Event)
 	hooks      Hooks
+	steering   Steering
 }
 
 // WithOwner forwards owner to recorder commits for host lease fencing.
@@ -331,6 +332,7 @@ func (r Runner) apply(
 		lastHooks:   state.activeHooks,
 	}
 	defer rt.emitter.close()
+	defer rt.releaseSteers()
 	switch c := command.(type) {
 	case Start:
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
@@ -382,11 +384,19 @@ func (r Runner) apply(
 			len(c.Items) == 0 {
 			return Outcome{}, errors.New("dashi: turn cannot receive context")
 		}
+		items, err := newDeliveries(state, c.Items)
+		if err != nil {
+			return Outcome{}, err
+		}
+		if len(items) == 0 {
+			// Every item is already recorded: a retried delivery.
+			return rt.result(rt.current())
+		}
 		step := Step{
 			Kind:          StepDelivered,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
-			Context:       &ContextFact{Items: c.Items},
+			Context:       &ContextFact{Items: items},
 		}
 		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
@@ -625,6 +635,9 @@ type runtime struct {
 	// warns when it differs from lastHooks, the previous one's.
 	activeHooks *ActiveHooks
 	lastHooks   *ActiveHooks
+	// steers tracks the steers this run fetched, for acknowledgment and
+	// release.
+	steers steerState
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook answer is saved with the step it leads to.
 	pendingWarnings []Warning
@@ -709,6 +722,20 @@ func sameAgent(a, b Agent) bool {
 }
 
 func (r *runtime) commit(step Step) *Outcome {
+	if step.Context != nil && len(step.Context.Items) > 0 {
+		items := r.skipRecordedItems(step.Context.Items)
+		if len(items) == 0 {
+			if step.Kind == StepDelivered {
+				// Everything was delivered before; there is nothing to record.
+				return nil
+			}
+			step.Context = nil
+		} else {
+			fact := *step.Context
+			fact.Items = items
+			step.Context = &fact
+		}
+	}
 	if step.Kind == StepStarted || step.Kind == StepContinued {
 		step.ActiveHooks = r.activeHooks
 		if step.Kind == StepContinued &&
@@ -1010,6 +1037,21 @@ func hasOpenTools(s *replayState) bool {
 }
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
+	// Steers waiting now reach this call. They are recorded before the
+	// BeforeModel hooks run, so the hooks' input includes them.
+	if steers := r.waitingSteers(s); len(steers) > 0 {
+		o := r.commitSteers(
+			Step{Kind: StepDelivered, Context: &ContextFact{Items: steers}},
+			steers,
+		)
+		if o != nil {
+			return *o, false
+		}
+		var err error
+		if s, err = replay(r.turn); err != nil {
+			return r.stop(StopFailed, err.Error()), false
+		}
+	}
 	finalAnswerOnly := !r.agent.Limits.NoReservedFinalAnswer &&
 		s.ModelAttempts > 0 &&
 		s.ModelAttempts+1 == r.agent.Limits.ModelAttempts
@@ -1445,6 +1487,19 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 	finish, o := r.finishPoint(state, plan)
 	if o != nil {
 		return *o, false
+	}
+	if len(finish.steers) > 0 {
+		o := r.commitSteers(
+			Step{
+				Kind:    StepLoopContinued,
+				Context: &ContextFact{Items: finish.steers},
+			},
+			finish.steers,
+		)
+		if o != nil {
+			return *o, false
+		}
+		return Outcome{}, true
 	}
 	if finish.rejects() {
 		var items []ContextItem

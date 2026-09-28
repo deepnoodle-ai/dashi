@@ -335,6 +335,8 @@ func validToolDecision(
 // finishResult is the combined BeforeFinish answer. A reason is a veto: the
 // answer is unacceptable. Items alone are a nudge: try once more.
 type finishResult struct {
+	// steers supersede the candidate before the hooks see it.
+	steers      []ContextItem
 	deliver     []ContextItem
 	acceptEmpty bool
 	// reason is the first nonempty Reason, bounded; hook is the first hook
@@ -426,6 +428,14 @@ func (r *runtime) finishPoint(
 	s *replayState,
 	plan FinishPlan,
 ) (finishResult, *Outcome) {
+	// A steer is a nudge: it supersedes the candidate only when a further
+	// model call can happen, and otherwise waits with its source.
+	if steers := r.waitingSteers(s); len(steers) > 0 {
+		if r.nextCallPossible(s, estimatedItemTokens(steers)) {
+			return finishResult{steers: steers}, nil
+		}
+		r.steersWait(s, len(steers))
+	}
 	mark := r.hookMark()
 	finish, o := r.beforeFinish(plan)
 	if o != nil {

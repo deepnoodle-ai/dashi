@@ -505,6 +505,20 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	if o != nil {
 		return o
 	}
+	if len(finish.steers) > 0 {
+		return r.afterSteerWrite(
+			finish.steers,
+			// A steer is a nudge, not a veto: the message's text keeps
+			// its place in Answer.
+			r.rejectSubmission(
+				call,
+				steerNotAccepted,
+				sourceSteering,
+				finish.steers,
+				false,
+			),
+		)
+	}
 	if finish.rejects() {
 		if o := r.rejectSubmission(
 			call,

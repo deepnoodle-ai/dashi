@@ -163,7 +163,9 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		delivered.Turn,
 		Deliver{CommandID: "bad", Items: []ContextItem{bad}},
 	)
-	if persistence(err) != PersistenceRejected {
+	// Deliver checks its items before recording anything.
+	if persistence(err) != "other" ||
+		len(rejected.Turn.Steps) != len(delivered.Turn.Steps) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
 	accepted, err := (Runner{

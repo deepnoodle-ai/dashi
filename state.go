@@ -144,9 +144,12 @@ type replayState struct {
 	// answerVetoed is set while the latest answer is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
-	// deliveredOnKept sizes the context delivered while a BeforeFinish
-	// failure kept a final text answer; see keptFinishCandidate.
+	// deliveredOnKept sizes the context delivered while a final text answer
+	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
+	// contextIDs maps each recorded context item ID to its item, so a
+	// repeated delivery is recognized.
+	contextIDs map[string]ContextItem
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -228,6 +231,9 @@ func replay(t Turn) (*replayState, error) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
+		if err := s.trackIDs(step); err != nil {
+			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
+		}
 		if !s.awaitingClassification {
 			s.deliveredOnKept = 0
 		}
@@ -1362,13 +1368,40 @@ func (s *replayState) trackContext(step Step) {
 	}
 }
 
-// keptFinishCandidate reports a final text answer kept by a BeforeFinish
-// failure. Context delivered while it is kept is counted in deliveredOnKept,
-// and Continue decides at run time whether the model can be asked again.
+// keptFinishCandidate reports a final text answer kept by a stop before it
+// was accepted: a BeforeFinish failure, an interruption, or a worker that
+// stopped with no stop recorded. Context delivered while it is kept is
+// counted in deliveredOnKept, and Continue decides at run time whether the
+// model can be asked again.
 func (s *replayState) keptFinishCandidate() bool {
-	return s.awaitingClassification &&
-		s.Stop.Kind == StopFailed &&
-		s.Stop.Reason == StopReasonHookFailed
+	if !s.awaitingClassification {
+		return false
+	}
+	switch s.Stop.Kind {
+	case StopInterrupted, "":
+		return true
+	case StopFailed:
+		return s.Stop.Reason == StopReasonHookFailed
+	}
+	return false
+}
+
+// trackIDs records the step's context item IDs. An ID may appear once in a
+// turn: the runner skips a repeat before recording it.
+func (s *replayState) trackIDs(step Step) error {
+	for _, item := range step.Items() {
+		if item.ID == "" {
+			continue
+		}
+		if _, ok := s.contextIDs[item.ID]; ok {
+			return fmt.Errorf("repeated context item ID %q", item.ID)
+		}
+		if s.contextIDs == nil {
+			s.contextIDs = map[string]ContextItem{}
+		}
+		s.contextIDs[item.ID] = item
+	}
+	return nil
 }
 
 // roomForAnyCall reports whether one more model call fits ModelAttempts,
@@ -1485,7 +1518,8 @@ func validateStepPayload(step Step) error {
 			valid = step.Kind == StepContinued
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
-		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped:
+		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
+			WarningSteering:
 			valid = true
 		}
 		if !valid || warning.Message == "" {
@@ -1630,6 +1664,17 @@ func validateContext(item ContextItem) error {
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
+	}
+	// Context is input from the application or a person, never a turn's own
+	// machinery: a tool result or call here would pair with nothing, and
+	// providers reject it.
+	for _, part := range item.Message.Content {
+		if part.Kind != llm.ContentBlock && part.Kind != llm.ContentReminder {
+			return fmt.Errorf(
+				"context may carry only content blocks and reminders, not %s",
+				part.Kind,
+			)
+		}
 	}
 	if reminder := messageReminder(item.Message); reminder != nil &&
 		reminder.Tier == llm.ReminderOperator &&
