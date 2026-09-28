@@ -42,12 +42,16 @@ func TestAdaptRemapsPairedToolIDsWithoutChangingInput(t *testing.T) {
 		t.Fatal("adaptation changed saved input")
 	}
 	if len(changes) != 2 {
-		t.Fatalf("changes = %+v, want one for each original position", changes)
+		t.Fatalf(
+			"changes = %+v, want one for each original position",
+			changes,
+		)
 	}
 	for i, change := range changes {
 		if change.MessageIndex != i || change.ContentIndex != 0 ||
 			change.Action != llm.ContentChangeRemapToolID ||
-			change.FromID != "call.with.dot" || change.ToID != want {
+			change.FromID != "call.with.dot" ||
+			change.ToID != want {
 			t.Fatalf("change %d = %+v", i, change)
 		}
 	}
@@ -107,7 +111,12 @@ func TestAdaptResolvesGeneratedToolIDCollisions(t *testing.T) {
 	firstID := out.Messages[0].Content[0].ToolCall.ID
 	secondID := out.Messages[2].Content[0].ToolCall.ID
 	if firstID == secondID || firstID == reserved || secondID == reserved {
-		t.Fatalf("generated IDs collided: %q, %q, reserved %q", firstID, secondID, reserved)
+		t.Fatalf(
+			"generated IDs collided: %q, %q, reserved %q",
+			firstID,
+			secondID,
+			reserved,
+		)
 	}
 	if out.Messages[1].Content[0].ToolResult.CallID != firstID ||
 		out.Messages[3].Content[0].ToolResult.CallID != secondID {
@@ -140,7 +149,12 @@ func TestAdaptRemapChecksDependentReplayFields(t *testing.T) {
 		Unit:    llm.OpaqueUnitContentBlock,
 		Raw:     json.RawMessage(`{"type":"tool_use","id":"call.with.dot","name":"lookup","input":{},"related_call_id":"call.with.dot"}`),
 	}
-	if _, _, err := Adapt(llm.Input{Messages: messages}, origin); err == nil {
+	if _, _, err := Adapt(
+		llm.Input{
+			Messages: messages,
+		},
+		origin,
+	); err == nil {
 		t.Fatal("remap accepted an unfamiliar dependent replay field")
 	}
 	call.Replay.Raw = json.RawMessage(`{"type":"tool_use","id":"call.with.dot","name":"lookup","input":{}}`)
@@ -164,7 +178,8 @@ func TestAdaptRemapChecksDependentReplayFields(t *testing.T) {
 	if out.Messages[0].Content[0].Replay != nil {
 		t.Fatal("foreign replay was retained")
 	}
-	if len(changes) != 3 || changes[0].Action != llm.ContentChangeRemapToolID ||
+	if len(changes) != 3 ||
+		changes[0].Action != llm.ContentChangeRemapToolID ||
 		changes[1].Action != llm.ContentChangeStripReplay ||
 		changes[2].Action != llm.ContentChangeRemapToolID {
 		t.Fatalf("remap and strip decisions = %+v", changes)
@@ -216,15 +231,23 @@ func TestAdaptRemapPreservesPairingValidation(t *testing.T) {
 			messages: append(toolExchange("bad.id"), toolExchange("bad.id")...),
 		},
 		{name: "empty call", messages: toolExchange("")},
-		{name: "empty result", messages: func() []llm.Message {
-			messages := toolExchange("bad.id")
-			messages[1].Content[0].ToolResult.CallID = ""
-			return messages
-		}()},
+		{
+			name: "empty result",
+			messages: func() []llm.Message {
+				messages := toolExchange("bad.id")
+				messages[1].Content[0].ToolResult.CallID = ""
+				return messages
+			}(),
+		},
 		{name: "invalid UTF-8", messages: toolExchange("bad\xffid")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := Adapt(llm.Input{Messages: tc.messages}, origin); err == nil {
+			if _, _, err := Adapt(
+				llm.Input{
+					Messages: tc.messages,
+				},
+				origin,
+			); err == nil {
 				t.Fatal("invalid tool exchange was accepted")
 			}
 		})

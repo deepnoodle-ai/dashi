@@ -97,7 +97,12 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.definition.Validate()
 			if (err == nil) != tt.valid {
-				t.Fatalf("definition validity=%t want=%t: %v", err == nil, tt.valid, err)
+				t.Fatalf(
+					"definition validity=%t want=%t: %v",
+					err == nil,
+					tt.valid,
+					err,
+				)
 			}
 		})
 	}

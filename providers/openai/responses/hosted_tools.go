@@ -142,7 +142,8 @@ func (wire codec) hostedTool(
 	spec := definition.Hosted
 	if spec.Provider != wire.origin.Provider || spec.API != API {
 		return nil, nil, wire.unsupported(
-			"hosted tool %q requires its own destination", definition.Name,
+			"hosted tool %q requires its own destination",
+			definition.Name,
 		)
 	}
 	if spec.Provider != "openai" {
@@ -222,7 +223,10 @@ func (wire codec) hostedTool(
 		}
 		if options.Action != "" && options.Action != "auto" &&
 			options.Action != "generate" && options.Action != "edit" {
-			return nil, nil, wire.unsupported("image generation action %q", options.Action)
+			return nil, nil, wire.unsupported(
+				"image generation action %q",
+				options.Action,
+			)
 		}
 		if options.OutputCompression != nil {
 			if *options.OutputCompression < 0 || *options.OutputCompression > 100 ||

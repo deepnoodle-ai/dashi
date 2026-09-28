@@ -26,8 +26,10 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 	}{
 		{
 			// A context overflow reported inside the stream.
-			name:    "context window",
-			events:  []string{`{"error":{"message":"This model's maximum context length is 8192 tokens. However, you requested 9000 tokens.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`},
+			name: "context window",
+			events: []string{
+				`{"error":{"message":"This model's maximum context length is 8192 tokens. However, you requested 9000 tokens.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`,
+			},
 			message: "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens.",
 			want:    llm.ReasonContextWindowExceeded,
 		},
@@ -43,8 +45,10 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 		},
 		{
 			// A bare error object with no choices.
-			name:    "nested error",
-			events:  []string{`{"error":{"message":"The server had an error while processing your request.","type":"server_error","code":null}}`},
+			name: "nested error",
+			events: []string{
+				`{"error":{"message":"The server had an error while processing your request.","type":"server_error","code":null}}`,
+			},
 			message: "The server had an error while processing your request.",
 		},
 		{
@@ -55,8 +59,10 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 		},
 		{
 			// vLLM: a flat error object.
-			name:    "flat error",
-			events:  []string{`{"object":"error","message":"Internal server error","type":"InternalServerError","param":null,"code":500}`},
+			name: "flat error",
+			events: []string{
+				`{"object":"error","message":"Internal server error","type":"InternalServerError","param":null,"code":500}`,
+			},
 			message: "Internal server error",
 		},
 	}
@@ -79,7 +85,10 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol ||
 				!strings.Contains(string(e.Body), `error`) {
-				t.Fatalf("err = %v, want a protocol error carrying the provider body", err)
+				t.Fatalf(
+					"err = %v, want a protocol error carrying the provider body",
+					err,
+				)
 			}
 			if e.Reason != tt.want {
 				t.Fatalf("reason = %q, want %q", e.Reason, tt.want)
@@ -87,8 +96,13 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 			if !strings.HasSuffix(err.Error(), "provider stream error: "+tt.message) {
 				t.Fatalf("err = %v, want the provider's message %q", err, tt.message)
 			}
-			if result.Stop.Kind != llm.StopIncomplete || result.Message.Text() != tt.text {
-				t.Fatalf("partial result = %+v, want incomplete with text %q", result, tt.text)
+			if result.Stop.Kind != llm.StopIncomplete ||
+				result.Message.Text() != tt.text {
+				t.Fatalf(
+					"partial result = %+v, want incomplete with text %q",
+					result,
+					tt.text,
+				)
 			}
 		})
 	}

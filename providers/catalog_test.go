@@ -91,12 +91,15 @@ func TestPublicEndpointsUseCatalogByDefault(t *testing.T) {
 			if info.Evidence.Method != llm.EvidenceDocumentation {
 				t.Fatalf("evidence method = %q", info.Evidence.Method)
 			}
-			prep, err := tc.client.Prepare(context.Background(), llm.Input{
-				Model: tc.model,
-				Messages: []llm.Message{
-					llm.UserMessage(llm.Text("hello")),
+			prep, err := tc.client.Prepare(
+				context.Background(),
+				llm.Input{
+					Model: tc.model,
+					Messages: []llm.Message{
+						llm.UserMessage(llm.Text("hello")),
+					},
 				},
-			})
+			)
 			if err != nil {
 				t.Fatalf("prepare with catalog knowledge: %v", err)
 			}
@@ -120,14 +123,17 @@ func TestEveryCatalogModelPreparesPlainRequest(t *testing.T) {
 			if !slices.Contains(entry.APIs, tc.client.API()) {
 				continue
 			}
-			_, err := tc.client.Prepare(context.Background(), llm.Input{
-				Model:    entry.Model,
-				Stream:   true,
-				Settings: llm.Settings{Temperature: &temperature},
-				Messages: []llm.Message{
-					llm.UserMessage(llm.Text("hello")),
+			_, err := tc.client.Prepare(
+				context.Background(),
+				llm.Input{
+					Model:    entry.Model,
+					Stream:   true,
+					Settings: llm.Settings{Temperature: &temperature},
+					Messages: []llm.Message{
+						llm.UserMessage(llm.Text("hello")),
+					},
 				},
-			})
+			)
 			if err != nil {
 				t.Fatalf("%s at %s: %v", entry.Model, tc.client.API(), err)
 			}
@@ -138,14 +144,17 @@ func TestEveryCatalogModelPreparesPlainRequest(t *testing.T) {
 func TestCatalogLimitsAdjustRequestsWithWarnings(t *testing.T) {
 	p := newMessages(t, messages.Config{APIKey: "k"})
 	temperature := 0.5
-	prep, err := p.Prepare(context.Background(), llm.Input{
-		Model: "claude-opus-4-7",
-		Settings: llm.Settings{
-			MaxTokens:   500_000,
-			Temperature: &temperature,
+	prep, err := p.Prepare(
+		context.Background(),
+		llm.Input{
+			Model: "claude-opus-4-7",
+			Settings: llm.Settings{
+				MaxTokens:   500_000,
+				Temperature: &temperature,
+			},
+			Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		},
-		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
-	})
+	)
 	if err != nil {
 		t.Fatalf("default policy rejected fittable settings: %v", err)
 	}
@@ -166,15 +175,21 @@ func TestCatalogLimitsAdjustRequestsWithWarnings(t *testing.T) {
 }
 
 func TestCatalogLimitsFailUnderStrictPolicy(t *testing.T) {
-	p := newMessages(t, messages.Config{
-		APIKey:           "k",
-		CapabilityPolicy: llm.CapabilityStrict,
-	})
-	_, err := p.Prepare(context.Background(), llm.Input{
-		Model:    "claude-opus-4-7",
-		Settings: llm.Settings{MaxTokens: 500_000},
-		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
-	})
+	p := newMessages(
+		t,
+		messages.Config{
+			APIKey:           "k",
+			CapabilityPolicy: llm.CapabilityStrict,
+		},
+	)
+	_, err := p.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "claude-opus-4-7",
+			Settings: llm.Settings{MaxTokens: 500_000},
+			Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+	)
 	if err == nil {
 		t.Fatal("strict policy accepted max tokens above the documented limit")
 	}
@@ -194,10 +209,13 @@ func TestConfiguredModelInfoOverridesCatalog(t *testing.T) {
 			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
 		},
 	}
-	p := newMessages(t, messages.Config{
-		APIKey: "k",
-		Models: map[string]llm.ModelInfo{"claude-sonnet-5": info},
-	})
+	p := newMessages(
+		t,
+		messages.Config{
+			APIKey: "k",
+			Models: map[string]llm.ModelInfo{"claude-sonnet-5": info},
+		},
+	)
 	got, ok := p.ModelInfo("claude-sonnet-5")
 	if !ok || got.Evidence.Owner != "application" {
 		t.Fatalf("configured knowledge did not win: %+v", got.Evidence)
@@ -208,11 +226,14 @@ func TestConfiguredModelInfoOverridesCatalog(t *testing.T) {
 }
 
 func TestUndocumentedDestinationsGetNoCatalog(t *testing.T) {
-	custom := newMessages(t, messages.Config{
-		Provider: "proxy",
-		APIKey:   "k",
-		Endpoint: "https://proxy.example.test/v1/messages",
-	})
+	custom := newMessages(
+		t,
+		messages.Config{
+			Provider: "proxy",
+			APIKey:   "k",
+			Endpoint: "https://proxy.example.test/v1/messages",
+		},
+	)
 	local, err := ollama.New(ollama.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -259,12 +280,15 @@ func TestCatalogEntryBindsToCustomEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := newMessages(t, messages.Config{
-		Provider: "proxy",
-		APIKey:   "k",
-		Endpoint: endpoint,
-		Models:   map[string]llm.ModelInfo{"claude-sonnet-5": info},
-	})
+	p := newMessages(
+		t,
+		messages.Config{
+			Provider: "proxy",
+			APIKey:   "k",
+			Endpoint: endpoint,
+			Models:   map[string]llm.ModelInfo{"claude-sonnet-5": info},
+		},
+	)
 	if _, ok := p.ModelInfo("claude-sonnet-5"); !ok {
 		t.Fatal("bound catalog entry was not accepted as configuration")
 	}

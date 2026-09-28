@@ -13,15 +13,19 @@ func TestImageInputValidateEditRequiresReference(t *testing.T) {
 	input := ImageInput{
 		Model:     "image-model",
 		Operation: ImageEdit,
-		Prompt:    []content.Block{content.TextBlock("remove the background")},
+		Prompt: []content.Block{
+			content.TextBlock("remove the background"),
+		},
 	}
 	if err := input.Validate(); err == nil {
 		t.Fatal("accepted an image edit without a reference image")
 	}
-	input.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
-		Data:     []byte{1},
-		MIMEType: "image/png",
-	})}
+	input.ReferenceImages = []content.Block{
+		content.ImageBlock(content.Source{
+			Data:     []byte{1},
+			MIMEType: "image/png",
+		}),
+	}
 	if err := input.Validate(); err != nil {
 		t.Fatalf("valid image edit rejected: %v", err)
 	}
@@ -33,10 +37,12 @@ func TestImageInputValidateEditRequiresReference(t *testing.T) {
 
 func TestImageInputCloneCopiesReferenceBytes(t *testing.T) {
 	input := ImageInput{
-		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
-			Data:     []byte{1},
-			MIMEType: "image/png",
-		})},
+		ReferenceImages: []content.Block{
+			content.ImageBlock(content.Source{
+				Data:     []byte{1},
+				MIMEType: "image/png",
+			}),
+		},
 	}
 	clone := input.Clone()
 	clone.ReferenceImages[0].Image.Source.Data[0] = 9
@@ -90,7 +96,12 @@ func TestSubmissionValidateKeepsUnknownDistinctFromAccepted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.submission.Validate()
 			if (err == nil) != tt.valid {
-				t.Fatalf("submission validity=%t, want %t: %v", err == nil, tt.valid, err)
+				t.Fatalf(
+					"submission validity=%t, want %t: %v",
+					err == nil,
+					tt.valid,
+					err,
+				)
 			}
 		})
 	}
@@ -117,12 +128,26 @@ func TestSubmissionCloneCopiesJobExpiry(t *testing.T) {
 }
 
 func TestSubmissionKeepsInitialResponseFacts(t *testing.T) {
-	job := Job{ID: "files/video-1", Kind: KindVideo, Origin: content.Origin{
-		Provider: "google", API: "google.interactions", Model: "omni", Scope: "account",
-	}}
-	submission := Submission{State: SubmissionAccepted, Job: &job,
-		ResponseID: "interaction-1", Served: model.ModelRef{Provider: "google", Model: "omni"},
-		RawUsage: json.RawMessage(`{"total_tokens":12}`)}
+	job := Job{
+		ID:   "files/video-1",
+		Kind: KindVideo,
+		Origin: content.Origin{
+			Provider: "google",
+			API:      "google.interactions",
+			Model:    "omni",
+			Scope:    "account",
+		},
+	}
+	submission := Submission{
+		State:      SubmissionAccepted,
+		Job:        &job,
+		ResponseID: "interaction-1",
+		Served: model.ModelRef{
+			Provider: "google",
+			Model:    "omni",
+		},
+		RawUsage: json.RawMessage(`{"total_tokens":12}`),
+	}
 	if err := submission.Validate(); err != nil {
 		t.Fatalf("valid submission rejected: %v", err)
 	}
@@ -135,9 +160,12 @@ func TestSubmissionKeepsInitialResponseFacts(t *testing.T) {
 	if err := copy.Validate(); err == nil {
 		t.Fatal("accepted a served model from another provider")
 	}
-	unknown := Submission{State: SubmissionUnknown, ResponseID: "interaction-2",
-		Served:   model.ModelRef{Provider: "google", Model: "omni"},
-		RawUsage: json.RawMessage(`{"total_tokens":3}`)}
+	unknown := Submission{
+		State:      SubmissionUnknown,
+		ResponseID: "interaction-2",
+		Served:     model.ModelRef{Provider: "google", Model: "omni"},
+		RawUsage:   json.RawMessage(`{"total_tokens":3}`),
+	}
 	if err := unknown.Validate(); err != nil {
 		t.Fatalf("observed facts without a handle were lost: %v", err)
 	}
@@ -146,18 +174,26 @@ func TestSubmissionKeepsInitialResponseFacts(t *testing.T) {
 func TestResultValidateRequiresCoherentServedIdentity(t *testing.T) {
 	result := Result{
 		Kind: KindImage,
-		Content: []content.Block{content.ImageBlock(content.Source{
-			Data:     []byte{1},
-			MIMEType: "image/png",
-		})},
-		Requested: model.ModelRef{Provider: "test", Model: "requested"},
-		API:       "images",
-		RawUsage:  json.RawMessage(`{"input_tokens":12}`),
+		Content: []content.Block{
+			content.ImageBlock(content.Source{
+				Data:     []byte{1},
+				MIMEType: "image/png",
+			}),
+		},
+		Requested: model.ModelRef{
+			Provider: "test",
+			Model:    "requested",
+		},
+		API:      "images",
+		RawUsage: json.RawMessage(`{"input_tokens":12}`),
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("valid image result rejected: %v", err)
 	}
-	result.Content = append(result.Content, content.TextBlock("generated image"))
+	result.Content = append(
+		result.Content,
+		content.TextBlock("generated image"),
+	)
 	if err := result.Validate(); err != nil {
 		t.Fatalf("result with ancillary text rejected: %v", err)
 	}
@@ -178,14 +214,36 @@ func TestResultCloneCopiesRawUsage(t *testing.T) {
 
 func TestStoredOutputPreservesProviderFileAndPublicURL(t *testing.T) {
 	expires := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	result := Result{Kind: KindImage,
-		Content:   []content.Block{content.ImageBlock(content.Source{URL: "https://temporary.example/image.png"})},
-		Requested: model.ModelRef{Provider: "grok", Model: "imagine"}, API: "xai.images",
-		StoredOutputs: []StoredOutput{{ContentIndex: 0,
-			File: content.Source{ID: "file-1", Origin: content.Origin{
-				Provider: "grok", API: "xai.files", Scope: "account"}},
-			Filename: "image.png", PublicURL: &content.Source{
-				URL: "https://public.example/image.png", ExpiresAt: &expires}}},
+	result := Result{
+		Kind: KindImage,
+		Content: []content.Block{
+			content.ImageBlock(content.Source{
+				URL: "https://temporary.example/image.png",
+			}),
+		},
+		Requested: model.ModelRef{
+			Provider: "grok",
+			Model:    "imagine",
+		},
+		API: "xai.images",
+		StoredOutputs: []StoredOutput{
+			{
+				ContentIndex: 0,
+				File: content.Source{
+					ID: "file-1",
+					Origin: content.Origin{
+						Provider: "grok",
+						API:      "xai.files",
+						Scope:    "account",
+					},
+				},
+				Filename: "image.png",
+				PublicURL: &content.Source{
+					URL:       "https://public.example/image.png",
+					ExpiresAt: &expires,
+				},
+			},
+		},
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("valid stored output rejected: %v", err)

@@ -72,12 +72,15 @@ func Adapt(
 				}
 			}
 			record := func(action llm.ContentChangeAction, reason string) {
-				changes = append(changes, llm.ContentChange{
-					MessageIndex: mi,
-					ContentIndex: ci,
-					Action:       action,
-					Reason:       reason,
-				})
+				changes = append(
+					changes,
+					llm.ContentChange{
+						MessageIndex: mi,
+						ContentIndex: ci,
+						Action:       action,
+						Reason:       reason,
+					},
+				)
 			}
 			remapID := func(id *string) {
 				toID, ok := remappedIDs[*id]
@@ -86,14 +89,17 @@ func Adapt(
 				}
 				fromID := *id
 				*id = toID
-				changes = append(changes, llm.ContentChange{
-					MessageIndex: mi,
-					ContentIndex: ci,
-					Action:       llm.ContentChangeRemapToolID,
-					Reason:       "tool ID is outside Kernel's portable subset",
-					FromID:       fromID,
-					ToID:         toID,
-				})
+				changes = append(
+					changes,
+					llm.ContentChange{
+						MessageIndex: mi,
+						ContentIndex: ci,
+						Action:       llm.ContentChangeRemapToolID,
+						Reason:       "tool ID is outside Kernel's portable subset",
+						FromID:       fromID,
+						ToID:         toID,
+					},
+				)
 			}
 			if c.ToolCall != nil {
 				remapID(&c.ToolCall.ID)
@@ -116,30 +122,46 @@ func Adapt(
 				return fail("opaque content requires its original destination")
 			}
 			if c.HostedUse != nil || c.HostedResult != nil ||
-				c.HostedApprovalRequest != nil || c.HostedApprovalResponse != nil {
-				if err := hosted.check(*c, m.Role, origin, mi); err != nil {
+				c.HostedApprovalRequest != nil ||
+				c.HostedApprovalResponse != nil {
+				if err := hosted.check(
+					*c,
+					m.Role,
+					origin,
+					mi,
+				); err != nil {
 					return fail(err.Error())
 				}
 				kept = append(kept, *c)
 				continue
 			}
 			if c.Kind == llm.ContentReminder {
-				if m.Role != llm.RoleUser || len(m.Content) != 1 {
+				if m.Role != llm.RoleUser ||
+					len(m.Content) != 1 {
 					return fail("reminder requires its own user-role message")
 				}
 				reminder := *c.Reminder
-				m.Role = llm.ReminderPreparedRole(reminder, origin)
+				m.Role = llm.ReminderPreparedRole(
+					reminder,
+					origin,
+				)
 				*c = llm.Text(llm.FormatReminder(reminder))
 				reason := "typed runtime context rendered for destination"
-				if reminder.Tier == llm.ReminderOperator && m.Role == llm.RoleUser {
+				if reminder.Tier == llm.ReminderOperator &&
+					m.Role == llm.RoleUser {
 					reason = "destination cannot preserve operator authority at this history position; rendered as user context"
 				}
-				changes = append(changes, llm.ContentChange{
-					MessageIndex: mi, ContentIndex: ci,
-					Action:   llm.ContentChangeRenderReminder,
-					Reason:   reason,
-					FromRole: llm.RoleUser, ToRole: m.Role,
-				})
+				changes = append(
+					changes,
+					llm.ContentChange{
+						MessageIndex: mi,
+						ContentIndex: ci,
+						Action:       llm.ContentChangeRenderReminder,
+						Reason:       reason,
+						FromRole:     llm.RoleUser,
+						ToRole:       m.Role,
+					},
+				)
 			}
 			if c.Kind == llm.ContentReasoning {
 				if m.Role != llm.RoleAssistant {
@@ -149,7 +171,8 @@ func Adapt(
 					origin.API == "openai.completions" &&
 					capability.ReplayPlainReasoning
 				unreplayable := !plainReplay &&
-					(c.Replay == nil || c.Replay.Origin != origin ||
+					(c.Replay == nil ||
+						c.Replay.Origin != origin ||
 						origin.API == "openai.completions")
 				if unreplayable {
 					if input.ContentPolicy.UnreplayableReasoning != llm.ReasoningOmit {
@@ -190,7 +213,9 @@ func Adapt(
 			}
 			if c.ToolCall != nil {
 				id := original.Content[ci].ToolCall.ID
-				if m.Role != llm.RoleAssistant || calls[id] || id == "" ||
+				if m.Role != llm.RoleAssistant ||
+					calls[id] ||
+					id == "" ||
 					!utf8.ValidString(id) {
 					return fail("tool call requires assistant role and a unique nonempty UTF-8 ID")
 				}
@@ -198,18 +223,22 @@ func Adapt(
 			}
 			if c.ToolResult != nil {
 				id := original.Content[ci].ToolResult.CallID
-				if m.Role != llm.RoleUser || !pending[id] || !utf8.ValidString(id) {
+				if m.Role != llm.RoleUser ||
+					!pending[id] ||
+					!utf8.ValidString(id) {
 					return fail("tool result requires user role and an unanswered earlier call")
 				}
 				delete(pending, id)
-				if c.ToolResult.IsError && origin.API == "openai.responses" {
+				if c.ToolResult.IsError &&
+					origin.API == "openai.responses" {
 					record(
 						llm.ContentChangeEncodeToolError,
 						"Responses represents the tool error flag with a visible failure prefix",
 					)
 				}
 			}
-			if m.Role == llm.RoleDeveloper && origin.API == "anthropic.messages" {
+			if m.Role == llm.RoleDeveloper &&
+				origin.API == "anthropic.messages" {
 				record(
 					llm.ContentChangeConvertRole,
 					"Messages encodes developer instructions as system content",
@@ -227,7 +256,8 @@ func Adapt(
 		// those blocks cannot make an otherwise empty messages array usable.
 		if len(kept) > 0 &&
 			(origin.API != "anthropic.messages" ||
-				m.Role == llm.RoleUser || m.Role == llm.RoleAssistant) {
+				m.Role == llm.RoleUser ||
+				m.Role == llm.RoleAssistant) {
 			usableHistory = true
 		}
 	}
@@ -303,7 +333,8 @@ func (history *hostedHistory) check(
 	}
 	if c.HostedApprovalResponse != nil {
 		response := c.HostedApprovalResponse
-		if role != llm.RoleUser || !history.approvals[response.RequestID] {
+		if role != llm.RoleUser ||
+			!history.approvals[response.RequestID] {
 			return errors.New("hosted approval requires a preceding request")
 		}
 		history.approvals[response.RequestID] = false
@@ -325,7 +356,8 @@ func (history *hostedHistory) check(
 		}
 	case c.HostedResult != nil:
 		result := c.HostedResult
-		if !history.calls[result.CallID] || history.results[result.CallID] {
+		if !history.calls[result.CallID] ||
+			history.results[result.CallID] {
 			return errors.New("hosted result requires an earlier use")
 		}
 		history.results[result.CallID] = true
@@ -346,7 +378,8 @@ func hostedTail(messages []llm.Message, from int) bool {
 			return false
 		}
 		for _, part := range message.Content {
-			if part.ToolResult == nil && part.HostedApprovalResponse == nil {
+			if part.ToolResult == nil &&
+				part.HostedApprovalResponse == nil {
 				return false
 			}
 		}
@@ -393,8 +426,12 @@ func completedForeignHosted(
 				pairs[key] = hostedPair{
 					use:    position,
 					status: use.Status,
-					valid: !duplicate && message.Role == llm.RoleAssistant &&
-						validForeignReplay(part.Replay, use.Origin),
+					valid: !duplicate &&
+						message.Role == llm.RoleAssistant &&
+						validForeignReplay(
+							part.Replay,
+							use.Origin,
+						),
 				}
 			case part.HostedResult != nil:
 				result := part.HostedResult
@@ -408,7 +445,10 @@ func completedForeignHosted(
 				}
 				pair.valid = pair.valid && !pair.paired &&
 					message.Role == llm.RoleAssistant &&
-					validForeignReplay(part.Replay, result.Origin)
+					validForeignReplay(
+						part.Replay,
+						result.Origin,
+					)
 				pair.paired = true
 				pair.result = position
 				pairs[key] = pair
@@ -478,7 +518,8 @@ func checkBlock(b content.Block, origin content.Origin) error {
 		source = &b.Audio.Source
 	case b.Text != nil:
 		for _, citation := range b.Text.Citations {
-			if citation.Origin != origin || len(citation.Raw) == 0 {
+			if citation.Origin != origin ||
+				len(citation.Raw) == 0 {
 				return errors.New(
 					"providercontent: citation requires its original replay data and destination",
 				)

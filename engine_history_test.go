@@ -12,20 +12,14 @@ import (
 )
 
 func TestEngineStartUsesHistoryWithoutRecordingIt(t *testing.T) {
-	history := []llm.Message{
-		llm.UserMessage(llm.Text("earlier conversation")),
-	}
+	history := []llm.Message{llm.UserMessage(llm.Text("earlier conversation"))}
 	input := llm.UserMessage(llm.Text("current input"))
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	out, err := (Engine{}).Apply(
 		context.Background(),
 		Turn{ID: "history-start"},
 		definition(),
-		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{input},
-		},
+		Start{ID: "start", History: history, Input: []llm.Message{input}},
 		Bindings{Client: client, Recorder: NewMemoryRecorder()},
 	)
 	if err != nil {
@@ -54,9 +48,7 @@ func TestEngineStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 }
 
 func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
-	history := []llm.Message{
-		llm.UserMessage(llm.Text("prior exchange")),
-	}
+	history := []llm.Message{llm.UserMessage(llm.Text("prior exchange"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
@@ -76,10 +68,7 @@ func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
 	if len(client.inputs) != 1 {
 		t.Fatalf("model requests = %d, want 1", len(client.inputs))
 	}
-	want := []llm.Message{
-		history[0],
-		llm.UserMessage(llm.Text("current input")),
-	}
+	want := []llm.Message{history[0], llm.UserMessage(llm.Text("current input"))}
 	if !reflect.DeepEqual(client.inputs[0].Messages, want) {
 		t.Fatalf("continued request omitted history: %#v", client.inputs[0].Messages)
 	}
@@ -93,12 +82,8 @@ func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
 }
 
 func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
-	history := []llm.Message{
-		llm.UserMessage(llm.Text("original history")),
-	}
-	changed := []llm.Message{
-		llm.UserMessage(llm.Text("different history")),
-	}
+	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
+	changed := []llm.Message{llm.UserMessage(llm.Text("different history"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
@@ -143,12 +128,8 @@ func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 }
 
 func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
-	history := []llm.Message{
-		llm.UserMessage(llm.Text("original history")),
-	}
-	changed := []llm.Message{
-		llm.UserMessage(llm.Text("compacted history")),
-	}
+	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
+	changed := []llm.Message{llm.UserMessage(llm.Text("compacted history"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
@@ -273,10 +254,7 @@ func TestEngineInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
 		context.Background(),
 		limited,
 		def,
-		Continue{
-			ID:      "at-limit",
-			History: []llm.Message{{Role: llm.RoleUser}},
-		},
+		Continue{ID: "at-limit", History: []llm.Message{{Role: llm.RoleUser}}},
 		Bindings{Client: &scriptedClient{}, Recorder: recorder},
 	)
 	if err == nil {
@@ -381,10 +359,7 @@ func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
 		context.Background(),
 		first.Turn,
 		definition(),
-		Continue{
-			ID:      "continue",
-			History: []llm.Message{{Role: llm.RoleUser}},
-		},
+		Continue{ID: "continue", History: []llm.Message{{Role: llm.RoleUser}}},
 		Bindings{Client: client, Recorder: recorder},
 	)
 	if err == nil {
@@ -400,9 +375,7 @@ func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
 }
 
 func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
-	history := []llm.Message{
-		llm.UserMessage(llm.Text("history after reload")),
-	}
+	history := []llm.Message{llm.UserMessage(llm.Text("history after reload"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first, err := (Engine{}).Apply(
@@ -412,14 +385,9 @@ func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 		Start{
 			ID:      "start",
 			History: history,
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("current input")),
-			},
+			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
-		Bindings{
-			Client:   client,
-			Recorder: failIntentRecorder{base: recorder},
-		},
+		Bindings{Client: client, Recorder: failIntentRecorder{base: recorder}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -517,9 +485,7 @@ func startPausedHistoryTurn(
 		Start{
 			ID:      "start",
 			History: history,
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("current input")),
-			},
+			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
 		Bindings{Client: client, Recorder: recorder, Pause: paused},
 	)

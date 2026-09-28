@@ -42,10 +42,14 @@ func (b ImageSizeBounds) Check(size Size) error {
 	if size.Width <= 0 || size.Height <= 0 {
 		return errors.New("media: image size requires two positive edges")
 	}
-	if b.MaxEdge > 0 && (size.Width > b.MaxEdge || size.Height > b.MaxEdge) {
+	if b.MaxEdge > 0 &&
+		(size.Width > b.MaxEdge ||
+			size.Height > b.MaxEdge) {
 		return errors.New("media: image size exceeds maximum edge")
 	}
-	if b.Multiple > 0 && (size.Width%b.Multiple != 0 || size.Height%b.Multiple != 0) {
+	if b.Multiple > 0 &&
+		(size.Width%b.Multiple != 0 ||
+			size.Height%b.Multiple != 0) {
 		return errors.New("media: image size edges require a supported multiple")
 	}
 	hi, pixels := bits.Mul64(uint64(size.Width), uint64(size.Height))
@@ -56,9 +60,16 @@ func (b ImageSizeBounds) Check(size Size) error {
 		return errors.New("media: image size is below minimum pixels")
 	}
 	if b.MaxAspectRatio > 0 {
-		larger, smaller := max(size.Width, size.Height), min(size.Width, size.Height)
+		larger, smaller := max(
+			size.Width,
+			size.Height,
+		), min(
+			size.Width,
+			size.Height,
+		)
 		if larger/smaller > b.MaxAspectRatio ||
-			(larger/smaller == b.MaxAspectRatio && larger%smaller != 0) {
+			(larger/smaller == b.MaxAspectRatio &&
+				larger%smaller != 0) {
 			return errors.New("media: image aspect ratio exceeds maximum")
 		}
 	}
@@ -173,7 +184,9 @@ func (m ModelInfo) Validate() error {
 		}
 	}
 	if c := m.Video; c != nil {
-		if !c.Generate.Valid() || !c.Edit.Valid() || !c.Extend.Valid() ||
+		if !c.Generate.Valid() ||
+			!c.Edit.Valid() ||
+			!c.Extend.Valid() ||
 			!c.ReferenceFrames.Valid() {
 			return errors.New("media: invalid video capabilities")
 		}
@@ -222,7 +235,10 @@ func (c ImageCapabilities) Check(
 	}
 	switch input.Operation {
 	case ImageGenerate:
-		if err := check.support("image.generate", c.Generate); err != nil {
+		if err := check.support(
+			"image.generate",
+			c.Generate,
+		); err != nil {
 			return nil, err
 		}
 	case ImageEdit:
@@ -244,10 +260,18 @@ func (c ImageCapabilities) Check(
 		{"image.resolution", s.Resolution, c.Resolutions},
 		{"image.aspect_ratio", s.AspectRatio, c.AspectRatios},
 		{"image.quality", s.Quality, c.Qualities},
-		{"image.output_mime_type", s.OutputMIMEType, c.OutputMIMETypes},
+		{
+			"image.output_mime_type",
+			s.OutputMIMEType,
+			c.OutputMIMETypes,
+		},
 	} {
 		if requested.value != "" {
-			if err := check.string(requested.name, requested.value, requested.values); err != nil {
+			if err := check.string(
+				requested.name,
+				requested.value,
+				requested.values,
+			); err != nil {
 				return nil, err
 			}
 		}
@@ -293,7 +317,10 @@ func (c VideoCapabilities) Check(
 	}
 	switch input.Operation {
 	case "", VideoGenerate:
-		if err := check.support("video.generate", c.Generate); err != nil {
+		if err := check.support(
+			"video.generate",
+			c.Generate,
+		); err != nil {
 			return nil, err
 		}
 	case VideoEdit:
@@ -306,7 +333,10 @@ func (c VideoCapabilities) Check(
 		}
 	}
 	if len(input.ReferenceFrames) > 0 {
-		if err := check.support("video.reference_frames", c.ReferenceFrames); err != nil {
+		if err := check.support(
+			"video.reference_frames",
+			c.ReferenceFrames,
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -320,7 +350,11 @@ func (c VideoCapabilities) Check(
 		{"video.aspect_ratio", s.AspectRatio, c.AspectRatios},
 	} {
 		if requested.value != "" {
-			if err := check.string(requested.name, requested.value, requested.values); err != nil {
+			if err := check.string(
+				requested.name,
+				requested.value,
+				requested.values,
+			); err != nil {
 				return nil, err
 			}
 		}
@@ -336,7 +370,10 @@ func (c VideoCapabilities) Check(
 	}
 	if s.Duration > 0 {
 		switch {
-		case len(c.Durations) > 0 && !slices.Contains(c.Durations, s.Duration):
+		case len(c.Durations) > 0 && !slices.Contains(
+			c.Durations,
+			s.Duration,
+		):
 			return nil, errors.New("media: requested video duration is unsupported")
 		case c.MinDuration > 0 && s.Duration < c.MinDuration:
 			return nil, errors.New("media: requested video duration is too short")
@@ -357,7 +394,9 @@ type capabilityCheck struct {
 	unverified []string
 }
 
-func newCapabilityCheck(policy model.CapabilityPolicy) (*capabilityCheck, error) {
+func newCapabilityCheck(
+	policy model.CapabilityPolicy,
+) (*capabilityCheck, error) {
 	if !policy.Valid() {
 		return nil, errors.New("media: invalid capability policy")
 	}
@@ -382,7 +421,11 @@ func (c *capabilityCheck) string(name, value string, values []string) error {
 		return c.unknown(name)
 	}
 	if !slices.Contains(values, value) {
-		return fmt.Errorf("media: %s value %q is unsupported", name, value)
+		return fmt.Errorf(
+			"media: %s value %q is unsupported",
+			name,
+			value,
+		)
 	}
 	return nil
 }

@@ -13,10 +13,15 @@ import (
 	"github.com/deepnoodle-ai/kernel/model"
 )
 
-func (p *MediaClient) imageEvidence(in media.ImageInput) (*media.ModelInfo, []string, error) {
+func (p *MediaClient) imageEvidence(
+	in media.ImageInput,
+) (*media.ModelInfo, []string, error) {
 	info, known := p.ImageModelInfo(in.Model)
 	if !known {
-		unverified, err := (media.ImageCapabilities{}).Check(in, p.config.CapabilityPolicy)
+		unverified, err := (media.ImageCapabilities{}).Check(
+			in,
+			p.config.CapabilityPolicy,
+		)
 		return nil, unverified, err
 	}
 	unverified, err := info.Image.Check(in, p.config.CapabilityPolicy)
@@ -24,7 +29,10 @@ func (p *MediaClient) imageEvidence(in media.ImageInput) (*media.ModelInfo, []st
 }
 
 // PrepareImage encodes a single native image call without network I/O.
-func (p *MediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (media.ImageRequest, error) {
+func (p *MediaClient) PrepareImage(
+	ctx context.Context,
+	in media.ImageInput,
+) (media.ImageRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return media.ImageRequest{}, err
 	}
@@ -32,20 +40,37 @@ func (p *MediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (me
 		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
 	if strings.HasPrefix(in.Model, "imagen-") {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Imagen models are retired from the Gemini API")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Imagen models are retired from the Gemini API",
+		)
 	}
-	if in.Mask != nil || in.Settings.Size.Width != 0 || in.Settings.Quality != "" ||
+	if in.Mask != nil ||
+		in.Settings.Size.Width != 0 ||
+		in.Settings.Quality != "" ||
 		in.Settings.OutputMIMEType != "" || in.Settings.Count > 1 {
-		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "Gemini image mask, exact size, quality, output MIME, or count above one")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Gemini image mask, exact size, quality, output MIME, or count above one",
+		)
 	}
-	if err := validateImageModelResolution(in.Model, in.Settings.Resolution); err != nil {
+	if err := validateImageModelResolution(
+		in.Model,
+		in.Settings.Resolution,
+	); err != nil {
 		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
-	if err := validateImageModelAspectRatio(in.Model, in.Settings.AspectRatio); err != nil {
+	if err := validateImageModelAspectRatio(
+		in.Model,
+		in.Settings.AspectRatio,
+	); err != nil {
 		return media.ImageRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
 	if in.Operation == media.ImageGenerate && len(in.ReferenceImages) > 0 {
-		return media.ImageRequest{}, p.failure(media.ErrorInvalidRequest, "reference images require edit operation")
+		return media.ImageRequest{}, p.failure(
+			media.ErrorInvalidRequest,
+			"reference images require edit operation",
+		)
 	}
 	info, unverified, err := p.imageEvidence(in)
 	if err != nil {
@@ -84,9 +109,16 @@ func (p *MediaClient) PrepareImage(ctx context.Context, in media.ImageInput) (me
 	if err != nil {
 		return media.ImageRequest{}, err
 	}
-	return media.NewImageRequest(media.ImageRequestSnapshot{Origin: p.imageOrigin(in.Model),
-		Input: in, Effective: in.Settings, Body: body, ContentType: "application/json",
-		ModelInfo: info, CapabilityPolicy: p.config.CapabilityPolicy, Unverified: unverified})
+	return media.NewImageRequest(media.ImageRequestSnapshot{
+		Origin:           p.imageOrigin(in.Model),
+		Input:            in,
+		Effective:        in.Settings,
+		Body:             body,
+		ContentType:      "application/json",
+		ModelInfo:        info,
+		CapabilityPolicy: p.config.CapabilityPolicy,
+		Unverified:       unverified,
+	})
 }
 
 func (p *MediaClient) imagePart(b content.Block) (any, error) {
@@ -102,27 +134,51 @@ func (p *MediaClient) imagePart(b content.Block) (any, error) {
 		}
 		return p.inlineImage(b.Image.Source)
 	default:
-		return nil, p.failure(media.ErrorUnsupported, "image prompt block %q", b.Kind)
+		return nil, p.failure(
+			media.ErrorUnsupported,
+			"image prompt block %q",
+			b.Kind,
+		)
 	}
 }
 
 func (p *MediaClient) inlineImage(source content.Source) (any, error) {
 	if source.Data == nil || !strings.HasPrefix(source.MIMEType, "image/") {
-		return nil, p.failure(media.ErrorUnsupported, "Gemini media references require inline image bytes")
+		return nil, p.failure(
+			media.ErrorUnsupported,
+			"Gemini media references require inline image bytes",
+		)
 	}
-	return map[string]any{"inlineData": map[string]any{
-		"mimeType": source.MIMEType,
-		"data":     base64.StdEncoding.EncodeToString(source.Data),
-	}}, nil
+	return map[string]any{
+		"inlineData": map[string]any{
+			"mimeType": source.MIMEType,
+			"data":     base64.StdEncoding.EncodeToString(source.Data),
+		},
+	}, nil
 }
 
 // SendImage dispatches the prepared image call exactly once.
-func (p *MediaClient) SendImage(ctx context.Context, prepared media.ImageRequest) (media.Result, error) {
+func (p *MediaClient) SendImage(
+	ctx context.Context,
+	prepared media.ImageRequest,
+) (media.Result, error) {
 	in := prepared.Input()
-	if prepared.Origin() != p.imageOrigin(in.Model) || prepared.ContentType() != "application/json" {
-		return media.Result{}, p.failure(media.ErrorInvalidRequest, "prepared image request belongs to another destination")
+	if prepared.Origin() != p.imageOrigin(in.Model) ||
+		prepared.ContentType() != "application/json" {
+		return media.Result{}, p.failure(
+			media.ErrorInvalidRequest,
+			"prepared image request belongs to another destination",
+		)
 	}
-	raw, err := p.do(ctx, http.MethodPost, p.imageURL(in.Model), prepared.Body(), prepared.ContentType(), maxImageResponseBytes, false)
+	raw, err := p.do(
+		ctx,
+		http.MethodPost,
+		p.imageURL(in.Model),
+		prepared.Body(),
+		prepared.ContentType(),
+		maxImageResponseBytes,
+		false,
+	)
 	if err != nil {
 		return media.Result{}, err
 	}
@@ -145,12 +201,24 @@ func (p *MediaClient) SendImage(ctx context.Context, prepared media.ImageRequest
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal(raw, &response); err != nil {
-		return media.Result{}, p.failure(media.ErrorProtocol, "decode image response: %w", err)
+		return media.Result{}, p.failure(
+			media.ErrorProtocol,
+			"decode image response: %w",
+			err,
+		)
 	}
-	result := media.Result{Kind: media.KindImage, Requested: model.ModelRef{Provider: p.Provider(), Model: in.Model},
-		API: ImageAPI, ResponseID: response.ResponseID, RawUsage: slices.Clone(response.UsageMetadata)}
+	result := media.Result{
+		Kind:       media.KindImage,
+		Requested:  model.ModelRef{Provider: p.Provider(), Model: in.Model},
+		API:        ImageAPI,
+		ResponseID: response.ResponseID,
+		RawUsage:   slices.Clone(response.UsageMetadata),
+	}
 	if response.ModelVersion != "" {
-		result.Served = model.ModelRef{Provider: p.Provider(), Model: response.ModelVersion}
+		result.Served = model.ModelRef{
+			Provider: p.Provider(),
+			Model:    response.ModelVersion,
+		}
 	}
 	for _, candidate := range response.Candidates {
 		for _, part := range candidate.Content.Parts {
@@ -162,14 +230,26 @@ func (p *MediaClient) SendImage(ctx context.Context, prepared media.ImageRequest
 			}
 			if part.InlineData != nil {
 				if !strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-					return result, p.failure(media.ErrorProtocol, "non-image data in image response")
+					return result, p.failure(
+						media.ErrorProtocol,
+						"non-image data in image response",
+					)
 				}
 				data, err := base64.StdEncoding.DecodeString(part.InlineData.Data)
 				if err != nil {
-					return result, p.failure(media.ErrorProtocol, "decode generated image: %w", err)
+					return result, p.failure(
+						media.ErrorProtocol,
+						"decode generated image: %w",
+						err,
+					)
 				}
-				result.Content = append(result.Content, content.ImageBlock(content.Source{Data: data,
-					MIMEType: part.InlineData.MIMEType}))
+				result.Content = append(
+					result.Content,
+					content.ImageBlock(content.Source{
+						Data:     data,
+						MIMEType: part.InlineData.MIMEType,
+					}),
+				)
 			}
 		}
 	}

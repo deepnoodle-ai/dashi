@@ -237,11 +237,14 @@ func claim(t *testing.T, s Store, id, by string) {
 }
 
 func commit(t *testing.T, s Store, step kernel.Step, by string) error {
-	return s.Commit(t.Context(), kernel.CommitRequest{
-		Step:        step,
-		ExpectedSeq: step.Seq - 1,
-		Owner:       by,
-	})
+	return s.Commit(
+		t.Context(),
+		kernel.CommitRequest{
+			Step:        step,
+			ExpectedSeq: step.Seq - 1,
+			Owner:       by,
+		},
+	)
 }
 
 // stepTime has microsecond precision, which timestamp columns preserve.
@@ -285,10 +288,9 @@ func contextStep(id string, seq int64, text string) kernel.Step {
 		At:      stepTime.Add(time.Duration(seq) * time.Millisecond),
 		Kind:    kernel.StepDelivered,
 		Context: &kernel.ContextFact{
-			Items: []kernel.ContextItem{{
-				Origin:  "user",
-				Message: llm.UserMessage(llm.Text(text)),
-			}},
+			Items: []kernel.ContextItem{
+				{Origin: "user", Message: llm.UserMessage(llm.Text(text))},
+			},
 		},
 	}
 }

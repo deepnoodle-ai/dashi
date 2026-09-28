@@ -18,72 +18,92 @@ import (
 
 func TestPrepareRemapsToolIDAndSendsFrozenBody(t *testing.T) {
 	for _, stream := range []bool{false, true} {
-		t.Run(map[bool]string{false: "complete", true: "stream"}[stream], func(t *testing.T) {
-			var sent []byte
-			server := httptest.NewServer(http.HandlerFunc(
-				func(w http.ResponseWriter, r *http.Request) {
-					var err error
-					sent, err = io.ReadAll(r.Body)
-					if err != nil {
-						t.Errorf("read body: %v", err)
-					}
-					if stream {
-						w.Header().Set("Content-Type", "text/event-stream")
-						io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n")
-					} else {
-						io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)
-					}
-				},
-			))
-			defer server.Close()
-			client := newTestClient(t, server)
-			input := geminiToolHistory("call / 東京")
-			input.Stream = stream
-			original, err := json.Marshal(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			request, err := client.Prepare(context.Background(), input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if sent != nil {
-				t.Fatal("Prepare dispatched a request")
-			}
-			changes := request.ContentChanges()
-			if len(changes) != 2 {
-				t.Fatalf("remap decisions = %+v", changes)
-			}
-			mapped := changes[0].ToID
-			for i, change := range changes {
-				if change.Action != llm.ContentChangeRemapToolID ||
-					change.MessageIndex != i+1 || change.ContentIndex != 0 ||
-					change.FromID != "call / 東京" || change.ToID != mapped {
-					t.Fatalf("decision %d = %+v", i, change)
+		t.Run(
+			map[bool]string{
+				false: "complete",
+				true:  "stream",
+			}[stream],
+			func(t *testing.T) {
+				var sent []byte
+				server := httptest.NewServer(http.HandlerFunc(
+					func(w http.ResponseWriter, r *http.Request) {
+						var err error
+						sent, err = io.ReadAll(r.Body)
+						if err != nil {
+							t.Errorf("read body: %v", err)
+						}
+						if stream {
+							w.Header().Set("Content-Type", "text/event-stream")
+							io.WriteString(
+								w,
+								"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+							)
+						} else {
+							io.WriteString(
+								w,
+								`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`,
+							)
+						}
+					},
+				))
+				defer server.Close()
+				client := newTestClient(t, server)
+				input := geminiToolHistory("call / 東京")
+				input.Stream = stream
+				original, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			if mapped == "call / 東京" || mapped == "" || strings.Contains(mapped, "/") {
-				t.Fatalf("ID was not made portable: %q", mapped)
-			}
-			callID, resultID := geminiWireToolIDs(t, request.Body())
-			if callID != mapped || resultID != mapped {
-				t.Fatalf("wire IDs = %q, %q; mapped = %q", callID, resultID, mapped)
-			}
-			stored, err := json.Marshal(request.Input())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(stored, original) {
-				t.Fatal("preparation changed original tool identity")
-			}
-			input.Messages[1].Content[0].ToolCall.ID = "mutated"
-			if _, err := client.Send(context.Background(), llm.Call{Request: request}); err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(sent, request.Body()) {
-				t.Fatal("Send changed the prepared body")
-			}
-		})
+				request, err := client.Prepare(context.Background(), input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if sent != nil {
+					t.Fatal("Prepare dispatched a request")
+				}
+				changes := request.ContentChanges()
+				if len(changes) != 2 {
+					t.Fatalf("remap decisions = %+v", changes)
+				}
+				mapped := changes[0].ToID
+				for i, change := range changes {
+					if change.Action != llm.ContentChangeRemapToolID ||
+						change.MessageIndex != i+1 || change.ContentIndex != 0 ||
+						change.FromID != "call / 東京" || change.ToID != mapped {
+						t.Fatalf("decision %d = %+v", i, change)
+					}
+				}
+				if mapped == "call / 東京" || mapped == "" || strings.Contains(
+					mapped,
+					"/",
+				) {
+					t.Fatalf("ID was not made portable: %q", mapped)
+				}
+				callID, resultID := geminiWireToolIDs(t, request.Body())
+				if callID != mapped || resultID != mapped {
+					t.Fatalf("wire IDs = %q, %q; mapped = %q", callID, resultID, mapped)
+				}
+				stored, err := json.Marshal(request.Input())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(stored, original) {
+					t.Fatal("preparation changed original tool identity")
+				}
+				input.Messages[1].Content[0].ToolCall.ID = "mutated"
+				if _, err := client.Send(
+					context.Background(),
+					llm.Call{
+						Request: request,
+					},
+				); err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(sent, request.Body()) {
+					t.Fatal("Send changed the prepared body")
+				}
+			},
+		)
 	}
 }
 
@@ -114,7 +134,11 @@ func TestPrepareOverlaysUnsignedGeminiToolReplayID(t *testing.T) {
 	if callID != mapped || resultID != mapped {
 		t.Fatalf("wire IDs = %q, %q; mapped = %q", callID, resultID, mapped)
 	}
-	if got := request.Input().Messages[1].Content[0]; got.ToolCall.ID != "source / id" || !bytes.Equal(got.Replay.Raw, raw) {
+	if got := request.Input().Messages[1].Content[0]; got.ToolCall.ID != "source / id" ||
+		!bytes.Equal(
+			got.Replay.Raw,
+			raw,
+		) {
 		t.Fatal("original canonical or replay identity changed")
 	}
 }
@@ -164,10 +188,13 @@ func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 	response := []byte(
 		`{"responseId":"r1","candidates":[{"content":{"parts":[{"functionCall":{"id":"source / id","name":"search","args":{"n":9007199254740993}}}]},"finishReason":"STOP"}]}`,
 	)
-	decoded, err := codec.decode(response, llm.ModelRef{
-		Provider: "google",
-		Model:    "gemini-test",
-	})
+	decoded, err := codec.decode(
+		response,
+		llm.ModelRef{
+			Provider: "google",
+			Model:    "gemini-test",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +203,9 @@ func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 		t.Fatalf("provider decode rounded argument number: %s", call.ToolCall.Args)
 	}
 	input := sampleInput(false)
-	input.Messages = append(input.Messages, decoded.Message,
+	input.Messages = append(
+		input.Messages,
+		decoded.Message,
 		llm.UserMessage(llm.Content{
 			Kind: llm.ContentToolResult,
 			ToolResult: &llm.ToolResult{
@@ -189,14 +218,22 @@ func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(request.ContentChanges()) != 2 {
-		t.Fatalf("decoded tool exchange was not remapped: %+v", request.ContentChanges())
+		t.Fatalf(
+			"decoded tool exchange was not remapped: %+v",
+			request.ContentChanges(),
+		)
 	}
 	if !bytes.Contains(request.Body(), []byte(`"n":9007199254740993`)) ||
 		bytes.Contains(request.Body(), []byte(`9007199254740992`)) {
-		t.Fatalf("prepared body changed provider argument number: %s", request.Body())
+		t.Fatalf(
+			"prepared body changed provider argument number: %s",
+			request.Body(),
+		)
 	}
-	if !bytes.Contains(request.Input().Messages[1].Content[0].Replay.Raw,
-		[]byte(`"n":9007199254740993`)) {
+	if !bytes.Contains(
+		request.Input().Messages[1].Content[0].Replay.Raw,
+		[]byte(`"n":9007199254740993`),
+	) {
 		t.Fatal("snapshot changed original provider replay")
 	}
 }
@@ -276,11 +313,19 @@ func TestPrepareKeepsSynthesizedGeminiToolID(t *testing.T) {
 		t.Fatalf("synthesized ID could not replay: %v", err)
 	}
 	if len(request.ContentChanges()) != 0 {
-		t.Fatalf("synthesized portable ID was remapped: %+v", request.ContentChanges())
+		t.Fatalf(
+			"synthesized portable ID was remapped: %+v",
+			request.ContentChanges(),
+		)
 	}
 	callID, resultID := geminiWireToolIDs(t, request.Body())
 	if callID != id || resultID != id {
-		t.Fatalf("synthesized ID changed: call=%q result=%q want=%q", callID, resultID, id)
+		t.Fatalf(
+			"synthesized ID changed: call=%q result=%q want=%q",
+			callID,
+			resultID,
+			id,
+		)
 	}
 	if !bytes.Equal(request.Input().Messages[1].Content[0].Replay.Raw, raw) {
 		t.Fatal("original replay was rewritten")
@@ -292,8 +337,14 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 		name string
 		raw  json.RawMessage
 	}{
-		{"missing_id", json.RawMessage(`{"functionCall":{"name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`)},
-		{"empty_id", json.RawMessage(`{"functionCall":{"id":"","name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`)},
+		{
+			"missing_id",
+			json.RawMessage(`{"functionCall":{"name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`),
+		},
+		{
+			"empty_id",
+			json.RawMessage(`{"functionCall":{"id":"","name":"search","args":{"q":"yes"}},"thoughtSignature":"c2ln"}`),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, err := New(Config{
@@ -313,7 +364,8 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 				t.Fatal("decoded call has no internal ID")
 			}
 			input := sampleInput(false)
-			input.Messages = append(input.Messages,
+			input.Messages = append(
+				input.Messages,
 				llm.AssistantMessage(part),
 				llm.UserMessage(llm.Content{
 					Kind: llm.ContentToolResult,
@@ -326,7 +378,10 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("signed ID-less replay failed: %v", err)
 			}
-			if !bytes.Equal(request.Input().Messages[1].Content[0].Replay.Raw, tc.raw) {
+			if !bytes.Equal(
+				request.Input().Messages[1].Content[0].Replay.Raw,
+				tc.raw,
+			) {
 				t.Fatal("signed ID-less replay data changed")
 			}
 			var body struct {
@@ -338,18 +393,28 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 				t.Fatal(err)
 			}
 			var sourceCall, wireCall any
-			if err := json.Unmarshal(body.Contents[1].Parts[0]["functionCall"], &wireCall); err != nil {
+			if err := json.Unmarshal(
+				body.Contents[1].Parts[0]["functionCall"],
+				&wireCall,
+			); err != nil {
 				t.Fatal(err)
 			}
 			var sourceFields map[string]json.RawMessage
 			if err := json.Unmarshal(tc.raw, &sourceFields); err != nil {
 				t.Fatal(err)
 			}
-			if err := json.Unmarshal(sourceFields["functionCall"], &sourceCall); err != nil {
+			if err := json.Unmarshal(
+				sourceFields["functionCall"],
+				&sourceCall,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(sourceCall, wireCall) {
-				t.Fatalf("signed function call changed: source=%v wire=%v", sourceCall, wireCall)
+				t.Fatalf(
+					"signed function call changed: source=%v wire=%v",
+					sourceCall,
+					wireCall,
+				)
 			}
 			if string(body.Contents[1].Parts[0]["thoughtSignature"]) != `"c2ln"` {
 				t.Fatal("signed function call lost its thought signature")
@@ -387,7 +452,8 @@ func clientOrigin(t *testing.T, client *Client, model string) content.Origin {
 
 func geminiToolHistory(id string) llm.Input {
 	input := sampleInput(false)
-	input.Messages = append(input.Messages,
+	input.Messages = append(
+		input.Messages,
 		llm.AssistantMessage(llm.Content{
 			Kind: llm.ContentToolCall,
 			ToolCall: &tool.Call{

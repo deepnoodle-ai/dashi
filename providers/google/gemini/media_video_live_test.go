@@ -29,17 +29,35 @@ func TestLiveVeoVideoJob(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_VIDEO_MODEL are required")
 	}
-	client, err := NewMedia(MediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
+	client, err := NewMedia(MediaConfig{
+		APIKey:           key,
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	job := media.Job{ID: os.Getenv("KERNEL_LIVE_VEO_JOB_ID"), Kind: media.KindVideo, Origin: client.videoOrigin(modelName)}
+	job := media.Job{
+		ID:     os.Getenv("KERNEL_LIVE_VEO_JOB_ID"),
+		Kind:   media.KindVideo,
+		Origin: client.videoOrigin(modelName),
+	}
 	if job.ID == "" {
-		request, err := client.PrepareVideo(ctx, media.VideoInput{Model: modelName,
-			Prompt:   []content.Block{content.TextBlock("A single blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text.")},
-			Settings: media.VideoSettings{Duration: 4 * time.Second, Resolution: "720p", AspectRatio: "16:9"}})
+		request, err := client.PrepareVideo(
+			ctx,
+			media.VideoInput{
+				Model: modelName,
+				Prompt: []content.Block{
+					content.TextBlock("A single blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text."),
+				},
+				Settings: media.VideoSettings{
+					Duration:    4 * time.Second,
+					Resolution:  "720p",
+					AspectRatio: "16:9",
+				},
+			},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,15 +106,25 @@ func TestLiveOmniVideoCall(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_OMNI_MODEL are required")
 	}
-	client, err := NewInteractionsMedia(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
+	client, err := NewInteractionsMedia(InteractionsMediaConfig{
+		APIKey:           key,
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	request, err := client.PrepareVideo(ctx, media.VideoInput{Model: modelName,
-		Prompt:   []content.Block{content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text.")},
-		Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"}})
+	request, err := client.PrepareVideo(
+		ctx,
+		media.VideoInput{
+			Model: modelName,
+			Prompt: []content.Block{
+				content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text."),
+			},
+			Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,23 +144,42 @@ func TestLiveOmniVideoJob(t *testing.T) {
 	if key == "" || modelName == "" {
 		t.Fatal("GEMINI_API_KEY and GEMINI_OMNI_MODEL are required")
 	}
-	client, err := NewInteractionsVideoJobs(InteractionsMediaConfig{APIKey: key, CapabilityPolicy: model.CapabilityAdjust})
+	client, err := NewInteractionsVideoJobs(InteractionsMediaConfig{
+		APIKey:           key,
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	job := media.Job{ID: os.Getenv("KERNEL_LIVE_OMNI_JOB_ID"), Kind: media.KindVideo, Origin: client.client.origin(modelName)}
+	job := media.Job{
+		ID:     os.Getenv("KERNEL_LIVE_OMNI_JOB_ID"),
+		Kind:   media.KindVideo,
+		Origin: client.client.origin(modelName),
+	}
 	if job.ID == "" {
-		request, err := client.PrepareVideo(ctx, media.VideoInput{Model: modelName,
-			Prompt:   []content.Block{content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text.")},
-			Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"}})
+		request, err := client.PrepareVideo(
+			ctx,
+			media.VideoInput{
+				Model: modelName,
+				Prompt: []content.Block{
+					content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text."),
+				},
+				Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"},
+			},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
 		submission, err := client.SubmitVideo(ctx, request)
 		if err != nil {
-			t.Fatalf("submit (state %s, response %s): %s", submission.State, submission.ResponseID, liveMediaError(err, key))
+			t.Fatalf(
+				"submit (state %s, response %s): %s",
+				submission.State,
+				submission.ResponseID,
+				liveMediaError(err, key),
+			)
 		}
 		if submission.State != media.SubmissionAccepted || submission.Job == nil {
 			t.Fatalf("Omni did not return a Files job: %+v", submission)
@@ -175,24 +222,48 @@ func liveMediaError(err error, key string) string {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(providerErr.Body, &response) != nil || response.Error.Message == "" {
+	if json.Unmarshal(
+		providerErr.Body,
+		&response,
+	) != nil || response.Error.Message == "" {
 		return strings.ReplaceAll(err.Error(), key, "[REDACTED]")
 	}
-	return strings.ReplaceAll(fmt.Sprintf("%v: %s", err, response.Error.Message), key, "[REDACTED]")
+	return strings.ReplaceAll(
+		fmt.Sprintf("%v: %s", err, response.Error.Message),
+		key,
+		"[REDACTED]",
+	)
 }
 
-func checkLiveVideo(t *testing.T, result media.Result, modelName, api, name string) {
+func checkLiveVideo(
+	t *testing.T,
+	result media.Result,
+	modelName, api, name string,
+) {
 	t.Helper()
-	if err := result.Validate(); err != nil || result.Requested.Model != modelName || result.API != api {
-		t.Fatalf("incomplete video result: validation=%v requested=%q api=%q", err, result.Requested.Model, result.API)
+	if err := result.Validate(); err != nil ||
+		result.Requested.Model != modelName ||
+		result.API != api {
+		t.Fatalf(
+			"incomplete video result: validation=%v requested=%q api=%q",
+			err,
+			result.Requested.Model,
+			result.API,
+		)
 	}
 	for _, block := range result.Content {
 		if block.Kind != content.KindVideo {
 			continue
 		}
 		source := block.Video.Source
-		if source.MIMEType != "video/mp4" || len(source.Data) < 12 || string(source.Data[4:8]) != "ftyp" {
-			t.Fatalf("invalid MP4 output: mime=%q bytes=%d", source.MIMEType, len(source.Data))
+		if source.MIMEType != "video/mp4" ||
+			len(source.Data) < 12 ||
+			string(source.Data[4:8]) != "ftyp" {
+			t.Fatalf(
+				"invalid MP4 output: mime=%q bytes=%d",
+				source.MIMEType,
+				len(source.Data),
+			)
 		}
 		if dir := os.Getenv("KERNEL_LIVE_VIDEO_DIR"); dir != "" {
 			if err := os.MkdirAll(dir, 0700); err != nil {

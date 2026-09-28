@@ -147,8 +147,14 @@ func jsonbNumber(lit string) string {
 
 func TestJSONBSimulation(t *testing.T) {
 	for in, want := range map[string]string{
-		"1e2": "100", "1.50": "1.50", "1.5e1": "15", "1.50e1": "15.0",
-		"1e-07": "0.0000001", "-0": "0", "0.5": "0.5", "-2.5E+1": "-25",
+		"1e2":     "100",
+		"1.50":    "1.50",
+		"1.5e1":   "15",
+		"1.50e1":  "15.0",
+		"1e-07":   "0.0000001",
+		"-0":      "0",
+		"0.5":     "0.5",
+		"-2.5E+1": "-25",
 	} {
 		if got := jsonbNumber(in); got != want {
 			t.Errorf("jsonbNumber(%s) = %s, want %s", in, got, want)
@@ -191,7 +197,10 @@ func messyTool(annotations tool.Annotations, exec execFunc) tool.Tool {
 func messyCallResult() llm.Result {
 	call := tool.Call{ID: "call-1", Name: "work", Args: messyArgs}
 	return llm.Result{
-		Message:   llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}),
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &call,
+		}),
 		Stop:      llm.Stop{Kind: llm.StopToolUse},
 		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
 	}
@@ -203,13 +212,21 @@ func messyHistory() []llm.Message {
 		llm.UserMessage(llm.Text("earlier <question>")),
 		llm.AssistantMessage(
 			llm.Content{Kind: llm.ContentToolCall, ToolCall: &call},
-			llm.Content{Kind: llm.ContentOpaque, Opaque: &llm.Opaque{
-				Version: 1,
-				Origin:  content.Origin{Provider: "test", API: "test.chat", Model: "fixture", Scope: "fixture"},
-				Type:    "signature",
-				Unit:    llm.OpaqueUnitItem,
-				Raw:     json.RawMessage(`{"sig": "abc", "n": 2.0e0, "sig": "last"}`),
-			}},
+			llm.Content{
+				Kind: llm.ContentOpaque,
+				Opaque: &llm.Opaque{
+					Version: 1,
+					Origin: content.Origin{
+						Provider: "test",
+						API:      "test.chat",
+						Model:    "fixture",
+						Scope:    "fixture",
+					},
+					Type: "signature",
+					Unit: llm.OpaqueUnitItem,
+					Raw:  json.RawMessage(`{"sig": "abc", "n": 2.0e0, "sig": "last"}`),
+				},
+			},
 		),
 	}
 }
@@ -236,17 +253,39 @@ func reload(t *testing.T, rec jsonbRecorder, id string) Turn {
 
 func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	rec := jsonbRecorder{NewMemoryRecorder()}
-	client := &scriptedClient{results: []llm.Result{messyCallResult(), final("done")}}
+	client := &scriptedClient{
+		results: []llm.Result{messyCallResult(), final("done")},
+	}
 	runs := 0
-	binding := messyTool(tool.Annotations{}, func(_ context.Context, call tool.Call) (tool.Outcome, error) {
-		runs++
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
-	})
-	bindings := Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: deferredPolicy{}}
+	binding := messyTool(
+		tool.Annotations{},
+		func(_ context.Context, call tool.Call) (tool.Outcome, error) {
+			runs++
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ok")),
+			}, nil
+		},
+	)
+	bindings := Bindings{
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   deferredPolicy{},
+	}
 	history := messyHistory()
 
-	out, err := (Engine{}).Apply(t.Context(), Turn{ID: "t1"}, definition(),
-		Start{ID: "start", History: history, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, bindings)
+	out, err := (Engine{}).Apply(
+		t.Context(),
+		Turn{ID: "t1"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
@@ -261,31 +300,59 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	}
 
 	// A retried Start on the reloaded turn is the same command.
-	again, err := (Engine{}).Apply(t.Context(), turn, definition(),
-		Start{ID: "start", History: history, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, bindings)
+	again, err := (Engine{}).Apply(
+		t.Context(),
+		turn,
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+		bindings,
+	)
 	if err != nil || again.Stop.Kind != StopWaiting {
 		t.Fatalf("retried start=%+v err=%v", again.Stop, err)
 	}
 
 	// The application may digest the arguments it saw live or reloaded.
-	for _, args := range []json.RawMessage{messyArgs, view.Tools["call-1"].Call.Args} {
+	for _, args := range []json.RawMessage{
+		messyArgs,
+		view.Tools["call-1"].Call.Args,
+	} {
 		if !digestMatches(digest(args), view.Tools["call-1"].Call.Args) {
 			t.Fatalf("approval digest of %s does not match", args)
 		}
 	}
-	approval := ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: digest(messyArgs), PolicyRevision: "policy-v1"}
+	approval := ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     digest(messyArgs),
+		PolicyRevision: "policy-v1",
+	}
 	accept := Accept{ID: "approve", CallID: "call-1", Approval: &approval}
 	out, err = (Engine{}).Apply(t.Context(), turn, definition(), accept, bindings)
 	if err != nil || !out.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", out, err)
 	}
 	turn = reload(t, rec, "t1")
-	if _, err := (Engine{}).Apply(t.Context(), turn, definition(), accept, bindings); err != nil {
+	if _, err := (Engine{}).Apply(
+		t.Context(),
+		turn,
+		definition(),
+		accept,
+		bindings,
+	); err != nil {
 		t.Fatalf("retried approval: %v", err)
 	}
 
-	out, err = (Engine{}).Apply(t.Context(), turn, definition(),
-		Continue{ID: "continue", History: jsonbRoundTrip(history)}, bindings)
+	out, err = (Engine{}).Apply(
+		t.Context(),
+		turn,
+		definition(),
+		Continue{ID: "continue", History: jsonbRoundTrip(history)},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopCompleted || runs != 1 {
 		t.Fatalf("continue=%+v err=%v runs=%d", out.Stop, err, runs)
 	}
@@ -300,29 +367,54 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	}
 	// Re-committing a reloaded step is an idempotent retry.
 	last := turn.Steps[len(turn.Steps)-1]
-	if err := rec.Commit(t.Context(), CommitRequest{Step: last, ExpectedSeq: last.Seq - 1}); err != nil {
+	if err := rec.Commit(
+		t.Context(),
+		CommitRequest{Step: last, ExpectedSeq: last.Seq - 1},
+	); err != nil {
 		t.Fatalf("recommit of reloaded step: %v", err)
 	}
 }
 
 func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	rec := jsonbRecorder{NewMemoryRecorder()}
-	client := &scriptedClient{results: []llm.Result{messyCallResult(), final("done")}}
+	client := &scriptedClient{
+		results: []llm.Result{messyCallResult(), final("done")},
+	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	runs := 0
-	binding := messyTool(tool.Annotations{Idempotent: ptr(true)}, func(context.Context, tool.Call) (tool.Outcome, error) {
-		runs++
-		if runs == 1 {
-			cancel(errors.New("deploying"))
-		}
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
-	})
-	bindings := Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}}
+	binding := messyTool(
+		tool.Annotations{Idempotent: ptr(true)},
+		func(context.Context, tool.Call) (tool.Outcome, error) {
+			runs++
+			if runs == 1 {
+				cancel(errors.New("deploying"))
+			}
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ok")),
+			}, nil
+		},
+	)
+	bindings := Bindings{
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}
 	history := messyHistory()
 
-	out, err := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(),
-		Start{ID: "start", History: history, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, bindings)
+	out, err := (Engine{}).Apply(
+		ctx,
+		Turn{ID: "t1"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
@@ -334,7 +426,13 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	}
 
 	turn := reload(t, rec, "t1")
-	out, err = (Engine{}).Apply(t.Context(), turn, definition(), Continue{ID: "resume", History: stored}, bindings)
+	out, err = (Engine{}).Apply(
+		t.Context(),
+		turn,
+		definition(),
+		Continue{ID: "resume", History: stored},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopCompleted || runs != 2 {
 		t.Fatalf("resume=%+v err=%v runs=%d", out.Stop, err, runs)
 	}
@@ -352,14 +450,39 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 // argument digests; they must keep working.
 func TestLegacyDigestsStillMatch(t *testing.T) {
 	rec := NewMemoryRecorder()
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("written")}}
-	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "write"), final("written")},
+	}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-			return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
-		})}
-	bindings := Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: deferredPolicy{}}
-	start := Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}
-	out, err := (Engine{}).Apply(t.Context(), Turn{ID: "t1"}, definition(), start, bindings)
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ok")),
+			}, nil
+		}),
+	}
+	bindings := Bindings{
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   deferredPolicy{},
+	}
+	start := Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	}
+	out, err := (Engine{}).Apply(
+		t.Context(),
+		Turn{ID: "t1"},
+		definition(),
+		start,
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
@@ -374,12 +497,27 @@ func TestLegacyDigestsStillMatch(t *testing.T) {
 	legacyRec := newMemoryRecorderForTurn(legacy)
 	bindings.Recorder = legacyRec
 
-	again, err := (Engine{}).Apply(t.Context(), legacy, definition(), start, bindings)
+	again, err := (Engine{}).Apply(
+		t.Context(),
+		legacy,
+		definition(),
+		start,
+		bindings,
+	)
 	if err != nil || again.Stop.Kind != StopWaiting {
 		t.Fatalf("legacy retry=%+v err=%v", again.Stop, err)
 	}
-	changed := Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("different"))}}
-	if _, err := (Engine{}).Apply(t.Context(), legacy, definition(), changed, bindings); !errors.Is(err, ErrCommandConflict) {
+	changed := Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("different"))},
+	}
+	if _, err := (Engine{}).Apply(
+		t.Context(),
+		legacy,
+		definition(),
+		changed,
+		bindings,
+	); !errors.Is(err, ErrCommandConflict) {
 		t.Fatalf("changed legacy command err=%v", err)
 	}
 
@@ -387,8 +525,19 @@ func TestLegacyDigestsStillMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval := ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: legacyHex(view.Tools["call-1"].Call.Args), PolicyRevision: "policy-v1"}
-	accepted, err := (Engine{}).Apply(t.Context(), legacy, definition(), Accept{ID: "approve", CallID: "call-1", Approval: &approval}, bindings)
+	approval := ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     legacyHex(view.Tools["call-1"].Call.Args),
+		PolicyRevision: "policy-v1",
+	}
+	accepted, err := (Engine{}).Apply(
+		t.Context(),
+		legacy,
+		definition(),
+		Accept{ID: "approve", CallID: "call-1", Approval: &approval},
+		bindings,
+	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("legacy approval=%+v err=%v", accepted, err)
 	}
@@ -398,7 +547,18 @@ func TestLegacyDigestsStillMatch(t *testing.T) {
 	}
 	stale := approval
 	stale.ArgsDigest = legacyHex(json.RawMessage(`{"value":2}`))
-	if _, err := (Engine{}).Apply(t.Context(), legacy, definition(), Accept{ID: "stale", CallID: "call-1", Approval: &stale}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: newMemoryRecorderForTurn(legacy), Policy: deferredPolicy{}}); err == nil {
+	if _, err := (Engine{}).Apply(
+		t.Context(),
+		legacy,
+		definition(),
+		Accept{ID: "stale", CallID: "call-1", Approval: &stale},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: newMemoryRecorderForTurn(legacy),
+			Policy:   deferredPolicy{},
+		},
+	); err == nil {
 		t.Fatal("stale legacy approval accepted")
 	}
 }
@@ -431,9 +591,22 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		},
 	}
 	history := messyHistory()
-	bindings := Bindings{Client: client, Recorder: rec, OnHistoryMismatch: HistoryMismatchReject}
-	out, err := (Engine{}).Apply(ctx, Turn{ID: "t1"}, definition(),
-		Start{ID: "start", History: history, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, bindings)
+	bindings := Bindings{
+		Client:            client,
+		Recorder:          rec,
+		OnHistoryMismatch: HistoryMismatchReject,
+	}
+	out, err := (Engine{}).Apply(
+		ctx,
+		Turn{ID: "t1"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
@@ -443,10 +616,19 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	if bytes.Equal(a, b) {
 		t.Fatal("simulation left the history byte-identical")
 	}
-	out, err = (Engine{}).Apply(t.Context(), mustLoad(t, rec), definition(),
-		Continue{ID: "continue", History: stored}, bindings)
+	out, err = (Engine{}).Apply(
+		t.Context(),
+		mustLoad(t, rec),
+		definition(),
+		Continue{ID: "continue", History: stored},
+		bindings,
+	)
 	if err != nil || out.Stop.Kind != StopCompleted {
-		t.Fatalf("strict continue with jsonb history: stop=%+v err=%v", out.Stop, err)
+		t.Fatalf(
+			"strict continue with jsonb history: stop=%+v err=%v",
+			out.Stop,
+			err,
+		)
 	}
 	for _, step := range out.Turn.Steps {
 		if len(step.Warnings) != 0 {
@@ -455,8 +637,13 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	}
 	// A genuinely different history is still rejected.
 	other := append(stored, llm.UserMessage(llm.Text("extra")))
-	_, err = (Engine{}).Apply(t.Context(), mustLoad(t, rec), definition(),
-		Continue{ID: "continue-2", History: other}, bindings)
+	_, err = (Engine{}).Apply(
+		t.Context(),
+		mustLoad(t, rec),
+		definition(),
+		Continue{ID: "continue-2", History: other},
+		bindings,
+	)
 	if !errors.Is(err, ErrHistoryMismatch) {
 		t.Fatalf("different history err=%v", err)
 	}

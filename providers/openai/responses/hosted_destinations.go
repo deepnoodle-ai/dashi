@@ -17,7 +17,8 @@ func (wire codec) destinationHostedTool(
 		return wire.metaHostedTool(definition)
 	}
 	return nil, nil, wire.unsupported(
-		"hosted tools for provider %q", wire.origin.Provider,
+		"hosted tools for provider %q",
+		wire.origin.Provider,
 	)
 }
 
@@ -208,7 +209,8 @@ func (wire codec) metaHostedTool(
 		IncludeResults bool `json:"include_results"`
 	}
 	if err := decodeHostedOptions(
-		definition.Hosted.Options, &options,
+		definition.Hosted.Options,
+		&options,
 	); err != nil {
 		return nil, nil, wire.unsupported("meta web search options: %w", err)
 	}

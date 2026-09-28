@@ -45,23 +45,43 @@ const (
 
 var (
 	claudeAll = []string{
-		"claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5",
-		"claude-mythos-5", "claude-opus-5-5", "claude-opus-5",
-		"claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7",
-		"claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5",
-		"claude-opus-4-5-20251101", "claude-sonnet-4-5",
-		"claude-sonnet-4-5-20250929", "claude-haiku-4-5",
+		"claude-fable-5-1",
+		"claude-mythos-5-1",
+		"claude-fable-5",
+		"claude-mythos-5",
+		"claude-opus-5-5",
+		"claude-opus-5",
+		"claude-sonnet-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20251101",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-haiku-4-5",
 		"claude-haiku-4-5-20251001",
 	}
 	claudeAdaptiveOnly = []string{
-		"claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5",
-		"claude-mythos-5", "claude-opus-5-5", "claude-opus-5",
-		"claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7",
+		"claude-fable-5-1",
+		"claude-mythos-5-1",
+		"claude-fable-5",
+		"claude-mythos-5",
+		"claude-opus-5-5",
+		"claude-opus-5",
+		"claude-sonnet-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
 	}
 	claudeBudget = []string{
-		"claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5",
-		"claude-opus-4-5-20251101", "claude-sonnet-4-5",
-		"claude-sonnet-4-5-20250929", "claude-haiku-4-5",
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20251101",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-haiku-4-5",
 		"claude-haiku-4-5-20251001",
 	}
 )
@@ -99,22 +119,31 @@ var claimSources = []claimSource{
 	},
 	{
 		// Supported, but named in neither the max nor the xhigh row.
-		url:     anthropicEffort,
-		models:  []string{"claude-opus-4-5", "claude-opus-4-5-20251101"},
+		url: anthropicEffort,
+		models: []string{
+			"claude-opus-4-5",
+			"claude-opus-4-5-20251101",
+		},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportSupported,
 		efforts: []string{"low", "medium", "high"},
 	},
 	{
 		// "Default effort: Not supported".
-		url:     anthropicSonnet45,
-		models:  []string{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929"},
+		url: anthropicSonnet45,
+		models: []string{
+			"claude-sonnet-4-5",
+			"claude-sonnet-4-5-20250929",
+		},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportUnsupported,
 	},
 	{
-		url:     anthropicHaiku45,
-		models:  []string{"claude-haiku-4-5", "claude-haiku-4-5-20251001"},
+		url: anthropicHaiku45,
+		models: []string{
+			"claude-haiku-4-5",
+			"claude-haiku-4-5-20251001",
+		},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportUnsupported,
 	},
@@ -138,8 +167,11 @@ var claimSources = []claimSource{
 		// returns a 400 error." Sonnet 5 is covered in the same guide.
 		url: anthropicOpus55Migration,
 		models: []string{
-			"claude-opus-5-5", "claude-opus-5", "claude-opus-4-8",
-			"claude-opus-4-7", "claude-sonnet-5",
+			"claude-opus-5-5",
+			"claude-opus-5",
+			"claude-opus-4-8",
+			"claude-opus-4-7",
+			"claude-sonnet-5",
 		},
 		feature: llm.FeatureTemperature,
 		support: llm.SupportUnsupported,
@@ -166,11 +198,18 @@ var claimSources = []claimSource{
 		// models; forced choice is rejected on Opus 5.5 and the 5.1 models.
 		url: anthropicToolUse,
 		models: []string{
-			"claude-opus-5", "claude-sonnet-5", "claude-opus-4-8",
-			"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
-			"claude-opus-4-5", "claude-opus-4-5-20251101",
-			"claude-sonnet-4-5", "claude-sonnet-4-5-20250929",
-			"claude-haiku-4-5", "claude-haiku-4-5-20251001",
+			"claude-opus-5",
+			"claude-sonnet-5",
+			"claude-opus-4-8",
+			"claude-opus-4-7",
+			"claude-opus-4-6",
+			"claude-sonnet-4-6",
+			"claude-opus-4-5",
+			"claude-opus-4-5-20251101",
+			"claude-sonnet-4-5",
+			"claude-sonnet-4-5-20250929",
+			"claude-haiku-4-5",
+			"claude-haiku-4-5-20251001",
 		},
 		feature: llm.FeatureToolChoice,
 		support: llm.SupportSupported,
@@ -204,13 +243,22 @@ var claimSources = []claimSource{
 		models:  []string{"muse-spark-1.3"},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportSupported,
-		efforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"},
+		efforts: []string{
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		},
 	},
 	{
 		url: "https://dev.meta.ai/docs/reasoning",
 		models: []string{
-			"muse-spark-1.3-contributor", "muse-spark-1.2",
-			"muse-spark-1.2-contributor", "muse-spark-1.1",
+			"muse-spark-1.3-contributor",
+			"muse-spark-1.2",
+			"muse-spark-1.2-contributor",
+			"muse-spark-1.1",
 		},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportSupported,
@@ -221,8 +269,11 @@ var claimSources = []claimSource{
 		// best there".
 		url: "https://dev.meta.ai/docs/protocols/chat-completions",
 		models: []string{
-			"muse-spark-1.3", "muse-spark-1.3-contributor", "muse-spark-1.2",
-			"muse-spark-1.2-contributor", "muse-spark-1.1",
+			"muse-spark-1.3",
+			"muse-spark-1.3-contributor",
+			"muse-spark-1.2",
+			"muse-spark-1.2-contributor",
+			"muse-spark-1.1",
 		},
 		feature: llm.FeatureTemperature,
 		support: llm.SupportSupported,
@@ -266,21 +317,27 @@ func openAIModelPage(model string) string {
 func allClaimSources() []claimSource {
 	sources := slices.Clone(claimSources)
 	for _, model := range slices.Sorted(maps.Keys(openAIEfforts)) {
-		sources = append(sources, claimSource{
-			url:     openAIModelPage(model),
-			models:  []string{model},
-			feature: llm.FeatureReasoningEffort,
-			support: llm.SupportSupported,
-			efforts: openAIEfforts[model],
-		})
+		sources = append(
+			sources,
+			claimSource{
+				url:     openAIModelPage(model),
+				models:  []string{model},
+				feature: llm.FeatureReasoningEffort,
+				support: llm.SupportSupported,
+				efforts: openAIEfforts[model],
+			},
+		)
 	}
 	for _, model := range openAINonReasoning {
-		sources = append(sources, claimSource{
-			url:     openAIModelPage(model),
-			models:  []string{model},
-			feature: llm.FeatureReasoningEffort,
-			support: llm.SupportUnsupported,
-		})
+		sources = append(
+			sources,
+			claimSource{
+				url:     openAIModelPage(model),
+				models:  []string{model},
+				feature: llm.FeatureReasoningEffort,
+				support: llm.SupportUnsupported,
+			},
+		)
 	}
 	return sources
 }
@@ -299,7 +356,11 @@ func TestEveryClaimNamesTheProviderPageThatStatesIt(t *testing.T) {
 				wantFeatures[k] = map[llm.Feature]llm.Support{}
 			}
 			if _, dup := wantFeatures[k][s.feature]; dup {
-				t.Fatalf("%s %s is sourced twice", model, s.feature)
+				t.Fatalf(
+					"%s %s is sourced twice",
+					model,
+					s.feature,
+				)
 			}
 			wantFeatures[k][s.feature] = s.support
 			if s.efforts != nil {
@@ -312,7 +373,11 @@ func TestEveryClaimNamesTheProviderPageThatStatesIt(t *testing.T) {
 			k := key{provider, e.Model}
 			got := maps.Clone(e.Capabilities.Features)
 			if got[llm.FeatureText] != llm.SupportSupported {
-				t.Fatalf("%s %s does not claim text output", provider, e.Model)
+				t.Fatalf(
+					"%s %s does not claim text output",
+					provider,
+					e.Model,
+				)
 			}
 			delete(got, llm.FeatureText)
 			want := wantFeatures[k]
@@ -320,20 +385,31 @@ func TestEveryClaimNamesTheProviderPageThatStatesIt(t *testing.T) {
 				if want[f] != support {
 					t.Fatalf(
 						"%s %s claims %s %q without a source page",
-						provider, e.Model, f, support,
+						provider,
+						e.Model,
+						f,
+						support,
 					)
 				}
 			}
 			for f := range want {
 				if _, ok := got[f]; !ok {
-					t.Fatalf("%s %s lost claim %s", provider, e.Model, f)
+					t.Fatalf(
+						"%s %s lost claim %s",
+						provider,
+						e.Model,
+						f,
+					)
 				}
 			}
 			efforts := e.Capabilities.ReasoningEfforts
 			if !slices.Equal(efforts, wantEfforts[k]) {
 				t.Fatalf(
 					"%s %s efforts = %v, sourced %v",
-					provider, e.Model, efforts, wantEfforts[k],
+					provider,
+					e.Model,
+					efforts,
+					wantEfforts[k],
 				)
 			}
 		}

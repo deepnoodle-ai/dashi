@@ -21,7 +21,12 @@ const completeResponse = `{"id":"chat-1","model":"served","choices":[{"index":0,
 
 func testClient(t *testing.T, endpoint string) *Client {
 	t.Helper()
-	p, err := New(Config{Provider: "openai", Endpoint: endpoint, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	p, err := New(Config{
+		Provider:         "openai",
+		Endpoint:         endpoint,
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,10 +34,18 @@ func testClient(t *testing.T, endpoint string) *Client {
 }
 
 func testInput(stream bool) llm.Input {
-	return llm.Input{Model: "requested", Stream: stream, System: "Be concise.",
+	return llm.Input{
+		Model:    "requested",
+		Stream:   stream,
+		System:   "Be concise.",
 		Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
-		Tools:    []tool.Definition{{Name: "search", Schema: json.RawMessage(`{"type":"object"}`)}},
-		Settings: llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAuto}}}
+		Tools: []tool.Definition{
+			{Name: "search", Schema: json.RawMessage(`{"type":"object"}`)},
+		},
+		Settings: llm.Settings{
+			ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAuto},
+		},
+	}
 }
 
 func TestPrepareSendsFrozenBodyOnce(t *testing.T) {
@@ -58,19 +71,27 @@ func TestPrepareSendsFrozenBodyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempts.Load() != 0 || !strings.Contains(string(prepared.Body()), `"parameters":{"type":"object"}`) {
+	if attempts.Load() != 0 || !strings.Contains(
+		string(prepared.Body()),
+		`"parameters":{"type":"object"}`,
+	) {
 		t.Fatalf("preparation dispatched or lost schema: %s", prepared.Body())
 	}
 	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempts.Load() != 1 || result.ID != "chat-1" || result.Served.Model != "served" ||
+	if attempts.Load() != 1 ||
+		result.ID != "chat-1" ||
+		result.Served.Model != "served" ||
 		result.Stop.Kind != llm.StopToolUse || result.Message.Text() != "Hello" ||
-		len(result.Message.Content) != 2 || result.Message.Content[1].ToolCall.ID != "call-1" {
+		len(result.Message.Content) != 2 ||
+		result.Message.Content[1].ToolCall.ID != "call-1" {
 		t.Fatalf("lost Chat Completions result: %+v", result)
 	}
-	if result.Usage == nil || result.Usage.InputTokens != 7 || result.Usage.CacheReadInputTokens != 5 ||
+	if result.Usage == nil ||
+		result.Usage.InputTokens != 7 ||
+		result.Usage.CacheReadInputTokens != 5 ||
 		result.Usage.OutputTokens != 4 || result.Usage.ReasoningTokens != 2 {
 		t.Fatalf("lost disjoint usage: %+v", result.Usage)
 	}
@@ -81,7 +102,10 @@ func TestStreamAccumulatesFinalUsageAndToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), `"stream_options":{"include_usage":true}`) {
+		if !strings.Contains(
+			string(body),
+			`"stream_options":{"include_usage":true}`,
+		) {
 			t.Errorf("stream usage was not requested: %s", body)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -102,14 +126,29 @@ func TestStreamAccumulatesFinalUsageAndToolCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared, Sink: func(d llm.Delta) { deltas = append(deltas, d) }})
+	result, err := p.Send(
+		context.Background(),
+		llm.Call{
+			Request: prepared,
+			Sink: func(d llm.Delta) {
+				deltas = append(deltas, d)
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempts.Load() != 1 || result.Message.Text() != "Hello" || result.Stop.Kind != llm.StopToolUse ||
-		len(result.Message.Content) != 2 || result.Message.Content[1].ToolCall.ID != "call-1" ||
+	if attempts.Load() != 1 ||
+		result.Message.Text() != "Hello" ||
+		result.Stop.Kind != llm.StopToolUse ||
+		len(result.Message.Content) != 2 ||
+		result.Message.Content[1].ToolCall.ID != "call-1" ||
 		result.Usage == nil || result.Usage.InputTokens != 7 || len(deltas) < 4 {
-		t.Fatalf("stream lost final content or usage: result=%+v deltas=%+v", result, deltas)
+		t.Fatalf(
+			"stream lost final content or usage: result=%+v deltas=%+v",
+			result,
+			deltas,
+		)
 	}
 }
 
@@ -124,12 +163,21 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 				func(w http.ResponseWriter, r *http.Request) {
 					if stream {
 						w.Header().Set("Content-Type", "text/event-stream")
-						io.WriteString(w, "data: "+`{"model":"served","service_tier":"priority","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\n")
-						io.WriteString(w, "data: "+`{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"estimated_cost":0.25}}`+"\n\n")
+						io.WriteString(
+							w,
+							"data: "+`{"model":"served","service_tier":"priority","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\n",
+						)
+						io.WriteString(
+							w,
+							"data: "+`{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"estimated_cost":0.25}}`+"\n\n",
+						)
 						io.WriteString(w, "data: [DONE]\n\n")
 						return
 					}
-					io.WriteString(w, `{"model":"served","service_tier":"priority","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"estimated_cost":0.25}}`)
+					io.WriteString(
+						w,
+						`{"model":"served","service_tier":"priority","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"estimated_cost":0.25}}`,
+					)
 				},
 			))
 			defer server.Close()
@@ -156,7 +204,15 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 				t.Fatal(err)
 			}
 			var deltas []llm.Delta
-			result, err := client.Send(context.Background(), llm.Call{Request: prepared, Sink: func(delta llm.Delta) { deltas = append(deltas, delta) }})
+			result, err := client.Send(
+				context.Background(),
+				llm.Call{
+					Request: prepared,
+					Sink: func(delta llm.Delta) {
+						deltas = append(deltas, delta)
+					},
+				},
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,22 +268,36 @@ func TestReportedZeroCostDiffersFromMissingCost(t *testing.T) {
 
 func TestPrepareRejectsUnsupportedContentBeforeDispatch(t *testing.T) {
 	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
 	input := testInput(false)
-	input.Messages = []llm.Message{llm.UserMessage(llm.Block(content.Block{Kind: content.KindAudio,
-		Audio: &content.Audio{Source: content.Source{Data: []byte("audio"), MIMEType: "audio/wav"}}}))}
+	input.Messages = []llm.Message{
+		llm.UserMessage(llm.Block(content.Block{
+			Kind: content.KindAudio,
+			Audio: &content.Audio{
+				Source: content.Source{Data: []byte("audio"), MIMEType: "audio/wav"},
+			},
+		})),
+	}
 	_, err := p.Prepare(context.Background(), input)
 	var failure *llm.Error
-	if !errors.As(err, &failure) || failure.Category != llm.ErrorUnsupported || attempts.Load() != 0 {
+	if !errors.As(
+		err,
+		&failure,
+	) || failure.Category != llm.ErrorUnsupported || attempts.Load() != 0 {
 		t.Fatalf("unsupported audio dispatched or was misclassified: %v", err)
 	}
 }
 
 func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"id":"r","model":"requested","choices":[{"index":0,"message":{"role":"assistant","content":"answer","reasoning_details":[{"type":"reasoning.text","text":"private"}]},"finish_reason":"stop"}]}`)
+		io.WriteString(
+			w,
+			`{"id":"r","model":"requested","choices":[{"index":0,"message":{"role":"assistant","content":"answer","reasoning_details":[{"type":"reasoning.text","text":"private"}]},"finish_reason":"stop"}]}`,
+		)
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
@@ -239,7 +309,8 @@ func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Message.Content) != 2 || result.Message.Content[0].Opaque == nil {
+	if len(result.Message.Content) != 2 ||
+		result.Message.Content[0].Opaque == nil {
 		t.Fatalf("reasoning details were lost: %+v", result.Message)
 	}
 	input := testInput(false)
@@ -253,7 +324,10 @@ func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"search","arguments":"{\"q\":"}}]}}]}`+"\n\n")
+		io.WriteString(
+			w,
+			`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"search","arguments":"{\"q\":"}}]}}]}`+"\n\n",
+		)
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
@@ -262,8 +336,11 @@ func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
-	if err == nil || result.Stop.Kind != llm.StopIncomplete || len(result.Message.Content) != 1 ||
-		result.Message.Content[0].Opaque == nil || !result.Message.Content[0].Opaque.Partial ||
+	if err == nil ||
+		result.Stop.Kind != llm.StopIncomplete ||
+		len(result.Message.Content) != 1 ||
+		result.Message.Content[0].Opaque == nil ||
+		!result.Message.Content[0].Opaque.Partial ||
 		!strings.Contains(string(result.Message.Content[0].Opaque.Raw), `{\"q\":`) {
 		t.Fatalf("unfinished tool call was lost: result=%+v err=%v", result, err)
 	}

@@ -82,7 +82,10 @@ func New(config Config) (*Client, error) {
 		config.APIKey = os.Getenv("GROK_API_KEY")
 	}
 	u, err := url.Parse(config.Endpoint)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") ||
+	if err != nil ||
+		u.Host == "" ||
+		(u.Scheme != "https" &&
+			u.Scheme != "http") ||
 		u.User != nil || u.Fragment != "" || u.RawQuery != "" {
 		return nil, errors.New("imagine: endpoint must be an absolute HTTP(S) base URL")
 	}
@@ -109,14 +112,20 @@ func New(config Config) (*Client, error) {
 		}
 		if e := info.Evidence; e.Model != name || e.Endpoint != endpoint ||
 			(e.API != ImageAPI && e.API != VideoAPI) {
-			return nil, fmt.Errorf("imagine: model %q evidence does not match destination", name)
+			return nil, fmt.Errorf(
+				"imagine: model %q evidence does not match destination",
+				name,
+			)
 		}
 		imageShape := info.Evidence.API == ImageAPI &&
 			(info.Image == nil || info.Video != nil || info.Audio != nil)
 		videoShape := info.Evidence.API == VideoAPI &&
 			(info.Video == nil || info.Image != nil || info.Audio != nil)
 		if imageShape || videoShape {
-			return nil, fmt.Errorf("imagine: model %q capability does not match its API", name)
+			return nil, fmt.Errorf(
+				"imagine: model %q capability does not match its API",
+				name,
+			)
 		}
 		models[name] = info.Clone()
 	}

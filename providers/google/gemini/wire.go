@@ -60,9 +60,14 @@ type usageWire struct {
 }
 
 func (usage usageWire) normalize() (*llm.Usage, error) {
-	for _, count := range []int{usage.PromptTokenCount, usage.CandidatesTokenCount,
-		usage.CachedContentTokenCount, usage.ThoughtsTokenCount,
-		usage.ToolUsePromptTokenCount, usage.TotalTokenCount} {
+	for _, count := range []int{
+		usage.PromptTokenCount,
+		usage.CandidatesTokenCount,
+		usage.CachedContentTokenCount,
+		usage.ThoughtsTokenCount,
+		usage.ToolUsePromptTokenCount,
+		usage.TotalTokenCount,
+	} {
 		if count < 0 {
 			return nil, fmt.Errorf("gemini: negative usage count")
 		}
@@ -72,36 +77,63 @@ func (usage usageWire) normalize() (*llm.Usage, error) {
 	}
 	// Gemini's prompt count includes cached tokens; provider-managed tool input
 	// and thought output are separate counts. Follow Dive's disjoint buckets.
-	out := &llm.Usage{InputTokens: usage.PromptTokenCount - usage.CachedContentTokenCount + usage.ToolUsePromptTokenCount,
+	out := &llm.Usage{
+		InputTokens:                         usage.PromptTokenCount - usage.CachedContentTokenCount + usage.ToolUsePromptTokenCount,
 		CacheReadInputTokens:                usage.CachedContentTokenCount,
 		OutputTokens:                        usage.CandidatesTokenCount + usage.ThoughtsTokenCount,
 		ToolUseInputTokens:                  usage.ToolUsePromptTokenCount,
 		ReasoningTokens:                     usage.ThoughtsTokenCount,
-		CacheCreationInputTokensUnavailable: true}
-	if usage.TotalTokenCount != 0 && usage.TotalTokenCount != usage.PromptTokenCount+
-		usage.CandidatesTokenCount+usage.ThoughtsTokenCount+usage.ToolUsePromptTokenCount {
+		CacheCreationInputTokensUnavailable: true,
+	}
+	if usage.TotalTokenCount != 0 &&
+		usage.TotalTokenCount != usage.PromptTokenCount+
+			usage.CandidatesTokenCount+usage.ThoughtsTokenCount+usage.ToolUsePromptTokenCount {
 		out.TotalTokenCountMismatch = true
 	}
 	return out, nil
 }
 
-func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error) {
-	result := llm.Result{Requested: requested, Message: llm.Message{Role: llm.RoleAssistant}, Raw: slices.Clone(raw)}
+func (wire codec) decode(
+	raw []byte,
+	requested llm.ModelRef,
+) (llm.Result, error) {
+	result := llm.Result{
+		Requested: requested,
+		Message:   llm.Message{Role: llm.RoleAssistant},
+		Raw:       slices.Clone(raw),
+	}
 	var response responseWire
 	if err := json.Unmarshal(raw, &response); err != nil {
-		return result, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode response: %w", err)
+		return result, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"decode response: %w",
+			err,
+		)
 	}
 	result.ID = response.ResponseID
-	result.Served = llm.ModelRef{Provider: wire.origin.Provider, Model: response.ModelVersion}
+	result.Served = llm.ModelRef{
+		Provider: wire.origin.Provider,
+		Model:    response.ModelVersion,
+	}
 	if response.UsageMetadata != nil {
 		usage, err := response.UsageMetadata.normalize()
 		if err != nil {
-			return result, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "%w", err)
+			return result, providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"%w",
+				err,
+			)
 		}
 		result.Usage = usage
 	}
 	if len(response.Candidates) == 0 {
-		return result, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "response has no candidates")
+		return result, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"response has no candidates",
+		)
 	}
 	candidate := response.Candidates[0]
 	result.Stop.Raw = strings.ToLower(candidate.FinishReason)
@@ -120,7 +152,10 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 	var codeID string
 	for index, rawPart := range candidate.Content.Parts {
 		part, err := wire.decodePartWithCodeID(
-			rawPart, seed, index, codeID,
+			rawPart,
+			seed,
+			index,
+			codeID,
 		)
 		if err != nil {
 			return result, err
@@ -131,13 +166,19 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		}
 	}
 	result.Message.Source = &llm.MessageSource{
-		Requested: requested, Served: result.Served, API: wire.origin.API,
+		Requested:  requested,
+		Served:     result.Served,
+		API:        wire.origin.API,
 		ResponseID: result.ID,
 	}
 	return result, nil
 }
 
-func (wire codec) decodePart(raw json.RawMessage, responseID string, index int) (llm.Content, error) {
+func (wire codec) decodePart(
+	raw json.RawMessage,
+	responseID string,
+	index int,
+) (llm.Content, error) {
 	return wire.decodePartWithCodeID(raw, responseID, index, "")
 }
 
@@ -149,7 +190,12 @@ func (wire codec) decodePartWithCodeID(
 ) (llm.Content, error) {
 	var part partWire
 	if err := providerhttp.Decode(raw, &part); err != nil {
-		return llm.Content{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode part: %w", err)
+		return llm.Content{}, providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"decode part: %w",
+			err,
+		)
 	}
 	kind := "unknown"
 	switch {
@@ -164,8 +210,13 @@ func (wire codec) decodePartWithCodeID(
 	case part.Text != "" || part.ThoughtSignature != "":
 		kind = "text"
 	}
-	replay := &llm.Opaque{Version: 1, Origin: wire.origin, Type: kind,
-		Unit: llm.OpaqueUnitContentBlock, Raw: slices.Clone(raw)}
+	replay := &llm.Opaque{
+		Version: 1,
+		Origin:  wire.origin,
+		Type:    kind,
+		Unit:    llm.OpaqueUnitContentBlock,
+		Raw:     slices.Clone(raw),
+	}
 	switch kind {
 	case "code_execution":
 		id := part.ExecutableCode.ID
@@ -195,9 +246,12 @@ func (wire codec) decodePartWithCodeID(
 		}
 		output := []content.Block{}
 		if part.CodeExecutionResult.Output != "" {
-			output = append(output, content.TextBlock(
-				part.CodeExecutionResult.Output,
-			))
+			output = append(
+				output,
+				content.TextBlock(
+					part.CodeExecutionResult.Output,
+				),
+			)
 		}
 		result := llm.HostedResult{
 			CallID:  id,
@@ -215,10 +269,18 @@ func (wire codec) decodePartWithCodeID(
 		b := content.TextBlock(part.Text)
 		return llm.Content{Kind: llm.ContentBlock, Block: &b, Replay: replay}, nil
 	case "thinking":
-		return llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: part.Text}, Replay: replay}, nil
+		return llm.Content{
+			Kind:      llm.ContentReasoning,
+			Reasoning: &llm.Reasoning{Text: part.Text},
+			Replay:    replay,
+		}, nil
 	case "function_call":
 		if part.FunctionCall.Name == "" {
-			return llm.Content{}, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "function call requires name")
+			return llm.Content{}, providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"function call requires name",
+			)
 		}
 		args, err := json.Marshal(part.FunctionCall.Args)
 		if err != nil {
@@ -229,7 +291,11 @@ func (wire codec) decodePartWithCodeID(
 			id = callID(responseID, part.FunctionCall.Name, index)
 		}
 		call := tool.Call{ID: id, Name: part.FunctionCall.Name, Args: args}
-		return llm.Content{Kind: llm.ContentToolCall, ToolCall: &call, Replay: replay}, nil
+		return llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &call,
+			Replay:   replay,
+		}, nil
 	default:
 		return llm.Content{Kind: llm.ContentOpaque, Opaque: replay}, nil
 	}

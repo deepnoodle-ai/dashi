@@ -1,4 +1,5 @@
-// Output item tracking is adapted from Dive's OpenAI stream iterator. Completed
+// Output item tracking is adapted from Dive's OpenAI stream iterator.
+// Completed
 // responses use the same decoder as blocking calls, including opaque items.
 
 package responses
@@ -18,7 +19,11 @@ import (
 // readStream accumulates Responses stream events and returns the provider's
 // final response when a terminal event arrives. On failure it returns whatever
 // was received so far with an incomplete stop kind.
-func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sink) (final llm.Result, failure error) {
+func (wire codec) readStream(
+	body io.ReadCloser,
+	result llm.Result,
+	sink llm.Sink,
+) (final llm.Result, failure error) {
 	defer func() {
 		if failure != nil {
 			final.Stop.Kind = llm.StopIncomplete
@@ -46,7 +51,13 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			if ps := summaries[i]; len(ps) > 0 {
 				values := make([]any, 0, len(ps))
 				for _, j := range slices.Sorted(maps.Keys(ps)) {
-					values = append(values, map[string]any{"type": "summary_text", "text": ps[j]})
+					values = append(
+						values,
+						map[string]any{
+							"type": "summary_text",
+							"text": ps[j],
+						},
+					)
 				}
 				item["summary"] = values
 			}
@@ -83,7 +94,12 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			Arguments    string
 		}
 		if err := json.Unmarshal(raw, &e); err != nil {
-			return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode stream event: %w", err)
+			return build(), providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"decode stream event: %w",
+				err,
+			)
 		}
 		switch e.Type {
 		case "response.created", "response.in_progress":
@@ -93,7 +109,11 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 		case "response.output_item.added", "response.output_item.done":
 			var item map[string]any
 			if err := providerhttp.Decode(e.Item, &item); err != nil || item == nil {
-				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid output item")
+				return build(), providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"invalid output item",
+				)
 			}
 			items[e.OutputIndex] = item
 			// A finished item carries its complete content and summary, which
@@ -104,8 +124,15 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			}
 		case "response.content_part.added", "response.content_part.done":
 			var p map[string]any
-			if err := providerhttp.Decode(e.Part, &p); err != nil || p == nil || items[e.OutputIndex] == nil {
-				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid content part")
+			if err := providerhttp.Decode(
+				e.Part,
+				&p,
+			); err != nil || p == nil || items[e.OutputIndex] == nil {
+				return build(), providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"invalid content part",
+				)
 			}
 			if parts[e.OutputIndex] == nil {
 				parts[e.OutputIndex] = map[int]map[string]any{}
@@ -113,7 +140,11 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 			parts[e.OutputIndex][e.ContentIndex] = p
 		case "response.output_text.delta", "response.refusal.delta":
 			if items[e.OutputIndex] == nil {
-				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "text for missing item")
+				return build(), providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"text for missing item",
+				)
 			}
 			if parts[e.OutputIndex] == nil {
 				parts[e.OutputIndex] = map[int]map[string]any{}
@@ -129,41 +160,70 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 				part["type"] = "refusal"
 			}
 			appendString(part, key, e.Delta)
-			providerhttp.Emit(sink, llm.Delta{
-				Kind:         llm.DeltaText,
-				Index:        e.OutputIndex,
-				ContentIndex: e.ContentIndex,
-				Text:         e.Delta,
-			})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:         llm.DeltaText,
+					Index:        e.OutputIndex,
+					ContentIndex: e.ContentIndex,
+					Text:         e.Delta,
+				},
+			)
 		case "response.function_call_arguments.delta":
 			item := items[e.OutputIndex]
 			if item == nil {
-				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "arguments for missing output item")
+				return build(), providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"arguments for missing output item",
+				)
 			}
 			appendString(item, "arguments", e.Delta)
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaToolArguments, Index: e.OutputIndex, Text: e.Delta})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:  llm.DeltaToolArguments,
+					Index: e.OutputIndex,
+					Text:  e.Delta,
+				},
+			)
 		case "response.function_call_arguments.done":
 			if item := items[e.OutputIndex]; item != nil {
 				item["arguments"] = e.Arguments
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if items[e.OutputIndex] == nil {
-				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "reasoning for missing item")
+				return build(), providerhttp.Failure(
+					wire.origin.Provider,
+					llm.ErrorProtocol,
+					"reasoning for missing item",
+				)
 			}
 			if summaries[e.OutputIndex] == nil {
 				summaries[e.OutputIndex] = map[int]string{}
 			}
 			summaries[e.OutputIndex][e.SummaryIndex] += e.Delta
-			providerhttp.Emit(sink, llm.Delta{
-				Kind:         llm.DeltaReasoning,
-				Index:        e.OutputIndex,
-				ContentIndex: e.ContentIndex,
-				Text:         e.Delta,
-			})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:         llm.DeltaReasoning,
+					Index:        e.OutputIndex,
+					ContentIndex: e.ContentIndex,
+					Text:         e.Delta,
+				},
+			)
 		case "response.completed", "response.incomplete", "response.failed":
 			return wire.decode(e.Response, result.Requested)
 		case "error":
-			return build(), providerhttp.Classify(&llm.Error{Provider: wire.origin.Provider, Category: llm.ErrorProtocol, Body: raw}, providerhttp.OpenAIReason, wire.media)
+			return build(), providerhttp.Classify(
+				&llm.Error{
+					Provider: wire.origin.Provider,
+					Category: llm.ErrorProtocol,
+					Body:     raw,
+				},
+				providerhttp.OpenAIReason,
+				wire.media,
+			)
 		default:
 			// Lifecycle metadata and final snapshots carry no additional deltas.
 			// Unknown delta shapes must not disappear silently.
@@ -176,7 +236,12 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 	if err == nil {
 		err = io.ErrUnexpectedEOF
 	}
-	return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorTransport, "stream interrupted: %w", err)
+	return build(), providerhttp.Failure(
+		wire.origin.Provider,
+		llm.ErrorTransport,
+		"stream interrupted: %w",
+		err,
+	)
 }
 
 // appendString appends s to the string stored under key in m, treating a

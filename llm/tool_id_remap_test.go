@@ -108,7 +108,10 @@ func TestNewRequestRejectsTamperedToolIDRemaps(t *testing.T) {
 		{
 			name: "duplicate decision",
 			change: func(p *RequestSnapshot) {
-				p.ContentChanges = append(p.ContentChanges, p.ContentChanges[0])
+				p.ContentChanges = append(
+					p.ContentChanges,
+					p.ContentChanges[0],
+				)
 			},
 		},
 		{
@@ -175,7 +178,10 @@ func TestNewRequestRejectsTamperedToolIDRemaps(t *testing.T) {
 		{
 			name: "oversized target",
 			change: func(p *RequestSnapshot) {
-				p.ContentChanges[0].ToID = strings.Repeat("a", 65)
+				p.ContentChanges[0].ToID = strings.Repeat(
+					"a",
+					65,
+				)
 			},
 		},
 		{
@@ -230,7 +236,10 @@ func TestNewRequestAllowsRecordedRemapOfPortableSourceID(t *testing.T) {
 	p.ContentChanges[0].FromID = "source_one"
 	p.ContentChanges[1].FromID = "source_one"
 	if _, err := NewRequest(p); err != nil {
-		t.Fatalf("recorded remap of a portable source ID was rejected: %v", err)
+		t.Fatalf(
+			"recorded remap of a portable source ID was rejected: %v",
+			err,
+		)
 	}
 }
 
@@ -252,12 +261,15 @@ func TestNewRequestPreservesUnicodeToolIDInRecord(t *testing.T) {
 func TestNewRequestAllowsRemapWithOtherContentDecision(t *testing.T) {
 	p := remapSnapshot()
 	p.Input.Messages[3].Content[0].ToolResult.IsError = true
-	p.ContentChanges = append(p.ContentChanges, ContentChange{
-		MessageIndex: 3,
-		ContentIndex: 0,
-		Action:       ContentChangeEncodeToolError,
-		Reason:       "tool error as text",
-	})
+	p.ContentChanges = append(
+		p.ContentChanges,
+		ContentChange{
+			MessageIndex: 3,
+			ContentIndex: 0,
+			Action:       ContentChangeEncodeToolError,
+			Reason:       "tool error as text",
+		},
+	)
 	if _, err := NewRequest(p); err != nil {
 		t.Fatalf("independent content decisions conflict: %v", err)
 	}

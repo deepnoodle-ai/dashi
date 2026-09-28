@@ -34,8 +34,12 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 	}
 	blocks := make([]content.Block, 0, len(response.Data))
 	for _, item := range response.Data {
-		source, err := decodeImageSource(item.Base64, item.URL,
-			response.OutputFormat, input.Model)
+		source, err := decodeImageSource(
+			item.Base64,
+			item.URL,
+			response.OutputFormat,
+			input.Model,
+		)
 		if err != nil {
 			return media.Result{}, err
 		}
@@ -77,7 +81,8 @@ func decodeImageSource(encoded, imageURL, outputFormat,
 		detected := http.DetectContentType(data)
 		if !supportedInputMIME(detected) {
 			return content.Source{}, fmt.Errorf(
-				"images: unsupported response image MIME type %q", detected,
+				"images: unsupported response image MIME type %q",
+				detected,
 			)
 		}
 		if mimeType == "" {

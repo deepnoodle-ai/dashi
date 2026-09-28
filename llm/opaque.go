@@ -54,7 +54,10 @@ type Opaque struct {
 // provider types and wrapper versions. Input.Validate separately prohibits
 // partial payloads and unsupported wrapper versions from entering requests.
 func (o Opaque) Validate() error {
-	if o.Origin.Validate() != nil || o.Origin.Model == "" || o.Type == "" || !json.Valid(o.Raw) {
+	if o.Origin.Validate() != nil ||
+		o.Origin.Model == "" ||
+		o.Type == "" ||
+		!json.Valid(o.Raw) {
 		return errors.New("llm: opaque data requires model origin, type, and valid JSON")
 	}
 	switch o.Unit {

@@ -29,21 +29,39 @@ func Func[T any](
 		return Tool{}, errors.New("tool: nil function")
 	}
 	var zero T
-	s, err := schema.Generate(zero, schema.GenerateOptions{DisallowAdditionalProperties: true})
+	s, err := schema.Generate(
+		zero,
+		schema.GenerateOptions{
+			DisallowAdditionalProperties: true,
+		},
+	)
 	if err != nil {
-		return Tool{}, fmt.Errorf("tool: %q: generate schema: %w", name, err)
+		return Tool{}, fmt.Errorf(
+			"tool: %q: generate schema: %w",
+			name,
+			err,
+		)
 	}
 	raw, err := json.Marshal(s)
 	if err != nil {
 		return Tool{}, err
 	}
-	d := Definition{Name: name, Description: description, Schema: raw, Kind: KindLocal}
+	d := Definition{
+		Name:        name,
+		Description: description,
+		Schema:      raw,
+		Kind:        KindLocal,
+	}
 	if err = d.Validate(); err != nil {
 		return Tool{}, err
 	}
 	compiled, err := compileSchema(raw)
 	if err != nil {
-		return Tool{}, fmt.Errorf("tool: %q: compile schema: %w", name, err)
+		return Tool{}, fmt.Errorf(
+			"tool: %q: compile schema: %w",
+			name,
+			err,
+		)
 	}
 	executor := typedExecutor[T]{name: name, schema: compiled, fn: fn}
 	return Tool{Definition: d, Executor: executor}, nil
@@ -62,7 +80,10 @@ type typedExecutor[T any] struct {
 // caller's arguments. An outcome from fn that fails validation is returned as
 // a fatal ErrInvalidOutcome error, since the callback, not the model, is at
 // fault.
-func (e typedExecutor[T]) Execute(ctx context.Context, call Call) (Outcome, error) {
+func (e typedExecutor[T]) Execute(
+	ctx context.Context,
+	call Call,
+) (Outcome, error) {
 	if err := ctx.Err(); err != nil {
 		return notExecuted(err.Error()), nil
 	}
@@ -93,7 +114,11 @@ func (e typedExecutor[T]) Execute(ctx context.Context, call Call) (Outcome, erro
 		return Outcome{}, err
 	}
 	if err = outcome.Validate(); err != nil {
-		return Outcome{}, Fatal(fmt.Errorf("%w: %w", ErrInvalidOutcome, err))
+		return Outcome{}, Fatal(fmt.Errorf(
+			"%w: %w",
+			ErrInvalidOutcome,
+			err,
+		))
 	}
 	return outcome, nil
 }

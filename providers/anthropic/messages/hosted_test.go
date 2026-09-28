@@ -53,14 +53,17 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 	if resource == nil || resource.URI != "https://example.com" {
 		t.Fatal("search result reference was lost")
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model: "test-model",
-		Messages: []llm.Message{
-			llm.UserMessage(llm.Text("Find kernel")),
-			result.Message,
-			llm.UserMessage(llm.Text("Thanks")),
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model: "test-model",
+			Messages: []llm.Message{
+				llm.UserMessage(llm.Text("Find kernel")),
+				result.Message,
+				llm.UserMessage(llm.Text("Thanks")),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("prepare hosted history: %v", err)
 	}
@@ -106,11 +109,14 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
-		Tools:    []tool.Definition{web, fetch, NewCodeExecutionTool("")},
-	})
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
+			Tools:    []tool.Definition{web, fetch, NewCodeExecutionTool("")},
+		},
+	)
 	if err != nil {
 		t.Fatalf("prepare hosted definitions: %v", err)
 	}
@@ -138,10 +144,13 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 		request *http.Request,
 	) {
 		beta = request.Header.Get("Anthropic-Beta")
-		_, _ = io.WriteString(writer, `{
+		_, _ = io.WriteString(
+			writer,
+			`{
 			"id":"msg_1","type":"message","model":"test-model",
 			"stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]
-		}`)
+		}`,
+		)
 	}))
 	defer server.Close()
 	client, err := New(Config{
@@ -153,18 +162,24 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewMCPToolset("", MCPToolsetOptions{
-		Name: "docs",
-		URL:  "https://example.com/mcp",
-	})
+	definition, err := NewMCPToolset(
+		"",
+		MCPToolsetOptions{
+			Name: "docs",
+			URL:  "https://example.com/mcp",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
-		Tools:    []tool.Definition{definition},
-	})
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
+			Tools:    []tool.Definition{definition},
+		},
+	)
 	if err != nil {
 		t.Fatalf("prepare MCP toolset: %v", err)
 	}
@@ -181,7 +196,12 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	if body.Tools[0]["mcp_server_name"] != "docs" {
 		t.Fatal("MCP toolset lost its server name")
 	}
-	if _, err := client.Send(context.Background(), llm.Call{Request: request}); err != nil {
+	if _, err := client.Send(
+		context.Background(),
+		llm.Call{
+			Request: request,
+		},
+	); err != nil {
 		t.Fatalf("send MCP toolset request: %v", err)
 	}
 	if beta != "mcp-client-2025-11-20" {
@@ -244,12 +264,14 @@ data: {"type":"message_stop"}
 }
 
 func TestMCPResultExposesImageAndResource(t *testing.T) {
-	wire := codec{origin: content.Origin{
-		Provider: "anthropic",
-		API:      API,
-		Model:    "test-model",
-		Scope:    "test-scope",
-	}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "anthropic",
+			API:      API,
+			Model:    "test-model",
+			Scope:    "test-scope",
+		},
+	}
 	part, err := wire.decodeContent(json.RawMessage(`{
 		"type":"mcp_tool_result","tool_use_id":"mcptoolu_1",
 		"content":[

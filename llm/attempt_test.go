@@ -15,16 +15,27 @@ func TestAttemptIsZero(t *testing.T) {
 }
 
 func TestStreamPassesCallThrough(t *testing.T) {
-	client := &iteratorClient{send: func(_ context.Context, sink Sink) (Result, error) {
-		sink(Delta{Kind: DeltaText, Text: "hi"})
-		return Result{Stop: Stop{Kind: StopFinished}}, nil
-	}}
+	client := &iteratorClient{
+		send: func(_ context.Context, sink Sink) (Result, error) {
+			sink(Delta{Kind: DeltaText, Text: "hi"})
+			return Result{Stop: Stop{Kind: StopFinished}}, nil
+		},
+	}
 	want := Attempt{TurnID: "t1", AttemptID: "t1:model:1"}
 	var observed []string
-	for range Stream(context.Background(), client, Call{
-		Attempt: want,
-		Sink:    func(d Delta) { observed = append(observed, d.Text) },
-	}) {
+	for range Stream(
+		context.Background(),
+		client,
+		Call{
+			Attempt: want,
+			Sink: func(d Delta) {
+				observed = append(
+					observed,
+					d.Text,
+				)
+			},
+		},
+	) {
 	}
 	if client.last.Attempt != want {
 		t.Fatalf("attempt=%+v, want %+v", client.last.Attempt, want)
@@ -35,16 +46,26 @@ func TestStreamPassesCallThrough(t *testing.T) {
 }
 
 func TestDirectCallsHaveNoAttempt(t *testing.T) {
-	client := &iteratorClient{send: func(context.Context, Sink) (Result, error) {
-		return Result{Stop: Stop{Kind: StopFinished}}, nil
-	}}
+	client := &iteratorClient{
+		send: func(context.Context, Sink) (Result, error) {
+			return Result{Stop: Stop{Kind: StopFinished}}, nil
+		},
+	}
 	for range Stream(context.Background(), client, Call{}) {
 	}
 	if !client.last.Attempt.IsZero() {
-		t.Fatalf("direct stream carried attempt %+v", client.last.Attempt)
+		t.Fatalf(
+			"direct stream carried attempt %+v",
+			client.last.Attempt,
+		)
 	}
 	client.last = Call{Attempt: Attempt{AttemptID: "stale"}}
-	if _, err := Generate(context.Background(), client, Input{}, nil); err != nil {
+	if _, err := Generate(
+		context.Background(),
+		client,
+		Input{},
+		nil,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if !client.last.Attempt.IsZero() {

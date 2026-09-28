@@ -50,14 +50,26 @@ type Client struct {
 // NewClient snapshots configuration and derives a replay namespace from the
 // endpoint and credential. Credential rotation conservatively invalidates old
 // private replay data. Neither the credential nor endpoint appears in Origin.
-func NewClient(provider, api, endpoint, credential string, httpClient *http.Client,
-	headers http.Header, models map[string]llm.ModelInfo, policy llm.CapabilityPolicy) (Client, error) {
+func NewClient(
+	provider, api, endpoint, credential string,
+	httpClient *http.Client,
+	headers http.Header,
+	models map[string]llm.ModelInfo,
+	policy llm.CapabilityPolicy,
+) (Client, error) {
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.Fragment != "" {
+	if err != nil ||
+		u.Host == "" ||
+		(u.Scheme != "https" &&
+			u.Scheme != "http") ||
+		u.User != nil ||
+		u.Fragment != "" {
 		return Client{}, errors.New("providerhttp: invalid endpoint")
 	}
 	if strings.TrimSpace(provider) == "" || api == "" {
-		return Client{}, errors.New("providerhttp: provider identity and API are required")
+		return Client{}, errors.New(
+			"providerhttp: provider identity and API are required",
+		)
 	}
 	if !policy.Valid() {
 		return Client{}, errors.New("providerhttp: invalid capability policy")
@@ -68,22 +80,44 @@ func NewClient(provider, api, endpoint, credential string, httpClient *http.Clie
 			return Client{}, errors.New("providerhttp: model name is required")
 		}
 		if err := info.Validate(); err != nil {
-			return Client{}, fmt.Errorf("providerhttp: model %q: %w", model, err)
+			return Client{}, fmt.Errorf(
+				"providerhttp: model %q: %w",
+				model,
+				err,
+			)
 		}
-		if e := info.Evidence; e.Model != model || e.API != api || e.Endpoint != endpoint {
-			return Client{}, fmt.Errorf("providerhttp: model %q evidence does not match model, API, and endpoint", model)
+		if e := info.Evidence; e.Model != model ||
+			e.API != api ||
+			e.Endpoint != endpoint {
+			return Client{}, fmt.Errorf(
+				"providerhttp: model %q evidence does not match model, API, and endpoint",
+				model,
+			)
 		}
 		catalog[model] = info.Clone()
 	}
 	scopeData, _ := json.Marshal([]string{api, endpoint, credential})
 	scope := fmt.Sprintf("%x", sha256.Sum256(scopeData))
-	return Client{Provider: provider, API: api, Endpoint: endpoint, HTTP: httpClient,
-		Headers: headers.Clone(), scope: scope, models: catalog, policy: policy.Resolved()}, nil
+	return Client{
+		Provider: provider,
+		API:      api,
+		Endpoint: endpoint,
+		HTTP:     httpClient,
+		Headers:  headers.Clone(),
+		scope:    scope,
+		models:   catalog,
+		policy:   policy.Resolved(),
+	}, nil
 }
 
 // Origin binds model replay to the configured API, endpoint, and credentials.
 func (c Client) Origin(model string) content.Origin {
-	return content.Origin{Provider: c.Provider, API: c.API, Model: model, Scope: c.scope}
+	return content.Origin{
+		Provider: c.Provider,
+		API:      c.API,
+		Model:    model,
+		Scope:    c.scope,
+	}
 }
 
 // ModelInfo returns an independent snapshot and reports whether it was known.
@@ -113,7 +147,11 @@ func (c Client) Fit(
 ) (llm.Input, []llm.Adjustment, error) {
 	info, _ := c.ModelInfo(effective.Model)
 	limits := info.Capabilities.Intersect(api)
-	fitted, adjustments, err := limits.Fit(effective, c.policy, adjustments)
+	fitted, adjustments, err := limits.Fit(
+		effective,
+		c.policy,
+		adjustments,
+	)
 	if err != nil {
 		failure := Failure(c.Provider, llm.ErrorUnsupported, "%w", err)
 		return llm.Input{}, nil, failure
@@ -122,11 +160,21 @@ func (c Client) Fit(
 }
 
 // Prepare checks effective capabilities and snapshots the single wire body.
-func (c Client) Prepare(requested, effective llm.Input, body map[string]any, adjustments []llm.Adjustment, changes []llm.ContentChange) (llm.Request, error) {
+func (c Client) Prepare(
+	requested, effective llm.Input,
+	body map[string]any,
+	adjustments []llm.Adjustment,
+	changes []llm.ContentChange,
+) (llm.Request, error) {
 	info, known := c.ModelInfo(requested.Model)
 	unverified, err := info.Capabilities.Check(effective, c.policy)
 	if err != nil {
-		return llm.Request{}, Failure(c.Provider, llm.ErrorUnsupported, "%w", err)
+		return llm.Request{}, Failure(
+			c.Provider,
+			llm.ErrorUnsupported,
+			"%w",
+			err,
+		)
 	}
 	body["stream"] = requested.Stream
 	raw, err := json.Marshal(body)
@@ -137,21 +185,40 @@ func (c Client) Prepare(requested, effective llm.Input, body map[string]any, adj
 	if known {
 		snapshot = &info
 	}
-	return llm.NewRequest(llm.RequestSnapshot{Origin: c.Origin(requested.Model),
-		Input: requested, Effective: effective.Settings, Body: raw,
-		Adjustments: adjustments, ContentChanges: changes, ModelInfo: snapshot,
-		CapabilityPolicy: c.policy, Unverified: unverified})
+	return llm.NewRequest(llm.RequestSnapshot{
+		Origin:           c.Origin(requested.Model),
+		Input:            requested,
+		Effective:        effective.Settings,
+		Body:             raw,
+		Adjustments:      adjustments,
+		ContentChanges:   changes,
+		ModelInfo:        snapshot,
+		CapabilityPolicy: c.policy,
+		Unverified:       unverified,
+	})
 }
 
 // Post performs at most one dispatch, without retries or redirects. Errors
 // include retry hints for the caller that owns attempt recording and admission.
-func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error) {
+func (c Client) Post(
+	ctx context.Context,
+	p llm.Request,
+) (*http.Response, error) {
 	request := p.Input()
 	if p.Origin() != c.Origin(request.Model) {
-		return nil, NotDispatched(c.Provider, llm.ErrorInvalidRequest, "prepared request belongs to another destination")
+		return nil, NotDispatched(
+			c.Provider,
+			llm.ErrorInvalidRequest,
+			"prepared request belongs to another destination",
+		)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, NotDispatched(c.Provider, llm.ErrorTransport, "%w", err)
+		return nil, NotDispatched(
+			c.Provider,
+			llm.ErrorTransport,
+			"%w",
+			err,
+		)
 	}
 	client := http.Client{Timeout: 5 * time.Minute}
 	if c.HTTP != nil {
@@ -160,9 +227,19 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(p.Body()))
+	r, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.Endpoint,
+		bytes.NewReader(p.Body()),
+	)
 	if err != nil {
-		return nil, NotDispatched(c.Provider, llm.ErrorInvalidRequest, "%w", err)
+		return nil, NotDispatched(
+			c.Provider,
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	r.Header = c.Headers.Clone()
 	if r.Header == nil {
@@ -184,7 +261,11 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	if err != nil {
 		return nil, Failure(c.Provider, llm.ErrorTransport, "%w", err)
 	}
-	pe := NewError(resp.StatusCode, string(body), WithErrorHeader(resp.Header))
+	pe := NewError(
+		resp.StatusCode,
+		string(body),
+		WithErrorHeader(resp.Header),
+	)
 	category := llm.ErrorInvalidRequest
 	switch {
 	case pe.statusCode == 401 || pe.statusCode == 403:
@@ -200,44 +281,92 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	}
 	rejection := ParseRejection(pe.statusCode, body)
 	rejection.HasMedia = HasMedia(request)
-	return nil, &llm.Error{Provider: c.Provider, Category: category, Reason: Reason(c.Classify, rejection),
-		Disposition: disposition, Status: pe.statusCode, Code: pe.code, Body: body, RetryAfter: pe.retryAfter,
-		Retryable: shouldRetry(pe.statusCode, pe.code), Cause: pe}
+	return nil, &llm.Error{
+		Provider: c.Provider,
+		Category: category,
+		Reason: Reason(
+			c.Classify,
+			rejection,
+		),
+		Disposition: disposition,
+		Status:      pe.statusCode,
+		Code:        pe.code,
+		Body:        body,
+		RetryAfter:  pe.retryAfter,
+		Retryable:   shouldRetry(pe.statusCode, pe.code),
+		Cause:       pe,
+	}
 }
 
 // KnownRejection is limited to HTTP statuses that affirmatively reject a
 // request. Timeout, conflict, and too-early responses remain ambiguous.
 func KnownRejection(status int) bool {
-	return status >= 400 && status < 500 && status != 408 && status != 409 && status != 425
+	return status >= 400 &&
+		status < 500 &&
+		status != 408 &&
+		status != 409 &&
+		status != 425
 }
 
 // NotDispatched marks failures that occur before the HTTP attempt begins.
-func NotDispatched(provider string, category llm.ErrorCategory, format string, args ...any) error {
+func NotDispatched(
+	provider string,
+	category llm.ErrorCategory,
+	format string,
+	args ...any,
+) error {
 	err := Failure(provider, category, format, args...)
 	err.(*llm.Error).Disposition = llm.FailureNotDispatched
 	return err
 }
 
 // Failure attaches provider identity and category, preserving a cause with %w.
-func Failure(provider string, category llm.ErrorCategory, format string, args ...any) error {
+func Failure(
+	provider string,
+	category llm.ErrorCategory,
+	format string,
+	args ...any,
+) error {
 	if len(args) == 0 {
-		return &llm.Error{Provider: provider, Category: category, Cause: errors.New(format)}
+		return &llm.Error{
+			Provider: provider,
+			Category: category,
+			Cause:    errors.New(format),
+		}
 	}
-	return &llm.Error{Provider: provider, Category: category, Cause: fmt.Errorf(format, args...)}
+	return &llm.Error{
+		Provider: provider,
+		Category: category,
+		Cause:    fmt.Errorf(format, args...),
+	}
 }
 
 // Overlay retains private fields while replacing the public values with the
 // caller's current content. Replay never silently crosses providers.
-func Overlay(origin content.Origin, raw *llm.Opaque, fields map[string]any) (map[string]any, error) {
+func Overlay(
+	origin content.Origin,
+	raw *llm.Opaque,
+	fields map[string]any,
+) (map[string]any, error) {
 	if raw == nil {
 		return fields, nil
 	}
 	if raw.Origin != origin {
-		return nil, Failure(origin.Provider, llm.ErrorUnsupported, "cannot replay %s data from %s", raw.Type, raw.Origin.Provider)
+		return nil, Failure(
+			origin.Provider,
+			llm.ErrorUnsupported,
+			"cannot replay %s data from %s",
+			raw.Type,
+			raw.Origin.Provider,
+		)
 	}
 	var result map[string]any
 	if err := Decode(raw.Raw, &result); err != nil || result == nil {
-		return nil, Failure(origin.Provider, llm.ErrorInvalidRequest, "invalid replay object")
+		return nil, Failure(
+			origin.Provider,
+			llm.ErrorInvalidRequest,
+			"invalid replay object",
+		)
 	}
 	maps.Copy(result, fields)
 	return result, nil

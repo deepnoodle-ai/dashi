@@ -152,10 +152,19 @@ func Block(block content.Block) Content {
 // Validate checks a recordable content value with exactly one matching payload.
 // Partial provider data is valid here; Input.Validate prohibits its replay.
 func (c Content) Validate() error {
-	if count(c.Block != nil, c.ToolCall != nil, c.ToolResult != nil,
-		c.HostedUse != nil, c.HostedResult != nil,
-		c.HostedApprovalRequest != nil, c.HostedApprovalResponse != nil,
-		c.Reasoning != nil, c.Refusal != nil, c.Reminder != nil, c.Opaque != nil) != 1 {
+	if count(
+		c.Block != nil,
+		c.ToolCall != nil,
+		c.ToolResult != nil,
+		c.HostedUse != nil,
+		c.HostedResult != nil,
+		c.HostedApprovalRequest != nil,
+		c.HostedApprovalResponse != nil,
+		c.Reasoning != nil,
+		c.Refusal != nil,
+		c.Reminder != nil,
+		c.Opaque != nil,
+	) != 1 {
 		return errors.New("llm: content requires one payload")
 	}
 	if c.Replay != nil {
@@ -196,9 +205,11 @@ func (c Content) Validate() error {
 		return c.HostedUse.Validate()
 	case c.Kind == ContentHostedResult && c.HostedResult != nil:
 		return c.HostedResult.Validate()
-	case c.Kind == ContentHostedApprovalRequest && c.HostedApprovalRequest != nil:
+	case c.Kind == ContentHostedApprovalRequest &&
+		c.HostedApprovalRequest != nil:
 		return c.HostedApprovalRequest.Validate()
-	case c.Kind == ContentHostedApprovalResponse && c.HostedApprovalResponse != nil:
+	case c.Kind == ContentHostedApprovalResponse &&
+		c.HostedApprovalResponse != nil:
 		return c.HostedApprovalResponse.Validate()
 	case c.Kind == ContentReasoning && c.Reasoning != nil:
 		return nil
@@ -383,7 +394,12 @@ func (r Input) Validate() error {
 	if r.Settings.MaxTokens < 0 {
 		return errors.New("llm: max tokens cannot be negative")
 	}
-	if t := r.Settings.Temperature; t != nil && (math.IsNaN(*t) || math.IsInf(*t, 0) || *t < 0) {
+	if t := r.Settings.Temperature; t != nil &&
+		(math.IsNaN(*t) ||
+			math.IsInf(
+				*t,
+				0,
+			) || *t < 0) {
 		return errors.New("llm: invalid temperature")
 	}
 	if s := r.Settings.Reasoning; s != nil && !validReasoning(s) {
@@ -410,7 +426,10 @@ func (r Input) Validate() error {
 				return errors.New("llm: selected tool is not defined")
 			}
 		default:
-			return fmt.Errorf("llm: invalid tool choice %q", c.Mode)
+			return fmt.Errorf(
+				"llm: invalid tool choice %q",
+				c.Mode,
+			)
 		}
 	}
 	for _, m := range r.Messages {
@@ -423,7 +442,9 @@ func (r Input) Validate() error {
 			if err := c.Validate(); err != nil {
 				return err
 			}
-			if c.Kind == ContentReminder && (m.Role != RoleUser || len(m.Content) != 1) {
+			if c.Kind == ContentReminder &&
+				(m.Role != RoleUser ||
+					len(m.Content) != 1) {
 				return errors.New("llm: reminder requires its own user-role message")
 			}
 			for _, o := range []*Opaque{c.Replay, c.Opaque} {
@@ -431,7 +452,10 @@ func (r Input) Validate() error {
 					return errors.New("llm: incomplete provider data cannot be replayed")
 				}
 				if o != nil && o.Version != 1 {
-					return fmt.Errorf("llm: unsupported opaque wrapper version %d", o.Version)
+					return fmt.Errorf(
+						"llm: unsupported opaque wrapper version %d",
+						o.Version,
+					)
 				}
 			}
 		}
@@ -642,9 +666,12 @@ type Error struct {
 type FailureDisposition string
 
 const (
+	// FailureNotDispatched means the request did not leave the client.
 	FailureNotDispatched FailureDisposition = "not_dispatched"
-	FailureRejected      FailureDisposition = "rejected"
-	FailureUnknown       FailureDisposition = "unknown"
+	// FailureRejected means the provider explicitly rejected the request.
+	FailureRejected FailureDisposition = "rejected"
+	// FailureUnknown means dispatch or acceptance could not be established.
+	FailureUnknown FailureDisposition = "unknown"
 )
 
 // Error includes provider identity, category, and any reason while retaining
@@ -655,9 +682,20 @@ func (e *Error) Error() string {
 		category += " (" + string(e.Reason) + ")"
 	}
 	if e.Cause != nil {
-		return fmt.Sprintf("llm: %s: %s: %v", e.Provider, category, e.Cause)
+		return fmt.Sprintf(
+			"llm: %s: %s: %v",
+			e.Provider,
+			category,
+			e.Cause,
+		)
 	}
-	return fmt.Sprintf("llm: %s: %s (HTTP %d, %s)", e.Provider, category, e.Status, e.Code)
+	return fmt.Sprintf(
+		"llm: %s: %s (HTTP %d, %s)",
+		e.Provider,
+		category,
+		e.Status,
+		e.Code,
+	)
 }
 
 // IsContextWindowExceeded reports whether err wraps an *Error whose Reason is

@@ -29,11 +29,18 @@ func TestUsageUnmarshalReasoningTokens(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var usage Usage
-			if err := json.Unmarshal([]byte(tc.payload), &usage); err != nil {
+			if err := json.Unmarshal(
+				[]byte(tc.payload),
+				&usage,
+			); err != nil {
 				t.Fatal(err)
 			}
-			if usage.ReasoningTokens != tc.want || usage.OutputTokens != 348 {
-				t.Fatalf("reasoning remained a subset of output: %+v", usage)
+			if usage.ReasoningTokens != tc.want ||
+				usage.OutputTokens != 348 {
+				t.Fatalf(
+					"reasoning remained a subset of output: %+v",
+					usage,
+				)
 			}
 		})
 	}
@@ -48,7 +55,10 @@ func TestUsageUnmarshalRejectsLegacyResultFields(t *testing.T) {
 	} {
 		var usage Usage
 		if err := json.Unmarshal([]byte(raw), &usage); err == nil {
-			t.Fatalf("legacy result fact disappeared from usage: %s", raw)
+			t.Fatalf(
+				"legacy result fact disappeared from usage: %s",
+				raw,
+			)
 		}
 	}
 }
@@ -114,13 +124,19 @@ func TestUsageUnmarshalNativeInputDetails(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var usage Usage
-			if err := json.Unmarshal([]byte(tc.payload), &usage); err != nil {
+			if err := json.Unmarshal(
+				[]byte(tc.payload),
+				&usage,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if usage.InputTokens != tc.wantInput ||
 				usage.CacheReadInputTokens != tc.wantRead ||
 				usage.CacheCreationInputTokens != tc.wantWrite {
-				t.Fatalf("wrong disjoint input buckets: %+v", usage)
+				t.Fatalf(
+					"wrong disjoint input buckets: %+v",
+					usage,
+				)
 			}
 		})
 	}
@@ -150,7 +166,8 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 		t.Fatal(err)
 	}
 	if usage.InputTokens != 15 || usage.OutputTokens != 27 ||
-		usage.CacheReadInputTokens != 11 || usage.ReasoningTokens != 7 ||
+		usage.CacheReadInputTokens != 11 ||
+		usage.ReasoningTokens != 7 ||
 		usage.TotalInputTokens() != 26 {
 		t.Fatalf("usage aggregation lost token counts: %+v", usage)
 	}
@@ -171,7 +188,8 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if !decoded.TotalTokenCountMismatch || decoded.TotalInputTokens() != 26 {
+	if !decoded.TotalTokenCountMismatch ||
+		decoded.TotalInputTokens() != 26 {
 		t.Fatal("measurement quality or disjoint input lost in JSON")
 	}
 }
@@ -272,6 +290,9 @@ func TestUsageAbsorbCumulativeFrames(t *testing.T) {
 		usage.ModalityTokens["text"].InputTokens != 14 ||
 		usage.ModalityTokens["text"].OutputTokens != 7 ||
 		!usage.TotalTokenCountMismatch {
-		t.Fatalf("cumulative frame erased or summed fields: %+v", usage)
+		t.Fatalf(
+			"cumulative frame erased or summed fields: %+v",
+			usage,
+		)
 	}
 }

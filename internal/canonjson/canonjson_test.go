@@ -9,22 +9,58 @@ func TestCanonicalize(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
-		{"key order", `{"b":1,"a":2,"c":{"z":1,"y":2}}`, `{"a":2,"b":1,"c":{"y":2,"z":1}}`},
-		{"whitespace", " {\n\t\"a\" : [ 1 , 2 ] ,\r\n \"b\" : null }\n", `{"a":[1,2],"b":null}`},
+		{
+			"key order",
+			`{"b":1,"a":2,"c":{"z":1,"y":2}}`,
+			`{"a":2,"b":1,"c":{"y":2,"z":1}}`,
+		},
+		{
+			"whitespace",
+			" {\n\t\"a\" : [ 1 , 2 ] ,\r\n \"b\" : null }\n",
+			`{"a":[1,2],"b":null}`,
+		},
 		{"literals", `[true,false,null]`, `[true,false,null]`},
-		{"nested arrays keep order", `[[3,[2,{"b":0,"a":[]}]],1,{}]`, `[[3,[2,{"a":[],"b":0}]],1,{}]`},
-		{"duplicate keeps last", `{"a":1,"b":2,"a":3}`, `{"a":3,"b":2}`},
-		{"nested duplicate", `{"a":{"x":1,"x":{"y":2}}}`, `{"a":{"x":{"y":2}}}`},
+		{
+			"nested arrays keep order",
+			`[[3,[2,{"b":0,"a":[]}]],1,{}]`,
+			`[[3,[2,{"a":[],"b":0}]],1,{}]`,
+		},
+		{
+			"duplicate keeps last",
+			`{"a":1,"b":2,"a":3}`,
+			`{"a":3,"b":2}`,
+		},
+		{
+			"nested duplicate",
+			`{"a":{"x":1,"x":{"y":2}}}`,
+			`{"a":{"x":{"y":2}}}`,
+		},
 		{"unicode escapes decoded", `"é中😀"`, `"é中😀"`},
 		{"html not escaped", `"<a href=\"x\">&"`, `"<a href=\"x\">&"`},
 		{"solidus unescaped", `"a\/b"`, `"a/b"`},
-		{"short escapes", `"\u0008\u0009\u000a\u000c\u000d"`, `"\b\t\n\f\r"`},
-		{"other controls lowercase hex", `"\u0001\u001F"`, `"\u0001\u001f"`},
+		{
+			"short escapes",
+			`"\u0008\u0009\u000a\u000c\u000d"`,
+			`"\b\t\n\f\r"`,
+		},
+		{
+			"other controls lowercase hex",
+			`"\u0001\u001F"`,
+			`"\u0001\u001f"`,
+		},
 		{"quote and backslash", `"\"\\"`, `"\"\\"`},
 		{"line separators literal", `"  "`, "\"  \""},
 		{"lone surrogate", `"\ud800"`, "\"�\""},
-		{"utf16 key order", `{"":1,"😀":2,"a":3}`, `{"a":3,"😀":2,"` + "" + `":1}`},
-		{"escaped keys sort by value", `{"b":1,"a":2}`, `{"a":2,"b":1}`},
+		{
+			"utf16 key order",
+			`{"":1,"😀":2,"a":3}`,
+			`{"a":3,"😀":2,"` + "" + `":1}`,
+		},
+		{
+			"escaped keys sort by value",
+			`{"b":1,"a":2}`,
+			`{"a":2,"b":1}`,
+		},
 	}
 	for _, c := range cases {
 		got, err := Canonicalize([]byte(c.in))
@@ -123,7 +159,10 @@ func TestFloatsMatchRFC8785(t *testing.T) {
 }
 
 func TestEqual(t *testing.T) {
-	if !Equal([]byte(`{"a":1e2,"b":[1.50]}`), []byte(`{ "b": [1.5], "a": 100 }`)) {
+	if !Equal(
+		[]byte(`{"a":1e2,"b":[1.50]}`),
+		[]byte(`{ "b": [1.5], "a": 100 }`),
+	) {
 		t.Error("equal meaning compared unequal")
 	}
 	if Equal([]byte(`{"a":1}`), []byte(`{"a":"1"}`)) {
@@ -143,7 +182,16 @@ func TestMarshalStructAndRawMessage(t *testing.T) {
 		A   any    `json:"a"`
 		Raw any    `json:"raw"`
 	}
-	got, err := Marshal(value{Z: "<&>", A: 1.5, Raw: map[string]any{"k": []any{2, "x"}}})
+	got, err := Marshal(value{
+		Z: "<&>",
+		A: 1.5,
+		Raw: map[string]any{
+			"k": []any{
+				2,
+				"x",
+			},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,10 @@ func TestContentValidatePreservesToolResultIDThroughJSON(t *testing.T) {
 				},
 			}
 			if err := part.Validate(); (err == nil) != tt.valid {
-				t.Fatalf("result ID validation disagrees with JSON safety: %v", err)
+				t.Fatalf(
+					"result ID validation disagrees with JSON safety: %v",
+					err,
+				)
 			}
 			if !tt.valid {
 				return
@@ -38,7 +41,10 @@ func TestContentValidatePreservesToolResultIDThroughJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			var restored Content
-			if err := json.Unmarshal(data, &restored); err != nil {
+			if err := json.Unmarshal(
+				data,
+				&restored,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if restored.ToolResult.CallID != tt.id {

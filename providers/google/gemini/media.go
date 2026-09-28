@@ -87,15 +87,22 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		config.VideoEndpoint = DefaultVideoEndpoint
 	}
 	if config.Provider == "" {
-		if config.ImageEndpoint != DefaultImageEndpoint || config.VideoEndpoint != DefaultVideoEndpoint {
+		if config.ImageEndpoint != DefaultImageEndpoint ||
+			config.VideoEndpoint != DefaultVideoEndpoint {
 			return nil, errors.New("gemini: custom media endpoint requires provider identity")
 		}
 		config.Provider = "google"
 	}
-	if err := validateMediaEndpoint(config.ImageEndpoint, ":generateContent"); err != nil {
+	if err := validateMediaEndpoint(
+		config.ImageEndpoint,
+		":generateContent",
+	); err != nil {
 		return nil, err
 	}
-	if err := validateMediaEndpoint(config.VideoEndpoint, ":predictLongRunning"); err != nil {
+	if err := validateMediaEndpoint(
+		config.VideoEndpoint,
+		":predictLongRunning",
+	); err != nil {
 		return nil, err
 	}
 	if !config.CapabilityPolicy.Valid() {
@@ -105,17 +112,31 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		client := *config.Client
 		config.Client = &client
 	}
-	p := &MediaClient{config: config,
+	p := &MediaClient{
+		config:      config,
 		imageModels: make(map[string]media.ModelInfo, len(config.ImageModels)),
-		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels))}
+		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels)),
+	}
 	for name, info := range config.ImageModels {
-		if err := p.validateModelInfo(name, info, ImageAPI, p.imageURL(name), true); err != nil {
+		if err := p.validateModelInfo(
+			name,
+			info,
+			ImageAPI,
+			p.imageURL(name),
+			true,
+		); err != nil {
 			return nil, err
 		}
 		p.imageModels[name] = info.Clone()
 	}
 	for name, info := range config.VideoModels {
-		if err := p.validateModelInfo(name, info, VideoAPI, p.videoURL(name), false); err != nil {
+		if err := p.validateModelInfo(
+			name,
+			info,
+			VideoAPI,
+			p.videoURL(name),
+			false,
+		); err != nil {
 			return nil, err
 		}
 		p.videoModels[name] = info.Clone()
@@ -128,7 +149,10 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 
 func validateMediaEndpoint(endpoint, suffix string) error {
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") ||
+	if err != nil ||
+		u.Host == "" ||
+		(u.Scheme != "https" &&
+			u.Scheme != "http") ||
 		u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		!strings.HasSuffix(u.Path, "/models/{model}"+suffix) ||
 		strings.Count(endpoint, "{model}") != 1 {
@@ -137,24 +161,39 @@ func validateMediaEndpoint(endpoint, suffix string) error {
 	return nil
 }
 
-func (p *MediaClient) validateModelInfo(name string, info media.ModelInfo, api, endpoint string, image bool) error {
+func (p *MediaClient) validateModelInfo(
+	name string,
+	info media.ModelInfo,
+	api, endpoint string,
+	image bool,
+) error {
 	if name == "" {
 		return errors.New("gemini: media model name is required")
 	}
 	if err := info.Validate(); err != nil {
 		return fmt.Errorf("gemini: media model %q: %w", name, err)
 	}
-	if info.Evidence.Model != name || info.Evidence.API != api || info.Evidence.Endpoint != endpoint {
-		return fmt.Errorf("gemini: media model %q evidence does not match its API endpoint", name)
+	if info.Evidence.Model != name ||
+		info.Evidence.API != api ||
+		info.Evidence.Endpoint != endpoint {
+		return fmt.Errorf(
+			"gemini: media model %q evidence does not match its API endpoint",
+			name,
+		)
 	}
 	if image && info.Image == nil || !image && info.Video == nil {
-		return fmt.Errorf("gemini: media model %q lacks operation capabilities", name)
+		return fmt.Errorf(
+			"gemini: media model %q lacks operation capabilities",
+			name,
+		)
 	}
 	return nil
 }
 
 // Provider returns the configured destination identity.
-func (p *MediaClient) Provider() string { return p.config.Provider }
+func (p *MediaClient) Provider() string {
+	return p.config.Provider
+}
 
 // ImageModelInfo returns an independent snapshot of image evidence.
 func (p *MediaClient) ImageModelInfo(name string) (media.ModelInfo, bool) {
@@ -169,17 +208,30 @@ func (p *MediaClient) VideoModelInfo(name string) (media.ModelInfo, bool) {
 }
 
 func (p *MediaClient) imageURL(name string) string {
-	return strings.ReplaceAll(p.config.ImageEndpoint, "{model}", url.PathEscape(name))
+	return strings.ReplaceAll(
+		p.config.ImageEndpoint,
+		"{model}",
+		url.PathEscape(name),
+	)
 }
 
 func (p *MediaClient) videoURL(name string) string {
-	return strings.ReplaceAll(p.config.VideoEndpoint, "{model}", url.PathEscape(name))
+	return strings.ReplaceAll(
+		p.config.VideoEndpoint,
+		"{model}",
+		url.PathEscape(name),
+	)
 }
 
 func (p *MediaClient) origin(api, endpoint, name string) content.Origin {
 	scopeData, _ := json.Marshal([]string{api, endpoint, p.config.APIKey})
 	sum := sha256.Sum256(scopeData)
-	return content.Origin{Provider: p.Provider(), API: api, Model: name, Scope: fmt.Sprintf("%x", sum)}
+	return content.Origin{
+		Provider: p.Provider(),
+		API:      api,
+		Model:    name,
+		Scope:    fmt.Sprintf("%x", sum),
+	}
 }
 
 func (p *MediaClient) imageOrigin(name string) content.Origin {
@@ -190,17 +242,45 @@ func (p *MediaClient) videoOrigin(name string) content.Origin {
 	return p.origin(VideoAPI, p.videoURL(name), name)
 }
 
-func (p *MediaClient) failure(category media.ErrorCategory, format string, args ...any) error {
+func (p *MediaClient) failure(
+	category media.ErrorCategory,
+	format string,
+	args ...any,
+) error {
 	return mediaFailure(p.Provider(), category, format, args...)
 }
 
-func (p *MediaClient) do(ctx context.Context, method, endpoint string, body []byte, contentType string, maxBytes int64, expectVideo bool) ([]byte, error) {
-	return doGeminiMedia(ctx, p.Provider(), p.config.APIKey, p.config.Client,
-		method, endpoint, body, contentType, maxBytes, expectVideo)
+func (p *MediaClient) do(
+	ctx context.Context,
+	method, endpoint string,
+	body []byte,
+	contentType string,
+	maxBytes int64,
+	expectVideo bool,
+) ([]byte, error) {
+	return doGeminiMedia(
+		ctx,
+		p.Provider(),
+		p.config.APIKey,
+		p.config.Client,
+		method,
+		endpoint,
+		body,
+		contentType,
+		maxBytes,
+		expectVideo,
+	)
 }
 
-func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClient *http.Client,
-	method, endpoint string, body []byte, contentType string, maxBytes int64, expectVideo bool,
+func doGeminiMedia(
+	ctx context.Context,
+	provider, apiKey string,
+	configuredClient *http.Client,
+	method, endpoint string,
+	body []byte,
+	contentType string,
+	maxBytes int64,
+	expectVideo bool,
 ) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -210,7 +290,10 @@ func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClien
 		client = *configuredClient
 	}
 	client.CheckRedirect = func(next *http.Request, prior []*http.Request) error {
-		if method != http.MethodGet || !strings.Contains(endpoint, ":download?") || len(prior) > 3 ||
+		if method != http.MethodGet || !strings.Contains(
+			endpoint,
+			":download?",
+		) || len(prior) > 3 ||
 			next.URL.Scheme != prior[0].URL.Scheme {
 			return http.ErrUseLastResponse
 		}
@@ -225,7 +308,12 @@ func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClien
 		}
 		return nil
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		method,
+		endpoint,
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return nil, mediaFailure(provider, media.ErrorInvalidRequest, "%w", err)
 	}
@@ -244,10 +332,20 @@ func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClien
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, readLimit+1))
 	if err != nil {
-		return nil, mediaFailure(provider, media.ErrorTransport, "read response: %w", err)
+		return nil, mediaFailure(
+			provider,
+			media.ErrorTransport,
+			"read response: %w",
+			err,
+		)
 	}
 	if int64(len(raw)) > readLimit {
-		return nil, mediaFailure(provider, media.ErrorProtocol, "media response exceeds %d bytes", readLimit)
+		return nil, mediaFailure(
+			provider,
+			media.ErrorProtocol,
+			"media response exceeds %d bytes",
+			readLimit,
+		)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		category := media.ErrorInvalidRequest
@@ -259,21 +357,45 @@ func doGeminiMedia(ctx context.Context, provider, apiKey string, configuredClien
 		case resp.StatusCode >= 500:
 			category = media.ErrorOverloaded
 		}
-		return nil, &media.Error{Provider: provider, Category: category, Status: resp.StatusCode,
-			Body: slices.Clone(raw), Retryable: resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500,
-			Cause: fmt.Errorf("HTTP %d", resp.StatusCode)}
+		return nil, &media.Error{
+			Provider: provider,
+			Category: category,
+			Status:   resp.StatusCode,
+			Body:     slices.Clone(raw),
+			Retryable: resp.StatusCode == 408 ||
+				resp.StatusCode == 429 ||
+				resp.StatusCode >= 500,
+			Cause: fmt.Errorf("HTTP %d", resp.StatusCode),
+		}
 	}
 	if expectVideo {
 		mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-		if mediaType != "" && !strings.HasPrefix(mediaType, "video/") && mediaType != "application/octet-stream" {
-			return nil, mediaFailure(provider, media.ErrorProtocol, "video file download returned %q", mediaType)
+		if mediaType != "" && !strings.HasPrefix(
+			mediaType,
+			"video/",
+		) && mediaType != "application/octet-stream" {
+			return nil, mediaFailure(
+				provider,
+				media.ErrorProtocol,
+				"video file download returned %q",
+				mediaType,
+			)
 		}
 	}
 	return raw, nil
 }
 
-func mediaFailure(provider string, category media.ErrorCategory, format string, args ...any) error {
-	return &media.Error{Provider: provider, Category: category, Cause: fmt.Errorf(format, args...)}
+func mediaFailure(
+	provider string,
+	category media.ErrorCategory,
+	format string,
+	args ...any,
+) error {
+	return &media.Error{
+		Provider: provider,
+		Category: category,
+		Cause:    fmt.Errorf(format, args...),
+	}
 }
 
 func googleDownloadHost(host string) bool {

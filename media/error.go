@@ -46,12 +46,27 @@ func (e *Error) Error() string {
 		return "media: nil error"
 	}
 	if e.Cause != nil {
-		return fmt.Sprintf("media: %s %s: %v", e.Provider, e.Category, e.Cause)
+		return fmt.Sprintf(
+			"media: %s %s: %v",
+			e.Provider,
+			e.Category,
+			e.Cause,
+		)
 	}
 	if e.Code != "" {
-		return fmt.Sprintf("media: %s %s: %s", e.Provider, e.Category, e.Code)
+		return fmt.Sprintf(
+			"media: %s %s: %s",
+			e.Provider,
+			e.Category,
+			e.Code,
+		)
 	}
-	return fmt.Sprintf("media: %s %s (HTTP %d)", e.Provider, e.Category, e.Status)
+	return fmt.Sprintf(
+		"media: %s %s (HTTP %d)",
+		e.Provider,
+		e.Category,
+		e.Status,
+	)
 }
 
 // Unwrap exposes the underlying transport or provider error when present.

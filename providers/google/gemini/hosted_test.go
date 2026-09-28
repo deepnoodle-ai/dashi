@@ -18,15 +18,18 @@ func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
-		Tools: []tool.Definition{
-			NewGoogleSearchTool(""),
-			NewURLContextTool(""),
-			NewCodeExecutionTool(""),
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
+			Tools: []tool.Definition{
+				NewGoogleSearchTool(""),
+				NewURLContextTool(""),
+				NewCodeExecutionTool(""),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("prepare Gemini builtins: %v", err)
 	}
@@ -47,9 +50,12 @@ func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 }
 
 func TestFileSearchRequiresV1Beta(t *testing.T) {
-	definition, err := NewFileSearchTool("", FileSearchOptions{
-		StoreNames: []string{"fileSearchStores/store-1"},
-	})
+	definition, err := NewFileSearchTool(
+		"",
+		FileSearchOptions{
+			StoreNames: []string{"fileSearchStores/store-1"},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +76,10 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	if _, err := client.Prepare(context.Background(), input); err == nil {
 		t.Fatal("file search used v1 without evidence")
 	}
-	beta, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	beta, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +109,13 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 			{"text":"The answer is 2."}
 		]}}]
 	}`)
-	result, err := wire.decode(raw, llm.ModelRef{
-		Provider: "google",
-		Model:    "test-model",
-	})
+	result, err := wire.decode(
+		raw,
+		llm.ModelRef{
+			Provider: "google",
+			Model:    "test-model",
+		},
+	)
 	if err != nil {
 		t.Fatalf("decode code execution: %v", err)
 	}
@@ -115,14 +127,17 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 		result.Message.Content[1].HostedResult.CallID {
 		t.Fatal("code result lost its call pairing")
 	}
-	_, err = client.Prepare(context.Background(), llm.Input{
-		Model: "test-model",
-		Messages: []llm.Message{
-			llm.UserMessage(llm.Text("Calculate")),
-			result.Message,
-			llm.UserMessage(llm.Text("Thanks")),
+	_, err = client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model: "test-model",
+			Messages: []llm.Message{
+				llm.UserMessage(llm.Text("Calculate")),
+				result.Message,
+				llm.UserMessage(llm.Text("Thanks")),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("replay code execution: %v", err)
 	}

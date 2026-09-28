@@ -45,7 +45,8 @@ type Config struct {
 	SystemRole llm.Role
 }
 
-// Client is safe for concurrent calls; its configured HTTP transport is shared.
+// Client is safe for concurrent calls; its configured HTTP transport is
+// shared.
 type Client struct {
 	client       providerhttp.Client
 	systemRole   llm.Role
@@ -74,10 +75,13 @@ func New(config Config) (*Client, error) {
 	if config.SystemRole == "" {
 		config.SystemRole = llm.RoleDeveloper
 	}
-	if config.SystemRole != llm.RoleDeveloper && config.SystemRole != llm.RoleSystem {
+	if config.SystemRole != llm.RoleDeveloper &&
+		config.SystemRole != llm.RoleSystem {
 		return nil, errors.New("completions: system role must be developer or system")
 	}
-	if config.ReportedCostField != "" && config.ReportedCostField != "cost" && config.ReportedCostField != "estimated_cost" ||
+	if config.ReportedCostField != "" &&
+		config.ReportedCostField != "cost" &&
+		config.ReportedCostField != "estimated_cost" ||
 		(config.ReportedCostField == "") != (config.CostCurrency == "") {
 		return nil, errors.New("completions: cost field must be cost or estimated_cost with a currency")
 	}
@@ -86,14 +90,26 @@ func New(config Config) (*Client, error) {
 		headers = make(http.Header)
 	}
 	headers.Set("Authorization", "Bearer "+config.APIKey)
-	client, err := providerhttp.NewClient(config.Provider, API, config.Endpoint, config.APIKey,
-		config.Client, headers, config.Models, config.CapabilityPolicy)
+	client, err := providerhttp.NewClient(
+		config.Provider,
+		API,
+		config.Endpoint,
+		config.APIKey,
+		config.Client,
+		headers,
+		config.Models,
+		config.CapabilityPolicy,
+	)
 	if err != nil {
 		return nil, err
 	}
 	client.Classify = providerhttp.OpenAIReason
-	return &Client{client: client, systemRole: config.SystemRole,
-		costField: config.ReportedCostField, costCurrency: config.CostCurrency}, nil
+	return &Client{
+		client:       client,
+		systemRole:   config.SystemRole,
+		costField:    config.ReportedCostField,
+		costCurrency: config.CostCurrency,
+	}, nil
 }
 
 // Provider returns the configured destination identity.
@@ -115,20 +131,32 @@ func (p *Client) ModelInfo(model string) (llm.ModelInfo, bool) {
 // default capability policy, settings beyond known limits are fitted to the
 // nearest accepted value and recorded as warnings; unsupported content and
 // controls without a safe substitute fail instead of being silently dropped.
-func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) {
+func (p *Client) Prepare(
+	ctx context.Context,
+	r llm.Input,
+) (llm.Request, error) {
 	requested := r
 	if err := ctx.Err(); err != nil {
 		return llm.Request{}, err
 	}
 	if err := r.Validate(); err != nil {
-		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
+		return llm.Request{}, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	wire := codec{origin: p.client.Origin(r.Model), provider: p.Provider()}
 	var changes []llm.ContentChange
 	var err error
-	r, changes, err = providercontent.Adapt(r, wire.origin, providercontent.AdaptOptions{
-		ReplayPlainReasoning: wire.supportsPlainReasoning(),
-	})
+	r, changes, err = providercontent.Adapt(
+		r,
+		wire.origin,
+		providercontent.AdaptOptions{
+			ReplayPlainReasoning: wire.supportsPlainReasoning(),
+		},
+	)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -167,7 +195,10 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		case llm.ToolChoiceAny:
 			body["tool_choice"] = "required"
 		case llm.ToolChoiceTool:
-			body["tool_choice"] = map[string]any{"type": "function", "function": map[string]any{"name": c.Name}}
+			body["tool_choice"] = map[string]any{
+				"type":     "function",
+				"function": map[string]any{"name": c.Name},
+			}
 		}
 	}
 	defs := make([]any, 0, len(r.Tools))
@@ -175,12 +206,24 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 		if d.Kind == tool.KindProviderHosted {
 			return llm.Request{}, wire.unsupported("provider-hosted tool %q", d.Name)
 		}
-		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 || schema[0] != '{' {
-			return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
+		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 ||
+			schema[0] != '{' {
+			return llm.Request{}, wire.unsupported(
+				"tool %q requires an object schema",
+				d.Name,
+			)
 		}
-		defs = append(defs, map[string]any{"type": "function", "function": map[string]any{
-			"name": d.Name, "description": d.Description, "parameters": d.Schema,
-		}})
+		defs = append(
+			defs,
+			map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name":        d.Name,
+					"description": d.Description,
+					"parameters":  d.Schema,
+				},
+			},
+		)
 	}
 	if len(defs) > 0 {
 		body["tools"] = defs
@@ -190,7 +233,13 @@ func (p *Client) Prepare(ctx context.Context, r llm.Input) (llm.Request, error) 
 	}
 	messages := make([]any, 0, len(r.Messages)+1)
 	if r.System != "" {
-		messages = append(messages, map[string]any{"role": p.systemRole, "content": r.System})
+		messages = append(
+			messages,
+			map[string]any{
+				"role":    p.systemRole,
+				"content": r.System,
+			},
+		)
 	}
 	for _, message := range r.Messages {
 		encoded, err := wire.encodeMessage(message)
@@ -214,12 +263,25 @@ var apiLimits = llm.Capabilities{
 
 // Send performs at most one dispatch. A stream sink observes provisional data;
 // the returned Result is authoritative and may be partial on an error.
-func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+func (p *Client) Send(
+	ctx context.Context,
+	call llm.Call,
+) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
-	wire := codec{origin: p.client.Origin(prepared.Input().Model), provider: p.Provider(),
-		costField: p.costField, costCurrency: p.costCurrency, media: providerhttp.HasMedia(prepared.Input())}
-	result = llm.Result{Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},
-		Message: llm.Message{Role: llm.RoleAssistant}}
+	wire := codec{
+		origin:       p.client.Origin(prepared.Input().Model),
+		provider:     p.Provider(),
+		costField:    p.costField,
+		costCurrency: p.costCurrency,
+		media:        providerhttp.HasMedia(prepared.Input()),
+	}
+	result = llm.Result{
+		Requested: llm.ModelRef{
+			Provider: prepared.Origin().Provider,
+			Model:    prepared.Input().Model,
+		},
+		Message: llm.Message{Role: llm.RoleAssistant},
+	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
@@ -238,7 +300,12 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return result, providerhttp.Failure(p.Provider(), llm.ErrorTransport, "read response: %w", err)
+		return result, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorTransport,
+			"read response: %w",
+			err,
+		)
 	}
 	return wire.decode(raw, result.Requested)
 }
@@ -254,7 +321,12 @@ type codec struct {
 }
 
 func (wire codec) unsupported(format string, args ...any) error {
-	return providerhttp.Failure(wire.provider, llm.ErrorUnsupported, format, args...)
+	return providerhttp.Failure(
+		wire.provider,
+		llm.ErrorUnsupported,
+		format,
+		args...,
+	)
 }
 
 // supportsPlainReasoning keeps adaptation aligned with the encodings below.
@@ -284,9 +356,17 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 			if m.Role != llm.RoleAssistant {
 				return nil, wire.unsupported("tool call in %s message", m.Role)
 			}
-			calls = append(calls, ToolCall{ID: c.ToolCall.ID, Type: "function", Function: ToolCallFunction{
-				Name: c.ToolCall.Name, Arguments: string(c.ToolCall.Args),
-			}})
+			calls = append(
+				calls,
+				ToolCall{
+					ID:   c.ToolCall.ID,
+					Type: "function",
+					Function: ToolCallFunction{
+						Name:      c.ToolCall.Name,
+						Arguments: string(c.ToolCall.Args),
+					},
+				},
+			)
 		case llm.ContentToolResult:
 			if m.Role != llm.RoleUser {
 				return nil, wire.unsupported("tool result in %s message", m.Role)
@@ -300,19 +380,33 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 				return nil, wire.unsupported("reasoning without supported Chat Completions replay")
 			}
 			if wire.provider == "mistral" {
-				parts = append(parts, ContentPart{Type: "thinking", Thinking: []ContentPart{{Type: "text", Text: c.Reasoning.Text}}})
+				parts = append(
+					parts,
+					ContentPart{
+						Type:     "thinking",
+						Thinking: []ContentPart{{Type: "text", Text: c.Reasoning.Text}},
+					},
+				)
 				continue
 			}
 			reasoning += c.Reasoning.Text
 		case llm.ContentOpaque:
-			if c.Opaque.Origin != wire.origin || c.Opaque.Unit != llm.OpaqueUnitItem || c.Opaque.Type != "reasoning_details" {
+			if c.Opaque.Origin != wire.origin ||
+				c.Opaque.Unit != llm.OpaqueUnitItem ||
+				c.Opaque.Type != "reasoning_details" {
 				return nil, wire.unsupported("opaque Chat Completions content")
 			}
 			var v struct {
 				Type    string          `json:"type"`
 				Details json.RawMessage `json:"details"`
 			}
-			if err := json.Unmarshal(c.Opaque.Raw, &v); err != nil || v.Type != "reasoning_details" || len(v.Details) == 0 || reasoningDetails != nil {
+			if err := json.Unmarshal(
+				c.Opaque.Raw,
+				&v,
+			); err != nil ||
+				v.Type != "reasoning_details" ||
+				len(v.Details) == 0 ||
+				reasoningDetails != nil {
 				return nil, wire.unsupported("invalid reasoning details replay")
 			}
 			reasoningDetails = v.Details
@@ -320,11 +414,19 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 			return nil, wire.unsupported("content kind %q", c.Kind)
 		}
 	}
-	if len(results) > 0 && (len(parts) > 0 || len(calls) > 0 || reasoning != "" || reasoningDetails != nil) {
+	if len(results) > 0 &&
+		(len(parts) > 0 ||
+			len(calls) > 0 ||
+			reasoning != "" ||
+			reasoningDetails != nil) {
 		return nil, wire.unsupported("mixed tool results and message content")
 	}
 	var encoded []any
-	if len(parts) > 0 || len(calls) > 0 || reasoning != "" || reasoningDetails != nil || len(results) == 0 {
+	if len(parts) > 0 ||
+		len(calls) > 0 ||
+		reasoning != "" ||
+		reasoningDetails != nil ||
+		len(results) == 0 {
 		message := map[string]any{"role": m.Role}
 		if len(parts) > 0 {
 			if allText(parts) {
@@ -354,8 +456,14 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 			}
 			text = append(text, b.Text.Text)
 		}
-		encoded = append(encoded, map[string]any{"role": "tool", "tool_call_id": tr.CallID,
-			"content": strings.Join(text, "\n")})
+		encoded = append(
+			encoded,
+			map[string]any{
+				"role":         "tool",
+				"tool_call_id": tr.CallID,
+				"content":      strings.Join(text, "\n"),
+			},
+		)
 	}
 	return encoded, nil
 }
@@ -378,7 +486,10 @@ func (wire codec) encodeBlock(b content.Block) (ContentPart, error) {
 		if b.Image.Source.Data != nil {
 			url = b.Image.Source.DataURL()
 		}
-		return ContentPart{Type: "image_url", ImageURL: &ImageURLPart{URL: url, Detail: b.Image.Detail}}, nil
+		return ContentPart{
+			Type:     "image_url",
+			ImageURL: &ImageURLPart{URL: url, Detail: b.Image.Detail},
+		}, nil
 	case content.KindDocument:
 		if b.Document.Source.URI != "" {
 			return ContentPart{}, wire.unsupported("provider-managed document URI")
@@ -416,11 +527,23 @@ func joinTextParts(parts []ContentPart) string {
 	return strings.Join(text, "\n\n")
 }
 
-func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error) {
-	result := llm.Result{Requested: requested, Message: llm.Message{Role: llm.RoleAssistant}, Raw: slices.Clone(raw)}
+func (wire codec) decode(
+	raw []byte,
+	requested llm.ModelRef,
+) (llm.Result, error) {
+	result := llm.Result{
+		Requested: requested,
+		Message:   llm.Message{Role: llm.RoleAssistant},
+		Raw:       slices.Clone(raw),
+	}
 	var response Response
 	if err := json.Unmarshal(raw, &response); err != nil {
-		return result, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "decode response: %w", err)
+		return result, providerhttp.Failure(
+			wire.provider,
+			llm.ErrorProtocol,
+			"decode response: %w",
+			err,
+		)
 	}
 	result.ID = response.ID
 	result.Served = llm.ModelRef{Provider: wire.provider, Model: response.Model}
@@ -431,11 +554,19 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 		result.Cost = wire.reportedCost(response.Usage)
 	}
 	if len(response.Choices) == 0 {
-		return result, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "response has no choices")
+		return result, providerhttp.Failure(
+			wire.provider,
+			llm.ErrorProtocol,
+			"response has no choices",
+		)
 	}
 	choice := response.Choices[0]
 	if choice.Index != 0 {
-		return result, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "first choice has nonzero index")
+		return result, providerhttp.Failure(
+			wire.provider,
+			llm.ErrorProtocol,
+			"first choice has nonzero index",
+		)
 	}
 	result.Stop.Raw = choice.FinishReason
 	if result.Stop.Raw == "" {
@@ -448,43 +579,90 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 	result.Stop.Kind = llm.ClassifyStopReason(result.Stop.Raw)
 	message := choice.Message
 	if message.Reasoning != "" {
-		result.Message.Content = append(result.Message.Content, llm.Content{Kind: llm.ContentReasoning,
-			Reasoning: &llm.Reasoning{Text: message.Reasoning}})
+		result.Message.Content = append(
+			result.Message.Content,
+			llm.Content{
+				Kind:      llm.ContentReasoning,
+				Reasoning: &llm.Reasoning{Text: message.Reasoning},
+			},
+		)
 	}
 	if len(message.ReasoningDetails) > 0 {
-		raw, err := json.Marshal(map[string]any{"type": "reasoning_details", "details": message.ReasoningDetails})
+		raw, err := json.Marshal(map[string]any{
+			"type":    "reasoning_details",
+			"details": message.ReasoningDetails,
+		})
 		if err != nil {
 			return result, err
 		}
-		result.Message.Content = append(result.Message.Content, llm.Content{Kind: llm.ContentOpaque,
-			Opaque: &llm.Opaque{Version: 1, Origin: wire.origin, Type: "reasoning_details",
-				Unit: llm.OpaqueUnitItem, Raw: raw}})
+		result.Message.Content = append(
+			result.Message.Content,
+			llm.Content{
+				Kind: llm.ContentOpaque,
+				Opaque: &llm.Opaque{
+					Version: 1,
+					Origin:  wire.origin,
+					Type:    "reasoning_details",
+					Unit:    llm.OpaqueUnitItem,
+					Raw:     raw,
+				},
+			},
+		)
 	}
 	if len(message.ContentParts) > 0 {
 		for _, part := range message.ContentParts {
 			switch part.Type {
 			case "text":
-				result.Message.Content = append(result.Message.Content, llm.Text(part.Text))
+				result.Message.Content = append(
+					result.Message.Content,
+					llm.Text(part.Text),
+				)
 			case "thinking":
-				result.Message.Content = append(result.Message.Content, llm.Content{Kind: llm.ContentReasoning,
-					Reasoning: &llm.Reasoning{Text: joinTextParts(part.Thinking)}})
+				result.Message.Content = append(
+					result.Message.Content,
+					llm.Content{
+						Kind:      llm.ContentReasoning,
+						Reasoning: &llm.Reasoning{Text: joinTextParts(part.Thinking)},
+					},
+				)
 			default:
 				return result, wire.unsupported("response content part %q", part.Type)
 			}
 		}
 	} else if message.Content != "" {
-		result.Message.Content = append(result.Message.Content, llm.Text(message.Content))
+		result.Message.Content = append(
+			result.Message.Content,
+			llm.Text(message.Content),
+		)
 	}
 	for _, call := range message.ToolCalls {
 		if call.Type != "function" {
 			return result, wire.unsupported("tool call type %q", call.Type)
 		}
-		v := tool.Call{ID: call.ID, Name: call.Function.Name, Args: json.RawMessage(call.Function.Arguments)}
-		if err := v.Validate(); err != nil {
-			result.Message.Content = append(result.Message.Content, wire.partialToolCall(call))
-			return result, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "invalid tool call: %w", err)
+		v := tool.Call{
+			ID:   call.ID,
+			Name: call.Function.Name,
+			Args: json.RawMessage(call.Function.Arguments),
 		}
-		result.Message.Content = append(result.Message.Content, llm.Content{Kind: llm.ContentToolCall, ToolCall: &v})
+		if err := v.Validate(); err != nil {
+			result.Message.Content = append(
+				result.Message.Content,
+				wire.partialToolCall(call),
+			)
+			return result, providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"invalid tool call: %w",
+				err,
+			)
+		}
+		result.Message.Content = append(
+			result.Message.Content,
+			llm.Content{
+				Kind:     llm.ContentToolCall,
+				ToolCall: &v,
+			},
+		)
 	}
 	return result, nil
 }

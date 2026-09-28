@@ -130,7 +130,8 @@ func HasMedia(input llm.Input) bool {
 			if c.Block != nil && media(*c.Block) {
 				return true
 			}
-			if c.ToolResult != nil && media(c.ToolResult.Output.Content...) {
+			if c.ToolResult != nil &&
+				media(c.ToolResult.Output.Content...) {
 				return true
 			}
 		}
@@ -160,7 +161,13 @@ func ContextWindowMessage(message string) bool {
 	// Gemini: "The input token count (N) exceeds the maximum number of tokens
 	// allowed (M)."
 	return ContainsAny(message, contextWindowPhrases...) ||
-		ContainsAny(message, "input token count") && ContainsAny(message, "exceeds the maximum number of tokens")
+		ContainsAny(
+			message,
+			"input token count",
+		) && ContainsAny(
+			message,
+			"exceeds the maximum number of tokens",
+		)
 }
 
 // ContainsAny reports whether message, ignoring case, contains any of the
@@ -178,7 +185,10 @@ func ContainsAny(message string, phrases ...string) bool {
 // rejectsRequest reports whether r can describe a problem with the request
 // itself. Rate limits and server failures never do, whatever their message.
 func (r Rejection) rejectsRequest() bool {
-	return r.Status == 0 || (r.Status >= 400 && r.Status < 500 && r.Status != http.StatusTooManyRequests)
+	return r.Status == 0 ||
+		(r.Status >= 400 &&
+			r.Status < 500 &&
+			r.Status != http.StatusTooManyRequests)
 }
 
 // openAIMediaCodes are the error codes OpenAI reports for image input it cannot
@@ -216,7 +226,8 @@ func OpenAIReason(r Rejection) llm.ErrorReason {
 		return llm.ReasonMediaRejected
 	case ContextWindowMessage(r.Message):
 		return llm.ReasonContextWindowExceeded
-	case r.HasMedia && ContainsAny(r.Message,
+	case r.HasMedia && ContainsAny(
+		r.Message,
 		// OpenAI Responses reports unusable images as code invalid_value.
 		"does not represent a valid image",
 		"too many images",
@@ -224,7 +235,8 @@ func OpenAIReason(r Rejection) llm.ErrorReason {
 		"invalid image",
 		"unsupported image",
 		"could not process image",
-		"failed to load image"):
+		"failed to load image",
+	):
 		return llm.ReasonMediaRejected
 	}
 	return ""

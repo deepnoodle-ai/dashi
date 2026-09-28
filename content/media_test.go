@@ -16,7 +16,10 @@ func TestSourceCloneCopiesBytesAndExpiry(t *testing.T) {
 	if inline.Data[0] != 1 {
 		t.Fatal("source bytes were shared")
 	}
-	remote := Source{URL: "https://example.test/audio", ExpiresAt: &expires}
+	remote := Source{
+		URL:       "https://example.test/audio",
+		ExpiresAt: &expires,
+	}
 	remoteClone := remote.Clone()
 	*remoteClone.ExpiresAt = expires.Add(time.Hour)
 	if !remote.ExpiresAt.Equal(expires) {

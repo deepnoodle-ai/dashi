@@ -8,7 +8,11 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-func riskRequest(t *testing.T, maxTokens int, tools []tool.Definition) Request {
+func riskRequest(
+	t *testing.T,
+	maxTokens int,
+	tools []tool.Definition,
+) Request {
 	t.Helper()
 	input := Input{
 		Model:    "fixture",
@@ -66,17 +70,21 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 	p := pricedSheet()
 	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
-	request := riskRequest(t, 100, []tool.Definition{
-		{
-			Name: "web_search",
-			Kind: tool.KindProviderHosted,
-			Hosted: &tool.HostedSpec{
-				Provider: "test",
-				API:      "test.chat",
-				Type:     "web_search",
+	request := riskRequest(
+		t,
+		100,
+		[]tool.Definition{
+			{
+				Name: "web_search",
+				Kind: tool.KindProviderHosted,
+				Hosted: &tool.HostedSpec{
+					Provider: "test",
+					API:      "test.chat",
+					Type:     "web_search",
+				},
 			},
 		},
-	})
+	)
 	if _, ok := MaxCostAtRisk(request, p); ok {
 		t.Fatal("unbounded hosted calls must not pass a hard cap")
 	}
@@ -98,7 +106,11 @@ func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
 	if cost.Total != amt("0.0201") {
 		t.Fatalf("total cost=%s", cost.Total)
 	}
-	if _, ok := p.Estimate(&Usage{Requests: map[string]int{"unknown": 1}}); ok {
+	if _, ok := p.Estimate(&Usage{
+		Requests: map[string]int{
+			"unknown": 1,
+		},
+	}); ok {
 		t.Fatal("missing hosted request price must not count as free")
 	}
 }

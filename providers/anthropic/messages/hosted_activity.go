@@ -148,10 +148,13 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 				Origin:   wire.origin,
 				MIMEType: value.Resource.MIMEType,
 			}
-			output = append(output, content.Block{
-				Kind:     content.KindResource,
-				Resource: &resource,
-			})
+			output = append(
+				output,
+				content.Block{
+					Kind:     content.KindResource,
+					Resource: &resource,
+				},
+			)
 		}
 	}
 	return output

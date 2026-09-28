@@ -97,7 +97,10 @@ func (s HostedSpec) Validate() error {
 		return nil
 	}
 	var options map[string]json.RawMessage
-	if err := json.Unmarshal(s.Options, &options); err != nil || options == nil {
+	if err := json.Unmarshal(
+		s.Options,
+		&options,
+	); err != nil || options == nil {
 		return errors.New("tool: hosted options require a JSON object")
 	}
 	return nil
@@ -115,7 +118,10 @@ func (d Definition) Validate() error {
 	if d.Name == "" {
 		return errors.New("tool: name is required")
 	}
-	if d.Kind != "" && d.Kind != KindLocal && d.Kind != KindExternal && d.Kind != KindProviderHosted {
+	if d.Kind != "" &&
+		d.Kind != KindLocal &&
+		d.Kind != KindExternal &&
+		d.Kind != KindProviderHosted {
 		return fmt.Errorf("tool: invalid kind %q", d.Kind)
 	}
 	if d.Kind == KindProviderHosted {
@@ -135,13 +141,20 @@ func (d Definition) Validate() error {
 	}
 	var schema any
 	if err := json.Unmarshal(d.Schema, &schema); err != nil {
-		return fmt.Errorf("tool: %q: invalid JSON schema: %w", d.Name, err)
+		return fmt.Errorf(
+			"tool: %q: invalid JSON schema: %w",
+			d.Name,
+			err,
+		)
 	}
 	switch schema.(type) {
 	case map[string]any, bool:
 		return nil
 	}
-	return fmt.Errorf("tool: %q: schema must be a JSON object or boolean", d.Name)
+	return fmt.Errorf(
+		"tool: %q: schema must be a JSON object or boolean",
+		d.Name,
+	)
 }
 
 // Clone returns a copy of d that shares no schema bytes or annotation pointers
@@ -316,11 +329,17 @@ func (o Outcome) Validate() error {
 			return errors.New("tool: nonexecution cannot wait or detach")
 		}
 	case StateWaiting:
-		if o.Wait == nil || o.Wait.Reason == "" || o.Output != nil || o.Handle != nil {
+		if o.Wait == nil ||
+			o.Wait.Reason == "" ||
+			o.Output != nil ||
+			o.Handle != nil {
 			return errors.New("tool: waiting requires only wait details")
 		}
 	case StateDetached:
-		if o.Handle == nil || o.Handle.ID == "" || o.Output != nil || o.Wait != nil {
+		if o.Handle == nil ||
+			o.Handle.ID == "" ||
+			o.Output != nil ||
+			o.Wait != nil {
 			return errors.New("tool: detached outcome requires only a handle")
 		}
 	default:
@@ -379,14 +398,17 @@ type fatalError struct {
 	err error
 }
 
+// Error preserves the wrapped error's message for recorded tool outcomes.
 func (e fatalError) Error() string {
 	return e.err.Error()
 }
 
+// Unwrap exposes the original cause to errors.Is and errors.As.
 func (e fatalError) Unwrap() error {
 	return e.err
 }
 
+// Is marks the error as fatal while retaining its original cause.
 func (e fatalError) Is(target error) bool {
 	return target == ErrFatal
 }

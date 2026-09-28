@@ -21,15 +21,38 @@ func structuredDefinition() Definition {
 
 func submitResult(id string, args string) llm.Result {
 	call := tool.Call{ID: id, Name: SubmitOutputTool, Args: json.RawMessage(args)}
-	return llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}),
-		Stop: llm.Stop{Kind: llm.StopToolUse}, Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}
+	return llm.Result{
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &call,
+		}),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
 }
 
-func applyStructured(t *testing.T, client *scriptedClient, tools tool.Toolset, rec Recorder) Outcome {
+func applyStructured(
+	t *testing.T,
+	client *scriptedClient,
+	tools tool.Toolset,
+	rec Recorder,
+) Outcome {
 	t.Helper()
-	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, structuredDefinition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("answer"))}},
-		Bindings{Client: client, Tools: tools, Recorder: rec, Policy: AllowLocalPolicy{}})
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		structuredDefinition(),
+		Start{
+			ID:    "start",
+			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
+		},
+		Bindings{
+			Client:   client,
+			Tools:    tools,
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +60,27 @@ func applyStructured(t *testing.T, client *scriptedClient, tools tool.Toolset, r
 }
 
 func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("work", "lookup"), submitResult("submit", `{"answer":42}`)}}
+	client := &scriptedClient{
+		results: []llm.Result{
+			callResult("work", "lookup"),
+			submitResult("submit", `{"answer":42}`),
+		},
+	}
 	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			runs++
-			return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("found 42"))}, nil
-		})}
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("found 42")),
+			}, nil
+		}),
+	}
 	rec := NewMemoryRecorder()
 	out := applyStructured(t, client, fixedTools{binding}, rec)
 	if out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"answer":42}` ||
@@ -67,16 +104,41 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	if string(out.Output.Value) != `{"answer":42}` {
 		t.Fatal("structured output shares mutable bytes")
 	}
-	again, err := (Engine{}).Apply(context.Background(), out.Turn, structuredDefinition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("answer"))}},
-		Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	again, err := (Engine{}).Apply(
+		context.Background(),
+		out.Turn,
+		structuredDefinition(),
+		Start{
+			ID:    "start",
+			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
+		},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil || again.Stop.Kind != StopCompleted || client.sends != 2 || runs != 1 {
-		t.Fatalf("duplicate start=%+v err=%v sends=%d runs=%d", again, err, client.sends, runs)
+		t.Fatalf(
+			"duplicate start=%+v err=%v sends=%d runs=%d",
+			again,
+			err,
+			client.sends,
+			runs,
+		)
 	}
 }
 
-func TestStructuredOutputRejectsBadSubmissionThenAcceptsCorrection(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("bad", `{"answer":"wrong"}`), submitResult("good", `{"answer":7}`)}}
+func TestStructuredOutputRejectsBadSubmissionThenAcceptsCorrection(
+	t *testing.T,
+) {
+	client := &scriptedClient{
+		results: []llm.Result{
+			submitResult("bad", `{"answer":"wrong"}`),
+			submitResult("good", `{"answer":7}`),
+		},
+	}
 	out := applyStructured(t, client, nil, NewMemoryRecorder())
 	if out.Stop.Kind != StopCompleted || out.Output == nil || out.Output.ToolCallID != "good" || client.sends != 2 {
 		t.Fatalf("out=%+v sends=%d", out, client.sends)
@@ -85,7 +147,10 @@ func TestStructuredOutputRejectsBadSubmissionThenAcceptsCorrection(t *testing.T)
 		t.Fatalf("messages=%d", len(client.inputs[1].Messages))
 	}
 	feedback := client.inputs[1].Messages[2].Content[0].ToolResult
-	if feedback == nil || !feedback.IsError || !strings.Contains(feedback.Output.Content[0].Text.Text, "Output rejected") {
+	if feedback == nil || !feedback.IsError || !strings.Contains(
+		feedback.Output.Content[0].Text.Text,
+		"Output rejected",
+	) {
 		t.Fatalf("feedback=%+v", feedback)
 	}
 }
@@ -111,15 +176,22 @@ func TestStructuredOutputTextFallbackAndUnsatisfiedFailure(t *testing.T) {
 				if out.Output == nil || out.Output.Source != OutputFromText || string(out.Output.Value) != `{"answer":3}` {
 					t.Fatalf("output=%+v", out.Output)
 				}
-			} else if out.Output != nil || !strings.Contains(out.Stop.Reason, "output_schema_unsatisfied") {
+			} else if out.Output != nil || !strings.Contains(
+				out.Stop.Reason,
+				"output_schema_unsatisfied",
+			) {
 				t.Fatalf("invalid final accepted: %+v", out)
 			}
 		})
 	}
 }
 
-func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
+	t *testing.T,
+) {
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolSettled}
 	first := applyStructured(t, client, nil, rec)
@@ -134,15 +206,22 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(t *testing.
 	if err != nil || view.Tools["submission"].Status != ToolStarted {
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
-	second, err := (Engine{}).Apply(context.Background(), saved, structuredDefinition(), Continue{ID: "recover"},
-		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}})
+	second, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		structuredDefinition(),
+		Continue{ID: "recover"},
+		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}},
+	)
 	if err != nil || second.Stop.Kind != StopCompleted || second.Output == nil || client.sends != 1 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
 	}
 }
 
 func TestStructuredOutputRecordRejectsForgedValue(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	out := applyStructured(t, client, nil, NewMemoryRecorder())
 	for i := range out.Turn.Steps {
 		if out.Turn.Steps[i].Kind == StepOutputRecorded {
@@ -158,10 +237,25 @@ func TestStructuredOutputRecordRejectsForgedValue(t *testing.T) {
 func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	const schema = `{"type":"object","properties":{"label":{"type":"string"}},"required":["label"],"additionalProperties":false}`
 	def := structuredDefinition()
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"label":"ready"}`)}}
-	start := Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("status"))}, OutputSchema: json.RawMessage(schema)}
-	out, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, def, start,
-		Bindings{Client: client, Recorder: NewMemoryRecorder(), Policy: AllowLocalPolicy{}})
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"label":"ready"}`)},
+	}
+	start := Start{
+		ID:           "start",
+		Input:        []llm.Message{llm.UserMessage(llm.Text("status"))},
+		OutputSchema: json.RawMessage(schema),
+	}
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		def,
+		start,
+		Bindings{
+			Client:   client,
+			Recorder: NewMemoryRecorder(),
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"label":"ready"}` {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
@@ -176,7 +270,10 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	// accepted model intent and submission evidence.
 	for i := range out.Turn.Steps {
 		if out.Turn.Steps[i].Kind == StepStarted {
-			out.Turn.Steps[i].Started.OutputSchema = append(json.RawMessage(nil), answerSchema...)
+			out.Turn.Steps[i].Started.OutputSchema = append(
+				json.RawMessage(nil),
+				answerSchema...,
+			)
 			break
 		}
 	}
@@ -186,11 +283,27 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 }
 
 func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
-	for _, schema := range []string{`{"type":"array"}`, `{"type":"object","$ref":"https://example.com/external"}`, `{`} {
+	for _, schema := range []string{
+		`{"type":"array"}`,
+		`{"type":"object","$ref":"https://example.com/external"}`,
+		`{`,
+	} {
 		client := &scriptedClient{}
-		out, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(),
-			Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("answer"))}, OutputSchema: json.RawMessage(schema)},
-			Bindings{Client: client, Recorder: NewMemoryRecorder(), Policy: AllowLocalPolicy{}})
+		out, err := (Engine{}).Apply(
+			context.Background(),
+			Turn{ID: "t1"},
+			definition(),
+			Start{
+				ID:           "start",
+				Input:        []llm.Message{llm.UserMessage(llm.Text("answer"))},
+				OutputSchema: json.RawMessage(schema),
+			},
+			Bindings{
+				Client:   client,
+				Recorder: NewMemoryRecorder(),
+				Policy:   AllowLocalPolicy{},
+			},
+		)
 		if err == nil || len(out.Turn.Steps) != 0 || client.sends != 0 {
 			t.Fatalf("schema=%s out=%+v err=%v", schema, out, err)
 		}
@@ -198,13 +311,18 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 }
 
 func TestSameJSONPreservesLargeIntegerIdentity(t *testing.T) {
-	if sameJSON(json.RawMessage(`{"id":9007199254740992}`), json.RawMessage(`{"id":9007199254740993}`)) {
+	if sameJSON(
+		json.RawMessage(`{"id":9007199254740992}`),
+		json.RawMessage(`{"id":9007199254740993}`),
+	) {
 		t.Fatal("distinct integers compared equal")
 	}
 }
 
 func TestStructuredOutputSubmissionEvidenceCannotBeRewritten(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	out := applyStructured(t, client, nil, NewMemoryRecorder())
 	for i := range out.Turn.Steps {
 		if out.Turn.Steps[i].Kind == StepToolDecision {
@@ -219,7 +337,9 @@ func TestStructuredOutputSubmissionEvidenceCannotBeRewritten(t *testing.T) {
 }
 
 func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolSettled}
 	first := applyStructured(t, client, nil, rec)
@@ -231,16 +351,24 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := tool.Outcome{State: tool.StateSucceeded}
-	_, err = (Engine{}).Apply(context.Background(), saved, structuredDefinition(),
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		saved,
+		structuredDefinition(),
 		Accept{ID: "host-result", CallID: "submission", Outcome: &result},
-		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}})
+		Bindings{Client: client, Recorder: rec, Policy: AllowLocalPolicy{}},
+	)
 	if err == nil {
 		t.Fatal("host settled an engine-owned output submission")
 	}
 }
 
-func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
+	t *testing.T,
+) {
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
 	first := applyStructured(t, client, nil, rec)
@@ -277,22 +405,39 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(t *
 	}
 	deliver := Deliver{
 		ID: "nudge",
-		Items: []ContextItem{{
-			Origin:  "user",
-			Message: llm.UserMessage(llm.Text("more")),
-		}},
+		Items: []ContextItem{
+			{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
+		},
 	}
-	if _, err := (Engine{}).Apply(context.Background(), saved, def, deliver, bindings); err == nil {
+	if _, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		def,
+		deliver,
+		bindings,
+	); err == nil {
 		t.Fatal("deliver accepted after recorded output")
 	}
 	assertStepCount(t, base, len(saved.Steps))
 
-	if _, err := (Engine{}).Apply(context.Background(), saved, def, Cancel{ID: "cancel"}, bindings); err == nil {
+	if _, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		def,
+		Cancel{ID: "cancel"},
+		bindings,
+	); err == nil {
 		t.Fatal("cancel accepted after recorded output")
 	}
 	assertStepCount(t, base, len(saved.Steps))
 
-	out, err := (Engine{}).Apply(context.Background(), saved, def, Continue{ID: "recover"}, bindings)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		def,
+		Continue{ID: "recover"},
+		bindings,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +467,9 @@ func assertStepCount(t *testing.T, base *MemoryRecorder, want int) {
 }
 
 func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{submitResult("submission", `{"answer":8}`)}}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
 	out := applyStructured(t, client, nil, NewMemoryRecorder())
 	i := -1
 	for j, step := range out.Turn.Steps {
@@ -343,10 +490,11 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
 			Kind:    StepDelivered,
-			Context: &ContextFact{Items: []ContextItem{{
-				Origin:  "user",
-				Message: llm.UserMessage(llm.Text("more")),
-			}}},
+			Context: &ContextFact{
+				Items: []ContextItem{
+					{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
+				},
+			},
 		},
 		{
 			Version: recorded.Version,

@@ -35,9 +35,12 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 		return errors.New("providercontent: Gemini replay requires an object")
 	}
 	switch {
-	case c.Block != nil && c.Block.Kind == content.KindText && o.Type == "text":
+	case c.Block != nil &&
+		c.Block.Kind == content.KindText &&
+		o.Type == "text":
 		if len(c.Block.Text.Citations) != 0 ||
-			original.Block == nil || original.Block.Kind != content.KindText {
+			original.Block == nil ||
+			original.Block.Kind != content.KindText {
 			return errors.New(
 				"providercontent: Gemini text replay requires uncited text",
 			)
@@ -51,12 +54,16 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 			}
 			_ = json.Unmarshal(raw, &saved)
 		}
-		if saved == "" && stringField(fields, "thoughtSignature") == "" {
+		if saved == "" && stringField(
+			fields,
+			"thoughtSignature",
+		) == "" {
 			return errors.New(
 				"providercontent: Gemini text replay requires a text source part",
 			)
 		}
-		if saved != c.Block.Text.Text || saved != original.Block.Text.Text {
+		if saved != c.Block.Text.Text ||
+			saved != original.Block.Text.Text {
 			return errors.New(
 				"providercontent: edited Gemini text requires removing replay",
 			)
@@ -75,18 +82,26 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 			)
 		}
 		var saved map[string]json.RawMessage
-		if err := json.Unmarshal(fields["functionCall"], &saved); err != nil || saved == nil {
+		if err := json.Unmarshal(
+			fields["functionCall"],
+			&saved,
+		); err != nil || saved == nil {
 			return errors.New(
 				"providercontent: Gemini tool replay requires functionCall",
 			)
 		}
 		var name, id string
 		if !validString(saved["name"]) ||
-			json.Unmarshal(saved["name"], &name) != nil || name == "" ||
-			!utf8.ValidString(name) || !geminiJSONObject(saved["args"]) ||
+			json.Unmarshal(
+				saved["name"],
+				&name,
+			) != nil || name == "" ||
+			!utf8.ValidString(name) ||
+			!geminiJSONObject(saved["args"]) ||
 			!equalJSON(saved["args"], c.ToolCall.Args) ||
 			!equalJSON(saved["args"], original.ToolCall.Args) ||
-			name != c.ToolCall.Name || name != original.ToolCall.Name {
+			name != c.ToolCall.Name ||
+			name != original.ToolCall.Name {
 			return errors.New(
 				"providercontent: edited Gemini tool replay requires original name and arguments",
 			)
@@ -136,7 +151,9 @@ func geminiJSONObject(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &object) == nil && object != nil
 }
 
-func geminiStrictObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+func geminiStrictObject(
+	raw json.RawMessage,
+) (map[string]json.RawMessage, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	start, err := decoder.Token()
 	if err != nil || start != json.Delim('{') {

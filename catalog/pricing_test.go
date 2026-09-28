@@ -27,14 +27,25 @@ func TestEveryCatalogPriceIsExactDecimalText(t *testing.T) {
 		for name, raw := range rates {
 			var text string
 			if err := json.Unmarshal(raw, &text); err != nil {
-				t.Fatalf("%s %s is %s, not a decimal string", where, name, raw)
+				t.Fatalf(
+					"%s %s is %s, not a decimal string",
+					where,
+					name,
+					raw,
+				)
 			}
 			amount, err := money.ParseAmount(text)
 			if err != nil {
 				t.Fatalf("%s %s: %v", where, name, err)
 			}
 			if amount.String() != text {
-				t.Fatalf("%s %s = %q, canonical %q", where, name, text, amount)
+				t.Fatalf(
+					"%s %s = %q, canonical %q",
+					where,
+					name,
+					text,
+					amount,
+				)
 			}
 			checked++
 		}
@@ -134,14 +145,21 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 		t.Run(tc.model, func(t *testing.T) {
 			e, ok := Find(tc.provider, tc.model)
 			if !ok || e.Pricing == nil {
-				t.Fatalf("%s is missing or unpriced", tc.model)
+				t.Fatalf(
+					"%s is missing or unpriced",
+					tc.model,
+				)
 			}
 			cost, ok := e.Pricing.Estimate(&tc.usage)
 			if !ok {
 				t.Fatal("estimate was unavailable")
 			}
 			if want := money.MustParseAmount(tc.total); cost.Total != want {
-				t.Fatalf("total = %s, want %s", cost.Total, want)
+				t.Fatalf(
+					"total = %s, want %s",
+					cost.Total,
+					want,
+				)
 			}
 		})
 	}

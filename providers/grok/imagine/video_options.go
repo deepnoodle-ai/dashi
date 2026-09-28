@@ -29,7 +29,8 @@ type VideoOptions struct {
 }
 
 // VideoKeyframe pins an image at a moment strictly inside the clip. Timestamp
-// must be on xAI's one-third-second grid, within one nanosecond of a grid point.
+// must be on xAI's one-third-second grid, within one nanosecond of a grid
+// point.
 type VideoKeyframe struct {
 	Image     content.Block `json:"image"`
 	Timestamp time.Duration `json:"timestamp"`
@@ -42,8 +43,13 @@ func optionsHasValues(options VideoOptions) bool {
 		options.GenerateAudio != nil
 }
 
-func videoTransformWireBody(input media.VideoInput, options VideoOptions, files content.Origin) ([]byte, error) {
-	if input.Operation != media.VideoEdit && input.Operation != media.VideoExtend {
+func videoTransformWireBody(
+	input media.VideoInput,
+	options VideoOptions,
+	files content.Origin,
+) ([]byte, error) {
+	if input.Operation != media.VideoEdit &&
+		input.Operation != media.VideoExtend {
 		return nil, errors.New("imagine: unsupported video mode")
 	}
 	if options.SourceVideo == nil {
@@ -62,7 +68,8 @@ func videoTransformWireBody(input media.VideoInput, options VideoOptions, files 
 		return nil, errors.New("imagine: video edit inherits source duration")
 	}
 	if input.Operation == media.VideoExtend && input.Settings.Duration != 0 &&
-		(input.Settings.Duration < 2*time.Second || input.Settings.Duration > 10*time.Second ||
+		(input.Settings.Duration < 2*time.Second ||
+			input.Settings.Duration > 10*time.Second ||
 			input.Settings.Duration%time.Second != 0) {
 		return nil, errors.New("imagine: video extension duration must be whole seconds from 2 to 10")
 	}
@@ -75,10 +82,13 @@ func videoTransformWireBody(input media.VideoInput, options VideoOptions, files 
 		return nil, err
 	}
 	if knownDuration := options.SourceVideo.Video.Duration; knownDuration > 0 {
-		if input.Operation == media.VideoEdit && knownDuration > 8700*time.Millisecond {
+		if input.Operation == media.VideoEdit &&
+			knownDuration > 8700*time.Millisecond {
 			return nil, errors.New("imagine: source video for editing exceeds 8.7 seconds")
 		}
-		if input.Operation == media.VideoExtend && (knownDuration < 2*time.Second || knownDuration > 15*time.Second) {
+		if input.Operation == media.VideoExtend &&
+			(knownDuration < 2*time.Second ||
+				knownDuration > 15*time.Second) {
 			return nil, errors.New("imagine: source video for extension must be 2 to 15 seconds")
 		}
 	}
@@ -92,8 +102,13 @@ func videoTransformWireBody(input media.VideoInput, options VideoOptions, files 
 	return boundedJSON(body)
 }
 
-func videoInputSource(block content.Block, files content.Origin) (map[string]string, error) {
-	if block.Kind != content.KindVideo || block.Video == nil || block.Validate() != nil {
+func videoInputSource(
+	block content.Block,
+	files content.Origin,
+) (map[string]string, error) {
+	if block.Kind != content.KindVideo ||
+		block.Video == nil ||
+		block.Validate() != nil {
 		return nil, errors.New("imagine: source video requires a valid video block")
 	}
 	source := block.Video.Source
@@ -124,7 +139,12 @@ func videoInputSource(block content.Block, files content.Origin) (map[string]str
 	return nil, errors.New("imagine: source video requires a public URL or inline bytes")
 }
 
-func addVideoOptions(body map[string]any, input media.VideoInput, options VideoOptions, files content.Origin) error {
+func addVideoOptions(
+	body map[string]any,
+	input media.VideoInput,
+	options VideoOptions,
+	files content.Origin,
+) error {
 	hasRefs := len(options.ReferenceImages) > 0 || options.LastFrame != nil ||
 		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0
 	if len(options.ReferenceImages) > 7 {
@@ -137,7 +157,9 @@ func addVideoOptions(body map[string]any, input media.VideoInput, options VideoO
 		return errors.New("imagine: video accepts at most four keyframes")
 	}
 	if (options.LastFrame != nil || len(options.Keyframes) > 0 ||
-		len(options.ReferenceVoices) > 0 || options.GenerateAudio != nil) && !videoModel15(input.Model) {
+		len(options.ReferenceVoices) > 0 ||
+		options.GenerateAudio != nil) &&
+		!videoModel15(input.Model) {
 		return errors.New("imagine: last frame, keyframes, voices, and audio control require grok-imagine-video-1.5")
 	}
 	if input.Model == "grok-imagine-video" && len(input.ReferenceFrames) > 0 &&
@@ -192,7 +214,8 @@ func addVideoOptions(body map[string]any, input media.VideoInput, options VideoO
 			if inlineBytes > maxInlineImageBytes {
 				return errors.New("imagine: inline image data exceeds 16 MiB per request")
 			}
-			if keyframe.Timestamp <= 0 || keyframe.Timestamp >= input.Settings.Duration {
+			if keyframe.Timestamp <= 0 ||
+				keyframe.Timestamp >= input.Settings.Duration {
 				return errors.New("imagine: keyframe timestamps must fall strictly inside the clip")
 			}
 			slot := int64(math.Round(float64(keyframe.Timestamp) * 3 / float64(time.Second)))
@@ -201,9 +224,13 @@ func addVideoOptions(body map[string]any, input media.VideoInput, options VideoO
 				return errors.New("imagine: keyframe timestamps must increase on a one-third-second grid")
 			}
 			lastSlot = slot
-			keyframes = append(keyframes, map[string]any{
-				"image": image, "timestamp_s": float64(slot) / 3,
-			})
+			keyframes = append(
+				keyframes,
+				map[string]any{
+					"image":       image,
+					"timestamp_s": float64(slot) / 3,
+				},
+			)
 		}
 		body["keyframes"] = keyframes
 	}
@@ -223,8 +250,13 @@ func addVideoOptions(body map[string]any, input media.VideoInput, options VideoO
 	return nil
 }
 
-func videoImageSource(block content.Block, files content.Origin) (map[string]string, error) {
-	if block.Kind != content.KindImage || block.Image == nil || block.Validate() != nil {
+func videoImageSource(
+	block content.Block,
+	files content.Origin,
+) (map[string]string, error) {
+	if block.Kind != content.KindImage ||
+		block.Image == nil ||
+		block.Validate() != nil {
 		return nil, errors.New("imagine: video frame requires a valid image block")
 	}
 	if len(block.Image.Source.Data) > maxInlineImageBytes {

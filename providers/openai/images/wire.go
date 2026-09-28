@@ -119,12 +119,19 @@ func validatePromptLength(model, prompt string) error {
 		limit = 32000
 	}
 	if limit > 0 && utf8.RuneCountInString(prompt) > limit {
-		return fmt.Errorf("images: prompt exceeds %d characters for %s", limit, model)
+		return fmt.Errorf(
+			"images: prompt exceeds %d characters for %s",
+			limit,
+			model,
+		)
 	}
 	return nil
 }
 
-func imageFields(input media.ImageInput, prompt string) (map[string]any, error) {
+func imageFields(
+	input media.ImageInput,
+	prompt string,
+) (map[string]any, error) {
 	s := input.Settings
 	fields := map[string]any{"model": input.Model, "prompt": prompt}
 	if s.AspectRatio != "" {
@@ -224,8 +231,16 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for _, key := range []string{
-		"model", "prompt", "size", "n", "quality", "output_format",
-		"background", "moderation", "input_fidelity", "output_compression",
+		"model",
+		"prompt",
+		"size",
+		"n",
+		"quality",
+		"output_format",
+		"background",
+		"moderation",
+		"input_fidelity",
+		"output_compression",
 	} {
 		if value, ok := fields[key]; ok {
 			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
@@ -238,7 +253,12 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 		imageField = "image[]"
 	}
 	for i, ref := range refs {
-		if err := writeImagePart(writer, imageField, i, ref.Image.Source); err != nil {
+		if err := writeImagePart(
+			writer,
+			imageField,
+			i,
+			ref.Image.Source,
+		); err != nil {
 			return nil, "", err
 		}
 	}
@@ -263,10 +283,14 @@ func writeImagePart(writer *multipart.Writer, name string, index int,
 	}
 	extension := inputExtension(source.MIMEType)
 	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(
-		`form-data; name=%q; filename=%q`, name,
-		fmt.Sprintf("image-%d%s", index, extension),
-	))
+	header.Set(
+		"Content-Disposition",
+		fmt.Sprintf(
+			`form-data; name=%q; filename=%q`,
+			name,
+			fmt.Sprintf("image-%d%s", index, extension),
+		),
+	)
 	header.Set("Content-Type", source.MIMEType)
 	part, err := writer.CreatePart(header)
 	if err != nil {
@@ -281,7 +305,10 @@ func jsonReference(block content.Block) (map[string]string, error) {
 	switch {
 	case source.Data != nil:
 		if !supportedInputMIME(source.MIMEType) {
-			return nil, fmt.Errorf("images: unsupported input MIME type %q", source.MIMEType)
+			return nil, fmt.Errorf(
+				"images: unsupported input MIME type %q",
+				source.MIMEType,
+			)
 		}
 		if base64.StdEncoding.EncodedLen(len(source.Data))+
 			len("data:"+source.MIMEType+";base64,") > 20_971_520 {

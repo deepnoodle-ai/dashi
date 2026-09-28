@@ -18,25 +18,18 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 		wantStop    StopKind
 	}{
 		{
-			name: "read only",
-			annotations: tool.Annotations{
-				ReadOnly: ptr(true),
-			},
-			wantRuns: 1,
-			wantStop: StopCompleted,
+			name:        "read only",
+			annotations: tool.Annotations{ReadOnly: ptr(true)},
+			wantRuns:    1,
+			wantStop:    StopCompleted,
 		},
 		{
-			name: "idempotent",
-			annotations: tool.Annotations{
-				Idempotent: ptr(true),
-			},
-			wantRuns: 1,
-			wantStop: StopCompleted,
+			name:        "idempotent",
+			annotations: tool.Annotations{Idempotent: ptr(true)},
+			wantRuns:    1,
+			wantStop:    StopCompleted,
 		},
-		{
-			name:     "unannotated",
-			wantStop: StopUncertain,
-		},
+		{name: "unannotated", wantStop: StopUncertain},
 		{
 			name: "explicitly not safe",
 			annotations: tool.Annotations{
@@ -56,9 +49,7 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 			}
 			rec := NewMemoryRecorder()
 			turn := startedLocalToolTurn(t, rec, toolDef)
-			client := &scriptedClient{
-				results: []llm.Result{final("done")},
-			}
+			client := &scriptedClient{results: []llm.Result{final("done")}}
 			runs := 0
 			bound := tool.Tool{
 				Definition: toolDef,
@@ -71,8 +62,11 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 				}),
 			}
 			out, err := (Engine{}).Apply(
-				context.Background(), turn, definition(),
-				Continue{ID: "resume"}, Bindings{
+				context.Background(),
+				turn,
+				definition(),
+				Continue{ID: "resume"},
+				Bindings{
 					Client:   client,
 					Tools:    fixedTools{bound},
 					Recorder: rec,
@@ -104,16 +98,18 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	firstCall := tool.Call{ID: "first", Name: "first", Args: []byte(`{}`)}
 	secondCall := tool.Call{ID: "second", Name: "second", Args: []byte(`{}`)}
-	client := &scriptedClient{results: []llm.Result{
-		{
-			Message: llm.AssistantMessage(
-				llm.Content{Kind: llm.ContentToolCall, ToolCall: &firstCall},
-				llm.Content{Kind: llm.ContentToolCall, ToolCall: &secondCall},
-			),
-			Stop: llm.Stop{Kind: llm.StopToolUse},
+	client := &scriptedClient{
+		results: []llm.Result{
+			{
+				Message: llm.AssistantMessage(
+					llm.Content{Kind: llm.ContentToolCall, ToolCall: &firstCall},
+					llm.Content{Kind: llm.ContentToolCall, ToolCall: &secondCall},
+				),
+				Stop: llm.Stop{Kind: llm.StopToolUse},
+			},
+			final("done"),
 		},
-		final("done"),
-	}}
+	}
 	started := make(chan struct{})
 	release := make(chan struct{})
 	pause := make(chan struct{})
@@ -157,7 +153,9 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	finished := make(chan result, 1)
 	go func() {
 		out, err := (Engine{}).Apply(
-			context.Background(), Turn{ID: "t1"}, def,
+			context.Background(),
+			Turn{ID: "t1"},
+			def,
 			Start{
 				ID:    "start",
 				Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
@@ -207,8 +205,11 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 		t.Fatalf("second tool status=%s; want pending", secondStatus)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(), got.out.Turn, def,
-		Continue{ID: "resume"}, Bindings{
+		context.Background(),
+		got.out.Turn,
+		def,
+		Continue{ID: "resume"},
+		Bindings{
 			Client:   client,
 			Tools:    fixedTools{first, second},
 			Recorder: rec,
@@ -224,9 +225,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 }
 
 func TestToolResultAfterContextEndIsDropped(t *testing.T) {
-	client := &scriptedClient{
-		results: []llm.Result{callResult("call-1", "work")},
-	}
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "work")}}
 	rec := NewMemoryRecorder()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
@@ -247,11 +246,10 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 		}),
 	}
 	out, err := (Engine{}).Apply(
-		ctx, Turn{ID: "t1"}, definition(),
-		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
-		},
+		ctx,
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		Bindings{
 			Client:   client,
 			Tools:    fixedTools{binding},
@@ -310,9 +308,7 @@ func startedLocalToolTurn(
 		Kind: StepStarted,
 		Started: &StartFact{
 			Definition: def,
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("go")),
-			},
+			Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	})
 	commit(Step{
@@ -348,18 +344,12 @@ func startedLocalToolTurn(
 		Tool: &ToolFact{
 			Call:       call,
 			Definition: toolDef,
-			Decision: ToolDecision{
-				Kind:     DecisionAllow,
-				Revision: "r1",
-			},
+			Decision:   ToolDecision{Kind: DecisionAllow, Revision: "r1"},
 		},
 	})
 	commit(Step{
 		Kind: StepToolStarted,
-		Tool: &ToolFact{
-			Call:       call,
-			Definition: toolDef,
-		},
+		Tool: &ToolFact{Call: call, Definition: toolDef},
 	})
 	return turn
 }

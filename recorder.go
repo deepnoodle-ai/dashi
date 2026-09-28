@@ -7,10 +7,13 @@ import (
 	"sync"
 )
 
+// CommitRequest proposes one step at an expected turn revision and owner.
 type CommitRequest struct {
-	Step        Step
+	Step Step
+	// ExpectedSeq is the committed sequence immediately before Step.
 	ExpectedSeq int64
-	Owner       string
+	// Owner is the host lease token checked by recorders that support fencing.
+	Owner string
 }
 
 // Recorder acknowledges each fact before dependent execution. A host recorder
@@ -43,6 +46,7 @@ type Loader interface {
 // CommitError distinguishes a rejected write from a write whose commit status
 // must be checked by loading the turn. A plain error is treated as unknown.
 type CommitError struct {
+	// Persistence states whether this failed call could have committed a step.
 	Persistence Persistence
 	Err         error
 }
@@ -50,14 +54,20 @@ type CommitError struct {
 func (e *CommitError) Error() string {
 	return fmt.Sprintf("kernel: %s commit: %v", e.Persistence, e.Err)
 }
-func (e *CommitError) Unwrap() error { return e.Err }
 
+// Unwrap exposes the underlying persistence error.
+func (e *CommitError) Unwrap() error {
+	return e.Err
+}
+
+// MemoryRecorder provides a fenced in-memory record for tests and local use.
 type MemoryRecorder struct {
 	mu     sync.Mutex
 	turns  map[string]Turn
 	owners map[string]string
 }
 
+// NewMemoryRecorder creates an empty in-memory recorder.
 func NewMemoryRecorder() *MemoryRecorder {
 	return &MemoryRecorder{turns: map[string]Turn{}, owners: map[string]string{}}
 }
@@ -92,6 +102,8 @@ func (r *MemoryRecorder) Load(_ context.Context, turnID string) (Turn, error) {
 	}
 	return cloneTurn(t), nil
 }
+
+// Commit appends a step only when its expected sequence and owner are valid.
 func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if _, err := json.Marshal(req.Step); err != nil {
 		return &CommitError{Persistence: PersistenceRejected, Err: err}
@@ -102,7 +114,10 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if owner := r.owners[req.Step.TurnID]; owner != "" && owner != req.Owner {
-		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         ErrRevisionConflict,
+		}
 	}
 	t := r.turns[req.Step.TurnID]
 	if req.Step.CommandID != "" {
@@ -110,14 +125,21 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			if old.CommandID != req.Step.CommandID {
 				continue
 			}
-			if old.Kind == req.Step.Kind && old.CommandDigest == req.Step.CommandDigest {
+			if old.Kind == req.Step.Kind &&
+				old.CommandDigest == req.Step.CommandDigest {
 				return nil
 			}
-			return &CommitError{Persistence: PersistenceRejected, Err: ErrCommandConflict}
+			return &CommitError{
+				Persistence: PersistenceRejected,
+				Err:         ErrCommandConflict,
+			}
 		}
 	}
 	if req.ExpectedSeq < 0 || req.Step.Seq != req.ExpectedSeq+1 {
-		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         ErrRevisionConflict,
+		}
 	}
 	if int64(len(t.Steps)) >= req.Step.Seq {
 		// A retry of an acknowledged step is a success. Compare by JSON
@@ -125,10 +147,16 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		if sameJSONValue(t.Steps[req.Step.Seq-1], req.Step) {
 			return nil
 		}
-		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         ErrRevisionConflict,
+		}
 	}
 	if int64(len(t.Steps)) != req.ExpectedSeq {
-		return &CommitError{Persistence: PersistenceRejected, Err: ErrRevisionConflict}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         ErrRevisionConflict,
+		}
 	}
 	if t.ID == "" {
 		t.ID = req.Step.TurnID

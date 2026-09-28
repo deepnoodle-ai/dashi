@@ -73,29 +73,39 @@ func TestCompleteAndStreamingAgree(t *testing.T) {
 			var text strings.Builder
 			// The sink mutates every delta to prove deltas do not alias the
 			// streamed result.
-			streamed, err := p.Send(context.Background(), llm.Call{Request: req, Sink: func(d llm.Delta) {
-				if d.Kind == llm.DeltaText {
-					text.WriteString(d.Text)
-				}
-				if d.Content != nil {
-					if d.Content.Block != nil && d.Content.Block.Text != nil {
-						d.Content.Block.Text.Text = "corrupt"
-					}
-					if d.Content.Replay != nil {
-						d.Content.Replay.Raw[0] = '['
-					}
-				}
-				if d.Usage != nil {
-					d.Usage.OutputTokens = 99999
-				}
-			}})
+			streamed, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: req,
+					Sink: func(d llm.Delta) {
+						if d.Kind == llm.DeltaText {
+							text.WriteString(d.Text)
+						}
+						if d.Content != nil {
+							if d.Content.Block != nil && d.Content.Block.Text != nil {
+								d.Content.Block.Text.Text = "corrupt"
+							}
+							if d.Content.Replay != nil {
+								d.Content.Replay.Raw[0] = '['
+							}
+						}
+						if d.Usage != nil {
+							d.Usage.OutputTokens = 99999
+						}
+					},
+				},
+			)
 			if err != nil {
 				t.Fatalf("streamed fixture call failed: %v", err)
 			}
 			complete.Raw = nil
 			streamed.Raw = nil
 			if !reflect.DeepEqual(jsonValue(t, complete), jsonValue(t, streamed)) {
-				t.Fatalf("complete=%s\nstreamed=%s", mustJSON(complete), mustJSON(streamed))
+				t.Fatalf(
+					"complete=%s\nstreamed=%s",
+					mustJSON(complete),
+					mustJSON(streamed),
+				)
 			}
 			if text.String() != complete.Message.Text() {
 				t.Fatalf("deltas=%q final=%q", text.String(), complete.Message.Text())
@@ -108,7 +118,9 @@ func TestCompleteResultCarriesIdentityUsageAndValidContent(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, complete := completeCall(t, tc)
-			if complete.Requested.Model != "requested" || complete.Served.Model == "" || complete.Usage == nil {
+			if complete.Requested.Model != "requested" ||
+				complete.Served.Model == "" ||
+				complete.Usage == nil {
 				t.Fatal("missing model identity or usage")
 			}
 			for _, c := range complete.Message.Content {
@@ -177,7 +189,10 @@ func TestPreparePreservesToolSchema(t *testing.T) {
 			if err := json.Unmarshal(schema, &original); err != nil {
 				t.Fatalf("encode tool schema for comparison: %v", err)
 			}
-			if !reflect.DeepEqual(wire["tools"].([]any)[0].(map[string]any)[tc.schemaKey], original) {
+			if !reflect.DeepEqual(
+				wire["tools"].([]any)[0].(map[string]any)[tc.schemaKey],
+				original,
+			) {
 				t.Fatal("schema changed")
 			}
 		})
@@ -189,22 +204,48 @@ func TestPreparePreservesMedia(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.new("http://unused.invalid")
 			r := modelInput()
-			r.Messages[0].Content = append(r.Messages[0].Content,
-				llm.Block(content.ImageBlock(content.Source{Data: []byte{1, 2}, MIMEType: "image/png"})),
-				llm.Block(content.DocumentBlock(content.Source{URL: "https://example.com/doc.pdf"})),
+			r.Messages[0].Content = append(
+				r.Messages[0].Content,
+				llm.Block(content.ImageBlock(content.Source{
+					Data:     []byte{1, 2},
+					MIMEType: "image/png",
+				})),
+				llm.Block(content.DocumentBlock(content.Source{
+					URL: "https://example.com/doc.pdf",
+				})),
 			)
 			result := &llm.ToolResult{
 				CallID: "call-1",
-				Output: tool.Output{Content: []content.Block{
-					content.ImageBlock(content.Source{ID: "file-1", Origin: preparedRequest(t, p).Origin()}),
-					content.TextBlock("image"),
-				}},
+				Output: tool.Output{
+					Content: []content.Block{
+						content.ImageBlock(content.Source{
+							ID:     "file-1",
+							Origin: preparedRequest(t, p).Origin(),
+						}),
+						content.TextBlock("image"),
+					},
+				},
 			}
-			r.Messages = append(r.Messages, llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &tool.Call{ID: "call-1", Name: "image", Args: json.RawMessage(`{}`)}}))
-			r.Messages = append(r.Messages, llm.Message{
-				Role:    llm.RoleUser,
-				Content: []llm.Content{{Kind: llm.ContentToolResult, ToolResult: result}},
-			})
+			r.Messages = append(
+				r.Messages,
+				llm.AssistantMessage(llm.Content{
+					Kind: llm.ContentToolCall,
+					ToolCall: &tool.Call{
+						ID:   "call-1",
+						Name: "image",
+						Args: json.RawMessage(`{}`),
+					},
+				}),
+			)
+			r.Messages = append(
+				r.Messages,
+				llm.Message{
+					Role: llm.RoleUser,
+					Content: []llm.Content{
+						{Kind: llm.ContentToolResult, ToolResult: result},
+					},
+				},
+			)
 			out, err := p.Prepare(context.Background(), r)
 			if err != nil {
 				t.Fatalf("prepare media content: %v", err)
@@ -225,19 +266,27 @@ func TestPrepareRejectsUnsupportedContent(t *testing.T) {
 		{
 			name: "audio",
 			content: llm.Block(content.Block{
-				Kind:  content.KindAudio,
-				Audio: &content.Audio{Source: content.Source{URL: "https://example.com/a.wav"}},
+				Kind: content.KindAudio,
+				Audio: &content.Audio{
+					Source: content.Source{URL: "https://example.com/a.wav"},
+				},
 			}),
 		},
 		{
 			name: "foreign opaque",
 			content: llm.Content{
 				Kind: llm.ContentOpaque,
-				Opaque: &llm.Opaque{Version: 1,
-					Origin: content.Origin{Provider: "foreign", API: "foreign", Model: "requested", Scope: "scope"},
-					Type:   "private",
-					Unit:   llm.OpaqueUnitItem,
-					Raw:    json.RawMessage(`{"type":"private"}`),
+				Opaque: &llm.Opaque{
+					Version: 1,
+					Origin: content.Origin{
+						Provider: "foreign",
+						API:      "foreign",
+						Model:    "requested",
+						Scope:    "scope",
+					},
+					Type: "private",
+					Unit: llm.OpaqueUnitItem,
+					Raw:  json.RawMessage(`{"type":"private"}`),
 				},
 			},
 		},
@@ -262,25 +311,39 @@ func TestCallerOwnsEachRetryAttempt(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				if attempts.Add(1) == 1 {
-					w.WriteHeader(503)
-					io.WriteString(w, `{"error":{"message":"busy"}}`)
-					return
-				}
-				io.WriteString(w, tc.complete)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(503)
+						io.WriteString(w, `{"error":{"message":"busy"}}`)
+						return
+					}
+					io.WriteString(w, tc.complete)
+				},
+			)
 			p := tc.new(server.URL)
 			req := preparedRequest(t, p)
 			_, err := p.Send(context.Background(), llm.Call{Request: req})
 			var failure *llm.Error
-			if !errors.As(err, &failure) || !failure.Retryable || attempts.Load() != 1 {
-				t.Fatalf("first attempt was hidden or retry hint lost: %v (%d)", err, attempts.Load())
+			if !errors.As(
+				err,
+				&failure,
+			) || !failure.Retryable || attempts.Load() != 1 {
+				t.Fatalf(
+					"first attempt was hidden or retry hint lost: %v (%d)",
+					err,
+					attempts.Load(),
+				)
 			}
 			// The caller can now record failure and another intent before dispatch.
 			_, err = p.Send(context.Background(), llm.Call{Request: req})
 			if err != nil || attempts.Load() != 2 {
-				t.Fatalf("caller retry failed: error=%v attempts=%d, want 2", err, attempts.Load())
+				t.Fatalf(
+					"caller retry failed: error=%v attempts=%d, want 2",
+					err,
+					attempts.Load(),
+				)
 			}
 		})
 	}
@@ -301,7 +364,10 @@ func TestHTTPFailuresAreNotRetried(t *testing.T) {
 			name: "quota",
 			respond: func(w http.ResponseWriter) {
 				w.WriteHeader(429)
-				io.WriteString(w, `{"error":{"code":"insufficient_quota","message":"no quota"}}`)
+				io.WriteString(
+					w,
+					`{"error":{"code":"insufficient_quota","message":"no quota"}}`,
+				)
 			},
 			category: llm.ErrorRateLimited,
 			status:   429,
@@ -326,17 +392,26 @@ func TestHTTPFailuresAreNotRetried(t *testing.T) {
 		for _, f := range failures {
 			t.Run(tc.name+"/"+f.name, func(t *testing.T) {
 				var attempts atomic.Int32
-				server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-					attempts.Add(1)
-					f.respond(w)
-				})
+				server := serve(
+					t,
+					func(w http.ResponseWriter, r *http.Request) {
+						attempts.Add(1)
+						f.respond(w)
+					},
+				)
 				p := tc.new(server.URL)
 				var sink llm.Sink
 				if f.stream {
 					sink = func(llm.Delta) {
 					}
 				}
-				_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p, f.stream), Sink: sink})
+				_, err := p.Send(
+					context.Background(),
+					llm.Call{
+						Request: preparedRequest(t, p, f.stream),
+						Sink:    sink,
+					},
+				)
 				var e *llm.Error
 				if !errors.As(err, &e) || attempts.Load() != 1 {
 					t.Fatalf("err=%v attempts=%d", err, attempts.Load())
@@ -359,13 +434,22 @@ func TestInterruptedToolArgumentsRemainPartial(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				attempts.Add(1)
-				io.WriteString(w, tc.partialToolStream)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					attempts.Add(1)
+					io.WriteString(w, tc.partialToolStream)
+				},
+			)
 			p := tc.new(server.URL)
-			result, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p, true), Sink: func(llm.Delta) {
-			}})
+			result, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: preparedRequest(t, p, true),
+					Sink: func(llm.Delta) {
+					},
+				},
+			)
 			if err == nil ||
 				attempts.Load() != 1 ||
 				result.Stop.Kind != llm.StopIncomplete ||
@@ -397,15 +481,23 @@ func TestSendHonorsCanceledContext(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				attempts.Add(1)
-				fmt.Fprintln(w, tc.complete)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					attempts.Add(1)
+					fmt.Fprintln(w, tc.complete)
+				},
+			)
 			p := tc.new(server.URL)
 			req := preparedRequest(t, p)
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			if _, err := p.Send(ctx, llm.Call{Request: req}); !errors.Is(err, context.Canceled) {
+			if _, err := p.Send(
+				ctx,
+				llm.Call{
+					Request: req,
+				},
+			); !errors.Is(err, context.Canceled) {
 				t.Fatalf("canceled call did not return context cancellation: %v", err)
 			}
 			if attempts.Load() != 0 {
@@ -419,16 +511,33 @@ func TestCallRejectsForeignPreparedRequest(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				attempts.Add(1)
-				fmt.Fprintln(w, tc.complete)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					attempts.Add(1)
+					fmt.Fprintln(w, tc.complete)
+				},
+			)
 			p := tc.new(server.URL)
-			foreign, err := llm.NewRequest(llm.RequestSnapshot{Origin: content.Origin{Provider: "foreign", API: "api", Model: "requested", Scope: "scope"}, Input: modelInput(), Body: []byte(`{}`)})
+			foreign, err := llm.NewRequest(llm.RequestSnapshot{
+				Origin: content.Origin{
+					Provider: "foreign",
+					API:      "api",
+					Model:    "requested",
+					Scope:    "scope",
+				},
+				Input: modelInput(),
+				Body:  []byte(`{}`),
+			})
 			if err != nil {
 				t.Fatalf("construct foreign preparation for rejection check: %v", err)
 			}
-			if _, err := p.Send(context.Background(), llm.Call{Request: foreign}); err == nil {
+			if _, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: foreign,
+				},
+			); err == nil {
 				t.Fatal("accepted foreign prepared request")
 			}
 			if attempts.Load() != 0 {
@@ -451,8 +560,21 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 	server := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, response)
 	})
-	p := newResponses(t, responses.Config{Provider: "openai", Endpoint: server.URL, APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
-	result, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+	p := newResponses(
+		t,
+		responses.Config{
+			Provider:         "openai",
+			Endpoint:         server.URL,
+			APIKey:           "test",
+			CapabilityPolicy: llm.CapabilityAdjust,
+		},
+	)
+	result, err := p.Send(
+		context.Background(),
+		llm.Call{
+			Request: preparedRequest(t, p),
+		},
+	)
 	if err != nil {
 		t.Fatalf("collect response with private fields: %v", err)
 	}
@@ -462,7 +584,10 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 		t.Fatalf("response lost output items or tool-use stop: %+v", result)
 	}
 	u := result.Usage
-	if u.InputTokens != 60 || u.CacheReadInputTokens != 40 || u.OutputTokens != 20 || u.ReasoningTokens != 10 {
+	if u.InputTokens != 60 ||
+		u.CacheReadInputTokens != 40 ||
+		u.OutputTokens != 20 ||
+		u.ReasoningTokens != 10 {
 		t.Fatalf("response lost disjoint usage accounting: %+v", result.Usage)
 	}
 	result.Message.Content[3].ToolCall.Args = json.RawMessage(`{"query":"edited"}`)
@@ -488,7 +613,10 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 		name string
 		ok   bool
 	}{
-		{"reasoning encrypted content", wire.Input[1]["encrypted_content"] == "secret"},
+		{
+			"reasoning encrypted content",
+			wire.Input[1]["encrypted_content"] == "secret",
+		},
 		{"message phase", wire.Input[2]["phase"] == "commentary"},
 		{"message id", wire.Input[2]["id"] == "msg"},
 		{"message parts", len(wire.Input[2]["content"].([]any)) == 2},
@@ -506,11 +634,19 @@ func TestOpenAIReplayPreservesItemIdentityAndPrivateFields(t *testing.T) {
 func TestEmptyOutputsAndUnknownUsageAreValid(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				io.WriteString(w, tc.empty)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					io.WriteString(w, tc.empty)
+				},
+			)
 			p := tc.new(server.URL)
-			r, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+			r, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: preparedRequest(t, p),
+				},
+			)
 			if err != nil ||
 				r.Usage != nil ||
 				r.Stop.Kind != llm.StopFinished ||
@@ -524,11 +660,19 @@ func TestEmptyOutputsAndUnknownUsageAreValid(t *testing.T) {
 func TestMalformedTerminalResponsesFail(t *testing.T) {
 	for _, tc := range cases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			server := serve(t, func(w http.ResponseWriter, r *http.Request) {
-				io.WriteString(w, tc.invalidToolCall)
-			})
+			server := serve(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					io.WriteString(w, tc.invalidToolCall)
+				},
+			)
 			p := tc.new(server.URL)
-			_, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+			_, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: preparedRequest(t, p),
+				},
+			)
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol {
 				t.Fatalf("malformed response did not return a protocol error: %v", err)
@@ -552,11 +696,17 @@ func TestCancellationDuringStreamReturnsPartialText(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			p := tc.new(server.URL)
-			result, err := p.Send(ctx, llm.Call{Request: preparedRequest(t, p, true), Sink: func(d llm.Delta) {
-				if d.Kind == llm.DeltaText {
-					cancel()
-				}
-			}})
+			result, err := p.Send(
+				ctx,
+				llm.Call{
+					Request: preparedRequest(t, p, true),
+					Sink: func(d llm.Delta) {
+						if d.Kind == llm.DeltaText {
+							cancel()
+						}
+					},
+				},
+			)
 			if !errors.Is(err, context.Canceled) ||
 				result.Message.Text() != "partial" ||
 				result.Stop.Kind != llm.StopIncomplete ||
@@ -575,7 +725,13 @@ func cases(t *testing.T) []providerCase {
 	}
 	var final struct{ Response json.RawMessage }
 	for _, line := range bytes.Split(sse, []byte("\n")) {
-		if bytes.Contains(line, []byte(`"type":"response.completed"`)) && bytes.HasPrefix(line, []byte("data: ")) {
+		if bytes.Contains(
+			line,
+			[]byte(`"type":"response.completed"`),
+		) && bytes.HasPrefix(
+			line,
+			[]byte("data: "),
+		) {
 			if err := json.Unmarshal(line[6:], &final); err != nil {
 				t.Fatalf("decode terminal fixture response: %v", err)
 			}
@@ -588,11 +744,15 @@ func cases(t *testing.T) []providerCase {
 		{
 			name: "anthropic",
 			new: func(url string) llm.Client {
-				return newMessages(t, messages.Config{
-					Provider: "anthropic", CapabilityPolicy: llm.CapabilityAdjust,
-					APIKey:   "test",
-					Endpoint: url,
-				})
+				return newMessages(
+					t,
+					messages.Config{
+						Provider:         "anthropic",
+						CapabilityPolicy: llm.CapabilityAdjust,
+						APIKey:           "test",
+						Endpoint:         url,
+					},
+				)
 			},
 			complete: anthropicComplete,
 			stream: events(
@@ -632,11 +792,15 @@ func cases(t *testing.T) []providerCase {
 		{
 			name: "openai",
 			new: func(url string) llm.Client {
-				return newResponses(t, responses.Config{
-					Provider: "openai", CapabilityPolicy: llm.CapabilityAdjust,
-					APIKey:   "test",
-					Endpoint: url,
-				})
+				return newResponses(
+					t,
+					responses.Config{
+						Provider:         "openai",
+						CapabilityPolicy: llm.CapabilityAdjust,
+						APIKey:           "test",
+						Endpoint:         url,
+					},
+				)
 			},
 			complete:  string(final.Response),
 			stream:    string(sse),
@@ -675,7 +839,12 @@ func completeCall(t *testing.T, tc providerCase) (llm.Client, llm.Result) {
 		}
 	})
 	p := tc.new(server.URL)
-	complete, err := p.Send(context.Background(), llm.Call{Request: preparedRequest(t, p)})
+	complete, err := p.Send(
+		context.Background(),
+		llm.Call{
+			Request: preparedRequest(t, p),
+		},
+	)
 	if err != nil {
 		t.Fatalf("collect complete fixture response: %v", err)
 	}
@@ -698,10 +867,12 @@ func events(values ...string) string {
 func modelInput() llm.Input {
 	return llm.Input{
 		Model: "requested",
-		Messages: []llm.Message{{
-			Role:    llm.RoleUser,
-			Content: []llm.Content{llm.Text("hello")},
-		}},
+		Messages: []llm.Message{
+			{
+				Role:    llm.RoleUser,
+				Content: []llm.Content{llm.Text("hello")},
+			},
+		},
 	}
 }
 
@@ -756,13 +927,24 @@ func newResponses(t *testing.T, config responses.Config) *responses.Client {
 	return p
 }
 
-// toolReplies supplies explicit fixture outcomes when selecting generated calls
-// as completed history. Production code must use its recorded execution results.
+// toolReplies supplies explicit fixture outcomes when selecting generated
+// calls
+// as completed history. Production code must use its recorded execution
+// results.
 func toolReplies(message llm.Message) []llm.Message {
 	var parts []llm.Content
 	for _, c := range message.Content {
 		if c.ToolCall != nil {
-			parts = append(parts, llm.Content{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: c.ToolCall.ID, Output: tool.Output{Content: []content.Block{content.TextBlock("done")}}}})
+			parts = append(
+				parts,
+				llm.Content{
+					Kind: llm.ContentToolResult,
+					ToolResult: &llm.ToolResult{
+						CallID: c.ToolCall.ID,
+						Output: tool.Output{Content: []content.Block{content.TextBlock("done")}},
+					},
+				},
+			)
 		}
 	}
 	if len(parts) == 0 {

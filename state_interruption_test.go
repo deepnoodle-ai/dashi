@@ -83,16 +83,16 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	if state.ReadyToContinue {
 		t.Fatal("turn at the interruption limit is ready again")
 	}
-	turn.Steps = append(turn.Steps, Step{
-		Version: 1,
-		TurnID:  turn.ID,
-		Seq:     int64(len(turn.Steps) + 1),
-		Kind:    StepStopped,
-		Stop: &Stop{
-			Kind:   StopLimited,
-			Reason: "interruptions",
+	turn.Steps = append(
+		turn.Steps,
+		Step{
+			Version: 1,
+			TurnID:  turn.ID,
+			Seq:     int64(len(turn.Steps) + 1),
+			Kind:    StepStopped,
+			Stop:    &Stop{Kind: StopLimited, Reason: "interruptions"},
 		},
-	})
+	)
 	view, err := Replay(turn)
 	if err != nil {
 		t.Fatal(err)
@@ -114,12 +114,15 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 	if !view.ReadyToContinue {
 		t.Fatal("crashed model call cannot be picked up")
 	}
-	turn.Steps = append(turn.Steps, Step{
-		Version: 1,
-		TurnID:  turn.ID,
-		Seq:     int64(len(turn.Steps) + 1),
-		Kind:    StepContinued,
-	})
+	turn.Steps = append(
+		turn.Steps,
+		Step{
+			Version: 1,
+			TurnID:  turn.ID,
+			Seq:     int64(len(turn.Steps) + 1),
+			Kind:    StepContinued,
+		},
+	)
 	state, err := replay(turn)
 	if err != nil {
 		t.Fatal(err)
@@ -173,18 +176,24 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	if !view.ReadyToContinue {
 		t.Fatal("failed turn cannot continue at the interruption limit")
 	}
-	failed.Steps = append(failed.Steps, Step{
-		Version: 1,
-		TurnID:  failed.ID,
-		Seq:     int64(len(failed.Steps) + 1),
-		Kind:    StepContinued,
-	})
+	failed.Steps = append(
+		failed.Steps,
+		Step{
+			Version: 1,
+			TurnID:  failed.ID,
+			Seq:     int64(len(failed.Steps) + 1),
+			Kind:    StepContinued,
+		},
+	)
 	view, err = Replay(failed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Interruptions != 1 {
-		t.Fatalf("non-interruption continuation counted as resume: %d", view.Interruptions)
+		t.Fatalf(
+			"non-interruption continuation counted as resume: %d",
+			view.Interruptions,
+		)
 	}
 }
 
@@ -194,10 +203,7 @@ func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 		interruptionModelIntent("model-1"),
 		Step{
 			Kind: StepStopped,
-			Stop: &Stop{
-				Kind:   StopUncertain,
-				Reason: "model outcome unknown",
-			},
+			Stop: &Stop{Kind: StopUncertain, Reason: "model outcome unknown"},
 		},
 	)
 	view, err := Replay(turn)
@@ -273,12 +279,15 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 	if !view.ReadyToContinue {
 		t.Fatal("verified nonexecution did not make turn ready")
 	}
-	turn.Steps = append(turn.Steps, Step{
-		Version: 1,
-		TurnID:  turn.ID,
-		Seq:     int64(len(turn.Steps) + 1),
-		Kind:    StepContinued,
-	})
+	turn.Steps = append(
+		turn.Steps,
+		Step{
+			Version: 1,
+			TurnID:  turn.ID,
+			Seq:     int64(len(turn.Steps) + 1),
+			Kind:    StepContinued,
+		},
+	)
 	state, err := replay(turn)
 	if err != nil {
 		t.Fatal(err)
@@ -312,8 +321,10 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.failedModel != "" {
-		t.Fatalf("reported crash nonexecution still fails the turn: %q",
-			state.failedModel)
+		t.Fatalf(
+			"reported crash nonexecution still fails the turn: %q",
+			state.failedModel,
+		)
 	}
 	if state.modelIntent != "" {
 		t.Fatalf("reported model call remains open: %q", state.modelIntent)
@@ -324,11 +335,7 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 }
 
 func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
-	call := tool.Call{
-		ID:   "call-1",
-		Name: "lookup",
-		Args: []byte(`{}`),
-	}
+	call := tool.Call{ID: "call-1", Name: "lookup", Args: []byte(`{}`)}
 	def := tool.Definition{
 		Name:   "lookup",
 		Kind:   tool.KindLocal,
@@ -374,10 +381,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			steps := append([]Step(nil), base...)
-			steps = append(steps, Step{
-				Kind: StepStopped,
-				Stop: &Stop{Kind: tc.stop},
-			})
+			steps = append(steps, Step{Kind: StepStopped, Stop: &Stop{Kind: tc.stop}})
 			view, err := Replay(interruptionRecord(steps...))
 			if err != nil {
 				t.Fatal(err)
@@ -394,10 +398,7 @@ func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 		interruptionStart(definition()),
 		Step{
 			Kind: StepStopped,
-			Stop: &Stop{
-				Kind:   StopLimited,
-				Reason: "deadline",
-			},
+			Stop: &Stop{Kind: StopLimited, Reason: "deadline"},
 		},
 	)
 	view, err := Replay(turn)
@@ -439,9 +440,7 @@ func interruptionStart(def Definition) Step {
 		Kind: StepStarted,
 		Started: &StartFact{
 			Definition: def,
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("answer")),
-			},
+			Input:      []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	}
 }

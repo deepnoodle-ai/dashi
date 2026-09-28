@@ -10,16 +10,51 @@ import (
 
 func TestRequestOwnsSnapshots(t *testing.T) {
 	r := Input{
-		Model:    "model",
-		Messages: []Message{{Role: RoleUser, Content: []Content{Text("hello")}}},
-		Tools:    []tool.Definition{{Name: "act", Schema: json.RawMessage(`{"type":"object"}`)}},
+		Model: "model",
+		Messages: []Message{
+			{
+				Role: RoleUser,
+				Content: []Content{
+					Text("hello"),
+				},
+			},
+		},
+		Tools: []tool.Definition{
+			{
+				Name:   "act",
+				Schema: json.RawMessage(`{"type":"object"}`),
+			},
+		},
 	}
 	body := []byte(`{"stream":false}`)
-	adjustments := []Adjustment{{Field: SettingMaxTokens, Action: AdjustmentDefault,
-		Requested: json.RawMessage("null"), Effective: json.RawMessage("1024"), Reason: "default"}}
-	p, err := NewRequest(RequestSnapshot{Origin: content.Origin{Provider: "test", API: "api", Model: "model", Scope: "scope"}, Input: r, Effective: Settings{MaxTokens: 1024}, Body: body, Adjustments: adjustments})
+	adjustments := []Adjustment{
+		{
+			Field:     SettingMaxTokens,
+			Action:    AdjustmentDefault,
+			Requested: json.RawMessage("null"),
+			Effective: json.RawMessage("1024"),
+			Reason:    "default",
+		},
+	}
+	p, err := NewRequest(RequestSnapshot{
+		Origin: content.Origin{
+			Provider: "test",
+			API:      "api",
+			Model:    "model",
+			Scope:    "scope",
+		},
+		Input: r,
+		Effective: Settings{
+			MaxTokens: 1024,
+		},
+		Body:        body,
+		Adjustments: adjustments,
+	})
 	if err != nil {
-		t.Fatalf("create prepared request for ownership check: %v", err)
+		t.Fatalf(
+			"create prepared request for ownership check: %v",
+			err,
+		)
 	}
 
 	// Mutate the inputs and every returned value; none may reach p.
@@ -59,26 +94,71 @@ func TestInputValidateRejectsInvalid(t *testing.T) {
 	}{
 		{
 			name: "content kind mismatch",
-			request: Input{Model: "m", Messages: []Message{{
-				Role:    RoleUser,
-				Content: []Content{{Kind: ContentToolCall, Block: Text("x").Block}},
-			}}},
+			request: Input{
+				Model: "m",
+				Messages: []Message{
+					{
+						Role: RoleUser,
+						Content: []Content{
+							{
+								Kind:  ContentToolCall,
+								Block: Text("x").Block,
+							},
+						},
+					},
+				},
+			},
 		},
 		{
-			name:    "unknown role",
-			request: Input{Model: "m", Messages: []Message{{Role: "unknown"}}},
+			name: "unknown role",
+			request: Input{
+				Model: "m",
+				Messages: []Message{
+					{
+						Role: "unknown",
+					},
+				},
+			},
 		},
 		{
-			name:    "tool choice names undefined tool",
-			request: Input{Model: "m", Settings: Settings{ToolChoice: &ToolChoice{Mode: ToolChoiceTool, Name: "missing"}}},
+			name: "tool choice names undefined tool",
+			request: Input{
+				Model: "m",
+				Settings: Settings{
+					ToolChoice: &ToolChoice{
+						Mode: ToolChoiceTool,
+						Name: "missing",
+					},
+				},
+			},
 		},
 		{
-			name:    "reasoning effort and budget",
-			request: Input{Model: "m", Settings: Settings{Reasoning: &ReasoningSettings{Effort: "high", BudgetTokens: 1000}}},
+			name: "reasoning effort and budget",
+			request: Input{
+				Model: "m",
+				Settings: Settings{
+					Reasoning: &ReasoningSettings{
+						Effort:       "high",
+						BudgetTokens: 1000,
+					},
+				},
+			},
 		},
 		{
-			name:    "duplicate tool names",
-			request: Input{Model: "m", Tools: []tool.Definition{{Name: "x", Schema: schema}, {Name: "x", Schema: schema}}},
+			name: "duplicate tool names",
+			request: Input{
+				Model: "m",
+				Tools: []tool.Definition{
+					{
+						Name:   "x",
+						Schema: schema,
+					},
+					{
+						Name:   "x",
+						Schema: schema,
+					},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {

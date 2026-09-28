@@ -12,19 +12,29 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
+// ToolStatus describes a call's recorded execution state.
 type ToolStatus string
 
 const (
-	ToolRequested       ToolStatus = "requested"
+	// ToolRequested means the model requested the call.
+	ToolRequested ToolStatus = "requested"
+	// ToolApprovalPending means the call awaits a host decision.
 	ToolApprovalPending ToolStatus = "approval_pending"
-	ToolDenied          ToolStatus = "denied"
-	ToolAllowed         ToolStatus = "allowed"
-	ToolStarted         ToolStatus = "started"
-	ToolWaiting         ToolStatus = "waiting"
-	ToolUncertain       ToolStatus = "uncertain"
-	ToolSettled         ToolStatus = "settled"
+	// ToolDenied means policy rejected the call.
+	ToolDenied ToolStatus = "denied"
+	// ToolAllowed means policy authorized the call.
+	ToolAllowed ToolStatus = "allowed"
+	// ToolStarted means execution began without a settled outcome.
+	ToolStarted ToolStatus = "started"
+	// ToolWaiting means execution deferred completion.
+	ToolWaiting ToolStatus = "waiting"
+	// ToolUncertain means execution may have occurred without a known result.
+	ToolUncertain ToolStatus = "uncertain"
+	// ToolSettled means a final outcome was recorded.
+	ToolSettled ToolStatus = "settled"
 )
 
+// ToolView projects the current call state from committed facts.
 type ToolView struct {
 	Call       tool.Call
 	Definition tool.Definition
@@ -39,10 +49,12 @@ type ToolView struct {
 
 // TurnView is the current state reconstructed from acknowledged steps.
 type TurnView struct {
-	ID           string
-	Definition   Definition
+	ID         string
+	Definition Definition
+	// OutputSchema is the schema pinned at Start for this turn.
 	OutputSchema json.RawMessage
-	Revision     int64
+	// Revision is the latest acknowledged step sequence number.
+	Revision int64
 	// ModelAttempts counts settled calls that were not interrupted.
 	ModelAttempts int
 	// Interruptions counts resumes after a context stop or worker crash.
@@ -53,17 +65,20 @@ type TurnView struct {
 	// Raises preserves the authorized cap changes in order.
 	Raises []BudgetRaise
 	// Spend is rebuilt from committed model and tool facts.
-	Spend   Spend
-	Stop    Stop
-	Output  *StructuredOutput
+	Spend  Spend
+	Stop   Stop
+	Output *StructuredOutput
+	// Pending contains calls awaiting host action or settlement.
 	Pending []string
 	// Warnings includes nonfatal conditions from acknowledged steps.
 	Warnings []Warning
 	// ReadyToContinue means Continue can run without first raising a budget.
 	// A limited turn with a spent cap can still accept a Continue that raises it.
 	ReadyToContinue bool
-	Tools           map[string]ToolView
+	// Tools is keyed by tool call ID and rebuilt from committed steps.
+	Tools map[string]ToolView
 }
+
 type replayState struct {
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
@@ -96,18 +111,17 @@ func Replay(t Turn) (TurnView, error) {
 	}
 	return snapshotView(s.TurnView), nil
 }
+
 func snapshotView(v TurnView) TurnView {
 	b, _ := json.Marshal(v)
 	var out TurnView
 	_ = json.Unmarshal(b, &out)
 	return out
 }
+
 func replay(t Turn) (*replayState, error) {
 	s := &replayState{
-		TurnView: TurnView{
-			ID:    t.ID,
-			Tools: map[string]ToolView{},
-		},
+		TurnView:         TurnView{ID: t.ID, Tools: map[string]ToolView{}},
 		modelDefs:        map[string]tool.Definition{},
 		hosted:           map[string]llm.HostedApprovalRequest{},
 		commandDigests:   map[string]string{},
@@ -121,7 +135,12 @@ func replay(t Turn) (*replayState, error) {
 	}
 	for i, step := range t.Steps {
 		if _, err := json.Marshal(step); err != nil {
-			return nil, fmt.Errorf("%w: step %d cannot serialize: %v", ErrInvalidTurn, i+1, err)
+			return nil, fmt.Errorf(
+				"%w: step %d cannot serialize: %v",
+				ErrInvalidTurn,
+				i+1,
+				err,
+			)
 		}
 		if step.Version != 1 || step.TurnID != t.ID || step.Seq != int64(i+1) {
 			return nil, fmt.Errorf("%w: invalid step header at %d", ErrInvalidTurn, i+1)
@@ -133,7 +152,8 @@ func replay(t Turn) (*replayState, error) {
 			if step.CommandDigest == "" {
 				return nil, fmt.Errorf("%w: command digest missing", ErrInvalidTurn)
 			}
-			if old, ok := s.commandDigests[step.CommandID]; ok && old != step.CommandDigest {
+			if old, ok := s.commandDigests[step.CommandID]; ok &&
+				old != step.CommandDigest {
 				return nil, ErrCommandConflict
 			}
 			s.commandDigests[step.CommandID] = step.CommandDigest
@@ -174,7 +194,8 @@ func (s *replayState) calculateSpend() error {
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
 		usage, charge, estimated, counted := attemptSpend(
-			s.modelIntents[id], s.modelSettlements[id],
+			s.modelIntents[id],
+			s.modelSettlements[id],
 		)
 		if !counted {
 			continue
@@ -191,7 +212,11 @@ func (s *replayState) calculateSpend() error {
 			s.Spend.CostUnknown++
 			continue
 		}
-		if err := addCurrencyCost(s.Spend.Cost, charge.Currency, charge.Total); err != nil {
+		if err := addCurrencyCost(
+			s.Spend.Cost,
+			charge.Currency,
+			charge.Total,
+		); err != nil {
 			return err
 		}
 		if s.Budget != nil && s.Budget.MaxCost != nil &&
@@ -204,13 +229,18 @@ func (s *replayState) calculateSpend() error {
 		if view.Status == ToolSettled && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
-			if err := addCurrencyCost(s.Spend.ToolCost, cost.Currency, cost.Amount); err != nil {
+			if err := addCurrencyCost(
+				s.Spend.ToolCost,
+				cost.Currency,
+				cost.Amount,
+			); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
 }
+
 func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
 		return errors.New("completed turn cannot change")
@@ -271,20 +301,27 @@ func (s *replayState) apply(step Step) error {
 		if origin == "" {
 			origin = StartUser
 		}
-		if origin != StartUser && origin != StartScheduled && origin != StartOperator {
+		if origin != StartUser &&
+			origin != StartScheduled &&
+			origin != StartOperator {
 			return errors.New("invalid start origin")
 		}
 		for _, m := range step.Started.Input {
 			if origin != StartOperator && m.Role != llm.RoleUser {
 				return errors.New("user or scheduled start input must use user role")
 			}
-			if origin == StartOperator && m.Role != llm.RoleUser && m.Role != llm.RoleSystem && m.Role != llm.RoleDeveloper {
+			if origin == StartOperator &&
+				m.Role != llm.RoleUser &&
+				m.Role != llm.RoleSystem &&
+				m.Role != llm.RoleDeveloper {
 				return errors.New("invalid operator start role")
 			}
 			if err := validateMessage(m); err != nil {
 				return err
 			}
-			if reminder := messageReminder(m); reminder != nil && reminder.Tier == llm.ReminderOperator && origin != StartOperator {
+			if reminder := messageReminder(m); reminder != nil &&
+				reminder.Tier == llm.ReminderOperator &&
+				origin != StartOperator {
 				return errors.New("operator reminder requires operator start origin")
 			}
 		}
@@ -326,10 +363,10 @@ func (s *replayState) apply(step Step) error {
 			}
 			budget := step.Budget.Clone()
 			s.Budget = &budget
-			s.Raises = append(s.Raises, BudgetRaise{
-				Budget: budget.Clone(),
-				At:     step.At,
-			})
+			s.Raises = append(
+				s.Raises,
+				BudgetRaise{Budget: budget.Clone(), At: step.At},
+			)
 		}
 		if s.Stop.Kind == StopInterrupted || s.Stop.Kind == "" {
 			s.Interruptions++
@@ -354,13 +391,23 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 	case StepModelIntent:
-		if step.Model == nil || step.Model.AttemptID == "" || step.Model.MessageID == "" || step.Model.RequestDigest == "" || s.modelIntent != "" || s.Output != nil || len(s.pending()) > 0 {
+		if step.Model == nil ||
+			step.Model.AttemptID == "" ||
+			step.Model.MessageID == "" ||
+			step.Model.RequestDigest == "" ||
+			s.modelIntent != "" ||
+			s.Output != nil ||
+			len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
-		if len(step.Model.Admission) > 0 && (!json.Valid(step.Model.Admission) || len(step.Model.Admission) > 16<<10) {
+		if len(step.Model.Admission) > 0 &&
+			(!json.Valid(step.Model.Admission) ||
+				len(step.Model.Admission) > 16<<10) {
 			return errors.New("invalid model admission metadata")
 		}
-		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
+		if step.Model.Provider != s.Definition.Provider ||
+			step.Model.API != s.Definition.API ||
+			step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
 		}
 		if step.Model.EstimatedInputTokens < 0 {
@@ -371,7 +418,10 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if step.Model.FinalAnswerOnly && (!s.Definition.Limits.ReserveFinalAnswer || s.ModelAttempts == 0 || s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
+		if step.Model.FinalAnswerOnly &&
+			(!s.Definition.Limits.ReserveFinalAnswer ||
+				s.ModelAttempts == 0 ||
+				s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
 		s.modelIntent = step.Model.AttemptID
@@ -394,7 +444,10 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("duplicate tool definition")
 			}
 			if d.Name == SubmitOutputTool {
-				if len(s.OutputSchema) == 0 || d.Kind != tool.KindLocal || !sameJSON(d.Schema, s.OutputSchema) {
+				if len(s.OutputSchema) == 0 || d.Kind != tool.KindLocal || !sameJSON(
+					d.Schema,
+					s.OutputSchema,
+				) {
 					return errors.New("invalid reserved output tool")
 				}
 				outputTool = true
@@ -407,7 +460,10 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("output schema requires reserved output tool")
 		}
 	case StepModelSettled:
-		if step.Model == nil || step.Model.AttemptID == "" || step.Model.AttemptID != s.modelIntent || step.Model.MessageID != s.modelMessages[s.modelIntent] {
+		if step.Model == nil ||
+			step.Model.AttemptID == "" ||
+			step.Model.AttemptID != s.modelIntent ||
+			step.Model.MessageID != s.modelMessages[s.modelIntent] {
 			return errors.New("model settlement without intent")
 		}
 		if step.Model.Result == nil && step.Model.Error == "" {
@@ -416,10 +472,15 @@ func (s *replayState) apply(step Step) error {
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
-		if step.Model.Failure != "" && step.Model.Failure != llm.FailureUnknown && step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched {
+		if step.Model.Failure != "" &&
+			step.Model.Failure != llm.FailureUnknown &&
+			step.Model.Failure != llm.FailureRejected &&
+			step.Model.Failure != llm.FailureNotDispatched {
 			return errors.New("invalid model failure disposition")
 		}
-		if step.Model.Uncertain && (step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched) {
+		if step.Model.Uncertain &&
+			(step.Model.Failure == llm.FailureRejected ||
+				step.Model.Failure == llm.FailureNotDispatched) {
 			return errors.New("known model failure marked uncertain")
 		}
 		if step.Model.Interrupted &&
@@ -427,8 +488,14 @@ func (s *replayState) apply(step Step) error {
 				step.Model.Failure == llm.FailureNotDispatched) {
 			return errors.New("interrupted model call cannot have known nonexecution")
 		}
-		if step.Model.Failure == llm.FailureRejected || step.Model.Failure == llm.FailureNotDispatched {
-			if step.Model.Error == "" || step.Model.Evidence == "" || (step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) != 0 || step.Model.Result.Usage != nil)) {
+		if step.Model.Failure == llm.FailureRejected ||
+			step.Model.Failure == llm.FailureNotDispatched {
+			if step.Model.Error == "" ||
+				step.Model.Evidence == "" ||
+				(step.Model.Result != nil &&
+					(step.Model.Result.ID != "" ||
+						len(step.Model.Result.Message.Content) != 0 ||
+						step.Model.Result.Usage != nil)) {
 				return errors.New("known model failure lacks evidence or has partial result")
 			}
 		}
@@ -450,7 +517,9 @@ func (s *replayState) apply(step Step) error {
 			actionable := step.Model.Error == "" && !step.Model.Interrupted &&
 				s.Stop.Kind != StopCanceled
 			if err := s.recordResult(
-				step.Model.AttemptID, step.Model.Result, actionable,
+				step.Model.AttemptID,
+				step.Model.Result,
+				actionable,
 			); err != nil {
 				return err
 			}
@@ -459,7 +528,11 @@ func (s *replayState) apply(step Step) error {
 			s.awaitingClassification = true
 		}
 	case StepModelReconciled:
-		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.MessageID != s.modelMessages[s.unresolvedModel] || (step.Model.Result == nil && step.Model.Error == "") {
+		if step.Model == nil ||
+			step.Model.AttemptID != s.unresolvedModel ||
+			step.Model.MessageID != s.modelMessages[s.unresolvedModel] ||
+			(step.Model.Result == nil &&
+				step.Model.Error == "") {
 			return errors.New("model reconciliation without uncertain attempt")
 		}
 		if err := validateModelAccounting(step.Model); err != nil {
@@ -476,7 +549,11 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("model failure reconciliation lacks evidence")
 		}
 		if step.Model.Error == "" {
-			if err := s.recordResult(step.Model.AttemptID, step.Model.Result, s.Stop.Kind != StopCanceled); err != nil {
+			if err := s.recordResult(
+				step.Model.AttemptID,
+				step.Model.Result,
+				s.Stop.Kind != StopCanceled,
+			); err != nil {
 				return err
 			}
 			if s.unresolvedInterrupted {
@@ -502,13 +579,25 @@ func (s *replayState) apply(step Step) error {
 		if err := step.Tool.Call.Validate(); err != nil {
 			return err
 		}
-		if !sameJSONValue(step.Tool.Call.Args, v.Call.Args) && !sameJSONValue(step.Tool.Call.RequestedArgs, v.Call.Args) {
+		if !sameJSONValue(step.Tool.Call.Args, v.Call.Args) &&
+			!sameJSONValue(step.Tool.Call.RequestedArgs, v.Call.Args) {
 			return errors.New("tool rewrite lost requested arguments")
 		}
-		if step.Tool.Definition.Name != "" && !sameJSONValue(step.Tool.Definition, v.Definition) {
+		if step.Tool.Definition.Name != "" && !sameJSONValue(
+			step.Tool.Definition,
+			v.Definition,
+		) {
 			return errors.New("tool decision changed definition")
 		}
-		if v.Call.Name == SubmitOutputTool && (v.Decision.Kind != DecisionAllow || v.Decision.Revision != "kernel-output-v1" || len(v.Decision.Rewrite) != 0 || len(step.Tool.Call.RequestedArgs) != 0 || !sameJSON(v.Call.Args, step.Tool.Call.Args)) {
+		if v.Call.Name == SubmitOutputTool &&
+			(v.Decision.Kind != DecisionAllow ||
+				v.Decision.Revision != "kernel-output-v1" ||
+				len(v.Decision.Rewrite) != 0 ||
+				len(step.Tool.Call.RequestedArgs) != 0 ||
+				!sameJSON(
+					v.Call.Args,
+					step.Tool.Call.Args,
+				)) {
 			return errors.New("reserved output tool cannot be rewritten or denied")
 		}
 		v.Call = step.Tool.Call.Clone()
@@ -529,7 +618,13 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool start")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status != ToolAllowed || !sameJSONValue(v.Call, step.Tool.Call) || (step.Tool.Definition.Name != "" && !sameJSONValue(step.Tool.Definition, v.Definition)) {
+		if !ok || v.Status != ToolAllowed || !sameJSONValue(
+			v.Call,
+			step.Tool.Call,
+		) || (step.Tool.Definition.Name != "" && !sameJSONValue(
+			step.Tool.Definition,
+			v.Definition,
+		)) {
 			return errors.New("tool start without allowance")
 		}
 		v.Status = ToolStarted
@@ -540,10 +635,14 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool wait")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || !sameJSONValue(v.Call, step.Tool.Call) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
+		if !ok || !sameJSONValue(
+			v.Call,
+			step.Tool.Call,
+		) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
 			return errors.New("tool wait without allowance")
 		}
-		if step.Tool.Outcome.State != tool.StateWaiting && step.Tool.Outcome.State != tool.StateDetached {
+		if step.Tool.Outcome.State != tool.StateWaiting &&
+			step.Tool.Outcome.State != tool.StateDetached {
 			return errors.New("invalid wait outcome")
 		}
 		if v.Call.Name == SubmitOutputTool {
@@ -578,11 +677,13 @@ func (s *replayState) apply(step Step) error {
 			if e := step.Tool.Outcome.Validate(); e != nil {
 				return e
 			}
-			if step.Tool.Outcome.State == tool.StateWaiting || step.Tool.Outcome.State == tool.StateDetached {
+			if step.Tool.Outcome.State == tool.StateWaiting ||
+				step.Tool.Outcome.State == tool.StateDetached {
 				return errors.New("wait is not settlement")
 			}
 			if v.Call.Name == SubmitOutputTool {
-				if step.Tool.Outcome.State != tool.StateNotExecuted && v.Status != ToolStarted {
+				if step.Tool.Outcome.State != tool.StateNotExecuted &&
+					v.Status != ToolStarted {
 					return errors.New("reserved output tool requires engine start")
 				}
 				if step.Tool.Outcome.State == tool.StateSucceeded {
@@ -617,7 +718,10 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if !digestMatches(step.Approval.ArgsDigest, v.Call.Args) || v.Decision.Revision != step.Approval.PolicyRevision {
+		if !digestMatches(
+			step.Approval.ArgsDigest,
+			v.Call.Args,
+		) || v.Decision.Revision != step.Approval.PolicyRevision {
 			return errors.New("stale approval")
 		}
 		if step.Approval.Approve {
@@ -637,7 +741,10 @@ func (s *replayState) apply(step Step) error {
 		}
 		delete(s.hosted, a.ID)
 	case StepOutputRecorded:
-		if len(s.OutputSchema) == 0 || s.Output != nil || step.Output == nil || len(s.pending()) > 0 {
+		if len(s.OutputSchema) == 0 ||
+			s.Output != nil ||
+			step.Output == nil ||
+			len(s.pending()) > 0 {
 			return errors.New("structured output without an eligible turn")
 		}
 		schema, err := compileOutputSchema(s.OutputSchema)
@@ -650,11 +757,25 @@ func (s *replayState) apply(step Step) error {
 		switch step.Output.Source {
 		case OutputFromTool:
 			v, ok := s.Tools[step.Output.ToolCallID]
-			if !ok || v.Call.Name != SubmitOutputTool || v.Status != ToolSettled || v.Outcome == nil || v.Outcome.State != tool.StateSucceeded || s.callAttempts[v.Call.ID] != step.Output.AttemptID || !sameJSON(v.Call.Args, step.Output.Value) {
+			if !ok ||
+				v.Call.Name != SubmitOutputTool ||
+				v.Status != ToolSettled ||
+				v.Outcome == nil ||
+				v.Outcome.State != tool.StateSucceeded ||
+				s.callAttempts[v.Call.ID] != step.Output.AttemptID ||
+				!sameJSON(
+					v.Call.Args,
+					step.Output.Value,
+				) {
 				return errors.New("structured output does not match an accepted submission")
 			}
 		case OutputFromText:
-			if step.Output.ToolCallID != "" || step.Output.AttemptID == "" || step.Output.AttemptID != s.latestAttempt || !s.awaitingClassification || s.latestResult == nil || s.latestResult.Stop.Kind != llm.StopFinished {
+			if step.Output.ToolCallID != "" ||
+				step.Output.AttemptID == "" ||
+				step.Output.AttemptID != s.latestAttempt ||
+				!s.awaitingClassification ||
+				s.latestResult == nil ||
+				s.latestResult.Stop.Kind != llm.StopFinished {
 				return errors.New("structured output does not match a final model answer")
 			}
 			parsed, err := parseOutputText(s.latestResult.Message.Text(), schema)
@@ -692,7 +813,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Stop.Kind == StopCompleted && len(s.pending()) > 0 {
 			return errors.New("completed turn has pending work")
 		}
-		if step.Stop.Kind == StopCompleted && len(s.OutputSchema) > 0 && s.Output == nil {
+		if step.Stop.Kind == StopCompleted &&
+			len(s.OutputSchema) > 0 &&
+			s.Output == nil {
 			return errors.New("completed turn lacks structured output")
 		}
 		if step.Stop.Kind == StopCanceled {
@@ -715,6 +838,7 @@ func (s *replayState) apply(step Step) error {
 	}
 	return nil
 }
+
 func (s *replayState) pending() []string {
 	var out []string
 	if s.modelIntent != "" {
@@ -734,7 +858,11 @@ func (s *replayState) pending() []string {
 	return out
 }
 
-func (s *replayState) recordResult(attempt string, result *llm.Result, actionable bool) error {
+func (s *replayState) recordResult(
+	attempt string,
+	result *llm.Result,
+	actionable bool,
+) error {
 	s.latestResult = result
 	s.latestAttempt = attempt
 	if !actionable {
@@ -746,7 +874,8 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 	if result.Stop.Kind == llm.StopPause {
 		s.ProviderPauses++
 	}
-	if result.Stop.Kind == llm.StopToolUse || result.Stop.Kind == llm.StopFinished {
+	if result.Stop.Kind == llm.StopToolUse ||
+		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
 			if part.Kind != llm.ContentToolCall || part.ToolCall == nil {
 				continue
@@ -755,14 +884,20 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 			if _, ok := s.Tools[c.ID]; ok {
 				return errors.New("repeated tool call ID")
 			}
-			s.Tools[c.ID] = ToolView{Call: c, Definition: s.modelDefs[c.Name], Status: ToolRequested}
+			s.Tools[c.ID] = ToolView{
+				Call:       c,
+				Definition: s.modelDefs[c.Name],
+				Status:     ToolRequested,
+			}
 			s.callAttempts[c.ID] = attempt
 			s.callOrder = append(s.callOrder, c.ID)
 		}
 	}
-	if result.Stop.Kind == llm.StopToolUse || result.Stop.Kind == llm.StopFinished {
+	if result.Stop.Kind == llm.StopToolUse ||
+		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
-			if part.Kind == llm.ContentHostedApprovalRequest && part.HostedApprovalRequest != nil {
+			if part.Kind == llm.ContentHostedApprovalRequest &&
+				part.HostedApprovalRequest != nil {
 				a := part.HostedApprovalRequest.Clone()
 				if _, ok := s.hosted[a.ID]; ok {
 					return errors.New("repeated hosted approval ID")
@@ -910,7 +1045,16 @@ func validateStepPayload(step Step) error {
 		}
 	}
 	count := 0
-	for _, present := range []bool{step.Started != nil, step.Context != nil, step.Model != nil, step.Tool != nil, step.Approval != nil, step.HostedApproval != nil, step.Output != nil, step.Stop != nil} {
+	for _, present := range []bool{
+		step.Started != nil,
+		step.Context != nil,
+		step.Model != nil,
+		step.Tool != nil,
+		step.Approval != nil,
+		step.HostedApproval != nil,
+		step.Output != nil,
+		step.Stop != nil,
+	} {
 		if present {
 			count++
 		}
@@ -966,6 +1110,7 @@ func validateStepPayload(step Step) error {
 	}
 	return nil
 }
+
 func validateMessage(m llm.Message) error {
 	switch m.Role {
 	case llm.RoleUser, llm.RoleAssistant, llm.RoleSystem, llm.RoleDeveloper:
@@ -979,18 +1124,22 @@ func validateMessage(m llm.Message) error {
 		if err := part.Validate(); err != nil {
 			return err
 		}
-		if part.Kind == llm.ContentReminder && (m.Role != llm.RoleUser || len(m.Content) != 1) {
+		if part.Kind == llm.ContentReminder &&
+			(m.Role != llm.RoleUser ||
+				len(m.Content) != 1) {
 			return errors.New("reminder requires a standalone user message")
 		}
 	}
 	return nil
 }
+
 func messageReminder(m llm.Message) *llm.Reminder {
 	if len(m.Content) == 1 && m.Content[0].Kind == llm.ContentReminder {
 		return m.Content[0].Reminder
 	}
 	return nil
 }
+
 func validateContext(item ContextItem) error {
 	switch item.Origin {
 	case "user", "library", "tool":
@@ -998,7 +1147,9 @@ func validateContext(item ContextItem) error {
 			return errors.New("untrusted context must use user role")
 		}
 	case "operator":
-		if item.Message.Role != llm.RoleUser && item.Message.Role != llm.RoleSystem && item.Message.Role != llm.RoleDeveloper {
+		if item.Message.Role != llm.RoleUser &&
+			item.Message.Role != llm.RoleSystem &&
+			item.Message.Role != llm.RoleDeveloper {
 			return errors.New("operator context has invalid role")
 		}
 	default:
@@ -1007,7 +1158,9 @@ func validateContext(item ContextItem) error {
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
 	}
-	if reminder := messageReminder(item.Message); reminder != nil && reminder.Tier == llm.ReminderOperator && item.Origin != "operator" {
+	if reminder := messageReminder(item.Message); reminder != nil &&
+		reminder.Tier == llm.ReminderOperator &&
+		item.Origin != "operator" {
 		return errors.New("operator reminder requires operator context origin")
 	}
 	return validateMessage(item.Message)

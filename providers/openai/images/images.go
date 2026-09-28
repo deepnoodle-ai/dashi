@@ -1,6 +1,7 @@
 // Package images implements OpenAI's dedicated Images API. It keeps image
 // generation and editing separate from Responses API hosted tools and performs
-// one HTTP attempt for each prepared request. No agent or retry state lives here.
+// one HTTP attempt for each prepared request. No agent or retry state lives
+// here.
 package images
 
 import (
@@ -107,7 +108,10 @@ func New(config Config) (*Client, error) {
 		}
 		if info.Evidence.Model != name || info.Evidence.API != API ||
 			info.Evidence.Endpoint != config.Endpoint {
-			return nil, fmt.Errorf("images: model %q evidence does not match this endpoint", name)
+			return nil, fmt.Errorf(
+				"images: model %q evidence does not match this endpoint",
+				name,
+			)
 		}
 		catalog[name] = info.Clone()
 	}
@@ -174,10 +178,14 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context,
 	var adjustments []media.Adjustment
 	if effective.Settings.Count == 0 {
 		effective.Settings.Count = 1
-		adjustments = append(adjustments, media.Adjustment{
-			Setting: "count", Effective: "1",
-			Reason: "Images API default made explicit in the prepared body",
-		})
+		adjustments = append(
+			adjustments,
+			media.Adjustment{
+				Setting:   "count",
+				Effective: "1",
+				Reason:    "Images API default made explicit in the prepared body",
+			},
+		)
 	}
 	body, contentType, err := encodeImage(effective, prompt, options)
 	if err != nil {
@@ -214,8 +222,10 @@ func (c *Client) SendImage(ctx context.Context,
 	request media.ImageRequest) (media.Result, error) {
 	input := request.Input()
 	if request.Origin() != c.origin(input.Model) {
-		return media.Result{}, c.failure(media.ErrorInvalidRequest,
-			errors.New("prepared request belongs to another destination"))
+		return media.Result{}, c.failure(
+			media.ErrorInvalidRequest,
+			errors.New("prepared request belongs to another destination"),
+		)
 	}
 	if err := ctx.Err(); err != nil {
 		return media.Result{}, err
@@ -229,7 +239,10 @@ func (c *Client) SendImage(ctx context.Context,
 		return media.Result{}, c.failure(media.ErrorInvalidRequest, err)
 	}
 	httpRequest, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, endpoint, bytes.NewReader(request.Body()),
+		ctx,
+		http.MethodPost,
+		endpoint,
+		bytes.NewReader(request.Body()),
 	)
 	if err != nil {
 		return media.Result{}, c.failure(media.ErrorInvalidRequest, err)
@@ -257,11 +270,16 @@ func (c *Client) SendImage(ctx context.Context,
 		return media.Result{}, c.failure(media.ErrorTransport, err)
 	}
 	if len(body) > maxResponseBytes {
-		return media.Result{}, c.failure(media.ErrorProtocol,
-			errors.New("image response exceeds 256 MiB"))
+		return media.Result{}, c.failure(
+			media.ErrorProtocol,
+			errors.New("image response exceeds 256 MiB"),
+		)
 	}
 	result, err := decodeImageResponse(
-		body, input, request.Origin(), response.Header.Get("X-Request-Id"),
+		body,
+		input,
+		request.Origin(),
+		response.Header.Get("X-Request-Id"),
 	)
 	if err != nil {
 		return media.Result{}, c.failure(media.ErrorProtocol, err)
@@ -289,7 +307,8 @@ func (c *Client) httpError(response *http.Response) error {
 		return c.failure(media.ErrorTransport, err)
 	}
 	providerError := providerhttp.NewError(
-		response.StatusCode, string(body),
+		response.StatusCode,
+		string(body),
 		providerhttp.WithErrorHeader(response.Header),
 	)
 	category := media.ErrorInvalidRequest

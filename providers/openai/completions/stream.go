@@ -18,7 +18,12 @@ import (
 // readStream adapts Dive's Chat Completions chunk accumulation to Kernel's
 // provisional deltas and one authoritative final result. Finish reasons are
 // held until the trailing usage chunk has been read.
-func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial llm.Result, sink llm.Sink) (llm.Result, error) {
+func (wire codec) readStream(
+	ctx context.Context,
+	body io.ReadCloser,
+	initial llm.Result,
+	sink llm.Sink,
+) (llm.Result, error) {
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	result := initial
 	var text, reasoning strings.Builder
@@ -28,12 +33,19 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 	build := func(complete bool) (llm.Result, error) {
 		result.Message = llm.Message{Role: llm.RoleAssistant}
 		if reasoning.Len() > 0 {
-			result.Message.Content = append(result.Message.Content, llm.Content{
-				Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: reasoning.String()},
-			})
+			result.Message.Content = append(
+				result.Message.Content,
+				llm.Content{
+					Kind:      llm.ContentReasoning,
+					Reasoning: &llm.Reasoning{Text: reasoning.String()},
+				},
+			)
 		}
 		if text.Len() > 0 {
-			result.Message.Content = append(result.Message.Content, llm.Text(text.String()))
+			result.Message.Content = append(
+				result.Message.Content,
+				llm.Text(text.String()),
+			)
 		}
 		indices := make([]int, 0, len(calls))
 		for index := range calls {
@@ -42,15 +54,33 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		slices.Sort(indices)
 		for _, index := range indices {
 			call := calls[index]
-			v := tool.Call{ID: call.ID, Name: call.Function.Name, Args: json.RawMessage(call.Function.Arguments)}
+			v := tool.Call{
+				ID:   call.ID,
+				Name: call.Function.Name,
+				Args: json.RawMessage(call.Function.Arguments),
+			}
 			if err := v.Validate(); err != nil {
-				result.Message.Content = append(result.Message.Content, wire.partialToolCall(*call))
+				result.Message.Content = append(
+					result.Message.Content,
+					wire.partialToolCall(*call),
+				)
 				if complete {
-					return result, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "invalid streamed tool call: %w", err)
+					return result, providerhttp.Failure(
+						wire.provider,
+						llm.ErrorProtocol,
+						"invalid streamed tool call: %w",
+						err,
+					)
 				}
 				continue
 			}
-			result.Message.Content = append(result.Message.Content, llm.Content{Kind: llm.ContentToolCall, ToolCall: &v})
+			result.Message.Content = append(
+				result.Message.Content,
+				llm.Content{
+					Kind:     llm.ContentToolCall,
+					ToolCall: &v,
+				},
+			)
 		}
 		if complete {
 			result.Stop = llm.Stop{Kind: llm.ClassifyStopReason(reason), Raw: reason}
@@ -65,19 +95,34 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		var chunk StreamResponse
 		if err := json.Unmarshal(raw, &chunk); err != nil {
 			partial, _ := build(false)
-			return partial, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "decode stream chunk: %w", err)
+			return partial, providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"decode stream chunk: %w",
+				err,
+			)
 		}
 		// A chunk that carries an error object, or is one (vLLM sends
 		// "object":"error"), ends the call even when it also has a finish
 		// reason: OpenRouter pairs its error with finish_reason "error".
-		if (len(chunk.Error) > 0 && string(chunk.Error) != "null") || chunk.Object == "error" {
+		if (len(chunk.Error) > 0 &&
+			string(chunk.Error) != "null") ||
+			chunk.Object == "error" {
 			partial, _ := build(false)
 			cause := errors.New("provider stream error")
 			if message := streamErrorMessage(chunk.Error, raw); message != "" {
 				cause = fmt.Errorf("provider stream error: %s", message)
 			}
-			return partial, providerhttp.Classify(&llm.Error{Provider: wire.provider, Category: llm.ErrorProtocol,
-				Body: slices.Clone(raw), Cause: cause}, providerhttp.OpenAIReason, wire.media)
+			return partial, providerhttp.Classify(
+				&llm.Error{
+					Provider: wire.provider,
+					Category: llm.ErrorProtocol,
+					Body:     slices.Clone(raw),
+					Cause:    cause,
+				},
+				providerhttp.OpenAIReason,
+				wire.media,
+			)
 		}
 		if chunk.ID != "" {
 			result.ID = chunk.ID
@@ -92,20 +137,36 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 			usage := chunk.Usage.toLLMUsage()
 			result.Usage = &usage
 			result.Cost = wire.reportedCost(chunk.Usage)
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:  llm.DeltaUsage,
+					Usage: result.Usage,
+				},
+			)
 		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
 		if len(chunk.Choices) != 1 || chunk.Choices[0].Index != 0 {
 			partial, _ := build(false)
-			return partial, providerhttp.Failure(wire.provider, llm.ErrorProtocol, "stream has unexpected choices")
+			return partial, providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"stream has unexpected choices",
+			)
 		}
 		seen = true
 		choice := chunk.Choices[0]
 		if choice.Delta.Reasoning != "" {
 			reasoning.WriteString(choice.Delta.Reasoning)
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaReasoning, Text: choice.Delta.Reasoning})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind: llm.DeltaReasoning,
+					Text: choice.Delta.Reasoning,
+				},
+			)
 		}
 		if len(choice.Delta.ReasoningDetails) > 0 {
 			partial, _ := build(false)
@@ -113,7 +174,13 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		}
 		if choice.Delta.Content != "" {
 			text.WriteString(choice.Delta.Content)
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaText, Text: choice.Delta.Content})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind: llm.DeltaText,
+					Text: choice.Delta.Content,
+				},
+			)
 		}
 		for _, part := range choice.Delta.ContentParts {
 			switch part.Type {
@@ -123,7 +190,13 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 			case "thinking":
 				fragment := joinTextParts(part.Thinking)
 				reasoning.WriteString(fragment)
-				providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaReasoning, Text: fragment})
+				providerhttp.Emit(
+					sink,
+					llm.Delta{
+						Kind: llm.DeltaReasoning,
+						Text: fragment,
+					},
+				)
 			default:
 				partial, _ := build(false)
 				return partial, wire.unsupported("stream content part %q", part.Type)
@@ -146,7 +219,14 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 				call.Function.Name = delta.Function.Name
 			}
 			call.Function.Arguments += delta.Function.Arguments
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaToolArguments, Index: delta.Index, Text: delta.Function.Arguments})
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind:  llm.DeltaToolArguments,
+					Index: delta.Index,
+					Text:  delta.Function.Arguments,
+				},
+			)
 		}
 		if choice.FinishReason != "" {
 			reason = choice.FinishReason
@@ -157,10 +237,20 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 		return partial, ctx.Err()
 	}
 	if err := reader.Err(); err != nil {
-		return partial, providerhttp.Failure(wire.provider, llm.ErrorTransport, "stream interrupted: %w", err)
+		return partial, providerhttp.Failure(
+			wire.provider,
+			llm.ErrorTransport,
+			"stream interrupted: %w",
+			err,
+		)
 	}
 	if !seen || reason == "" {
-		return partial, providerhttp.Failure(wire.provider, llm.ErrorTransport, "stream ended without finish reason: %w", io.ErrUnexpectedEOF)
+		return partial, providerhttp.Failure(
+			wire.provider,
+			llm.ErrorTransport,
+			"stream ended without finish reason: %w",
+			io.ErrUnexpectedEOF,
+		)
 	}
 	return build(true)
 }
@@ -187,8 +277,15 @@ func streamErrorMessage(nested json.RawMessage, raw []byte) string {
 
 func (wire codec) partialToolCall(call ToolCall) llm.Content {
 	raw, _ := json.Marshal(call)
-	return llm.Content{Kind: llm.ContentOpaque, Opaque: &llm.Opaque{
-		Version: 1, Origin: wire.origin, Type: "tool_call", Unit: llm.OpaqueUnitItem,
-		Partial: true, Raw: raw,
-	}}
+	return llm.Content{
+		Kind: llm.ContentOpaque,
+		Opaque: &llm.Opaque{
+			Version: 1,
+			Origin:  wire.origin,
+			Type:    "tool_call",
+			Unit:    llm.OpaqueUnitItem,
+			Partial: true,
+			Raw:     raw,
+		},
+	}
 }

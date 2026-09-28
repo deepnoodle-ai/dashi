@@ -79,10 +79,7 @@ func (p creditPolicy) BeforeSend(
 	if plan.AtRisk == nil {
 		return ModelAuthorization{
 			Reason: "price unavailable",
-			Limit: &LimitDetail{
-				Kind: LimitHost,
-				Code: "cost_estimate_unavailable",
-			},
+			Limit:  &LimitDetail{Kind: LimitHost, Code: "cost_estimate_unavailable"},
 		}, nil
 	}
 	p.recorder.mu.Lock()
@@ -91,10 +88,7 @@ func (p creditPolicy) BeforeSend(
 	if plan.AtRisk.Total > available {
 		return ModelAuthorization{
 			Reason: "insufficient credits",
-			Limit: &LimitDetail{
-				Kind: LimitHost,
-				Code: "insufficient_credits",
-			},
+			Limit:  &LimitDetail{Kind: LimitHost, Code: "insufficient_credits"},
 		}, nil
 	}
 	data, err := json.Marshal(creditAdmission{
@@ -121,10 +115,8 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 		Turn{ID: "credit"},
 		def,
 		Start{
-			ID: "start",
-			Input: []llm.Message{
-				llm.UserMessage(llm.Text("answer")),
-			},
+			ID:    "start",
+			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 		Bindings{
 			Client:   client,

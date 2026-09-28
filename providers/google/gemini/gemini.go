@@ -1,5 +1,6 @@
 // Package gemini implements Google's GenerateContent API with the Google GenAI
-// SDK. Conversion is adapted from Dive's Google provider (65c393f), Apache-2.0.
+// SDK. Conversion is adapted from Dive's Google provider (65c393f),
+// Apache-2.0.
 package gemini
 
 import (
@@ -24,7 +25,8 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// API identifies GenerateContent independently of a Google API-key destination.
+// API identifies GenerateContent independently of a Google API-key
+// destination.
 const API = "google.generate_content"
 
 // DefaultEndpoint uses v1beta for client function calling. Streaming selects
@@ -74,15 +76,21 @@ func New(config Config) (*Client, error) {
 		if config.Location == "" {
 			config.Location = "global"
 		}
-		if config.Project == "" || config.CredentialScope == "" || config.APIKey != "" {
+		if config.Project == "" ||
+			config.CredentialScope == "" ||
+			config.APIKey != "" {
 			return nil, errors.New("gemini: Vertex requires project and credential scope, without API key")
 		}
 		host := "aiplatform.googleapis.com"
 		if config.Location != "global" {
 			host = config.Location + "-aiplatform.googleapis.com"
 		}
-		defaultEndpoint = fmt.Sprintf("https://%s/v1/projects/%s/locations/%s/publishers/google/models/{model}:generateContent",
-			host, url.PathEscape(config.Project), url.PathEscape(config.Location))
+		defaultEndpoint = fmt.Sprintf(
+			"https://%s/v1/projects/%s/locations/%s/publishers/google/models/{model}:generateContent",
+			host,
+			url.PathEscape(config.Project),
+			url.PathEscape(config.Location),
+		)
 		defaultProvider = "google-vertex"
 	} else {
 		if config.APIKey == "" {
@@ -109,8 +117,11 @@ func New(config Config) (*Client, error) {
 	}
 	if config.Vertex {
 		u, _ := url.Parse(config.Endpoint)
-		scopePath := fmt.Sprintf("/projects/%s/locations/%s/publishers/google/models/{model}:generateContent",
-			url.PathEscape(config.Project), url.PathEscape(config.Location))
+		scopePath := fmt.Sprintf(
+			"/projects/%s/locations/%s/publishers/google/models/{model}:generateContent",
+			url.PathEscape(config.Project),
+			url.PathEscape(config.Location),
+		)
 		if !strings.HasSuffix(u.Path, scopePath) {
 			return nil, errors.New("gemini: Vertex endpoint does not match project and location")
 		}
@@ -118,7 +129,10 @@ func New(config Config) (*Client, error) {
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid capability policy")
 	}
-	p := &Client{config: config, models: make(map[string]llm.ModelInfo, len(config.Models))}
+	p := &Client{
+		config: config,
+		models: make(map[string]llm.ModelInfo, len(config.Models)),
+	}
 	for model, info := range config.Models {
 		if model == "" {
 			return nil, errors.New("gemini: model name is required")
@@ -168,26 +182,45 @@ func (p *Client) httpClient(model string) (providerhttp.Client, error) {
 	} else {
 		headers.Set("X-Goog-Api-Key", credential)
 	}
-	return providerhttp.NewClient(p.Provider(), API, p.endpoint(model), credential,
-		p.config.Client, headers, models, p.config.CapabilityPolicy)
+	return providerhttp.NewClient(
+		p.Provider(),
+		API,
+		p.endpoint(model),
+		credential,
+		p.config.Client,
+		headers,
+		models,
+		p.config.CapabilityPolicy,
+	)
 }
 
 // Prepare validates conversion, then captures the SDK's serialized body with
 // an in-memory transport. Under the default capability policy, settings
 // beyond known limits are fitted and recorded as warnings; unsupported content
 // fails before real dispatch.
-func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, error) {
+func (p *Client) Prepare(
+	ctx context.Context,
+	input llm.Input,
+) (llm.Request, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.Request{}, err
 	}
 	if err := input.Validate(); err != nil {
-		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
+		return llm.Request{}, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	if !p.config.Vertex {
 		_, version, _ := sdkEndpoint(p.config.Endpoint, false)
 		if version == "v1" && hasClientFunctionCalls(input) {
-			return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorUnsupported,
-				"Gemini API v1 does not support client function calling; use a v1beta endpoint")
+			return llm.Request{}, providerhttp.Failure(
+				p.Provider(),
+				llm.ErrorUnsupported,
+				"Gemini API v1 does not support client function calling; use a v1beta endpoint",
+			)
 		}
 	}
 	httpClient, err := p.httpClient(input.Model)
@@ -210,7 +243,9 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	}
 	body := map[string]any{"contents": contents}
 	if input.System != "" {
-		body["systemInstruction"] = map[string]any{"parts": []any{map[string]any{"text": input.System}}}
+		body["systemInstruction"] = map[string]any{
+			"parts": []any{map[string]any{"text": input.System}},
+		}
 	}
 	config := map[string]any{}
 	if n := input.Settings.MaxTokens; n > 0 {
@@ -226,7 +261,10 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 					"use a reasoning budget",
 			)
 		}
-		config["thinkingConfig"] = map[string]any{"thinkingBudget": reasoning.BudgetTokens, "includeThoughts": true}
+		config["thinkingConfig"] = map[string]any{
+			"thinkingBudget":  reasoning.BudgetTokens,
+			"includeThoughts": true,
+		}
 	}
 	if len(config) > 0 {
 		body["generationConfig"] = config
@@ -252,16 +290,31 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 				configs = append(configs, config)
 				continue
 			}
-			if raw := strings.TrimSpace(string(d.Schema)); !strings.HasPrefix(raw, "{") {
-				return llm.Request{}, wire.unsupported("tool %q requires an object schema", d.Name)
+			if raw := strings.TrimSpace(string(d.Schema)); !strings.HasPrefix(
+				raw,
+				"{",
+			) {
+				return llm.Request{}, wire.unsupported(
+					"tool %q requires an object schema",
+					d.Name,
+				)
 			}
-			declarations = append(declarations, map[string]any{"name": d.Name,
-				"description": d.Description, "parametersJsonSchema": d.Schema})
+			declarations = append(
+				declarations,
+				map[string]any{
+					"name":                 d.Name,
+					"description":          d.Description,
+					"parametersJsonSchema": d.Schema,
+				},
+			)
 		}
 		if len(declarations) > 0 {
-			configs = append(configs, map[string]any{
-				"functionDeclarations": declarations,
-			})
+			configs = append(
+				configs,
+				map[string]any{
+					"functionDeclarations": declarations,
+				},
+			)
 		}
 		body["tools"] = configs
 	}
@@ -305,7 +358,12 @@ func (p *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, err
 	info, known := p.ModelInfo(input.Model)
 	unverified, err := info.Capabilities.Check(input, p.config.CapabilityPolicy)
 	if err != nil {
-		return llm.Request{}, providerhttp.Failure(p.Provider(), llm.ErrorUnsupported, "%w", err)
+		return llm.Request{}, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorUnsupported,
+			"%w",
+			err,
+		)
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -360,17 +418,33 @@ func hasClientFunctionCalls(input llm.Input) bool {
 	return false
 }
 
-// Send uses the Google SDK and guards its final HTTP request against the frozen
-// body. A sink observes provisional stream deltas; the final Result is authoritative.
-func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
+// Send uses the Google SDK and guards its final HTTP request against the
+// frozen
+// body. A sink observes provisional stream deltas; the final Result is
+// authoritative.
+func (p *Client) Send(
+	ctx context.Context,
+	call llm.Call,
+) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
 	model := prepared.Input().Model
 	httpClient, err := p.httpClient(model)
 	if err != nil {
-		return llm.Result{}, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
+		return llm.Result{}, providerhttp.NotDispatched(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
-	wire := codec{origin: httpClient.Origin(model), media: providerhttp.HasMedia(prepared.Input())}
-	result = llm.Result{Requested: llm.ModelRef{Provider: p.Provider(), Model: model}, Message: llm.Message{Role: llm.RoleAssistant}}
+	wire := codec{
+		origin: httpClient.Origin(model),
+		media:  providerhttp.HasMedia(prepared.Input()),
+	}
+	result = llm.Result{
+		Requested: llm.ModelRef{Provider: p.Provider(), Model: model},
+		Message:   llm.Message{Role: llm.RoleAssistant},
+	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
@@ -380,26 +454,55 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 		}
 	}()
 	if prepared.Origin() != wire.origin {
-		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "prepared request belongs to another destination")
+		return result, providerhttp.NotDispatched(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"prepared request belongs to another destination",
+		)
 	}
-	client, guard, err := p.sdkClient(ctx, model, prepared.Input().Stream, prepared.Body())
+	client, guard, err := p.sdkClient(
+		ctx,
+		model,
+		prepared.Input().Stream,
+		prepared.Body(),
+	)
 	if err != nil {
-		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
+		return result, providerhttp.NotDispatched(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	contents, config, err := sdkArguments(prepared.Body())
 	if err != nil {
-		return result, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
+		return result, providerhttp.NotDispatched(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
 	}
 	if prepared.Input().Stream {
 		var streamErr error
-		for chunk, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
+		for chunk, err := range client.Models.GenerateContentStream(
+			ctx,
+			model,
+			contents,
+			config,
+		) {
 			if err != nil {
 				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
 				break
 			}
 			emitSDKChunk(sink, chunk)
 		}
-		partial, parseErr := wire.readStream(ctx, io.NopCloser(bytes.NewReader(guard.responseBytes())), result, nil)
+		partial, parseErr := wire.readStream(
+			ctx,
+			io.NopCloser(bytes.NewReader(guard.responseBytes())),
+			result,
+			nil,
+		)
 		if streamErr != nil {
 			return partial, streamErr
 		}
@@ -420,7 +523,12 @@ type codec struct {
 }
 
 func (wire codec) unsupported(format string, args ...any) error {
-	return providerhttp.Failure(wire.origin.Provider, llm.ErrorUnsupported, format, args...)
+	return providerhttp.Failure(
+		wire.origin.Provider,
+		llm.ErrorUnsupported,
+		format,
+		args...,
+	)
 }
 
 func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
@@ -458,15 +566,23 @@ type functionCallRef struct {
 	providerHasID bool
 }
 
-func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]functionCallRef) (any, error) {
+func (wire codec) encodeContent(
+	c llm.Content,
+	role llm.Role,
+	names map[string]functionCallRef,
+) (any, error) {
 	if c.Opaque != nil {
-		if role != llm.RoleAssistant || c.Opaque.Origin != wire.origin || c.Opaque.Unit != llm.OpaqueUnitContentBlock {
+		if role != llm.RoleAssistant ||
+			c.Opaque.Origin != wire.origin ||
+			c.Opaque.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("opaque part from another destination")
 		}
 		return c.Opaque.Raw, nil
 	}
 	if c.Replay != nil {
-		if role != llm.RoleAssistant || c.Replay.Origin != wire.origin || c.Replay.Unit != llm.OpaqueUnitContentBlock {
+		if role != llm.RoleAssistant ||
+			c.Replay.Origin != wire.origin ||
+			c.Replay.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("replay part from another destination")
 		}
 		var saved partWire
@@ -478,11 +594,15 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]f
 			return c.Replay.Raw, nil
 		case c.HostedResult != nil && saved.CodeExecutionResult != nil:
 			return c.Replay.Raw, nil
-		case c.Block != nil && c.Block.Text != nil && saved.Text == c.Block.Text.Text:
+		case c.Block != nil &&
+			c.Block.Text != nil &&
+			saved.Text == c.Block.Text.Text:
 			return c.Replay.Raw, nil
 		case c.Reasoning != nil && saved.Thought && saved.Text == c.Reasoning.Text:
 			return c.Replay.Raw, nil
-		case c.ToolCall != nil && saved.FunctionCall != nil && saved.FunctionCall.Name == c.ToolCall.Name:
+		case c.ToolCall != nil &&
+			saved.FunctionCall != nil &&
+			saved.FunctionCall.Name == c.ToolCall.Name:
 			if sameGeminiReplayArgs(c.Replay.Raw, c.ToolCall.Args) {
 				if saved.FunctionCall.ID == "" {
 					fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, false)
@@ -495,17 +615,26 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]f
 					}
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
+					names[c.ToolCall.ID] = functionCallRef{
+						name:          c.ToolCall.Name,
+						providerHasID: true,
+					}
 					return fields, nil
 				}
 				if saved.FunctionCall.ID == c.ToolCall.ID {
-					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
+					names[c.ToolCall.ID] = functionCallRef{
+						name:          c.ToolCall.Name,
+						providerHasID: true,
+					}
 					return c.Replay.Raw, nil
 				}
 				if fields, ok := unsignedFunctionCallReplay(c.Replay.Raw, true); ok {
 					call := fields["functionCall"].(map[string]any)
 					call["id"] = c.ToolCall.ID
-					names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
+					names[c.ToolCall.ID] = functionCallRef{
+						name:          c.ToolCall.Name,
+						providerHasID: true,
+					}
 					return fields, nil
 				}
 			}
@@ -569,9 +698,17 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]f
 		if err := json.Unmarshal(c.ToolCall.Args, &args); err != nil || args == nil {
 			return nil, wire.unsupported("tool arguments require a JSON object")
 		}
-		names[c.ToolCall.ID] = functionCallRef{name: c.ToolCall.Name, providerHasID: true}
-		return map[string]any{"functionCall": map[string]any{"id": c.ToolCall.ID,
-			"name": c.ToolCall.Name, "args": args}}, nil
+		names[c.ToolCall.ID] = functionCallRef{
+			name:          c.ToolCall.Name,
+			providerHasID: true,
+		}
+		return map[string]any{
+			"functionCall": map[string]any{
+				"id":   c.ToolCall.ID,
+				"name": c.ToolCall.Name,
+				"args": args,
+			},
+		}, nil
 	case llm.ContentToolResult:
 		ref, ok := names[c.ToolResult.CallID]
 		if role != llm.RoleUser || !ok {
@@ -589,8 +726,10 @@ func (wire codec) encodeContent(c llm.Content, role llm.Role, names map[string]f
 			key = "error"
 		}
 		delete(names, c.ToolResult.CallID)
-		response := map[string]any{"name": ref.name,
-			"response": map[string]any{key: strings.Join(output, "\n\n")}}
+		response := map[string]any{
+			"name":     ref.name,
+			"response": map[string]any{key: strings.Join(output, "\n\n")},
+		}
 		if ref.providerHasID {
 			response["id"] = c.ToolResult.CallID
 		}

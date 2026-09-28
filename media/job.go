@@ -137,7 +137,8 @@ func (p JobPoll) Validate() error {
 		return err
 	}
 	if p.Served != (model.ModelRef{}) &&
-		(p.Served.Provider != p.Job.Origin.Provider || p.Served.Model == "") {
+		(p.Served.Provider != p.Job.Origin.Provider ||
+			p.Served.Model == "") {
 		return errors.New("media: polled served model requires the job provider")
 	}
 	if err := validateRawUsage(p.RawUsage); err != nil {
@@ -160,7 +161,11 @@ func (p JobPoll) Validate() error {
 				return err
 			}
 		}
-		if err := validateStoredOutputs(p.StoredOutputs, p.Content, p.Job.Origin.Provider); err != nil {
+		if err := validateStoredOutputs(
+			p.StoredOutputs,
+			p.Content,
+			p.Job.Origin.Provider,
+		); err != nil {
 			return err
 		}
 	default:

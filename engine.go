@@ -15,16 +15,20 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
+// Bindings supplies the runtime capabilities and host controls for one engine
+// invocation. The definition and turn carry reusable and recorded state.
 type Bindings struct {
 	Client llm.Client
 	Tools  tool.Toolset
 	// Recorder acknowledges steps. When nil, Apply uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
+	// Policy defaults to denying tool calls when nil.
 	Policy   Policy
 	Observer Observer
 	Stream   bool
-	Owner    string
+	// Owner is forwarded to recorder commits for host lease fencing.
+	Owner string
 	// Pause requests a stop before the next model or tool call. Closing it
 	// does not interrupt work already in flight.
 	Pause <-chan struct{}
@@ -61,6 +65,7 @@ const (
 	HistoryMismatchReject HistoryMismatch = "reject"
 )
 
+// Engine applies commands to turns and streams their recorded progress.
 type Engine struct{}
 
 // Stream advances a turn when iteration begins. A fully read sequence ends
@@ -70,7 +75,13 @@ type Engine struct{}
 // Reload the turn by ID to inspect committed facts, since no final event
 // follows a break.
 // A second range yields ErrStreamConsumed instead of repeating work.
-func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Command, b Bindings) iter.Seq2[Event, error] {
+func (Engine) Stream(
+	ctx context.Context,
+	turn Turn,
+	def Definition,
+	command Command,
+	b Bindings,
+) iter.Seq2[Event, error] {
 	var started atomic.Bool
 	return func(yield func(Event, error) bool) {
 		if !started.CompareAndSwap(false, true) {
@@ -105,7 +116,13 @@ func (Engine) Stream(ctx context.Context, turn Turn, def Definition, command Com
 // Apply advances one turn from an explicit command. A Go error means command
 // validation failed before a new fact was acknowledged. Once a commit succeeds,
 // execution failures are represented in Outcome, retaining partial work.
-func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Command, b Bindings) (Outcome, error) {
+func (Engine) Apply(
+	ctx context.Context,
+	turn Turn,
+	def Definition,
+	command Command,
+	b Bindings,
+) (Outcome, error) {
 	if command == nil || command.commandID() == "" {
 		return Outcome{}, errors.New("kernel: command ID is required")
 	}
@@ -196,7 +213,9 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if !def.Limits.Deadline.IsZero() {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithDeadlineCause(
-			ctx, def.Limits.Deadline, errTurnDeadline,
+			ctx,
+			def.Limits.Deadline,
+			errTurnDeadline,
 		)
 		defer cancel()
 	}
@@ -254,10 +273,19 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return *o, nil
 		}
 	case Deliver:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil || len(c.Items) == 0 {
+		if len(turn.Steps) == 0 ||
+			state.Stop.Kind == StopCompleted ||
+			state.Stop.Kind == StopCanceled ||
+			state.Output != nil ||
+			len(c.Items) == 0 {
 			return Outcome{}, errors.New("kernel: turn cannot receive context")
 		}
-		if o := rt.commit(Step{Kind: StepDelivered, CommandID: c.ID, CommandDigest: d, Context: &ContextFact{Items: c.Items}}); o != nil {
+		if o := rt.commit(Step{
+			Kind:          StepDelivered,
+			CommandID:     c.ID,
+			CommandDigest: d,
+			Context:       &ContextFact{Items: c.Items},
+		}); o != nil {
 			return *o, nil
 		}
 		return rt.current(), nil
@@ -319,10 +347,12 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			Budget:        cloneBudget(c.Budget),
 		}
 		if mismatch {
-			step.Warnings = []Warning{{
-				Code:    WarningHistoryMismatch,
-				Message: "prior history differs from turn start",
-			}}
+			step.Warnings = []Warning{
+				{
+					Code:    WarningHistoryMismatch,
+					Message: "prior history differs from turn start",
+				},
+			}
 		}
 		if o := rt.commit(step); o != nil {
 			return *o, nil
@@ -348,7 +378,10 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			n++
 		}
 		if c.ModelFailure != nil {
-			if (c.ModelFailure.Disposition != llm.FailureNotDispatched && c.ModelFailure.Disposition != llm.FailureRejected) || c.ModelFailure.Reason == "" || c.ModelFailure.Evidence == "" {
+			if (c.ModelFailure.Disposition != llm.FailureNotDispatched &&
+				c.ModelFailure.Disposition != llm.FailureRejected) ||
+				c.ModelFailure.Reason == "" ||
+				c.ModelFailure.Evidence == "" {
 				return Outcome{}, errors.New("kernel: model failure requires verified nonexecution evidence")
 			}
 			n++
@@ -357,21 +390,32 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			return Outcome{}, errors.New("kernel: accept requires one fact")
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
-			if c.CallID == "" || (c.CallID != state.modelIntent && c.CallID != state.unresolvedModel) {
+			if c.CallID == "" ||
+				(c.CallID != state.modelIntent &&
+					c.CallID != state.unresolvedModel) {
 				return Outcome{}, errors.New("kernel: model attempt is not pending")
 			}
 			kind := StepModelSettled
 			if c.CallID == state.unresolvedModel {
 				kind = StepModelReconciled
 			}
-			fact := &ModelFact{AttemptID: c.CallID, MessageID: c.CallID + ":message", Result: c.ModelResult}
+			fact := &ModelFact{
+				AttemptID: c.CallID,
+				MessageID: c.CallID + ":message",
+				Result:    c.ModelResult,
+			}
 			if c.ModelFailure != nil {
 				fact.Error = c.ModelFailure.Reason
 				fact.Failure = c.ModelFailure.Disposition
 				fact.Evidence = c.ModelFailure.Evidence
 			}
 			setSettlementCharge(state.modelIntents[c.CallID], fact)
-			if o := rt.commit(Step{Kind: kind, CommandID: c.ID, CommandDigest: d, Model: fact}); o != nil {
+			if o := rt.commit(Step{
+				Kind:          kind,
+				CommandID:     c.ID,
+				CommandDigest: d,
+				Model:         fact,
+			}); o != nil {
 				return *o, nil
 			}
 		} else if c.HostedApproval != nil {
@@ -382,7 +426,12 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !ok || a.Origin != c.HostedApproval.Origin {
 				return Outcome{}, errors.New("kernel: hosted approval is not pending")
 			}
-			if o := rt.commit(Step{Kind: StepHostedApproval, CommandID: c.ID, CommandDigest: d, HostedApproval: c.HostedApproval}); o != nil {
+			if o := rt.commit(Step{
+				Kind:           StepHostedApproval,
+				CommandID:      c.ID,
+				CommandDigest:  d,
+				HostedApproval: c.HostedApproval,
+			}); o != nil {
 				return *o, nil
 			}
 		} else if c.Approval != nil {
@@ -390,20 +439,38 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
 				return Outcome{}, errors.New("kernel: tool approval is not pending")
 			}
-			if !digestMatches(c.Approval.ArgsDigest, v.Call.Args) || v.Decision.Revision != c.Approval.PolicyRevision {
+			if !digestMatches(
+				c.Approval.ArgsDigest,
+				v.Call.Args,
+			) || v.Decision.Revision != c.Approval.PolicyRevision {
 				return Outcome{}, errors.New("kernel: stale tool approval")
 			}
-			if o := rt.commit(Step{Kind: StepApproval, CommandID: c.ID, CommandDigest: d, Approval: c.Approval}); o != nil {
+			if o := rt.commit(Step{
+				Kind:          StepApproval,
+				CommandID:     c.ID,
+				CommandDigest: d,
+				Approval:      c.Approval,
+			}); o != nil {
 				return *o, nil
 			}
 			if !c.Approval.Approve {
-				if o := rt.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &tool.Outcome{State: tool.StateNotExecuted}, Reason: "approval denied"}}); o != nil {
+				if o := rt.commit(Step{
+					Kind: StepToolSettled,
+					Tool: &ToolFact{
+						Call:    v.Call,
+						Outcome: &tool.Outcome{State: tool.StateNotExecuted},
+						Reason:  "approval denied",
+					},
+				}); o != nil {
 					return *o, nil
 				}
 			}
 		} else {
 			v, ok := state.Tools[c.CallID]
-			if !ok || (v.Status != ToolStarted && v.Status != ToolWaiting && v.Status != ToolUncertain) {
+			if !ok ||
+				(v.Status != ToolStarted &&
+					v.Status != ToolWaiting &&
+					v.Status != ToolUncertain) {
 				return Outcome{}, errors.New("kernel: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
@@ -412,19 +479,33 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if e := c.Outcome.Validate(); e != nil {
 				return Outcome{}, e
 			}
-			if c.Outcome.State == tool.StateWaiting || c.Outcome.State == tool.StateDetached {
+			if c.Outcome.State == tool.StateWaiting ||
+				c.Outcome.State == tool.StateDetached {
 				return Outcome{}, errors.New("kernel: accept requires a final tool outcome")
 			}
-			if o := rt.commit(Step{Kind: StepToolSettled, CommandID: c.ID, CommandDigest: d, Tool: &ToolFact{Call: v.Call, Outcome: c.Outcome}}); o != nil {
+			if o := rt.commit(Step{
+				Kind:          StepToolSettled,
+				CommandID:     c.ID,
+				CommandDigest: d,
+				Tool:          &ToolFact{Call: v.Call, Outcome: c.Outcome},
+			}); o != nil {
 				return *o, nil
 			}
 		}
 		return rt.current(), nil
 	case Cancel:
-		if len(turn.Steps) == 0 || state.Stop.Kind == StopCompleted || state.Stop.Kind == StopCanceled || state.Output != nil {
+		if len(turn.Steps) == 0 ||
+			state.Stop.Kind == StopCompleted ||
+			state.Stop.Kind == StopCanceled ||
+			state.Output != nil {
 			return Outcome{}, errors.New("kernel: turn cannot cancel")
 		}
-		if o := rt.commit(Step{Kind: StepStopped, CommandID: c.ID, CommandDigest: d, Stop: &Stop{Kind: StopCanceled, Reason: c.Reason}}); o != nil {
+		if o := rt.commit(Step{
+			Kind:          StepStopped,
+			CommandID:     c.ID,
+			CommandDigest: d,
+			Stop:          &Stop{Kind: StopCanceled, Reason: c.Reason},
+		}); o != nil {
 			return *o, nil
 		}
 		return rt.current(), nil
@@ -535,7 +616,14 @@ func (r *runtime) commit(step Step) *Outcome {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 	}
-	err := r.b.Recorder.Commit(ctx, CommitRequest{Step: step, ExpectedSeq: step.Seq - 1, Owner: r.b.Owner})
+	err := r.b.Recorder.Commit(
+		ctx,
+		CommitRequest{
+			Step:        step,
+			ExpectedSeq: step.Seq - 1,
+			Owner:       r.b.Owner,
+		},
+	)
 	if err != nil {
 		p := PersistenceUnknown
 		var ce *CommitError
@@ -587,19 +675,31 @@ func cloneEvent(event Event) Event {
 	}
 	return event
 }
-func ptr[T any](v T) *T { return &v }
+
+func ptr[T any](v T) *T {
+	return &v
+}
+
 func (r *runtime) current() Outcome {
 	s, e := replay(r.turn)
 	if e != nil {
-		return Outcome{Turn: cloneTurn(r.turn), Stop: Stop{Kind: StopFailed, Reason: e.Error()}, Persistence: PersistenceAcknowledged}
+		return Outcome{
+			Turn:        cloneTurn(r.turn),
+			Stop:        Stop{Kind: StopFailed, Reason: e.Error()},
+			Persistence: PersistenceAcknowledged,
+		}
 	}
 	return outcome(r.turn, s, PersistenceAcknowledged)
 }
+
 func outcome(t Turn, s *replayState, p Persistence) Outcome {
 	stop := s.Stop
 	if stop.Kind == "" {
 		if s.unresolvedModel != "" {
-			stop = Stop{Kind: StopUncertain, Reason: "model attempt needs reconciliation"}
+			stop = Stop{
+				Kind:   StopUncertain,
+				Reason: "model attempt needs reconciliation",
+			}
 		} else if s.modelIntent != "" || hasStartedTool(s) {
 			stop = Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
 		} else if len(s.Pending) > 0 {
@@ -631,6 +731,7 @@ func hasStartedTool(s *replayState) bool {
 	}
 	return false
 }
+
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	stop := &Stop{Kind: kind, Reason: reason}
 	if kind == StopLimited {
@@ -725,7 +826,10 @@ func (r *runtime) run() Outcome {
 			return r.stopAfterAnswer(s)
 		}
 		if submitted := submittedOutput(s); submitted != nil {
-			if o := r.commit(Step{Kind: StepOutputRecorded, Output: submitted}); o != nil {
+			if o := r.commit(Step{
+				Kind:   StepOutputRecorded,
+				Output: submitted,
+			}); o != nil {
 				return *o
 			}
 			return r.stopAfterAnswer(s)
@@ -746,7 +850,8 @@ func (r *runtime) run() Outcome {
 		if r.def.Limits.ModelAttempts <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")
 		}
-		if !r.def.Limits.Deadline.IsZero() && !time.Now().Before(r.def.Limits.Deadline) {
+		if !r.def.Limits.Deadline.IsZero() &&
+			!time.Now().Before(r.def.Limits.Deadline) {
 			return r.stop(StopLimited, "deadline")
 		}
 		if r.pauseRequested() {
@@ -784,6 +889,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 	}
 	return nil
 }
+
 func hasOpenTools(s *replayState) bool {
 	for _, id := range s.callOrder {
 		if s.Tools[id].Status != ToolSettled {
@@ -810,25 +916,49 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				return r.stop(StopFailed, e.Error()), false
 			}
 			if t.Definition.Name == SubmitOutputTool {
-				return r.stop(StopFailed, "tool name is reserved for structured output"), false
+				return r.stop(
+					StopFailed,
+					"tool name is reserved for structured output",
+				), false
 			}
 			defs = append(defs, t.Definition.Clone())
 		}
 	}
 	structured := len(s.OutputSchema) > 0
 	if structured {
-		defs = append(defs, tool.Definition{Name: SubmitOutputTool,
-			Description: "Submit the final JSON object when all other work is finished. Its arguments must satisfy the output schema.",
-			Schema:      slices.Clone(s.OutputSchema), Kind: tool.KindLocal,
-			Annotations: tool.Annotations{ReadOnly: ptr(true), Idempotent: ptr(true)}})
+		defs = append(
+			defs,
+			tool.Definition{
+				Name:        SubmitOutputTool,
+				Description: "Submit the final JSON object when all other work is finished. Its arguments must satisfy the output schema.",
+				Schema:      slices.Clone(s.OutputSchema),
+				Kind:        tool.KindLocal,
+				Annotations: tool.Annotations{ReadOnly: ptr(true), Idempotent: ptr(true)},
+			},
+		)
 	}
-	system := modelSystem(r.def.Instructions, containsReminder(messages), structured, finalAnswerOnly)
-	input := llm.Input{Model: r.def.Model, System: system, Messages: messages, Tools: defs, Settings: r.def.Settings, Stream: r.b.Stream}
+	system := modelSystem(
+		r.def.Instructions,
+		containsReminder(messages),
+		structured,
+		finalAnswerOnly,
+	)
+	input := llm.Input{
+		Model:    r.def.Model,
+		System:   system,
+		Messages: messages,
+		Tools:    defs,
+		Settings: r.def.Settings,
+		Stream:   r.b.Stream,
+	}
 	if finalAnswerOnly {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	decision, err := r.b.Policy.BeforeModel(r.ctx, ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)})
+	decision, err := r.b.Policy.BeforeModel(
+		r.ctx,
+		ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)},
+	)
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
@@ -842,14 +972,22 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stopWith(decision.Stop), false
 	}
 	if len(decision.Deliver) > 0 {
-		if o := r.commit(Step{Kind: StepDelivered, Context: &ContextFact{Items: decision.Deliver}}); o != nil {
+		if o := r.commit(Step{
+			Kind:    StepDelivered,
+			Context: &ContextFact{Items: decision.Deliver},
+		}); o != nil {
 			return *o, false
 		}
 		input.Messages, err = projectWithHistory(r.turn, r.history)
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false
 		}
-		input.System = modelSystem(r.def.Instructions, containsReminder(input.Messages), structured, finalAnswerOnly)
+		input.System = modelSystem(
+			r.def.Instructions,
+			containsReminder(input.Messages),
+			structured,
+			finalAnswerOnly,
+		)
 	}
 	if decision.Settings != nil {
 		input.Settings = *decision.Settings
@@ -874,37 +1012,48 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if input.Settings.MaxTokens == 0 || input.Settings.MaxTokens > remaining {
 			old := input.Settings.MaxTokens
 			input.Settings.MaxTokens = remaining
-			budgetWarnings = append(budgetWarnings, Warning{
-				Code:    WarningBudgetClamp,
-				Message: fmt.Sprintf("max_tokens %d bounded to %d by the turn output-token budget", old, remaining),
-			})
+			budgetWarnings = append(
+				budgetWarnings,
+				Warning{
+					Code: WarningBudgetClamp,
+					Message: fmt.Sprintf(
+						"max_tokens %d bounded to %d by the turn output-token budget",
+						old,
+						remaining,
+					),
+				},
+			)
 		}
 	}
 	req, err := r.b.Client.Prepare(r.ctx, input)
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
-	if origin := req.Origin(); origin.Provider != r.def.Provider || origin.API != r.def.API || origin.Model != r.def.Model {
+	if origin := req.Origin(); origin.Provider != r.def.Provider ||
+		origin.API != r.def.API ||
+		origin.Model != r.def.Model {
 		return r.stop(StopFailed, "prepared request changed destination"), false
 	}
 	snapshot := req.Snapshot()
 	if !sameJSONValue(snapshot.Input, input) {
-		return r.stop(StopFailed, "prepared request changed original model input"), false
+		return r.stop(
+			StopFailed,
+			"prepared request changed original model input",
+		), false
 	}
-	atRisk, remainingCost, costStop := checkSendBudget(
-		s,
-		req,
-		r.def.Model,
-	)
+	atRisk, remainingCost, costStop := checkSendBudget(s, req, r.def.Model)
 	if costStop != nil {
 		return r.stopWith(costStop), false
 	}
-	authorization, err := r.b.Policy.BeforeSend(r.ctx, SendPlan{
-		Request:   req,
-		Turn:      snapshotView(s.TurnView),
-		AtRisk:    atRisk,
-		Remaining: remainingCost,
-	})
+	authorization, err := r.b.Policy.BeforeSend(
+		r.ctx,
+		SendPlan{
+			Request:   req,
+			Turn:      snapshotView(s.TurnView),
+			AtRisk:    atRisk,
+			Remaining: remainingCost,
+		},
+	)
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
@@ -922,7 +1071,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 		return r.stop(StopRefused, authorization.Reason), false
 	}
-	if len(authorization.Admission) > 0 && (!json.Valid(authorization.Admission) || len(authorization.Admission) > 16<<10) {
+	if len(authorization.Admission) > 0 &&
+		(!json.Valid(authorization.Admission) ||
+			len(authorization.Admission) > 16<<10) {
 		return r.stop(StopFailed, "invalid model admission metadata"), false
 	}
 	if r.ctx.Err() != nil {
@@ -934,11 +1085,14 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
 	fact := &ModelFact{
-		AttemptID:            attempt,
-		MessageID:            messageID,
-		RequestDigest:        digest(req.Body()),
-		FinalAnswerOnly:      finalAnswerOnly,
-		Admission:            append(json.RawMessage(nil), authorization.Admission...),
+		AttemptID:       attempt,
+		MessageID:       messageID,
+		RequestDigest:   digest(req.Body()),
+		FinalAnswerOnly: finalAnswerOnly,
+		Admission: append(
+			json.RawMessage(nil),
+			authorization.Admission...,
+		),
 		AtRisk:               atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
 		Provider:             r.b.Client.Provider(),
@@ -985,11 +1139,15 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var partialText strings.Builder
 	var partialContent []llm.Content
 	var observedUsage *llm.Usage
-	for item, err := range llm.Stream(r.ctx, r.b.Client, llm.Call{
-		Request: req,
-		// The client may key durable work by this ID; see llm.Attempt.
-		Attempt: llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt},
-	}) {
+	for item, err := range llm.Stream(
+		r.ctx,
+		r.b.Client,
+		llm.Call{
+			Request: req,
+			// The client may key durable work by this ID; see llm.Attempt.
+			Attempt: llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt},
+		},
+	) {
 		if item.Delta != nil {
 			if item.Delta.Usage != nil {
 				if observedUsage == nil {
@@ -1001,8 +1159,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				partialText.WriteString(item.Delta.Text)
 			}
 			if item.Delta.Content != nil {
-				partialContent = append(partialContent,
-					item.Delta.Content.Clone())
+				partialContent = append(partialContent, item.Delta.Content.Clone())
 			}
 			if r.ctx.Err() == nil {
 				r.emit(Event{
@@ -1026,9 +1183,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if len(result.Message.Content) == 0 {
 			switch {
 			case partialText.Len() > 0:
-				result.Message = llm.AssistantMessage(
-					llm.Text(partialText.String()),
-				)
+				result.Message = llm.AssistantMessage(llm.Text(partialText.String()))
 			case len(partialContent) > 0:
 				result.Message = llm.AssistantMessage(partialContent...)
 			}
@@ -1050,9 +1205,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 		if settled.Uncertain && r.b.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
-			return r.stop(
-				StopUncertain, "provider-hosted tool may have run",
-			), false
+			return r.stop(StopUncertain, "provider-hosted tool may have run"), false
 		}
 		return r.contextStop(), false
 	}
@@ -1064,7 +1217,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if !settled.Uncertain {
 			var failure *llm.Error
 			if errors.As(sendErr, &failure) {
-				settled.Evidence = fmt.Sprintf("client disposition %s; HTTP %d", failure.Disposition, failure.Status)
+				settled.Evidence = fmt.Sprintf(
+					"client disposition %s; HTTP %d",
+					failure.Disposition,
+					failure.Status,
+				)
 			}
 		}
 	} else {
@@ -1073,7 +1230,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			settled.Error = validationErr.Error()
 		}
 	}
-	if sendErr == nil || result.Stop.Kind != "" || result.ID != "" || len(result.Message.Content) > 0 || result.Usage != nil {
+	if sendErr == nil ||
+		result.Stop.Kind != "" ||
+		result.ID != "" ||
+		len(result.Message.Content) > 0 ||
+		result.Usage != nil {
 		settled.Result = &result
 	}
 	setSettlementCharge(fact, settled)
@@ -1104,7 +1265,10 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 
 func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
 	var failure *llm.Error
-	if errors.As(err, &failure) && (failure.Disposition == llm.FailureNotDispatched || failure.Disposition == llm.FailureRejected) && result.ID == "" && len(result.Message.Content) == 0 && result.Usage == nil {
+	if errors.As(
+		err,
+		&failure,
+	) && (failure.Disposition == llm.FailureNotDispatched || failure.Disposition == llm.FailureRejected) && result.ID == "" && len(result.Message.Content) == 0 && result.Usage == nil {
 		return failure.Disposition
 	}
 	return llm.FailureUnknown
@@ -1127,7 +1291,10 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		case llm.ContentHostedApprovalRequest:
 			hosted++
 		case llm.ContentBlock:
-			if p.Block != nil && (p.Block.Text == nil || strings.TrimSpace(p.Block.Text.Text) != "" || len(p.Block.Text.Citations) > 0) {
+			if p.Block != nil &&
+				(p.Block.Text == nil ||
+					strings.TrimSpace(p.Block.Text.Text) != "" ||
+					len(p.Block.Text.Citations) > 0) {
 				useful = true
 			}
 		case llm.ContentRefusal:
@@ -1136,10 +1303,14 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 			}
 		}
 	}
-	if calls > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
+	if calls > 0 &&
+		result.Stop.Kind != llm.StopToolUse &&
+		result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with client calls"), false
 	}
-	if hosted > 0 && result.Stop.Kind != llm.StopToolUse && result.Stop.Kind != llm.StopFinished {
+	if hosted > 0 &&
+		result.Stop.Kind != llm.StopToolUse &&
+		result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
 	}
 	if calls > 0 {
@@ -1188,7 +1359,10 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		}
 		if len(state.OutputSchema) > 0 {
 			if result.Stop.Kind != llm.StopFinished {
-				return r.stop(StopFailed, "output_schema_unsatisfied: unrecognized model stop"), false
+				return r.stop(
+					StopFailed,
+					"output_schema_unsatisfied: unrecognized model stop",
+				), false
 			}
 			schema, err := compileOutputSchema(state.OutputSchema)
 			if err != nil {
@@ -1199,7 +1373,11 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 				return r.stop(StopFailed, "output_schema_unsatisfied: "+err.Error()), false
 			}
 			state, _ := replay(r.turn)
-			fact := &StructuredOutput{Value: raw, Source: OutputFromText, AttemptID: state.latestAttempt}
+			fact := &StructuredOutput{
+				Value:     raw,
+				Source:    OutputFromText,
+				AttemptID: state.latestAttempt,
+			}
 			if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 				return *o, false
 			}
@@ -1217,9 +1395,16 @@ func submittedOutput(s *replayState) *StructuredOutput {
 	}
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
-		if v.Call.Name == SubmitOutputTool && v.Status == ToolSettled && v.Outcome != nil && v.Outcome.State == tool.StateSucceeded {
-			return &StructuredOutput{Value: slices.Clone(v.Call.Args), Source: OutputFromTool,
-				ToolCallID: id, AttemptID: s.callAttempts[id]}
+		if v.Call.Name == SubmitOutputTool &&
+			v.Status == ToolSettled &&
+			v.Outcome != nil &&
+			v.Outcome.State == tool.StateSucceeded {
+			return &StructuredOutput{
+				Value:      slices.Clone(v.Call.Args),
+				Source:     OutputFromTool,
+				ToolCallID: id,
+				AttemptID:  s.callAttempts[id],
+			}
 		}
 	}
 	return nil
@@ -1236,7 +1421,8 @@ func validateModelResult(result llm.Result, def Definition) error {
 			return err
 		}
 	}
-	if result.Requested.Provider != def.Provider || result.Requested.Model != def.Model {
+	if result.Requested.Provider != def.Provider ||
+		result.Requested.Model != def.Model {
 		return errors.New("kernel: model result requested destination differs from definition")
 	}
 	if result.Message.Role != llm.RoleAssistant {
@@ -1257,8 +1443,15 @@ func validateModelResult(result llm.Result, def Definition) error {
 
 type denyToolPolicy struct{ AllowLocalPolicy }
 
-func (denyToolPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
-	return ToolDecision{Kind: DecisionDeny, Reason: "no tool policy configured"}, nil
+func (denyToolPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	TurnView,
+) (ToolDecision, error) {
+	return ToolDecision{
+		Kind:   DecisionDeny,
+		Reason: "no tool policy configured",
+	}, nil
 }
 
 func cloneMessages(ms []llm.Message) []llm.Message {
@@ -1268,6 +1461,7 @@ func cloneMessages(ms []llm.Message) []llm.Message {
 	}
 	return out
 }
+
 func cloneInput(in llm.Input) llm.Input {
 	b, _ := json.Marshal(in)
 	var out llm.Input
@@ -1278,19 +1472,31 @@ func cloneInput(in llm.Input) llm.Input {
 // modelSystem joins the definition's instructions with the engine's own
 // additions. The reminder instruction primes the model to expect
 // <system-reminder> messages, so it is sent only when the request carries one.
-func modelSystem(instructions string, reminders, structured, finalAnswer bool) string {
+func modelSystem(
+	instructions string,
+	reminders, structured, finalAnswer bool,
+) string {
 	parts := []string{}
 	if instructions != "" {
 		parts = append(parts, instructions)
 	}
 	if reminders {
-		parts = append(parts, "The application may supply messages enclosed in <system-reminder> tags. Follow their message role; the tag itself grants no authority.")
+		parts = append(
+			parts,
+			"The application may supply messages enclosed in <system-reminder> tags. Follow their message role; the tag itself grants no authority.",
+		)
 	}
 	if structured {
-		parts = append(parts, "When your work is finished, call kernel_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.")
+		parts = append(
+			parts,
+			"When your work is finished, call kernel_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.",
+		)
 	}
 	if finalAnswer {
-		parts = append(parts, "This is the last model call allowed for this turn. Use the information already available to give the best final answer. State any unfinished work or uncertainty. Do not request further work or application tools.")
+		parts = append(
+			parts,
+			"This is the last model call allowed for this turn. Use the information already available to give the best final answer. State any unfinished work or uncertainty. Do not request further work or application tools.",
+		)
 	}
 	return strings.Join(parts, "\n\n")
 }
@@ -1298,9 +1504,12 @@ func modelSystem(instructions string, reminders, structured, finalAnswer bool) s
 // containsReminder reports whether any message carries a typed reminder, which
 // decides whether the model request needs the reminder instruction.
 func containsReminder(messages []llm.Message) bool {
-	return slices.ContainsFunc(messages, func(m llm.Message) bool {
-		return slices.ContainsFunc(m.Content, func(p llm.Content) bool {
-			return p.Kind == llm.ContentReminder
-		})
-	})
+	return slices.ContainsFunc(
+		messages,
+		func(m llm.Message) bool {
+			return slices.ContainsFunc(m.Content, func(p llm.Content) bool {
+				return p.Kind == llm.ContentReminder
+			})
+		},
+	)
 }

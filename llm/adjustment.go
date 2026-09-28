@@ -102,16 +102,23 @@ func (a Adjustment) Validate() error {
 	switch {
 	case a.Reason == "":
 		return errors.New("llm: adjustment requires a reason")
-	case a.Action == AdjustmentDefault && jsonNull(a.Requested) && effective:
+	case a.Action == AdjustmentDefault &&
+		jsonNull(a.Requested) &&
+		effective:
 		return nil
 	case a.Action == AdjustmentClamp && requested && effective &&
-		!bytes.Equal(compactJSON(a.Requested), compactJSON(a.Effective)):
+		!bytes.Equal(
+			compactJSON(a.Requested),
+			compactJSON(a.Effective),
+		):
 		return nil
 	case a.Action == AdjustmentOmit && requested && jsonNull(a.Effective):
 		return nil
 	}
 	return fmt.Errorf(
-		"llm: invalid %q adjustment values for %s", a.Action, a.Field,
+		"llm: invalid %q adjustment values for %s",
+		a.Action,
+		a.Field,
 	)
 }
 
@@ -154,7 +161,10 @@ func Warnings(adjustments []Adjustment) []Warning {
 	return warnings
 }
 
-func validateAdjustments(requested, effective Settings, adjustments []Adjustment) error {
+func validateAdjustments(
+	requested, effective Settings,
+	adjustments []Adjustment,
+) error {
 	values := func(s Settings) map[Setting]json.RawMessage {
 		raw, _ := json.Marshal(s)
 		var fields map[Setting]json.RawMessage
@@ -168,16 +178,31 @@ func validateAdjustments(requested, effective Settings, adjustments []Adjustment
 			return err
 		}
 		if seen[a.Field] ||
-			!bytes.Equal(settingJSON(a.Requested), before[a.Field]) ||
-			!bytes.Equal(settingJSON(a.Effective), after[a.Field]) {
-			return fmt.Errorf("llm: adjustment for %s disagrees with settings", a.Field)
+			!bytes.Equal(
+				settingJSON(a.Requested),
+				before[a.Field],
+			) ||
+			!bytes.Equal(
+				settingJSON(a.Effective),
+				after[a.Field],
+			) {
+			return fmt.Errorf(
+				"llm: adjustment for %s disagrees with settings",
+				a.Field,
+			)
 		}
 		seen[a.Field] = true
 	}
 	for _, fields := range []map[Setting]json.RawMessage{before, after} {
 		for field := range fields {
-			if !bytes.Equal(before[field], after[field]) && !seen[field] {
-				return fmt.Errorf("llm: setting %s changed without an adjustment", field)
+			if !bytes.Equal(
+				before[field],
+				after[field],
+			) && !seen[field] {
+				return fmt.Errorf(
+					"llm: setting %s changed without an adjustment",
+					field,
+				)
 			}
 		}
 	}

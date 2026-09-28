@@ -39,10 +39,19 @@ func (r *Rates) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for _, key := range []string{
-		"input", "output", "cache_read", "cache_write",
+		"input",
+		"output",
+		"cache_read",
+		"cache_write",
 	} {
-		if len(fields[key]) == 0 || bytes.Equal(fields[key], []byte("null")) {
-			return fmt.Errorf("llm: pricing requires explicit %s rate", key)
+		if len(fields[key]) == 0 || bytes.Equal(
+			fields[key],
+			[]byte("null"),
+		) {
+			return fmt.Errorf(
+				"llm: pricing requires explicit %s rate",
+				key,
+			)
 		}
 	}
 	type alias Rates
@@ -62,7 +71,10 @@ func (r *Rates) UnmarshalJSON(data []byte) error {
 
 func (r Rates) validate() error {
 	for _, rate := range []money.Amount{
-		r.Input, r.Output, r.CacheRead, r.CacheWrite,
+		r.Input,
+		r.Output,
+		r.CacheRead,
+		r.CacheWrite,
 	} {
 		if rate < 0 {
 			return errors.New("llm: pricing requires nonnegative rates")
@@ -235,7 +247,10 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		input.add(tokens.InputTokens, rates.Input)
 		output.add(tokens.OutputTokens, rates.Output)
 		cacheRead.add(tokens.CacheReadInputTokens, rates.CacheRead)
-		cacheWrite.add(tokens.CacheCreationInputTokens, rates.CacheWrite)
+		cacheWrite.add(
+			tokens.CacheCreationInputTokens,
+			rates.CacheWrite,
+		)
 	}
 	applyRates(unattributed, rates)
 	for _, modality := range slices.Sorted(maps.Keys(u.ModalityTokens)) {
@@ -254,7 +269,11 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		hosted.addPerCall(count, rate)
 	}
 	for _, part := range []*exactSum{
-		&input, &output, &cacheRead, &cacheWrite, &hosted,
+		&input,
+		&output,
+		&cacheRead,
+		&cacheWrite,
+		&hosted,
 	} {
 		total.addSum(part)
 	}
@@ -342,7 +361,12 @@ func (c Cost) Validate() error {
 		return errors.New("llm: cost requires a known source")
 	}
 	for _, amount := range []money.Amount{
-		c.Input, c.Output, c.CacheRead, c.CacheWrite, c.Hosted, c.Total,
+		c.Input,
+		c.Output,
+		c.CacheRead,
+		c.CacheWrite,
+		c.Hosted,
+		c.Total,
 	} {
 		if amount < 0 {
 			return errors.New("llm: cost requires nonnegative amounts")
@@ -400,8 +424,10 @@ func unattributedUsageBuckets(u *Usage) (ModalityTokenUsage, bool) {
 			modality != strings.ToLower(strings.TrimSpace(modality)) {
 			return ModalityTokenUsage{}, false
 		}
-		if tokens.InputTokens < 0 || tokens.InputTokens > remaining.InputTokens ||
-			tokens.OutputTokens < 0 || tokens.OutputTokens > remaining.OutputTokens ||
+		if tokens.InputTokens < 0 ||
+			tokens.InputTokens > remaining.InputTokens ||
+			tokens.OutputTokens < 0 ||
+			tokens.OutputTokens > remaining.OutputTokens ||
 			tokens.CacheReadInputTokens < 0 ||
 			tokens.CacheReadInputTokens > remaining.CacheReadInputTokens ||
 			tokens.CacheCreationInputTokens < 0 ||
@@ -425,7 +451,8 @@ func pricingDetailAvailable(
 	if u.TotalTokenCountMismatch {
 		return false
 	}
-	if u.CacheCreationInputTokensUnavailable && base.CacheWrite != base.Input {
+	if u.CacheCreationInputTokensUnavailable &&
+		base.CacheWrite != base.Input {
 		return false
 	}
 	for _, rates := range p.Modality {
@@ -448,7 +475,8 @@ func pricingDetailAvailable(
 			unattributed.CacheCreationInputTokens != 0:
 			return false
 		}
-		if u.CacheCreationInputTokensUnavailable && rates.CacheWrite != rates.Input {
+		if u.CacheCreationInputTokensUnavailable &&
+			rates.CacheWrite != rates.Input {
 			return false
 		}
 	}

@@ -141,7 +141,11 @@ func (a *Amount) UnmarshalJSON(data []byte) error {
 		// "\u0030.5" is the same text as "0.5".
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
-			return fmt.Errorf("money: decode %s: %w", text, errSyntax)
+			return fmt.Errorf(
+				"money: decode %s: %w",
+				text,
+				errSyntax,
+			)
 		}
 		amount, err = parse(s, false)
 	} else {
@@ -177,7 +181,13 @@ func parse(s string, number bool) (Amount, error) {
 		}
 	}
 	exponent := 0
-	if number && (strings.HasPrefix(rest, "e") || strings.HasPrefix(rest, "E")) {
+	if number && (strings.HasPrefix(
+		rest,
+		"e",
+	) || strings.HasPrefix(
+		rest,
+		"E",
+	)) {
 		value, err := parseExponent(rest[1:])
 		if err != nil {
 			return 0, err

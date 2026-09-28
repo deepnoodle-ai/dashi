@@ -134,7 +134,9 @@ type Transcription struct {
 // Validate checks record shape and segment ordering without claiming the
 // provider's timestamps or speaker attribution are accurate.
 func (r Transcription) Validate() error {
-	if r.Requested.Provider == "" || r.Requested.Model == "" || r.API == "" {
+	if r.Requested.Provider == "" ||
+		r.Requested.Model == "" ||
+		r.API == "" {
 		return errors.New("speech: transcription requires request origin")
 	}
 	if r.Granularity != "" && r.Granularity != TimestampSegment &&

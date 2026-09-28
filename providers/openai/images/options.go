@@ -56,7 +56,10 @@ func (o Options) fields(input media.ImageInput) (map[string]any, error) {
 		}
 		fields["input_fidelity"] = o.InputFidelity
 	default:
-		return nil, fmt.Errorf("images: unsupported input fidelity %q", o.InputFidelity)
+		return nil, fmt.Errorf(
+			"images: unsupported input fidelity %q",
+			o.InputFidelity,
+		)
 	}
 	if o.OutputCompression != nil {
 		if *o.OutputCompression < 0 || *o.OutputCompression > 100 {

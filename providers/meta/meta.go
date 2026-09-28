@@ -1,5 +1,6 @@
 // Package meta configures Meta's Responses endpoint so signed reasoning can
-// survive tool turns. Adapted from Dive (65c393f), Apache-2.0.
+// survive tool turns. Hosted web search is adapted from Dive's
+// tool_web_search.go (65c393f), Apache-2.0.
 package meta
 
 import (
@@ -13,7 +14,8 @@ import (
 // DefaultEndpoint is Meta's Responses URL.
 const DefaultEndpoint = "https://api.meta.ai/v1/responses"
 
-// Config supplies destination credentials and application-owned model evidence.
+// Config supplies destination credentials and application-owned model
+// evidence.
 type Config struct {
 	APIKey           string
 	Endpoint         string
@@ -40,9 +42,14 @@ func New(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("META_API_KEY")
 	}
-	client, err := responses.New(responses.Config{Provider: "meta", APIKey: config.APIKey,
-		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		CapabilityPolicy: config.CapabilityPolicy})
+	client, err := responses.New(responses.Config{
+		Provider:         "meta",
+		APIKey:           config.APIKey,
+		Endpoint:         config.Endpoint,
+		Client:           config.Client,
+		Models:           config.Models,
+		CapabilityPolicy: config.CapabilityPolicy,
+	})
 	if err != nil {
 		return nil, err
 	}

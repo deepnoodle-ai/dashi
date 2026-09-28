@@ -54,7 +54,9 @@ func validateStorageExpiry(duration time.Duration) error {
 	if duration == 0 {
 		return nil
 	}
-	if duration < time.Hour || duration > 30*24*time.Hour || duration%time.Second != 0 {
+	if duration < time.Hour ||
+		duration > 30*24*time.Hour ||
+		duration%time.Second != 0 {
 		return errors.New("imagine: storage expiry must be whole seconds from 1 hour to 30 days")
 	}
 	return nil

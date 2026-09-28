@@ -25,22 +25,45 @@ func TestParseAmountExactText(t *testing.T) {
 		{"1.123456789", 1_123_456_789, "1.123456789"},
 		{"0.1000000000", 100_000_000, "0.1"},
 		{"007.5", 7_500_000_000, "7.5"},
-		{"9223372036.854775807", math.MaxInt64, "9223372036.854775807"},
-		{"-9223372036.854775808", math.MinInt64, "-9223372036.854775808"},
+		{
+			"9223372036.854775807",
+			math.MaxInt64,
+			"9223372036.854775807",
+		},
+		{
+			"-9223372036.854775808",
+			math.MinInt64,
+			"-9223372036.854775808",
+		},
 	} {
 		got, err := ParseAmount(tc.text)
 		if err != nil {
 			t.Fatalf("ParseAmount(%q): %v", tc.text, err)
 		}
 		if got.Nanos() != tc.nanos {
-			t.Fatalf("ParseAmount(%q) = %d nanos, want %d", tc.text, got, tc.nanos)
+			t.Fatalf(
+				"ParseAmount(%q) = %d nanos, want %d",
+				tc.text,
+				got,
+				tc.nanos,
+			)
 		}
 		if got.String() != tc.canon {
-			t.Fatalf("String(%q) = %q, want %q", tc.text, got, tc.canon)
+			t.Fatalf(
+				"String(%q) = %q, want %q",
+				tc.text,
+				got,
+				tc.canon,
+			)
 		}
 		back, err := ParseAmount(got.String())
 		if err != nil || back != got {
-			t.Fatalf("canonical %q did not parse back: %v, %v", got, back, err)
+			t.Fatalf(
+				"canonical %q did not parse back: %v, %v",
+				got,
+				back,
+				err,
+			)
 		}
 	}
 }
@@ -105,7 +128,11 @@ func TestAmountJSONRoundTripsAsDecimalString(t *testing.T) {
 		Amount Amount `json:"amount"`
 	}
 	for _, text := range []string{
-		"0", "0.5", "-12.25", "0.000000001", "9223372036.854775807",
+		"0",
+		"0.5",
+		"-12.25",
+		"0.000000001",
+		"9223372036.854775807",
 	} {
 		in := record{Amount: MustParseAmount(text)}
 		raw, err := json.Marshal(in)
@@ -125,8 +152,18 @@ func TestAmountJSONRoundTripsAsDecimalString(t *testing.T) {
 // TestAmountHasOneSpelling checks that every amount encodes in one trimmed
 // form, so canonical JSON digests cannot see two spellings of one value.
 func TestAmountHasOneSpelling(t *testing.T) {
-	values := []int64{0, 1, -1, 10, 100_000_000, 500_000_000, 1_000_000_000,
-		1_000_000_001, math.MaxInt64, math.MinInt64}
+	values := []int64{
+		0,
+		1,
+		-1,
+		10,
+		100_000_000,
+		500_000_000,
+		1_000_000_000,
+		1_000_000_001,
+		math.MaxInt64,
+		math.MinInt64,
+	}
 	for n := int64(7); n < math.MaxInt64/13; n = n*13 + 5 {
 		values = append(values, n, -n)
 	}
@@ -140,9 +177,18 @@ func TestAmountHasOneSpelling(t *testing.T) {
 		if string(raw) != `"`+text+`"` {
 			t.Fatalf("%d encoded %s, String %q", n, raw, text)
 		}
-		whole, frac, hasFrac := strings.Cut(strings.TrimPrefix(text, "-"), ".")
+		whole, frac, hasFrac := strings.Cut(
+			strings.TrimPrefix(
+				text,
+				"-",
+			),
+			".",
+		)
 		if (len(whole) > 1 && whole[0] == '0') ||
-			hasFrac && (frac == "" || strings.HasSuffix(frac, "0")) ||
+			hasFrac && (frac == "" || strings.HasSuffix(
+				frac,
+				"0",
+			)) ||
 			text == "-0" {
 			t.Fatalf("%d has a non-canonical spelling %q", n, text)
 		}
@@ -151,7 +197,12 @@ func TestAmountHasOneSpelling(t *testing.T) {
 			t.Fatalf("%d did not round trip: %s, %v", n, back, err)
 		}
 	}
-	for _, spelling := range []string{`"0.50"`, `"0.500000000"`, `0.5`, `5e-1`} {
+	for _, spelling := range []string{
+		`"0.50"`,
+		`"0.500000000"`,
+		`0.5`,
+		`5e-1`,
+	} {
 		var a Amount
 		if err := json.Unmarshal([]byte(spelling), &a); err != nil {
 			t.Fatal(err)
@@ -194,7 +245,12 @@ func TestAmountJSONReadsLegacyNumbersExactly(t *testing.T) {
 			t.Fatalf("decode %s: %v", tc.raw, err)
 		}
 		if got.Nanos() != tc.nanos {
-			t.Fatalf("decode %s = %d nanos, want %d", tc.raw, got, tc.nanos)
+			t.Fatalf(
+				"decode %s = %d nanos, want %d",
+				tc.raw,
+				got,
+				tc.nanos,
+			)
 		}
 	}
 }

@@ -37,7 +37,12 @@ func TestPrepareSendsUnknownModelByDefault(t *testing.T) {
 			if len(snapshot.Warnings) != 0 {
 				t.Fatal("unknown support alone produced a warning")
 			}
-			if _, err := p.Send(context.Background(), llm.Call{Request: prep}); err != nil {
+			if _, err := p.Send(
+				context.Background(),
+				llm.Call{
+					Request: prep,
+				},
+			); err != nil {
 				t.Fatalf("send unknown model: %v", err)
 			}
 		})
@@ -99,10 +104,14 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 				// Leave effort levels to the API so its own list is fitted.
 				info.Capabilities.ReasoningEfforts = nil
 				catalog := map[string]llm.ModelInfo{"requested": info}
-				p := configured(t, tc, clientConfig{
-					endpoint: server.URL,
-					models:   catalog,
-				})
+				p := configured(
+					t,
+					tc,
+					clientConfig{
+						endpoint: server.URL,
+						models:   catalog,
+					},
+				)
 				for _, stream := range []bool{false, true} {
 					r := modelInput()
 					r.Stream, r.Settings = stream, test.settings
@@ -114,9 +123,12 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 					if want := settingValue(t, test.want, test.field); got != want {
 						t.Fatalf("effective %s = %s, want %s", test.field, got, want)
 					}
-					i := slices.IndexFunc(prep.Adjustments(), func(a llm.Adjustment) bool {
-						return a.Field == test.field
-					})
+					i := slices.IndexFunc(
+						prep.Adjustments(),
+						func(a llm.Adjustment) bool {
+							return a.Field == test.field
+						},
+					)
 					if i < 0 {
 						t.Fatal("clamp was not recorded as an adjustment")
 					}
@@ -137,7 +149,13 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 					}
 					var result llm.Result
 					if stream {
-						for event, err := range llm.Stream(context.Background(), p, llm.Call{Request: prep}) {
+						for event, err := range llm.Stream(
+							context.Background(),
+							p,
+							llm.Call{
+								Request: prep,
+							},
+						) {
 							if err != nil {
 								t.Fatalf("stream adjusted request: %v", err)
 							}
@@ -162,16 +180,23 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 
 func TestPrepareRejectsKnownMissingVisionWithFix(t *testing.T) {
 	for _, tc := range cases(t) {
-		for _, policy := range []llm.CapabilityPolicy{llm.CapabilityAdjust, llm.CapabilityStrict} {
+		for _, policy := range []llm.CapabilityPolicy{
+			llm.CapabilityAdjust,
+			llm.CapabilityStrict,
+		} {
 			t.Run(tc.name+"/"+cmp.Or(string(policy), "adjust"), func(t *testing.T) {
 				endpoint := "https://example.com/api"
 				info := textModel(tc, endpoint)
 				info.Capabilities.Features[llm.FeatureImage] = llm.SupportUnsupported
-				p := configured(t, tc, clientConfig{
-					endpoint: endpoint,
-					models:   map[string]llm.ModelInfo{"requested": info},
-					policy:   policy,
-				})
+				p := configured(
+					t,
+					tc,
+					clientConfig{
+						endpoint: endpoint,
+						models:   map[string]llm.ModelInfo{"requested": info},
+						policy:   policy,
+					},
+				)
 				r := modelInput()
 				image := content.ImageBlock(content.Source{
 					URL: "https://example.com/image.png",

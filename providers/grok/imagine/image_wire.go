@@ -36,7 +36,11 @@ func imageWireBody(input media.ImageInput) ([]byte, string, error) {
 	return imageWireBodyWithOptions(input, ImageOptions{}, content.Origin{})
 }
 
-func imageWireBodyWithOptions(input media.ImageInput, options ImageOptions, fileOrigin content.Origin) ([]byte, string, error) {
+func imageWireBodyWithOptions(
+	input media.ImageInput,
+	options ImageOptions,
+	fileOrigin content.Origin,
+) ([]byte, string, error) {
 	if err := input.Validate(); err != nil {
 		return nil, "", err
 	}
@@ -69,19 +73,31 @@ func imageWireBodyWithOptions(input media.ImageInput, options ImageOptions, file
 	if input.Operation == media.ImageEdit && input.Settings.Count > 0 {
 		return nil, "", errors.New("imagine: image edit count is not documented by xAI")
 	}
-	if ratio := input.Settings.AspectRatio; ratio != "" && !imageAspectRatio(ratio) {
-		return nil, "", fmt.Errorf("imagine: unsupported image aspect ratio %q", ratio)
+	if ratio := input.Settings.AspectRatio; ratio != "" &&
+		!imageAspectRatio(ratio) {
+		return nil, "", fmt.Errorf(
+			"imagine: unsupported image aspect ratio %q",
+			ratio,
+		)
 	}
 	if quality := input.Settings.Quality; quality != "" {
 		if input.Model != "grok-imagine-image-2.0" ||
 			(quality != "low" && quality != "medium" && quality != "auto") {
-			return nil, "", fmt.Errorf("imagine: unsupported image quality %q for %q", quality, input.Model)
+			return nil, "", fmt.Errorf(
+				"imagine: unsupported image quality %q for %q",
+				quality,
+				input.Model,
+			)
 		}
 	}
 	if resolution := input.Settings.Resolution; resolution != "" {
 		if input.Model != "grok-imagine-image-2.0" ||
 			(resolution != "1k" && resolution != "2k") {
-			return nil, "", fmt.Errorf("imagine: unsupported image resolution %q for %q", resolution, input.Model)
+			return nil, "", fmt.Errorf(
+				"imagine: unsupported image resolution %q for %q",
+				resolution,
+				input.Model,
+			)
 		}
 	}
 	body := map[string]any{
@@ -110,7 +126,8 @@ func imageWireBodyWithOptions(input media.ImageInput, options ImageOptions, file
 		if len(input.ReferenceImages) > 5 {
 			return nil, "", errors.New("imagine: xAI accepts at most five edit images")
 		}
-		if len(input.ReferenceImages) > 1 && input.Model != "grok-imagine-image-2.0" {
+		if len(input.ReferenceImages) > 1 &&
+			input.Model != "grok-imagine-image-2.0" {
 			return nil, "", errors.New("imagine: multiple edit images require grok-imagine-image-2.0")
 		}
 		inlineBytes := 0
@@ -161,7 +178,10 @@ func imageAspectRatio(ratio string) bool {
 	}
 }
 
-func imageInputSource(source content.Source, fileOrigin ...content.Origin) (map[string]string, error) {
+func imageInputSource(
+	source content.Source,
+	fileOrigin ...content.Origin,
+) (map[string]string, error) {
 	if source.MIMEType != "" && !strings.HasPrefix(source.MIMEType, "image/") {
 		return nil, errors.New("imagine: reference image requires image MIME type when specified")
 	}
@@ -183,11 +203,18 @@ func imageInputSource(source content.Source, fileOrigin ...content.Origin) (map[
 	return nil, errors.New("imagine: edit images require a public URL or inline bytes")
 }
 
-func decodeImageWire(raw []byte, provider, requested string) (media.Result, error) {
+func decodeImageWire(
+	raw []byte,
+	provider, requested string,
+) (media.Result, error) {
 	return decodeImageWireWithFiles(raw, provider, requested, content.Origin{})
 }
 
-func decodeImageWireWithFiles(raw []byte, provider, requested string, files content.Origin) (media.Result, error) {
+func decodeImageWireWithFiles(
+	raw []byte,
+	provider, requested string,
+	files content.Origin,
+) (media.Result, error) {
 	var wire imageWireResponse
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return media.Result{}, fmt.Errorf("imagine: decode image response: %w", err)
@@ -230,7 +257,11 @@ func decodeImageWireWithFiles(raw []byte, provider, requested string, files cont
 		}
 		result.Content = append(result.Content, content.ImageBlock(source))
 		if item.FileOutput != nil {
-			stored, err := item.FileOutput.storedOutput(len(result.Content)-1, source.MIMEType, files)
+			stored, err := item.FileOutput.storedOutput(
+				len(result.Content)-1,
+				source.MIMEType,
+				files,
+			)
 			if err != nil {
 				return media.Result{}, err
 			}
@@ -242,11 +273,17 @@ func decodeImageWireWithFiles(raw []byte, provider, requested string, files cont
 
 func validHTTPURL(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") && u.User == nil
+	return err == nil &&
+		u.Host != "" &&
+		(u.Scheme == "https" ||
+			u.Scheme == "http") &&
+		u.User == nil
 }
 
 func textPrompt(blocks []content.Block) (string, error) {
-	if len(blocks) != 1 || blocks[0].Kind != content.KindText || blocks[0].Text == nil {
+	if len(blocks) != 1 ||
+		blocks[0].Kind != content.KindText ||
+		blocks[0].Text == nil {
 		return "", errors.New("imagine: requires exactly one text prompt block")
 	}
 	if strings.TrimSpace(blocks[0].Text.Text) == "" {

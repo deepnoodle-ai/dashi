@@ -30,10 +30,15 @@ func (s StoredOutput) Clone() StoredOutput {
 	return s
 }
 
-func validateStoredOutputs(outputs []StoredOutput, blocks []content.Block, provider string) error {
+func validateStoredOutputs(
+	outputs []StoredOutput,
+	blocks []content.Block,
+	provider string,
+) error {
 	seen := make(map[int]struct{}, len(outputs))
 	for _, output := range outputs {
-		if output.ContentIndex < 0 || output.ContentIndex >= len(blocks) {
+		if output.ContentIndex < 0 ||
+			output.ContentIndex >= len(blocks) {
 			return errors.New("media: stored output index is outside content")
 		}
 		if _, exists := seen[output.ContentIndex]; exists {
@@ -45,18 +50,23 @@ func validateStoredOutputs(outputs []StoredOutput, blocks []content.Block, provi
 			blocks[output.ContentIndex].Kind != content.KindAudio {
 			return errors.New("media: stored output must refer to generated media")
 		}
-		if output.File.ID == "" || output.File.Origin.Provider != provider {
+		if output.File.ID == "" ||
+			output.File.Origin.Provider != provider {
 			return errors.New("media: stored output requires a file ID from the result provider")
 		}
 		if err := output.File.Validate(); err != nil {
 			return fmt.Errorf("media: stored output file: %w", err)
 		}
 		if output.PublicURL != nil {
-			if output.PublicURL.URL == "" || output.PublicURL.Origin != (content.Origin{}) {
+			if output.PublicURL.URL == "" ||
+				output.PublicURL.Origin != (content.Origin{}) {
 				return errors.New("media: stored output public URL requires an unscoped URL")
 			}
 			if err := output.PublicURL.Validate(); err != nil {
-				return fmt.Errorf("media: stored output public URL: %w", err)
+				return fmt.Errorf(
+					"media: stored output public URL: %w",
+					err,
+				)
 			}
 		}
 		if output.PublicURL != nil && output.PublicURLError != "" {

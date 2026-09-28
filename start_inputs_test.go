@@ -73,9 +73,19 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 	for _, tc := range []struct {
 		origin StartOrigin
 		valid  bool
-	}{{StartOperator, true}, {StartScheduled, false}, {StartUser, false}} {
+	}{
+		{StartOperator, true},
+		{StartScheduled, false},
+		{StartUser, false},
+	} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
-		out, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), Start{ID: "start", Origin: tc.origin, Input: []llm.Message{message}}, Bindings{Client: client, Recorder: NewMemoryRecorder()})
+		out, err := (Engine{}).Apply(
+			context.Background(),
+			Turn{ID: "t1"},
+			definition(),
+			Start{ID: "start", Origin: tc.origin, Input: []llm.Message{message}},
+			Bindings{Client: client, Recorder: NewMemoryRecorder()},
+		)
 		if tc.valid && (err != nil || out.Stop.Kind != StopCompleted) {
 			t.Fatalf("origin %q rejected: out=%+v err=%v", tc.origin, out, err)
 		}

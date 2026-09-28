@@ -259,9 +259,11 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := &replayState{TurnView: TurnView{
-		Budget: &Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
-	}}
+	state := &replayState{
+		TurnView: TurnView{
+			Budget: &Budget{MaxCost: &Money{Amount: amount("0.5"), Currency: "USD"}},
+		},
+	}
 	_, _, stop := checkSendBudget(state, request, "fixture")
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
 		t.Fatalf("hosted cost was admitted: stop=%+v", stop)
@@ -437,7 +439,8 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		)
 	}
 	if view.Spend.Usage.InputTokens != intent.EstimatedInputTokens {
-		t.Fatalf("estimated input=%d, recorded=%d",
+		t.Fatalf(
+			"estimated input=%d, recorded=%d",
 			intent.EstimatedInputTokens,
 			view.Spend.Usage.InputTokens,
 		)
@@ -464,10 +467,7 @@ func (hostBudgetPolicy) BeforeSend(
 	}
 	return ModelAuthorization{
 		Reason: "insufficient credits",
-		Limit: &LimitDetail{
-			Kind: LimitHost,
-			Code: "insufficient_credits",
-		},
+		Limit:  &LimitDetail{Kind: LimitHost, Code: "insufficient_credits"},
 	}, nil
 }
 
@@ -649,14 +649,7 @@ func TestBudgetHostedUseAddsPricedRequestCount(t *testing.T) {
 		result.Message.Content...,
 	)
 	client.results = []llm.Result{result}
-	out := runBudgetTurn(
-		t,
-		client,
-		nil,
-		llm.Settings{MaxTokens: 100},
-		nil,
-		nil,
-	)
+	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, nil)
 	view, err := Replay(out.Turn)
 	if err != nil {
 		t.Fatal(err)
@@ -754,10 +747,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			out := runInterruptedBudgetTurn(
 				t,
-				&llm.Usage{
-					InputTokens:  100,
-					OutputTokens: tc.reportedOutput,
-				},
+				&llm.Usage{InputTokens: 100, OutputTokens: tc.reportedOutput},
 			)
 			view, err := Replay(out.Turn)
 			if err != nil {

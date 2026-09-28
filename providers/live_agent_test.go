@@ -28,15 +28,39 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 		new              func(string) (llm.Client, error)
 	}
 	cases := []fixture{
-		{"anthropic", os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("ANTHROPIC_MODEL"), func(key string) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
-		}},
-		{"openai", os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"), func(key string) (llm.Client, error) {
-			return responses.New(responses.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
-		}},
-		{"gemini", os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL"), func(key string) (llm.Client, error) {
-			return gemini.New(gemini.Config{APIKey: key, CapabilityPolicy: llm.CapabilityAdjust})
-		}},
+		{
+			"anthropic",
+			os.Getenv("ANTHROPIC_API_KEY"),
+			os.Getenv("ANTHROPIC_MODEL"),
+			func(key string) (llm.Client, error) {
+				return messages.New(messages.Config{
+					APIKey:           key,
+					CapabilityPolicy: llm.CapabilityAdjust,
+				})
+			},
+		},
+		{
+			"openai",
+			os.Getenv("OPENAI_API_KEY"),
+			os.Getenv("OPENAI_MODEL"),
+			func(key string) (llm.Client, error) {
+				return responses.New(responses.Config{
+					APIKey:           key,
+					CapabilityPolicy: llm.CapabilityAdjust,
+				})
+			},
+		},
+		{
+			"gemini",
+			os.Getenv("GEMINI_API_KEY"),
+			os.Getenv("GEMINI_MODEL"),
+			func(key string) (llm.Client, error) {
+				return gemini.New(gemini.Config{
+					APIKey:           key,
+					CapabilityPolicy: llm.CapabilityAdjust,
+				})
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,12 +73,22 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 			}
 			for _, stream := range []bool{false, true} {
 				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-				input := llm.Input{Model: tc.model, Stream: stream, Settings: llm.Settings{MaxTokens: 32}, Messages: []llm.Message{llm.UserMessage(llm.Text("Reply with one short greeting."))}}
+				input := llm.Input{
+					Model:    tc.model,
+					Stream:   stream,
+					Settings: llm.Settings{MaxTokens: 32},
+					Messages: []llm.Message{
+						llm.UserMessage(llm.Text("Reply with one short greeting.")),
+					},
+				}
 				request, err := client.Prepare(ctx, input)
 				if err == nil {
 					var result llm.Result
 					result, err = client.Send(ctx, llm.Call{Request: request})
-					if err == nil && (result.Stop.Kind != llm.StopFinished || result.Message.Text() == "" || result.Requested.Model != tc.model) {
+					if err == nil &&
+						(result.Stop.Kind != llm.StopFinished ||
+							result.Message.Text() == "" ||
+							result.Requested.Model != tc.model) {
 						t.Errorf("stream=%t incomplete final facts: %+v", stream, result)
 					}
 				}

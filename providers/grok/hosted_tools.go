@@ -1,5 +1,3 @@
-// Grok hosted options are adapted from Dive's tool_web_search.go,
-// tool_x_search.go, tool_collections_search.go, and tool_code_execution.go.
 package grok
 
 import (
@@ -133,7 +131,9 @@ type ImageGenerationToolOptions struct {
 }
 
 // NewImageGenerationTool lets Grok generate or edit images within a response.
-func NewImageGenerationTool(options ImageGenerationToolOptions) (tool.Definition, error) {
+func NewImageGenerationTool(
+	options ImageGenerationToolOptions,
+) (tool.Definition, error) {
 	if options.Action != "" && options.Action != "auto" &&
 		options.Action != "generate" && options.Action != "edit" {
 		return tool.Definition{}, errors.New("grok: image action must be auto, generate, or edit")

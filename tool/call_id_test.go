@@ -18,9 +18,16 @@ func TestCallValidatePreservesIDThroughJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			call := Call{ID: tt.id, Name: "act", Args: json.RawMessage(`{}`)}
+			call := Call{
+				ID:   tt.id,
+				Name: "act",
+				Args: json.RawMessage(`{}`),
+			}
 			if err := call.Validate(); (err == nil) != tt.valid {
-				t.Fatalf("call ID validation disagrees with JSON safety: %v", err)
+				t.Fatalf(
+					"call ID validation disagrees with JSON safety: %v",
+					err,
+				)
 			}
 			if !tt.valid {
 				return
@@ -30,7 +37,10 @@ func TestCallValidatePreservesIDThroughJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			var restored Call
-			if err := json.Unmarshal(data, &restored); err != nil {
+			if err := json.Unmarshal(
+				data,
+				&restored,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if restored.ID != call.ID {

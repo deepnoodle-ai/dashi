@@ -18,7 +18,8 @@ import (
 // Definition is reusable behavior. Runtime clients, credentials, and storage
 // are supplied separately to Engine.Apply.
 type Definition struct {
-	ID           string       `json:"id"`
+	ID string `json:"id"`
+	// Revision pins behavior so a continued turn cannot silently change it.
 	Revision     string       `json:"revision"`
 	Instructions string       `json:"instructions,omitempty"`
 	Provider     string       `json:"provider"`
@@ -31,12 +32,16 @@ type Definition struct {
 	Limits       Limits          `json:"limits"`
 }
 
+// Limits bounds model calls, interruptions, pauses, tool concurrency, and time
+// for turns using a definition.
 type Limits struct {
+	// ModelAttempts counts settled calls; interrupted calls have their own cap.
 	ModelAttempts int `json:"model_attempts"`
 
 	// Interruptions bounds how many times a stopped or crashed turn may be
 	// resumed. Zero uses the default to preserve older definitions.
-	Interruptions   int `json:"interruptions,omitempty"`
+	Interruptions int `json:"interruptions,omitempty"`
+	// ProviderPauses bounds provider-requested continuations.
 	ProviderPauses  int `json:"provider_pauses"`
 	ToolConcurrency int `json:"tool_concurrency"`
 	// ReserveFinalAnswer uses the last allowed model attempt for an answer
@@ -45,6 +50,7 @@ type Limits struct {
 	Deadline           time.Time `json:"deadline,omitempty"`
 }
 
+// DefaultLimits returns the library's turn limits.
 func DefaultLimits() Limits {
 	return Limits{
 		ModelAttempts:      8,
@@ -62,8 +68,13 @@ func (l Limits) interruptionLimit() int {
 	return l.Interruptions
 }
 
+// Validate checks required identity fields, limits, and output settings.
 func (d Definition) Validate() error {
-	if d.ID == "" || d.Revision == "" || d.Provider == "" || d.API == "" || d.Model == "" {
+	if d.ID == "" ||
+		d.Revision == "" ||
+		d.Provider == "" ||
+		d.API == "" ||
+		d.Model == "" {
 		return errors.New("kernel: definition requires ID, revision, provider, API, and model")
 	}
 	if d.Limits.ModelAttempts < 1 || d.Limits.ToolConcurrency < 1 ||
@@ -84,13 +95,18 @@ func (d Definition) Validate() error {
 // ContextItem carries content whose origin and replacement behavior are
 // independent of its message role. All content needed for recovery is recorded.
 type ContextItem struct {
-	Name         string      `json:"name,omitempty"`
-	Origin       string      `json:"origin"`
-	Message      llm.Message `json:"message"`
-	Snapshot     bool        `json:"snapshot,omitempty"`
-	NextCallOnly bool        `json:"next_call_only,omitempty"`
+	// Name identifies an item that a later snapshot may replace.
+	Name string `json:"name,omitempty"`
+	// Origin records who supplied the item, independently of its message role.
+	Origin  string      `json:"origin"`
+	Message llm.Message `json:"message"`
+	// Snapshot replaces an earlier item with the same name.
+	Snapshot bool `json:"snapshot,omitempty"`
+	// NextCallOnly omits this item from later model calls.
+	NextCallOnly bool `json:"next_call_only,omitempty"`
 }
 
+// Turn carries the identified sequence of acknowledged execution facts.
 type Turn struct {
 	ID    string `json:"id"`
 	Steps []Step `json:"steps"`
@@ -124,7 +140,9 @@ func (t Turn) AnswerText() string {
 		}
 		var out strings.Builder
 		for _, part := range step.Model.Result.Message.Content {
-			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil {
+			if part.Kind == llm.ContentBlock &&
+				part.Block != nil &&
+				part.Block.Text != nil {
 				out.WriteString(part.Block.Text.Text)
 			}
 		}
@@ -133,35 +151,54 @@ func (t Turn) AnswerText() string {
 	return ""
 }
 
+// StepKind identifies the fact recorded by a step.
 type StepKind string
 
 const (
-	StepStarted         StepKind = "turn_started"
-	StepDelivered       StepKind = "context_delivered"
-	StepContinued       StepKind = "turn_continued"
-	StepLoopContinued   StepKind = "loop_continued"
-	StepModelIntent     StepKind = "model_requested"
-	StepModelSettled    StepKind = "model_settled"
+	// StepStarted pins the accepted definition and initial input.
+	StepStarted StepKind = "turn_started"
+	// StepDelivered records context supplied between engine calls.
+	StepDelivered StepKind = "context_delivered"
+	// StepContinued records a command that resumes a stopped turn.
+	StepContinued StepKind = "turn_continued"
+	// StepLoopContinued records progression to another model call.
+	StepLoopContinued StepKind = "loop_continued"
+	// StepModelIntent records a prepared model call before dispatch.
+	StepModelIntent StepKind = "model_requested"
+	// StepModelSettled records the result of a model call.
+	StepModelSettled StepKind = "model_settled"
+	// StepModelReconciled records a host-supplied result for an uncertain call.
 	StepModelReconciled StepKind = "model_reconciled"
-	StepToolDecision    StepKind = "tool_decision"
-	StepToolStarted     StepKind = "tool_started"
-	StepToolWaiting     StepKind = "tool_waiting"
-	StepToolSettled     StepKind = "tool_settled"
-	StepApproval        StepKind = "approval_accepted"
-	StepHostedApproval  StepKind = "hosted_approval_accepted"
-	StepOutputRecorded  StepKind = "output_recorded"
-	StepStopped         StepKind = "turn_stopped"
+	// StepToolDecision records policy authorization for a call.
+	StepToolDecision StepKind = "tool_decision"
+	// StepToolStarted records the start of tool execution.
+	StepToolStarted StepKind = "tool_started"
+	// StepToolWaiting records a tool outcome that awaits later settlement.
+	StepToolWaiting StepKind = "tool_waiting"
+	// StepToolSettled records a final tool outcome.
+	StepToolSettled StepKind = "tool_settled"
+	// StepApproval records a host answer to a deferred local tool decision.
+	StepApproval StepKind = "approval_accepted"
+	// StepHostedApproval records a host answer to provider-hosted approval.
+	StepHostedApproval StepKind = "hosted_approval_accepted"
+	// StepOutputRecorded pins a validated structured result.
+	StepOutputRecorded StepKind = "output_recorded"
+	// StepStopped records why engine execution ended.
+	StepStopped StepKind = "turn_stopped"
 )
 
 // Step is an acknowledged fact, never a model-facing synthetic message.
 // Exactly one payload is present for kinds that require one.
 type Step struct {
-	Version       int        `json:"version"`
-	TurnID        string     `json:"turn_id"`
-	Seq           int64      `json:"seq"`
-	At            time.Time  `json:"at"`
-	Kind          StepKind   `json:"kind"`
-	CommandID     string     `json:"command_id,omitempty"`
+	Version int    `json:"version"`
+	TurnID  string `json:"turn_id"`
+	// Seq is the one-based position used by recorder fencing.
+	Seq  int64     `json:"seq"`
+	At   time.Time `json:"at"`
+	Kind StepKind  `json:"kind"`
+	// CommandID identifies the host command that produced this step, if any.
+	CommandID string `json:"command_id,omitempty"`
+	// CommandDigest binds that ID to the command's content for retries.
 	CommandDigest string     `json:"command_digest,omitempty"`
 	Started       *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
@@ -196,10 +233,13 @@ type Warning struct {
 	Message string      `json:"message"`
 }
 
+// OutputSource identifies the model evidence for a structured result.
 type OutputSource string
 
 const (
+	// OutputFromTool was submitted through the reserved output tool.
 	OutputFromTool OutputSource = "tool_call"
+	// OutputFromText was extracted from the final assistant text.
 	OutputFromText OutputSource = "text"
 )
 
@@ -212,6 +252,7 @@ type StructuredOutput struct {
 	AttemptID  string          `json:"attempt_id"`
 }
 
+// StartFact pins the definition, inputs, and optional cap for a turn.
 type StartFact struct {
 	Definition Definition `json:"definition"`
 	// Budget pins the caller's cap at the start of the turn.
@@ -229,11 +270,15 @@ type StartFact struct {
 type StartOrigin string
 
 const (
-	StartUser      StartOrigin = "user"
+	// StartUser identifies user-supplied initial work.
+	StartUser StartOrigin = "user"
+	// StartScheduled identifies work started by a host schedule.
 	StartScheduled StartOrigin = "scheduled"
-	StartOperator  StartOrigin = "operator"
+	// StartOperator identifies work started by an authorized operator.
+	StartOperator StartOrigin = "operator"
 )
 
+// ContextFact records context delivered to an existing turn.
 type ContextFact struct {
 	Items []ContextItem `json:"items"`
 }
@@ -242,13 +287,18 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
-	AttemptID       string          `json:"attempt_id"`
-	MessageID       string          `json:"message_id,omitempty"`
-	RequestDigest   string          `json:"request_digest,omitempty"`
-	FinalAnswerOnly bool            `json:"final_answer_only,omitempty"`
-	Admission       json.RawMessage `json:"admission,omitempty"`
+	// AttemptID is stable across the intent and its settlement.
+	AttemptID string `json:"attempt_id"`
+	MessageID string `json:"message_id,omitempty"`
+	// RequestDigest identifies the prepared bytes without recording their body.
+	RequestDigest string `json:"request_digest,omitempty"`
+	// FinalAnswerOnly records that application tools were withheld on this call.
+	FinalAnswerOnly bool `json:"final_answer_only,omitempty"`
+	// Admission carries the host's reservation terms from BeforeSend.
+	Admission json.RawMessage `json:"admission,omitempty"`
 	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
 	AtRisk *llm.Cost `json:"at_risk,omitempty"`
+	// Charge is the settled amount reconstructed into turn spend.
 	Charge *llm.Cost `json:"charge,omitempty"`
 	// EstimatedInputTokens is the recorded fallback when input usage is absent.
 	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
@@ -269,7 +319,9 @@ type ModelFact struct {
 	Error            string                 `json:"error,omitempty"`
 	Failure          llm.FailureDisposition `json:"failure,omitempty"`
 	Evidence         string                 `json:"evidence,omitempty"`
-	Uncertain        bool                   `json:"uncertain,omitempty"`
+	// Uncertain means the model effect cannot yet be classified as settled or
+	// safely not dispatched.
+	Uncertain bool `json:"uncertain,omitempty"`
 
 	// Interrupted preserves partial output and usage without making them
 	// actionable. A later model call may safely replace this one.
@@ -294,7 +346,8 @@ func (f *ModelFact) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	policy, err := policyrecord.Decode(
-		raw.CapabilityPolicy, raw.UnknownCapabilities,
+		raw.CapabilityPolicy,
+		raw.UnknownCapabilities,
 	)
 	if err != nil {
 		return fmt.Errorf("kernel: model fact: %w", err)
@@ -312,6 +365,7 @@ type ModelFailure struct {
 	Evidence    string
 }
 
+// ToolFact records a call's authorization, execution, or settlement evidence.
 type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
@@ -335,20 +389,29 @@ type ApprovalFact struct {
 	PolicyRevision string `json:"policy_revision"`
 }
 
+// StopKind classifies why a turn stopped.
 type StopKind string
 
 const (
+	// StopCompleted means the turn produced an accepted final result.
 	StopCompleted StopKind = "completed"
-	StopWaiting   StopKind = "waiting"
-	StopLimited   StopKind = "limited"
-	StopRefused   StopKind = "refused"
-	StopCanceled  StopKind = "canceled"
+	// StopWaiting means the turn awaits an external action.
+	StopWaiting StopKind = "waiting"
+	// StopLimited means a turn limit or budget cap stopped execution.
+	StopLimited StopKind = "limited"
+	// StopRefused means policy denied further execution.
+	StopRefused StopKind = "refused"
+	// StopCanceled means a caller explicitly ended the turn.
+	StopCanceled StopKind = "canceled"
 	// StopInterrupted leaves the turn available for Continue on any worker.
 	StopInterrupted StopKind = "interrupted"
-	StopFailed      StopKind = "failed"
-	StopUncertain   StopKind = "uncertain"
+	// StopFailed means execution ended after a known failure.
+	StopFailed StopKind = "failed"
+	// StopUncertain means an effect requires host reconciliation.
+	StopUncertain StopKind = "uncertain"
 )
 
+// Stop records a turn's terminal or resumable condition.
 type Stop struct {
 	Kind   StopKind `json:"kind"`
 	Reason string   `json:"reason,omitempty"`
@@ -373,32 +436,45 @@ const (
 	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
 )
 
+// Persistence classifies whether a step write was acknowledged, rejected, or
+// left uncertain by the recorder.
 type Persistence string
 
 const (
+	// PersistenceAcknowledged means the recorder confirmed the write.
 	PersistenceAcknowledged Persistence = "acknowledged"
-	PersistenceRejected     Persistence = "rejected"
-	PersistenceUnknown      Persistence = "unknown"
+	// PersistenceRejected means the recorder confirmed that it did not commit.
+	PersistenceRejected Persistence = "rejected"
+	// PersistenceUnknown means the caller must load the turn to determine whether
+	// the recorder committed the write.
+	PersistenceUnknown Persistence = "unknown"
 )
 
+// Outcome combines the recorded turn with its projected stop and pending work.
 type Outcome struct {
-	Turn    Turn
-	Stop    Stop
-	Output  *StructuredOutput
+	Turn   Turn
+	Stop   Stop
+	Output *StructuredOutput
+	// Pending names calls that still need a host action or settlement.
 	Pending []string
 	// Warnings are recorded, nonfatal conditions visible on replay.
 	Warnings []Warning
 
 	// ReadyToContinue is true when Continue needs no budget raise to run.
 	ReadyToContinue bool
-	Persistence     Persistence
-	Unacknowledged  *Step
-	WriteError      error
+	// Persistence classifies the last attempted recorder write.
+	Persistence Persistence
+	// Unacknowledged is the step whose write outcome is unknown or rejected.
+	Unacknowledged *Step
+	// WriteError is the recorder error associated with Unacknowledged.
+	WriteError error
 }
 
-// Commands carry caller-assigned stable IDs. A repeated ID with identical
+// Command carries a caller-assigned stable ID. A repeated ID with identical
 // content acknowledges the first application without advancing again.
 type Command interface{ commandID() string }
+
+// Start begins a turn with caller-owned prior history and initial input.
 type Start struct {
 	ID     string
 	Origin StartOrigin
@@ -407,9 +483,12 @@ type Start struct {
 	// OutputSchema overrides the definition's default for this turn. The
 	// admitted schema is pinned in the start fact for replay and recovery.
 	OutputSchema json.RawMessage
-	History      []llm.Message
-	Input        []llm.Message
+	// History is caller-owned prior conversation and is not stored in the turn.
+	History []llm.Message
+	Input   []llm.Message
 }
+
+// Deliver adds context to a turn between engine calls.
 type Deliver struct {
 	ID    string
 	Items []ContextItem
@@ -423,32 +502,57 @@ type Continue struct {
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget
 }
+
+// Accept records a host-supplied tool, approval, or model settlement.
 type Accept struct {
 	ID             string
 	CallID         string
 	Outcome        *tool.Outcome
 	Approval       *ApprovalFact
 	HostedApproval *llm.HostedApprovalResponse
-	ModelResult    *llm.Result
-	ModelFailure   *ModelFailure
+	// ModelResult settles a pending model attempt without another dispatch.
+	ModelResult *llm.Result
+	// ModelFailure supplies verified evidence that an attempt did not execute.
+	ModelFailure *ModelFailure
 }
+
+// Cancel ends a turn with a caller-supplied reason.
 type Cancel struct {
 	ID     string
 	Reason string
 }
 
-func (c Start) commandID() string    { return c.ID }
-func (c Deliver) commandID() string  { return c.ID }
-func (c Continue) commandID() string { return c.ID }
-func (c Accept) commandID() string   { return c.ID }
-func (c Cancel) commandID() string   { return c.ID }
+func (c Start) commandID() string {
+	return c.ID
+}
+
+func (c Deliver) commandID() string {
+	return c.ID
+}
+
+func (c Continue) commandID() string {
+	return c.ID
+}
+
+func (c Accept) commandID() string {
+	return c.ID
+}
+
+func (c Cancel) commandID() string {
+	return c.ID
+}
 
 var (
+	// ErrDefinitionChanged reports a turn continued with a different definition.
 	ErrDefinitionChanged = errors.New("kernel: definition changed")
-	ErrCommandConflict   = errors.New("kernel: command conflict")
-	ErrInvalidTurn       = errors.New("kernel: invalid turn record")
-	ErrRevisionConflict  = errors.New("kernel: revision conflict")
-	ErrStreamConsumed    = errors.New("kernel: stream already consumed")
+	// ErrCommandConflict reports a reused command ID with different content.
+	ErrCommandConflict = errors.New("kernel: command conflict")
+	// ErrInvalidTurn reports a turn record that fails replay validation.
+	ErrInvalidTurn = errors.New("kernel: invalid turn record")
+	// ErrRevisionConflict reports a recorder sequence or owner conflict.
+	ErrRevisionConflict = errors.New("kernel: revision conflict")
+	// ErrStreamConsumed reports a second attempt to range one stream.
+	ErrStreamConsumed = errors.New("kernel: stream already consumed")
 	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.
 	ErrTurnNotFound = errors.New("kernel: turn not found")
 	// ErrHistoryMismatch rejects a Continue whose History differs from the
@@ -468,6 +572,7 @@ func cloneStep(s Step) Step {
 	}
 	return out
 }
+
 func cloneTurn(t Turn) Turn {
 	out := Turn{ID: t.ID, Steps: make([]Step, len(t.Steps))}
 	for i, s := range t.Steps {

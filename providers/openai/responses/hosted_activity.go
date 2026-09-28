@@ -108,11 +108,13 @@ func (wire codec) decodeHostedItem(
 			err,
 		)
 	}
-	return []llm.Content{{
-		Kind:      llm.ContentHostedUse,
-		HostedUse: &use,
-		Replay:    replay,
-	}}, nil
+	return []llm.Content{
+		{
+			Kind:      llm.ContentHostedUse,
+			HostedUse: &use,
+			Replay:    replay,
+		},
+	}, nil
 }
 
 func (wire codec) decodeHostedApproval(
@@ -143,11 +145,13 @@ func (wire codec) decodeHostedApproval(
 			err,
 		)
 	}
-	return []llm.Content{{
-		Kind:                  llm.ContentHostedApprovalRequest,
-		HostedApprovalRequest: &request,
-		Replay:                replay,
-	}}, nil
+	return []llm.Content{
+		{
+			Kind:                  llm.ContentHostedApprovalRequest,
+			HostedApprovalRequest: &request,
+			Replay:                replay,
+		},
+	}, nil
 }
 
 func (wire codec) hostedItemOutput(
@@ -179,22 +183,28 @@ func (wire codec) hostedItemOutput(
 				Title:  item.Title,
 				Origin: wire.origin,
 			}
-			blocks = append(blocks, content.Block{
-				Kind:     content.KindResource,
-				Resource: &resource,
-			})
+			blocks = append(
+				blocks,
+				content.Block{
+					Kind:     content.KindResource,
+					Resource: &resource,
+				},
+			)
 		}
 		if item.FileID != "" {
-			blocks = append(blocks, content.Block{
-				Kind: content.KindDocument,
-				Document: &content.Document{
-					Title: item.Filename,
-					Source: content.Source{
-						ID:     item.FileID,
-						Origin: wire.origin,
+			blocks = append(
+				blocks,
+				content.Block{
+					Kind: content.KindDocument,
+					Document: &content.Document{
+						Title: item.Filename,
+						Source: content.Source{
+							ID:     item.FileID,
+							Origin: wire.origin,
+						},
 					},
 				},
-			})
+			)
 		}
 	}
 	return blocks
@@ -220,10 +230,13 @@ func (wire codec) webSearchSources(action json.RawMessage) []content.Block {
 			Title:  source.Title,
 			Origin: wire.origin,
 		}
-		blocks = append(blocks, content.Block{
-			Kind:     content.KindResource,
-			Resource: &resource,
-		})
+		blocks = append(
+			blocks,
+			content.Block{
+				Kind:     content.KindResource,
+				Resource: &resource,
+			},
+		)
 	}
 	return blocks
 }

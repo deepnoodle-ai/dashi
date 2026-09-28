@@ -24,11 +24,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	request, err := client.Prepare(ctx, llm.Input{
-		Model:    model,
-		Stream:   true,
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Say hello in one sentence."))},
-	})
+	request, err := client.Prepare(
+		ctx,
+		llm.Input{
+			Model:  model,
+			Stream: true,
+			Messages: []llm.Message{
+				llm.UserMessage(llm.Text("Say hello in one sentence.")),
+			},
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,7 +51,11 @@ func main() {
 		}
 	}
 	fmt.Println()
-	fmt.Printf("Stop: %s; served model: %s\n", result.Stop.Kind, result.Served.Model)
+	fmt.Printf(
+		"Stop: %s; served model: %s\n",
+		result.Stop.Kind,
+		result.Served.Model,
+	)
 	for _, warning := range result.Warnings {
 		fmt.Printf("Warning (%s): %s\n", warning.Code, warning.Message)
 	}

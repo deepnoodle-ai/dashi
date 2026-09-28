@@ -4,7 +4,9 @@ package imagine
 type ImageResponseFormat string
 
 const (
-	ImageResponseURL    ImageResponseFormat = "url"
+	// ImageResponseURL requests a temporary public URL for each output.
+	ImageResponseURL ImageResponseFormat = "url"
+	// ImageResponseBase64 requests inline image bytes.
 	ImageResponseBase64 ImageResponseFormat = "b64_json"
 )
 

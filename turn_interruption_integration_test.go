@@ -61,7 +61,10 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 			}
 		}
 		out, err := (Engine{}).Apply(
-			ctx, turn, def, command,
+			ctx,
+			turn,
+			def,
+			command,
 			Bindings{Client: client, Recorder: rec},
 		)
 		if err != nil || out.Stop.Kind != StopInterrupted ||
@@ -85,7 +88,10 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		}
 	}
 	limited, err := (Engine{}).Apply(
-		context.Background(), turn, def, Continue{ID: "over-limit"},
+		context.Background(),
+		turn,
+		def,
+		Continue{ID: "over-limit"},
 		Bindings{Client: client, Recorder: rec},
 	)
 	if err != nil || limited.Stop.Kind != StopLimited ||
@@ -119,20 +125,16 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 		) {
 			sink(llm.Delta{Kind: llm.DeltaText, Text: "part"})
 			sink(llm.Delta{Kind: llm.DeltaText, Text: "ial"})
-			sink(llm.Delta{
-				Kind:  llm.DeltaUsage,
-				Usage: &llm.Usage{InputTokens: 5},
-			})
+			sink(llm.Delta{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 5}})
 			cancel(errors.New("worker stopped"))
 			return llm.Result{}, ctx.Err()
 		},
 	}
 	out, err := (Engine{}).Apply(
-		ctx, Turn{ID: "t1"}, definition(),
-		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
-		},
+		ctx,
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		Bindings{Client: client, Recorder: NewMemoryRecorder()},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
@@ -151,8 +153,11 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 	}
 	messages, err := Project(out.Turn)
 	if err != nil || len(messages) != 1 || out.Turn.AnswerText() != "" {
-		t.Fatalf("partial output reached model history: messages=%+v err=%v",
-			messages, err)
+		t.Fatalf(
+			"partial output reached model history: messages=%+v err=%v",
+			messages,
+			err,
+		)
 	}
 }
 
@@ -162,7 +167,10 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	turn := seedOpenModelIntent(t, rec, def, nil)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Engine{}).Apply(
-		context.Background(), turn, def, Continue{ID: "recover"},
+		context.Background(),
+		turn,
+		def,
+		Continue{ID: "recover"},
 		Bindings{Client: client, Recorder: rec},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 {
@@ -198,7 +206,10 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{hosted})
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	out, err := (Engine{}).Apply(
-		context.Background(), turn, def, Continue{ID: "recover"},
+		context.Background(),
+		turn,
+		def,
+		Continue{ID: "recover"},
 		Bindings{Client: client, Recorder: rec},
 	)
 	if err != nil || out.Stop.Kind != StopUncertain || client.sends != 0 ||
@@ -207,7 +218,9 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 	}
 	answer := final("reconciled")
 	accepted, err := (Engine{}).Apply(
-		context.Background(), out.Turn, def,
+		context.Background(),
+		out.Turn,
+		def,
 		Accept{
 			ID:          "report",
 			CallID:      "t1:model:1",
@@ -219,7 +232,9 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 		t.Fatalf("report=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	done, err := (Engine{}).Apply(
-		context.Background(), accepted.Turn, def,
+		context.Background(),
+		accepted.Turn,
+		def,
 		Continue{ID: "finish"},
 		Bindings{Client: client, Recorder: rec},
 	)
@@ -235,10 +250,17 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 		want       StopKind
 		wantReason string
 	}{
-		{name: "turn deadline", turnLimit: true, want: StopLimited,
-			wantReason: "deadline"},
-		{name: "host deadline", want: StopInterrupted,
-			wantReason: context.DeadlineExceeded.Error()},
+		{
+			name:       "turn deadline",
+			turnLimit:  true,
+			want:       StopLimited,
+			wantReason: "deadline",
+		},
+		{
+			name:       "host deadline",
+			want:       StopInterrupted,
+			wantReason: context.DeadlineExceeded.Error(),
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			def := definition()
@@ -256,19 +278,14 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 					llm.Result, error,
 				) {
 					<-ctx.Done()
-					return llm.Result{
-						Usage: &llm.Usage{InputTokens: 4},
-					}, ctx.Err()
+					return llm.Result{Usage: &llm.Usage{InputTokens: 4}}, ctx.Err()
 				},
 			}
 			out, err := (Engine{}).Apply(
-				ctx, Turn{ID: "t1"}, def,
-				Start{
-					ID: "start",
-					Input: []llm.Message{
-						llm.UserMessage(llm.Text("go")),
-					},
-				},
+				ctx,
+				Turn{ID: "t1"},
+				def,
+				Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 				Bindings{Client: client, Recorder: NewMemoryRecorder()},
 			)
 			if err != nil || out.Stop.Kind != test.want ||
@@ -324,28 +341,40 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 		Pause:    pause,
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(), Turn{ID: "t1"}, definition(),
-		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
-		},
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		binding,
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted ||
 		first.Stop.Reason != "pause requested" || runs != 0 ||
 		client.sends != 1 {
-		t.Fatalf("pause=%+v err=%v runs=%d sends=%d",
-			first.Stop, err, runs, client.sends)
+		t.Fatalf(
+			"pause=%+v err=%v runs=%d sends=%d",
+			first.Stop,
+			err,
+			runs,
+			client.sends,
+		)
 	}
 	binding.Pause = nil
 	second, err := (Engine{}).Apply(
-		context.Background(), first.Turn, definition(),
-		Continue{ID: "resume"}, binding,
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "resume"},
+		binding,
 	)
 	if err != nil || second.Stop.Kind != StopCompleted || runs != 1 ||
 		client.sends != 2 {
-		t.Fatalf("resume=%+v err=%v runs=%d sends=%d",
-			second.Stop, err, runs, client.sends)
+		t.Fatalf(
+			"resume=%+v err=%v runs=%d sends=%d",
+			second.Stop,
+			err,
+			runs,
+			client.sends,
+		)
 	}
 }
 
@@ -368,11 +397,10 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		},
 	}
 	first, err := (Engine{}).Apply(
-		ctx, Turn{ID: "t1"}, definition(),
-		Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
-		},
+		ctx,
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		Bindings{Client: client, Recorder: rec, Owner: "worker-a"},
 	)
 	if err != nil || first.Persistence != PersistenceRejected ||
@@ -384,14 +412,15 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(), saved, definition(),
+		context.Background(),
+		saved,
+		definition(),
 		Continue{ID: "new-worker"},
 		Bindings{Client: client, Recorder: rec, Owner: "worker-b"},
 	)
 	if err != nil || resumed.Stop.Kind != StopCompleted ||
 		client.sends != 2 {
-		t.Fatalf("resumed=%+v err=%v sends=%d",
-			resumed.Stop, err, client.sends)
+		t.Fatalf("resumed=%+v err=%v sends=%d", resumed.Stop, err, client.sends)
 	}
 }
 
@@ -427,9 +456,10 @@ func seedOpenModelIntent(
 		step.Version = 1
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
-		if err := rec.Commit(context.Background(), CommitRequest{
-			Step: step, ExpectedSeq: step.Seq - 1,
-		}); err != nil {
+		if err := rec.Commit(
+			context.Background(),
+			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
+		); err != nil {
 			t.Fatal(err)
 		}
 		turn.Steps = append(turn.Steps, step)

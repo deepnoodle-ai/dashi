@@ -23,7 +23,11 @@ type ProviderError struct {
 }
 
 // NewError preserves provider failure details without executing retry policy.
-func NewError(statusCode int, body string, opts ...ErrorOption) *ProviderError {
+func NewError(
+	statusCode int,
+	body string,
+	opts ...ErrorOption,
+) *ProviderError {
 	providerErr := &ProviderError{statusCode: statusCode, body: body}
 	for _, opt := range opts {
 		opt(providerErr)
@@ -36,7 +40,11 @@ func NewError(statusCode int, body string, opts ...ErrorOption) *ProviderError {
 
 // Error retains the status and body for diagnosis without inferring retry policy.
 func (e *ProviderError) Error() string {
-	return fmt.Sprintf("providerhttp: api error (status %d): %s", e.statusCode, e.body)
+	return fmt.Sprintf(
+		"providerhttp: api error (status %d): %s",
+		e.statusCode,
+		e.body,
+	)
 }
 
 // StatusCode returns the HTTP rejection status preserved from the response.
@@ -130,7 +138,10 @@ func errorCodeFromBody(body string) string {
 	var nested struct {
 		Code string `json:"code"`
 	}
-	if err := json.Unmarshal(envelope["error"], &nested); err == nil && nested.Code != "" {
+	if err := json.Unmarshal(
+		envelope["error"],
+		&nested,
+	); err == nil && nested.Code != "" {
 		return nested.Code
 	}
 	var code string
@@ -150,7 +161,10 @@ func parseRetryAfter(header http.Header, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
-		if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(
+			seconds,
+			0,
+		) {
 			return 0, false
 		}
 		return time.Duration(seconds * float64(time.Second)), true

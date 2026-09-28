@@ -27,12 +27,12 @@ func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	}
 	used := amount("0.1")
 	check := func(cap money.Amount) *Stop {
-		state := &replayState{TurnView: TurnView{
-			Budget: &Budget{MaxCost: &Money{Amount: cap, Currency: "USD"}},
-			Spend: Spend{
-				Cost: map[string]money.Amount{"USD": used},
+		state := &replayState{
+			TurnView: TurnView{
+				Budget: &Budget{MaxCost: &Money{Amount: cap, Currency: "USD"}},
+				Spend:  Spend{Cost: map[string]money.Amount{"USD": used}},
 			},
-		}}
+		}
 		_, remaining, stop := checkSendBudget(state, request, "fixture")
 		if stop == nil && (remaining == nil || remaining.Amount != cap-used) {
 			t.Fatalf("remaining=%+v, want %s", remaining, cap-used)
@@ -64,12 +64,12 @@ func TestBudgetSpentAtExactCapStops(t *testing.T) {
 		{cap, true},
 		{cap + 1, true},
 	} {
-		state := &replayState{TurnView: TurnView{
-			Budget: &Budget{MaxCost: &Money{Amount: cap, Currency: "USD"}},
-			Spend: Spend{
-				Cost: map[string]money.Amount{"USD": tc.used},
+		state := &replayState{
+			TurnView: TurnView{
+				Budget: &Budget{MaxCost: &Money{Amount: cap, Currency: "USD"}},
+				Spend:  Spend{Cost: map[string]money.Amount{"USD": tc.used}},
 			},
-		}}
+		}
 		stop := budgetSpentStop(state)
 		if (stop != nil) != tc.stop {
 			t.Fatalf("used %s of %s: stop=%+v", tc.used, cap, stop)

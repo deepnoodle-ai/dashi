@@ -30,10 +30,13 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 			 "content":[{"type":"output_text","text":"Answer"}]}
 		]
 	}`)
-	result, err := wire.decode(raw, llm.ModelRef{
-		Provider: "openai",
-		Model:    "test-model",
-	})
+	result, err := wire.decode(
+		raw,
+		llm.ModelRef{
+			Provider: "openai",
+			Model:    "test-model",
+		},
+	)
 	if err != nil {
 		t.Fatalf("decode hosted output: %v", err)
 	}
@@ -47,14 +50,17 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 	if len(use.Output) != 2 || use.Output[1].Resource == nil {
 		t.Fatal("search snippet or resource reference was lost")
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model: "test-model",
-		Messages: []llm.Message{
-			llm.UserMessage(llm.Text("Search")),
-			result.Message,
-			llm.UserMessage(llm.Text("Thanks")),
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model: "test-model",
+			Messages: []llm.Message{
+				llm.UserMessage(llm.Text("Search")),
+				result.Message,
+				llm.UserMessage(llm.Text("Thanks")),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("prepare hosted history: %v", err)
 	}
@@ -107,17 +113,22 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	}
 	compression := 0
 	image, err := NewImageGenerationTool(ImageGenerationOptions{
-		Model: "gpt-image-2.5-sunburst", Action: "generate",
-		OutputFormat: "webp", OutputCompression: &compression,
+		Model:             "gpt-image-2.5-sunburst",
+		Action:            "generate",
+		OutputFormat:      "webp",
+		OutputCompression: &compression,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
-		Tools:    []tool.Definition{web, files, code, image},
-	})
+	request, err := client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
+			Tools:    []tool.Definition{web, files, code, image},
+		},
+	)
 	if err != nil {
 		t.Fatalf("prepare hosted tools: %v", err)
 	}
@@ -142,21 +153,29 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 }
 
 func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
-	client, err := New(Config{APIKey: "test", CapabilityPolicy: llm.CapabilityAdjust})
+	client, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	compression := 50
 	image, err := NewImageGenerationTool(ImageGenerationOptions{
-		OutputFormat: "png", OutputCompression: &compression,
+		OutputFormat:      "png",
+		OutputCompression: &compression,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Prepare(context.Background(), llm.Input{
-		Model: "test-model", Messages: []llm.Message{llm.UserMessage(llm.Text("Draw"))},
-		Tools: []tool.Definition{image},
-	})
+	_, err = client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Draw"))},
+			Tools:    []tool.Definition{image},
+		},
+	)
 	if err == nil {
 		t.Fatal("accepted JPEG/WebP compression for PNG")
 	}
@@ -241,23 +260,28 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Prepare(context.Background(), llm.Input{
-		Model:    "test-model",
-		Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
-		Tools:    []tool.Definition{definition},
-	})
+	_, err = client.Prepare(
+		context.Background(),
+		llm.Input{
+			Model:    "test-model",
+			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
+			Tools:    []tool.Definition{definition},
+		},
+	)
 	if err == nil {
 		t.Fatal("recordable MCP definition accepted an embedded token")
 	}
 }
 
 func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
-	wire := codec{origin: content.Origin{
-		Provider: "openai",
-		API:      API,
-		Model:    "test-model",
-		Scope:    "test-scope",
-	}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "openai",
+			API:      API,
+			Model:    "test-model",
+			Scope:    "test-scope",
+		},
+	}
 	imageBytes := []byte("\x89PNG\r\n\x1a\n")
 	raw := json.RawMessage(`{
 		"type":"image_generation_call","id":"image_1",
@@ -292,9 +316,14 @@ func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
 }
 
 func TestGrokHostedImageKeepsModelWrittenPrompt(t *testing.T) {
-	wire := codec{origin: content.Origin{
-		Provider: "grok", API: API, Model: "grok-4.7", Scope: "test-scope",
-	}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "grok",
+			API:      API,
+			Model:    "grok-4.7",
+			Scope:    "test-scope",
+		},
+	}
 	items, err := wire.decodeItem(json.RawMessage(`{
 		"type":"image_generation_call","id":"ig_1","status":"completed",
 		"prompt":"A corgi on a wave","result":"iVBORw0KGgo="
@@ -312,12 +341,14 @@ func TestGrokHostedImageKeepsModelWrittenPrompt(t *testing.T) {
 }
 
 func TestFileSearchResultsKeepProviderFileID(t *testing.T) {
-	wire := codec{origin: content.Origin{
-		Provider: "openai",
-		API:      API,
-		Model:    "test-model",
-		Scope:    "test-scope",
-	}}
+	wire := codec{
+		origin: content.Origin{
+			Provider: "openai",
+			API:      API,
+			Model:    "test-model",
+			Scope:    "test-scope",
+		},
+	}
 	items, err := wire.decodeItem(json.RawMessage(`{
 		"type":"file_search_call","id":"fs_1","status":"completed",
 		"queries":["kernel"],"results":[{

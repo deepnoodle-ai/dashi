@@ -14,10 +14,12 @@ func TestImageEditUsesJSONDataURL(t *testing.T) {
 		Model:     "grok-imagine-image-2.0",
 		Operation: media.ImageEdit,
 		Prompt:    []content.Block{content.TextBlock("Make it blue")},
-		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
-			Data:     []byte("image bytes"),
-			MIMEType: "image/png",
-		})},
+		ReferenceImages: []content.Block{
+			content.ImageBlock(content.Source{
+				Data:     []byte("image bytes"),
+				MIMEType: "image/png",
+			}),
+		},
 	}
 	body, path, err := imageWireBody(input)
 	if err != nil {
@@ -35,20 +37,25 @@ func TestImageEditUsesJSONDataURL(t *testing.T) {
 	if err := json.Unmarshal(body, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if wire.Image.Type != "image_url" || wire.Image.URL != input.ReferenceImages[0].Image.Source.DataURL() {
+	if wire.Image.Type != "image_url" ||
+		wire.Image.URL != input.ReferenceImages[0].Image.Source.DataURL() {
 		t.Fatalf("edit image = %+v", wire.Image)
 	}
 }
 
 func TestImageEditRejectsMaskInsteadOfDroppingIt(t *testing.T) {
-	mask := content.ImageBlock(content.Source{URL: "https://example.test/mask.png"})
+	mask := content.ImageBlock(content.Source{
+		URL: "https://example.test/mask.png",
+	})
 	input := media.ImageInput{
 		Model:     "grok-imagine-image-2.0",
 		Operation: media.ImageEdit,
 		Prompt:    []content.Block{content.TextBlock("Fill the masked area")},
-		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
-			URL: "https://example.test/photo.png",
-		})},
+		ReferenceImages: []content.Block{
+			content.ImageBlock(content.Source{
+				URL: "https://example.test/photo.png",
+			}),
+		},
 		Mask: &mask,
 	}
 	if _, _, err := imageWireBody(input); err == nil {
@@ -61,9 +68,11 @@ func TestImageEditRejectsNonHTTPReferenceURL(t *testing.T) {
 		Model:     "grok-imagine-image-2.0",
 		Operation: media.ImageEdit,
 		Prompt:    []content.Block{content.TextBlock("Make it blue")},
-		ReferenceImages: []content.Block{content.ImageBlock(content.Source{
-			URL: "https://user:secret@example.test/photo.png",
-		})},
+		ReferenceImages: []content.Block{
+			content.ImageBlock(content.Source{
+				URL: "https://user:secret@example.test/photo.png",
+			}),
+		},
 	}
 	if _, _, err := imageWireBody(input); err == nil {
 		t.Fatal("URL with user info was sent to provider")
@@ -78,9 +87,11 @@ func TestVideoWireConvertsInitialFrameAndWholeSeconds(t *testing.T) {
 	input := media.VideoInput{
 		Model:  "grok-imagine-video-1.5",
 		Prompt: []content.Block{content.TextBlock("Move slowly")},
-		ReferenceFrames: []content.Block{content.ImageBlock(content.Source{
-			URL: "https://example.test/frame.png",
-		})},
+		ReferenceFrames: []content.Block{
+			content.ImageBlock(content.Source{
+				URL: "https://example.test/frame.png",
+			}),
+		},
 		Settings: media.VideoSettings{
 			Duration:    5 * time.Second,
 			AspectRatio: "16:9",
@@ -97,7 +108,9 @@ func TestVideoWireConvertsInitialFrameAndWholeSeconds(t *testing.T) {
 	if err := json.Unmarshal(body, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if wire.Image["url"] != "https://example.test/frame.png" || wire.Image["type"] != "" || wire.Duration != 5 {
+	if wire.Image["url"] != "https://example.test/frame.png" ||
+		wire.Image["type"] != "" ||
+		wire.Duration != 5 {
 		t.Fatalf("video request = %+v", wire)
 	}
 	input.Settings.Duration = 1500 * time.Millisecond
@@ -115,7 +128,9 @@ func TestDecodeImageResponseRetainsTemporaryURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Content) != 1 || result.Content[0].Image.Source.URL != "https://imgen.x.ai/tmp.jpeg" || result.Content[0].Image.Source.Data != nil {
+	if len(result.Content) != 1 ||
+		result.Content[0].Image.Source.URL != "https://imgen.x.ai/tmp.jpeg" ||
+		result.Content[0].Image.Source.Data != nil {
 		t.Fatalf("image content = %+v", result.Content[0])
 	}
 }

@@ -38,9 +38,15 @@ func New(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("MISTRAL_API_KEY")
 	}
-	client, err := completions.New(completions.Config{Provider: "mistral", APIKey: config.APIKey,
-		Endpoint: config.Endpoint, Client: config.Client, Models: config.Models,
-		CapabilityPolicy: config.CapabilityPolicy, SystemRole: llm.RoleSystem})
+	client, err := completions.New(completions.Config{
+		Provider:         "mistral",
+		APIKey:           config.APIKey,
+		Endpoint:         config.Endpoint,
+		Client:           config.Client,
+		Models:           config.Models,
+		CapabilityPolicy: config.CapabilityPolicy,
+		SystemRole:       llm.RoleSystem,
+	})
 	if err != nil {
 		return nil, err
 	}

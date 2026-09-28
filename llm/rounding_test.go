@@ -49,7 +49,10 @@ func TestPricingEstimateRoundsHalfEvenOnce(t *testing.T) {
 	}
 	// Each half nano rounds to zero, but the total rounds the exact sum.
 	cost, ok := p.Estimate(&Usage{InputTokens: 200, OutputTokens: 200})
-	if !ok || cost.Input != 0 || cost.Output != 0 || cost.Total.Nanos() != 1 {
+	if !ok ||
+		cost.Input != 0 ||
+		cost.Output != 0 ||
+		cost.Total.Nanos() != 1 {
 		t.Fatalf("total was not rounded once: %+v, %v", cost, ok)
 	}
 }
@@ -139,7 +142,12 @@ func TestFitOutputTokensAtTheExactBoundary(t *testing.T) {
 			t.Fatal("smaller request had no cost bound")
 		}
 		if fits := risk.Total <= short; fits != (tokens == fit) {
-			t.Fatalf("%d tokens risk %s against %s", tokens, risk.Total, short)
+			t.Fatalf(
+				"%d tokens risk %s against %s",
+				tokens,
+				risk.Total,
+				short,
+			)
 		}
 	}
 }

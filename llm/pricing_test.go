@@ -26,16 +26,22 @@ func TestPricingEstimateUsesLiteralRates(t *testing.T) {
 		t.Fatal("complete usage could not be priced")
 	}
 	if cost.Input != amt("1") || cost.Output != amt("2") ||
-		cost.CacheRead != amt("0.1") || cost.CacheWrite != amt("1.25") ||
+		cost.CacheRead != amt("0.1") ||
+		cost.CacheWrite != amt("1.25") ||
 		cost.Total != amt("4.35") ||
-		cost.Currency != "USD" || cost.Source != CostSourceListPriceEstimate {
+		cost.Currency != "USD" ||
+		cost.Source != CostSourceListPriceEstimate {
 		t.Fatalf("unexpected estimate: %+v", cost)
 	}
 
 	p.Base.CacheRead = 0
 	cost, ok = p.Estimate(&Usage{CacheReadInputTokens: 1_000_000})
 	if !ok || cost.CacheRead != 0 || cost.Total != 0 {
-		t.Fatalf("literal free cache reads were not priced: %+v, %v", cost, ok)
+		t.Fatalf(
+			"literal free cache reads were not priced: %+v, %v",
+			cost,
+			ok,
+		)
 	}
 	if _, ok := p.Estimate(nil); ok {
 		t.Fatal("missing usage became a known zero cost")
@@ -44,15 +50,17 @@ func TestPricingEstimateUsesLiteralRates(t *testing.T) {
 
 func TestPricingEstimateTierAndModality(t *testing.T) {
 	p := pricedSheet()
-	p.Tiers = []PriceTier{{
-		MinInputTokens: 100,
-		Rates: Rates{
-			Input:      amt("3"),
-			Output:     amt("6"),
-			CacheRead:  amt("0.3"),
-			CacheWrite: amt("3.75"),
+	p.Tiers = []PriceTier{
+		{
+			MinInputTokens: 100,
+			Rates: Rates{
+				Input:      amt("3"),
+				Output:     amt("6"),
+				CacheRead:  amt("0.3"),
+				CacheWrite: amt("3.75"),
+			},
 		},
-	}}
+	}
 	p.Modality = map[string]Rates{
 		"audio": {
 			Input:      amt("10"),
@@ -89,7 +97,11 @@ func TestPricingEstimateTierAndModality(t *testing.T) {
 	// 240+400+36+80 + 1.8+4+22.5+48 = 832.3 dollar-tokens per MTok.
 	want := amt("0.0008323")
 	if cost.Total != want {
-		t.Fatalf("tier and modality total = %v, want %v", cost.Total, want)
+		t.Fatalf(
+			"tier and modality total = %v, want %v",
+			cost.Total,
+			want,
+		)
 	}
 	boundary := &Usage{
 		InputTokens: 99,
@@ -156,7 +168,9 @@ func TestPricingEstimateRejectsMissingBillingDetail(t *testing.T) {
 			usage: Usage{
 				CacheCreationInputTokens: 100,
 				ModalityTokens: map[string]ModalityTokenUsage{
-					"audio": {CacheCreationInputTokens: 40},
+					"audio": {
+						CacheCreationInputTokens: 40,
+					},
 				},
 			},
 		},
@@ -225,7 +239,11 @@ func TestPricingEstimateNeedsDetailOnlyWhereRatesDiffer(t *testing.T) {
 	p.Modality = map[string]Rates{"audio": rates}
 	cost, ok := p.Estimate(&Usage{InputTokens: 100})
 	if !ok || cost.Input != amt("0.0001") {
-		t.Fatalf("unaffected input needed modality detail: %+v, %v", cost, ok)
+		t.Fatalf(
+			"unaffected input needed modality detail: %+v, %v",
+			cost,
+			ok,
+		)
 	}
 }
 
@@ -243,11 +261,19 @@ func TestPricingValidateRejectsInvalidSheet(t *testing.T) {
 		edit func(*Pricing)
 	}{
 		{"missing currency", func(p *Pricing) { p.Currency = "" }},
-		{"invalid date", func(p *Pricing) { p.UpdatedAt = "2026-02-30" }},
+		{
+			"invalid date",
+			func(p *Pricing) { p.UpdatedAt = "2026-02-30" },
+		},
 		{"negative rate", func(p *Pricing) { p.Base.Input = -1 }},
-		{"negative hosted price", func(p *Pricing) {
-			p.Requests = map[string]money.Amount{"web_search": -1}
-		}},
+		{
+			"negative hosted price",
+			func(p *Pricing) {
+				p.Requests = map[string]money.Amount{
+					"web_search": -1,
+				}
+			},
+		},
 		{
 			name: "unordered tiers",
 			edit: func(p *Pricing) {
@@ -291,7 +317,10 @@ func TestPricingStoredJSONRequiresCompleteRates(t *testing.T) {
 	} {
 		var p Pricing
 		if err := json.Unmarshal([]byte(raw), &p); err == nil {
-			t.Fatalf("legacy or incomplete sheet was accepted: %s", raw)
+			t.Fatalf(
+				"legacy or incomplete sheet was accepted: %s",
+				raw,
+			)
 		}
 	}
 }
@@ -336,7 +365,10 @@ func TestCostStoredJSONRequiresCurrentAttemptShape(t *testing.T) {
 	} {
 		var cost Cost
 		if err := json.Unmarshal([]byte(raw), &cost); err == nil {
-			t.Fatalf("invalid or legacy cost was accepted: %s", raw)
+			t.Fatalf(
+				"invalid or legacy cost was accepted: %s",
+				raw,
+			)
 		}
 	}
 	knownZero := Cost{
@@ -351,7 +383,11 @@ func TestCostStoredJSONRequiresCurrentAttemptShape(t *testing.T) {
 	var restored Cost
 	if err := json.Unmarshal(raw, &restored); err != nil ||
 		restored != knownZero {
-		t.Fatalf("known zero cost did not round trip: %+v, %v", restored, err)
+		t.Fatalf(
+			"known zero cost did not round trip: %+v, %v",
+			restored,
+			err,
+		)
 	}
 }
 

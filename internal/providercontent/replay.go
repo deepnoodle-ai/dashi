@@ -43,15 +43,25 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 		switch {
 		case o.Origin.API == "anthropic.messages" && kind == "text":
 			known = only(fields, "type", "text", "citations")
-		case o.Origin.API == "openai.responses" && kind == "output_text":
+		case o.Origin.API == "openai.responses" &&
+			kind == "output_text":
 			key = "annotations"
-			known = only(fields, "type", "text", "annotations", "logprobs") && empty(fields["logprobs"])
+			known = only(
+				fields,
+				"type",
+				"text",
+				"annotations",
+				"logprobs",
+			) && empty(fields["logprobs"])
 		default:
 			return errors.New("providercontent: text replay has an unsupported source shape")
 		}
 		t := c.Block.Text
 		var original string
-		if err := json.Unmarshal(fields["text"], &original); err != nil {
+		if err := json.Unmarshal(
+			fields["text"],
+			&original,
+		); err != nil {
 			return errors.New("providercontent: text replay requires original text")
 		}
 		if original != t.Text && len(t.Citations) > 0 {
@@ -62,20 +72,39 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 			cs = append(cs, citation.Raw)
 		}
 		current, _ := json.Marshal(cs)
-		edited = original != t.Text || !(empty(fields[key]) && len(cs) == 0 || equalJSON(fields[key], current))
+		edited = original != t.Text ||
+			!(empty(fields[key]) &&
+				len(cs) == 0 ||
+				equalJSON(
+					fields[key],
+					current,
+				))
 		portable = len(t.Citations) == 0
 	case c.ToolCall != nil:
 		call := c.ToolCall
 		var id, args json.RawMessage
 		switch {
-		case o.Origin.API == "anthropic.messages" && kind == "tool_use":
+		case o.Origin.API == "anthropic.messages" &&
+			kind == "tool_use":
 			known = only(fields, "type", "id", "name", "input")
 			id, args = fields["id"], fields["input"]
-		case o.Origin.API == "openai.responses" && kind == "function_call":
-			known = only(fields, "type", "id", "call_id", "name", "arguments", "status") && completed(fields["status"])
+		case o.Origin.API == "openai.responses" &&
+			kind == "function_call":
+			known = only(
+				fields,
+				"type",
+				"id",
+				"call_id",
+				"name",
+				"arguments",
+				"status",
+			) && completed(fields["status"])
 			id = fields["call_id"]
 			var text string
-			if err := json.Unmarshal(fields["arguments"], &text); err != nil {
+			if err := json.Unmarshal(
+				fields["arguments"],
+				&text,
+			); err != nil {
 				return errors.New("providercontent: tool replay requires encoded arguments")
 			}
 			args = json.RawMessage(text)
@@ -83,10 +112,25 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 			return errors.New("providercontent: tool replay has an unsupported source shape")
 		}
 		var originalID string
-		if json.Unmarshal(id, &originalID) != nil || originalID == "" || !json.Valid(args) || stringField(fields, "name") == "" {
+		if json.Unmarshal(
+			id,
+			&originalID,
+		) != nil ||
+			originalID == "" ||
+			!json.Valid(args) ||
+			stringField(
+				fields,
+				"name",
+			) == "" {
 			return errors.New("providercontent: tool replay requires original ID, name, and arguments")
 		}
-		edited = originalID != call.ID || stringField(fields, "name") != call.Name || !equalJSON(args, call.Args)
+		edited = originalID != call.ID || stringField(
+			fields,
+			"name",
+		) != call.Name || !equalJSON(
+			args,
+			call.Args,
+		)
 		portable = true
 	case c.Refusal != nil && kind == "refusal":
 		known = only(fields, "type", "refusal")
@@ -98,10 +142,20 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 		if stringField(metadata, "type") != "message" {
 			return errors.New("providercontent: replay requires message metadata")
 		}
-		if oldRole := stringField(metadata, "role"); oldRole != "" && oldRole != string(role) {
+		if oldRole := stringField(
+			metadata,
+			"role",
+		); oldRole != "" && oldRole != string(role) {
 			edited = true
 		}
-		known = known && only(metadata, "type", "id", "role", "status", "phase") && completed(metadata["status"])
+		known = known && only(
+			metadata,
+			"type",
+			"id",
+			"role",
+			"status",
+			"phase",
+		) && completed(metadata["status"])
 		// Phase carries output semantics. Preserve it for same-origin edits, but
 		// do not discard it while moving to a model that cannot represent it.
 		portable = portable && empty(metadata["phase"])
@@ -124,24 +178,63 @@ func checkReasoningReplay(c llm.Content) error {
 		return errors.New("providercontent: reasoning omission requires complete version 1 replay")
 	}
 	fields, metadata, err := replayFields(o)
-	if err != nil || metadata != nil || stringField(fields, "type") != o.Type {
+	if err != nil || metadata != nil || stringField(
+		fields,
+		"type",
+	) != o.Type {
 		return errors.New("providercontent: reasoning replay requires a known source unit and matching type")
 	}
 	switch {
-	case o.Origin.API == "anthropic.messages" && o.Unit == llm.OpaqueUnitContentBlock && o.Type == "thinking":
-		if only(fields, "type", "thinking", "signature") && stringField(fields, "signature") != "" && validString(fields["thinking"]) {
+	case o.Origin.API == "anthropic.messages" &&
+		o.Unit == llm.OpaqueUnitContentBlock &&
+		o.Type == "thinking":
+		if only(
+			fields,
+			"type",
+			"thinking",
+			"signature",
+		) && stringField(
+			fields,
+			"signature",
+		) != "" && validString(fields["thinking"]) {
 			return nil
 		}
-	case o.Origin.API == "anthropic.messages" && o.Unit == llm.OpaqueUnitContentBlock && o.Type == "redacted_thinking":
-		if only(fields, "type", "data") && stringField(fields, "data") != "" {
+	case o.Origin.API == "anthropic.messages" &&
+		o.Unit == llm.OpaqueUnitContentBlock &&
+		o.Type == "redacted_thinking":
+		if only(
+			fields,
+			"type",
+			"data",
+		) && stringField(
+			fields,
+			"data",
+		) != "" {
 			return nil
 		}
-	case o.Origin.API == "openai.responses" && o.Unit == llm.OpaqueUnitItem && o.Type == "reasoning":
-		if !only(fields, "type", "id", "status", "summary", "encrypted_content") ||
-			stringField(fields, "id") == "" || !completeReasoningStatus(fields["status"]) ||
-			(len(fields["summary"]) == 0 && len(fields["encrypted_content"]) == 0) ||
+	case o.Origin.API == "openai.responses" &&
+		o.Unit == llm.OpaqueUnitItem &&
+		o.Type == "reasoning":
+		if !only(
+			fields,
+			"type",
+			"id",
+			"status",
+			"summary",
+			"encrypted_content",
+		) ||
+			stringField(
+				fields,
+				"id",
+			) == "" ||
+			!completeReasoningStatus(fields["status"]) ||
+			(len(fields["summary"]) == 0 &&
+				len(fields["encrypted_content"]) == 0) ||
 			!validReasoningSummary(fields["summary"]) ||
-			(len(fields["encrypted_content"]) > 0 && stringField(fields, "encrypted_content") == "") {
+			(len(fields["encrypted_content"]) > 0 && stringField(
+				fields,
+				"encrypted_content",
+			) == "") {
 			break
 		}
 		return nil
@@ -151,7 +244,10 @@ func checkReasoningReplay(c llm.Content) error {
 
 func validString(raw json.RawMessage) bool {
 	var value *string
-	return len(raw) > 0 && json.Unmarshal(raw, &value) == nil && value != nil
+	return len(raw) > 0 && json.Unmarshal(
+		raw,
+		&value,
+	) == nil && value != nil
 }
 
 func completeReasoningStatus(raw json.RawMessage) bool {
@@ -167,26 +263,48 @@ func validReasoningSummary(raw json.RawMessage) bool {
 		return false
 	}
 	for _, part := range parts {
-		if !only(part, "type", "text") || stringField(part, "type") != "summary_text" || !validString(part["text"]) {
+		if !only(
+			part,
+			"type",
+			"text",
+		) || stringField(
+			part,
+			"type",
+		) != "summary_text" || !validString(part["text"]) {
 			return false
 		}
 	}
 	return true
 }
 
-func replayFields(o *llm.Opaque) (map[string]json.RawMessage, map[string]json.RawMessage, error) {
+func replayFields(
+	o *llm.Opaque,
+) (map[string]json.RawMessage, map[string]json.RawMessage, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(o.Raw, &raw); err != nil || raw == nil {
 		return nil, nil, errors.New("providercontent: replay requires an object")
 	}
 	switch {
-	case o.Origin.API == "anthropic.messages" && o.Unit == llm.OpaqueUnitContentBlock:
+	case o.Origin.API == "anthropic.messages" &&
+		o.Unit == llm.OpaqueUnitContentBlock:
 		return raw, nil, nil
-	case o.Origin.API == "openai.responses" && o.Unit == llm.OpaqueUnitItem:
+	case o.Origin.API == "openai.responses" &&
+		o.Unit == llm.OpaqueUnitItem:
 		return raw, nil, nil
-	case o.Origin.API == "openai.responses" && o.Unit == llm.OpaqueUnitMessagePart:
+	case o.Origin.API == "openai.responses" &&
+		o.Unit == llm.OpaqueUnitMessagePart:
 		var message, part map[string]json.RawMessage
-		if !only(raw, "message", "part") || json.Unmarshal(raw["message"], &message) != nil || json.Unmarshal(raw["part"], &part) != nil || message == nil || part == nil {
+		if !only(
+			raw,
+			"message",
+			"part",
+		) || json.Unmarshal(
+			raw["message"],
+			&message,
+		) != nil || json.Unmarshal(
+			raw["part"],
+			&part,
+		) != nil || message == nil || part == nil {
 			return nil, nil, errors.New("providercontent: replay requires message and part objects")
 		}
 		return part, message, nil
@@ -223,5 +341,10 @@ func equalJSON(a, b json.RawMessage) bool {
 	da, db := json.NewDecoder(bytes.NewReader(a)), json.NewDecoder(bytes.NewReader(b))
 	da.UseNumber()
 	db.UseNumber()
-	return da.Decode(&left) == nil && db.Decode(&right) == nil && reflect.DeepEqual(left, right)
+	return da.Decode(&left) == nil &&
+		db.Decode(&right) == nil &&
+		reflect.DeepEqual(
+			left,
+			right,
+		)
 }

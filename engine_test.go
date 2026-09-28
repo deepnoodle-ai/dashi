@@ -20,14 +20,40 @@ type scriptedClient struct {
 	sends   int
 }
 
-func (*scriptedClient) Provider() string                       { return "test" }
-func (*scriptedClient) API() string                            { return "test.chat" }
-func (*scriptedClient) ModelInfo(string) (llm.ModelInfo, bool) { return llm.ModelInfo{}, false }
-func (c *scriptedClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
-	c.inputs = append(c.inputs, in)
-	return llm.NewRequest(llm.RequestSnapshot{Origin: content.Origin{Provider: "test", API: "test.chat", Model: in.Model, Scope: "fixture"}, Input: in, Effective: in.Settings, Body: []byte(`{"ok":true}`)})
+func (*scriptedClient) Provider() string {
+	return "test"
 }
-func (c *scriptedClient) Send(_ context.Context, call llm.Call) (llm.Result, error) {
+
+func (*scriptedClient) API() string {
+	return "test.chat"
+}
+
+func (*scriptedClient) ModelInfo(string) (llm.ModelInfo, bool) {
+	return llm.ModelInfo{}, false
+}
+
+func (c *scriptedClient) Prepare(
+	_ context.Context,
+	in llm.Input,
+) (llm.Request, error) {
+	c.inputs = append(c.inputs, in)
+	return llm.NewRequest(llm.RequestSnapshot{
+		Origin: content.Origin{
+			Provider: "test",
+			API:      "test.chat",
+			Model:    in.Model,
+			Scope:    "fixture",
+		},
+		Input:     in,
+		Effective: in.Settings,
+		Body:      []byte(`{"ok":true}`),
+	})
+}
+
+func (c *scriptedClient) Send(
+	_ context.Context,
+	call llm.Call,
+) (llm.Result, error) {
 	for _, delta := range c.deltas {
 		if call.Sink != nil {
 			call.Sink(delta)
@@ -50,25 +76,67 @@ func (c *scriptedClient) Send(_ context.Context, call llm.Call) (llm.Result, err
 
 type fixedTools []tool.Tool
 
-func (f fixedTools) Tools(context.Context) ([]tool.Tool, error) { return []tool.Tool(f), nil }
+func (f fixedTools) Tools(context.Context) ([]tool.Tool, error) {
+	return []tool.Tool(f), nil
+}
 
 type execFunc func(context.Context, tool.Call) (tool.Outcome, error)
 
-func (f execFunc) Execute(ctx context.Context, c tool.Call) (tool.Outcome, error) { return f(ctx, c) }
+func (f execFunc) Execute(
+	ctx context.Context,
+	c tool.Call,
+) (tool.Outcome, error) {
+	return f(ctx, c)
+}
+
 func definition() Definition {
-	return Definition{ID: "agent", Revision: "r1", Provider: "test", API: "test.chat", Model: "fixture", Limits: Limits{ModelAttempts: 3, ProviderPauses: 1, ToolConcurrency: 2}}
+	return Definition{
+		ID:       "agent",
+		Revision: "r1",
+		Provider: "test",
+		API:      "test.chat",
+		Model:    "fixture",
+		Limits:   Limits{ModelAttempts: 3, ProviderPauses: 1, ToolConcurrency: 2},
+	}
 }
+
 func final(text string) llm.Result {
-	return llm.Result{Message: llm.AssistantMessage(llm.Text(text)), Stop: llm.Stop{Kind: llm.StopFinished}, Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}
+	return llm.Result{
+		Message:   llm.AssistantMessage(llm.Text(text)),
+		Stop:      llm.Stop{Kind: llm.StopFinished},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
 }
+
 func callResult(id, name string) llm.Result {
 	call := tool.Call{ID: id, Name: name, Args: []byte(`{"value":1}`)}
-	return llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}), Stop: llm.Stop{Kind: llm.StopToolUse}, Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}
+	return llm.Result{
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &call,
+		}),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
 }
-func start(t *testing.T, client *scriptedClient, tools tool.Toolset, rec Recorder, policy Policy) (Outcome, error) {
+
+func start(
+	t *testing.T,
+	client *scriptedClient,
+	tools tool.Toolset,
+	rec Recorder,
+	policy Policy,
+) (Outcome, error) {
 	t.Helper()
-	return (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}, Bindings{Client: client, Tools: tools, Recorder: rec, Policy: policy})
+	return (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Bindings{Client: client, Tools: tools, Recorder: rec, Policy: policy},
+	)
 }
+
 func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
@@ -86,16 +154,33 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	if view.ModelAttempts != 1 || len(view.Pending) != 0 {
 		t.Fatalf("view=%+v", view)
 	}
-	again, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}, Bindings{Client: client, Recorder: rec})
+	again, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("duplicate repeated model: %+v", again.Stop)
 	}
-	stale, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}}, Bindings{Client: client, Recorder: rec})
+	stale, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || stale.Stop.Kind != StopCompleted || client.sends != 1 || len(stale.Turn.Steps) != len(got.Turn.Steps) {
-		t.Fatalf("stale duplicate: stop=%+v err=%v sends=%d", stale.Stop, err, client.sends)
+		t.Fatalf(
+			"stale duplicate: stop=%+v err=%v sends=%d",
+			stale.Stop,
+			err,
+			client.sends,
+		)
 	}
 }
 
@@ -110,10 +195,19 @@ func TestEmptyTextIsNotCompletion(t *testing.T) {
 		t.Fatalf("stop=%+v", got.Stop)
 	}
 }
+
 func TestExternalToolAcceptance(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup"), final("found")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "lookup"), final("found")},
+	}
 	rec := NewMemoryRecorder()
-	external := tool.Tool{Definition: tool.Definition{Name: "lookup", Schema: []byte(`{"type":"object"}`), Kind: tool.KindExternal}}
+	external := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindExternal,
+		},
+	}
 	got, err := start(t, client, fixedTools{external}, rec, AllowLocalPolicy{})
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +215,22 @@ func TestExternalToolAcceptance(t *testing.T) {
 	if got.Stop.Kind != StopWaiting || client.sends != 1 {
 		t.Fatalf("initial stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	out := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("result"))}
-	accepted, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "result-1", CallID: "call-1", Outcome: &out}, Bindings{Client: client, Tools: fixedTools{external}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	out := tool.Outcome{
+		State:  tool.StateSucceeded,
+		Output: ptr(tool.TextOutput("result")),
+	}
+	accepted, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Accept{ID: "result-1", CallID: "call-1", Outcome: &out},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{external},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,9 +281,15 @@ func TestExternalToolAcceptance(t *testing.T) {
 
 type failIntentRecorder struct{ base *MemoryRecorder }
 
-func (f failIntentRecorder) Commit(ctx context.Context, req CommitRequest) error {
+func (f failIntentRecorder) Commit(
+	ctx context.Context,
+	req CommitRequest,
+) error {
 	if req.Step.Kind == StepModelIntent {
-		return &CommitError{Persistence: PersistenceRejected, Err: errors.New("budget refused")}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         errors.New("budget refused"),
+		}
 	}
 	return f.base.Commit(ctx, req)
 }
@@ -189,7 +303,10 @@ type failOnceKind struct {
 func (f *failOnceKind) Commit(ctx context.Context, req CommitRequest) error {
 	if !f.failed && req.Step.Kind == f.kind {
 		f.failed = true
-		return &CommitError{Persistence: PersistenceRejected, Err: errors.New("injected failure")}
+		return &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         errors.New("injected failure"),
+		}
 	}
 	return f.base.Commit(ctx, req)
 }
@@ -199,7 +316,10 @@ type notifyingRecorder struct {
 	onCommit func(Step)
 }
 
-func (r notifyingRecorder) Commit(ctx context.Context, req CommitRequest) error {
+func (r notifyingRecorder) Commit(
+	ctx context.Context,
+	req CommitRequest,
+) error {
 	if err := r.Recorder.Commit(ctx, req); err != nil {
 		return err
 	}
@@ -211,18 +331,35 @@ func (r notifyingRecorder) Commit(ctx context.Context, req CommitRequest) error 
 
 type denyPolicy struct{ AllowLocalPolicy }
 
-func (denyPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
+func (denyPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	TurnView,
+) (ToolDecision, error) {
 	return ToolDecision{Kind: DecisionDeny, Reason: "blocked"}, nil
 }
+
 func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote"), final("handled")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("handled")},
+	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolSettled}
 	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "remote", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		runs++
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ran"))}, nil
-	})}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "remote",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			runs++
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ran")),
+			}, nil
+		}),
+	}
 	got, err := start(t, client, fixedTools{binding}, rec, denyPolicy{})
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +371,18 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resumed, err := (Engine{}).Apply(context.Background(), saved, definition(), Continue{ID: "recover"}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	resumed, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		definition(),
+		Continue{ID: "recover"},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,13 +393,21 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 
 type deferredPolicy struct{ AllowLocalPolicy }
 
-func (deferredPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
+func (deferredPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	TurnView,
+) (ToolDecision, error) {
 	return ToolDecision{Kind: DecisionDefer, Revision: "policy-v1"}, nil
 }
 
 type rewritePolicy struct{ AllowLocalPolicy }
 
-func (rewritePolicy) AuthorizeTool(_ context.Context, call tool.Call, _ TurnView) (ToolDecision, error) {
+func (rewritePolicy) AuthorizeTool(
+	_ context.Context,
+	call tool.Call,
+	_ TurnView,
+) (ToolDecision, error) {
 	if string(call.Args) == `{"value":1}` {
 		return ToolDecision{Rewrite: []byte(`{"value":2}`)}, nil
 	}
@@ -262,16 +418,28 @@ func (rewritePolicy) AuthorizeTool(_ context.Context, call tool.Call, _ TurnView
 }
 
 func TestToolRewriteRequiresReauthorization(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("done")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "write"), final("done")},
+	}
 	rec := NewMemoryRecorder()
 	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(_ context.Context, call tool.Call) (tool.Outcome, error) {
-		runs++
-		if string(call.Args) != `{"value":2}` || string(call.RequestedArgs) != `{"value":1}` {
-			return tool.Outcome{}, errors.New("wrong effective tool call")
-		}
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
-	})}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(_ context.Context, call tool.Call) (tool.Outcome, error) {
+			runs++
+			if string(call.Args) != `{"value":2}` || string(call.RequestedArgs) != `{"value":1}` {
+				return tool.Outcome{}, errors.New("wrong effective tool call")
+			}
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ok")),
+			}, nil
+		}),
+	}
 	got, err := start(t, client, fixedTools{binding}, rec, rewritePolicy{})
 	if err != nil {
 		t.Fatal(err)
@@ -287,14 +455,27 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 		t.Fatalf("recorded call=%+v", view.Tools["call-1"].Call)
 	}
 }
+
 func TestApprovalBoundToCallAndPolicy(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("written")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "write"), final("written")},
+	}
 	rec := NewMemoryRecorder()
 	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		runs++
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ok"))}, nil
-	})}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			runs++
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ok")),
+			}, nil
+		}),
+	}
 	got, err := start(t, client, fixedTools{binding}, rec, deferredPolicy{})
 	if err != nil {
 		t.Fatal(err)
@@ -302,8 +483,24 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	if got.Stop.Kind != StopWaiting || runs != 0 {
 		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
 	}
-	bad := ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: "wrong", PolicyRevision: "policy-v1"}
-	_, err = (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "bad", CallID: "call-1", Approval: &bad}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: deferredPolicy{}})
+	bad := ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     "wrong",
+		PolicyRevision: "policy-v1",
+	}
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Accept{ID: "bad", CallID: "call-1", Approval: &bad},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: rec,
+			Policy:   deferredPolicy{},
+		},
+	)
 	if err == nil {
 		t.Fatal("stale approval was accepted")
 	}
@@ -311,8 +508,24 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	good := ApprovalFact{CallID: "call-1", Approve: true, ArgsDigest: digest(view.Tools["call-1"].Call.Args), PolicyRevision: "policy-v1"}
-	accepted, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "approve", CallID: "call-1", Approval: &good}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: deferredPolicy{}})
+	good := ApprovalFact{
+		CallID:         "call-1",
+		Approve:        true,
+		ArgsDigest:     digest(view.Tools["call-1"].Call.Args),
+		PolicyRevision: "policy-v1",
+	}
+	accepted, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Accept{ID: "approve", CallID: "call-1", Approval: &good},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{binding},
+			Recorder: rec,
+			Policy:   deferredPolicy{},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,16 +559,48 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 		step.Version = 1
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
-		if err := rec.Commit(context.Background(), CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}); err != nil {
+		if err := rec.Commit(
+			context.Background(),
+			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
+		); err != nil {
 			t.Fatal(err)
 		}
 		turn.Steps = append(turn.Steps, step)
 	}
-	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("hello"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model}})
-	commit(Step{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"}})
+	commit(Step{
+		Kind: StepStarted,
+		Started: &StartFact{
+			Definition: def,
+			Input:      []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+	})
+	commit(Step{
+		Kind: StepModelIntent,
+		Model: &ModelFact{
+			AttemptID:     "t1:model:1",
+			MessageID:     "t1:model:1:message",
+			RequestDigest: "digest",
+			Provider:      def.Provider,
+			API:           def.API,
+			Model:         def.Model,
+		},
+	})
+	commit(Step{
+		Kind: StepStopped,
+		Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"},
+	})
 	answer := final("recovered")
-	got, err := (Engine{}).Apply(context.Background(), turn, def, Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
+	got, err := (Engine{}).Apply(
+		context.Background(),
+		turn,
+		def,
+		Accept{
+			ID:          "reconcile",
+			CallID:      "t1:model:1",
+			ModelResult: &answer,
+		},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,16 +629,48 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 		step.Version = 1
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
-		if err := rec.Commit(context.Background(), CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}); err != nil {
+		if err := rec.Commit(
+			context.Background(),
+			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
+		); err != nil {
 			t.Fatal(err)
 		}
 		turn.Steps = append(turn.Steps, step)
 	}
-	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("hello"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model}})
+	commit(Step{
+		Kind: StepStarted,
+		Started: &StartFact{
+			Definition: def,
+			Input:      []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+	})
+	commit(Step{
+		Kind: StepModelIntent,
+		Model: &ModelFact{
+			AttemptID:     "t1:model:1",
+			MessageID:     "t1:model:1:message",
+			RequestDigest: "digest",
+			Provider:      def.Provider,
+			API:           def.API,
+			Model:         def.Model,
+		},
+	})
 	answer := final("saved")
-	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", Result: &answer}})
-	got, err := (Engine{}).Apply(context.Background(), turn, def, Continue{ID: "recover"}, Bindings{Client: client, Recorder: rec})
+	commit(Step{
+		Kind: StepModelSettled,
+		Model: &ModelFact{
+			AttemptID: "t1:model:1",
+			MessageID: "t1:model:1:message",
+			Result:    &answer,
+		},
+	})
+	got, err := (Engine{}).Apply(
+		context.Background(),
+		turn,
+		def,
+		Continue{ID: "recover"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +681,10 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 
 func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	partial := llm.Result{Usage: &llm.Usage{InputTokens: 3}}
-	client := &scriptedClient{results: []llm.Result{partial}, errors: []error{errors.New("connection lost")}}
+	client := &scriptedClient{
+		results: []llm.Result{partial},
+		errors:  []error{errors.New("connection lost")},
+	}
 	rec := NewMemoryRecorder()
 	got, err := start(t, client, nil, rec, nil)
 	if err != nil {
@@ -413,13 +693,29 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if got.Stop.Kind != StopUncertain || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	_, err = (Engine{}).Apply(context.Background(), got.Turn, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Continue{ID: "retry"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err == nil {
 		t.Fatal("uncertain model attempt was retryable")
 	}
 	answer := final("recovered")
 	answer.Usage = &llm.Usage{InputTokens: 5}
-	settled, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "reconcile", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
+	settled, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Accept{
+			ID:          "reconcile",
+			CallID:      "t1:model:1",
+			ModelResult: &answer,
+		},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +742,10 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 }
 
 func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
-	paused := llm.Result{Message: llm.AssistantMessage(llm.Text("working")), Stop: llm.Stop{Kind: llm.StopPause}}
+	paused := llm.Result{
+		Message: llm.AssistantMessage(llm.Text("working")),
+		Stop:    llm.Stop{Kind: llm.StopPause},
+	}
 	client := &scriptedClient{results: []llm.Result{paused, final("done")}}
 	rec := NewMemoryRecorder()
 	got, err := start(t, client, nil, rec, nil)
@@ -466,9 +765,25 @@ func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
 }
 
 func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
-	origin := content.Origin{Provider: "test", API: "test.chat", Model: "fixture", Scope: "fixture"}
-	request := llm.HostedApprovalRequest{ID: "approval-1", Name: "remote", Origin: origin}
-	first := llm.Result{Requested: llm.ModelRef{Provider: "test", Model: "fixture"}, Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentHostedApprovalRequest, HostedApprovalRequest: &request}), Stop: llm.Stop{Kind: llm.StopFinished}}
+	origin := content.Origin{
+		Provider: "test",
+		API:      "test.chat",
+		Model:    "fixture",
+		Scope:    "fixture",
+	}
+	request := llm.HostedApprovalRequest{
+		ID:     "approval-1",
+		Name:   "remote",
+		Origin: origin,
+	}
+	first := llm.Result{
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:                  llm.ContentHostedApprovalRequest,
+			HostedApprovalRequest: &request,
+		}),
+		Stop: llm.Stop{Kind: llm.StopFinished},
+	}
 	client := &scriptedClient{results: []llm.Result{first, final("approved")}}
 	rec := NewMemoryRecorder()
 	got, err := start(t, client, nil, rec, nil)
@@ -478,8 +793,22 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 	if got.Stop.Kind != StopWaiting || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	response := llm.HostedApprovalResponse{RequestID: "approval-1", Approve: true, Origin: origin}
-	accepted, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "approve", CallID: "approval-1", HostedApproval: &response}, Bindings{Client: client, Recorder: rec})
+	response := llm.HostedApprovalResponse{
+		RequestID: "approval-1",
+		Approve:   true,
+		Origin:    origin,
+	}
+	accepted, err := (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Accept{
+			ID:             "approve",
+			CallID:         "approval-1",
+			HostedApproval: &response,
+		},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,10 +828,24 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 }
 
 func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{final("hi")}, deltas: []llm.Delta{{Kind: llm.DeltaText, Text: "hi"}}}
+	client := &scriptedClient{
+		results: []llm.Result{final("hi")},
+		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "hi"}},
+	}
 	rec := NewMemoryRecorder()
 	events := make(chan Event, 8)
-	got, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}}, Bindings{Client: client, Recorder: rec, Stream: true, Observer: func(e Event) { events <- e }})
+	got, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}},
+		Bindings{
+			Client:   client,
+			Recorder: rec,
+			Stream:   true,
+			Observer: func(e Event) { events <- e },
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,10 +874,20 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{invalid, final("fixed")}}
 	rec := NewMemoryRecorder()
 	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "strict", Schema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		runs++
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("ran"))}, nil
-	})}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "strict",
+			Schema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			runs++
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("ran")),
+			}, nil
+		}),
+	}
 	got, err := start(t, client, fixedTools{binding}, rec, AllowLocalPolicy{})
 	if err != nil {
 		t.Fatal(err)
@@ -554,8 +907,13 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 	incomplete := callResult("call-1", "lookup")
 	incomplete.Stop = llm.Stop{Kind: llm.StopIncomplete}
-	incomplete.Message.Content = append([]llm.Content{llm.Text("partial explanation")}, incomplete.Message.Content...)
-	client := &scriptedClient{results: []llm.Result{incomplete, final("recovered")}}
+	incomplete.Message.Content = append(
+		[]llm.Content{llm.Text("partial explanation")},
+		incomplete.Message.Content...,
+	)
+	client := &scriptedClient{
+		results: []llm.Result{incomplete, final("recovered")},
+	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, nil)
 	if err != nil {
@@ -564,7 +922,13 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 	if first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with client calls" {
 		t.Fatalf("first stop=%+v", first.Stop)
 	}
-	second, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Continue{ID: "resume"}, Bindings{Client: client, Recorder: rec})
+	second, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "resume"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +942,10 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 				keptText = true
 			}
 			if part.Kind == llm.ContentToolCall {
-				t.Fatalf("incomplete tool call projected into new model request: %+v", client.inputs[1].Messages)
+				t.Fatalf(
+					"incomplete tool call projected into new model request: %+v",
+					client.inputs[1].Messages,
+				)
 			}
 		}
 	}
@@ -590,26 +957,61 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 	a := tool.Call{ID: "a", Name: "first", Args: []byte(`{}`)}
 	b := tool.Call{ID: "b", Name: "second", Args: []byte(`{}`)}
-	requested := llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &a}, llm.Content{Kind: llm.ContentToolCall, ToolCall: &b}), Stop: llm.Stop{Kind: llm.StopToolUse}}
+	requested := llm.Result{
+		Message: llm.AssistantMessage(
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &a},
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &b},
+		),
+		Stop: llm.Stop{Kind: llm.StopToolUse},
+	}
 	client := &scriptedClient{results: []llm.Result{requested, final("done")}}
 	secondSettled := make(chan struct{})
-	rec := notifyingRecorder{Recorder: NewMemoryRecorder(), onCommit: func(step Step) {
-		if step.Kind == StepToolSettled && step.Tool.Call.ID == "b" {
-			close(secondSettled)
-		}
-	}}
-	first := tool.Tool{Definition: tool.Definition{Name: "first", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		select {
-		case <-secondSettled:
-			return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("first result"))}, nil
-		case <-time.After(5 * time.Second):
-			return tool.Outcome{}, errors.New("second tool did not settle concurrently")
-		}
-	})}
-	second := tool.Tool{Definition: tool.Definition{Name: "second", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		return tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("second result"))}, nil
-	})}
-	got, err := start(t, client, fixedTools{first, second}, rec, AllowLocalPolicy{})
+	rec := notifyingRecorder{
+		Recorder: NewMemoryRecorder(),
+		onCommit: func(step Step) {
+			if step.Kind == StepToolSettled && step.Tool.Call.ID == "b" {
+				close(secondSettled)
+			}
+		},
+	}
+	first := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "first",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			select {
+			case <-secondSettled:
+				return tool.Outcome{
+					State:  tool.StateSucceeded,
+					Output: ptr(tool.TextOutput("first result")),
+				}, nil
+			case <-time.After(5 * time.Second):
+				return tool.Outcome{}, errors.New("second tool did not settle concurrently")
+			}
+		}),
+	}
+	second := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "second",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: ptr(tool.TextOutput("second result")),
+			}, nil
+		}),
+	}
+	got, err := start(
+		t,
+		client,
+		fixedTools{first, second},
+		rec,
+		AllowLocalPolicy{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,21 +1050,74 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		step.Version = 1
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
-		if err := rec.Commit(context.Background(), CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}); err != nil {
+		if err := rec.Commit(
+			context.Background(),
+			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
+		); err != nil {
 			t.Fatal(err)
 		}
 		turn.Steps = append(turn.Steps, step)
 	}
 	call := tool.Call{ID: "a", Name: "work", Args: []byte(`{}`)}
-	definition := tool.Definition{Name: "work", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}
-	commit(Step{Kind: StepStarted, Started: &StartFact{Definition: def, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}})
-	commit(Step{Kind: StepModelIntent, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", RequestDigest: "digest", Provider: def.Provider, API: def.API, Model: def.Model, Tools: []tool.Definition{definition}}})
-	requested := llm.Result{Message: llm.AssistantMessage(llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}), Stop: llm.Stop{Kind: llm.StopToolUse}, Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}
-	commit(Step{Kind: StepModelSettled, Model: &ModelFact{AttemptID: "t1:model:1", MessageID: "t1:model:1:message", Result: &requested}})
-	commit(Step{Kind: StepToolDecision, Tool: &ToolFact{Call: call, Decision: ToolDecision{Kind: DecisionAllow, Revision: "r1"}}})
+	definition := tool.Definition{
+		Name:   "work",
+		Schema: []byte(`{"type":"object"}`),
+		Kind:   tool.KindLocal,
+	}
+	commit(Step{
+		Kind: StepStarted,
+		Started: &StartFact{
+			Definition: def,
+			Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+	})
+	commit(Step{
+		Kind: StepModelIntent,
+		Model: &ModelFact{
+			AttemptID:     "t1:model:1",
+			MessageID:     "t1:model:1:message",
+			RequestDigest: "digest",
+			Provider:      def.Provider,
+			API:           def.API,
+			Model:         def.Model,
+			Tools:         []tool.Definition{definition},
+		},
+	})
+	requested := llm.Result{
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &call,
+		}),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
+	commit(Step{
+		Kind: StepModelSettled,
+		Model: &ModelFact{
+			AttemptID: "t1:model:1",
+			MessageID: "t1:model:1:message",
+			Result:    &requested,
+		},
+	})
+	commit(Step{
+		Kind: StepToolDecision,
+		Tool: &ToolFact{
+			Call:     call,
+			Decision: ToolDecision{Kind: DecisionAllow, Revision: "r1"},
+		},
+	})
 	commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}})
-	outcome := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("verified"))}
-	got, err := (Engine{}).Apply(context.Background(), turn, def, Accept{ID: "reconcile", CallID: "a", Outcome: &outcome}, Bindings{Client: client, Recorder: rec})
+	outcome := tool.Outcome{
+		State:  tool.StateSucceeded,
+		Output: ptr(tool.TextOutput("verified")),
+	}
+	got, err := (Engine{}).Apply(
+		context.Background(),
+		turn,
+		def,
+		Accept{ID: "reconcile", CallID: "a", Outcome: &outcome},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -680,6 +1135,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
+
 func TestIntentFailurePreventsSend(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("should not send")}}
 	rec := NewMemoryRecorder()
@@ -698,6 +1154,7 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 		t.Fatalf("saved steps=%d", len(saved.Steps))
 	}
 }
+
 func TestChangedDefinitionAndCommandConflict(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
@@ -707,20 +1164,42 @@ func TestChangedDefinitionAndCommandConflict(t *testing.T) {
 	}
 	changed := definition()
 	changed.Revision = "r2"
-	_, err = (Engine{}).Apply(context.Background(), got.Turn, changed, Continue{ID: "continue"}, Bindings{Client: client, Recorder: rec})
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		changed,
+		Continue{ID: "continue"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if !errors.Is(err, ErrDefinitionChanged) {
 		t.Fatalf("definition error=%v", err)
 	}
-	_, err = (Engine{}).Apply(context.Background(), got.Turn, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("different"))}}, Bindings{Client: client, Recorder: rec})
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		got.Turn,
+		definition(),
+		Start{
+			ID:    "start",
+			Input: []llm.Message{llm.UserMessage(llm.Text("different"))},
+		},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if !errors.Is(err, ErrCommandConflict) {
 		t.Fatalf("command error=%v", err)
 	}
 }
+
 func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	t0 := Turn{ID: "t1"}
 	rec := NewMemoryRecorder()
 	client := &scriptedClient{results: []llm.Result{final("first")}}
-	got, err := (Engine{}).Apply(context.Background(), t0, definition(), Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}, Bindings{Client: client, Recorder: rec})
+	got, err := (Engine{}).Apply(
+		context.Background(),
+		t0,
+		definition(),
+		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,14 +1213,47 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 		step.Seq = int64(len(turn.Steps) + 1)
 		turn.Steps = append(turn.Steps, step)
 	}
-	add(Step{Kind: StepStarted, Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}})
-	add(Step{Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Name: "catalog", Origin: "operator", Snapshot: true, Message: llm.UserMessage(llm.Text("old"))}}}})
-	add(Step{Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Name: "catalog", Origin: "operator", Snapshot: true, Message: llm.UserMessage(llm.Text("new"))}}}})
+	add(Step{
+		Kind: StepStarted,
+		Started: &StartFact{
+			Definition: definition(),
+			Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+	})
+	add(Step{
+		Kind: StepDelivered,
+		Context: &ContextFact{
+			Items: []ContextItem{
+				{
+					Name:     "catalog",
+					Origin:   "operator",
+					Snapshot: true,
+					Message:  llm.UserMessage(llm.Text("old")),
+				},
+			},
+		},
+	})
+	add(Step{
+		Kind: StepDelivered,
+		Context: &ContextFact{
+			Items: []ContextItem{
+				{
+					Name:     "catalog",
+					Origin:   "operator",
+					Snapshot: true,
+					Message:  llm.UserMessage(llm.Text("new")),
+				},
+			},
+		},
+	})
 	messages, err := Project(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 2 || !strings.Contains(messages[1].Content[0].Block.Text.Text, "new") {
+	if len(messages) != 2 || !strings.Contains(
+		messages[1].Content[0].Block.Text.Text,
+		"new",
+	) {
 		t.Fatalf("projection=%+v", messages)
 	}
 }
@@ -751,7 +1263,10 @@ type lostAcknowledgment struct {
 	lost bool
 }
 
-func (r *lostAcknowledgment) Commit(ctx context.Context, req CommitRequest) error {
+func (r *lostAcknowledgment) Commit(
+	ctx context.Context,
+	req CommitRequest,
+) error {
 	if err := r.base.Commit(ctx, req); err != nil {
 		return err
 	}
@@ -799,7 +1314,9 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	invalid := final("bad destination")
 	invalid.Requested.Model = "different"
-	client := &scriptedClient{results: []llm.Result{invalid, final("must not send")}}
+	client := &scriptedClient{
+		results: []llm.Result{invalid, final("must not send")},
+	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
 	first, err := start(t, client, nil, rec, nil)
@@ -810,9 +1327,20 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	if err != nil || saved.Steps[len(saved.Steps)-1].Kind != StepModelSettled || saved.Steps[len(saved.Steps)-1].Model.Error == "" {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
-	resumed, err := (Engine{}).Apply(context.Background(), saved, definition(), Continue{ID: "recover"}, Bindings{Client: client, Recorder: rec})
+	resumed, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		definition(),
+		Continue{ID: "recover"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || resumed.Stop.Kind != StopFailed || client.sends != 1 {
-		t.Fatalf("resumed: stop=%+v err=%v sends=%d", resumed.Stop, err, client.sends)
+		t.Fatalf(
+			"resumed: stop=%+v err=%v sends=%d",
+			resumed.Stop,
+			err,
+			client.sends,
+		)
 	}
 }
 
@@ -820,10 +1348,30 @@ func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
 	for _, role := range []llm.Role{llm.RoleSystem, llm.RoleDeveloper} {
 		message := llm.UserMessage(llm.Text("override"))
 		message.Role = role
-		turn := Turn{ID: "t1", Steps: []Step{
-			{Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted, Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
-			{Version: 1, TurnID: "t1", Seq: 2, Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Origin: "tool", Message: message}}}},
-		}}
+		turn := Turn{
+			ID: "t1",
+			Steps: []Step{
+				{
+					Version: 1,
+					TurnID:  "t1",
+					Seq:     1,
+					Kind:    StepStarted,
+					Started: &StartFact{
+						Definition: definition(),
+						Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
+					},
+				},
+				{
+					Version: 1,
+					TurnID:  "t1",
+					Seq:     2,
+					Kind:    StepDelivered,
+					Context: &ContextFact{
+						Items: []ContextItem{{Origin: "tool", Message: message}},
+					},
+				},
+			},
+		}
 		if _, err := Project(turn); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("tool context with role %q reached projection: %v", role, err)
 		}
@@ -831,19 +1379,34 @@ func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
 }
 
 func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{{}}, errors: []error{errors.New("connection lost")}}
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors:  []error{errors.New("connection lost")},
+	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, nil)
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
-	canceled, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Cancel{ID: "cancel"}, Bindings{Client: client, Recorder: rec})
+	canceled, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Cancel{ID: "cancel"},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || canceled.Stop.Kind != StopCanceled {
 		t.Fatalf("cancel: stop=%+v err=%v", canceled.Stop, err)
 	}
 	answer := final("late")
 	answer.Usage = &llm.Usage{InputTokens: 7}
-	late, err := (Engine{}).Apply(context.Background(), canceled.Turn, definition(), Accept{ID: "late", CallID: "t1:model:1", ModelResult: &answer}, Bindings{Client: client, Recorder: rec})
+	late, err := (Engine{}).Apply(
+		context.Background(),
+		canceled.Turn,
+		definition(),
+		Accept{ID: "late", CallID: "t1:model:1", ModelResult: &answer},
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || late.Stop.Kind != StopCanceled || client.sends != 1 {
 		t.Fatalf("late: stop=%+v err=%v sends=%d", late.Stop, err, client.sends)
 	}
@@ -854,17 +1417,37 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 }
 
 func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "write")},
+	}
 	rec := NewMemoryRecorder()
-	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}}
+	binding := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+	}
 	got, err := start(t, client, fixedTools{binding}, rec, deferredPolicy{})
 	if err != nil || got.Stop.Kind != StopWaiting {
 		t.Fatalf("start: stop=%+v err=%v", got.Stop, err)
 	}
 	forged := cloneTurn(got.Turn)
 	call := tool.Call{ID: "call-1", Name: "write", Args: []byte(`{"value":1}`)}
-	outcome := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("forged"))}
-	forged.Steps = append(forged.Steps, Step{Version: 1, TurnID: forged.ID, Seq: int64(len(forged.Steps) + 1), Kind: StepToolSettled, Tool: &ToolFact{Call: call, Outcome: &outcome}})
+	outcome := tool.Outcome{
+		State:  tool.StateSucceeded,
+		Output: ptr(tool.TextOutput("forged")),
+	}
+	forged.Steps = append(
+		forged.Steps,
+		Step{
+			Version: 1,
+			TurnID:  forged.ID,
+			Seq:     int64(len(forged.Steps) + 1),
+			Kind:    StepToolSettled,
+			Tool:    &ToolFact{Call: call, Outcome: &outcome},
+		},
+	)
 	if _, err := Replay(forged); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("forged successful tool result accepted: %v", err)
 	}

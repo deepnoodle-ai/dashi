@@ -74,7 +74,10 @@ func projectWithHistory(
 				continue
 			}
 			for index, item := range step.Context.Items {
-				if item.Snapshot && latest[item.Origin+"\x00"+item.Name] != (position{step.Seq, index}) {
+				if item.Snapshot && latest[item.Origin+"\x00"+item.Name] != (position{
+					step.Seq,
+					index,
+				}) {
 					continue
 				}
 				if item.NextCallOnly && lastIntent > step.Seq {
@@ -94,15 +97,18 @@ func projectWithHistory(
 			content := make([]llm.Content, 0, len(m.Content))
 			for _, part := range m.Content {
 				if part.Kind == llm.ContentHostedApprovalRequest {
-					if step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
+					if step.Model.Result.Stop.Kind != llm.StopToolUse &&
+						step.Model.Result.Stop.Kind != llm.StopFinished {
 						continue
 					}
-					if part.HostedApprovalRequest == nil || !acceptedHosted[part.HostedApprovalRequest.ID] {
+					if part.HostedApprovalRequest == nil ||
+						!acceptedHosted[part.HostedApprovalRequest.ID] {
 						continue
 					}
 				}
 				if part.Kind == llm.ContentToolCall {
-					if step.Model.Result.Stop.Kind != llm.StopToolUse && step.Model.Result.Stop.Kind != llm.StopFinished {
+					if step.Model.Result.Stop.Kind != llm.StopToolUse &&
+						step.Model.Result.Stop.Kind != llm.StopFinished {
 						continue
 					}
 					if part.ToolCall == nil {
@@ -139,11 +145,37 @@ func projectWithHistory(
 					output = tool.TextOutput("Tool was not executed.")
 				}
 				bad := o.State == tool.StateFailed || o.State == tool.StateNotExecuted
-				out = append(out, llm.Message{Role: llm.RoleUser, Content: []llm.Content{{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: v.Call.ID, Output: output, IsError: bad}}}})
+				out = append(
+					out,
+					llm.Message{
+						Role: llm.RoleUser,
+						Content: []llm.Content{
+							{
+								Kind: llm.ContentToolResult,
+								ToolResult: &llm.ToolResult{
+									CallID:  v.Call.ID,
+									Output:  output,
+									IsError: bad,
+								},
+							},
+						},
+					},
+				)
 			}
 		case StepHostedApproval:
 			response := *step.HostedApproval
-			out = append(out, llm.Message{Role: llm.RoleUser, Content: []llm.Content{{Kind: llm.ContentHostedApprovalResponse, HostedApprovalResponse: &response}}})
+			out = append(
+				out,
+				llm.Message{
+					Role: llm.RoleUser,
+					Content: []llm.Content{
+						{
+							Kind:                   llm.ContentHostedApprovalResponse,
+							HostedApprovalResponse: &response,
+						},
+					},
+				},
+			)
 		}
 	}
 	return out, nil

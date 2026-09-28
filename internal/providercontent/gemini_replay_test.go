@@ -106,10 +106,18 @@ func TestAdaptGeminiSignedReplayRequiresUnchangedID(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input := geminiToolReplay(tc.id, tc.raw, origin)
+			input := geminiToolReplay(
+				tc.id,
+				tc.raw,
+				origin,
+			)
 			out, _, err := Adapt(input, origin)
 			if (err != nil) != tc.fail {
-				t.Fatalf("adaptation error = %v, want failure %v", err, tc.fail)
+				t.Fatalf(
+					"adaptation error = %v, want failure %v",
+					err,
+					tc.fail,
+				)
 			}
 			if err == nil && tc.id == "call.with.dot" &&
 				out.Messages[0].Content[0].ToolCall.ID == tc.id {
@@ -143,16 +151,22 @@ func TestAdaptGeminiTextPreservesUnchangedPrivateReplay(t *testing.T) {
 		t.Fatal("unchanged private text replay was altered")
 	}
 	text.Block.Text.Text = "edited"
-	if _, _, err := Adapt(llm.Input{
-		Messages: []llm.Message{llm.AssistantMessage(text)},
-	}, origin); err == nil {
+	if _, _, err := Adapt(
+		llm.Input{
+			Messages: []llm.Message{llm.AssistantMessage(text)},
+		},
+		origin,
+	); err == nil {
 		t.Fatal("edited Gemini text replay was accepted")
 	}
 	text.Block.Text.Text = "hello"
 	text.Replay.Raw = json.RawMessage(`{"text":null,"thoughtSignature":"signed"}`)
-	if _, _, err := Adapt(llm.Input{
-		Messages: []llm.Message{llm.AssistantMessage(text)},
-	}, origin); err == nil {
+	if _, _, err := Adapt(
+		llm.Input{
+			Messages: []llm.Message{llm.AssistantMessage(text)},
+		},
+		origin,
+	); err == nil {
 		t.Fatal("null Gemini text replay was accepted")
 	}
 }
