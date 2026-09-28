@@ -281,24 +281,127 @@ request to `Stream`: leaving the range interrupts the turn, and a closed tab
 must not control agent work.
 
 Instead, run the turn in your own background execution (a queue worker or job)
-under a context you control, using `Runner.Run` or `Stream`. Your
-`Recorder.Commit` is the natural place to write what clients read: in the same
-transaction that appends the step, write your projection or outbox row. Clients
-then follow your committed record, not the runner. Each step carries a gap-free
+under a context you control, using `Runner.Run` or `Stream`. Each browser
+connection then follows the turn's record with `dashi.Follow`, which reads
+committed steps after a cursor from any process. Each step carries a gap-free
 `Seq` per turn, so a client reconnects with the last `Seq` it applied and
-receives everything after it. A disconnect ends only that follow.
+receives everything after it, exactly once. A disconnect ends only that
+follow; any number of clients can follow one turn.
+
+`Follow` reads through the recorder's optional `dashi.StepReader`.
+`MemoryRecorder` and `filerecorder` implement it; a host recorder implements
+`StepsAfter` as one range query on the table it commits to:
+
+```sql
+SELECT step FROM turn_steps
+WHERE turn_id = $1 AND seq > $2 ORDER BY seq LIMIT $3
+```
+
+Read from the primary, keep `(turn_id, seq)` unique, and return an error
+matching `dashi.ErrCursorAhead` for a cursor past the last step
+(`dashitest.Run` checks all of this). `Follow` pages until it catches up, then
+polls every second, or every 30 seconds while the turn rests at a stop that
+is not terminal. For faster updates, also implement `dashi.StepWaiter`: for
+example, `pg_notify` in the commit transaction and one shared `LISTEN`
+connection that wakes waiting readers. A missed wake costs one poll.
+
+`Follow` ends when the request ends, or after a terminal stop (see
+[the three turn states](#ids-and-recovery)). A late result of work
+started before the stop can still be recorded after it; a reload shows it.
+
+Previews (model deltas and tool progress) never enter the record. When the
+worker runs in the same process as the handler, feed `Runner.Observer` into a
+small fan-out of bounded channels, one per connection, and merge them in the
+handler. A multi-process host carries previews on its own bus instead. The
+whole handler:
 
 ```go
-func (r *pgRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	return r.db.InTx(ctx, func(tx Tx) error {
-		// Check ExpectedSeq and Owner, append req.Step, then in the same tx:
-		return tx.InsertEvent(req.Step.TurnID, req.Step.Seq, project(req.Step))
-	})
-}
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	// Authorize first: Follow waits forever on a turn that does not exist.
+	if !s.canView(r, id) {
+		http.NotFound(w, r)
+		return
+	}
+	// EventSource resends the last id it received as Last-Event-ID.
+	after, _ := strconv.ParseInt(cmp.Or(
+		r.Header.Get("Last-Event-ID"), r.URL.Query().Get("after"),
+	), 10, 64)
+	w.Header().Set("Content-Type", "text/event-stream")
+	flush := w.(http.Flusher).Flush
 
-// GET /turns/{id}/events?after=N: replay rows with seq > N, then poll
-// (optionally woken by a notify) until the request context ends.
+	// Subscribe before following, so no preview falls between the two.
+	previews, unsubscribe := s.hub.Subscribe(id) // fed by Runner.Observer
+	defer unsubscribe()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	type read struct {
+		step dashi.Step
+		err  error
+	}
+	steps := make(chan read)
+	go func() {
+		defer close(steps)
+		for step, err := range dashi.Follow(ctx, s.store, id, after) {
+			select {
+			case steps <- read{step, err}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	done := map[string]bool{} // messages and calls a sent step settled
+	for {
+		select {
+		case got, ok := <-steps:
+			switch {
+			case !ok:
+				return // a terminal stop, or the client left
+			case errors.Is(got.err, dashi.ErrCursorAhead):
+				send(w, "", "reset", nil) // the client drops its state, follows from 0
+				return
+			case got.err != nil:
+				return // the client reconnects from its last id
+			}
+			step := got.step
+			if step.Model != nil {
+				done[step.Model.MessageID] = true
+			}
+			if step.Kind == dashi.StepToolSettled {
+				done[step.Tool.Call.ID] = true
+			}
+			send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
+		case e := <-previews:
+			switch {
+			case e.Gap: // this message's preview has a hole; wait for its step
+				done[e.MessageID] = true
+				send(w, "", "gap", e.MessageID)
+			case e.Delta != nil && !done[e.MessageID]:
+				send(w, "", "delta", projectDelta(e))
+			case e.Progress != nil && !done[e.Progress.CallID]:
+				send(w, "", "progress", e.Progress)
+			}
+		}
+		flush()
+	}
+}
 ```
+
+Steps go out with an SSE `id`, so the browser resumes from them; previews
+and gaps go out without one, since they cannot be replayed. When a preview
+channel overflows, the fan-out drops previews and sends a gap, as the
+Observer does. `done` drops a preview that arrives after the step that
+supersedes it.
+
+**Never send a `Step` to a browser as it is.** A step is the internal record:
+it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
+signed reasoning, the agent's instructions and tool definitions (the
+`turn_started` step), command digests, and lease owners. `project` builds the
+client's view from the fields it needs, and is the one place to hide
+reasoning if your product does not show it. `examples/live_follow` runs two
+followers on one turn.
 
 ## Observing a run in process
 
