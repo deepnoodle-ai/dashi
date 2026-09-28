@@ -52,16 +52,20 @@ example sends lines starting with `!` as urgent.
 ### The listener
 
 - **U-1. One listener per run.** When the source is a notifier with a non-nil
-  `Ready`, the run starts one goroutine, the only reader of `Ready`. A mutex
-  serializes all the run's calls to the source. On every exit path the run
-  cancels the listener's context, joins it, and merges the IDs it saw into
-  its claims before `Release`.
+  `Ready`, the run starts one goroutine, the only reader of `Ready`. A source
+  lock serializes all calls to the source. The listener's `Steers` runs
+  under a context cancelled when the model call settles, when the run needs
+  the source or the listener's decision, or when the run ends; a fetch the
+  run cut short is retried. A slow source can delay a cut, never stall the
+  run. On every exit path the run cancels the listener's context, joins it,
+  and merges the IDs it saw into its claims before `Release`.
 - **U-2. One definition of "waiting".** A pure
   `classifySteers(record, steers) (fresh, again, invalid)` serves FR-6 and the
   listener. The listener holds a snapshot of recorded IDs, refreshed after
-  each commit. The U-1 mutex guards everything the run and the listener
-  share: the snapshot, the urgent set, the registered call, and the reason
-  the listener last declined to interrupt. The listener writes no warnings;
+  each commit. A separate state lock, never held while calling the source,
+  guards what the run and the listener share: the snapshot, the urgent set,
+  the registered call, and the reason the listener last declined to
+  interrupt. Commits take only the state lock. The listener writes no warnings;
   the run attaches that reason to the call's `StepModelSettled`, or at the
   latest to the stop step, never after the join.
 - **U-3. What a signal does.** The listener calls `Steers`. For a fresh
@@ -69,18 +73,21 @@ example sends lines starting with `!` as urgent.
   registered model call if eligible (U-4). Each ID causes at most one
   interrupt. FR-6 removes an ID from the urgent set when it records the steer
   or when the source no longer returns it.
-- **U-4. Eligibility.** A call offering a provider-hosted tool unsafe to
-  repeat (decision 10) is never cut. Otherwise, before the call starts, the
-  run registers its cancel function and captures the inputs of
-  `replacementFits`: spend so far, each cap, the call's worst case, and
-  prices. `replacementFits` is `nextCallPossible` without the attempt term
-  (U-8), with the call in flight at its worst case against every cap. At
-  signal time the listener adds the actual size of the steers, the reminder,
-  and the partial, and rechecks pause, deadline, and context; it never reads
-  replay state. Under a cost cap, a call whose worst case is unknown
-  (`AtRisk` is nil, as for an unpriced model) is ineligible, since
-  `spendWithCallInFlight` fails. An ineligible call is not cut; the steer waits for FR-6, and
-  the run records one `WarningSteering` per run naming the reason.
+- **U-4. Eligibility.** The run registers the call after preparation,
+  before `BeforeSend`. Until the hand-off nothing was sent, so a cut is free
+  and always allowed. After it, a call offering a provider-hosted tool
+  unsafe to repeat (decision 10) is never cut, and otherwise a replacement
+  must fit: the run hands the listener a private replay taken at the
+  hand-off, and `replacementFits` is `nextCallPossible` without the attempt
+  term (U-8). Token caps use recorded spend, since the output cap already
+  clamps `max_tokens` to the remainder. The cost cap also counts the call in
+  flight at its worst case, so a call whose worst case is unknown (`AtRisk`
+  is nil) is ineligible. At signal time the listener adds the size of the
+  steers and the reminder, and rechecks pause, deadline, and context. The
+  partial is not measured: the next-request estimate already adds the call's
+  `max_tokens`. An ineligible call is not cut; the steer waits for FR-6, and
+  the run records one `WarningSteering` per run naming the reason, unless
+  the run is ending.
 - **U-5. Before dispatch.** After `BeforeModel` and request preparation, but
   before `BeforeSend` admits the call, the run reads the urgent set. The run
   also keeps a *loop-back set*: IDs that already caused a loop-back. If the
@@ -120,11 +127,11 @@ example sends lines starting with `!` as urgent.
   sent call cut off by a steer is charged the worst case reserved at
   admission, without inspecting usage, written into the settlement's `Charge`
   (which `attemptSpend` prefers, so replay needs no cap logic). Without a
-  cap, decision 24's estimate applies. Before writing the settlement, the
-  run folds its delta-based estimate into `Result.Usage.OutputTokens`,
-  taking the larger of the estimate and the reported count, so token caps
-  and replay see it with no new field; the settlement is `EstimatedUsage`. Crash recovery keeps decision 24's
-  rule.
+  cap, decision 24's estimate applies. For every interrupt cause, the run
+  records as `Result.Usage.OutputTokens` the larger of the reported count
+  and the delta estimate, the estimate capped at the call's `max_tokens`,
+  so token caps and replay see it with no new field; the settlement is
+  `EstimatedUsage`. Crash recovery keeps decision 24's rule.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
 
@@ -149,18 +156,15 @@ example sends lines starting with `!` as urgent.
 
 ### Choices made in the code
 
-- The call is registered after preparation, before `BeforeSend`, and U-5's
-  check runs there. A cut before the request is recorded goes back to FR-6
-  and records nothing; a cut before the hand-off costs nothing, so it skips
-  the budget check.
-- `replacementFits` puts the in-flight call at its worst case against the
-  cost cap only. Token caps use recorded spend, as `nextCallPossible` does:
-  the output cap clamps `max_tokens` to the remainder, so a worst case would
-  make every call under it ineligible, and only the cost cap charges it.
-- The partial's size at signal time is bounded by the in-flight call's
-  `max_tokens`, which the next-request estimate already adds, not measured.
-- U-9's fold applies to steering interrupts only; `run` interrupts keep the
-  observed counts, as before.
+- U-5's check runs where the call is registered. A cut before the request
+  is recorded goes back to FR-6 and records nothing, so `BeforeModel` and
+  `BeforeSend` may run again for the same reply; hosts reserve spending in
+  the recorder with the intent.
+- An answer's provider-pause chain restarts after a steering interrupt, so
+  text from before the steer is never joined to the answer after it.
+- Under `MaxOutputTokens`, a cut late in a long call can leave the
+  replacement a small clamp. Accepted for now; the fix would publish the
+  streamed estimate for `replacementFits` to subtract.
 
 ### Recovery and record format
 
@@ -170,13 +174,14 @@ still presents the steer for FR-6. The settlement closes the attempt's preview
 (`Step.Settles`), and its cause tells a UI why the text stopped.
 
 - `ModelFact.Interrupted` is an `InterruptCause`
-  (`json:"interrupted,omitempty"`): `InterruptNone` (`""`), `InterruptWorker` (recovered after a crash),
-  `InterruptRun` (the run's context ended, the deadline passed, or a pause
-  arrived before dispatch), and, with the listener, `InterruptSteering`.
+  (`json:"interrupted,omitempty"`): `InterruptNone` (`""`),
+  `InterruptWorker` (recovered after a crash), `InterruptRun` (the run's
+  context ended, the deadline passed, or a pause arrived before dispatch),
+  and, with the listener, `InterruptSteering`.
   Replay rejects an unknown cause.
 - `Steer.Urgent` is not recorded; the record shows the effect.
-- At merge, `decisions.md` 32 records U-8, U-9's exemption from decision 24,
-  and U-11's refinement of decision 9.
+- `decisions.md` 32 records U-8, U-9's exemption from decision 24, and
+  U-11's refinement of decision 9.
 
 ### Next PR: tools not yet started
 
@@ -222,7 +227,7 @@ billing; projection; docs and the example.
 | Risk | Mitigation |
 | --- | --- |
 | Interrupts waste tokens | Opt in per steer; charged and capped |
-| A client keeps generating after the cancel | U-10; worst-case charge under a cap |
+| A client keeps generating after the cancel | U-10; worst case under a cap |
 | A provider rejects partial text | U-11's trimming; live tests |
-| A slow `Steers` | Must be cheap; cancelled when the run ends |
-| A flood of urgent steers | One interrupt per ID; without a cap, only user input and the deadline limit them |
+| A slow `Steers` | Own lock; cancelled when the call settles or run ends |
+| A flood of urgent steers | One interrupt per ID; else user input, deadline |

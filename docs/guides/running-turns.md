@@ -154,9 +154,10 @@ item that is already current. It may run more than once for one reply, and
 `BeforeSend` may be asked again for the same reply, when an urgent steer
 sends the run back before the request is sent. Deliver a value that must
 reflect each call as a named `Snapshot` item, and reserve spending in the
-recorder with the model intent, not in the hook. `BeforeFinish` vetoes an answer with a
-`Reason`, which the model sees as "Not accepted: …" before it answers again,
-or nudges with `Deliver` items alone. A nudge never spends the reserved
+recorder with the model intent, not in the hook.
+
+`BeforeFinish` vetoes an answer with a `Reason`, which the model sees as "Not
+accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the reserved
 final-answer call: when no normal model call is possible (on the reserved
 call or the one before it, past the deadline, or when the next call would
 exceed a cost cap), it is dropped with a warning and the answer stands. A

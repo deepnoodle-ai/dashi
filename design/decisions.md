@@ -277,14 +277,21 @@ the app's statement that the model may use it. Pi and most agent libraries
 behave this way, while deny-by-default made the first run of every new app
 fail. Dashi had no users, so there is no migration.
 
-**32. Steering interruptions count as model attempts.** Decided 2026-09-28;
-supersedes part of decision 12. The design is [steering.md](steering.md). A
-model call cancelled because of an urgent steer (`ModelFact.Interrupted:
-"steering"`, `InterruptSteering`) counts toward `ModelAttempts` and spend, and not toward
-`Interruptions`. Every other interrupted call keeps decision 12's rule. A call
-that completes before the cancel takes effect is not interrupted. Rationale: a
-steering interruption is the user's choice, not the hosting's fault, and
-counting it bounds a flood of urgent steers.
+**32. Steering interrupts are replaced, not counted.** Decided 2026-09-28;
+refines decisions 9, 12, and 24. The design is [steering.md](steering.md). A
+model call cut short by an urgent steer is settled with `Interrupted:
+"steering"` (`InterruptSteering`). It counts toward neither `ModelAttempts`
+nor `Interruptions`, but counts toward spend and every cap. Under a
+`MaxCost` cap it is charged the worst case reserved at admission (`AtRisk`),
+not decision 24's estimate. The next request projects its trimmed partial
+text, a reminder that the user interrupted it, and the steer: the one
+exception to decision 9. A call that completes before the cancel takes
+effect is not interrupted. For every interrupted call, the recorded output
+tokens are the larger of the reported count and the estimate from all
+streamed deltas, the estimate capped at the call's `max_tokens`. Rationale:
+an interrupt is the user's choice, and each needs a new steer, so it should
+not spend the attempts a turn needs to answer; a client may keep generating
+after the cancel, so a cap charges the worst case.
 
 **33. A first turn needs only a client and input.** Decided 2026-09-28; the
 design is [zero-config.md](zero-config.md). An empty turn ID (on `Start`) and
