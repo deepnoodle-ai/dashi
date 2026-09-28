@@ -28,7 +28,7 @@ The Dive columns are the equivalent packages. Dashi cells are grounded in the
 files cited in the evidence column. Dive cells come from a delegated read of
 Dive's code.
 
-| Behavior | K Msg | K Resp | K CC | K Gem | D Anth | D OAI-R | D CC | D Goog | Dashi evidence / note |
+| Behavior | Msg | Resp | CC | Gem | Dive Anth | Dive OAI-R | Dive CC | Dive Goog | Dashi evidence / note |
 |---|---|---|---|---|---|---|---|---|---|
 | Streaming | S | S | S | S | S | S | S | S | `providers/*/*/stream.go`; `llm/stream.go:27` |
 | Tool calling | S | S | S | S | S | S | S | S | `messages.go:~185`, `responses.go:~185` |
