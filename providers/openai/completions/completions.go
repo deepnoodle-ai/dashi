@@ -575,6 +575,15 @@ func (wire codec) decode(
 	}
 	result.ID = response.ID
 	result.Served = llm.ModelRef{Provider: wire.provider, Model: response.Model}
+	if response.Model == "" {
+		result.Served = llm.ModelRef{}
+	}
+	result.Message.Source = &llm.MessageSource{
+		Requested:  requested,
+		Served:     result.Served,
+		API:        wire.origin.API,
+		ResponseID: result.ID,
+	}
 	result.ServiceTier = response.ServiceTier
 	if response.Usage.present {
 		usage := response.Usage.toLLMUsage()
@@ -663,6 +672,8 @@ func (wire codec) decode(
 			llm.Text(message.Content),
 		)
 	}
+	validatedCalls := make([]tool.Call, 0, len(message.ToolCalls))
+	seenCallIDs := make(map[string]bool, len(message.ToolCalls))
 	for _, call := range message.ToolCalls {
 		if call.Type != "function" {
 			return result, wire.unsupported("tool call type %q", call.Type)
@@ -684,6 +695,22 @@ func (wire codec) decode(
 				err,
 			)
 		}
+		if seenCallIDs[v.ID] {
+			result.Message.Content = append(
+				result.Message.Content,
+				wire.partialToolCall(call),
+			)
+			return result, providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"duplicate tool call ID %q",
+				v.ID,
+			)
+		}
+		seenCallIDs[v.ID] = true
+		validatedCalls = append(validatedCalls, v)
+	}
+	for _, v := range validatedCalls {
 		result.Message.Content = append(
 			result.Message.Content,
 			llm.Content{
