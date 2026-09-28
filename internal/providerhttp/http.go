@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/kernel/catalog"
 	"github.com/deepnoodle-ai/kernel/content"
 	"github.com/deepnoodle-ai/kernel/llm"
 )
@@ -83,9 +84,14 @@ func (c Client) Origin(model string) content.Origin {
 }
 
 // ModelInfo returns an independent snapshot and reports whether it was known.
+// Configured knowledge wins; otherwise the catalog supplies documented facts
+// when it covers this exact API and endpoint, so known models on public
+// endpoints get limits and prices without application setup.
 func (c Client) ModelInfo(model string) (llm.ModelInfo, bool) {
-	info, ok := c.models[model]
-	return info.Clone(), ok
+	if info, ok := c.models[model]; ok {
+		return info.Clone(), true
+	}
+	return catalog.Lookup(c.API, c.Endpoint, model)
 }
 
 // Policy reports the resolved capability policy, for provider rules that Fit
