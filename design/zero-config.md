@@ -101,8 +101,12 @@ dispatch with an `*llm.Error` of category authentication, disposition
 not-dispatched, wrapping `llm.ErrNoAPIKey` and naming the environment
 variables checked. The check is skipped when a custom endpoint or a custom
 `http.Client` is set, since a proxy or transport may supply credentials.
-Ollama and Gemini on Vertex need no key. `openai/images` moves its check from
-`New` to send to match.
+Ollama and Gemini on Vertex need no key. The media clients (OpenAI Images,
+Gemini media and Interactions, Grok Imagine) match: their sends fail with a
+`media.Error` wrapping `llm.ErrNoAPIKey`. Each client reads its provider's
+environment variable only when `Provider` is that provider, so a key never
+reaches another destination (before this, OpenAI-format wrappers sent
+`OPENAI_API_KEY` to xAI and others when their own variable was unset).
 
 ## 2.1 Choosing a provider at runtime
 

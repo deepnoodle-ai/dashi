@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/media"
 	"github.com/deepnoodle-ai/dashi/model"
 )
@@ -39,7 +40,9 @@ type Config struct {
 	// "grok" only for DefaultEndpoint; custom endpoints require a name.
 	Provider string
 
-	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY.
+	// APIKey defaults to XAI_API_KEY, then GROK_API_KEY. With no key for the
+	// public endpoint, New and Prepare still succeed and each send fails
+	// before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint is the base URL shared by image and video routes.
@@ -61,6 +64,7 @@ type Client struct {
 	provider string
 	endpoint string
 	apiKey   string
+	noKey    error
 	http     *http.Client
 	models   map[string]media.ModelInfo
 	unknown  model.CapabilityPolicy
@@ -133,9 +137,13 @@ func New(config Config) (*Client, error) {
 		provider: config.Provider,
 		endpoint: endpoint,
 		apiKey:   config.APIKey,
-		http:     config.Client,
-		models:   models,
-		unknown:  config.CapabilityPolicy.Resolved(),
+		noKey: noAPIKey(
+			config.APIKey,
+			endpoint == DefaultEndpoint && config.Client == nil,
+		),
+		http:    config.Client,
+		models:  models,
+		unknown: config.CapabilityPolicy.Resolved(),
 		image: content.Origin{
 			Provider: config.Provider,
 			API:      ImageAPI,
@@ -182,4 +190,16 @@ func (c *Client) origin(api, name string) content.Origin {
 	origin := c.video
 	origin.Model = name
 	return origin
+}
+
+// noAPIKey returns the error each send reports when the public endpoint has
+// no key, or nil.
+func noAPIKey(key string, public bool) error {
+	if key != "" || !public {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: set XAI_API_KEY or GROK_API_KEY or Config.APIKey",
+		llm.ErrNoAPIKey,
+	)
 }

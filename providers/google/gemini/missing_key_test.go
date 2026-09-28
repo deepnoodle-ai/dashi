@@ -30,6 +30,30 @@ func TestMissingAPIKeyFailsAtSend(t *testing.T) {
 	}
 }
 
+func TestMediaMissingAPIKeyFailsAtSend(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	mediaClient, err := NewMedia(MediaConfig{})
+	if err != nil {
+		t.Fatalf("NewMedia without a key: %v", err)
+	}
+	_, err = mediaClient.do(t.Context(), http.MethodPost, DefaultImageEndpoint, nil, "", 1, false)
+	if !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("media send error = %v, want ErrNoAPIKey", err)
+	}
+	interactions, err := NewInteractionsMedia(InteractionsMediaConfig{})
+	if err != nil {
+		t.Fatalf("NewInteractionsMedia without a key: %v", err)
+	}
+	if _, err := interactions.do(t.Context(), nil); !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("interactions send error = %v, want ErrNoAPIKey", err)
+	}
+	custom, err := NewMedia(MediaConfig{Client: &http.Client{}})
+	if err != nil || custom.noKey != nil {
+		t.Fatalf("custom HTTP client: noKey=%v err=%v", custom.noKey, err)
+	}
+}
+
 func TestGeminiKeyStaysWithGoogle(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "gemini-secret")
 	t.Setenv("GOOGLE_API_KEY", "")

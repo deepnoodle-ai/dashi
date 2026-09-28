@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/media"
 	"github.com/deepnoodle-ai/dashi/model"
 )
@@ -58,6 +60,7 @@ type MediaConfig struct {
 // artifacts. It never retries a remote submission.
 type MediaClient struct {
 	config      MediaConfig
+	noKey       error
 	imageModels map[string]media.ModelInfo
 	videoModels map[string]media.ModelInfo
 }
@@ -71,15 +74,6 @@ var (
 // API-key route is supported here; Vertex needs a separately qualified media
 // destination and credential path.
 func NewMedia(config MediaConfig) (*MediaClient, error) {
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GEMINI_API_KEY")
-	}
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("GOOGLE_API_KEY")
-	}
-	if config.APIKey == "" {
-		return nil, errors.New("gemini: media API key is required")
-	}
 	if config.ImageEndpoint == "" {
 		config.ImageEndpoint = DefaultImageEndpoint
 	}
@@ -92,6 +86,14 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 			return nil, errors.New("gemini: custom media endpoint requires provider identity")
 		}
 		config.Provider = "google"
+	}
+	// The Gemini key is read only for the "google" destination, so a client
+	// for another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "google" {
+		config.APIKey = cmp.Or(
+			os.Getenv("GEMINI_API_KEY"),
+			os.Getenv("GOOGLE_API_KEY"),
+		)
 	}
 	if err := validateMediaEndpoint(
 		config.ImageEndpoint,
@@ -113,7 +115,13 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		config.Client = &client
 	}
 	p := &MediaClient{
-		config:      config,
+		config: config,
+		noKey: mediaNoKey(
+			config.APIKey,
+			config.ImageEndpoint == DefaultImageEndpoint &&
+				config.VideoEndpoint == DefaultVideoEndpoint &&
+				config.Client == nil,
+		),
 		imageModels: make(map[string]media.ModelInfo, len(config.ImageModels)),
 		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels)),
 	}
@@ -258,6 +266,9 @@ func (p *MediaClient) do(
 	maxBytes int64,
 	expectVideo bool,
 ) ([]byte, error) {
+	if p.noKey != nil {
+		return nil, p.noKey
+	}
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),
@@ -383,6 +394,22 @@ func doGeminiMedia(
 		}
 	}
 	return raw, nil
+}
+
+// mediaNoKey returns the error a media send reports when the public
+// endpoint has no key, or nil. Construction and preparation still succeed.
+func mediaNoKey(key string, public bool) error {
+	if key != "" || !public {
+		return nil
+	}
+	return &media.Error{
+		Provider: "google",
+		Category: media.ErrorAuthentication,
+		Cause: fmt.Errorf(
+			"%w: set GEMINI_API_KEY or GOOGLE_API_KEY or Config.APIKey",
+			llm.ErrNoAPIKey,
+		),
+	}
 }
 
 func mediaFailure(
