@@ -751,6 +751,94 @@ func TestBeforeModelInvalidSettingsAreSkipped(t *testing.T) {
 	}
 }
 
+func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
+	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		return FinishDecision{Deliver: []ContextItem{{
+			Message: llm.UserMessage(llm.Text("keep going")),
+		}}}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 2
+	client := &scriptedClient{results: []llm.Result{final("first"), final("unused")}}
+	out, err := (Runner{Agent: agent, Client: client, Hooks: more.Hooks()}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "first" ||
+		client.sends != 1 || !hasWarning(out, WarningDeliveryDropped) {
+		t.Fatalf("stop=%+v sends=%d warnings=%+v err=%v", out.Stop, client.sends, out.Warnings, err)
+	}
+}
+
+func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
+	s := &replayState{}
+	s.Agent.Limits.ModelAttempts = 8
+	for _, tc := range []struct {
+		settled  int
+		inFlight bool
+		reserve  bool
+		want     bool
+	}{
+		{settled: 6, reserve: true, want: true},
+		{settled: 7, reserve: true, want: false},
+		{settled: 6, inFlight: true, reserve: true, want: false},
+		{settled: 7, reserve: false, want: true},
+		{settled: 7, inFlight: true, reserve: false, want: false},
+	} {
+		s.ModelAttempts = tc.settled
+		s.modelIntent = ""
+		if tc.inFlight {
+			s.modelIntent = "t1:model:x"
+		}
+		s.Agent.Limits.NoReservedFinalAnswer = !tc.reserve
+		if got := s.roomForNormalCall(); got != tc.want {
+			t.Fatalf("%+v: room = %v", tc, got)
+		}
+	}
+}
+
+func TestFinishDeliveryChecksTheCostCap(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cap   string
+		sends int
+	}{
+		{name: "room for another call", cap: "1", sends: 2},
+		{name: "cap too tight", cap: "0.0013", sends: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			asked := 0
+			green := FinishHook{Name: "tests", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+				asked++
+				if asked == 1 {
+					return FinishDecision{Deliver: []ContextItem{{
+						Message: llm.UserMessage(llm.Text("tests fail")),
+					}}}, nil
+				}
+				return FinishDecision{}, nil
+			}}
+			client := newPricedClient(final("draft"), final("fixed"))
+			out, err := runBudgetTurnErr(
+				client,
+				&Budget{MaxCost: &Money{Amount: amount(tc.cap), Currency: "USD"}},
+				llm.Settings{MaxTokens: 100},
+				nil,
+				green.Hooks(),
+			)
+			if err != nil || out.Stop.Kind != StopCompleted || client.sends != tc.sends {
+				t.Fatalf("stop=%+v sends=%d spend=%+v err=%v", out.Stop, client.sends, out.Spend, err)
+			}
+			if dropped := hasWarning(out, WarningDeliveryDropped); dropped != (tc.sends == 1) {
+				t.Fatalf("warnings = %+v", out.Warnings)
+			}
+		})
+	}
+}
+
 func TestHooksValidation(t *testing.T) {
 	noop := func(context.Context, ToolPlan) (ToolDecision, error) {
 		return ToolDecision{}, nil

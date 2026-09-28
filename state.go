@@ -1336,13 +1336,18 @@ func (s *replayState) keptFinishCandidate() bool {
 
 // roomForNormalCall reports whether one more model call fits before the
 // reserved final-answer call, or within ModelAttempts when there is no
-// reserve.
+// reserve. A model call in flight, requested but not settled, counts as
+// used, since ModelAttempts counts only settled calls.
 func (s *replayState) roomForNormalCall() bool {
+	used := s.ModelAttempts
+	if s.modelIntent != "" {
+		used++
+	}
 	limit := s.Agent.Limits.ModelAttempts
 	if s.Agent.Limits.NoReservedFinalAnswer {
-		return s.ModelAttempts < limit
+		return used < limit
 	}
-	return s.ModelAttempts+1 < limit
+	return used+1 < limit
 }
 
 // hookVerdicts lists the verdicts each hook point can record.

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -325,15 +327,6 @@ func validToolDecision(
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
 }
 
-// finishCanContinue reports whether a BeforeFinish delivery can reach the
-// model: the candidate is not the reserved final answer, one more call fits
-// in ModelAttempts, and no budget cap is already spent.
-func (r *runtime) finishCanContinue(s *replayState) bool {
-	return !s.finalAnswerOnly &&
-		s.ModelAttempts < r.agent.Limits.ModelAttempts &&
-		budgetSpentStop(s) == nil
-}
-
 // finishResult is the combined BeforeFinish answer.
 type finishResult struct {
 	deliver     []ContextItem
@@ -389,6 +382,160 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		}
 	}
 	return out, nil
+}
+
+// nextCallFits reports whether a further normal model call can happen: one
+// that still leaves the reserved final-answer call available (or fits in
+// ModelAttempts when there is no reserve), before the deadline, with the
+// context live, and within every Budget cap for its worst case.
+// extraInputTokens is the size of input the caller would add, such as
+// delivered items, estimated as Dashi estimates request input. A pause is
+// not a reason to refuse: the run pauses before the next model call anyway,
+// so a pause must never let a rejected answer through.
+//
+// A model call in flight already counts as used, so the check holds while a
+// call runs. The cost term estimates the next call from the latest recorded
+// request, grown by what the model and tools returned since and by
+// extraInputTokens, priced like BeforeSend's check; a cost cap that cannot
+// be priced fails it, since that call would stop anyway.
+func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
+	if !s.roomForNormalCall() {
+		return false
+	}
+	if d := r.agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
+		return false
+	}
+	if r.ctx.Err() != nil {
+		return false
+	}
+	if budgetSpentStop(s) != nil {
+		return false
+	}
+	if s.Budget == nil || s.Budget.MaxCost == nil {
+		return true
+	}
+	req, ok := estimatedNextRequest(s, extraInputTokens)
+	if !ok {
+		return false
+	}
+	spent, ok := spendWithCallInFlight(s)
+	if !ok {
+		return false
+	}
+	_, _, stop := checkSendBudget(spent, req, r.agent.Model)
+	return stop == nil
+}
+
+// spendWithCallInFlight returns s with a model call in flight counted at its
+// worst case. Recorded spend counts an unsettled call at its estimated input
+// only, and the next call must fit beside everything the running one could
+// still cost. It fails when that worst case is unknown.
+func spendWithCallInFlight(s *replayState) (*replayState, bool) {
+	if s.modelIntent == "" {
+		return s, true
+	}
+	intent := s.modelIntents[s.modelIntent]
+	limit := s.Budget.MaxCost
+	if intent == nil || intent.AtRisk == nil ||
+		intent.AtRisk.Currency != limit.Currency {
+		return nil, false
+	}
+	counted := money.Amount(0)
+	if _, cost, _, _ := attemptSpend(intent, nil); cost != nil {
+		if cost.Currency != limit.Currency {
+			return nil, false
+		}
+		counted = cost.Total
+	}
+	used, known := s.Spend.costIn(limit.Currency)
+	if !known {
+		return nil, false
+	}
+	total, ok := used.Add(intent.AtRisk.Total - counted)
+	if !ok {
+		return nil, false
+	}
+	adjusted := *s
+	adjusted.Spend = s.Spend.Clone()
+	if adjusted.Spend.Cost == nil {
+		adjusted.Spend.Cost = map[string]money.Amount{}
+	}
+	adjusted.Spend.Cost[limit.Currency] = total
+	return &adjusted, true
+}
+
+// estimatedNextRequest stands in for the next model request when pricing it
+// before it exists. Its base is the latest real request: the call in flight,
+// if any, or else the one that produced the latest result. What the next
+// request adds is counted at twice its JSON size: the model's output since,
+// bounded by the in-flight call's max_tokens or measured from the recorded
+// result and tool outcomes, plus extraInputTokens. The doubling covers
+// providers that encode such content once more, such as tool arguments sent
+// as a JSON string, so the estimate stays an upper bound; the base is exact.
+func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bool) {
+	grown := max(extraInputTokens, 0)
+	var intent *ModelFact
+	if s.modelIntent != "" {
+		intent = s.modelIntents[s.modelIntent]
+		if intent != nil {
+			grown += max(intent.Effective.MaxTokens, 0)
+		}
+	} else {
+		intent = s.modelIntents[s.latestAttempt]
+		if s.latestResult != nil {
+			if b, err := json.Marshal(s.latestResult.Message); err == nil {
+				grown += len(b)
+			}
+		}
+		for _, id := range s.callOrder {
+			if s.callAttempts[id] != s.latestAttempt {
+				continue
+			}
+			if o := s.Tools[id].Outcome; o != nil {
+				if b, err := json.Marshal(o); err == nil {
+					grown += len(b)
+				}
+			}
+		}
+	}
+	if intent == nil {
+		return llm.Request{}, false
+	}
+	size := intent.EstimatedInputTokens + 2*grown
+	// EstimatedInputTokens is the body size plus 1024, so the body carries
+	// the rest; a JSON string keeps it valid.
+	bodySize := max(size-1024, 2)
+	body := make([]byte, bodySize)
+	body[0] = '"'
+	for i := 1; i < bodySize-1; i++ {
+		body[i] = 'x'
+	}
+	body[bodySize-1] = '"'
+	req, err := llm.NewRequest(llm.RequestSnapshot{
+		Origin: intent.Origin,
+		Input: llm.Input{
+			Model:    intent.Model,
+			Messages: []llm.Message{llm.UserMessage(llm.Text("estimate"))},
+			Tools:    intent.Tools,
+			Settings: intent.Effective,
+		},
+		Effective: intent.Effective,
+		Body:      body,
+		ModelInfo: intent.ModelInfo,
+	})
+	return req, err == nil
+}
+
+// estimatedItemTokens sizes context items the way Dashi estimates request
+// input: one token per byte of their encoding, an upper bound.
+func estimatedItemTokens(items []ContextItem) int {
+	n := 0
+	for _, item := range items {
+		if b, err := json.Marshal(item.Message); err == nil {
+			n += len(b)
+		}
+	}
+	return n
 }
 
 // hookMark and dropHooks bracket one hook chain. When the run's context ends

@@ -1460,7 +1460,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		return r.contextStop(), false
 	}
 	if len(finish.deliver) > 0 {
-		if r.finishCanContinue(state) {
+		if r.nextCallFits(state, estimatedItemTokens(finish.deliver)) {
 			step := Step{
 				Kind:    StepLoopContinued,
 				Context: &ContextFact{Items: finish.deliver},
