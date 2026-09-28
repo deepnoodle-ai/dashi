@@ -379,11 +379,39 @@ type ModelFact struct {
 	// safely not dispatched.
 	Uncertain bool `json:"uncertain,omitempty"`
 
-	// Interrupted preserves partial output and usage without making them
-	// actionable. A later model call may safely replace this one.
-	Interrupted bool `json:"interrupted,omitempty"`
+	// Interrupted, when set, names why the call was cut short. The settlement
+	// preserves partial output and usage without making them actionable, and
+	// a later model call may safely replace this one.
+	Interrupted InterruptCause `json:"interrupted,omitempty"`
 	// NoDispatch excludes an intent stopped before the provider call began.
 	NoDispatch bool `json:"no_dispatch,omitempty"`
+}
+
+// InterruptCause records why a model call was cut short before it produced a
+// complete result. The zero value, InterruptNone, means it was not. The cause
+// is recorded rather than a flag so replay, accounting, and live consumers can
+// tell a crash recovery from a stop the run chose.
+type InterruptCause string
+
+const (
+	// InterruptNone means the call was not interrupted.
+	InterruptNone InterruptCause = ""
+	// InterruptWorker settles a call recovered after the worker stopped
+	// before its result was recorded (decision 24).
+	InterruptWorker InterruptCause = "worker"
+	// InterruptRun settles a call the run stopped: its context ended, the
+	// turn deadline passed, or a pause arrived before dispatch.
+	InterruptRun InterruptCause = "run"
+)
+
+// valid reports whether c is a cause this version records. Replay rejects
+// any other value rather than guessing how to account for it.
+func (c InterruptCause) valid() bool {
+	switch c {
+	case InterruptNone, InterruptWorker, InterruptRun:
+		return true
+	}
+	return false
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

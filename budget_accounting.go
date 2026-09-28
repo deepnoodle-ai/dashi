@@ -68,7 +68,7 @@ func modelUsageMayBePartial(settlement *ModelFact) bool {
 	if settlement == nil {
 		return false
 	}
-	if settlement.Interrupted || settlement.Uncertain {
+	if settlement.Interrupted != InterruptNone || settlement.Uncertain {
 		return true
 	}
 	if settlement.Result == nil {

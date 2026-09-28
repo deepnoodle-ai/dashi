@@ -122,7 +122,8 @@ The runner records a model intent before `Send` and a tool start before a local
 executor call, and records their outcomes before acting on them. An interrupted
 model call keeps its partial result and usage for display and accounting, and
 `Continue` resends it under a new attempt ID unless a provider-hosted tool may
-have had an effect. Interrupted calls do not use `ModelAttempts`. A started
+have had an effect. `ModelFact.Interrupted` records why a call was cut short
+(`run` or `worker`). Interrupted calls do not use `ModelAttempts`. A started
 tool with no result is rerun only when declared `ReadOnly` or `Idempotent`;
 otherwise the effect is uncertain until the host reconciles it with
 `Settle{Outcome}` or `Settle{ModelResult}`. `Settle{ModelFailure}` requires

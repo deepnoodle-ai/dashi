@@ -72,9 +72,9 @@ type Runner struct {
 const StopInterrupted StopKind = "interrupted" // resumable
 
 // ModelFact.Interrupted: the runner stopped reading this model call before it
-// finished. Partial output and usage are kept for display and accounting;
-// they are never acted on.
-Interrupted bool `json:"interrupted,omitempty"`
+// finished, and why ("run" or "worker"; steering.md adds "steering"). Partial
+// output and usage are kept for display and accounting; never acted on.
+Interrupted InterruptCause `json:"interrupted,omitempty"`
 ```
 
 **Pause** is for graceful shutdown. When the channel closes, the runner stops

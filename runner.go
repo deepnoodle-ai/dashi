@@ -1024,7 +1024,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 		AttemptID:   s.modelIntent,
 		MessageID:   s.modelMessages[s.modelIntent],
 		Error:       "worker stopped before model result",
-		Interrupted: true,
+		Interrupted: InterruptWorker,
 		Uncertain:   unsafe,
 	}
 	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
@@ -1245,7 +1245,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			AttemptID:   attempt,
 			MessageID:   messageID,
 			Error:       reason,
-			Interrupted: true,
+			Interrupted: InterruptRun,
 			NoDispatch:  true,
 		}
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
@@ -1337,7 +1337,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		sendReason == llm.ReasonCallTimeout
 	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
 	if r.ctx.Err() != nil && !timeoutWon {
-		settled.Interrupted = true
+		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
 		settled.Uncertain = unsafeHosted(defs)
 		mergeObserved()

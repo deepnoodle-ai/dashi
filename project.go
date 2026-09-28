@@ -106,7 +106,7 @@ func projectWithHistory(
 			}
 		case StepModelSettled, StepModelReconciled:
 			if step.Model.Result == nil || step.Model.Error != "" ||
-				step.Model.Interrupted {
+				step.Model.Interrupted != InterruptNone {
 				continue
 			}
 			m := step.Model.Result.Message.Clone()

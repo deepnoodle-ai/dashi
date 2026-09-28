@@ -68,7 +68,7 @@ func settledResults(steps []Step) []*llm.Result {
 			step.Model == nil ||
 			step.Model.Result == nil ||
 			step.Model.Error != "" ||
-			step.Model.Interrupted {
+			step.Model.Interrupted != InterruptNone {
 			continue
 		}
 		out = append(out, step.Model.Result)

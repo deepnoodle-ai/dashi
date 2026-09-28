@@ -33,8 +33,8 @@ type Call struct {
 //     after the client's own lost acknowledgement), join or reuse it instead
 //     of dispatching again.
 //   - Recovery never reuses an ID. An interrupted call is settled under its
-//     own ID (Interrupted is set), and the resend is a new intent with a new
-//     ID. Work still running under the old ID is stale: Dashi will not act on
+//     own ID (dashi.ModelFact.Interrupted names the cause), and the resend is
+//     a new intent with a new ID. Work still running under the old ID is stale: Dashi will not act on
 //     its output, though its usage is the application's to account. After a
 //     worker crash leaves the intent unsettled, a host that finds the old job
 //     finished can record it with Settle{CallID: id, ModelResult: ...} before

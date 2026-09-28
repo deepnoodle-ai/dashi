@@ -101,7 +101,7 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 	}
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelSettled {
-			if step.Model.Interrupted ||
+			if step.Model.Interrupted != InterruptNone ||
 				step.Model.ErrorReason != llm.ReasonStreamIdleTimeout {
 				t.Fatalf("provider timeout lost to later host cancel: %+v", step.Model)
 			}

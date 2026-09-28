@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -27,7 +28,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				MessageID:   "message-1",
 				Result:      &partial,
 				Error:       "lease lost",
-				Interrupted: true,
+				Interrupted: InterruptRun,
 			},
 		},
 		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
@@ -39,7 +40,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				AttemptID:   "model-2",
 				MessageID:   "message-2",
 				Result:      &second,
-				Interrupted: true,
+				Interrupted: InterruptRun,
 			},
 		},
 		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
@@ -51,7 +52,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				AttemptID:   "model-3",
 				MessageID:   "message-3",
 				Result:      &third,
-				Interrupted: true,
+				Interrupted: InterruptRun,
 			},
 		},
 		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
@@ -99,6 +100,28 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	}
 	if view.ReadyToContinue {
 		t.Fatal("interruption-limited turn is ready to continue")
+	}
+}
+
+func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
+	partial := final("partial")
+	turn := interruptionRecord(
+		interruptionStart(testAgent()),
+		interruptionModelIntent("model-1"),
+		Step{
+			Kind: StepModelSettled,
+			Model: &ModelFact{
+				AttemptID:   "model-1",
+				MessageID:   "message-1",
+				Result:      &partial,
+				Error:       "cut short",
+				Interrupted: InterruptCause("meteor"),
+			},
+		},
+	)
+	_, err := Replay(turn)
+	if err == nil || !strings.Contains(err.Error(), "interrupt cause") {
+		t.Fatalf("replay of an unknown interrupt cause: err=%v", err)
 	}
 }
 

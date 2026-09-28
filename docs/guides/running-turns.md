@@ -312,7 +312,10 @@ transaction with your own rows:
 - `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.
 
 An interrupted model call is sent again; its partial output is display-only,
-while its usage still counts toward spend. A started tool without a result is
+while its usage still counts toward spend. Its settlement's
+`ModelFact.Interrupted` names the cause: `InterruptRun` when the run stopped
+the call, `InterruptWorker` when recovery settles a call left open by a
+worker that stopped. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
 `Continue`. `Settle` only records, including for approvals and external tool

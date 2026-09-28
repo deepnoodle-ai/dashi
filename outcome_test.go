@@ -539,7 +539,7 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 	interrupted := settledStep(llm.Result{
 		Message: llm.AssistantMessage(hostedUsePart("lost")),
 	})
-	interrupted.Model.Interrupted = true
+	interrupted.Model.Interrupted = InterruptRun
 	turn := Turn{ID: "t1", Steps: []Step{
 		settledStep(llm.Result{
 			Message: llm.AssistantMessage(
