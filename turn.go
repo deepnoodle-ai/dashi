@@ -262,7 +262,8 @@ const (
 	WarningToolChoiceCleared WarningCode = "tool_choice_cleared"
 	// WarningHideIgnored means a BeforeModel hook asked to hide a name that
 	// no tool of the call has, or dashi_submit_output, which cannot be
-	// hidden. A name that does not match exactly hides nothing.
+	// hidden. A name that does not match exactly hides nothing. With a
+	// dynamic toolset, a tool absent from this call warns as unknown too.
 	WarningHideIgnored WarningCode = "hide_ignored"
 )
 
@@ -364,7 +365,8 @@ type ModelFact struct {
 	CapabilityPolicy llm.CapabilityPolicy `json:"capability_policy"`
 	Unverified       []llm.Feature        `json:"unverified,omitempty"`
 	Tools            []tool.Definition    `json:"tools,omitempty"`
-	// Hidden names the tools a BeforeModel hook removed from this call.
+	// Hidden names the tools BeforeModel hooks removed from this call. A
+	// call to one of them settles as not available, by this record.
 	Hidden   []string               `json:"hidden,omitempty"`
 	Result   *llm.Result            `json:"result,omitempty"`
 	Error    string                 `json:"error,omitempty"`

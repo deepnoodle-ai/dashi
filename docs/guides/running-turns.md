@@ -99,14 +99,22 @@ plan := dashi.ModelHook{Name: "plan", Func: func(
 }}
 ```
 
-A hide wins over a forced tool choice that names a hidden tool, which is
-cleared with a warning, and `dashi_submit_output` cannot be hidden. It shapes
-the offer only: a failing hook is skipped and offers the tools again, so pair
-it with a `BeforeTool` deny where a call must never run. Changing the offered
-tools resets the provider's prompt cache, so keep hides stable. A call to a
-hidden tool is not run and reads "This tool is not available now." A package
-can export `Hooks()` and `Tools()`; join them with `dashi.JoinHooks` and
-`tool.Join`, which fails on a duplicate tool name.
+Names must match exactly; a name no tool of this call has, including a tool a
+dynamic toolset left out this time, is ignored with a `WarningHideIgnored`, and
+`dashi_submit_output` cannot be hidden. A hide wins over a forced tool choice
+that names a tool any hook hid: the choice is cleared, with a
+`WarningToolChoiceCleared`. If no tools are left, the tool choice and
+parallel-tools setting are cleared too. The hidden names are recorded in the
+intent's `ModelFact.Hidden`, and a call to a hidden tool is not run and reads
+"This tool is not available now."
+
+A hide shapes the offer only: a failing hook is skipped and offers the tools
+again. To fail closed, handle errors inside the hook and return the hide, or
+pair it with a `BeforeTool` deny. A hidden call never reaches `BeforeTool`, so
+the deny acts only when a failed hook offered the tool again. Changing the
+offered tools resets the whole cached prompt, not only the tools, so keep hides
+stable. A package can export `Hooks()` and `Tools()`; join them with
+`dashi.JoinHooks` and `tool.Join`, which fails on a duplicate tool name.
 
 An `AfterTool` hook changes only what the model sees of a result: the next model
 call, and the next turn's history through `dashi.Project`. The record,
