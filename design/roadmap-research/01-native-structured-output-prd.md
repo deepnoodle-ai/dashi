@@ -1,52 +1,58 @@
-# PRD: native structured output for model calls
+# PRD: native structured output for direct model calls
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for discussion |
+| Status | Draft for independent design review; no implementation yet |
 | Date | 2026-09-28 |
-| Roadmap | [Item 1](../remaining-work.md), size M / medium difficulty |
-| Evidence | [Source review](01-native-structured-output-research.md), [current turn contract](../structured-output.md) |
+| Roadmap | [Item 1](../remaining-work.md), M / medium |
+| Evidence | [Source review](01-native-structured-output-research.md), [turn output contract](../structured-output.md), Dashi `16700d1` |
 
-## User problem
+## User problem and outcome
 
-A Go developer using `llm.Generate` for classification or extraction cannot ask Dashi to use a provider's native JSON Schema response mode. They must hand-build provider requests or run a whole agent turn with a synthetic output tool. Turn users already get a validated `Outcome.Output`, but that path never uses native formatting where it could reduce malformed responses. The smallest useful addition should let both kinds of caller express the **same intended object schema** while keeping the difference between provider guidance and locally verified output clear.
+A Go developer extracting a small object with `llm.Generate` cannot request a provider's JSON Schema response mode or receive a locally validated value. They either assemble provider-specific HTTP requests or run an agent turn with a synthetic final tool. A successful direct call should give them one checked JSON object, while a refusal, output limit or failed validation remains explicit with its usage and provider evidence.
 
-## Goals and non-goals
+This first slice covers **direct calls through the OpenAI Responses adapter**. It does not change agent turns. The turn's `OutputSchema` and recorded `Outcome.Output` already form a durable contract; using native formatting inside the runner would require separate proof for tools, recovery and output provenance.
 
-**Goals:** One discoverable schema setting for a direct model call; a validated object on successful final responses; accurate prepared-request evidence of the selected native route; and optional native use by the turn runner without changing its `Outcome.Output` contract. The usable first slice must include at least one qualified provider route and a clear unsupported-path error.
+## Proposed API and developer flow
 
-**Non-goals:** A universal JSON Schema dialect converter, automatic Go struct-to-schema generation, arbitrary scalar-root turn output, a new retry loop, and a switch that makes every tool-using turn native. Do not replace the current reserved output tool until native/tool combinations are qualified separately.
-
-## Proposed smallest API and flow
-
-Add `llm.Settings.Output *llm.OutputFormat`, initially `{Schema json.RawMessage, Name string, Description string}`. A non-nil value requests a JSON object satisfying `Schema`; `Name` is optional and Dashi supplies a stable provider-safe default when one is needed. Reuse the turn schema preflight rules and limits where possible. One call then reads as:
+Add `llm.Settings.OutputSchema json.RawMessage` and `llm.Result.Output json.RawMessage`. A nonempty schema requests a **strict, object-root JSON Schema final answer**. The caller's schema is the local validation authority. `Result.Output` is non-nil only after a finished answer passes local JSON parsing and schema validation; the `Message` and `Raw` response remain available. An empty setting preserves current behavior. Use a fixed provider-safe format name (`dashi_output`) on the wire; callers need no new name or format-type vocabulary.
 
 ```go
+schema := json.RawMessage(`{
+  "type":"object", "additionalProperties":false,
+  "properties":{"label":{"type":"string"}}, "required":["label"]
+}`)
 result, err := llm.Generate(ctx, client, llm.Input{
-    Model: "...",
-    Messages: messages,
-    Settings: llm.Settings{Output: &llm.OutputFormat{Schema: schema}},
+    Model: model,
+    Messages: []llm.Message{llm.UserMessage(llm.Text(input))},
+    Settings: llm.Settings{OutputSchema: schema},
 }, nil)
-if err != nil { /* includes partial result, usage, and cause where available */ }
-var value Classification
-if err := json.Unmarshal(result.Output, &value); err != nil { /* application type mismatch */ }
+if err != nil { /* handle failure; result may contain usage and content */ }
+if result.Stop.Kind != llm.StopFinished { /* handle refusal or limit */ }
+var value struct{ Label string `json:"label"` }
+if err := json.Unmarshal(result.Output, &value); err != nil { /* Go type mismatch */ }
 ```
 
-`Result.Output` is set only after Dashi validates a finished model response against the requested schema. Keep `Result.Message`, stop, raw response, usage and cost; streamed text remains provisional until `Send` completes. If the model calls tools, refuses, reaches an output limit, or returns invalid JSON/schema, `Output` stays absent and the caller gets the existing stop or a typed validation error, with accounting preserved. A helper for decoding into a Go value can follow if repeated use shows friction; the schema remains the validation authority.
+The example schema is intentionally strict-compatible. Existing `MustOutputSchema[T]` targets the broader turn contract; a type with `omitempty` may generate an optional property that OpenAI strict mode rejects. Document the error and the required/nullable alternative rather than silently changing the caller's schema. A typed decode helper can follow if use shows repeated friction.
 
-`Client.Prepare` chooses a provider-native format only when the route supports it, records the effective format and exact encoded body in the existing request snapshot, and returns an actionable error for unsupported schema keywords or incompatible tools. It must **not** silently omit the schema under `CapabilityAdjust`. For a turn, the runner may opt into a qualified native route for a final model call, validate the returned object, then record the existing `StepOutputRecorded` / `StructuredOutput` with a new native source and attempt ID. Otherwise it keeps today's submission tool. The public `Agent`/`Start.OutputSchema` and `Outcome.Output` shape stay the same.
+## First route and correctness rules
 
-## Acceptance criteria
+1. `Input.Validate` checks that a requested schema is a self-contained, bounded JSON Schema object with `type:"object"`; share the existing turn compiler and value limits through an internal package so the two contracts do not drift. The OpenAI Responses `Prepare` additionally checks the documented strict subset, including required property sets, `additionalProperties:false` on each object, supported keywords and structural limits. Report the schema path and reason. Malformed schemas are `ErrorInvalidRequest`; valid JSON Schema outside this route's strict subset is `ErrorUnsupported`. Do not add required fields, nullable unions, or `additionalProperties` on the caller's behalf.
+2. The adapter sends `text.format` with `type:"json_schema"`, `name:"dashi_output"`, `strict:true` and the **unchanged** requested schema. `RequestSnapshot.Input`, `Effective` and exact `Body` show what was requested and sent. No schema drop is allowed under `CapabilityAdjust`.
+3. Register `FeatureStructuredOutput` in model evidence. Known unsupported models fail in `Prepare`; unknown support follows existing policy: `CapabilityStrict` rejects, `CapabilityAdjust` sends and records `Unverified`. Catalog support claims require official model evidence; a custom Responses-compatible endpoint needs endpoint-scoped `ModelInfo` for a known claim. Other adapters reject `OutputSchema` in `Prepare` until their route is implemented. The first live qualification targets the public OpenAI Responses endpoint, not all compatible proxies.
+4. For this slice, current-call `Tools`, hosted tools, `ToolChoice` and `ParallelTools` with `OutputSchema` fail before dispatch. Prior tool history may be replayed normally. Combining native formatting with offered tools is a later route-specific qualification task.
+5. Both blocking and streaming send paths validate the same terminal `llm.Result`. A finished response must contain exactly one assistant output-text JSON object, with no additional answer text; reasoning/opaque replay content can coexist. Validate the raw text as one JSON value, enforce the value-size limit, then schema-check and copy it into `Output`. Stream deltas stay provisional.
+6. Refusal, output limit, tool use, and other non-finished stops return their existing result/stop with `Output=nil`; they are not relabeled as invalid JSON. A finished response with missing, malformed, multi-part, or schema-invalid answer returns the accumulated `Result` plus `llm.Error{Category: ErrorProtocol}` whose cause names the output failure. Under `Send`'s current contract, an error makes `Stop.Kind=StopIncomplete`; `Stop.Raw`, `Raw`, message, usage and cost retain provider evidence. Do not auto-retry a paid request.
 
-1. A direct `llm.Generate` caller can supply a self-contained object JSON Schema and obtain a locally validated `Result.Output` from at least one supported native route; complete and streaming calls agree.
-2. `Prepare` shows the selected route, effective settings and exact provider body. Unsupported route or schema features fail before dispatch with a field-specific error. Unknown support is not advertised as guaranteed.
-3. A malformed, truncated or refused final response cannot produce `Result.Output`; its result/error preserves usage, cost and the provider stop. Tool-call responses are not misclassified as malformed final output.
-4. Existing turn output tests pass without changes to caller-visible output. A native turn path, when enabled and qualified, writes the same replayable output fact and provenance as the tool path.
-5. Provider fixtures cover accepted JSON, unsupported schema, refusal, output limit, tool-call interaction, and streaming. A dated live probe records route/model/version separately from fixture coverage.
+## Acceptance and qualification
 
-## Risks and open decisions
+- The API example works with a strict-compatible schema on OpenAI Responses. `Prepare` and restored request snapshots preserve the exact `text.format` bytes. Empty `OutputSchema` leaves existing payloads and results unchanged.
+- Offline fixtures exercise valid blocking and terminal streaming output, malformed JSON, schema mismatch, multiple text parts, refusal, output limit, unexpected tool call, failed provider response, and interrupted stream. All non-success cases keep `Output=nil`; usage and cost survive when reported. Stream and blocking results agree for equivalent terminal responses.
+- Invalid root, oversized schema/value, optional object fields, missing `additionalProperties:false`, unsupported keywords, unsupported model/route, and current-call tools fail at the specified boundary with useful paths. A fixture proves the input schema is never rewritten, and another proves `CapabilityAdjust` never omits it.
+- Add a short direct-call guide covering preparation errors, checking `Stop`, decoding `Output`, and why the turn schema helper may need stricter fields. Existing turn output tests pass unchanged. A dated live probe records endpoint, model snapshot, schema and observed result separately from fixture coverage; a failed or unavailable probe must not be reported as qualified.
 
-- **Provider/tool combinations:** ADK uses a tool fallback for a reason. Qualify native mode with tools per route; default to the established turn tool path until evidence supports a switch. Whether the first direct-call release allows `Output` with tools remains open.
-- **Schema adaptation:** OpenAI strict mode can require schema normalization. Any transformation must be visible in prepared evidence and must preserve the caller's local validation contract. If it cannot, reject it with a useful explanation.
-- **Surface naming:** `Settings.Output` matches the existing model-control direction; `OutputSchema` matches `Start.OutputSchema`. Settle one name before implementation, and document that it is a *model-call format request*, while `Outcome.Output` is a *validated turn result*.
-- **Rollout:** Start with an OpenAI Responses route because Dive has a precedent. Add Chat Completions, Anthropic, and Gemini only with adapter fixtures and live qualification for each exact route. No claim of universal support follows from a shared interface.
+## Alternatives, risks and follow-up
+
+`Settings.OutputSchema` and a fixed wire name avoid Dive's three-mode `ResponseFormat` surface while matching Dashi's turn vocabulary. A provider-neutral schema normalizer could accept more caller schemas, but silently making optional fields required or nullable changes application meaning; reject in this slice. A result-only `Message.Text()` design would force every caller to duplicate validation and could splice unrelated text parts. `Result.Output` makes the validated value discoverable without changing the original response.
+
+The strict subset and model support can drift. Keep route-specific preflight conservative, source its constraints from the current OpenAI guide, and treat live qualification as evidence for named models only. Follow-up work may add other provider routes, optional typed decoding, and native formatting in a turn. That turn path must still record the existing `StructuredOutput` fact and attempt/source provenance, and must prove native/tool coexistence before switching from `dashi_submit_output`.
