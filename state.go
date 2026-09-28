@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/tool"
@@ -41,13 +43,19 @@ type TurnView struct {
 	// Interruptions counts resumes after a context stop or worker crash.
 	Interruptions  int
 	ProviderPauses int
-	Usage          *llm.Usage
-	Stop           Stop
-	Output         *StructuredOutput
-	Pending        []string
+	// Budget is the current cap, including any recorded raises.
+	Budget *Budget
+	// Raises preserves the authorized cap changes in order.
+	Raises []BudgetRaise
+	// Spend is rebuilt from committed model and tool facts.
+	Spend   Spend
+	Stop    Stop
+	Output  *StructuredOutput
+	Pending []string
 	// Warnings includes nonfatal conditions from acknowledged steps.
 	Warnings []Warning
-	// ReadyToContinue means a Continue command can pick up this record.
+	// ReadyToContinue means Continue can run without first raising a budget.
+	// A limited turn with a spent cap can still accept a Continue that raises it.
 	ReadyToContinue bool
 	Tools           map[string]ToolView
 }
@@ -59,7 +67,8 @@ type replayState struct {
 	unresolvedModel        string
 	unresolvedPartial      bool
 	unresolvedInterrupted  bool
-	modelUsages            map[string]*llm.Usage
+	modelIntents           map[string]*ModelFact
+	modelSettlements       map[string]*ModelFact
 	modelMessages          map[string]string
 	callAttempts           map[string]string
 	latestAttempt          string
@@ -89,7 +98,19 @@ func snapshotView(v TurnView) TurnView {
 	return out
 }
 func replay(t Turn) (*replayState, error) {
-	s := &replayState{TurnView: TurnView{ID: t.ID, Tools: map[string]ToolView{}}, modelDefs: map[string]tool.Definition{}, hosted: map[string]llm.HostedApprovalRequest{}, commandDigests: map[string]string{}, modelUsages: map[string]*llm.Usage{}, modelMessages: map[string]string{}, callAttempts: map[string]string{}}
+	s := &replayState{
+		TurnView: TurnView{
+			ID:    t.ID,
+			Tools: map[string]ToolView{},
+		},
+		modelDefs:        map[string]tool.Definition{},
+		hosted:           map[string]llm.HostedApprovalRequest{},
+		commandDigests:   map[string]string{},
+		modelIntents:     map[string]*ModelFact{},
+		modelSettlements: map[string]*ModelFact{},
+		modelMessages:    map[string]string{},
+		callAttempts:     map[string]string{},
+	}
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
 	}
@@ -125,16 +146,56 @@ func replay(t Turn) (*replayState, error) {
 		s.Revision = step.Seq
 	}
 	s.Pending = s.pending()
-	for _, usage := range s.modelUsages {
-		if usage != nil {
-			if s.Usage == nil {
-				s.Usage = &llm.Usage{}
-			}
-			s.Usage.Add(usage)
-		}
+	if err := s.calculateSpend(); err != nil {
+		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
 	s.ReadyToContinue = s.canContinue()
 	return s, nil
+}
+
+func (s *replayState) calculateSpend() error {
+	s.Spend = Spend{
+		Cost:     map[string]float64{},
+		ToolCost: map[string]float64{},
+	}
+	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
+		usage, charge, estimated, counted := attemptSpend(
+			s.modelIntents[id], s.modelSettlements[id],
+		)
+		if !counted {
+			continue
+		}
+		if usage != nil {
+			if err := s.Spend.Usage.Add(usage); err != nil {
+				return err
+			}
+		}
+		if estimated {
+			s.Spend.Estimated++
+		}
+		if charge == nil {
+			s.Spend.CostUnknown++
+			continue
+		}
+		if err := addCurrencyCost(s.Spend.Cost, charge.Currency, charge.Total); err != nil {
+			return err
+		}
+		if s.Budget != nil && s.Budget.MaxCost != nil &&
+			charge.Currency != s.Budget.MaxCost.Currency {
+			s.Spend.CostUnknown++
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(s.Tools)) {
+		view := s.Tools[id]
+		if view.Status == ToolSettled && view.Outcome != nil &&
+			view.Outcome.Cost != nil {
+			cost := view.Outcome.Cost
+			if err := addCurrencyCost(s.Spend.ToolCost, cost.Currency, cost.Amount); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
@@ -160,7 +221,11 @@ func (s *replayState) apply(step Step) error {
 			step.Stop.Kind == StopLimited &&
 			(step.Stop.Reason == "deadline" ||
 				step.Stop.Reason == "interruptions" ||
-				step.Stop.Reason == "model_attempts" && s.finalAnswerOnly):
+				step.Stop.Reason == "model_attempts" && s.finalAnswerOnly ||
+				step.Stop.Limit != nil &&
+					(step.Stop.Limit.Kind == LimitOutputTokens ||
+						step.Stop.Limit.Kind == LimitTotalTokens ||
+						step.Stop.Limit.Kind == LimitCost)):
 		default:
 			return errors.New("turn with recorded output can only complete")
 		}
@@ -210,6 +275,13 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		s.Definition = step.Started.Definition
+		if step.Started.Budget != nil {
+			if err := step.Started.Budget.Validate(); err != nil {
+				return err
+			}
+			budget := step.Started.Budget.Clone()
+			s.Budget = &budget
+		}
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
 	case StepDelivered:
 		if step.Context == nil || len(step.Context.Items) == 0 {
@@ -221,8 +293,29 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 	case StepContinued:
-		if !s.canContinue() {
+		if err := s.calculateSpend(); err != nil {
+			return err
+		}
+		if !s.canContinueWithBudget(step.Budget) {
 			return errors.New("turn cannot continue")
+		}
+		if step.Budget != nil {
+			if step.At.IsZero() {
+				return errors.New("budget raise requires a recorded time")
+			}
+			old := Budget{}
+			if s.Budget != nil {
+				old = *s.Budget
+			}
+			if err := step.Budget.raisedFrom(old); err != nil {
+				return err
+			}
+			budget := step.Budget.Clone()
+			s.Budget = &budget
+			s.Raises = append(s.Raises, BudgetRaise{
+				Budget: budget.Clone(),
+				At:     step.At,
+			})
 		}
 		if s.Stop.Kind == StopInterrupted || s.Stop.Kind == "" {
 			s.Interruptions++
@@ -256,10 +349,19 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Provider != s.Definition.Provider || step.Model.API != s.Definition.API || step.Model.Model != s.Definition.Model {
 			return errors.New("model intent changed destination")
 		}
+		if step.Model.EstimatedInputTokens < 0 {
+			return errors.New("negative estimated input")
+		}
+		if step.Model.AtRisk != nil {
+			if err := step.Model.AtRisk.Validate(); err != nil {
+				return err
+			}
+		}
 		if step.Model.FinalAnswerOnly && (!s.Definition.Limits.ReserveFinalAnswer || s.ModelAttempts == 0 || s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
 		s.modelIntent = step.Model.AttemptID
+		s.modelIntents[step.Model.AttemptID] = step.Model
 		s.modelCalls++
 		s.finalAnswerOnly = step.Model.FinalAnswerOnly
 		s.unresolvedPartial = false
@@ -297,6 +399,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
 		}
+		if err := validateModelAccounting(step.Model); err != nil {
+			return err
+		}
 		if step.Model.Failure != "" && step.Model.Failure != llm.FailureUnknown && step.Model.Failure != llm.FailureRejected && step.Model.Failure != llm.FailureNotDispatched {
 			return errors.New("invalid model failure disposition")
 		}
@@ -314,6 +419,7 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		s.modelIntent = ""
+		s.modelSettlements[step.Model.AttemptID] = step.Model
 		if !step.Model.Interrupted {
 			s.ModelAttempts++
 		}
@@ -342,7 +448,11 @@ func (s *replayState) apply(step Step) error {
 		if step.Model == nil || step.Model.AttemptID != s.unresolvedModel || step.Model.MessageID != s.modelMessages[s.unresolvedModel] || (step.Model.Result == nil && step.Model.Error == "") {
 			return errors.New("model reconciliation without uncertain attempt")
 		}
+		if err := validateModelAccounting(step.Model); err != nil {
+			return err
+		}
 		s.unresolvedModel = ""
+		s.modelSettlements[step.Model.AttemptID] = step.Model
 		// Verified nonexecution clears uncertainty; Continue may retry.
 		if step.Model.Error != "" &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
@@ -548,6 +658,14 @@ func (s *replayState) apply(step Step) error {
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
+		if step.Stop.Limit != nil {
+			if step.Stop.Kind != StopLimited {
+				return errors.New("limit detail requires limited stop")
+			}
+			if err := step.Stop.Limit.Validate(); err != nil {
+				return err
+			}
+		}
 		if step.Stop.Kind != StopInterrupted {
 			s.awaitingClassification = false
 		}
@@ -605,9 +723,6 @@ func (s *replayState) pending() []string {
 func (s *replayState) recordResult(attempt string, result *llm.Result, actionable bool) error {
 	s.latestResult = result
 	s.latestAttempt = attempt
-	if result.Usage != nil {
-		s.modelUsages[attempt] = result.Usage.Copy()
-	}
 	if !actionable {
 		return nil
 	}
@@ -646,6 +761,10 @@ func (s *replayState) recordResult(attempt string, result *llm.Result, actionabl
 }
 
 func (s *replayState) canContinue() bool {
+	return s.canContinueWithBudget(nil)
+}
+
+func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 	if s.Revision == 0 || s.Stop.Kind == StopCompleted ||
 		s.Stop.Kind == StopCanceled || s.unresolvedModel != "" ||
 		len(s.hosted) > 0 {
@@ -675,6 +794,42 @@ func (s *replayState) canContinue() bool {
 			s.ModelAttempts >= s.Definition.Limits.ModelAttempts) {
 		return false
 	}
+	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
+		limit := s.Stop.Limit
+		budget := s.Budget
+		if raise != nil {
+			budget = raise
+		}
+		switch limit.Kind {
+		case LimitCost:
+			if s.Spend.CostUnknown > 0 {
+				return false
+			}
+			if limit.UnpricedModel != "" {
+				break
+			}
+			if budget == nil || budget.MaxCost == nil {
+				return false
+			}
+			used, known := s.Spend.costIn(budget.MaxCost.Currency)
+			if !known || limit.AtRisk > 0 &&
+				used+limit.AtRisk > budget.MaxCost.Amount ||
+				limit.AtRisk == 0 && used >= budget.MaxCost.Amount {
+				return false
+			}
+		case LimitOutputTokens:
+			if budget == nil || budget.MaxOutputTokens <=
+				s.Spend.Usage.OutputTokens {
+				return false
+			}
+		case LimitTotalTokens:
+			total := s.Spend.Usage.TotalInputTokens() +
+				s.Spend.Usage.OutputTokens
+			if budget == nil || budget.MaxTotalTokens <= total {
+				return false
+			}
+		}
+	}
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
 		switch v.Status {
@@ -695,12 +850,47 @@ func (s *replayState) interruptionLimitReached() bool {
 	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""
 }
 
+func validateModelAccounting(fact *ModelFact) error {
+	if fact.NoDispatch && (!fact.Interrupted || fact.Result != nil ||
+		fact.Charge != nil || fact.Uncertain) {
+		return errors.New("known nondispatch cannot have a model result or charge")
+	}
+	if fact.Result != nil {
+		if fact.Result.Usage != nil {
+			if err := fact.Result.Usage.Validate(); err != nil {
+				return err
+			}
+		}
+		if fact.Result.Cost != nil {
+			if err := fact.Result.Cost.Validate(); err != nil {
+				return err
+			}
+		}
+	}
+	if fact.Charge != nil {
+		if err := fact.Charge.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateStepPayload(step Step) error {
-	if len(step.Warnings) > 0 && step.Kind != StepContinued {
-		return errors.New("warnings require a continuation step")
+	if step.Budget != nil && step.Kind != StepContinued {
+		return errors.New("budget raise requires a continuation step")
+	}
+	if len(step.Warnings) > 0 && step.Kind != StepContinued &&
+		step.Kind != StepModelIntent {
+		return errors.New("warnings require a continuation or model intent step")
 	}
 	for _, warning := range step.Warnings {
-		if warning.Code != WarningHistoryMismatch || warning.Message == "" {
+		if warning.Message == "" ||
+			(warning.Code != WarningHistoryMismatch &&
+				warning.Code != WarningBudgetClamp) ||
+			(warning.Code == WarningHistoryMismatch &&
+				step.Kind != StepContinued) ||
+			(warning.Code == WarningBudgetClamp &&
+				step.Kind != StepModelIntent) {
 			return errors.New("invalid warning")
 		}
 	}

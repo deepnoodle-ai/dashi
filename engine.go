@@ -184,6 +184,11 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
 			return Outcome{}, errors.New("kernel: start requires a new turn and input")
 		}
+		if c.Budget != nil {
+			if err := c.Budget.Validate(); err != nil {
+				return Outcome{}, err
+			}
+		}
 		if err := validateHistory(c.History); err != nil {
 			return Outcome{}, err
 		}
@@ -210,6 +215,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			CommandDigest: d,
 			Started: &StartFact{
 				Definition:         def,
+				Budget:             cloneBudget(c.Budget),
 				OutputSchema:       slices.Clone(c.OutputSchema),
 				Origin:             origin,
 				HistoryFingerprint: fingerprint,
@@ -227,6 +233,15 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		return rt.current(), nil
 	case Continue:
+		if c.Budget != nil {
+			old := Budget{}
+			if state.Budget != nil {
+				old = *state.Budget
+			}
+			if err := c.Budget.raisedFrom(old); err != nil {
+				return Outcome{}, err
+			}
+		}
 		if state.interruptionLimitReached() {
 			step := Step{
 				Kind:          StepStopped,
@@ -235,6 +250,11 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				Stop: &Stop{
 					Kind:   StopLimited,
 					Reason: "interruptions",
+					Limit: &LimitDetail{
+						Kind:  LimitInterruptions,
+						Limit: float64(def.Limits.interruptionLimit()),
+						Used:  float64(state.Interruptions),
+					},
 				},
 			}
 			if o := rt.commit(step); o != nil {
@@ -242,7 +262,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			}
 			return rt.current(), nil
 		}
-		if !state.canContinue() {
+		if !state.canContinueWithBudget(c.Budget) {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
 		}
 		if err := validateHistory(c.History); err != nil {
@@ -257,6 +277,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			Kind:          StepContinued,
 			CommandID:     c.ID,
 			CommandDigest: d,
+			Budget:        cloneBudget(c.Budget),
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
 		if stored != "" && fingerprint != stored {
@@ -311,6 +332,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				fact.Failure = c.ModelFailure.Disposition
 				fact.Evidence = c.ModelFailure.Evidence
 			}
+			setSettlementCharge(state.modelIntents[c.CallID], fact)
 			if o := rt.commit(Step{Kind: kind, CommandID: c.ID, CommandDigest: d, Model: fact}); o != nil {
 				return *o, nil
 			}
@@ -572,7 +594,43 @@ func hasStartedTool(s *replayState) bool {
 	return false
 }
 func (r *runtime) stop(kind StopKind, reason string) Outcome {
-	o := r.commit(Step{Kind: StepStopped, Stop: &Stop{Kind: kind, Reason: reason}})
+	stop := &Stop{Kind: kind, Reason: reason}
+	if kind == StopLimited {
+		state, err := replay(r.turn)
+		if err == nil {
+			switch reason {
+			case "model_attempts":
+				stop.Limit = &LimitDetail{
+					Kind:  LimitModelAttempts,
+					Limit: float64(r.def.Limits.ModelAttempts),
+					Used:  float64(state.ModelAttempts),
+				}
+			case "interruptions":
+				stop.Limit = &LimitDetail{
+					Kind:  LimitInterruptions,
+					Limit: float64(r.def.Limits.interruptionLimit()),
+					Used:  float64(state.Interruptions),
+				}
+			case "provider_pauses":
+				stop.Limit = &LimitDetail{
+					Kind:  LimitProviderPauses,
+					Limit: float64(r.def.Limits.ProviderPauses),
+					Used:  float64(state.ProviderPauses),
+				}
+			case "deadline":
+				stop.Limit = &LimitDetail{
+					Kind:  LimitDeadline,
+					Limit: float64(r.def.Limits.Deadline.Unix()),
+					Used:  float64(time.Now().Unix()),
+				}
+			}
+		}
+	}
+	return r.stopWith(stop)
+}
+
+func (r *runtime) stopWith(stop *Stop) Outcome {
+	o := r.commit(Step{Kind: StepStopped, Stop: stop})
 	if o != nil {
 		return *o
 	}
@@ -613,6 +671,9 @@ func (r *runtime) run() Outcome {
 		if s.unresolvedModel != "" {
 			return r.stop(StopUncertain, "model attempt needs reconciliation")
 		}
+		if stop := budgetOvershotStop(s); stop != nil {
+			return r.stopWith(stop)
+		}
 		if len(s.callOrder) > 0 && hasOpenTools(s) {
 			if o, done := r.tools(s); done {
 				return o
@@ -640,6 +701,9 @@ func (r *runtime) run() Outcome {
 		}
 		if s.failedModel != "" {
 			return r.stop(StopFailed, s.failedModel)
+		}
+		if stop := budgetSpentStop(s); stop != nil {
+			return r.stopWith(stop)
 		}
 		if r.def.Limits.ModelAttempts <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")
@@ -672,6 +736,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 		Interrupted: true,
 		Uncertain:   unsafe,
 	}
+	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
 	if o := r.commit(Step{Kind: StepModelSettled, Model: fact}); o != nil {
 		return o
 	}
@@ -730,7 +795,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.failureOrContext(err), false
 	}
 	if decision.Stop != nil {
-		return r.stop(decision.Stop.Kind, decision.Stop.Reason), false
+		if decision.Stop.Limit != nil {
+			if decision.Stop.Kind != StopLimited ||
+				decision.Stop.Limit.Validate() != nil {
+				return r.stop(StopFailed, "invalid policy limit"), false
+			}
+		}
+		return r.stopWith(decision.Stop), false
 	}
 	if len(decision.Deliver) > 0 {
 		if o := r.commit(Step{Kind: StepDelivered, Context: &ContextFact{Items: decision.Deliver}}); o != nil {
@@ -756,6 +827,21 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			return r.stop(StopFailed, err.Error()), false
 		}
 	}
+	var budgetWarnings []Warning
+	if s.Budget != nil && s.Budget.MaxOutputTokens > 0 {
+		remaining := s.Budget.MaxOutputTokens - s.Spend.Usage.OutputTokens
+		if remaining <= 0 {
+			return r.stopWith(budgetSpentStop(s)), false
+		}
+		if input.Settings.MaxTokens == 0 || input.Settings.MaxTokens > remaining {
+			old := input.Settings.MaxTokens
+			input.Settings.MaxTokens = remaining
+			budgetWarnings = append(budgetWarnings, Warning{
+				Code:    WarningBudgetClamp,
+				Message: fmt.Sprintf("max_tokens %d bounded to %d by the turn output-token budget", old, remaining),
+			})
+		}
+	}
 	req, err := r.b.Client.Prepare(r.ctx, input)
 	if err != nil {
 		return r.failureOrContext(err), false
@@ -767,11 +853,35 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if digest(snapshot.Input) != digest(input) {
 		return r.stop(StopFailed, "prepared request changed original model input"), false
 	}
-	authorization, err := r.b.Policy.BeforeSend(r.ctx, req, snapshotView(s.TurnView))
+	atRisk, remainingCost, costStop := checkSendBudget(
+		s,
+		req,
+		r.def.Model,
+	)
+	if costStop != nil {
+		return r.stopWith(costStop), false
+	}
+	authorization, err := r.b.Policy.BeforeSend(r.ctx, SendPlan{
+		Request:   req,
+		Turn:      snapshotView(s.TurnView),
+		AtRisk:    atRisk,
+		Remaining: remainingCost,
+	})
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
 	if !authorization.Allow {
+		if authorization.Limit != nil {
+			limit := *authorization.Limit
+			if limit.Kind != LimitHost || limit.Validate() != nil {
+				return r.stop(StopFailed, "invalid host limit"), false
+			}
+			return r.stopWith(&Stop{
+				Kind:   StopLimited,
+				Reason: authorization.Reason,
+				Limit:  &limit,
+			}), false
+		}
 		return r.stop(StopRefused, authorization.Reason), false
 	}
 	if len(authorization.Admission) > 0 && (!json.Valid(authorization.Admission) || len(authorization.Admission) > 16<<10) {
@@ -785,8 +895,31 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
-	fact := &ModelFact{AttemptID: attempt, MessageID: messageID, RequestDigest: digest(req.Body()), FinalAnswerOnly: finalAnswerOnly, Admission: append(json.RawMessage(nil), authorization.Admission...), Provider: r.b.Client.Provider(), API: r.b.Client.API(), Model: r.def.Model, Effective: snapshot.Effective, Origin: snapshot.Origin, Adjustments: snapshot.Adjustments, ContentChanges: snapshot.ContentChanges, ModelInfo: snapshot.ModelInfo, CapabilityPolicy: snapshot.CapabilityPolicy, Unverified: snapshot.Unverified, Tools: defs}
-	if o := r.commit(Step{Kind: StepModelIntent, Model: fact}); o != nil {
+	fact := &ModelFact{
+		AttemptID:            attempt,
+		MessageID:            messageID,
+		RequestDigest:        digest(req.Body()),
+		FinalAnswerOnly:      finalAnswerOnly,
+		Admission:            append(json.RawMessage(nil), authorization.Admission...),
+		AtRisk:               atRisk,
+		EstimatedInputTokens: llm.EstimatedInputTokens(req),
+		Provider:             r.b.Client.Provider(),
+		API:                  r.b.Client.API(),
+		Model:                r.def.Model,
+		Effective:            snapshot.Effective,
+		Origin:               snapshot.Origin,
+		Adjustments:          snapshot.Adjustments,
+		ContentChanges:       snapshot.ContentChanges,
+		ModelInfo:            snapshot.ModelInfo,
+		CapabilityPolicy:     snapshot.CapabilityPolicy,
+		Unverified:           snapshot.Unverified,
+		Tools:                defs,
+	}
+	if o := r.commit(Step{
+		Kind:     StepModelIntent,
+		Model:    fact,
+		Warnings: budgetWarnings,
+	}); o != nil {
 		return *o, false
 	}
 	if err := r.ctx.Err(); err != nil || r.pauseRequested() {
@@ -799,6 +932,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			MessageID:   messageID,
 			Error:       reason,
 			Interrupted: true,
+			NoDispatch:  true,
 		}
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 			return *o, false
@@ -868,6 +1002,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			result.Usage != nil {
 			settled.Result = &result
 		}
+		setSettlementCharge(fact, settled)
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 			return *o, false
 		}
@@ -899,6 +1034,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if sendErr == nil || result.Stop.Kind != "" || result.ID != "" || len(result.Message.Content) > 0 || result.Usage != nil {
 		settled.Result = &result
 	}
+	setSettlementCharge(fact, settled)
 	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 		return *o, false
 	}
@@ -913,6 +1049,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	if validationErr != nil {
 		return r.stop(StopFailed, validationErr.Error()), false
+	}
+	current, replayErr := replay(r.turn)
+	if replayErr != nil {
+		return r.stop(StopFailed, replayErr.Error()), false
+	}
+	if stop := budgetOvershotStop(current); stop != nil {
+		return r.stopWith(stop), false
 	}
 	return r.classify(result)
 }
@@ -1041,6 +1184,16 @@ func submittedOutput(s *replayState) *StructuredOutput {
 }
 
 func validateModelResult(result llm.Result, def Definition) error {
+	if result.Usage != nil {
+		if err := result.Usage.Validate(); err != nil {
+			return err
+		}
+	}
+	if result.Cost != nil {
+		if err := result.Cost.Validate(); err != nil {
+			return err
+		}
+	}
 	if result.Requested.Provider != def.Provider || result.Requested.Model != def.Model {
 		return errors.New("kernel: model result requested destination differs from definition")
 	}

@@ -119,6 +119,8 @@ type Pricing struct {
 	// Modality supplies complete rates for named modalities, independent of
 	// input-size tiers. Other tokens retain the selected base or tier rates.
 	Modality map[string]Rates `json:"modality,omitempty"`
+	// Requests prices provider-hosted operations in currency units per call.
+	Requests map[string]float64 `json:"requests,omitempty"`
 }
 
 // Validate rejects incomplete or ambiguous sheets before they are used as
@@ -155,6 +157,11 @@ func (p Pricing) Validate() error {
 			return err
 		}
 	}
+	for name, rate := range p.Requests {
+		if name == "" || rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			return errors.New("llm: invalid hosted request price")
+		}
+	}
 	return nil
 }
 
@@ -163,6 +170,7 @@ func (p Pricing) Validate() error {
 func (p Pricing) Clone() Pricing {
 	p.Tiers = append([]PriceTier(nil), p.Tiers...)
 	p.Modality = maps.Clone(p.Modality)
+	p.Requests = maps.Clone(p.Requests)
 	return p
 }
 
@@ -196,7 +204,7 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // call. The result is unavailable when token detail cannot support a faithful
 // estimate; nil usage never means known zero usage.
 func (p Pricing) Estimate(u *Usage) (Cost, bool) {
-	if u == nil || p.Validate() != nil {
+	if u == nil || p.Validate() != nil || u.Validate() != nil {
 		return Cost{}, false
 	}
 	unattributed, valid := unattributedUsageBuckets(u)
@@ -234,7 +242,14 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		}
 		applyRates(tokens, modalityRates)
 	}
-	cost.Total = cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite
+	for name, count := range u.Requests {
+		rate, ok := p.Requests[name]
+		if !ok || count < 0 {
+			return Cost{}, false
+		}
+		cost.Hosted += float64(count) * rate
+	}
+	cost.Total = cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite + cost.Hosted
 	if cost.Validate() != nil {
 		return Cost{}, false
 	}
@@ -266,6 +281,8 @@ type Cost struct {
 	CacheRead float64 `json:"cache_read"`
 	// CacheWrite values cache creation input.
 	CacheWrite float64 `json:"cache_write"`
+	// Hosted values priced provider-hosted requests.
+	Hosted float64 `json:"hosted,omitempty"`
 	// Total may be available even when the category breakdown is not.
 	Total float64 `json:"total"`
 	// Currency identifies the unit shared by the monetary fields.
@@ -290,7 +307,7 @@ func (c Cost) Validate() error {
 		return errors.New("llm: cost requires a known source")
 	}
 	for _, amount := range []float64{
-		c.Input, c.Output, c.CacheRead, c.CacheWrite, c.Total,
+		c.Input, c.Output, c.CacheRead, c.CacheWrite, c.Hosted, c.Total,
 	} {
 		if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 			return errors.New("llm: cost requires finite nonnegative amounts")

@@ -12,18 +12,38 @@ type ModelPlan struct {
 	Input llm.Input
 	Turn  TurnView
 }
+
 type ModelDecision struct {
 	Settings *llm.Settings
 	Deliver  []ContextItem
 	Stop     *Stop
 }
+
+// ModelAuthorization carries the host's last spending decision for a prepared
+// call. Admission is persisted with the intent for atomic reservation.
 type ModelAuthorization struct {
 	Allow  bool
 	Reason string
+	// Limit describes a host spending denial that can resume after funding.
+	Limit *LimitDetail
 	// Admission is host-owned, non-secret JSON copied into the model intent.
 	// The recorder can atomically reserve spending against these exact terms.
 	Admission json.RawMessage
 }
+
+// SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
+// and the cost of allowing this call. A nil AtRisk is not a zero-cost call.
+type SendPlan struct {
+	// Request is the immutable provider request after preparation.
+	Request llm.Request
+	// Turn is a snapshot of committed spend and state before admission.
+	Turn TurnView
+	// AtRisk is nil when the call cannot be bounded by available prices.
+	AtRisk *llm.Cost
+	// Remaining is nil when the turn has no cost cap.
+	Remaining *Money
+}
+
 type DecisionKind string
 
 const (
@@ -48,7 +68,7 @@ type StopDecision struct {
 // again. BeforeSend sees the final prepared request but cannot mutate it.
 type Policy interface {
 	BeforeModel(context.Context, ModelPlan) (ModelDecision, error)
-	BeforeSend(context.Context, llm.Request, TurnView) (ModelAuthorization, error)
+	BeforeSend(context.Context, SendPlan) (ModelAuthorization, error)
 	AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error)
 	OnStop(context.Context, TurnView) (StopDecision, error)
 }
@@ -57,16 +77,31 @@ type Policy interface {
 // with approval or spending rules should supply their own policy.
 type AllowLocalPolicy struct{}
 
-func (AllowLocalPolicy) BeforeModel(context.Context, ModelPlan) (ModelDecision, error) {
+func (AllowLocalPolicy) BeforeModel(
+	context.Context,
+	ModelPlan,
+) (ModelDecision, error) {
 	return ModelDecision{}, nil
 }
-func (AllowLocalPolicy) BeforeSend(context.Context, llm.Request, TurnView) (ModelAuthorization, error) {
+
+func (AllowLocalPolicy) BeforeSend(
+	context.Context,
+	SendPlan,
+) (ModelAuthorization, error) {
 	return ModelAuthorization{Allow: true}, nil
 }
-func (AllowLocalPolicy) AuthorizeTool(context.Context, tool.Call, TurnView) (ToolDecision, error) {
+func (AllowLocalPolicy) AuthorizeTool(
+	context.Context,
+	tool.Call,
+	TurnView,
+) (ToolDecision, error) {
 	return ToolDecision{Kind: DecisionAllow, Revision: "allow-local-v1"}, nil
 }
-func (AllowLocalPolicy) OnStop(context.Context, TurnView) (StopDecision, error) {
+
+func (AllowLocalPolicy) OnStop(
+	context.Context,
+	TurnView,
+) (StopDecision, error) {
 	return StopDecision{}, nil
 }
 

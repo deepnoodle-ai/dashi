@@ -440,8 +440,8 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Usage == nil || view.Usage.InputTokens != 5 {
-		t.Fatalf("usage=%+v", view.Usage)
+	if view.Spend.Usage.InputTokens != 5 {
+		t.Fatalf("usage=%+v", view.Spend.Usage)
 	}
 }
 
@@ -848,8 +848,8 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 		t.Fatalf("late: stop=%+v err=%v sends=%d", late.Stop, err, client.sends)
 	}
 	view, err := Replay(late.Turn)
-	if err != nil || view.Usage == nil || view.Usage.InputTokens != 7 {
-		t.Fatalf("late usage=%+v err=%v", view.Usage, err)
+	if err != nil || view.Spend.Usage.InputTokens != 7 {
+		t.Fatalf("late usage=%+v err=%v", view.Spend.Usage, err)
 	}
 }
 

@@ -139,3 +139,58 @@ references) remains a later refinement.
 uses an in-memory one, so a simple program needs no storage; an application
 that resumes turns across processes binds a durable recorder. Rationale:
 Kernel works by default.
+
+Decisions 21–26 answer decision 7; the design is [budgets.md](budgets.md).
+
+**21. A cost cap is a hard model-call admission limit.** Decided. `MaxCost`
+covers model-call charges. Kernel starts a call only when its prepared request
+has prices, a finite output-token allowance, and a worst-case charge that fits
+the remaining cap. Provider-hosted operations with no bounded request count
+cannot run under that cap. Local tool charges are reported separately; an
+application promising an all-in customer ceiling must admit and limit those
+tools itself. Missing usage has the exception in decision 24. Rationale: the
+worst case is what an application can reserve against tenant credit. The cost:
+turns sometimes stop with budget unused.
+
+**22. When the next call does not fit, the turn stops; Kernel does not shrink
+the reply.** Decided. The turn stops as `limited`, and Kernel does not lower
+the output-token allowance to fit a cost shortfall (it still lowers it to fit
+an output-token cap). This departs from decision 4, so the stop explains
+itself: its reason gives the cap, the call's worst case, and the output-token
+allowance that would fit when one exists. If input alone consumes the
+remaining cap, no positive allowance fits; raise the cap or reduce the input
+or history. Rationale: a reply silently cut short is worse than a clear stop
+the application can fix.
+
+**23. An unbounded call stops before dispatch under a cost cap.** Decided.
+An unpriced model stops `limited` with a reason naming it and asking for its
+prices. A priced call without a finite effective output-token allowance also
+stops `limited` and asks for one. A call offering provider-hosted tools whose
+request count is unbounded stops likewise. Rationale: a cap must never be
+silently ignored; applications can supply prices without a catalog update.
+
+**24. A call without final usage counts a best guess.** Decided. When a worker
+crashes or a call is cut off before final usage arrives, Kernel preserves any
+streamed counts, fills absent input from the recorded estimate, and counts the
+greater of streamed output and a visible-text estimate. The call is marked
+estimated in the running total. The consequence, accepted: for such calls the
+cap is no longer a strict charge guarantee, since the guess can undercount.
+The admission check also relies on supplied prices and the provider respecting
+its output allowance. Rationale: charging the worst case would stop turns
+early after a bad day of deploys.
+
+**25. The caller sets a turn's budget; the definition carries none.** Decided.
+Cost and token caps are passed on `Start` and raised on `Continue`; there is no
+definition ceiling that `Start` narrows. Plan and tenant ceilings stay in the
+application. Existing definition limits (`ModelAttempts`, `Deadline`,
+`Interruptions`) are unchanged; whether they should also move to the caller is
+not decided. Rationale: a budget depends on who is calling and what they paid
+for, which the application knows and the agent's configuration does not.
+Supersedes the proposal's definition ceiling.
+
+**26. `Continue` may raise a turn's budget, and every raise is recorded.**
+Decided. The saved turn records each raise with its new amounts and when it
+happened, so raises are visible in an audit. Who may raise, and by how much, is
+the application's authorization. The review chose "allowed when marked as an
+override" of the definition ceiling; with no ceiling (decision 25) there is
+nothing to override, so the part kept is the audit trail.
