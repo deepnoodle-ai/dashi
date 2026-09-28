@@ -1,12 +1,11 @@
-# Candidate work beyond the active turn streams
+# Roadmap status
 
-Status snapshot: 2026-09-28, `main` at `108cb52`. Hooks and live delivery have
+Status snapshot: 2026-09-28, through PR #66. Hooks and live delivery have
 landed; see their [design](hooks.md) and [design](live-delivery.md). Steering has
-a separate [PRD](steering.md). This inventory covers
-other gaps against Dive and the temporary framework survey in
-`tmp/research/comparison/README.md`.
-The older [gap reports](gap-analysis.md) describe discovery-time code; status
-below is checked against current `main`.
+a separate [PRD](steering.md). This inventory covers other gaps against Dive
+and the temporary framework survey in `tmp/research/comparison/README.md`.
+The older [gap reports](gap-analysis.md) describe discovery-time code. A
+delivered first slice does not imply every provider route is qualified.
 
 **Size** estimates implementation scope: S = focused change, M = package or
 adapter, L = several packages or a new layer. **Difficulty** estimates design
@@ -17,14 +16,15 @@ not an approved design unless stated. Items are grouped for reading, not ranked.
 
 ### 1. Native structured output for model calls
 
-**Status:** Turn-level validated output works through `dashi_submit_output`;
-`llm.Generate` has no schema setting or native provider mode. **Size:** M.
+**Status:** [PR #64](https://github.com/deepnoodle-ai/dashi/pull/64) added
+strict-schema output to direct OpenAI Responses calls; turns still use
+`dashi_submit_output`. Live provider acceptance is unverified. **Size:** M.
 **Difficulty:** Medium. **Reference:** [structured output](structured-output.md)
-describes the current contract and future native route; [provider gaps](gaps/E-providers-cost-budgets.md)
-compare Dive. **Next:** Design one model-call schema contract and qualify each
-provider's native mode without changing the turn's recorded output fact.
+describes the turn contract; [provider gaps](gaps/E-providers-cost-budgets.md)
+compare Dive. **Next:** Run a dated OpenAI live probe, then qualify other
+provider routes without changing the turn's recorded output fact.
 
-**Packet:** [source research](roadmap-research/01-native-structured-output-research.md) · [draft PRD](roadmap-research/01-native-structured-output-prd.md).
+**Packet:** [source research](roadmap-research/01-native-structured-output-research.md) · [PRD](roadmap-research/01-native-structured-output-prd.md).
 
 ### 2. Generation controls and provider options
 
@@ -51,14 +51,15 @@ together; test that later-turn reminders do not defeat the reusable prefix.
 
 ### 4. Provider dialect conformance
 
-**Status:** Selected routes have fixtures, but the all-pairs replay and
-OpenAI-compatible stream-dialect corpus is incomplete. **Size:** M.
+**Status:** [PR #60](https://github.com/deepnoodle-ai/dashi/pull/60) added a
+Chat Completions wire corpus and cross-route replay checks. All-pairs replay
+and other compatible dialects remain incomplete. **Size:** M.
 **Difficulty:** Medium. **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md)
-and [provider content replay](provider-content-replay.md); no dedicated test
-plan. **Next:** Add fixtures for missing/reused tool indices and IDs, empty
-arguments, partial chunks, and cross-provider handoff before changing adapters.
+and [provider content replay](provider-content-replay.md). **Next:** Extend
+the corpus to other routes and real provider captures; keep fixture results
+separate from live qualification.
 
-**Packet:** [source research](roadmap-research/04-provider-dialect-research.md) · [draft PRD](roadmap-research/04-provider-dialect-prd.md).
+**Packet:** [source research](roadmap-research/04-provider-dialect-research.md) · [PRD](roadmap-research/04-provider-dialect-prd.md).
 
 ### 5. Live provider qualification
 
@@ -97,34 +98,33 @@ verifiable recordable snapshot before adding auth headers or OAuth flows.
 
 ### 8. Speech transport
 
-**Status:** `speech` has values and capabilities; transcription and synthesis
-have no provider transport. Dive has working examples. **Size:** M.
+**Status:** [PR #63](https://github.com/deepnoodle-ai/dashi/pull/63) added
+prepared batch transcription and synthesis for two named OpenAI models.
+Streaming, other providers, and paid live qualification remain open. **Size:** M.
 **Difficulty:** Medium. **Reference:** [media and speech proposal](media-and-speech-proposal.md)
-and [package status](../docs/guides/packages.md). **Next:** Settle the speech
-call and stream contract, then qualify one transcription and one synthesis
-route with distinct providers.
+and [batch guide](../docs/guides/batch-speech.md). **Next:** Run the opt-in
+live probes, then design streaming and qualify additional providers.
 
-**Packet:** [source research](roadmap-research/08-speech-transport-research.md) · [draft PRD](roadmap-research/08-speech-transport-prd.md).
+**Packet:** [source research](roadmap-research/08-speech-transport-research.md) · [PRD](roadmap-research/08-speech-transport-prd.md).
 
 ### 9. Nullable typed-tool arguments
 
-**Status:** `tool.Func` emits `nullable` for pointer fields, while its validator
-expects a JSON Schema type union; valid `null` is rejected. **Size:** S.
-**Difficulty:** Low. **Reference:** [example-port follow-ups](gaps/F-example-ports.md);
-no proposal needed. **Next:** Emit draft 2020-12-compatible nullability and
-prove generation and decoding agree.
+**Status:** Resolved by [PR #57](https://github.com/deepnoodle-ai/dashi/pull/57):
+pointer nullability uses draft 2020-12-compatible schema and agrees with
+Go decoding. **Size:** S. **Difficulty:** Low. **Reference:**
+[example-port follow-ups](gaps/F-example-ports.md).
 
-**Packet:** [source research](roadmap-research/09-nullable-tool-args-research.md) · [draft PRD](roadmap-research/09-nullable-tool-args-prd.md).
+**Packet:** [source research](roadmap-research/09-nullable-tool-args-research.md) · [PRD](roadmap-research/09-nullable-tool-args-prd.md).
 
 ### 10. Tolerance of extra tool arguments
 
-**Status:** `tool.Func` rejects unknown object keys; malformed calls consume a
-model attempt. **Size:** S. **Difficulty:** Medium because changing the default
-changes tool behavior. **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md);
-no decision. **Next:** Check real provider fixtures, then decide whether to
-ignore extra keys by default with per-tool strictness.
+**Status:** Resolved by [PR #66](https://github.com/deepnoodle-ai/dashi/pull/66):
+typed tools ignore extra keys by default, with `WithStrictArguments` for a
+closed schema. Typed decoding matches recorded last-key JSON meaning. **Size:**
+S. **Difficulty:** Medium. **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md)
+and [recorded-value decision 27](decisions.md).
 
-**Packet:** [source research](roadmap-research/10-extra-tool-args-research.md) · [draft PRD](roadmap-research/10-extra-tool-args-prd.md).
+**Packet:** [source research](roadmap-research/10-extra-tool-args-research.md) · [PRD](roadmap-research/10-extra-tool-args-prd.md).
 
 ### 11. Tool-result size and projection
 
@@ -138,14 +138,13 @@ reference rule that preserves the original result for audit.
 
 ### 12. Skills
 
-**Status:** No Dashi equivalent of Dive's skill loader; applications can still
-supply instructions and tools directly. **Size:** M. **Difficulty:** Medium.
-**Reference:** [example-port gaps](gaps/F-example-ports.md), Dive's skill guide,
-and [functional areas](functional-areas.md); no Dashi proposal. **Next:** Check
-for a real consumer before deciding whether this belongs in an optional
-package rather than the turn core.
+**Status:** [PR #59](https://github.com/deepnoodle-ai/dashi/pull/59) added an
+optional in-memory skill catalog and loader, outside the turn core. **Size:** M.
+**Difficulty:** Medium. **Reference:** [example-port gaps](gaps/F-example-ports.md),
+Dive's skill guide, and [functional areas](functional-areas.md). **Next:**
+Qualify with an application consumer before expanding the package.
 
-**Packet:** [source research](roadmap-research/12-skills-research.md) · [draft PRD](roadmap-research/12-skills-prd.md).
+**Packet:** [source research](roadmap-research/12-skills-research.md) · [PRD](roadmap-research/12-skills-prd.md).
 
 ### 13. Child turns and delegation
 
@@ -229,14 +228,15 @@ Uncertain dispatch must still require reconciliation.
 
 ### 20. Connection and idle-stream timeouts
 
-**Status:** The default HTTP client has one five-minute total timeout; no
-separate stream-idle watchdog. **Size:** M. **Difficulty:** Medium.
+**Status:** [PR #61](https://github.com/deepnoodle-ai/dashi/pull/61) added
+opt-in response-start, stream-idle, and total-call timeouts for supported HTTP
+model clients. Gemini and media clients remain outside this slice. **Size:** M.
+**Difficulty:** Medium.
 **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md) and
-[interruption design](turn-interruption.md); no timeout proposal. **Next:**
-Separate connection and idle deadlines, and specify how each stopped call is
-recorded before changing defaults.
+[interruption design](turn-interruption.md). **Next:** Qualify other transports
+only with their own timeout and interruption semantics.
 
-**Packet:** [source research](roadmap-research/20-stream-timeouts-research.md) · [draft PRD](roadmap-research/20-stream-timeouts-prd.md).
+**Packet:** [source research](roadmap-research/20-stream-timeouts-research.md) · [PRD](roadmap-research/20-stream-timeouts-prd.md).
 
 ### 21. Hosted tools under a cost cap
 
@@ -251,15 +251,16 @@ hard cap. Other routes may remain excluded.
 
 ### 22. Remaining provider price gaps
 
-**Status:** The catalog prices token and some hosted usage, but OpenAI hosted
-image-generation image tokens remain unpriced. Other models and tiers need
+**Status:** [PR #58](https://github.com/deepnoodle-ai/dashi/pull/58) made the
+provider example label partial/unknown estimates accurately. OpenAI hosted
+image-generation image tokens remain unpriced; other models and tiers need
 ongoing evidence checks. **Size:** S per route. **Difficulty:** Medium.
 **Reference:** [example-port follow-ups](gaps/F-example-ports.md),
 [model catalog](model-catalog.md), and [pricing contract](pricing-proposal.md).
 **Next:** Add a rate only when billed units and served-model evidence are
 qualified; otherwise preserve partial cost.
 
-**Packet:** [source research](roadmap-research/22-provider-price-gaps-research.md) · [draft PRD](roadmap-research/22-provider-price-gaps-prd.md).
+**Packet:** [source research](roadmap-research/22-provider-price-gaps-research.md) · [first-slice PRD](roadmap-research/22-provider-price-gaps-prd.md).
 
 ## Protocol surfaces
 
