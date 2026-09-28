@@ -79,8 +79,10 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 			view.Usage.OutputTokens != i+1 {
 			t.Fatalf("interruption %d: view=%+v", i, view)
 		}
-		if !view.ReadyToContinue || turn.AnswerText() != "" {
-			t.Fatalf("partial output became an answer: view=%+v", view)
+		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||
+			view.ReadyToContinue != out.ReadyToContinue ||
+			turn.AnswerText() != "" {
+			t.Fatalf("interruption %d: outcome=%+v view=%+v", i, out, view)
 		}
 	}
 	limited, err := (Engine{}).Apply(
@@ -92,10 +94,14 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		t.Fatalf("limit=%+v err=%v sends=%d", limited.Stop, err, client.sends)
 	}
 	view, err := Replay(limited.Turn)
-	if err != nil || view.ModelAttempts != 0 || view.Interruptions != 3 ||
+	if err != nil || view.ModelAttempts != 0 || view.Interruptions != 2 ||
 		view.Usage == nil || view.Usage.InputTokens != 6 ||
-		view.ReadyToContinue {
+		view.ReadyToContinue || limited.ReadyToContinue {
 		t.Fatalf("limited view=%+v err=%v", view, err)
+	}
+	last := limited.Turn.Steps[len(limited.Turn.Steps)-1]
+	if last.Kind != StepStopped || last.CommandID != "over-limit" {
+		t.Fatalf("excess continue ran work: %+v", last)
 	}
 	for _, step := range limited.Turn.Steps {
 		if step.Kind == StepModelSettled && !step.Model.Interrupted {

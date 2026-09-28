@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
@@ -9,7 +10,7 @@ import (
 
 func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	def := definition()
-	def.Limits.Interruptions = 2
+	def.Limits.Interruptions = 3
 	partial := callResult("call-1", "lookup")
 	partial.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 2}
 	second := final("partial answer")
@@ -82,7 +83,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		t.Fatalf("partial answer became final text: %q", turn.AnswerText())
 	}
 	if state.ReadyToContinue {
-		t.Fatal("turn with exceeded interruption limit is ready again")
+		t.Fatal("turn at the interruption limit is ready again")
 	}
 	turn.Steps = append(turn.Steps, Step{
 		Version: 1,
@@ -133,6 +134,59 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 	}
 	if state.ModelAttempts != 0 {
 		t.Fatalf("crashed call consumed %d attempts", state.ModelAttempts)
+	}
+}
+
+func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
+	def := definition()
+	def.Limits.Interruptions = 1
+	steps := []Step{
+		interruptionStart(def),
+		{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
+		{Kind: StepContinued},
+	}
+	crashed := interruptionRecord(steps...)
+	view, err := Replay(crashed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ReadyToContinue {
+		t.Fatal("crashed turn is ready after using its last resume")
+	}
+	interrupted := interruptionRecord(append(
+		slices.Clone(steps),
+		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
+	)...)
+	view, err = Replay(interrupted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ReadyToContinue {
+		t.Fatal("interrupted turn is ready after using its last resume")
+	}
+	failed := interruptionRecord(append(
+		slices.Clone(steps),
+		Step{Kind: StepStopped, Stop: &Stop{Kind: StopFailed}},
+	)...)
+	view, err = Replay(failed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.ReadyToContinue {
+		t.Fatal("failed turn cannot continue at the interruption limit")
+	}
+	failed.Steps = append(failed.Steps, Step{
+		Version: 1,
+		TurnID:  failed.ID,
+		Seq:     int64(len(failed.Steps) + 1),
+		Kind:    StepContinued,
+	})
+	view, err = Replay(failed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Interruptions != 1 {
+		t.Fatalf("non-interruption continuation counted as resume: %d", view.Interruptions)
 	}
 }
 

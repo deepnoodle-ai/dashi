@@ -109,7 +109,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if err != nil {
 		return Outcome{}, err
 	}
-	if len(turn.Steps) > 0 && digest(def) != digest(state.Definition) {
+	if len(turn.Steps) > 0 && !sameDefinition(def, state.Definition) {
 		return Outcome{}, ErrDefinitionChanged
 	}
 	d, err := commandDigest(command)
@@ -129,7 +129,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if replayErr != nil {
 				return Outcome{}, replayErr
 			}
-			if digest(def) != digest(current.Definition) {
+			if !sameDefinition(def, current.Definition) {
 				return Outcome{}, ErrDefinitionChanged
 			}
 			if current.commandDigests[command.commandID()] != d {
@@ -148,7 +148,7 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 				return Outcome{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
-				if digest(def) != digest(current.Definition) {
+				if !sameDefinition(def, current.Definition) {
 					return Outcome{}, ErrDefinitionChanged
 				}
 				if old != d {
@@ -203,6 +203,21 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		return rt.current(), nil
 	case Continue:
+		if state.interruptionLimitReached() {
+			step := Step{
+				Kind:          StepStopped,
+				CommandID:     c.ID,
+				CommandDigest: d,
+				Stop: &Stop{
+					Kind:   StopLimited,
+					Reason: "interruptions",
+				},
+			}
+			if o := rt.commit(step); o != nil {
+				return *o, nil
+			}
+			return rt.current(), nil
+		}
 		if !state.canContinue() {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
 		}
@@ -378,6 +393,14 @@ func unsafeHosted(defs []tool.Definition) bool {
 		}
 	}
 	return false
+}
+
+func sameDefinition(a, b Definition) bool {
+	// Older turn records omit Interruptions. Its zero value already means the
+	// current default at runtime, so use that same meaning for revision checks.
+	a.Limits.Interruptions = a.Limits.interruptionLimit()
+	b.Limits.Interruptions = b.Limits.interruptionLimit()
+	return digest(a) == digest(b)
 }
 
 func (r *runtime) commit(step Step) *Outcome {

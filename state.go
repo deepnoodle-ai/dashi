@@ -656,6 +656,9 @@ func (s *replayState) canContinue() bool {
 	if s.Interruptions > s.Definition.Limits.interruptionLimit() {
 		return false
 	}
+	if s.interruptionLimitReached() {
+		return false
+	}
 	if s.Stop.Kind == StopUncertain {
 		// An explicit uncertain stop is evidence that the host must report
 		// the outcome. A missing stop means the worker may have crashed and
@@ -684,6 +687,14 @@ func (s *replayState) canContinue() bool {
 		}
 	}
 	return true
+}
+
+func (s *replayState) interruptionLimitReached() bool {
+	if s.Revision == 0 || s.Interruptions <
+		s.Definition.Limits.interruptionLimit() {
+		return false
+	}
+	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""
 }
 
 func validateStepPayload(step Step) error {
