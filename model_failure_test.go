@@ -36,7 +36,8 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
 	}
 	proved, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "proof", CallID: "t1:model:1", ModelFailure: &ModelFailure{Disposition: llm.FailureNotDispatched, Reason: "no dispatch", Evidence: "host dispatch log 42"}}, Bindings{Client: client, Recorder: rec})
-	if err != nil || proved.Stop.Kind != StopFailed || len(proved.Pending) != 0 || client.sends != 1 {
+	if err != nil || !proved.ReadyToContinue || len(proved.Pending) != 0 ||
+		client.sends != 1 {
 		t.Fatalf("proof=%+v err=%v sends=%d", proved, err, client.sends)
 	}
 	retried, err := (Engine{}).Apply(context.Background(), proved.Turn, definition(), Continue{ID: "retry"}, Bindings{Client: client, Recorder: rec})

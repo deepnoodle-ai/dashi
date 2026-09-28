@@ -95,7 +95,7 @@ func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
 	}
 }
 
-func TestEngineStreamBreakBeforeDispatchRecordsCancellation(t *testing.T) {
+func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 	for _, stopAt := range []StepKind{StepStarted, StepModelIntent} {
 		t.Run(string(stopAt), func(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("unused")}}
@@ -114,18 +114,19 @@ func TestEngineStreamBreakBeforeDispatchRecordsCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			view, err := Replay(turn)
-			if err != nil || view.Stop.Kind != StopCanceled || client.sends != 0 {
+			if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 0 {
 				t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
 			}
 			if stopAt == StepModelIntent {
 				found := false
 				for _, step := range turn.Steps {
-					if step.Kind == StepModelSettled && step.Model != nil && step.Model.Failure == llm.FailureNotDispatched {
+					if step.Kind == StepModelSettled && step.Model != nil &&
+						step.Model.Interrupted {
 						found = true
 					}
 				}
 				if !found {
-					t.Fatalf("missing known non-dispatch settlement: %+v", turn.Steps)
+					t.Fatalf("missing interrupted settlement: %+v", turn.Steps)
 				}
 			}
 		})
@@ -139,10 +140,11 @@ func (c *cancelAfterDeltaClient) Send(ctx context.Context, _ llm.Request, sink l
 	sink(llm.Delta{Kind: llm.DeltaText, Text: "partial"})
 	<-ctx.Done()
 	return llm.Result{ID: "partial", Message: llm.AssistantMessage(llm.Text("partial")),
-		Requested: llm.ModelRef{Provider: "test", Model: "fixture"}}, ctx.Err()
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+		Usage:     &llm.Usage{InputTokens: 3, OutputTokens: 2}}, ctx.Err()
 }
 
-func TestEngineStreamBreakDuringModelKeepsUncertainPartialResult(t *testing.T) {
+func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	client := &cancelAfterDeltaClient{scriptedClient: &scriptedClient{}}
 	recorder := NewMemoryRecorder()
 	for event, err := range (Engine{}).Stream(context.Background(), Turn{ID: "t1"}, definition(), streamStart(),
@@ -159,21 +161,27 @@ func TestEngineStreamBreakDuringModelKeepsUncertainPartialResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := Replay(turn)
-	if err != nil || view.Stop.Kind != StopCanceled || client.sends != 1 {
+	if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 1 {
 		t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
+	}
+	if view.ModelAttempts != 0 || view.Usage == nil ||
+		view.Usage.InputTokens != 3 || view.Usage.OutputTokens != 2 {
+		t.Fatalf("attempts=%d usage=%+v", view.ModelAttempts, view.Usage)
 	}
 	found := false
 	for _, step := range turn.Steps {
-		if step.Kind == StepModelSettled && step.Model != nil && step.Model.Uncertain && step.Model.Result != nil && step.Model.Result.ID == "partial" {
+		if step.Kind == StepModelSettled && step.Model != nil &&
+			step.Model.Interrupted && step.Model.Result != nil &&
+			step.Model.Result.ID == "partial" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("missing uncertain partial settlement: %+v", turn.Steps)
+		t.Fatalf("missing interrupted partial settlement: %+v", turn.Steps)
 	}
 }
 
-func TestEngineStreamBreakAfterToolStartPreventsExecution(t *testing.T) {
+func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
 	runs := 0
@@ -196,7 +204,52 @@ func TestEngineStreamBreakAfterToolStartPreventsExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := Replay(turn)
-	if err != nil || view.Stop.Kind != StopCanceled || runs != 0 || view.Tools["call"].Outcome == nil || view.Tools["call"].Outcome.State != tool.StateNotExecuted {
+	if err != nil || view.Stop.Kind != StopInterrupted || runs != 0 ||
+		view.Tools["call"].Status != ToolStarted {
 		t.Fatalf("view=%+v err=%v runs=%d", view, err, runs)
+	}
+}
+
+func TestEngineStreamBreakWithContextCancelEndsTurn(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call", "work")},
+	}
+	recorder := NewMemoryRecorder()
+	for event, err := range (Engine{}).Stream(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		streamStart(),
+		Bindings{
+			Client:        client,
+			Recorder:      recorder,
+			OnContextDone: ContextCancel,
+		},
+	) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Step != nil && event.Step.Kind == StepModelSettled {
+			break
+		}
+	}
+	turn, err := recorder.Load("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := Replay(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Stop.Kind != StopCanceled {
+		t.Fatalf("stop=%+v, want canceled", view.Stop)
+	}
+	if view.Tools["call"].Status != ToolSettled {
+		t.Fatalf("unstarted call status=%s, want settled", view.Tools["call"].Status)
+	}
+	if view.Tools["call"].Outcome == nil ||
+		view.Tools["call"].Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("unstarted call outcome=%+v, want not executed",
+			view.Tools["call"].Outcome)
 	}
 }

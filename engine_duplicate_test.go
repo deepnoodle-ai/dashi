@@ -17,7 +17,33 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
 	result := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("result"))}
-	completed, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Accept{ID: "result", CallID: "call-1", Outcome: &result}, Bindings{Client: client, Tools: fixedTools{external}, Recorder: rec, Policy: AllowLocalPolicy{}})
+	accepted, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Accept{ID: "result", CallID: "call-1", Outcome: &result},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{external},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
+	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("accept: out=%+v err=%v sends=%d", accepted, err, client.sends)
+	}
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{
+			Client:   client,
+			Tools:    fixedTools{external},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		},
+	)
 	if err != nil || completed.Stop.Kind != StopCompleted {
 		t.Fatalf("accept: stop=%+v err=%v", completed.Stop, err)
 	}

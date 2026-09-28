@@ -100,9 +100,11 @@ func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
 	if err != nil {
 		return tool.Definition{}, err
 	}
+	readOnly := true
 	return tool.Definition{
-		Name: "web_search",
-		Kind: tool.KindProviderHosted,
+		Name:        "web_search",
+		Kind:        tool.KindProviderHosted,
+		Annotations: tool.Annotations{ReadOnly: &readOnly},
 		Hosted: &tool.HostedSpec{
 			Provider: opts.Provider,
 			API:      API,
@@ -146,9 +148,11 @@ func NewWebFetchTool(provider string, maxUses int) (tool.Definition, error) {
 	if err != nil {
 		return tool.Definition{}, err
 	}
+	readOnly := true
 	return tool.Definition{
-		Name: "web_fetch",
-		Kind: tool.KindProviderHosted,
+		Name:        "web_fetch",
+		Kind:        tool.KindProviderHosted,
+		Annotations: tool.Annotations{ReadOnly: &readOnly},
 		Hosted: &tool.HostedSpec{
 			Provider: provider,
 			API:      API,

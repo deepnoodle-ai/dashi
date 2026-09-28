@@ -40,8 +40,8 @@ its turn state and pending-subject correlation.
 | --- | --- |
 | **Start** | Admit a new turn, its origin, pinned prior history, initial input, limits, and definition revision; only the first acknowledged start permits execution. |
 | **Deliver** | Record context for an open, waiting, or continuable turn without advancing it. The next eligible model call sees it according to its scope and replacement rule. |
-| **Continue** | Advance a stopped turn only when its stop permits continuation and no unresolved effect blocks it. It does not reset limits. |
-| **Accept** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. A decision is not fabricated as a tool result. It advances only when authorized and ready. |
+| **Continue** | Resume a stopped turn, including one interrupted by a context end or crash. It does not reset limits. |
+| **Accept** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. It never runs the turn. |
 | **Cancel** | Request no further work. Unstarted calls become known not executed; started effects remain pending for late reconciliation and accounting, without restarting the loop. |
 
 The admitted definition must be available by revision on recovery. A hash alone
@@ -74,13 +74,14 @@ monotonic sequence, and one validated payload.
 Work state, effect knowledge, persistence acknowledgement, and caller delivery
 are separate. A turn may be waiting after its worker has returned; a caller may
 disconnect while it runs; a result may be known while its commit is uncertain.
-The returned outcome contains the turn view, stop reason, pending subjects, and
-recording status. Caller delivery belongs to the runner, not the turn. Known
-tool failure, confirmed nonexecution, waiting, and uncertain execution remain
-different states. Stops distinguish completed, waiting, limited, refused,
-canceled, failed, and uncertain, with an explicit allowed next action.
-Waiting ends the current invocation, not the turn; `Accept` may restart the
-loop when its pending subjects have settled.
+The returned outcome contains the turn view, stop reason, pending subjects,
+recording status, and a `ReadyToContinue` flag. The saved turn's replay has the
+same flag, so a host can find ready turns after a worker exits. Caller delivery
+belongs to the runner, not the turn. Known tool failure, confirmed
+nonexecution, waiting, and uncertain execution remain different states. Stops
+distinguish completed, waiting, interrupted, limited, refused, canceled,
+failed, and uncertain. `Accept` commits a report or approval but does not
+restart the loop; only `Continue` does.
 Invalid commands and corrupt records fail before a first write; after a first
 acknowledged step, the outcome retains partial work and its stop even on failure.
 
@@ -93,11 +94,21 @@ related application rows, such as a budget reservation, accounting, or an
 external-tool outbox, in the same transaction. A write rejection stops the
 invocation; an ambiguous acknowledgement requires reload by identity before
 any further dispatch. Neither becomes model-visible tool failure. An intent
-without a result means the effect **may** have happened; recovery reconciles it
-or reports uncertainty, never blindly repeats it. Fencing prevents stale
-commits, while downstream idempotency or reconciliation addresses duplicate
-external effects. Cancellation uses a bounded commit context independent of the
-canceled execution context to preserve the last known facts.
+without a result means the effect **may** have happened. An interrupted model
+call is sent again unless it may have run an unsafe provider-hosted tool. A
+started local tool is rerun only when its definition says read-only or
+idempotent. Other unfinished effects require an application report; they are
+never blindly repeated. Fencing prevents stale commits, while downstream
+idempotency or reconciliation addresses duplicate external effects.
+
+Interrupted model output is kept for display and its usage for accounting,
+but is never acted on. A context end uses a bounded commit context to save an
+interrupted stop with the context cause. `Cancel` (or a caller's explicit
+`ContextCancel` option) ends the turn; unstarted calls become known not
+executed. `Bindings.Pause` requests interruption before the next effect
+without cutting off current work. `Limits.Interruptions` bounds resumes
+independently of model attempts; `Limits.Deadline` is a limit, while a host
+deadline interrupts the turn.
 `BeforeSend` may supply bounded, non-secret metadata derived from the exact
 prepared request for the recorder's atomic spending reservation. An explicit
 HTTP rejection or proven pre-dispatch failure is known nonexecution; transport

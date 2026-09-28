@@ -256,8 +256,12 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if accepted.Stop.Kind != StopCompleted {
-				t.Fatalf("accepted stop=%+v", accepted.Stop)
+			if !accepted.ReadyToContinue || client.sends != 1 {
+				t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
+			}
+			completed, err := apply(accepted.Turn, def, continued, b)
+			if err != nil || completed.Stop.Kind != StopCompleted {
+				t.Fatalf("continued=%+v err=%v", completed, err)
 			}
 			if runsA.Load() != 1 {
 				t.Fatalf("panicked call ran %d times", runsA.Load())
@@ -322,8 +326,12 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Stop.Kind != StopCompleted {
-		t.Fatalf("accepted stop=%+v", accepted.Stop)
+	if !accepted.ReadyToContinue || client.sends != 0 {
+		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
+	}
+	completed, err := apply(accepted.Turn, definition(), continued, b)
+	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("continued=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
 

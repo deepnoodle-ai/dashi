@@ -34,7 +34,11 @@ type Definition struct {
 }
 
 type Limits struct {
-	ModelAttempts   int `json:"model_attempts"`
+	ModelAttempts int `json:"model_attempts"`
+
+	// Interruptions bounds how many times a stopped or crashed turn may be
+	// resumed. Zero uses the default to preserve older definitions.
+	Interruptions   int `json:"interruptions,omitempty"`
 	ProviderPauses  int `json:"provider_pauses"`
 	ToolConcurrency int `json:"tool_concurrency"`
 	// ReserveFinalAnswer uses the last allowed model attempt for an answer
@@ -44,14 +48,28 @@ type Limits struct {
 }
 
 func DefaultLimits() Limits {
-	return Limits{ModelAttempts: 8, ProviderPauses: 3, ToolConcurrency: 1, ReserveFinalAnswer: true}
+	return Limits{
+		ModelAttempts:      8,
+		Interruptions:      10,
+		ProviderPauses:     3,
+		ToolConcurrency:    1,
+		ReserveFinalAnswer: true,
+	}
+}
+
+func (l Limits) interruptionLimit() int {
+	if l.Interruptions == 0 {
+		return DefaultLimits().Interruptions
+	}
+	return l.Interruptions
 }
 
 func (d Definition) Validate() error {
 	if d.ID == "" || d.Revision == "" || d.Provider == "" || d.API == "" || d.Model == "" {
 		return errors.New("kernel: definition requires ID, revision, provider, API, and model")
 	}
-	if d.Limits.ModelAttempts < 1 || d.Limits.ToolConcurrency < 1 || d.Limits.ProviderPauses < 0 {
+	if d.Limits.ModelAttempts < 1 || d.Limits.ToolConcurrency < 1 ||
+		d.Limits.ProviderPauses < 0 || d.Limits.Interruptions < 0 {
 		return errors.New("kernel: invalid limits")
 	}
 	if len(d.OutputSchema) > 0 {
@@ -100,7 +118,10 @@ func (t Turn) StructuredOutput() (StructuredOutput, bool, error) {
 func (t Turn) AnswerText() string {
 	for i := len(t.Steps) - 1; i >= 0; i-- {
 		step := t.Steps[i]
-		if (step.Kind != StepModelSettled && step.Kind != StepModelReconciled) || step.Model == nil || step.Model.Result == nil || step.Model.Error != "" {
+		if (step.Kind != StepModelSettled &&
+			step.Kind != StepModelReconciled) || step.Model == nil ||
+			step.Model.Result == nil || step.Model.Error != "" ||
+			step.Model.Interrupted {
 			continue
 		}
 		var out strings.Builder
@@ -217,6 +238,10 @@ type ModelFact struct {
 	Failure          llm.FailureDisposition `json:"failure,omitempty"`
 	Evidence         string                 `json:"evidence,omitempty"`
 	Uncertain        bool                   `json:"uncertain,omitempty"`
+
+	// Interrupted preserves partial output and usage without making them
+	// actionable. A later model call may safely replace this one.
+	Interrupted bool `json:"interrupted,omitempty"`
 }
 
 // UnmarshalJSON reads capability_policy, or maps the legacy
@@ -276,8 +301,10 @@ const (
 	StopLimited   StopKind = "limited"
 	StopRefused   StopKind = "refused"
 	StopCanceled  StopKind = "canceled"
-	StopFailed    StopKind = "failed"
-	StopUncertain StopKind = "uncertain"
+	// StopInterrupted leaves the turn available for Continue on any worker.
+	StopInterrupted StopKind = "interrupted"
+	StopFailed      StopKind = "failed"
+	StopUncertain   StopKind = "uncertain"
 )
 
 type Stop struct {
@@ -311,13 +338,16 @@ const (
 )
 
 type Outcome struct {
-	Turn           Turn
-	Stop           Stop
-	Output         *StructuredOutput
-	Pending        []string
-	Persistence    Persistence
-	Unacknowledged *Step
-	WriteError     error
+	Turn    Turn
+	Stop    Stop
+	Output  *StructuredOutput
+	Pending []string
+
+	// ReadyToContinue is true when Continue can pick up the saved turn.
+	ReadyToContinue bool
+	Persistence     Persistence
+	Unacknowledged  *Step
+	WriteError      error
 }
 
 // Commands carry caller-assigned stable IDs. A repeated ID with identical

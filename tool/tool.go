@@ -4,6 +4,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -116,8 +117,14 @@ func (d Definition) Validate() error {
 		return fmt.Errorf("tool: invalid kind %q", d.Kind)
 	}
 	if d.Kind == KindProviderHosted {
-		if len(d.Schema) != 0 || d.Hosted == nil {
-			return errors.New("tool: hosted definition requires hosted options without schema")
+		// A missing RawMessage is written as JSON null in saved turns.
+		// Treat it as absent only for hosted tools, which have no schema.
+		hasSchema := len(d.Schema) != 0 &&
+			!bytes.Equal(bytes.TrimSpace(d.Schema), []byte("null"))
+		if hasSchema || d.Hosted == nil {
+			return errors.New(
+				"tool: hosted definition requires hosted options without schema",
+			)
 		}
 		return d.Hosted.Validate()
 	}

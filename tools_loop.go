@@ -34,6 +34,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	// Once set, no further call starts; running calls still settle.
 	fatal := ""
 	settle := func(v toolResult) *Outcome {
+		if ctx.Err() != nil {
+			o := r.contextStop()
+			return &o
+		}
 		step, stop := toolSettlement(v)
 		if o := r.commit(step); o != nil {
 			return o
@@ -44,18 +48,23 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		return nil
 	}
 	drainOne := func() *Outcome {
+		if ctx.Err() != nil {
+			o := r.contextStop()
+			return &o
+		}
 		select {
 		case v := <-results:
 			running--
 			return settle(v)
 		case <-ctx.Done():
-			o := r.stop(StopCanceled, ctx.Err().Error())
+			o := r.contextStop()
 			return &o
 		}
 	}
+	paused := false
 	for _, id := range s.callOrder {
-		if err := ctx.Err(); err != nil {
-			return r.stop(StopCanceled, err.Error()), true
+		if ctx.Err() != nil {
+			return r.contextStop(), true
 		}
 		if fatal != "" {
 			break
@@ -79,10 +88,20 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				continue
 			}
-			if o := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Reason: "previous execution may have taken effect"}}); o != nil {
-				return *o, true
+			if !safeRepeat(v.Definition) {
+				fact := &ToolFact{
+					Call:   v.Call,
+					Reason: "previous execution may have taken effect",
+				}
+				if o := r.commit(Step{Kind: StepToolSettled, Tool: fact}); o != nil {
+					return *o, true
+				}
+				continue
 			}
-			continue
+		}
+		if r.pauseRequested() {
+			paused = true
+			break
 		}
 		if v.Status == ToolRequested {
 			if v.Definition.Name == "" {
@@ -136,7 +155,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				view, _ := Replay(r.turn)
 				decision, err = r.b.Policy.AuthorizeTool(ctx, call.Clone(), view)
 				if err != nil {
-					return r.stop(StopFailed, err.Error()), true
+					return r.failureOrContext(err), true
+				}
+				if ctx.Err() != nil {
+					return r.contextStop(), true
 				}
 				if len(decision.Rewrite) == 0 {
 					break
@@ -178,8 +200,8 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				continue
 			}
 		}
-		if err := ctx.Err(); err != nil {
-			return r.stop(StopCanceled, err.Error()), true
+		if ctx.Err() != nil {
+			return r.contextStop(), true
 		}
 		if v.Call.Name == SubmitOutputTool {
 			if o := r.commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: v.Call, Definition: v.Definition}}); o != nil {
@@ -205,7 +227,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		bound, err := r.b.Tools.Tools(ctx)
 		if err != nil {
-			return r.stop(StopFailed, err.Error()), true
+			return r.failureOrContext(err), true
+		}
+		if ctx.Err() != nil {
+			return r.contextStop(), true
 		}
 		var ex tool.Executor
 		for _, candidate := range bound {
@@ -226,19 +251,22 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				break
 			}
 		}
-		if err := ctx.Err(); err != nil {
-			return r.stop(StopCanceled, err.Error()), true
+		if ctx.Err() != nil {
+			return r.contextStop(), true
 		}
-		if o := r.commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: v.Call, Definition: v.Definition}}); o != nil {
-			cancel()
-			return *o, true
+		if r.pauseRequested() {
+			paused = true
+			break
 		}
-		if err := ctx.Err(); err != nil {
-			out := tool.Outcome{State: tool.StateNotExecuted}
-			if o := r.commit(Step{Kind: StepToolSettled, Tool: &ToolFact{Call: v.Call, Outcome: &out, Reason: err.Error()}}); o != nil {
+		if v.Status != ToolStarted {
+			fact := &ToolFact{Call: v.Call, Definition: v.Definition}
+			if o := r.commit(Step{Kind: StepToolStarted, Tool: fact}); o != nil {
+				cancel()
 				return *o, true
 			}
-			return r.stop(StopCanceled, err.Error()), true
+		}
+		if ctx.Err() != nil {
+			return r.contextStop(), true
 		}
 		running++
 		call := v.Call.Clone()
@@ -252,6 +280,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			return *o, true
 		}
 	}
+	if ctx.Err() != nil {
+		return r.contextStop(), true
+	}
 	state, _ := replay(r.turn)
 	for _, id := range state.callOrder {
 		v := state.Tools[id]
@@ -264,8 +295,14 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	if fatal != "" {
 		return r.stop(StopFailed, fatal), true
 	}
+	if paused {
+		return r.pauseStop(), true
+	}
 	if hasOpenTools(state) {
 		return r.stop(StopWaiting, "tool result or approval pending"), true
+	}
+	if r.pauseRequested() {
+		return r.pauseStop(), true
 	}
 	return Outcome{}, false
 }

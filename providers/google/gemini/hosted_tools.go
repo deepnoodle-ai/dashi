@@ -60,7 +60,7 @@ func hostedDefinition(
 	if provider == "" {
 		provider = "google"
 	}
-	return tool.Definition{
+	definition := tool.Definition{
 		Name: name,
 		Kind: tool.KindProviderHosted,
 		Hosted: &tool.HostedSpec{
@@ -70,6 +70,12 @@ func hostedDefinition(
 			Options:  options,
 		},
 	}
+	if toolType == "googleSearch" || toolType == "urlContext" ||
+		toolType == "fileSearch" {
+		readOnly := true
+		definition.Annotations.ReadOnly = &readOnly
+	}
+	return definition
 }
 
 func (wire codec) hostedTool(

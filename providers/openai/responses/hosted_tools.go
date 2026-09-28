@@ -119,7 +119,7 @@ func hostedDefinition(
 	if err != nil {
 		return tool.Definition{}, err
 	}
-	return tool.Definition{
+	definition := tool.Definition{
 		Name: name,
 		Kind: tool.KindProviderHosted,
 		Hosted: &tool.HostedSpec{
@@ -128,7 +128,12 @@ func hostedDefinition(
 			Type:     toolType,
 			Options:  raw,
 		},
-	}, nil
+	}
+	if toolType == "web_search" || toolType == "file_search" {
+		readOnly := true
+		definition.Annotations.ReadOnly = &readOnly
+	}
+	return definition, nil
 }
 
 func (wire codec) hostedTool(

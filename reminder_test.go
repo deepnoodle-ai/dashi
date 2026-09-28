@@ -66,10 +66,25 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
 	accepted, err := (Engine{}).Apply(context.Background(), delivered.Turn, definition(), Accept{ID: "accept", CallID: "c1", Outcome: &tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("found"))}}, Bindings{Client: client, Recorder: rec, Tools: fixedTools{external}, Policy: AllowLocalPolicy{}})
-	if err != nil || accepted.Stop.Kind != StopCompleted {
-		t.Fatalf("accept=%+v err=%v", accepted.Stop, err)
+	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("accept=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
-	projected, err := Project(accepted.Turn)
+	completed, err := (Engine{}).Apply(
+		context.Background(),
+		accepted.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{
+			Client:   client,
+			Recorder: rec,
+			Tools:    fixedTools{external},
+			Policy:   AllowLocalPolicy{},
+		},
+	)
+	if err != nil || completed.Stop.Kind != StopCompleted {
+		t.Fatalf("continue=%+v err=%v", completed, err)
+	}
+	projected, err := Project(completed.Turn)
 	if err != nil || hasReminderContent(projected, "old") || !hasReminderContent(projected, "new") || hasReminderContent(client.inputs[1].Messages, "old") || !hasReminderContent(client.inputs[1].Messages, "new") {
 		t.Fatalf("projected=%+v model=%+v err=%v", projected, client.inputs[1].Messages, err)
 	}
