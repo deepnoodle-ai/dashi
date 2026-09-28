@@ -197,8 +197,15 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 			if err != nil || len(left) != 1 || left[0].Item.ID != id {
 				t.Fatalf("leftovers = %+v err=%v", left, err)
 			}
-			if again, _ := inbox.Leftovers(saved); len(again) != 0 {
-				t.Fatalf("leftovers returned twice: %+v", again)
+			// A queued steer leaves the inbox; a recorded one is read from
+			// the record again on every call.
+			again, _ := inbox.Leftovers(saved)
+			want := 0
+			if fault == dashitest.LoseAck {
+				want = 1
+			}
+			if len(again) != want {
+				t.Fatalf("second leftovers = %+v", again)
 			}
 		})
 	}

@@ -1539,6 +1539,14 @@ func validateStepPayload(step Step) error {
 		if step.Context.Vetoed {
 			return errors.New("a steer is not a veto")
 		}
+		// The runner records steers; no command does.
+		if step.CommandID != "" {
+			return errors.New("a command cannot record steers")
+		}
+		if step.Kind == StepToolSettled &&
+			(step.Tool == nil || step.Tool.Call.Name != SubmitOutputTool) {
+			return errors.New("only a rejected submission settles with steers")
+		}
 		for _, item := range step.Context.Items {
 			if item.ID == "" {
 				return errors.New("a steer requires an ID")

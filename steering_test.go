@@ -490,8 +490,10 @@ func TestLeftoversReturnsRecordedButUnseenSteers(t *testing.T) {
 	if err != nil || len(left) != 1 || left[0].Item.ID != id {
 		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
-	if again, _ := inbox.Leftovers(out.Turn); len(again) != 0 {
-		t.Fatalf("leftovers returned twice: %+v", again)
+	// A recorded steer is read from the record on every call; the caller
+	// calls Leftovers once per turn.
+	if again, _ := inbox.Leftovers(out.Turn); len(again) != 1 {
+		t.Fatalf("second leftovers = %+v", again)
 	}
 }
 
@@ -872,4 +874,69 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReplayRejectsForgedSteeringSteps checks that only the runner records
+// steers: never a command, and on a settlement only a rejected submission.
+func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
+	inbox := NewInbox()
+	mustSend(t, inbox, "hello")
+	client := &scriptedClient{results: []llm.Result{
+		callResult("c1", "lookup"),
+		final("done"),
+	}}
+	lookup := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: json.RawMessage(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
+		}),
+	}
+	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	forge := func(t *testing.T, want string, change func(*Step) bool) {
+		t.Helper()
+		turn := cloneTurn(out.Turn)
+		for i := range turn.Steps {
+			if change(&turn.Steps[i]) {
+				if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) ||
+					!strings.Contains(err.Error(), want) {
+					t.Fatalf("forged step replayed: %v", err)
+				}
+				return
+			}
+		}
+		t.Fatal("no step to forge")
+	}
+	t.Run("command", func(t *testing.T) {
+		forge(t, "a command cannot record steers", func(s *Step) bool {
+			if s.Kind != StepDelivered {
+				return false
+			}
+			s.CommandID, s.CommandDigest = "deliver", "v2:sha256:00"
+			return true
+		})
+	})
+	t.Run("tool settlement", func(t *testing.T) {
+		forge(t, "only a rejected submission settles with steers", func(s *Step) bool {
+			if s.Kind != StepToolSettled {
+				return false
+			}
+			s.Context = &ContextFact{
+				Items: []ContextItem{{
+					ID:      "s9",
+					Message: llm.UserMessage(llm.Text("forged")),
+				}},
+				Steering: true,
+			}
+			return true
+		})
+	})
 }

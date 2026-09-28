@@ -22,9 +22,6 @@ import (
 type Inbox struct {
 	mu      sync.Mutex
 	entries []*inboxEntry
-	// taken is the turn whose recorded leftovers were last returned, so an
-	// immediate second Leftovers call does not return them again.
-	taken string
 }
 
 type inboxEntry struct {
@@ -134,17 +131,17 @@ func (in *Inbox) Release(_ context.Context, turnID string, unrecorded, inDoubt [
 	}
 }
 
-// Leftovers returns the steers no model call of turn saw, oldest first, and
-// forgets them, so the app can start its next turn with them. They are the
-// steers the turn records with no later model_requested step, followed by
-// those still queued that the turn did not record. Steers claimed by
-// another turn stay queued.
+// Leftovers returns the steers no model call of turn saw, oldest first, so
+// the app can start its next turn with them. They are the steers the turn
+// records with no later model_requested step, read from the record, followed
+// by those still queued that the turn did not record, which the inbox
+// forgets. Steers claimed by another turn stay queued.
 //
-// Pass a freshly loaded turn: in a stale copy, recorded steers look
-// unrecorded and would be delivered twice. Call it once per turn, when the
-// turn will not run again or to abandon it; a second call for the same turn
-// returns only steers queued since. An invalid turn returns an error and
-// changes nothing.
+// Call it once per turn, when the turn will not run again or to abandon it:
+// the recorded steers come from the record on every call, so not sending
+// them twice is the caller's job. Pass a freshly loaded turn: in a stale
+// copy, recorded steers look unrecorded and would be delivered twice. An
+// invalid turn returns an error and changes nothing.
 func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 	if _, err := Replay(turn); err != nil {
 		return nil, err
@@ -171,11 +168,8 @@ func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	var out []Steer
-	if in.taken != turn.ID {
-		for _, item := range unseen {
-			out = append(out, Steer{Item: cloneContextItem(item)})
-		}
-		in.taken = turn.ID
+	for _, item := range unseen {
+		out = append(out, Steer{Item: cloneContextItem(item)})
 	}
 	kept := in.entries[:0]
 	for _, e := range in.entries {

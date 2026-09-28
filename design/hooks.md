@@ -152,6 +152,8 @@ schema checks, unless a hook rejected the answer. A `Reason` is a *veto*
   reserved answer is vetoed, it is still recorded and the turn stops
   `StopFailed` with `output_rejected` and no output. A vetoed answer never
   shows in `Answer` until a new one arrives (`ContextFact.Vetoed`).
+- **Recorded items.** Items whose ID the turn already records are dropped
+  before deciding, so a nudge with a fixed ID nudges only once per turn.
 - **After `hook_failed`.** Context delivered since turns the kept answer
   down at `Continue` when a further call fits; otherwise it is dropped with a
   warning and the hooks run again on the kept answer.
