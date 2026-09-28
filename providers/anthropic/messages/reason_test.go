@@ -15,9 +15,14 @@ func TestErrorReason(t *testing.T) {
 		media  bool
 		want   llm.ErrorReason
 	}{
+		// Recorded live on 2026-09-28; request ID removed.
 		{name: "prompt too long", status: 400,
-			body: `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 208310 tokens > 200000 maximum"}}`,
+			body: `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 300023 tokens > 200000 maximum"}}`,
 			want: llm.ReasonContextWindowExceeded},
+		// Recorded live on 2026-09-28 for a PNG signature followed by junk.
+		{name: "corrupt png", status: 400, media: true,
+			body: `{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels"}}`,
+			want: llm.ReasonMediaRejected},
 		{name: "input and max tokens", status: 400,
 			body: "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"input length and `max_tokens` exceed context limit: 188240 + 20000 > 200000, decrease input length or `max_tokens` and try again\"}}",
 			want: llm.ReasonContextWindowExceeded},

@@ -60,6 +60,9 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 			return must(ollama.New(ollama.Config{Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust}))
 		},
 	}
+	// Bodies marked "recorded" were captured from live responses on
+	// 2026-09-28 by TestLiveErrorReasons, with request IDs removed. The rest
+	// are unverified reconstructions.
 	tests := []struct {
 		name, client string
 		status       int
@@ -69,13 +72,18 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 		want         llm.ErrorReason
 	}{
 		{
-			name: "anthropic prompt too long", client: "anthropic", status: 400,
-			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 208310 tokens > 200000 maximum"}}`,
+			name: "anthropic prompt too long (recorded)", client: "anthropic", status: 400,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 300023 tokens > 200000 maximum"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
 		},
 		{
-			name: "anthropic image too large", client: "anthropic", status: 400, media: true,
-			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes"}}`,
+			name: "anthropic corrupt image (recorded)", client: "anthropic", status: 400, media: true,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "anthropic unsupported image type (recorded)", client: "anthropic", status: 400, media: true,
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
 		},
 		{
@@ -94,19 +102,39 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 			category: llm.ErrorOverloaded,
 		},
 		{
-			name: "openai responses context", client: "openai-responses", status: 400,
+			name: "openai responses context (recorded)", client: "openai-responses", status: 400,
 			body:     `{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"invalid_request_error","param":"input","code":"context_length_exceeded"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
 		},
 		{
-			name: "openai responses invalid image", client: "openai-responses", status: 400, media: true,
-			body:     `{"error":{"message":"Invalid image data.","type":"invalid_request_error","param":"input","code":"invalid_image_format"}}`,
+			name: "openai responses corrupt image (recorded)", client: "openai-responses", status: 400, media: true,
+			body:     `{"error":{"message":"The image data you provided does not represent a valid image. Please check your input and try again.","type":"invalid_request_error","param":"input","code":"invalid_value"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
 		},
 		{
-			name: "openai completions context", client: "openai-completions", status: 400,
-			body:     `{"error":{"message":"This model's maximum context length is 128000 tokens. However, your messages resulted in 130412 tokens. Please reduce the length of the messages.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`,
+			name: "openai responses unsupported image type (recorded)", client: "openai-responses", status: 400, media: true,
+			body:     `{"error":{"message":"The image data you provided does not represent a valid image. Please check your input and try again with one of the supported image formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].","type":"invalid_request_error","param":"input","code":"invalid_value"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "openai responses invalid value without media", client: "openai-responses", status: 400,
+			body:     `{"error":{"message":"Invalid value: 'x'. Supported values are: 'auto'.","type":"invalid_request_error","param":"tool_choice","code":"invalid_value"}}`,
+			category: llm.ErrorInvalidRequest,
+		},
+		{
+			name: "openai completions context (recorded)", client: "openai-completions", status: 400,
+			body:     `{"error":{"message":"This model's maximum context length is 128000 tokens. However, your messages resulted in 192007 tokens. Please reduce the length of the messages.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
+		},
+		{
+			name: "openai completions corrupt image (recorded)", client: "openai-completions", status: 400, media: true,
+			body:     `{"error":{"message":"You uploaded an unsupported image. Please make sure your image is valid.","type":"invalid_request_error","param":null,"code":"image_parse_error"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "openai completions unsupported image type (recorded)", client: "openai-completions", status: 400, media: true,
+			body:     `{"error":{"message":"You uploaded an unsupported image. Please make sure your image has of one the following formats: ['png', 'jpeg', 'gif', 'webp'].","type":"invalid_request_error","param":null,"code":"invalid_image_format"}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
 		},
 		{
 			name: "openai tokens per minute", client: "openai-completions", status: 429,
@@ -114,23 +142,33 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 			category: llm.ErrorRateLimited,
 		},
 		{
-			name: "mistral context", client: "mistral", status: 400,
-			body:     `{"object":"error","message":"Prompt contains 40011 tokens and 0 draft tokens, too large for model with 32768 maximum context length","type":"invalid_request_error","param":null,"code":null}`,
+			name: "mistral context (recorded)", client: "mistral", status: 400,
+			body:     `{"object":"error","message":"Prompt 196611 > 131072 maximum context length","type":"invalid_request_prompt_too_long","param":null,"code":"3059","raw_status_code":400}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
 		},
 		{
-			name: "openrouter context", client: "openrouter", status: 400,
-			body:     `{"error":{"message":"This endpoint's maximum context length is 200000 tokens. However, you requested about 250123 tokens (250123 of text input). Please reduce the length of either one, or use the \"middle-out\" transform to compress your prompt automatically.","code":400,"metadata":{"provider_name":null}}}`,
+			name: "openrouter context (recorded)", client: "openrouter", status: 400,
+			body:     `{"error":{"message":"This endpoint's maximum context length is 32768 tokens. However, you requested about 61456 tokens (61440 of text input, 16 in the output). Please reduce the length of either one, or use the context-compression plugin to compress your prompt automatically.","code":400,"metadata":{"provider_name":null}}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
 		},
 		{
-			name: "deepinfra context", client: "deepinfra", status: 400,
-			body:     `{"error":{"message":"This model's maximum context length is 131072 tokens. However, you requested 140000 tokens (139000 in the messages, 1000 in the completion). Please reduce the length of the messages or completion."}}`,
+			name: "deepinfra context (recorded)", client: "deepinfra", status: 400,
+			body:     `{"error":{"message":"Input too long: 196618 input tokens, limit is 131072 for this model","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonContextWindowExceeded,
 		},
 		{
 			name: "deepinfra too many images", client: "deepinfra", status: 400, media: true,
 			body:     `{"error":{"message":"At most 1 image(s) may be provided in one request."}}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "grok corrupt image (recorded)", client: "grok", status: 400, media: true,
+			body:     `{"code":"invalid_image","error":"code: 'Client specified an invalid argument', message: \"Invalid PNG image."}`,
+			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
+		},
+		{
+			name: "grok unsupported image type (recorded)", client: "grok", status: 400, media: true,
+			body:     `{"code":"invalid_image","error":"code: 'Client specified an invalid argument', message: \"Downloaded response does not contain a valid JPG, PNG, WebP, or ICO image."}`,
 			category: llm.ErrorInvalidRequest, want: llm.ReasonMediaRejected,
 		},
 		{

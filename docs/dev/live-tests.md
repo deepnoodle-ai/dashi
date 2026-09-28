@@ -72,6 +72,29 @@ on those models. Run
 `go test -tags live . -run '^TestLiveIteratorAgentTurns$' -v`
 with `KERNEL_LIVE_AGENT_TEST=1`, keys, and model names to repeat the probe.
 
+## Error reasons
+
+`TestLiveErrorReasons` provokes context window and media rejections and logs
+each provider's error body. Each provider is skipped without its usual API key
+variable; filter `-run` to one provider when needed:
+
+```sh
+KERNEL_LIVE_TEST=1 go test -tags live ./providers -run '^TestLiveErrorReasons$' -v
+```
+
+On 2026-09-28 every probe was classified as expected: a corrupt PNG and a TIFF
+were rejected as media by Anthropic Messages (`claude-haiku-4-5-20251001`),
+OpenAI Responses and Chat Completions (`gpt-4o-mini`), and xAI
+(`grok-4.20-0309-non-reasoning`). Input of about 1.5 context windows was
+rejected as context overflow by Anthropic, both OpenAI routes, Mistral
+(`ministral-3b-2512`), OpenRouter (`mistralai/mistral-small-24b-instruct-2501`),
+and DeepInfra (`meta-llama/Meta-Llama-3.1-8B-Instruct`). The recorded bodies
+are unit-test fixtures. Rejections are not billed. Gemini was not run because
+no key was available. xAI's context overflow was not probed because its
+current windows are too large to exceed cheaply. Anthropic accepted 168k input
+with `max_tokens` 64000 on a 200k window, so input plus output is no longer a
+rejection trigger there.
+
 ## Gemini API version
 
 Gemini's conversational client defaults to `v1beta` because the tested `v1`

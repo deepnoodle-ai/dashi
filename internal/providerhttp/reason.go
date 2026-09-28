@@ -139,13 +139,14 @@ func HasMedia(input llm.Input) bool {
 // and OpenAI-compatible servers, report only an input that exceeds the model's
 // context window. Each is specific enough not to match per-minute token
 // limits ("Request too large ... tokens per min") or output limits
-// ("max_tokens is too large").
+// ("max_tokens is too large"). Sources marked "live" were recorded from
+// provider responses (docs/dev/live-tests.md); the rest are unverified.
 var contextWindowPhrases = []string{
 	"context_length_exceeded",
-	"maximum context length",             // OpenAI chat, vLLM, OpenRouter, Mistral
-	"exceeds the context window",         // OpenAI Responses
-	"exceed context limit",               // Anthropic, with max_tokens
-	"prompt is too long",                 // Anthropic
+	"maximum context length",             // live: OpenAI Chat, OpenRouter, Mistral; vLLM
+	"exceeds the context window",         // live: OpenAI Responses
+	"prompt is too long",                 // live: Anthropic
+	"exceed context limit",               // Anthropic input plus max_tokens, older models
 	"maximum prompt length is",           // xAI
 	"exceeds the available context size", // llama.cpp servers
 }
@@ -205,13 +206,16 @@ func OpenAIReason(r Rejection) llm.ErrorReason {
 	switch {
 	case !r.rejectsRequest():
 		return ""
-	case r.Code == "context_length_exceeded":
+	case r.Code == "context_length_exceeded", // OpenAI, DeepInfra
+		r.Type == "invalid_request_prompt_too_long": // Mistral
 		return llm.ReasonContextWindowExceeded
-	case openAIMediaCodes[r.Code]:
+	case openAIMediaCodes[r.Code]: // Chat Completions, xAI
 		return llm.ReasonMediaRejected
 	case ContextWindowMessage(r.Message):
 		return llm.ReasonContextWindowExceeded
 	case r.HasMedia && ContainsAny(r.Message,
+		// OpenAI Responses reports unusable images as code invalid_value.
+		"does not represent a valid image",
 		"too many images",
 		"image(s) may be provided", // vLLM
 		"invalid image",

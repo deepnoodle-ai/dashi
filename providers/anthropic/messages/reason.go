@@ -6,11 +6,13 @@ import (
 )
 
 // errorReason classifies Anthropic Messages failures, which carry an error
-// type but no code. Context overflow is reported as invalid_request_error with "prompt
-// is too long: N tokens > M maximum" or, when max_tokens pushes the total
-// over, "input length and `max_tokens` exceed context limit". Media
-// validation failures name the offending field path, such as
-// "messages.0.content.1.image.source.base64: image exceeds 5 MB maximum".
+// type but no code. Context overflow is reported as invalid_request_error
+// with "prompt is too long: N tokens > M maximum" (older models also rejected
+// input plus max_tokens with "input length and `max_tokens` exceed context
+// limit"). Media validation failures name the offending field path; a
+// corrupt PNG, for example, is reported as
+// "messages.0.content.1.image.source.base64.data: At least one of the image
+// dimensions exceed max allowed size: 8000 pixels".
 func errorReason(r providerhttp.Rejection) llm.ErrorReason {
 	if r.Type != "" && r.Type != "invalid_request_error" && r.Type != "request_too_large" {
 		return ""

@@ -57,6 +57,16 @@ func TestOpenAIReason(t *testing.T) {
 		{name: "llama.cpp message", status: 400,
 			body: `{"error":{"code":400,"message":"the request exceeds the available context size, try increasing it","type":"exceed_context_size_error"}}`,
 			want: llm.ReasonContextWindowExceeded},
+		// Recorded live on 2026-09-28 (OpenAI Responses, corrupt PNG).
+		{name: "responses invalid value image", status: 400, media: true,
+			body: `{"error":{"message":"The image data you provided does not represent a valid image. Please check your input and try again.","type":"invalid_request_error","param":"input","code":"invalid_value"}}`,
+			want: llm.ReasonMediaRejected},
+		{name: "invalid value without media", status: 400,
+			body: `{"error":{"message":"The image data you provided does not represent a valid image.","type":"invalid_request_error","param":"input","code":"invalid_value"}}`},
+		// Recorded live on 2026-09-28 (Mistral).
+		{name: "mistral prompt too long", status: 400,
+			body: `{"object":"error","message":"Prompt 196611 > 131072 maximum context length","type":"invalid_request_prompt_too_long","param":null,"code":"3059","raw_status_code":400}`,
+			want: llm.ReasonContextWindowExceeded},
 		{name: "image code without media flag", status: 400,
 			body: `{"error":{"message":"You uploaded an unsupported image.","type":"invalid_request_error","code":"invalid_image_format"}}`,
 			want: llm.ReasonMediaRejected},
