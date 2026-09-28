@@ -53,8 +53,21 @@ Set `Config.CapabilityPolicy` to `llm.CapabilityStrict` to reject unknown
 support and out-of-range values instead. Dated `llm.ModelInfo` entries in
 `Config.Models` supply known limits; each entry's `ModelEvidence` must match the
 exact model, API, and endpoint and identify its source, owner, date, and method.
-Local fixtures do not imply live qualification. No built-in model catalog is
-supplied yet. See [decision 4](../../design/decisions.md) for the rationale.
+Local fixtures do not imply live qualification. See
+[decision 4](../../design/decisions.md) for the rationale.
+
+## Model catalog
+
+The `catalog` package documents known models at public endpoints: context
+window, output limit, reasoning efforts, temperature support, and a dated
+list-price sheet. Clients for Anthropic, OpenAI (Responses and Chat
+Completions), the Gemini API, xAI, Meta, and Mistral use it when
+`Config.Models` has no entry for the model, so known limits are fitted with
+warnings without setup. Its evidence uses the `documentation` method; an entry
+in `Config.Models` replaces it. Custom endpoints, Vertex, Ollama, OpenRouter,
+and DeepInfra get no catalog facts by default; bind an entry to your endpoint
+with `catalog.Find` and `Entry.Bind` to adopt one. See the
+[catalog design](../../design/model-catalog.md).
 
 ## Prepare, Request, and RequestSnapshot
 
@@ -112,7 +125,8 @@ result and stop kind before acting on tool calls.
 
 Missing usage is nil. `Result.Cost` holds a provider-reported amount when
 available; list-price estimates require an explicitly selected `llm.Pricing`
-sheet and complete usage.
+sheet and complete usage. A catalog sheet applies when `Entry.Serves` accepts
+`Result.Served`.
 
 ## Further reading
 
