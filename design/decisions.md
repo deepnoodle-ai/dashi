@@ -85,7 +85,9 @@ execution-identity work.
 
 **12. Interruptions have their own limit.** Decided. A new
 `Limits.Interruptions` (default 10) counts resumes; exceeding it stops the turn
-as `limited`. Interruptions do not consume `ModelAttempts`. Rationale: they are
+as `limited`. Interruptions do not consume `ModelAttempts`: a model call
+recorded as interrupted is not counted as an attempt, though its usage and cost
+still count toward spend. Rationale: they are
 usually the hosting's fault, a different budget from model retries.
 
 **13. Tool results arriving after the context ends are dropped.** Decided. No
