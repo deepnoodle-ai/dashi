@@ -108,8 +108,8 @@ func LiveErrorReasons(t *testing.T, p ErrorProbe) {
 				result.Usage,
 			)
 		}
-		var e *llm.Error
-		if !errors.As(err, &e) {
+		e, ok := errors.AsType[*llm.Error](err)
+		if !ok {
 			t.Fatalf("err = %v, want a provider rejection", err)
 		}
 		t.Logf(

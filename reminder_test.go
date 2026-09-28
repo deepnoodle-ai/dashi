@@ -45,7 +45,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("found")),
+				Output: new(tool.TextOutput("found")),
 			}, nil
 		}),
 	}
@@ -55,7 +55,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Content: "persistent context",
 	}
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "r1"},
 		definition(),
 		Start{
@@ -103,7 +103,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		},
 	}
 	start, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "r2"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
@@ -138,7 +138,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		}),
 	}
 	delivered, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		start.Turn,
 		definition(),
 		Deliver{ID: "deliver", Items: []ContextItem{first, second}},
@@ -161,7 +161,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		}),
 	}
 	rejected, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		delivered.Turn,
 		definition(),
 		Deliver{ID: "bad", Items: []ContextItem{bad}},
@@ -171,7 +171,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		delivered.Turn,
 		definition(),
 		Accept{
@@ -179,7 +179,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 			CallID: "c1",
 			Outcome: &tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("found")),
+				Output: new(tool.TextOutput("found")),
 			},
 		},
 		Bindings{
@@ -193,7 +193,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		t.Fatalf("accept=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -231,7 +231,7 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 	for _, origin := range []StartOrigin{StartUser, StartScheduled} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		got, err := (Engine{}).Apply(
-			context.Background(),
+			t.Context(),
 			Turn{ID: "r3"},
 			definition(),
 			Start{
@@ -251,7 +251,7 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	base := &scriptedClient{results: []llm.Result{final("done")}}
 	client := droppingReminderClient{base}
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "r5"},
 		definition(),
 		Start{
@@ -306,7 +306,7 @@ func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
 		t.Helper()
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		got, err := (Engine{}).Apply(
-			context.Background(),
+			t.Context(),
 			Turn{ID: "r6"},
 			definition(),
 			Start{ID: "start", Input: input},

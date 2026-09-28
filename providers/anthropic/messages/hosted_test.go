@@ -1,7 +1,6 @@
 package messages
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -54,7 +53,7 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 		t.Fatal("search result reference was lost")
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model: "test-model",
 			Messages: []llm.Message{
@@ -110,7 +109,7 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
@@ -173,7 +172,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
@@ -197,7 +196,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 		t.Fatal("MCP toolset lost its server name")
 	}
 	if _, err := client.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: request,
 		},

@@ -36,7 +36,7 @@ func TestLiveVeoVideoJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	job := media.Job{
 		ID:     os.Getenv("KERNEL_LIVE_VEO_JOB_ID"),
@@ -113,7 +113,7 @@ func TestLiveOmniVideoCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	request, err := client.PrepareVideo(
 		ctx,
@@ -151,7 +151,7 @@ func TestLiveOmniVideoJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	job := media.Job{
 		ID:     os.Getenv("KERNEL_LIVE_OMNI_JOB_ID"),
@@ -213,8 +213,8 @@ func TestLiveOmniVideoJob(t *testing.T) {
 }
 
 func liveMediaError(err error, key string) string {
-	var providerErr *media.Error
-	if !errors.As(err, &providerErr) {
+	providerErr, ok := errors.AsType[*media.Error](err)
+	if !ok {
 		return strings.ReplaceAll(err.Error(), key, "[REDACTED]")
 	}
 	var response struct {

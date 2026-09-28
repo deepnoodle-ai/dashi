@@ -17,8 +17,7 @@ output, not those earlier messages. A mismatch warns and proceeds. A host that
 must never resume with different history sets `Bindings.OnHistoryMismatch:
 HistoryMismatchReject`; `Continue` then returns `ErrHistoryMismatch` and commits
 nothing, so the turn resumes once the host passes the history it started with.
-Turns recorded without a fingerprint continue unchecked. If `Start`
-had no history, omit `History` on `Continue` or pass an empty slice.
+If `Start` had no history, omit `History` on `Continue` or pass an empty slice.
 
 See [the runnable example](../examples/agent/main.go) for setup. `Engine.Apply`
 returns a Go error for a command or record rejected before a new fact is

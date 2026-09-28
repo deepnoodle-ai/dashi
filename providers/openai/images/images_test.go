@@ -2,7 +2,6 @@ package images
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -125,7 +124,7 @@ func TestClientGenerateImageSendsPreparedJSON(t *testing.T) {
 		},
 	)
 	input := imageInput(media.ImageGenerate)
-	request, err := client.PrepareImage(context.Background(), input)
+	request, err := client.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatalf("prepare image: %v", err)
 	}
@@ -135,7 +134,7 @@ func TestClientGenerateImageSendsPreparedJSON(t *testing.T) {
 	}
 	returnedBody := request.Body()
 	returnedBody[0] = 'X'
-	result, err := client.SendImage(context.Background(), request)
+	result, err := client.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatalf("send image: %v", err)
 	}
@@ -210,7 +209,7 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 	})
 	input.ReferenceImages = []content.Block{image}
 	input.Mask = &image
-	request, err := client.PrepareImage(context.Background(), input)
+	request, err := client.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatalf("prepare edit: %v", err)
 	}
@@ -220,7 +219,7 @@ func TestClientEditImageUploadsMultipartBytes(t *testing.T) {
 	}
 	returnedBody := request.Body()
 	returnedBody[0] = 'X'
-	if _, err := client.SendImage(context.Background(), request); err != nil {
+	if _, err := client.SendImage(t.Context(), request); err != nil {
 		t.Fatalf("send edit: %v", err)
 	}
 }
@@ -234,7 +233,7 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := strict.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput(media.ImageGenerate),
 	); err == nil {
 		t.Fatal("missing model evidence was silently accepted")
@@ -247,7 +246,7 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := permissive.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput(media.ImageGenerate),
 	)
 	if err != nil {
@@ -270,7 +269,7 @@ func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
 	input.Model = "future-image-model"
 	input.Settings.Quality = "max"
 	input.Settings.Size = media.Size{Width: 4096, Height: 4096}
-	request, err := client.PrepareImage(context.Background(), input)
+	request, err := client.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatalf("future model was blocked despite explicit allowance: %v", err)
 	}
@@ -290,11 +289,11 @@ func TestClientRejectsKnownUnsupportedCapability(t *testing.T) {
 		},
 	)
 	_, err := client.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput(media.ImageGenerate),
 	)
-	var mediaError *media.Error
-	if !errors.As(err, &mediaError) ||
+	mediaError, ok := errors.AsType[*media.Error](err)
+	if !ok ||
 		mediaError.Category != media.ErrorUnsupported {
 		t.Fatalf("known unsupported generation was not refused: %v", err)
 	}
@@ -314,7 +313,7 @@ func TestClientEditImagePreservesURLReference(t *testing.T) {
 			content.Source{URL: "https://example.com/reference.png"},
 		),
 	}
-	request, err := client.PrepareImage(context.Background(), input)
+	request, err := client.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatalf("prepare URL edit: %v", err)
 	}
@@ -360,13 +359,13 @@ func TestClientRejectsWrongDestinationBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := first.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput(media.ImageGenerate),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.SendImage(context.Background(), request); err == nil {
+	if _, err := second.SendImage(t.Context(), request); err == nil {
 		t.Fatal("wrong credential scope was accepted")
 	}
 	if calls != 0 {
@@ -390,15 +389,15 @@ func TestClientClassifiesQuotaRejection(t *testing.T) {
 		},
 	)
 	request, err := client.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput(media.ImageGenerate),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendImage(context.Background(), request)
-	var providerError *media.Error
-	if !errors.As(err, &providerError) {
+	_, err = client.SendImage(t.Context(), request)
+	providerError, ok := errors.AsType[*media.Error](err)
+	if !ok {
 		t.Fatalf("expected media.Error, got %v", err)
 	}
 	if providerError.Category != media.ErrorRateLimited ||
@@ -468,7 +467,7 @@ func TestClientRejectsImageSettingsItCannotEncode(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := client.PrepareImage(
-				context.Background(),
+				t.Context(),
 				tc.input,
 			); err == nil {
 				t.Fatal("unsupported input was silently encoded")
@@ -497,7 +496,7 @@ func TestClientPreparesOpenAIOptions(t *testing.T) {
 		OutputCompression: &zero,
 	}
 	request, err := client.PrepareImageWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		options,
 	)
@@ -542,7 +541,7 @@ func TestClientPreparesEditOptionsAsMultipart(t *testing.T) {
 		}),
 	}
 	request, err := client.PrepareImageWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		Options{InputFidelity: "high", Background: "opaque"},
 	)
@@ -589,7 +588,7 @@ func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 	for _, name := range []string{"dall-e-2", "dall-e-3"} {
 		input := imageInput(media.ImageGenerate)
 		input.Model = name
-		if _, err := client.PrepareImage(context.Background(), input); err == nil {
+		if _, err := client.PrepareImage(t.Context(), input); err == nil {
 			t.Errorf("retired model %s was accepted", name)
 		}
 	}
@@ -634,7 +633,7 @@ func TestClientRejectsRetiredModelsAndInvalidOptions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := client.PrepareImageWithOptions(
-				context.Background(),
+				t.Context(),
 				tc.input,
 				tc.options,
 			); err == nil {

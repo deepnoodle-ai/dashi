@@ -177,8 +177,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			return tool.Outcome{}, tool.Fatal(errors.New("unexpected multiplication arguments"))
 		}
 		runs++
-		output := tool.TextOutput("56")
-		return tool.Outcome{State: tool.StateSucceeded, Output: &output}, nil
+		return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("56"))}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -396,8 +395,7 @@ func AgentTurn(
 					return tool.Outcome{}, tool.Fatal(errors.New(provider + " supplied unexpected tool arguments"))
 				}
 				runs++
-				output := tool.TextOutput(strconv.Itoa(args.A * args.B))
-				return tool.Outcome{State: tool.StateSucceeded, Output: &output}, nil
+				return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput(strconv.Itoa(args.A * args.B)))}, nil
 			})
 			if err != nil {
 				t.Fatal(err)

@@ -238,7 +238,7 @@ type StreamResponse struct {
 	ServiceTier       string         `json:"service_tier"`       // default
 	SystemFingerprint string         `json:"system_fingerprint"` // fp_eb9dce56a8
 	Choices           []StreamChoice `json:"choices"`
-	Usage             Usage          `json:"usage,omitempty"`
+	Usage             Usage          `json:"usage"`
 	// Error is a failure some OpenAI-compatible servers report inside a
 	// successful stream, such as OpenRouter when an upstream disconnects.
 	Error json.RawMessage `json:"error,omitempty"`
@@ -309,7 +309,7 @@ type ToolCallDelta struct {
 	Index    int               `json:"index"`
 	ID       string            `json:"id,omitempty"`
 	Type     string            `json:"type,omitempty"`
-	Function ToolFunctionDelta `json:"function,omitempty"`
+	Function ToolFunctionDelta `json:"function"`
 }
 
 // ToolFunctionDelta represents a partial function call in a streaming response

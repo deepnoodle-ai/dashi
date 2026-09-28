@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -49,7 +48,7 @@ func TestPrepareChecksReplayUnitAndCompleteness(t *testing.T) {
 						if err := json.Unmarshal(encoded, &restored); err != nil {
 							t.Fatal(err)
 						}
-						req, err := client.Prepare(context.Background(), restored)
+						req, err := client.Prepare(t.Context(), restored)
 						supported := (tc.name == "anthropic" &&
 							unit == llm.OpaqueUnitContentBlock) ||
 							(tc.name == "openai" && unit != llm.OpaqueUnitContentBlock)
@@ -66,7 +65,7 @@ func TestPrepareChecksReplayUnitAndCompleteness(t *testing.T) {
 							t.Fatal("opaque replay changed unfamiliar provider data")
 						}
 						o.Partial = true
-						if _, err := client.Prepare(context.Background(), input); err == nil {
+						if _, err := client.Prepare(t.Context(), input); err == nil {
 							t.Fatal("recognized unit permitted partial replay")
 						}
 					},
@@ -122,11 +121,11 @@ func TestPrepareRejectsPartialAttachmentsOnKnownContent(t *testing.T) {
 								Content: []llm.Content{c},
 							},
 						)
-						if _, err := client.Prepare(context.Background(), input); err != nil {
+						if _, err := client.Prepare(t.Context(), input); err != nil {
 							t.Fatalf("complete attachment rejected: %v", err)
 						}
 						o.Partial = true
-						if _, err := client.Prepare(context.Background(), input); err == nil {
+						if _, err := client.Prepare(t.Context(), input); err == nil {
 							t.Fatal("known content bypassed partial replay rejection")
 						}
 					},

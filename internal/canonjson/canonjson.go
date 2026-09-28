@@ -48,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -123,11 +124,7 @@ func write(buf *bytes.Buffer, value any) error {
 		}
 		buf.WriteByte(']')
 	case map[string]any:
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		slices.SortFunc(keys, compareUTF16)
+		keys := slices.SortedFunc(maps.Keys(v), compareUTF16)
 		buf.WriteByte('{')
 		for i, k := range keys {
 			if i > 0 {

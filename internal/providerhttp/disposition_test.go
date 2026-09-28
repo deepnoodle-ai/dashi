@@ -75,14 +75,11 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = client.Post(
-				context.Background(),
+				t.Context(),
 				request,
 			)
-			var failure *llm.Error
-			if !errors.As(
-				err,
-				&failure,
-			) || failure.Disposition != tc.disposition {
+			failure, ok := errors.AsType[*llm.Error](err)
+			if !ok || failure.Disposition != tc.disposition {
 				t.Fatalf(
 					"failure=%+v err=%v",
 					failure,
@@ -127,17 +124,14 @@ func TestCanceledPostIsKnownNotDispatched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err = client.Post(ctx, request)
-	var failure *llm.Error
+	failure, ok := errors.AsType[*llm.Error](err)
 	if !errors.Is(
 		err,
 		context.Canceled,
-	) || !errors.As(
-		err,
-		&failure,
-	) || failure.Disposition != llm.FailureNotDispatched {
+	) || !ok || failure.Disposition != llm.FailureNotDispatched {
 		t.Fatalf("failure=%+v err=%v", failure, err)
 	}
 }

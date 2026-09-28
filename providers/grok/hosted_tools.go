@@ -158,8 +158,7 @@ func newHosted(name, toolType string, options any) (tool.Definition, error) {
 	}
 	if toolType == "web_search" || toolType == "x_search" ||
 		toolType == "file_search" {
-		readOnly := true
-		definition.Annotations.ReadOnly = &readOnly
+		definition.Annotations.ReadOnly = new(true)
 	}
 	return definition, nil
 }

@@ -214,8 +214,8 @@ func (c *Client) SubmitVideo(
 	)
 	if err != nil {
 		state := media.SubmissionUnknown
-		var failure *media.Error
-		if errors.As(err, &failure) && knownRejectedStatus(failure.Status) {
+		failure, ok := errors.AsType[*media.Error](err)
+		if ok && knownRejectedStatus(failure.Status) {
 			state = media.SubmissionRejected
 		}
 		return media.Submission{State: state}, err

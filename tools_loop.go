@@ -80,7 +80,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if v.Status == ToolDenied {
 			out := tool.Outcome{
 				State:  tool.StateNotExecuted,
-				Output: ptr(tool.TextOutput(v.Decision.Reason)),
+				Output: new(tool.TextOutput(v.Decision.Reason)),
 			}
 			if o := r.commit(Step{
 				Kind: StepToolSettled,
@@ -120,7 +120,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if v.Definition.Name == "" {
 				o := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: ptr(tool.TextOutput("Unknown tool.")),
+					Output: new(tool.TextOutput("Unknown tool.")),
 				}
 				if x := r.commit(Step{
 					Kind: StepToolSettled,
@@ -134,7 +134,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				len(v.Call.Args) > maxOutputValueBytes {
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: ptr(tool.TextOutput("Output rejected because it is too large. Return a smaller object and submit again.")),
+					Output: new(tool.TextOutput("Output rejected because it is too large. Return a smaller object and submit again.")),
 				}
 				if x := r.commit(Step{
 					Kind: StepToolSettled,
@@ -155,7 +155,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: ptr(tool.TextOutput(message)),
+					Output: new(tool.TextOutput(message)),
 				}
 				if x := r.commit(Step{
 					Kind: StepToolSettled,
@@ -179,7 +179,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				if batchCalls != 1 {
 					out := tool.Outcome{
 						State:  tool.StateNotExecuted,
-						Output: ptr(tool.TextOutput("Submit output in a separate model response after other tool calls finish.")),
+						Output: new(tool.TextOutput("Submit output in a separate model response after other tool calls finish.")),
 					}
 					if x := r.commit(Step{
 						Kind: StepToolSettled,
@@ -197,7 +197,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			call := v.Call.Clone()
 			decision := ToolDecision{}
 			var err error
-			for changes := 0; changes < 4; changes++ {
+			for changes := range 4 {
 				if call.Name == SubmitOutputTool {
 					decision = ToolDecision{Kind: DecisionAllow, Revision: "kernel-output-v1"}
 					break
@@ -257,7 +257,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if decision.Kind == DecisionDeny {
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: ptr(tool.TextOutput(decision.Reason)),
+					Output: new(tool.TextOutput(decision.Reason)),
 				}
 				if o := r.commit(Step{
 					Kind: StepToolSettled,
@@ -446,7 +446,7 @@ func toolSettlement(v toolResult) (Step, string) {
 	}
 	fact.Outcome = &tool.Outcome{
 		State:  tool.StateFailed,
-		Output: ptr(tool.TextOutput(text)),
+		Output: new(tool.TextOutput(text)),
 	}
 	step := Step{Kind: StepToolSettled, Tool: fact}
 	switch {
@@ -486,7 +486,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		)
 		out := tool.Outcome{
 			State:  tool.StateFailed,
-			Output: ptr(tool.TextOutput(message)),
+			Output: new(tool.TextOutput(message)),
 		}
 		return r.commit(Step{
 			Kind: StepToolSettled,
@@ -499,7 +499,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	}
 	out := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("Output accepted.")),
+		Output: new(tool.TextOutput("Output accepted.")),
 	}
 	return r.commit(Step{
 		Kind: StepToolSettled,

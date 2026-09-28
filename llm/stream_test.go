@@ -49,7 +49,7 @@ func TestStreamIsLazyBackpressuredAndTerminal(t *testing.T) {
 			}, nil
 		},
 	}
-	sequence := Stream(context.Background(), client, Call{})
+	sequence := Stream(t.Context(), client, Call{})
 	if client.sends != 0 {
 		t.Fatal("constructing iterator dispatched request")
 	}
@@ -105,7 +105,7 @@ func TestStreamBreakCancelsWithoutTerminal(t *testing.T) {
 		},
 	}
 	seen := 0
-	for event, err := range Stream(context.Background(), client, Call{}) {
+	for event, err := range Stream(t.Context(), client, Call{}) {
 		if err != nil || event.Delta == nil {
 			t.Fatalf("unexpected event=%+v err=%v", event, err)
 		}
@@ -137,7 +137,7 @@ func TestStreamReturnsPartialResultWithError(t *testing.T) {
 	}
 	var final StreamEvent
 	var finalErr error
-	for event, err := range Stream(context.Background(), client, Call{}) {
+	for event, err := range Stream(t.Context(), client, Call{}) {
 		if event.Result != nil {
 			final, finalErr = event, err
 		}
@@ -171,7 +171,7 @@ func TestStreamSinkCannotMutateYieldedDelta(t *testing.T) {
 	}
 	var got *Delta
 	for event, err := range Stream(
-		context.Background(),
+		t.Context(),
 		client,
 		Call{
 			Sink: mutate,

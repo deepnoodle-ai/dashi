@@ -166,8 +166,9 @@ func TestJSONBSimulation(t *testing.T) {
 	}
 }
 
-// legacyHex is the digest Kernel wrote before canonical hashing.
-func legacyHex(v any) string {
+// byteHex hashes v's plain json.Marshal output, which a jsonb round trip
+// changes even when the JSON meaning is the same.
+func byteHex(v any) string {
 	b, _ := json.Marshal(v)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -263,7 +264,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ok")),
+				Output: new(tool.TextOutput("ok")),
 			}, nil
 		},
 	)
@@ -295,7 +296,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The bug: byte digests of the reloaded definition differ from the live one.
-	if legacyHex(view.Tools["call-1"].Definition) == legacyHex(binding.Definition) {
+	if byteHex(view.Tools["call-1"].Definition) == byteHex(binding.Definition) {
 		t.Fatal("simulation left the tool definition byte-identical")
 	}
 
@@ -320,7 +321,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		messyArgs,
 		view.Tools["call-1"].Call.Args,
 	} {
-		if !digestMatches(digest(args), view.Tools["call-1"].Call.Args) {
+		if digest(args) != ArgsDigest(view.Tools["call-1"].Call.Args) {
 			t.Fatalf("approval digest of %s does not match", args)
 		}
 	}
@@ -380,11 +381,11 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{messyCallResult(), final("done")},
 	}
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	runs := 0
 	binding := messyTool(
-		tool.Annotations{Idempotent: ptr(true)},
+		tool.Annotations{Idempotent: new(true)},
 		func(context.Context, tool.Call) (tool.Outcome, error) {
 			runs++
 			if runs == 1 {
@@ -392,7 +393,7 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 			}
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ok")),
+				Output: new(tool.TextOutput("ok")),
 			}, nil
 		},
 	)
@@ -419,9 +420,9 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	stored := jsonbRoundTrip(history)
-	legacyStart, _ := json.Marshal(fingerprintMessages(history))
-	legacyStored, _ := json.Marshal(fingerprintMessages(stored))
-	if bytes.Equal(legacyStart, legacyStored) {
+	startBytes, _ := json.Marshal(fingerprintMessages(history))
+	storedBytes, _ := json.Marshal(fingerprintMessages(stored))
+	if bytes.Equal(startBytes, storedBytes) {
 		t.Fatal("simulation left the history byte-identical")
 	}
 
@@ -446,123 +447,6 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 	}
 }
 
-// Records written before canonical digests carry bare-hex command and
-// argument digests; they must keep working.
-func TestLegacyDigestsStillMatch(t *testing.T) {
-	rec := NewMemoryRecorder()
-	client := &scriptedClient{
-		results: []llm.Result{callResult("call-1", "write"), final("written")},
-	}
-	binding := tool.Tool{
-		Definition: tool.Definition{
-			Name:   "write",
-			Schema: []byte(`{"type":"object"}`),
-			Kind:   tool.KindLocal,
-		},
-		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-			return tool.Outcome{
-				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ok")),
-			}, nil
-		}),
-	}
-	bindings := Bindings{
-		Client:   client,
-		Tools:    fixedTools{binding},
-		Recorder: rec,
-		Policy:   deferredPolicy{},
-	}
-	start := Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
-	}
-	out, err := (Engine{}).Apply(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		start,
-		bindings,
-	)
-	if err != nil || out.Stop.Kind != StopWaiting {
-		t.Fatalf("start=%+v err=%v", out.Stop, err)
-	}
-
-	// Rewrite the record as the previous version would have written it.
-	legacy := out.Turn
-	for i := range legacy.Steps {
-		if legacy.Steps[i].CommandID == "start" {
-			legacy.Steps[i].CommandDigest = legacyHex(start)
-		}
-	}
-	legacyRec := newMemoryRecorderForTurn(legacy)
-	bindings.Recorder = legacyRec
-
-	again, err := (Engine{}).Apply(
-		t.Context(),
-		legacy,
-		definition(),
-		start,
-		bindings,
-	)
-	if err != nil || again.Stop.Kind != StopWaiting {
-		t.Fatalf("legacy retry=%+v err=%v", again.Stop, err)
-	}
-	changed := Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("different"))},
-	}
-	if _, err := (Engine{}).Apply(
-		t.Context(),
-		legacy,
-		definition(),
-		changed,
-		bindings,
-	); !errors.Is(err, ErrCommandConflict) {
-		t.Fatalf("changed legacy command err=%v", err)
-	}
-
-	view, err := Replay(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approval := ApprovalFact{
-		CallID:         "call-1",
-		Approve:        true,
-		ArgsDigest:     legacyHex(view.Tools["call-1"].Call.Args),
-		PolicyRevision: "policy-v1",
-	}
-	accepted, err := (Engine{}).Apply(
-		t.Context(),
-		legacy,
-		definition(),
-		Accept{ID: "approve", CallID: "call-1", Approval: &approval},
-		bindings,
-	)
-	if err != nil || !accepted.ReadyToContinue {
-		t.Fatalf("legacy approval=%+v err=%v", accepted, err)
-	}
-	// Replay checks the recorded legacy approval digest too.
-	if _, err := Replay(accepted.Turn); err != nil {
-		t.Fatalf("replay with legacy approval: %v", err)
-	}
-	stale := approval
-	stale.ArgsDigest = legacyHex(json.RawMessage(`{"value":2}`))
-	if _, err := (Engine{}).Apply(
-		t.Context(),
-		legacy,
-		definition(),
-		Accept{ID: "stale", CallID: "call-1", Approval: &stale},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: newMemoryRecorderForTurn(legacy),
-			Policy:   deferredPolicy{},
-		},
-	); err == nil {
-		t.Fatal("stale legacy approval accepted")
-	}
-}
-
 func mustLoad(t *testing.T, rec jsonbRecorder) Turn {
 	t.Helper()
 	turn, err := rec.Load(t.Context(), "t1")
@@ -578,7 +462,7 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	rec := jsonbRecorder{NewMemoryRecorder()}
 	// The first model call is cut off by a deploy, so the turn waits to be
 	// continued; the second completes.
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	client := &interruptionClient{
 		scriptedClient: &scriptedClient{},

@@ -28,11 +28,10 @@ func TestSourceCloneCopiesBytesAndExpiry(t *testing.T) {
 }
 
 func TestSourceValidateRejectsInlineExpiry(t *testing.T) {
-	expires := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	source := Source{
 		Data:      []byte{1},
 		MIMEType:  "audio/wav",
-		ExpiresAt: &expires,
+		ExpiresAt: new(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)),
 	}
 	if err := source.Validate(); err == nil {
 		t.Fatal("accepted an expiration on inline bytes")

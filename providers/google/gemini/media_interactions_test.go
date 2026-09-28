@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -98,7 +97,7 @@ func TestInteractionsImageEditAndInterleavedOutput(t *testing.T) {
 			OutputMIMEType: "image/png",
 		},
 	}
-	request, err := p.PrepareImage(context.Background(), input)
+	request, err := p.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,7 @@ func TestInteractionsImageEditAndInterleavedOutput(t *testing.T) {
 		t.Fatalf("preparation dispatched or lost uncertainty: sends=%d", sends)
 	}
 	input.ReferenceImages[0].Image.Source.Data[0] = 'X'
-	result, err := p.SendImage(context.Background(), request)
+	result, err := p.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +142,7 @@ func TestInteractionsOmniVideoCall(t *testing.T) {
 	defer server.Close()
 	p := newInteractionsFixture(t, server)
 	request, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "gemini-omni-1.1-flash",
 			Prompt: []content.Block{content.TextBlock("animate this")},
@@ -159,7 +158,7 @@ func TestInteractionsOmniVideoCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.SendVideo(context.Background(), request)
+	result, err := p.SendVideo(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +181,7 @@ func TestInteractionsImageModelLimitsAndRetiredImagen(t *testing.T) {
 	} {
 		t.Run(tc.model+"/"+tc.resolution, func(t *testing.T) {
 			_, err := p.PrepareImage(
-				context.Background(),
+				t.Context(),
 				media.ImageInput{
 					Model:     tc.model,
 					Operation: media.ImageGenerate,
@@ -201,7 +200,7 @@ func TestInteractionsImageModelLimitsAndRetiredImagen(t *testing.T) {
 		"gemini-2.5-flash-image",
 	} {
 		_, err := p.PrepareImage(
-			context.Background(),
+			t.Context(),
 			media.ImageInput{
 				Model:     modelName,
 				Operation: media.ImageGenerate,
@@ -214,7 +213,7 @@ func TestInteractionsImageModelLimitsAndRetiredImagen(t *testing.T) {
 		}
 	}
 	_, err := p.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "gemini-3.1-flash-image",
 			Operation: media.ImageGenerate,
@@ -277,7 +276,7 @@ func TestInteractionsOmniRejectsUnsupportedShape(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := p.PrepareVideo(context.Background(), tc.input); err == nil {
+			if _, err := p.PrepareVideo(t.Context(), tc.input); err == nil {
 				t.Fatal("expected unsupported shape")
 			}
 		})
@@ -294,7 +293,7 @@ func TestInteractionsRejectsURIAndIncompleteCall(t *testing.T) {
 		}))
 		p := newInteractionsFixture(t, server)
 		request, err := p.PrepareVideo(
-			context.Background(),
+			t.Context(),
 			media.VideoInput{
 				Model:  "gemini-omni-1.1-flash",
 				Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -303,7 +302,7 @@ func TestInteractionsRejectsURIAndIncompleteCall(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := p.SendVideo(context.Background(), request)
+		result, err := p.SendVideo(t.Context(), request)
 		if err == nil || result.ResponseID == "" {
 			t.Fatalf(
 				"expected identified protocol error: result=%+v, err=%v",
@@ -324,7 +323,7 @@ func TestInteractionsPreparedRequestIsCredentialScoped(t *testing.T) {
 	defer server.Close()
 	first := newInteractionsFixture(t, server)
 	request, err := first.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "gemini-3.1-flash-image",
 			Operation: media.ImageGenerate,
@@ -344,7 +343,7 @@ func TestInteractionsPreparedRequestIsCredentialScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := second.SendImage(
-		context.Background(),
+		t.Context(),
 		request,
 	); err == nil || sends != 0 {
 		t.Fatalf(
@@ -372,7 +371,7 @@ func TestVeoRetiredAndLiteModelLimits(t *testing.T) {
 		{"veo-2.0-generate-001", media.VideoSettings{}},
 	} {
 		_, err := p.PrepareVideo(
-			context.Background(),
+			t.Context(),
 			media.VideoInput{
 				Model:    tc.model,
 				Prompt:   []content.Block{content.TextBlock("a sunrise")},

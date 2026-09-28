@@ -1,7 +1,6 @@
 package completions
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -77,13 +76,13 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 			}))
 			defer server.Close()
 			p := testClient(t, server.URL)
-			prepared, err := p.Prepare(context.Background(), testInput(true))
+			prepared, err := p.Prepare(t.Context(), testInput(true))
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := p.Send(context.Background(), llm.Call{Request: prepared})
-			var e *llm.Error
-			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol ||
+			result, err := p.Send(t.Context(), llm.Call{Request: prepared})
+			e, ok := errors.AsType[*llm.Error](err)
+			if !ok || e.Category != llm.ErrorProtocol ||
 				!strings.Contains(string(e.Body), `error`) {
 				t.Fatalf(
 					"err = %v, want a protocol error carrying the provider body",

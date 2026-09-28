@@ -39,7 +39,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 			<-release // Deliberately ignores cancellation.
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("late")),
+				Output: new(tool.TextOutput("late")),
 			}, nil
 		}),
 	}
@@ -55,7 +55,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded}, nil
 		}),
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	def := definition()
 	def.Limits.ToolConcurrency = 1
@@ -106,10 +106,10 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	}
 	late := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("late")),
+		Output: new(tool.TextOutput("late")),
 	}
 	settled, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Accept{ID: "late", CallID: "a", Outcome: &late},
@@ -170,7 +170,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded}, nil
 		}),
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	finished := make(chan Outcome, 1)
 	rec := NewMemoryRecorder()
@@ -189,7 +189,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 		)
 		finished <- out
 	}()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case <-started:
 		case <-time.After(5 * time.Second):
@@ -245,7 +245,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", first, err)
 	}
 	canceled, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Cancel{ID: "cancel"},
@@ -261,7 +261,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 }
 
 func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	rec := notifyingRecorder{
@@ -297,7 +297,7 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 }
 
 func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "work")}}
 	rec := notifyingRecorder{

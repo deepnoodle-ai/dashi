@@ -1,7 +1,6 @@
 package responses
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"testing"
@@ -51,7 +50,7 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		t.Fatal("search snippet or resource reference was lost")
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model: "test-model",
 			Messages: []llm.Message{
@@ -111,18 +110,17 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compression := 0
 	image, err := NewImageGenerationTool(ImageGenerationOptions{
 		Model:             "gpt-image-2.5-sunburst",
 		Action:            "generate",
 		OutputFormat:      "webp",
-		OutputCompression: &compression,
+		OutputCompression: new(0),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
@@ -160,16 +158,15 @@ func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compression := 50
 	image, err := NewImageGenerationTool(ImageGenerationOptions{
 		OutputFormat:      "png",
-		OutputCompression: &compression,
+		OutputCompression: new(50),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Draw"))},
@@ -212,7 +209,7 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 		},
 		Tools: []tool.Definition{definition},
 	}
-	if _, err := client.Prepare(context.Background(), input); err != nil {
+	if _, err := client.Prepare(t.Context(), input); err != nil {
 		t.Fatalf("pending approval should replay without a decision: %v", err)
 	}
 	response := llm.Content{
@@ -225,7 +222,7 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 		},
 	}
 	input.Messages = append(input.Messages, llm.UserMessage(response))
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatalf("prepare explicit denial: %v", err)
 	}
@@ -261,7 +258,7 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},

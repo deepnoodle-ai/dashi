@@ -246,18 +246,6 @@ func TestOpaqueVersionsRemainInspectableButOnlyVersionOneCanReplay(
 	}
 }
 
-func TestContentRejectsLegacyReplayFields(t *testing.T) {
-	for _, raw := range []string{
-		`{"kind":"block","block":{"kind":"text","text":{"text":"hello"}},"provider_data":{}}`,
-		`{"kind":"reasoning","reasoning":{"text":"thought","replay":{}}}`,
-	} {
-		var c Content
-		if err := json.Unmarshal([]byte(raw), &c); err == nil {
-			t.Fatal("legacy private data was silently discarded")
-		}
-	}
-}
-
 func TestContentReplayRoundTripUsesOneAttachment(t *testing.T) {
 	o := &Opaque{
 		Version: 1,

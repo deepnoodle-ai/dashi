@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/kernel/content"
@@ -192,12 +193,7 @@ func (wire codec) hostedImage(value hostedImageSource) *content.Block {
 func hostedResultError(raw json.RawMessage) bool {
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) == nil {
-		for _, item := range items {
-			if hostedResultError(item) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(items, hostedResultError)
 	}
 	var value struct {
 		Type string `json:"type"`

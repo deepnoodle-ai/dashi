@@ -26,12 +26,12 @@ func TestOutcomeCostIsExact(t *testing.T) {
 	if string(raw) != `{"amount":"0.0035","currency":"USD"}` {
 		t.Fatalf("encoded %s", raw)
 	}
-	var legacy Cost
+	var numeric Cost
 	if err := json.Unmarshal(
 		[]byte(`{"amount":0.0035,"currency":"USD"}`),
-		&legacy,
-	); err != nil || legacy != *outcome.Cost {
-		t.Fatalf("legacy cost = %+v, %v", legacy, err)
+		&numeric,
+	); err != nil || numeric != *outcome.Cost {
+		t.Fatalf("numeric cost = %+v, %v", numeric, err)
 	}
 	outcome.Cost.Amount = -1
 	if outcome.Validate() == nil {

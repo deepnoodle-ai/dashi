@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"context"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
@@ -26,10 +25,10 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	}
 	result := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("result")),
+		Output: new(tool.TextOutput("result")),
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Accept{ID: "result", CallID: "call-1", Outcome: &result},
@@ -44,7 +43,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		t.Fatalf("accept: out=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -59,7 +58,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		t.Fatalf("accept: stop=%+v err=%v", completed.Stop, err)
 	}
 	duplicate, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},

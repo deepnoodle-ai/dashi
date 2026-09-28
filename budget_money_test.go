@@ -15,7 +15,7 @@ import (
 func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	client := newPricedClient()
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{Model: "fixture", Settings: llm.Settings{MaxTokens: 100}},
 	)
 	if err != nil {
@@ -98,12 +98,12 @@ func TestBudgetJSONUsesDecimalStrings(t *testing.T) {
 	if string(raw) != `{"max_cost":{"amount":"0.5","currency":"USD"}}` {
 		t.Fatalf("encoded %s", raw)
 	}
-	var legacy Budget
+	var numeric Budget
 	if err := json.Unmarshal(
 		[]byte(`{"max_cost":{"amount":0.5,"currency":"USD"}}`),
-		&legacy,
-	); err != nil || legacy.MaxCost.Amount != amount("0.5") {
-		t.Fatalf("legacy budget = %+v, %v", legacy, err)
+		&numeric,
+	); err != nil || numeric.MaxCost.Amount != amount("0.5") {
+		t.Fatalf("numeric budget = %+v, %v", numeric, err)
 	}
 }
 
@@ -123,20 +123,6 @@ func TestLimitDetailJSON(t *testing.T) {
 	var restored LimitDetail
 	if err := json.Unmarshal(raw, &restored); err != nil || restored != detail {
 		t.Fatalf("round trip %s = %+v, %v", raw, restored, err)
-	}
-
-	var legacy LimitDetail
-	err = json.Unmarshal(
-		[]byte(`{"kind":"cost","limit":0.01,"used":0.0042,"at_risk":0.006,`+
-			`"fit_tokens":12}`),
-		&legacy,
-	)
-	// The cap's currency is not in a legacy detail; it stays empty and the
-	// record remains valid.
-	want := detail
-	want.Currency = ""
-	if err != nil || legacy != want || legacy.Validate() != nil {
-		t.Fatalf("legacy cost detail = %+v, %v", legacy, err)
 	}
 
 	var tokens LimitDetail

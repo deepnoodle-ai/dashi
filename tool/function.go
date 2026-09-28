@@ -144,6 +144,5 @@ func compileSchema(raw []byte) (*jsonschema.Schema, error) {
 // notExecuted reports that a call was rejected before running, with reason as
 // its text output.
 func notExecuted(reason string) Outcome {
-	o := TextOutput(reason)
-	return Outcome{State: StateNotExecuted, Output: &o}
+	return Outcome{State: StateNotExecuted, Output: new(TextOutput(reason))}
 }

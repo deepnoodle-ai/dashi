@@ -376,7 +376,7 @@ type Input struct {
 
 	// Settings holds requested values; Prepare snapshots them before applying
 	// defaults.
-	Settings Settings `json:"settings,omitempty"`
+	Settings Settings `json:"settings,omitzero"`
 
 	// ContentPolicy selects any permitted loss while preparing this input.
 	ContentPolicy ContentPolicy `json:"content_policy,omitzero"`
@@ -711,8 +711,8 @@ func IsMediaRejected(err error) bool {
 }
 
 func hasReason(err error, reason ErrorReason) bool {
-	var e *Error
-	return errors.As(err, &e) && e.Reason == reason
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Reason == reason
 }
 
 // Unwrap exposes the original failure to errors.Is and errors.As.

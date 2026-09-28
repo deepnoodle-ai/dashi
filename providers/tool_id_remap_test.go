@@ -2,7 +2,6 @@ package providers_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,7 +43,7 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 				input := remapHistory("tool call: 東京 / 🚀", "valid_ID-9")
 				input.Stream = stream
 				original := mustJSON(input)
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -79,7 +78,7 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 				if bytes.Contains(request.Body(), []byte("tool call: 東京 / 🚀")) {
 					t.Fatal("original unsupported ID leaked into provider body")
 				}
-				again, err := client.Prepare(context.Background(), input)
+				again, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -115,7 +114,7 @@ func TestPrepareRemapsToolIDsAndSendsFrozenBody(t *testing.T) {
 				input.Messages[1].Content[0].ToolCall.ID = "mutated"
 				input.Messages[2].Content[0].ToolResult.CallID = "mutated"
 				if _, err := client.Send(
-					context.Background(),
+					t.Context(),
 					llm.Call{
 						Request: restored,
 					},
@@ -164,7 +163,7 @@ func TestPrepareRemapIsDeterministicAcrossTransportSettingsAndScope(
 				if variant == "settings" {
 					input.Settings.MaxTokens = 40
 				}
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -198,7 +197,7 @@ func TestPrepareReservesSupportedToolIDsBeforeAllocating(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := tc.new("https://unused.invalid/api")
 			original := "needs remapping"
-			first, err := client.Prepare(context.Background(), remapHistory(original))
+			first, err := client.Prepare(t.Context(), remapHistory(original))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,7 +211,7 @@ func TestPrepareReservesSupportedToolIDsBeforeAllocating(t *testing.T) {
 				original,
 			)
 			input := remapHistory(original, candidate)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -261,7 +260,7 @@ func TestPrepareRemapsParallelCallsWithoutReordering(t *testing.T) {
 				llm.UserMessage(results...),
 			)
 			request, err := tc.new("https://unused.invalid/api").Prepare(
-				context.Background(),
+				t.Context(),
 				input,
 			)
 			if err != nil {
@@ -329,7 +328,7 @@ func TestPrepareRejectsInvalidToolHistoryEvenWithRemapping(t *testing.T) {
 				input := modelInput()
 				input.Messages = append(input.Messages, history...)
 				client := tc.new("https://unused.invalid/api")
-				if _, err := client.Prepare(context.Background(), input); err == nil {
+				if _, err := client.Prepare(t.Context(), input); err == nil {
 					t.Fatalf("accepted %s", variant)
 				}
 			})
@@ -361,7 +360,7 @@ func TestPrepareRemapKeepsOriginalIndicesAfterReasoningOmission(t *testing.T) {
 					llm.UserMessage(remapResult("reasoning / call")),
 				)
 				client := target.new("https://unused.invalid/api")
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -401,7 +400,7 @@ func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(
 			input := remapHistory("replay / id")
 			call := &input.Messages[1].Content[0]
 			call.Replay = remapCallReplay(tc.name, origin, "replay / id", "")
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -432,7 +431,7 @@ func TestPrepareRemapOverlaysKnownReplayWithoutChangingIndependentItemID(
 				"replay / id",
 				"replay / id",
 			)
-			if _, err := client.Prepare(context.Background(), input); err == nil {
+			if _, err := client.Prepare(t.Context(), input); err == nil {
 				t.Fatal("remap silently retained unknown private dependency on old ID")
 			}
 		})
@@ -465,7 +464,7 @@ func TestPrepareRemapLeavesCompatibleUnknownOpaqueContentOpaque(t *testing.T) {
 				},
 				input.Messages[1].Content...,
 			)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}

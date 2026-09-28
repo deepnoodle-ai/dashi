@@ -1,7 +1,6 @@
 package completions
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -67,7 +66,7 @@ func TestPrepareSendsFrozenBodyOnce(t *testing.T) {
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
-	prepared, err := p.Prepare(context.Background(), testInput(false))
+	prepared, err := p.Prepare(t.Context(), testInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestPrepareSendsFrozenBodyOnce(t *testing.T) {
 	) {
 		t.Fatalf("preparation dispatched or lost schema: %s", prepared.Body())
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,13 +120,13 @@ func TestStreamAccumulatesFinalUsageAndToolCall(t *testing.T) {
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
-	prepared, err := p.Prepare(context.Background(), testInput(true))
+	prepared, err := p.Prepare(t.Context(), testInput(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
 	result, err := p.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: prepared,
 			Sink: func(d llm.Delta) {
@@ -193,7 +192,7 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 				t.Fatal(err)
 			}
 			prepared, err := client.Prepare(
-				context.Background(),
+				t.Context(),
 				llm.Input{
 					Model:    "requested",
 					Stream:   stream,
@@ -205,7 +204,7 @@ func TestReportedEstimateStaysWithResultAcrossTransports(t *testing.T) {
 			}
 			var deltas []llm.Delta
 			result, err := client.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: prepared,
 					Sink: func(delta llm.Delta) {
@@ -282,12 +281,9 @@ func TestPrepareRejectsUnsupportedContentBeforeDispatch(t *testing.T) {
 			},
 		})),
 	}
-	_, err := p.Prepare(context.Background(), input)
-	var failure *llm.Error
-	if !errors.As(
-		err,
-		&failure,
-	) || failure.Category != llm.ErrorUnsupported || attempts.Load() != 0 {
+	_, err := p.Prepare(t.Context(), input)
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok || failure.Category != llm.ErrorUnsupported || attempts.Load() != 0 {
 		t.Fatalf("unsupported audio dispatched or was misclassified: %v", err)
 	}
 }
@@ -301,11 +297,11 @@ func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
-	prepared, err := p.Prepare(context.Background(), testInput(false))
+	prepared, err := p.Prepare(t.Context(), testInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +311,7 @@ func TestStructuredReasoningRetainsSameOriginReplay(t *testing.T) {
 	}
 	input := testInput(false)
 	input.Messages = append(input.Messages, result.Message)
-	_, err = p.Prepare(context.Background(), input)
+	_, err = p.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatalf("same-origin reasoning replay failed: %v", err)
 	}
@@ -331,11 +327,11 @@ func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 	}))
 	defer server.Close()
 	p := testClient(t, server.URL)
-	prepared, err := p.Prepare(context.Background(), testInput(true))
+	prepared, err := p.Prepare(t.Context(), testInput(true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
 	if err == nil ||
 		result.Stop.Kind != llm.StopIncomplete ||
 		len(result.Message.Content) != 1 ||

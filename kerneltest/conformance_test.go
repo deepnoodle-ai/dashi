@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"math/big"
 	"os"
 	"os/exec"
@@ -144,11 +145,7 @@ func jsonbNormalize(raw []byte) []byte {
 func writeJSONB(buf *bytes.Buffer, value any) {
 	switch v := value.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		slices.SortFunc(keys, func(a, b string) int {
+		keys := slices.SortedFunc(maps.Keys(v), func(a, b string) int {
 			if len(a) != len(b) {
 				return len(a) - len(b)
 			}

@@ -2,7 +2,6 @@ package providers_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,7 +57,7 @@ func TestPrepareOmitsOnlyIncompatibleKnownReasoning(t *testing.T) {
 							toolReplies(generated.Message)...,
 						)
 						original := mustJSON(input)
-						if _, err := client.Prepare(context.Background(), input); err == nil {
+						if _, err := client.Prepare(t.Context(), input); err == nil {
 							t.Fatal("default policy accepted incompatible reasoning")
 						}
 						if calls.Load() != 0 || mustJSON(input) != original {
@@ -66,7 +65,7 @@ func TestPrepareOmitsOnlyIncompatibleKnownReasoning(t *testing.T) {
 						}
 						input.ContentPolicy.UnreplayableReasoning = llm.ReasoningOmit
 						original = mustJSON(input)
-						request, err := client.Prepare(context.Background(), input)
+						request, err := client.Prepare(t.Context(), input)
 						if err != nil {
 							t.Fatalf("explicit reasoning omission failed: %v", err)
 						}
@@ -141,7 +140,7 @@ func TestPrepareOmitsOnlyIncompatibleKnownReasoning(t *testing.T) {
 						input.Messages[1].Content[reasoningIndices[0]].Reasoning.Text = "mutated"
 						changes[0].Reason = "mutated"
 						if _, err := client.Send(
-							context.Background(),
+							t.Context(),
 							llm.Call{
 								Request: restored,
 							},
@@ -162,7 +161,7 @@ func TestPrepareOmitsOnlyIncompatibleKnownReasoning(t *testing.T) {
 		input.ContentPolicy.UnreplayableReasoning = llm.ReasoningOmit
 		input.Messages = append(input.Messages, generated.Message)
 		input.Messages = append(input.Messages, toolReplies(generated.Message)...)
-		request, err := sourceClient.Prepare(context.Background(), input)
+		request, err := sourceClient.Prepare(t.Context(), input)
 		if err != nil {
 			t.Fatalf("%s same-origin reasoning rejected: %v", source.name, err)
 		}
@@ -223,7 +222,7 @@ func TestPrepareOmitsReasoningOnlyMessagesWithoutMovingHistory(t *testing.T) {
 					input.Messages,
 					llm.UserMessage(llm.Text("after tools")),
 				)
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatalf("history after reasoning-only message rejected: %v", err)
 				}
@@ -258,7 +257,7 @@ func TestPrepareOmitsReasoningOnlyMessagesWithoutMovingHistory(t *testing.T) {
 				input.Messages = []llm.Message{
 					{Role: llm.RoleAssistant, Content: reasoning},
 				}
-				if _, err := client.Prepare(context.Background(), input); err == nil {
+				if _, err := client.Prepare(t.Context(), input); err == nil {
 					t.Fatal("entirely omitted history was accepted")
 				}
 			})
@@ -332,7 +331,7 @@ func TestReasoningOmissionDoesNotBypassReplayGuards(t *testing.T) {
 					input := modelInput()
 					input.ContentPolicy.UnreplayableReasoning = llm.ReasoningOmit
 					input.Messages = append(input.Messages, llm.AssistantMessage(c))
-					if _, err := client.Prepare(context.Background(), input); err == nil {
+					if _, err := client.Prepare(t.Context(), input); err == nil {
 						t.Fatalf("reasoning omission accepted %s", variant)
 					}
 				})
@@ -362,7 +361,7 @@ func generatedReasoningHistory(
 	})
 	client := tc.new(server.URL)
 	result, err := client.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: preparedRequest(t, client),
 		},

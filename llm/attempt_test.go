@@ -24,7 +24,7 @@ func TestStreamPassesCallThrough(t *testing.T) {
 	want := Attempt{TurnID: "t1", AttemptID: "t1:model:1"}
 	var observed []string
 	for range Stream(
-		context.Background(),
+		t.Context(),
 		client,
 		Call{
 			Attempt: want,
@@ -51,7 +51,7 @@ func TestDirectCallsHaveNoAttempt(t *testing.T) {
 			return Result{Stop: Stop{Kind: StopFinished}}, nil
 		},
 	}
-	for range Stream(context.Background(), client, Call{}) {
+	for range Stream(t.Context(), client, Call{}) {
 	}
 	if !client.last.Attempt.IsZero() {
 		t.Fatalf(
@@ -61,7 +61,7 @@ func TestDirectCallsHaveNoAttempt(t *testing.T) {
 	}
 	client.last = Call{Attempt: Attempt{AttemptID: "stale"}}
 	if _, err := Generate(
-		context.Background(),
+		t.Context(),
 		client,
 		Input{},
 		nil,

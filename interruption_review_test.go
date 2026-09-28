@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -25,7 +24,7 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "legacy"},
 		legacy,
 		start,
@@ -53,7 +52,7 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 	changed := current
 	changed.Limits.Interruptions++
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		changed,
 		Continue{ID: "wrong-limit"},
@@ -62,7 +61,7 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 		t.Fatalf("changed limit passed definition check: %v", err)
 	}
 	done, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		current,
 		Continue{ID: "resume"},
@@ -77,7 +76,7 @@ func TestContinueAcceptsLegacyDefaultInterruptionLimit(t *testing.T) {
 		)
 	}
 	duplicate, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		current,
 		start,

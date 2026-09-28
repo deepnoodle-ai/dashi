@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -54,7 +53,7 @@ func TestPrepareRemapsToolIDAndSendsFrozenBody(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -92,7 +91,7 @@ func TestPrepareRemapsToolIDAndSendsFrozenBody(t *testing.T) {
 				}
 				input.Messages[1].Content[0].ToolCall.ID = "mutated"
 				if _, err := client.Send(
-					context.Background(),
+					t.Context(),
 					llm.Call{
 						Request: request,
 					},
@@ -125,7 +124,7 @@ func TestPrepareOverlaysUnsignedGeminiToolReplayID(t *testing.T) {
 		Unit:    llm.OpaqueUnitContentBlock,
 		Raw:     raw,
 	}
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestPrepareRemapPreservesGeminiReplayArgumentNumber(t *testing.T) {
 			`{"functionCall":{"id":"source / id","name":"search","args":{"n":9007199254740993}}}`,
 		),
 	}
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +212,7 @@ func TestDecodeThenPrepareRemapPreservesGeminiArgumentNumber(t *testing.T) {
 			},
 		}),
 	)
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +278,7 @@ func TestPrepareRejectsUnsafeGeminiToolIDRemap(t *testing.T) {
 				Unit:    llm.OpaqueUnitContentBlock,
 				Raw:     tc.raw,
 			}
-			if _, err := client.Prepare(context.Background(), input); err == nil {
+			if _, err := client.Prepare(t.Context(), input); err == nil {
 				t.Fatal("unsafe tool call ID edit was accepted")
 			}
 		})
@@ -308,7 +307,7 @@ func TestPrepareKeepsSynthesizedGeminiToolID(t *testing.T) {
 	id := part.ToolCall.ID
 	input.Messages[1].Content[0] = part
 	input.Messages[2].Content[0].ToolResult.CallID = id
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatalf("synthesized ID could not replay: %v", err)
 	}
@@ -374,7 +373,7 @@ func TestDecodeThenPreparePreservesSignedIDLessGeminiToolCall(t *testing.T) {
 					},
 				}),
 			)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatalf("signed ID-less replay failed: %v", err)
 			}

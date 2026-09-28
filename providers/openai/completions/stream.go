@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 
@@ -47,12 +48,7 @@ func (wire codec) readStream(
 				llm.Text(text.String()),
 			)
 		}
-		indices := make([]int, 0, len(calls))
-		for index := range calls {
-			indices = append(indices, index)
-		}
-		slices.Sort(indices)
-		for _, index := range indices {
+		for _, index := range slices.Sorted(maps.Keys(calls)) {
 			call := calls[index]
 			v := tool.Call{
 				ID:   call.ID,

@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -47,7 +46,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
@@ -104,7 +103,7 @@ func TestMetaHostedWebSearchIncludesResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},

@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"mime"
 	"slices"
 
 	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/policyrecord"
 	"github.com/deepnoodle-ai/kernel/model"
 )
 
@@ -61,33 +59,12 @@ type ImageRequest struct {
 	snapshot ImageRequestSnapshot
 }
 
-// UnmarshalJSON reads capability_policy, or maps the legacy
-// unknown_capabilities field it replaced; see decodePolicy.
-func (s *ImageRequestSnapshot) UnmarshalJSON(data []byte) error {
-	type plain ImageRequestSnapshot
-	var raw struct {
-		plain
-		CapabilityPolicy    *model.CapabilityPolicy `json:"capability_policy"`
-		UnknownCapabilities *string                 `json:"unknown_capabilities"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	policy, err := decodePolicy(
-		raw.CapabilityPolicy,
-		raw.UnknownCapabilities,
-	)
-	if err != nil {
-		return err
-	}
-	*s = ImageRequestSnapshot(raw.plain)
-	s.CapabilityPolicy = policy
-	return nil
-}
-
 // NewImageRequest validates and owns one provider-prepared image request.
 // Restoring a snapshot does not requalify its evidence or authorize dispatch.
 func NewImageRequest(snapshot ImageRequestSnapshot) (ImageRequest, error) {
+	if !snapshot.CapabilityPolicy.Valid() {
+		return ImageRequest{}, errors.New("media: invalid capability policy")
+	}
 	snapshot.CapabilityPolicy = snapshot.CapabilityPolicy.Resolved()
 	if err := snapshot.Input.Validate(); err != nil {
 		return ImageRequest{}, err
@@ -181,32 +158,11 @@ type VideoRequest struct {
 	snapshot VideoRequestSnapshot
 }
 
-// UnmarshalJSON reads capability_policy, or maps the legacy
-// unknown_capabilities field it replaced; see decodePolicy.
-func (s *VideoRequestSnapshot) UnmarshalJSON(data []byte) error {
-	type plain VideoRequestSnapshot
-	var raw struct {
-		plain
-		CapabilityPolicy    *model.CapabilityPolicy `json:"capability_policy"`
-		UnknownCapabilities *string                 `json:"unknown_capabilities"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	policy, err := decodePolicy(
-		raw.CapabilityPolicy,
-		raw.UnknownCapabilities,
-	)
-	if err != nil {
-		return err
-	}
-	*s = VideoRequestSnapshot(raw.plain)
-	s.CapabilityPolicy = policy
-	return nil
-}
-
 // NewVideoRequest validates and owns one provider-prepared video request.
 func NewVideoRequest(snapshot VideoRequestSnapshot) (VideoRequest, error) {
+	if !snapshot.CapabilityPolicy.Valid() {
+		return VideoRequest{}, errors.New("media: invalid capability policy")
+	}
 	snapshot.CapabilityPolicy = snapshot.CapabilityPolicy.Resolved()
 	if err := snapshot.Input.Validate(); err != nil {
 		return VideoRequest{}, err
@@ -295,21 +251,6 @@ func validateProviderOptions(raw json.RawMessage) error {
 		return errors.New("media: provider options require a JSON object")
 	}
 	return nil
-}
-
-// decodePolicy maps legacy "allow" to adjust and "reject" to strict. A
-// snapshot with neither field predates both and decodes as strict, because the
-// legacy zero value rejected unknown support; reading it as the current default
-// would change what the evidence says.
-func decodePolicy(
-	current *model.CapabilityPolicy,
-	legacy *string,
-) (model.CapabilityPolicy, error) {
-	policy, err := policyrecord.Decode(current, legacy)
-	if err != nil {
-		return "", fmt.Errorf("media: %w", err)
-	}
-	return policy, nil
 }
 
 func validatePrepared(

@@ -111,7 +111,7 @@ type Citation struct {
 	Text string `json:"text,omitempty"`
 
 	// Origin restricts where Raw may be replayed and is required with Raw.
-	Origin Origin `json:"origin,omitempty"`
+	Origin Origin `json:"origin,omitzero"`
 
 	// Raw preserves the provider citation object; use Block.Clone before
 	// editing it.

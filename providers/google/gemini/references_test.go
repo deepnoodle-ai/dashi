@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"testing"
@@ -34,7 +33,7 @@ func TestPrepareEncodesMultipleInlineImages(t *testing.T) {
 			),
 		},
 	}
-	prepared, err := client.Prepare(context.Background(), input)
+	prepared, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ func TestPrepareEncodesGeminiFileReferences(t *testing.T) {
 			),
 		},
 	}
-	prepared, err := client.Prepare(context.Background(), input)
+	prepared, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatalf("Gemini file references did not prepare: %v", err)
 	}
@@ -149,7 +148,7 @@ func TestPrepareRejectsForeignGeminiFileURI(t *testing.T) {
 			)),
 		},
 	}
-	if _, err := client.Prepare(context.Background(), input); err == nil {
+	if _, err := client.Prepare(t.Context(), input); err == nil {
 		t.Fatal("foreign provider URI prepared for Gemini")
 	}
 }

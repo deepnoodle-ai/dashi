@@ -71,7 +71,7 @@ type Definition struct {
 	Kind Kind `json:"kind,omitempty"`
 
 	// Annotations supply advisory hints rather than execution guarantees.
-	Annotations Annotations `json:"annotations,omitempty"`
+	Annotations Annotations `json:"annotations,omitzero"`
 }
 
 // HostedSpec binds a server-executed tool to one provider and API. Options

@@ -1,9 +1,7 @@
 package kernel
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"strings"
 	"time"
@@ -119,8 +117,7 @@ type LimitDetail struct {
 	CostAtRisk money.Amount `json:"cost_at_risk,omitempty"`
 	// Currency is the unit of the Cost fields and is required when any of
 	// them is nonzero: an ISO 4217 code, or a host's own code for a credit
-	// unit. Kernel sets the cap's currency on LimitCost. A LimitCost record
-	// written before this field has none; its unit is the turn's cap.
+	// unit. Kernel sets the cap's currency on LimitCost.
 	Currency string `json:"currency,omitempty"`
 	// FitTokens advises a smaller allowance without changing the request.
 	FitTokens int `json:"fit_tokens,omitempty"`
@@ -150,67 +147,11 @@ func (l LimitDetail) Validate() error {
 	if l.FitTokens < 0 {
 		return errors.New("kernel: fit tokens cannot be negative")
 	}
-	// A legacy LimitCost record carries no currency, and its unit is
-	// recoverable from the turn's budget, so only other kinds require one.
 	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.CostAtRisk != 0
 	if strings.TrimSpace(l.Currency) != l.Currency ||
-		hasMoney && l.Currency == "" && l.Kind != LimitCost {
+		hasMoney && l.Currency == "" {
 		return errors.New("kernel: limit amounts require a currency")
 	}
-	return nil
-}
-
-// UnmarshalJSON also reads records written when every amount was a float in
-// limit, used, and at_risk. A legacy cost limit moves to the Cost fields,
-// rounded half to even at the nano; other legacy values must be whole counts.
-// The cap's currency is not in the detail, and this layer cannot see the
-// turn's budget, so Currency stays empty; Validate accepts that for
-// LimitCost only.
-func (l *LimitDetail) UnmarshalJSON(data []byte) error {
-	type alias LimitDetail
-	var wire struct {
-		alias
-		Limit  json.RawMessage `json:"limit,omitempty"`
-		Used   json.RawMessage `json:"used,omitempty"`
-		AtRisk json.RawMessage `json:"at_risk,omitempty"`
-	}
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return err
-	}
-	value := LimitDetail(wire.alias)
-	if value.Kind == LimitCost {
-		for _, field := range []struct {
-			raw json.RawMessage
-			out *money.Amount
-		}{
-			{wire.Limit, &value.CostLimit},
-			{wire.Used, &value.CostUsed},
-			{wire.AtRisk, &value.CostAtRisk},
-		} {
-			if len(field.raw) == 0 {
-				continue
-			}
-			if err := json.Unmarshal(field.raw, field.out); err != nil {
-				return fmt.Errorf("kernel: decode legacy cost limit: %w", err)
-			}
-		}
-	} else {
-		for _, field := range []struct {
-			raw json.RawMessage
-			out *int64
-		}{
-			{wire.Limit, &value.Limit},
-			{wire.Used, &value.Used},
-		} {
-			if len(field.raw) == 0 {
-				continue
-			}
-			if err := json.Unmarshal(field.raw, field.out); err != nil {
-				return fmt.Errorf("kernel: decode limit count: %w", err)
-			}
-		}
-	}
-	*l = value
 	return nil
 }
 

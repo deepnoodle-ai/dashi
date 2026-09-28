@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -30,7 +29,7 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		t.Fatalf("settlement=%+v", settled)
 	}
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Continue{ID: "retry"},
@@ -52,7 +51,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Continue{ID: "unsafe-retry"},
@@ -61,7 +60,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
 	}
 	proved, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Accept{
@@ -80,7 +79,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("proof=%+v err=%v sends=%d", proved, err, client.sends)
 	}
 	retried, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		proved.Turn,
 		definition(),
 		Continue{ID: "retry"},
@@ -120,7 +119,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 		t.Fatalf("usage=%+v err=%v", view.Spend.Usage, err)
 	}
 	falseProof, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Accept{

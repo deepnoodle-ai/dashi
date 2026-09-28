@@ -190,8 +190,8 @@ func (p Pricing) Clone() Pricing {
 	return p
 }
 
-// UnmarshalJSON refuses legacy flat fields and requires an explicit base.
-// Otherwise an old price record could silently become a zero-price sheet.
+// UnmarshalJSON refuses unknown fields and requires an explicit base, so a
+// malformed price record cannot silently become a zero-price sheet.
 func (p *Pricing) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -375,8 +375,8 @@ func (c Cost) Validate() error {
 	return nil
 }
 
-// UnmarshalJSON requires a total and rejects legacy model and aggregation
-// fields rather than silently dropping them from an attempt-level amount.
+// UnmarshalJSON requires a total and rejects unknown fields rather than
+// silently dropping them from an attempt-level amount.
 func (c *Cost) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {

@@ -86,8 +86,8 @@ func ParseRejection(status int, body []byte) Rejection {
 // has no reason yet. It serves errors reported inside a stream or response
 // body; hasMedia reports whether the request carried media. It returns err.
 func Classify(err error, classify Classifier, hasMedia bool) error {
-	var e *llm.Error
-	if !errors.As(err, &e) || e.Reason != "" || len(e.Body) == 0 {
+	e, ok := errors.AsType[*llm.Error](err)
+	if !ok || e.Reason != "" || len(e.Body) == 0 {
 		return err
 	}
 	r := ParseRejection(e.Status, e.Body)

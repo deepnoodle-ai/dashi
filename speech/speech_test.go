@@ -28,9 +28,8 @@ func TestTranscribeInputCloneCopiesAudioBytes(t *testing.T) {
 }
 
 func TestSynthesizeInputCloneCopiesOptionalControls(t *testing.T) {
-	speed := 1.5
 	input := SynthesizeInput{
-		Speed: &speed,
+		Speed: new(1.5),
 		Format: &content.AudioFormat{
 			Encoding:     "pcm_s16le",
 			SampleRateHz: 16000,

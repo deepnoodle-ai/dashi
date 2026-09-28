@@ -130,8 +130,7 @@ func hostedDefinition(
 		},
 	}
 	if toolType == "web_search" || toolType == "file_search" {
-		readOnly := true
-		definition.Annotations.ReadOnly = &readOnly
+		definition.Annotations.ReadOnly = new(true)
 	}
 	return definition, nil
 }

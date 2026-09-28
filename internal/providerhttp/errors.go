@@ -88,8 +88,8 @@ func WithErrorHeader(header http.Header) ErrorOption {
 
 // RetryAfter reports the delay a provider asked for on err, if any.
 func RetryAfter(err error) (time.Duration, bool) {
-	var providerErr *ProviderError
-	if !errors.As(err, &providerErr) {
+	providerErr, ok := errors.AsType[*ProviderError](err)
+	if !ok {
 		return 0, false
 	}
 	return providerErr.RetryAfter()

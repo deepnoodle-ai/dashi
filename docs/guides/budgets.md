@@ -50,7 +50,7 @@ if it promises a cap covering them.
 
 Amounts are exact. `money.Amount` counts nano-units (1e-9) of the currency in
 an int64 and encodes in JSON as a decimal string such as `"0.5"`; it also reads
-the bare JSON numbers in older records. Kernel sums charges without drift. A
+the bare JSON numbers some provider APIs report. Kernel sums charges without drift. A
 worst case (`AtRisk`) rounds up to the nano, so rounding never breaches a cap,
 and a settled list-price charge rounds half to even. A ledger in coarser units
 converts from `Nanos()` with its own rounding, for example up for holds.

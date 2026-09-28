@@ -303,7 +303,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	rec := NewMemoryRecorder()
 	for _, step := range forged.Steps {
 		req := CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}
-		if err := rec.Commit(context.Background(), req); err != nil {
+		if err := rec.Commit(t.Context(), req); err != nil {
 			t.Fatalf("recorder rejected the uncertain record: %v", err)
 		}
 	}
@@ -322,7 +322,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	}
 	out := tool.Outcome{
 		State:  tool.StateFailed,
-		Output: ptr(tool.TextOutput("connection lost")),
+		Output: new(tool.TextOutput("connection lost")),
 	}
 	accept := Accept{ID: "reconcile", CallID: "call-1", Outcome: &out}
 	accepted, err := apply(forged, definition(), accept, b)
@@ -375,8 +375,7 @@ func failedStop(reason string) Stop {
 }
 
 func succeeded(text string) tool.Outcome {
-	output := tool.TextOutput(text)
-	return tool.Outcome{State: tool.StateSucceeded, Output: &output}
+	return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput(text))}
 }
 
 // failingFunc builds a typed tool whose callback returns err.
@@ -472,7 +471,7 @@ func resultText(result *llm.ToolResult) string {
 // that its JSON form replays to the same view.
 func assertRecordRoundTrips(t *testing.T, rec *MemoryRecorder, turn Turn) {
 	t.Helper()
-	saved, err := rec.Load(context.Background(), turn.ID)
+	saved, err := rec.Load(t.Context(), turn.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

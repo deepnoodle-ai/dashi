@@ -2,7 +2,6 @@ package imagine
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"image"
@@ -54,7 +53,7 @@ func TestImageBase64OptionReturnsInlineBytesWithoutResponseMIME(t *testing.T) {
 		Prompt:    []content.Block{content.TextBlock("A green hill")},
 	}
 	request, err := client.PrepareImageWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		ImageOptions{
 			ResponseFormat: ImageResponseBase64,
@@ -66,7 +65,7 @@ func TestImageBase64OptionReturnsInlineBytesWithoutResponseMIME(t *testing.T) {
 	if len(request.Snapshot().ProviderOptions) == 0 {
 		t.Fatal("response format was not recorded")
 	}
-	result, err := client.SendImage(context.Background(), request)
+	result, err := client.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +100,7 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 		Prompt:          []content.Block{content.TextBlock("Make it blue")},
 		ReferenceImages: []content.Block{content.ImageBlock(file)},
 	}
-	request, err := client.PrepareImage(context.Background(), imageInput)
+	request, err := client.PrepareImage(t.Context(), imageInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +118,7 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 		Prompt:          []content.Block{content.TextBlock("Animate")},
 		ReferenceFrames: []content.Block{content.ImageBlock(file)},
 	}
-	videoRequest, err := client.PrepareVideo(context.Background(), videoInput)
+	videoRequest, err := client.PrepareVideo(t.Context(), videoInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,14 +142,14 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 	}
 	imageInput.ReferenceImages[0].Image.Source.Origin = other.FileOrigin()
 	if _, err := client.PrepareImage(
-		context.Background(),
+		t.Context(),
 		imageInput,
 	); err == nil {
 		t.Fatal("image file from another credential scope was accepted")
 	}
 	videoInput.ReferenceFrames[0].Image.Source.Origin = other.FileOrigin()
 	if _, err := client.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		videoInput,
 	); err == nil {
 		t.Fatal("video file from another credential scope was accepted")

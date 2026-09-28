@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/policyrecord"
 	"github.com/deepnoodle-ai/kernel/llm"
 	"github.com/deepnoodle-ai/kernel/tool"
 )
@@ -47,7 +47,7 @@ type Limits struct {
 	// ReserveFinalAnswer uses the last allowed model attempt for an answer
 	// after earlier attempts, without advertising application tools.
 	ReserveFinalAnswer bool      `json:"reserve_final_answer,omitempty"`
-	Deadline           time.Time `json:"deadline,omitempty"`
+	Deadline           time.Time `json:"deadline,omitzero"`
 }
 
 // DefaultLimits returns the library's turn limits.
@@ -130,8 +130,7 @@ func (t Turn) StructuredOutput() (StructuredOutput, bool, error) {
 // AnswerText returns text from the latest settled assistant message. A turn
 // can complete valid tool-only work and have no answer text.
 func (t Turn) AnswerText() string {
-	for i := len(t.Steps) - 1; i >= 0; i-- {
-		step := t.Steps[i]
+	for _, step := range slices.Backward(t.Steps) {
 		if (step.Kind != StepModelSettled &&
 			step.Kind != StepModelReconciled) || step.Model == nil ||
 			step.Model.Result == nil || step.Model.Error != "" ||
@@ -260,7 +259,7 @@ type StartFact struct {
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
 	// HistoryFingerprint identifies the caller-owned prior conversation at
-	// Start. An empty value identifies an older turn without a fingerprint.
+	// Start.
 	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
 	Input              []llm.Message `json:"input"`
 }
@@ -328,33 +327,6 @@ type ModelFact struct {
 	Interrupted bool `json:"interrupted,omitempty"`
 	// NoDispatch excludes an intent stopped before the provider call began.
 	NoDispatch bool `json:"no_dispatch,omitempty"`
-}
-
-// UnmarshalJSON reads capability_policy, or maps the legacy
-// unknown_capabilities field it replaced: "allow" is adjust and "reject" is
-// strict. A fact with neither field predates both and decodes as strict,
-// because the legacy zero value rejected unknown support; reading it as the
-// current default would change what the recorded intent says.
-func (f *ModelFact) UnmarshalJSON(data []byte) error {
-	type plain ModelFact
-	var raw struct {
-		plain
-		CapabilityPolicy    *llm.CapabilityPolicy `json:"capability_policy"`
-		UnknownCapabilities *string               `json:"unknown_capabilities"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	policy, err := policyrecord.Decode(
-		raw.CapabilityPolicy,
-		raw.UnknownCapabilities,
-	)
-	if err != nil {
-		return fmt.Errorf("kernel: model fact: %w", err)
-	}
-	*f = ModelFact(raw.plain)
-	f.CapabilityPolicy = policy
-	return nil
 }
 
 // ModelFailure is host-supplied evidence that a pending model attempt did not

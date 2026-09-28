@@ -87,7 +87,7 @@ func TestMaxCostAtRiskRejectsOverflow(t *testing.T) {
 	}
 }
 
-func TestCostAndPricingJSONAcceptLegacyNumbers(t *testing.T) {
+func TestCostAndPricingJSONAcceptBareNumbers(t *testing.T) {
 	var cost Cost
 	raw := `{"input":0.1,"output":0.2,"cache_read":0,"cache_write":0,` +
 		`"total":0.30000000000000004,"currency":"USD",` +
@@ -96,7 +96,7 @@ func TestCostAndPricingJSONAcceptLegacyNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cost.Total != amt("0.3") || cost.Input != amt("0.1") {
-		t.Fatalf("legacy cost = %+v", cost)
+		t.Fatalf("numeric cost = %+v", cost)
 	}
 	encoded, err := json.Marshal(cost)
 	if err != nil {

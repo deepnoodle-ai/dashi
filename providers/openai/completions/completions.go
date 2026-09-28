@@ -339,7 +339,7 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	var parts []ContentPart
 	var calls []ToolCall
 	var results []llm.ToolResult
-	var reasoning string
+	var reasoning strings.Builder
 	var reasoningDetails json.RawMessage
 	for _, c := range m.Content {
 		if c.Replay != nil {
@@ -389,7 +389,7 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 				)
 				continue
 			}
-			reasoning += c.Reasoning.Text
+			reasoning.WriteString(c.Reasoning.Text)
 		case llm.ContentOpaque:
 			if c.Opaque.Origin != wire.origin ||
 				c.Opaque.Unit != llm.OpaqueUnitItem ||
@@ -417,14 +417,14 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	if len(results) > 0 &&
 		(len(parts) > 0 ||
 			len(calls) > 0 ||
-			reasoning != "" ||
+			reasoning.Len() > 0 ||
 			reasoningDetails != nil) {
 		return nil, wire.unsupported("mixed tool results and message content")
 	}
 	var encoded []any
 	if len(parts) > 0 ||
 		len(calls) > 0 ||
-		reasoning != "" ||
+		reasoning.Len() > 0 ||
 		reasoningDetails != nil ||
 		len(results) == 0 {
 		message := map[string]any{"role": m.Role}
@@ -440,8 +440,8 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 		if len(calls) > 0 {
 			message["tool_calls"] = calls
 		}
-		if reasoning != "" {
-			message["reasoning"] = reasoning
+		if reasoning.Len() > 0 {
+			message["reasoning"] = reasoning.String()
 		}
 		if reasoningDetails != nil {
 			message["reasoning_details"] = reasoningDetails
