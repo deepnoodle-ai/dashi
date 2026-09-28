@@ -2,7 +2,10 @@ package llm
 
 import (
 	"errors"
+	"fmt"
 	"unicode/utf8"
+
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // ContentChangeAction describes a preparation transformation, independently of
@@ -31,6 +34,18 @@ const (
 	// ContentChangeRenderReminder records a typed reminder rendered to tagged
 	// text and the authority selected for this destination.
 	ContentChangeRenderReminder ContentChangeAction = "render_reminder"
+	// ContentChangeDetectMIMEType records MIME types detected for inline
+	// bytes that had none. One change covers every such block at a position,
+	// including all blocks of a tool result; Reason names the types. It is
+	// recorded on every preparation, since the input keeps the empty type.
+	// Extension matches are fixed; sniffed results come from
+	// http.DetectContentType and could change with a Go release, so the
+	// recorded Reason, not a new detection, says what a past request sent.
+	ContentChangeDetectMIMEType ContentChangeAction = "detect_mime_type"
+	// ContentChangeUnknownMIMEType accompanies ContentChangeDetectMIMEType
+	// when detection found nothing better than content.UnknownMIMEType. It is
+	// the one content change reported as a warning.
+	ContentChangeUnknownMIMEType ContentChangeAction = "unknown_mime_type"
 )
 
 // ContentChange explains a transformation at an original input position. The
@@ -53,6 +68,24 @@ type ContentChange struct {
 	FromID string `json:"from_id,omitempty"`
 	// ToID is the ID used in the prepared body for that call or result.
 	ToID string `json:"to_id,omitempty"`
+}
+
+// Warning reports whether this change asks the caller to fix its input, and
+// describes it. Only an unknown MIME type does; other changes are recorded
+// adaptations.
+func (c ContentChange) Warning() (Warning, bool) {
+	if c.Action != ContentChangeUnknownMIMEType {
+		return Warning{}, false
+	}
+	return Warning{
+		Code: WarningMIMETypeUnknown,
+		Message: fmt.Sprintf(
+			"message %d content %d: %s",
+			c.MessageIndex,
+			c.ContentIndex,
+			c.Reason,
+		),
+	}, true
 }
 
 func validateContentChanges(p RequestSnapshot) error {
@@ -142,6 +175,12 @@ func validateContentChanges(p RequestSnapshot) error {
 					p.Origin,
 				) {
 				return errors.New("llm: invalid reminder rendering decision")
+			}
+		case ContentChangeDetectMIMEType, ContentChangeUnknownMIMEType:
+			if !hasUntypedInline(c) {
+				return errors.New(
+					"llm: MIME detection requires inline data without a type",
+				)
 			}
 		case ContentChangeEncodeToolError:
 			if c.ToolResult == nil || !c.ToolResult.IsError {
@@ -264,6 +303,35 @@ func validateToolIDRemaps(p RequestSnapshot) error {
 		}
 	}
 	return nil
+}
+
+// hasUntypedInline reports whether c carries inline bytes without a MIME
+// type, directly or in a tool result.
+func hasUntypedInline(c Content) bool {
+	var blocks []content.Block
+	switch {
+	case c.Block != nil:
+		blocks = []content.Block{*c.Block}
+	case c.ToolResult != nil:
+		blocks = c.ToolResult.Output.Content
+	}
+	for _, b := range blocks {
+		var s *content.Source
+		switch {
+		case b.Image != nil:
+			s = &b.Image.Source
+		case b.Document != nil:
+			s = &b.Document.Source
+		case b.Audio != nil:
+			s = &b.Audio.Source
+		case b.Video != nil:
+			s = &b.Video.Source
+		}
+		if s != nil && s.Data != nil && s.MIMEType == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func portableToolID(id string) bool {

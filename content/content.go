@@ -32,10 +32,11 @@ const (
 )
 
 // Source contains exactly one of inline bytes, a URL, a provider file ID, or
-// a provider-managed URI.
-// It never fetches external data. MIMEType is required for inline bytes.
+// a provider-managed URI. It never fetches external data. Inline bytes may
+// omit MIMEType: every model and media preparation path that sends them
+// detects it with DetectMIMEType on its own copy.
 type Source struct {
-	// Data holds inline bytes and requires MIMEType; it excludes URL and ID.
+	// Data holds inline bytes; it excludes URL, ID, and URI.
 	Data []byte `json:"data,omitempty"`
 
 	// URL references remote content without fetching it; it excludes Data and
@@ -53,7 +54,9 @@ type Source struct {
 	// scope. Model is optional. Data and URL must not set Origin.
 	Origin Origin `json:"origin,omitzero"`
 
-	// MIMEType describes inline bytes and is required when Data is set.
+	// MIMEType describes the content. It is required with URI. For inline
+	// bytes it is optional: when empty, model and media preparation detect it
+	// from the bytes and, for a document, its title's file extension.
 	MIMEType string `json:"mime_type,omitempty"`
 
 	// ExpiresAt reports a known expiration of a remote reference. Inline bytes
@@ -61,14 +64,14 @@ type Source struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// Validate reports whether s sets exactly one location and, for inline data,
-// a MIME type.
+// Validate reports whether s sets exactly one location, with non-empty inline
+// data and a MIME type for a provider URI.
 func (s Source) Validate() error {
 	if count(s.Data != nil, s.URL != "", s.ID != "", s.URI != "") != 1 {
 		return errors.New("content: source requires one of data, URL, ID, or URI")
 	}
-	if s.Data != nil && (len(s.Data) == 0 || s.MIMEType == "") {
-		return errors.New("content: inline source requires data and MIME type")
+	if s.Data != nil && len(s.Data) == 0 {
+		return errors.New("content: inline source requires data")
 	}
 	if s.Data != nil && s.ExpiresAt != nil {
 		return errors.New("content: inline source cannot expire")
@@ -93,7 +96,19 @@ func (s Source) Clone() Source {
 	return s
 }
 
-// DataURL returns the inline data encoded as a base64 data URL.
+// WithDetectedMIMEType returns s with MIMEType set by DetectMIMEType when s
+// holds inline bytes without one, and s unchanged otherwise. name is an
+// optional file name whose extension guides detection. The result is a copy,
+// so the caller's source keeps its empty type.
+func (s Source) WithDetectedMIMEType(name string) Source {
+	if s.Data != nil && s.MIMEType == "" {
+		s.MIMEType = DetectMIMEType(s.Data, name)
+	}
+	return s
+}
+
+// DataURL returns the inline data encoded as a base64 data URL. It uses
+// MIMEType as given; preparation fills an empty one before encoding.
 func (s Source) DataURL() string {
 	return "data:" + s.MIMEType + ";base64," + base64.StdEncoding.EncodeToString(s.Data)
 }
@@ -110,12 +125,62 @@ type Citation struct {
 	// Text is an optional excerpt reported by the provider.
 	Text string `json:"text,omitempty"`
 
+	// Location says where in a document the cited passage is. It is nil for
+	// web and URL citations and for citation kinds Dashi does not interpret,
+	// whose details stay in Raw.
+	Location *CitationLocation `json:"location,omitempty"`
+
 	// Origin restricts where Raw may be replayed and is required with Raw.
 	Origin Origin `json:"origin,omitzero"`
 
 	// Raw preserves the provider citation object; use Block.Clone before
 	// editing it.
 	Raw json.RawMessage `json:"raw,omitempty"`
+}
+
+// LocationUnit names what a CitationLocation's range counts.
+type LocationUnit string
+
+// Location units.
+const (
+	// LocationPage counts PDF pages from 1.
+	LocationPage LocationUnit = "page"
+	// LocationChar counts characters of a text document from 0.
+	LocationChar LocationUnit = "char"
+)
+
+// CitationLocation points at a passage of a cited document. The range
+// [Start, End) is half-open.
+type CitationLocation struct {
+	// RequestDocumentIndex counts the document blocks of the request that
+	// produced the citation, from 0, in the order sent: through every message
+	// in order, including the blocks of each tool result. It is not stable
+	// across calls, because context and tool results change which documents a
+	// request carries; give documents titles and use Citation.Title as a
+	// stable key.
+	RequestDocumentIndex int `json:"request_document_index"`
+
+	// Unit says whether Start and End count pages or characters.
+	Unit LocationUnit `json:"unit"`
+
+	// Start is the first page or character of the passage.
+	Start int `json:"start"`
+
+	// End is one past the last page or character of the passage.
+	End int `json:"end"`
+}
+
+// Validate requires a known unit and a well-formed range.
+func (l CitationLocation) Validate() error {
+	switch {
+	case l.Unit != LocationPage && l.Unit != LocationChar:
+		return fmt.Errorf("content: unknown citation location unit %q", l.Unit)
+	case l.RequestDocumentIndex < 0 || l.Start < 0 || l.End < l.Start:
+		return errors.New("content: invalid citation location range")
+	case l.Unit == LocationPage && l.Start < 1:
+		return errors.New("content: citation pages count from 1")
+	}
+	return nil
 }
 
 // Text keeps display text beside provider citations. Block.Clone detaches
@@ -144,7 +209,9 @@ type Document struct {
 	// Source selects inline bytes, a URL, or a provider file ID.
 	Source Source `json:"source"`
 
-	// Title is an optional display name passed to APIs that support it.
+	// Title is an optional display name passed to APIs that support it. A
+	// file extension in it, such as "notes.md", also guides MIME detection
+	// for inline bytes without a MIME type.
 	Title string `json:"title,omitempty"`
 }
 
@@ -237,9 +304,12 @@ func ImageBlock(source Source) Block {
 	return Block{Kind: KindImage, Image: &Image{Source: source}}
 }
 
-// DocumentBlock retains source as supplied without inventing a display title.
-func DocumentBlock(source Source) Block {
-	return Block{Kind: KindDocument, Document: &Document{Source: source}}
+// DocumentBlock retains source as supplied. Title may be empty.
+func DocumentBlock(source Source, title string) Block {
+	return Block{
+		Kind:     KindDocument,
+		Document: &Document{Source: source, Title: title},
+	}
 }
 
 // AudioBlock retains source as supplied without decoding it.
@@ -268,6 +338,11 @@ func (b Block) Validate() error {
 	switch {
 	case b.Kind == KindText && b.Text != nil:
 		for _, c := range b.Text.Citations {
+			if c.Location != nil {
+				if err := c.Location.Validate(); err != nil {
+					return err
+				}
+			}
 			if len(c.Raw) > 0 &&
 				(c.Origin.Validate() != nil ||
 					c.Origin.Model == "" ||
@@ -314,6 +389,10 @@ func (b Block) Clone() Block {
 		t.Citations = slices.Clone(t.Citations)
 		for i := range t.Citations {
 			t.Citations[i].Raw = slices.Clone(t.Citations[i].Raw)
+			if l := t.Citations[i].Location; l != nil {
+				location := *l
+				t.Citations[i].Location = &location
+			}
 		}
 		b.Text = &t
 	}

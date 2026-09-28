@@ -266,6 +266,7 @@ func (p *Client) Prepare(
 // services define their own.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
+		llm.FeatureCitations:       llm.SupportUnsupported,
 		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
 	},

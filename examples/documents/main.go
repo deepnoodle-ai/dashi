@@ -1,11 +1,12 @@
-// Command documents asks a model a question about a PDF, given by URL or as a
-// local file, and prints the answer with any citations it carries. Requesting
-// citations on a document is not supported yet, so a PDF answer has none.
-// Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally
-// overrides the catalog's small model.
+// Command documents asks a model a question about a document and prints the
+// answer with the passages it cited. The document is a short built-in text by
+// default, or a PDF or text file given by URL or local path. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's small model.
 //
 //	go run ./examples/documents
-//	go run ./examples/documents -pdf ./report.pdf -prompt "List the risks."
+//	go run ./examples/documents -doc ./report.pdf -prompt "List the risks."
+//	go run ./examples/documents -doc https://example.com/paper.pdf
 package main
 
 import (
@@ -25,7 +26,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 )
 
-const defaultPDF = "https://assets.anthropic.com/m/1cd9d098ac3e6467/original/Claude-3-Model-Card-October-Addendum.pdf"
+const builtIn = "The grass is green. The sky is blue. " +
+	"Water boils at 100 degrees Celsius at sea level."
 
 func main() {
 	log.SetFlags(0)
@@ -37,10 +39,10 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	pdf := flag.String("pdf", defaultPDF, "PDF URL or local file path")
+	doc := flag.String("doc", "", "PDF URL, or local PDF or text file")
 	prompt := flag.String(
 		"prompt",
-		"What are the key findings? Answer in three short bullets.",
+		"What color are the grass and the sky?",
 		"question to ask about the document",
 	)
 	flag.Parse()
@@ -52,7 +54,7 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	document, err := pdfDocument(*pdf)
+	document, err := loadDocument(*doc)
 	if err != nil {
 		return fmt.Errorf("documents: %w", err)
 	}
@@ -60,15 +62,16 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("documents: create client: %w", err)
 	}
-	// Put the document before the question; Anthropic recommends that order
-	// for long inputs.
+	// Citations applies to every document in the request. Put the document
+	// before the question; Anthropic recommends that order for long inputs.
 	result, err := llm.Generate(
 		ctx,
 		client,
 		llm.Input{
-			Model: model,
+			Model:    model,
+			Settings: llm.Settings{Citations: true},
 			Messages: []llm.Message{
-				llm.UserMessage(llm.Block(document), llm.Text(*prompt)),
+				llm.UserMessage(document, llm.Text(*prompt)),
 			},
 		},
 		nil,
@@ -76,18 +79,28 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("documents: generate: %w", err)
 	}
+	for _, w := range result.Warnings {
+		fmt.Printf("warning: %s\n", w.Message)
+	}
 
-	// Each text block keeps its own citations. Anthropic attaches them only
-	// when a document enables citations, which content.Document cannot request
-	// yet, so this loop prints citations from hosted tools such as web search
-	// but none for this PDF today.
+	// A cited answer arrives as several text blocks, one per cited passage;
+	// Text joins them into the answer.
+	fmt.Println(result.Message.Text())
+	n := 0
 	for _, c := range result.Message.Content {
 		if c.Block == nil || c.Block.Text == nil {
 			continue
 		}
-		fmt.Print(c.Block.Text.Text)
 		for _, citation := range c.Block.Text.Citations {
-			fmt.Printf("\n  [cited %q: %q]", citation.Title, citation.Text)
+			n++
+			fmt.Printf("\n[%d] %q", n, citation.Text)
+			if citation.Title != "" {
+				fmt.Printf(" (%s", citation.Title)
+				if l := citation.Location; l != nil {
+					fmt.Printf(", %s %d-%d", l.Unit, l.Start, l.End)
+				}
+				fmt.Print(")")
+			}
 		}
 	}
 	fmt.Printf(
@@ -98,21 +111,20 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// pdfDocument passes a URL through for the provider to fetch, and reads a
-// local file into inline bytes. Anthropic accepts inline documents only as
-// PDFs; plain-text documents need a text source that Dashi does not encode.
-func pdfDocument(pdf string) (content.Block, error) {
-	if strings.HasPrefix(pdf, "https://") || strings.HasPrefix(pdf, "http://") {
-		return content.DocumentBlock(content.Source{URL: pdf}), nil
+// loadDocument passes a URL through for the provider to fetch and reads a
+// local file into inline bytes. Dashi detects the MIME type of inline bytes
+// from the title's extension and the content, so a .pdf is sent as a PDF and a
+// .txt or .md file as text.
+func loadDocument(doc string) (llm.Content, error) {
+	switch {
+	case doc == "":
+		return llm.Document(content.Source{Data: []byte(builtIn)}, "Facts"), nil
+	case strings.HasPrefix(doc, "https://") || strings.HasPrefix(doc, "http://"):
+		return llm.Document(content.Source{URL: doc}, filepath.Base(doc)), nil
 	}
-	data, err := os.ReadFile(pdf)
+	data, err := os.ReadFile(doc)
 	if err != nil {
-		return content.Block{}, err
+		return llm.Content{}, err
 	}
-	block := content.DocumentBlock(content.Source{
-		Data:     data,
-		MIMEType: "application/pdf",
-	})
-	block.Document.Title = filepath.Base(pdf)
-	return block, nil
+	return llm.Document(content.Source{Data: data}, filepath.Base(doc)), nil
 }

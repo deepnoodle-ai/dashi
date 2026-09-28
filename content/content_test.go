@@ -34,8 +34,8 @@ func TestBlockValidateRejectsInvalid(t *testing.T) {
 			}),
 		},
 		{
-			name:  "inline data without MIME type",
-			block: DocumentBlock(Source{Data: []byte("pdf")}),
+			name:  "empty inline data",
+			block: DocumentBlock(Source{Data: []byte{}}, "empty.pdf"),
 		},
 		{
 			name: "raw citation without provider",

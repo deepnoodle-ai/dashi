@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1251,12 +1252,12 @@ func messageReminder(m llm.Message) *llm.Reminder {
 }
 
 func validateContext(item ContextItem) error {
-	switch item.Origin {
-	case "user", "library", "tool":
+	switch cmp.Or(item.Origin, ContextUser) {
+	case ContextUser, ContextRuntime, ContextTool:
 		if item.Message.Role != llm.RoleUser {
 			return errors.New("untrusted context must use user role")
 		}
-	case "operator":
+	case ContextOperator:
 		if item.Message.Role != llm.RoleUser &&
 			item.Message.Role != llm.RoleSystem &&
 			item.Message.Role != llm.RoleDeveloper {
@@ -1270,7 +1271,7 @@ func validateContext(item ContextItem) error {
 	}
 	if reminder := messageReminder(item.Message); reminder != nil &&
 		reminder.Tier == llm.ReminderOperator &&
-		item.Origin != "operator" {
+		item.Origin != ContextOperator {
 		return errors.New("operator reminder requires operator context origin")
 	}
 	return validateMessage(item.Message)

@@ -65,6 +65,10 @@ const (
 		"sonnet-4-5/overview"
 	anthropicHaiku45 = "https://platform.claude.com/docs/en/models/" +
 		"haiku-4-5/overview"
+	anthropicPDF = "https://platform.claude.com/docs/en/build-with-claude/" +
+		"pdf-support"
+	anthropicCitations = "https://platform.claude.com/docs/en/" +
+		"build-with-claude/citations"
 )
 
 var (
@@ -123,6 +127,20 @@ var claimSources = []claimSource{
 		url:     anthropicOverview,
 		models:  claudeAll,
 		feature: llm.FeatureTools,
+		support: llm.SupportSupported,
+	},
+	{
+		// "All active models support PDF processing."
+		url:     anthropicPDF,
+		models:  claudeAll,
+		feature: llm.FeatureDocument,
+		support: llm.SupportSupported,
+	},
+	{
+		// "All active models support citations."
+		url:     anthropicCitations,
+		models:  claudeAll,
+		feature: llm.FeatureCitations,
 		support: llm.SupportSupported,
 	},
 	{

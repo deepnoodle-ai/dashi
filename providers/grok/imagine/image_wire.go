@@ -182,6 +182,7 @@ func imageInputSource(
 	source content.Source,
 	fileOrigin ...content.Origin,
 ) (map[string]string, error) {
+	source = source.WithDetectedMIMEType("")
 	if source.MIMEType != "" && !strings.HasPrefix(source.MIMEType, "image/") {
 		return nil, errors.New("imagine: reference image requires image MIME type when specified")
 	}

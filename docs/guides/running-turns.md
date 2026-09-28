@@ -208,8 +208,18 @@ Resumes after interruption do not consume `ModelAttempts`. The turn's
 ## Structured output
 
 For a validated object result, set `Agent.OutputSchema` or pass a
-per-turn `Start.OutputSchema`, then read `Outcome.Output.Value` after
-`StopCompleted`. The output fact includes tool-call or final-text provenance;
+per-turn `Start.OutputSchema`, then decode the value after the turn:
+
+```go
+runner.Agent.OutputSchema = dashi.MustOutputSchema[Person]()
+// Run the turn, then:
+person, err := dashi.DecodeOutput[Person](outcome)
+```
+
+`MustOutputSchema` follows `tool.Func`'s schema rules and panics for a type
+that cannot be an object schema. `DecodeOutput` returns an error wrapping
+`dashi.ErrNoOutput`, naming the stop, when the turn has no output. The output
+fact includes tool-call or final-text provenance;
 see [structured final results](../agent-turns.md#structured-final-results).
 
 ## Streaming a turn

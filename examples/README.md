@@ -18,7 +18,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `structured_output` | OpenAI    | A final answer that matches a JSON schema, decoded into a type |
 | `providers`         | Any       | The same call on each provider; only the client changes        |
 | `vision`            | Anthropic | Describing an image from a URL or a local file                 |
-| `documents`         | Anthropic | Asking a question about a PDF                                  |
+| `documents`         | Anthropic | Asking about a text or PDF document, with cited passages       |
 
 For example:
 

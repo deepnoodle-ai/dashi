@@ -52,7 +52,7 @@ func projectWithHistory(
 		if step.Context != nil {
 			for index, item := range step.Context.Items {
 				if item.Snapshot {
-					latest[item.Origin+"\x00"+item.Name] = position{step.Seq, index}
+					latest[contextKey(item)] = position{step.Seq, index}
 				}
 			}
 		}
@@ -74,7 +74,7 @@ func projectWithHistory(
 				continue
 			}
 			for index, item := range step.Context.Items {
-				if item.Snapshot && latest[item.Origin+"\x00"+item.Name] != (position{
+				if item.Snapshot && latest[contextKey(item)] != (position{
 					step.Seq,
 					index,
 				}) {

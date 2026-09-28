@@ -186,7 +186,7 @@ func TestDeepInfraRejectsBinaryDocument(t *testing.T) {
 				content.DocumentBlock(content.Source{
 					Data:     []byte("pdf"),
 					MIMEType: "application/pdf",
-				}))),
+				}, ""))),
 		},
 	}
 	if _, err := client.Prepare(t.Context(), input); err == nil {

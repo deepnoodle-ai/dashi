@@ -288,7 +288,7 @@ func contextStep(id string, seq int64, text string) dashi.Step {
 		Kind:    dashi.StepDelivered,
 		Context: &dashi.ContextFact{
 			Items: []dashi.ContextItem{
-				{Origin: "user", Message: llm.UserMessage(llm.Text(text))},
+				{Origin: dashi.ContextUser, Message: llm.UserMessage(llm.Text(text))},
 			},
 		},
 	}

@@ -21,6 +21,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "temperature": "unsupported",
           "reasoning_effort": "supported",
@@ -60,6 +62,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "temperature": "unsupported",
           "reasoning_effort": "supported",
@@ -98,6 +102,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "temperature": "unsupported",
           "reasoning_effort": "supported",
@@ -137,6 +143,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "temperature": "unsupported",
           "reasoning_effort": "supported",
@@ -176,6 +184,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "temperature": "unsupported",
           "reasoning_effort": "supported",
@@ -215,6 +225,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "temperature": "unsupported",
@@ -255,6 +267,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "temperature": "unsupported",
@@ -295,6 +309,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "temperature": "unsupported",
@@ -334,6 +350,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "temperature": "unsupported",
@@ -373,6 +391,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "supported",
@@ -410,6 +430,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "supported",
@@ -449,6 +471,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "supported",
@@ -486,6 +510,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "supported",
@@ -524,6 +550,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
@@ -556,6 +584,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
@@ -589,6 +619,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
@@ -621,6 +653,8 @@
         "features": {
           "text": "supported",
           "image": "supported",
+          "document": "supported",
+          "citations": "supported",
           "tools": "supported",
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",

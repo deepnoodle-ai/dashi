@@ -336,8 +336,9 @@ func (p *InteractionsMediaClient) inputPart(b content.Block) (any, error) {
 		}
 		return map[string]any{"type": "text", "text": b.Text.Text}, nil
 	case content.KindImage:
-		if b.Image.Detail != "" || b.Image.Source.Data == nil || !strings.HasPrefix(
-			b.Image.Source.MIMEType,
+		source := b.Image.Source.WithDetectedMIMEType("")
+		if b.Image.Detail != "" || source.Data == nil || !strings.HasPrefix(
+			source.MIMEType,
 			"image/",
 		) {
 			return nil, p.failure(
@@ -347,8 +348,8 @@ func (p *InteractionsMediaClient) inputPart(b content.Block) (any, error) {
 		}
 		return map[string]any{
 			"type":      "image",
-			"mime_type": b.Image.Source.MIMEType,
-			"data":      base64.StdEncoding.EncodeToString(b.Image.Source.Data),
+			"mime_type": source.MIMEType,
+			"data":      base64.StdEncoding.EncodeToString(source.Data),
 		}, nil
 	default:
 		return nil, p.failure(

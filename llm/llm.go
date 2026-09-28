@@ -143,6 +143,20 @@ func Text(text string) Content {
 	return Content{Kind: ContentBlock, Block: &b}
 }
 
+// Image constructs an image from source, such as content.Source{URL: u} or
+// content.Source{Data: b}. Inline bytes may omit the MIME type; preparation
+// detects it.
+func Image(source content.Source) Content {
+	return Block(content.ImageBlock(source))
+}
+
+// Document constructs a document from source with an optional title. The
+// title is shown to APIs that accept one, is echoed on citations, and its file
+// extension guides MIME detection for inline bytes without a MIME type.
+func Document(source content.Source, title string) Content {
+	return Block(content.DocumentBlock(source, title))
+}
+
 // Block wraps a block without cloning its nested data. Use Content.Clone before
 // independently modifying a copy.
 func Block(block content.Block) Content {
@@ -363,6 +377,15 @@ type Settings struct {
 	// ParallelTools distinguishes explicitly disabled parallel calls from an
 	// omitted setting.
 	ParallelTools *bool `json:"parallel_tools,omitempty"`
+
+	// Citations asks the model to cite passages of the request's documents,
+	// including documents in tool results; the citations arrive on the answer's
+	// text blocks. It applies to every document, because Anthropic enables
+	// citations for all documents in a request or none. An API without
+	// document citations omits the setting and warns when the request carries
+	// a document; under CapabilityStrict that is an error. Cited answers arrive
+	// as several text blocks, one per cited passage.
+	Citations bool `json:"citations,omitempty"`
 }
 
 // Input specifies a model call before preparation binds it to a destination.

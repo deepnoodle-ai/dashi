@@ -22,6 +22,8 @@ const (
 	SettingToolChoice Setting = "tool_choice"
 	// SettingParallelTools identifies the parallel tool call setting.
 	SettingParallelTools Setting = "parallel_tools"
+	// SettingCitations identifies the document citations setting.
+	SettingCitations Setting = "citations"
 )
 
 // AdjustmentAction names an authorized preparation behavior. Defaults fill
@@ -93,7 +95,12 @@ func (a Adjustment) Warning() (Warning, bool) {
 // NewRequest also checks that each decision agrees with the actual snapshots.
 func (a Adjustment) Validate() error {
 	switch a.Field {
-	case SettingMaxTokens, SettingTemperature, SettingReasoning, SettingToolChoice, SettingParallelTools:
+	case SettingMaxTokens,
+		SettingTemperature,
+		SettingReasoning,
+		SettingToolChoice,
+		SettingParallelTools,
+		SettingCitations:
 	default:
 		return fmt.Errorf("llm: invalid adjustment field %q", a.Field)
 	}
@@ -133,6 +140,10 @@ const (
 	// WarningSettingOmitted means a requested setting was not sent because the
 	// destination rejects it; the model's default applies.
 	WarningSettingOmitted WarningCode = "setting_omitted"
+	// WarningMIMETypeUnknown means inline bytes had no MIME type and detection
+	// could not identify them, so they were sent as
+	// content.UnknownMIMEType. Set Source.MIMEType to fix it.
+	WarningMIMETypeUnknown WarningCode = "mime_type_unknown"
 )
 
 // Warning describes something the caller asked for that was not sent as
@@ -149,12 +160,20 @@ type Warning struct {
 	Message string `json:"message"`
 }
 
-// Warnings returns the caller-facing warnings of the given decisions, in
-// order.
-func Warnings(adjustments []Adjustment) []Warning {
+// collectWarnings returns the caller-facing warnings of the given decisions,
+// in order: setting adjustments first, then content changes.
+func collectWarnings(
+	adjustments []Adjustment,
+	changes []ContentChange,
+) []Warning {
 	var warnings []Warning
 	for _, a := range adjustments {
 		if w, ok := a.Warning(); ok {
+			warnings = append(warnings, w)
+		}
+	}
+	for _, c := range changes {
+		if w, ok := c.Warning(); ok {
 			warnings = append(warnings, w)
 		}
 	}

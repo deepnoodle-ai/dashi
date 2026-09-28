@@ -15,6 +15,7 @@ package responses
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path"
 	"slices"
 	"strings"
 
@@ -297,6 +299,7 @@ func (p *Client) Prepare(
 // effort levels, not token budgets, and an output limit for every model.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
+		llm.FeatureCitations:       llm.SupportUnsupported,
 		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
 	},
@@ -435,16 +438,35 @@ func (wire codec) encodeData(
 			m["file_url"] = s.URL
 		default:
 			m["file_data"] = s.DataURL()
-			name := b.Document.Title
-			if name == "" {
-				name = "document.pdf"
-			}
-			m["filename"] = name
+			m["filename"] = fileName(b.Document.Title, s.MIMEType)
 		}
 		return m, nil
 	default:
 		return nil, wire.unsupported("content kind %q", b.Kind)
 	}
+}
+
+// fileExtensions name inline files whose title lacks an extension, since
+// Responses infers the file type from the name.
+var fileExtensions = map[string]string{
+	"application/pdf":  ".pdf",
+	"application/json": ".json",
+	"text/plain":       ".txt",
+	"text/markdown":    ".md",
+	"text/csv":         ".csv",
+	"text/html":        ".html",
+}
+
+// fileName returns title, or "document", with the extension for mimeType
+// added unless the name already ends in it. A title such as "Q3 v1.2" has a
+// dot but no file extension, so it gains one too.
+func fileName(title, mimeType string) string {
+	name := cmp.Or(title, "document")
+	ext := fileExtensions[mimeType]
+	if ext != "" && !strings.EqualFold(path.Ext(name), ext) {
+		name += ext
+	}
+	return name
 }
 
 // encode encodes c as a Responses input item. Shared blocks and refusals

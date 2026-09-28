@@ -18,6 +18,7 @@ package messages
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -26,6 +27,8 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/providercontent"
@@ -170,6 +173,7 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
+	wire.citations = r.Settings.Citations
 	// Fit leaves MaxTokens unset only when the model rejects an output limit
 	// or, under the strict policy, when support for one is unknown.
 	if r.Settings.MaxTokens == 0 {
@@ -481,6 +485,9 @@ type codec struct {
 	// media reports whether the request being sent carries media, so errors
 	// reported in its response body can be classified as media rejections.
 	media bool
+	// citations enables citations on every document the request encodes;
+	// Messages accepts citations on all documents of a request or none.
+	citations bool
 }
 
 // encodeData encodes a shared content block as a Messages content block.
@@ -505,17 +512,30 @@ func (wire codec) encodeData(b content.Block) (map[string]any, error) {
 		if b.Image.Detail != "" {
 			return nil, wire.unsupported("image detail")
 		}
-		if b.Image.Source.URI != "" {
+		s := b.Image.Source
+		if s.URI != "" {
 			return nil, wire.unsupported("provider-managed image URI")
 		}
-		return map[string]any{"type": "image", "source": source(b.Image.Source)}, nil
-	case content.KindDocument:
-		if b.Document.Source.URI != "" {
-			return nil, wire.unsupported("provider-managed document URI")
+		if s.Data != nil && !slices.Contains(imageTypes, s.MIMEType) {
+			return nil, wire.unsupported(
+				"image type %q; Messages accepts %s; set Source.MIMEType "+
+					"if the type is wrong",
+				s.MIMEType,
+				strings.Join(imageTypes, ", "),
+			)
 		}
-		m := map[string]any{"type": "document", "source": source(b.Document.Source)}
+		return map[string]any{"type": "image", "source": source(s)}, nil
+	case content.KindDocument:
+		src, err := wire.documentSource(b.Document.Source)
+		if err != nil {
+			return nil, err
+		}
+		m := map[string]any{"type": "document", "source": src}
 		if b.Document.Title != "" {
 			m["title"] = b.Document.Title
+		}
+		if wire.citations {
+			m["citations"] = map[string]any{"enabled": true}
 		}
 		return m, nil
 	default:
@@ -724,24 +744,11 @@ func (wire codec) decodeContent(raw json.RawMessage) (llm.Content, error) {
 	case "text":
 		b := content.TextBlock(v.Text)
 		for _, raw := range v.Citations {
-			var c struct {
-				URL       string
-				Title     string
-				CitedText string `json:"cited_text"`
-			}
-			if err := json.Unmarshal(raw, &c); err != nil {
+			c, err := wire.decodeCitation(raw)
+			if err != nil {
 				return llm.Content{}, err
 			}
-			b.Text.Citations = append(
-				b.Text.Citations,
-				content.Citation{
-					URL:    c.URL,
-					Title:  c.Title,
-					Text:   c.CitedText,
-					Origin: wire.origin,
-					Raw:    slices.Clone(raw),
-				},
-			)
+			b.Text.Citations = append(b.Text.Citations, c)
 		}
 		return llm.Content{Kind: llm.ContentBlock, Block: &b, Replay: replay}, nil
 	case "tool_use":
@@ -803,6 +810,105 @@ func (wire codec) unsupported(format string, args ...any) error {
 		llm.ErrorUnsupported,
 		format,
 		args...,
+	)
+}
+
+// decodeCitation keeps the raw citation for replay and reads its display
+// fields. Document citations carry document_title instead of title, and page
+// and character locations are translated; other kinds stay in Raw only.
+func (wire codec) decodeCitation(raw json.RawMessage) (content.Citation, error) {
+	var v struct {
+		Type            string
+		URL             string
+		Title           string
+		DocumentTitle   string `json:"document_title"`
+		CitedText       string `json:"cited_text"`
+		DocumentIndex   int    `json:"document_index"`
+		StartCharIndex  int    `json:"start_char_index"`
+		EndCharIndex    int    `json:"end_char_index"`
+		StartPageNumber int    `json:"start_page_number"`
+		EndPageNumber   int    `json:"end_page_number"`
+		Source          string
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return content.Citation{}, err
+	}
+	c := content.Citation{
+		URL:    v.URL,
+		Title:  cmp.Or(v.Title, v.DocumentTitle),
+		Text:   v.CitedText,
+		Origin: wire.origin,
+		Raw:    slices.Clone(raw),
+	}
+	// A search result citation names its result's source, usually a URL.
+	if v.Type == "search_result_location" && c.URL == "" {
+		c.URL = v.Source
+	}
+	location := content.CitationLocation{RequestDocumentIndex: v.DocumentIndex}
+	switch v.Type {
+	case "char_location":
+		location.Unit = content.LocationChar
+		location.Start, location.End = v.StartCharIndex, v.EndCharIndex
+	case "page_location":
+		location.Unit = content.LocationPage
+		location.Start, location.End = v.StartPageNumber, v.EndPageNumber
+	default:
+		return c, nil
+	}
+	// A malformed location is dropped rather than failing the response; Raw
+	// still holds what the provider sent.
+	if location.Validate() == nil {
+		c.Location = &location
+	}
+	return c, nil
+}
+
+// imageTypes are the inline image types Messages accepts.
+var imageTypes = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+// textDocumentTypes are non-text/* types that are plain text in practice and
+// are sent as text documents.
+var textDocumentTypes = []string{
+	"application/json",
+	"application/xml",
+	"application/yaml",
+	"application/x-yaml",
+}
+
+// documentSource encodes a document source. Messages takes inline PDFs as
+// base64 and text as a text source; any text type, and JSON, XML, and YAML,
+// is sent as text/plain, which is how Messages expects Markdown, CSV, and
+// similar files. It fetches
+// only PDFs by URL. Other types fail here rather than at send.
+func (wire codec) documentSource(s content.Source) (map[string]any, error) {
+	switch {
+	case s.URI != "":
+		return nil, wire.unsupported("provider-managed document URI")
+	case s.URL != "" && s.MIMEType != "" && s.MIMEType != "application/pdf":
+		return nil, wire.unsupported(
+			"document URL of type %q; Messages fetches only PDFs by URL",
+			s.MIMEType,
+		)
+	case s.Data == nil || s.MIMEType == "application/pdf":
+		return source(s), nil
+	case strings.HasPrefix(s.MIMEType, "text/") ||
+		slices.Contains(textDocumentTypes, s.MIMEType):
+		if !utf8.Valid(s.Data) {
+			return nil, wire.unsupported(
+				"text document of type %q is not valid UTF-8",
+				s.MIMEType,
+			)
+		}
+		return map[string]any{
+			"type":       "text",
+			"media_type": "text/plain",
+			"data":       string(s.Data),
+		}, nil
+	}
+	return nil, wire.unsupported(
+		"document type %q; Messages accepts PDF and text documents; "+
+			"set Source.MIMEType if the type is wrong",
+		s.MIMEType,
 	)
 }
 

@@ -67,6 +67,11 @@ const (
 	FeatureReasoningBudget Feature = "reasoning_budget"
 	// FeatureStreaming describes support for streamed responses.
 	FeatureStreaming Feature = "streaming"
+	// FeatureCitations describes support for citing request documents. It is
+	// requested when Settings.Citations is set and the request carries a
+	// document. APIs that cannot request citations declare it unsupported,
+	// and Fit omits the setting; elsewhere it is checked like any feature.
+	FeatureCitations Feature = "citations"
 )
 
 // HostedToolFeature scopes model evidence to a provider's wire tool type.
@@ -225,7 +230,8 @@ func knownFeature(f Feature) bool {
 	switch f {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
-		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming:
+		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming,
+		FeatureCitations:
 		return true
 	}
 	return strings.HasPrefix(string(f), "hosted_tool:") &&
@@ -274,6 +280,10 @@ func requestedFeatures(r Input) []Feature {
 	}
 	if r.Settings.MaxTokens > 0 {
 		add(FeatureMaxTokens)
+	}
+	// Citations change the request only when it carries a document.
+	if r.Settings.Citations && hasDocument(r) {
+		add(FeatureCitations)
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.Effort != "" {

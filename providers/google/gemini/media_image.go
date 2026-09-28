@@ -143,6 +143,7 @@ func (p *MediaClient) imagePart(b content.Block) (any, error) {
 }
 
 func (p *MediaClient) inlineImage(source content.Source) (any, error) {
+	source = source.WithDetectedMIMEType("")
 	if source.Data == nil || !strings.HasPrefix(source.MIMEType, "image/") {
 		return nil, p.failure(
 			media.ErrorUnsupported,
