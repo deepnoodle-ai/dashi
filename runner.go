@@ -1285,8 +1285,8 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 		return r.pauseStop(), false
 	}
-	if o, again, cut := r.handOff(call, attempt, messageID); cut {
-		return o, again
+	if h := r.handOff(call, attempt, messageID); h.done {
+		return h.outcome, h.again
 	}
 	var result llm.Result
 	var sendErr error
@@ -1350,15 +1350,16 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		}
 	}
 	r.unregisterCall(call)
-	// Only a steering interrupt folds the streamed estimate into the
-	// recorded usage (U-9); other interrupts keep the observed counts, and
-	// replay estimates from the visible text as decision 24 describes.
-	partial := func(streamedTokens int) *llm.Result {
+	// Every interrupt, whatever its cause, folds the estimate from all
+	// streamed deltas into the recorded output (U-9), so text that arrived
+	// after the cut still counts.
+	partial := func() *llm.Result {
 		return interruptedResult(
 			result,
 			observedContent,
 			observedUsage,
-			streamedTokens,
+			streamed.tokens(),
+			fact.Effective.MaxTokens,
 		)
 	}
 	var sendReason llm.ErrorReason
@@ -1377,7 +1378,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			s,
 			fact,
 			settled,
-			partial(streamed.tokens()),
+			partial(),
 			sendErr,
 			result,
 		)
@@ -1386,7 +1387,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
 		settled.Uncertain = unsafeHosted(defs)
-		settled.Result = partial(0)
+		settled.Result = partial()
 		setSettlementCharge(fact, settled)
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 			return *o, false
@@ -1399,8 +1400,14 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	var validationErr error
 	if sendErr != nil {
-		// A failed call keeps what it streamed.
-		if merged := partial(0); merged != nil {
+		// A failed call keeps what it streamed, with its reported usage.
+		if merged := interruptedResult(
+			result,
+			observedContent,
+			observedUsage,
+			0,
+			0,
+		); merged != nil {
 			result = *merged
 		}
 		settled.Error = sendErr.Error()
@@ -1455,20 +1462,35 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	return r.classify(result)
 }
 
+// handOffResult says what the run does after handOff. When done is false
+// the call was handed off and the run streams it. Otherwise the run returns
+// outcome, going back for the steer when again is set.
+type handOffResult struct {
+	done    bool
+	outcome Outcome
+	again   bool
+}
+
 // handOff marks call handed to the client, or, when an urgent steer cut it
 // short after its request was recorded but before the hand-off, settles it
-// as not dispatched and reports cut, so the run goes back for the steer.
+// as not dispatched, so the run goes back for the steer.
 func (r *runtime) handOff(
 	call *steerableCall,
 	attempt string,
 	messageID string,
-) (Outcome, bool, bool) {
+) handOffResult {
 	if call == nil {
-		return Outcome{}, false, false
+		return handOffResult{}
 	}
+	// The listener gets its own replay of the turn, taken here with the
+	// intent recorded, because it runs on another goroutine: sharing the
+	// run's replay state would race with the run's commits.
 	inFlight, err := replay(r.turn)
 	if err != nil {
-		return r.stop(StopFailed, err.Error()), false, true
+		return handOffResult{
+			done:    true,
+			outcome: r.stop(StopFailed, err.Error()),
+		}
 	}
 	fits := func(extraInputTokens int) string {
 		if r.pauseRequested() {
@@ -1477,7 +1499,7 @@ func (r *runtime) handOff(
 		return r.callBlocked(inFlight, extraInputTokens)
 	}
 	if !r.cutBeforeHandOff(call, fits) {
-		return Outcome{}, false, false
+		return handOffResult{}
 	}
 	r.unregisterCall(call)
 	settled := &ModelFact{
@@ -1488,9 +1510,9 @@ func (r *runtime) handOff(
 		NoDispatch:  true,
 	}
 	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
-		return *o, false, true
+		return handOffResult{done: true, outcome: *o}
 	}
-	return Outcome{}, true, true
+	return handOffResult{done: true, again: true}
 }
 
 // settleSteered records a call an urgent steer cut short after the hand-off
@@ -1509,6 +1531,9 @@ func (r *runtime) settleSteered(
 ) (Outcome, bool) {
 	settled.Interrupted = InterruptSteering
 	settled.Error = errSteered.Error()
+	// A FailureRejected error that coincides with the cut settles as sent,
+	// and under a cap is charged the worst case. That over-charges a call
+	// the provider refused, which is harmless and keeps the rule simple.
 	switch {
 	case failureDisposition(sendErr, result) == llm.FailureNotDispatched:
 		settled.NoDispatch = true
@@ -1536,15 +1561,19 @@ func completeResult(result llm.Result, err error, agent Agent) bool {
 
 // interruptedResult keeps what an interrupted call produced: the result the
 // client returned, or else the content streamed before the cut, with the
-// usage observed on the stream. Its output count is at least the estimate
-// from every streamed delta, so replay and token caps count output that was
-// generated but never shown (decision 24). A result with output but no stop
-// kind is marked incomplete. It returns nil when the call left no trace.
+// usage observed on the stream. Its output count is the larger of the
+// reported count and the estimate from every streamed delta, so replay and
+// token caps count output that was generated but never shown (decision
+// 24). The estimate is capped at maxTokens when positive, since a provider
+// bills no more output than the call allowed. A result with output but no
+// stop kind is marked incomplete. It returns nil when the call left no
+// trace.
 func interruptedResult(
 	result llm.Result,
 	content []llm.Content,
 	observed *llm.Usage,
 	streamedTokens int,
+	maxTokens int,
 ) *llm.Result {
 	if len(result.Message.Content) == 0 && len(content) > 0 {
 		result.Message = llm.AssistantMessage(content...)
@@ -1556,11 +1585,17 @@ func interruptedResult(
 			result.Usage.Absorb(observed)
 		}
 	}
+	if maxTokens > 0 {
+		streamedTokens = min(streamedTokens, maxTokens)
+	}
 	if streamedTokens > 0 {
 		if result.Usage == nil {
 			result.Usage = &llm.Usage{}
 		}
-		result.Usage.OutputTokens = max(result.Usage.OutputTokens, streamedTokens)
+		result.Usage.OutputTokens = max(
+			result.Usage.OutputTokens,
+			streamedTokens,
+		)
 	}
 	if result.Stop.Kind == "" &&
 		(len(result.Message.Content) > 0 || result.Usage != nil) {

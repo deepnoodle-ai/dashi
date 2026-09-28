@@ -896,3 +896,64 @@ func TestStalledSourceStillLetsRunEnd(t *testing.T) {
 		t.Fatalf("leftovers=%+v err=%v; the claim was not released", left, err)
 	}
 }
+
+// runCancelledMidStream runs a call that streams deltas, has the run's
+// context cancelled, and then streams late frames.
+func runCancelledMidStream(
+	t *testing.T,
+	def Agent,
+	deltas []llm.Delta,
+	late []llm.Delta,
+) *ModelFact {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := newUrgentClient(urgentCall{
+		deltas: deltas,
+		during: func(context.Context) { cancel() },
+		block:  true,
+		late:   late,
+	})
+	out, err := Runner{Agent: def, Client: client}.Run(
+		ctx,
+		Turn{ID: "t1"},
+		startInput(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := settlements(out.Turn)[0]
+	if cut.Interrupted != InterruptRun {
+		t.Fatalf("cause = %q, want run", cut.Interrupted)
+	}
+	return cut
+}
+
+func TestRunInterruptCountsLateFrames(t *testing.T) {
+	cut := runCancelledMidStream(
+		t,
+		testAgent(),
+		[]llm.Delta{textDelta("abcd")},
+		[]llm.Delta{textDelta(strings.Repeat("x", 40))},
+	)
+	// 4 text + 40 late text runes, four to a token.
+	if cut.Result == nil || cut.Result.Usage == nil ||
+		cut.Result.Usage.OutputTokens != 11 {
+		t.Fatalf("recorded output estimate: %+v", cut.Result)
+	}
+}
+
+func TestInterruptEstimateIsCappedAtMaxTokens(t *testing.T) {
+	def := testAgent()
+	def.Settings.MaxTokens = 5
+	cut := runCancelledMidStream(
+		t,
+		def,
+		[]llm.Delta{textDelta(strings.Repeat("x", 400))},
+		nil,
+	)
+	if cut.Result == nil || cut.Result.Usage == nil ||
+		cut.Result.Usage.OutputTokens != 5 {
+		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
+	}
+}

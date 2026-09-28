@@ -966,8 +966,10 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if settled.Result == nil || settled.Result.Usage == nil {
 				t.Fatalf("partial usage was not recorded: %+v", settled)
 			}
-			if settled.Result.Usage.OutputTokens != tc.reportedOutput {
-				t.Fatalf("observed output count was altered: %+v", settled.Result.Usage)
+			// The recorded count is the larger of the reported count and
+			// the estimate from every streamed delta, for every cause.
+			if got := settled.Result.Usage.OutputTokens; got != 2 {
+				t.Fatalf("recorded output tokens=%d, want the estimate 2", got)
 			}
 			if !settled.EstimatedUsage {
 				t.Fatal("partial usage was not marked estimated")
