@@ -79,7 +79,8 @@ a final answer: it omits tools and ends with `StopLimited` and reason
 
 Set `Agent.OutputSchema`, or `Start.OutputSchema` for one turn: a JSON Schema
 object with root `"type":"object"`, at most 32 KiB, recorded at start.
-The runner advertises a reserved `dashi_submit_output` tool; the model may use
+`dashi.MustOutputSchema[T]()` generates one from a Go struct with `tool.Func`'s
+rules. The runner advertises a reserved `dashi_submit_output` tool; the model may use
 application tools first, then submit the object. Dashi validates and records
 it; an invalid submission is returned to the model as a tool error. A final
 response holding exactly one JSON object is accepted as a fallback. Without a
@@ -88,6 +89,8 @@ holds the value (at most 256 KiB), its source, and its attempt and call IDs;
 `Answer` may be empty. Once recorded the result is final: `Continue` can finish
 an unacknowledged stop, while `Deliver` and `Cancel` are rejected. This is a
 result contract; the provider may not constrain generation.
+`dashi.DecodeOutput[T](outcome)` decodes the value, or returns an error wrapping
+`ErrNoOutput` that names the stop when there is none.
 
 ## Recorder contract
 
@@ -138,9 +141,11 @@ binding a tool is the app's statement that the model may use it.
 local ones. Provider-hosted approval is a separate response that never becomes
 a local call.
 
-Context from a user, library, or tool uses the user role; only
-operator-origin context and starts may use a system or developer role, and the
-host authenticates that origin. A local executor's Go error settles the call as
+Context from the user (`ContextUser`, also the meaning of an empty origin),
+the application's runtime (`ContextRuntime`), or a tool (`ContextTool`) uses
+the user role; only operator context (`ContextOperator`) and operator-origin
+starts may use a system or developer role, and the host authenticates that
+origin. A local executor's Go error settles the call as
 `tool.StateFailed` with the error text, and the turn continues; wrap it with
 `tool.Fatal` to stop the turn with reason `tool_fatal`. An outcome that fails
 `Validate` stops with `tool_outcome_invalid`, and a recovered panic stops

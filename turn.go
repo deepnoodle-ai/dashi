@@ -118,9 +118,9 @@ func (a Agent) resolved() Agent {
 type ContextItem struct {
 	// Name identifies an item that a later snapshot may replace.
 	Name string `json:"name,omitempty"`
-	// Origin records who supplied the item, independently of its message role.
-	Origin  string      `json:"origin"`
-	Message llm.Message `json:"message"`
+	// Origin records who supplied the item; empty means ContextUser.
+	Origin  ContextOrigin `json:"origin"`
+	Message llm.Message   `json:"message"`
 	// Snapshot replaces an earlier item with the same name.
 	Snapshot bool `json:"snapshot,omitempty"`
 	// NextCallOnly omits this item from later model calls.

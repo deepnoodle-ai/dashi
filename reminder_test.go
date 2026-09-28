@@ -117,7 +117,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}
 	first := ContextItem{
 		Name:     "map",
-		Origin:   "library",
+		Origin:   ContextRuntime,
 		Snapshot: true,
 		Message: llm.ReminderMessage(llm.Reminder{
 			Name:    "map",
@@ -127,7 +127,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}
 	second := ContextItem{
 		Name:     "map",
-		Origin:   "library",
+		Origin:   ContextRuntime,
 		Snapshot: true,
 		Message: llm.ReminderMessage(llm.Reminder{
 			Name:    "map",
@@ -286,7 +286,7 @@ func (reminderDeliveryPolicy) BeforeModel(
 		Content: "delivered",
 	}
 	item := ContextItem{
-		Origin:  "library",
+		Origin:  ContextRuntime,
 		Message: llm.ReminderMessage(reminder),
 	}
 	return ModelDecision{Deliver: []ContextItem{item}}, nil
