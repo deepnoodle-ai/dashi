@@ -263,36 +263,6 @@ const (
 	StateDetached State = "detached"
 )
 
-// Succeeded returns a successful outcome whose output is text. An empty text
-// is valid.
-func Succeeded(text string) Outcome {
-	return Outcome{State: StateSucceeded, Output: new(TextOutput(text))}
-}
-
-// Failed returns a failed outcome whose output is text, which the model sees.
-// In an executor, return an error instead: the runner records it as a failure
-// the model sees and keeps the error text for the host. Use Failed when
-// settling an external or detached call, or to attach a Cost to a failure.
-func Failed(text string) Outcome {
-	return Outcome{State: StateFailed, Output: new(TextOutput(text))}
-}
-
-// Waiting returns an outcome that pauses the call until the host settles it.
-// reason is required; set Wait.Prompt on the result to add a question or
-// instruction for the user. Waiting("") is invalid, and the runner stops the
-// turn with ErrInvalidOutcome if an executor returns it.
-func Waiting(reason string) Outcome {
-	return Outcome{State: StateWaiting, Wait: &Wait{Reason: reason}}
-}
-
-// Detached returns an outcome for work that continues elsewhere and whose
-// result the host records later with Settle. handleID correlates that result
-// and is required: Detached("") is invalid, and the runner stops the turn
-// with ErrInvalidOutcome if an executor returns it.
-func Detached(handleID string) Outcome {
-	return Outcome{State: StateDetached, Handle: &Handle{ID: handleID}}
-}
-
 // Wait describes why a call is waiting before it can complete.
 type Wait struct {
 	// Reason is required so the host can explain why execution is waiting.
@@ -326,6 +296,36 @@ type Outcome struct {
 	Handle *Handle `json:"handle,omitempty"`
 	// Cost is the application-reported charge for completed tool work.
 	Cost *Cost `json:"cost,omitempty"`
+}
+
+// Succeeded returns a successful outcome whose output is text. An empty text
+// is valid.
+func Succeeded(text string) Outcome {
+	return Outcome{State: StateSucceeded, Output: new(TextOutput(text))}
+}
+
+// Failed returns a failed outcome whose output is text, which the model sees.
+// In an executor, return an error instead: the runner records it as a failure
+// the model sees and keeps the error text for the host. Use Failed when
+// settling an external or detached call, or to attach a Cost to a failure.
+func Failed(text string) Outcome {
+	return Outcome{State: StateFailed, Output: new(TextOutput(text))}
+}
+
+// Waiting returns an outcome that pauses the call until the host settles it.
+// reason is required; set Wait.Prompt on the result to add a question or
+// instruction for the user. Waiting("") is invalid, and the runner stops the
+// turn with ErrInvalidOutcome if an executor returns it.
+func Waiting(reason string) Outcome {
+	return Outcome{State: StateWaiting, Wait: &Wait{Reason: reason}}
+}
+
+// Detached returns an outcome for work that continues elsewhere and whose
+// result the host records later with Settle. handleID correlates that result
+// and is required: Detached("") is invalid, and the runner stops the turn
+// with ErrInvalidOutcome if an executor returns it.
+func Detached(handleID string) Outcome {
+	return Outcome{State: StateDetached, Handle: &Handle{ID: handleID}}
 }
 
 // Cost is an application-reported charge for one completed tool call.

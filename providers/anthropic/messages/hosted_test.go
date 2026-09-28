@@ -168,7 +168,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewMCPToolset(MCPToolsetOptions{
+	definition, err := NewMCPTool(MCPToolOptions{
 		Name: "docs",
 		URL:  "https://example.com/mcp",
 	})
@@ -309,7 +309,7 @@ func TestHostedToolProviderBinding(t *testing.T) {
 	if _, err := NewWebFetchTool(WebFetchToolOptions{MaxUses: -1}); err == nil {
 		t.Fatal("accepted negative max uses")
 	}
-	mcp, err := NewMCPToolset(MCPToolsetOptions{
+	mcp, err := NewMCPTool(MCPToolOptions{
 		Provider: "proxy",
 		Name:     "docs",
 		URL:      "https://example.com/mcp",

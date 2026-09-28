@@ -12,13 +12,6 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Hosted tool constructors return a definition-only tool.Tool: OpenAI runs it
-// inside the model call, so it has no Executor and needs no Policy. Add it to
-// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
-// constructor returns an error only when its options can be invalid. These
-// tools are bound to the destination named "openai", the default
-// Config.Provider; destinations with other names do not accept them.
-
 // WebSearchToolOptions configures OpenAI's web search tool.
 type WebSearchToolOptions struct {
 	// AllowedDomains narrows search to these domains when using web_search.
@@ -33,7 +26,7 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	if !searchContextSize(options.SearchContextSize) {
 		return tool.Tool{}, errors.New("responses: invalid search context size")
 	}
-	return hostedTool("web_search", "web_search", options), nil
+	return newHosted("web_search", "web_search", options), nil
 }
 
 // FileSearchToolOptions identifies the vector stores available to OpenAI
@@ -55,7 +48,7 @@ func NewFileSearchTool(options FileSearchToolOptions) (tool.Tool, error) {
 			"responses: file search requires stores and nonnegative limit",
 		)
 	}
-	return hostedTool("file_search", "file_search", options), nil
+	return newHosted("file_search", "file_search", options), nil
 }
 
 // CodeInterpreterToolOptions supplies files to the provider's code container.
@@ -66,7 +59,7 @@ type CodeInterpreterToolOptions struct {
 
 // NewCodeInterpreterTool declares OpenAI's provider-managed code container.
 func NewCodeInterpreterTool(options CodeInterpreterToolOptions) tool.Tool {
-	return hostedTool("code_interpreter", "code_interpreter", options)
+	return newHosted("code_interpreter", "code_interpreter", options)
 }
 
 // ImageGenerationToolOptions configures the provider-hosted image generator.
@@ -96,7 +89,7 @@ func NewImageGenerationTool(
 	if err := validateImageGeneration(options); err != nil {
 		return tool.Tool{}, errors.New("responses: " + err.Error())
 	}
-	return hostedTool("image_generation", "image_generation", options), nil
+	return newHosted("image_generation", "image_generation", options), nil
 }
 
 // MCPToolOptions connects an unauthenticated remote MCP server. Tokens and
@@ -121,12 +114,12 @@ func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
 	if err := validateMCPOptions(options); err != nil {
 		return tool.Tool{}, err
 	}
-	return hostedTool("mcp:"+options.ServerLabel, "mcp", options), nil
+	return newHosted("mcp:"+options.ServerLabel, "mcp", options), nil
 }
 
-// hostedTool binds options to the "openai" destination. Options are plain
+// newHosted binds options to the "openai" destination. Options are plain
 // structs of strings, numbers, and slices, so encoding cannot fail.
-func hostedTool(name, toolType string, options any) tool.Tool {
+func newHosted(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)
 	if err != nil {
 		panic("responses: encode hosted tool options: " + err.Error())
@@ -304,7 +297,9 @@ func validateImageGeneration(options ImageGenerationToolOptions) error {
 	if options.OutputCompression != nil &&
 		(*options.OutputCompression < 0 || *options.OutputCompression > 100 ||
 			(options.OutputFormat != "jpeg" && options.OutputFormat != "webp")) {
-		return errors.New("image compression requires JPEG or WebP and a value from 0 to 100")
+		return errors.New(
+			"image compression requires JPEG or WebP and a value from 0 to 100",
+		)
 	}
 	return nil
 }

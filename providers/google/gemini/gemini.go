@@ -1,6 +1,20 @@
 // Package gemini implements Google's GenerateContent API with the Google GenAI
 // SDK. Conversion is adapted from Dive's Google provider (65c393f),
 // Apache-2.0.
+//
+// # Hosted tools
+//
+// Hosted tool constructors return a definition-only tool.Tool: Google runs it
+// inside the model call, so it has no Executor and needs no Policy. Add it to
+// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
+// constructor returns an error only when its options can be invalid.
+//
+// Each options struct has a Provider field that binds the tool to one
+// configured destination. Empty means "google". A tool without options
+// (Google Search, URL context, code execution) bound to "google" is also
+// accepted by the "google-vertex" destination, so the zero value also works
+// with a Vertex client that uses the default provider name. Set Provider to
+// the client's Provider() for a destination with a custom name.
 package gemini
 
 import (

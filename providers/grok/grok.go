@@ -1,6 +1,14 @@
 // Package grok configures xAI's Responses endpoint. The hosted options are
 // adapted from Dive's web search, X search, collections search, and code
 // execution tools (65c393f), Apache-2.0.
+//
+// # Hosted tools
+//
+// Hosted tool constructors return a definition-only tool.Tool: xAI runs it
+// inside the model call, so it has no Executor and needs no Policy. Add it to
+// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
+// constructor returns an error only when its options can be invalid. These
+// tools are bound to the destination named "grok" that New configures.
 package grok
 
 import (

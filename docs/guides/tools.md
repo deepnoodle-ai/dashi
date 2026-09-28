@@ -13,7 +13,11 @@ Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, then run
 weather, err := tool.Func(
     "get_weather",
     "Get the current weather for a city.",
-    func(ctx context.Context, call tool.Call, in WeatherInput) (tool.Outcome, error) {
+    func(
+        ctx context.Context,
+        call tool.Call,
+        in WeatherInput,
+    ) (tool.Outcome, error) {
         return tool.Succeeded("18°C, partly cloudy"), nil
     },
 )
@@ -32,8 +36,8 @@ available tools change between model calls.
 when the tool is built, and validates every call against it before your
 function runs. The rules:
 
-- `T` must be a struct (or a pointer to one); `tool.Func` returns an error
-  otherwise.
+- `T` must be a struct or a pointer to one, other than `time.Time`;
+  `tool.Func` returns an error otherwise, including for maps and `any`.
 - Each exported field is a property named by its `json` tag, or by its Go name
   without one. `json:"-"` skips a field.
 - A field is required unless its `json` tag has `omitempty`. A `required`
@@ -47,16 +51,18 @@ function runs. The rules:
 - `nullable` is written to the schema, but validation still refuses `null`
   for a pointer field.
 - Nested structs are closed at every level: unknown properties are refused.
-  Fields of an embedded struct are flattened, and optional when it is
-  embedded by pointer.
-- `[]byte` is a base64 string, `time.Time` a date-time string, and `any` or
-  `json.RawMessage` accept any value. Maps need string keys; channels,
-  functions, and complex numbers fail when the tool is built. The `,string`
-  option is not honored.
+  An embedded struct without a `json` name is flattened, and its fields are
+  optional when it is embedded by pointer; with a name it is a regular field.
+- In fields, `[]byte` is a base64 string, `time.Time` a date-time string, and
+  `any` or `json.RawMessage` accept any value. Maps need string keys;
+  channels, functions, complex numbers, and the `json` `,string` option fail
+  when the tool is built.
 
-A call whose arguments do not match is not run: it is recorded as
-`not_executed` with an `invalid input: …` message the model sees, so it can
-retry.
+The runner checks every call's arguments against the schema before the
+`Policy` sees it. A call that does not match is not run: it is recorded as
+`not_executed` with the reason `invalid arguments`, and the model sees
+`Invalid tool arguments: …` so it can retry. An executor called directly
+refuses such a call the same way, with an `invalid input: …` message.
 
 ## Outcomes and errors
 
@@ -85,4 +91,5 @@ A hosted tool is bound to one configured destination, named by the client's
 `Provider()`. Anthropic and Gemini options have a `Provider` field; leave it
 empty for the default destination and set it for one with a custom name. An
 empty `Provider` on a Gemini tool without options, such as Google Search, also
-works with a Vertex client.
+works with a Vertex client that uses the default provider name; a client with
+a custom name needs `Provider` set.

@@ -9,6 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/wonton/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,8 +21,9 @@ import (
 // Func builds a local tool from typed Go arguments. The input schema is
 // generated from T once, at construction, and both the returned Definition and
 // argument validation use it; construct a new tool when the contract changes.
-// T must be a struct: each field is required unless its json tag has
-// omitempty, and description and enum tags describe it to the model.
+// T must be a struct or a pointer to one: each field is required unless its
+// json tag has omitempty, and description and enum tags describe it to the
+// model.
 // Arguments that do not match the schema are refused before fn runs; see
 // docs/guides/tools.md#defining-tools for the complete rules.
 // The callback also receives the stable call identity, suitable for downstream
@@ -32,6 +37,9 @@ func Func[T any](
 	if fn == nil {
 		return Tool{}, errors.New("tool: nil function")
 	}
+	if err := checkArgumentsType(reflect.TypeFor[T]()); err != nil {
+		return Tool{}, fmt.Errorf("tool: %q: %w", name, err)
+	}
 	var zero T
 	s, err := schema.Generate(
 		zero,
@@ -44,13 +52,6 @@ func Func[T any](
 			"tool: %q: generate schema: %w",
 			name,
 			err,
-		)
-	}
-	if s.Type != schema.Object {
-		return Tool{}, fmt.Errorf(
-			"tool: %q: arguments type %T must be a struct",
-			name,
-			zero,
 		)
 	}
 	raw, err := json.Marshal(s)
@@ -132,6 +133,50 @@ func (e typedExecutor[T]) Execute(
 		))
 	}
 	return outcome, nil
+}
+
+// checkArgumentsType requires a struct, or a pointer to one, other than
+// time.Time: providers need an input schema with named properties, and strict
+// modes reject open objects such as maps. It also refuses the json ",string"
+// option at any depth, because the schema describes the plain value while
+// decoding would expect it quoted, so every call would fail.
+func checkArgumentsType(t reflect.Type) error {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
+		return fmt.Errorf("arguments type %s must be a struct", t)
+	}
+	return checkStringOption(t, map[reflect.Type]bool{})
+}
+
+func checkStringOption(t reflect.Type, seen map[reflect.Type]bool) error {
+	for {
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			t = t.Elem()
+			continue
+		}
+		break
+	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return nil
+	}
+	seen[t] = true
+	for field := range t.Fields() {
+		_, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if slices.Contains(strings.Split(opts, ","), "string") {
+			return fmt.Errorf(
+				"field %s.%s: the json \",string\" option is not supported",
+				t,
+				field.Name,
+			)
+		}
+		if err := checkStringOption(field.Type, seen); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compileSchema compiles a generated schema. Generated schemas are

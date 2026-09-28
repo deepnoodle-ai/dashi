@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 type searchInput struct {
@@ -348,17 +349,37 @@ func TestOutcomeConstructors(t *testing.T) {
 	}
 }
 
+type quotedInput struct {
+	Inner struct {
+		Count int `json:"count,string"`
+	} `json:"inner"`
+}
+
+func buildFunc[T any]() error {
+	_, err := Func(
+		"f",
+		"",
+		func(context.Context, Call, T) (Outcome, error) {
+			return Succeeded(""), nil
+		},
+	)
+	return err
+}
+
 func TestFuncRequiresStructArguments(t *testing.T) {
-	fn := func(context.Context, Call, string) (Outcome, error) {
-		return Succeeded(""), nil
+	refused := map[string]error{
+		"string":         buildFunc[string](),
+		"map":            buildFunc[map[string]any](),
+		"any":            buildFunc[any](),
+		"time":           buildFunc[*time.Time](),
+		"nested ,string": buildFunc[quotedInput](),
 	}
-	if _, err := Func("echo", "", fn); err == nil {
-		t.Fatal("string arguments: want error")
+	for name, err := range refused {
+		if err == nil {
+			t.Errorf("%s: want error", name)
+		}
 	}
-	ptr := func(context.Context, Call, *searchInput) (Outcome, error) {
-		return Succeeded(""), nil
-	}
-	if _, err := Func("search", "", ptr); err != nil {
+	if err := buildFunc[*searchInput](); err != nil {
 		t.Fatalf("pointer to struct: %v", err)
 	}
 }

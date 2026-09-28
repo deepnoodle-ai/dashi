@@ -171,18 +171,49 @@ func TestHostedToolBindingAcrossGoogleBackends(t *testing.T) {
 		})
 		return err
 	}
+	const vx = "google-vertex"
 	tests := []struct {
 		name   string
 		client *Client
 		tool   tool.Tool
 		ok     bool
 	}{
-		{"zero value search on Vertex", vertex, NewGoogleSearchTool(GoogleSearchToolOptions{}), true},
-		{"zero value URL context on Vertex", vertex, NewURLContextTool(URLContextToolOptions{}), true},
-		{"zero value code execution on Vertex", vertex, NewCodeExecutionTool(CodeExecutionToolOptions{}), true},
-		{"explicit Vertex search on Vertex", vertex, NewGoogleSearchTool(GoogleSearchToolOptions{Provider: "google-vertex"}), true},
-		{"Vertex search on Gemini API", api, NewGoogleSearchTool(GoogleSearchToolOptions{Provider: "google-vertex"}), false},
-		{"other destination on Vertex", vertex, NewGoogleSearchTool(GoogleSearchToolOptions{Provider: "proxy"}), false},
+		{
+			name:   "zero value search on Vertex",
+			client: vertex,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "zero value URL context on Vertex",
+			client: vertex,
+			tool:   NewURLContextTool(URLContextToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "zero value code execution on Vertex",
+			client: vertex,
+			tool:   NewCodeExecutionTool(CodeExecutionToolOptions{}),
+			ok:     true,
+		},
+		{
+			name:   "explicit Vertex search on Vertex",
+			client: vertex,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{Provider: vx}),
+			ok:     true,
+		},
+		{
+			name:   "Vertex search on Gemini API",
+			client: api,
+			tool:   NewGoogleSearchTool(GoogleSearchToolOptions{Provider: vx}),
+		},
+		{
+			name:   "other destination on Vertex",
+			client: vertex,
+			tool: NewGoogleSearchTool(
+				GoogleSearchToolOptions{Provider: "proxy"},
+			),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -9,12 +9,6 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Hosted tool constructors return a definition-only tool.Tool: xAI runs it
-// inside the model call, so it has no Executor and needs no Policy. Add it to
-// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
-// constructor returns an error only when its options can be invalid. These
-// tools are bound to the destination named "grok" that New configures.
-
 // WebSearchToolOptions controls Grok's web search domain and image features.
 type WebSearchToolOptions struct {
 	// AllowedDomains limits retrieval to at most five domains.

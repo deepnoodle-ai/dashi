@@ -9,49 +9,40 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Hosted tool constructors return a definition-only tool.Tool: Google runs it
-// inside the model call, so it has no Executor and needs no Policy. Add it to
-// a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
-// constructor returns an error only when its options can be invalid.
-//
-// Each options struct has a Provider field that binds the tool to one
-// configured destination. Empty means "google". A tool without options
-// (Google Search, URL context, code execution) bound to "google" is also
-// accepted by the "google-vertex" destination, so the zero value works with
-// either backend. Set Provider to the client's Provider() for a destination
-// with a custom name.
-
 // GoogleSearchToolOptions binds Google Search grounding to a destination.
 type GoogleSearchToolOptions struct {
-	// Provider names the configured destination; empty means "google".
+	// Provider names the configured destination; empty means "google",
+	// which a Vertex client with the default provider name also accepts.
 	Provider string
 }
 
 // NewGoogleSearchTool enables Google's managed grounding search.
 func NewGoogleSearchTool(options GoogleSearchToolOptions) tool.Tool {
-	return hostedTool(options.Provider, "google_search", "googleSearch", nil)
+	return newHosted(options.Provider, "google_search", "googleSearch", nil)
 }
 
 // URLContextToolOptions binds URL context retrieval to a destination.
 type URLContextToolOptions struct {
-	// Provider names the configured destination; empty means "google".
+	// Provider names the configured destination; empty means "google",
+	// which a Vertex client with the default provider name also accepts.
 	Provider string
 }
 
 // NewURLContextTool enables retrieval of URLs supplied in the prompt.
 func NewURLContextTool(options URLContextToolOptions) tool.Tool {
-	return hostedTool(options.Provider, "url_context", "urlContext", nil)
+	return newHosted(options.Provider, "url_context", "urlContext", nil)
 }
 
 // CodeExecutionToolOptions binds Gemini code execution to a destination.
 type CodeExecutionToolOptions struct {
-	// Provider names the configured destination; empty means "google".
+	// Provider names the configured destination; empty means "google",
+	// which a Vertex client with the default provider name also accepts.
 	Provider string
 }
 
 // NewCodeExecutionTool enables Gemini's provider-managed code execution.
 func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
-	return hostedTool(options.Provider, "code_execution", "codeExecution", nil)
+	return newHosted(options.Provider, "code_execution", "codeExecution", nil)
 }
 
 // FileSearchToolOptions selects indexed stores and optional retrieval
@@ -80,10 +71,10 @@ func NewFileSearchTool(options FileSearchToolOptions) (tool.Tool, error) {
 	if err != nil {
 		return tool.Tool{}, err
 	}
-	return hostedTool(options.Provider, "file_search", "fileSearch", raw), nil
+	return newHosted(options.Provider, "file_search", "fileSearch", raw), nil
 }
 
-func hostedTool(
+func newHosted(
 	provider string,
 	name string,
 	toolType string,
