@@ -14,6 +14,25 @@ func Project(t Turn) ([]llm.Message, error) {
 	return projectWithHistory(t, nil)
 }
 
+// modelToolResult is the result the model sees for a settled outcome when
+// no result hook replaced it.
+func modelToolResult(callID string, o *tool.Outcome) llm.ToolResult {
+	output := tool.TextOutput("Tool was not executed.")
+	if o.Output != nil {
+		output = o.Output.Clone()
+	}
+	return llm.ToolResult{
+		CallID:  callID,
+		Output:  output,
+		IsError: o.State == tool.StateFailed || o.State == tool.StateNotExecuted,
+	}
+}
+
+func cloneToolResult(r llm.ToolResult) llm.ToolResult {
+	r.Output = r.Output.Clone()
+	return r
+}
+
 // projectWithHistory assembles one model request from the current call's prior
 // history and this turn's recorded messages. It never stores that history.
 func projectWithHistory(
@@ -134,29 +153,18 @@ func projectWithHistory(
 				if !ok {
 					continue
 				}
-				o := v.Outcome
-				if o == nil {
+				if v.Outcome == nil {
 					continue
 				}
-				output := tool.Output{}
-				if o.Output != nil {
-					output = o.Output.Clone()
-				} else {
-					output = tool.TextOutput("Tool was not executed.")
-				}
-				bad := o.State == tool.StateFailed || o.State == tool.StateNotExecuted
+				result := v.Result()
 				out = append(
 					out,
 					llm.Message{
 						Role: llm.RoleUser,
 						Content: []llm.Content{
 							{
-								Kind: llm.ContentToolResult,
-								ToolResult: &llm.ToolResult{
-									CallID:  v.Call.ID,
-									Output:  output,
-									IsError: bad,
-								},
+								Kind:       llm.ContentToolResult,
+								ToolResult: &result,
 							},
 						},
 					},

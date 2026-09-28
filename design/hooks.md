@@ -8,8 +8,8 @@ Dashi's one `Policy` interface has the right contract (read-only views in,
 recorded decisions out) but the wrong packaging: "policy" suggests allow/deny
 rules, only one is allowed, and every error ends the turn. Default allow
 shipped in #46; this replaces `Policy` with hooks. PR 1a replaced `Policy`;
-PR 1b adds the submission path and vetoes; PR 2 adds `AfterTool` with
-`FailOpen`, `ModelDecision.Hide`, hook state, `tool.Join` and recipes.
+PR 1b added the submission path and vetoes. Later hook work is in
+[hooks-after-tool.md](hooks-after-tool.md).
 
 ## Approach
 

@@ -384,6 +384,10 @@ type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
 	Verdict    ToolVerdict     `json:"verdict,omitzero"`
+	// Result is what AfterTool hooks showed the model instead of Outcome's
+	// output. It is set only when a hook changed it; Outcome stays the
+	// record of what happened.
+	Result *llm.ToolResult `json:"result,omitempty"`
 	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
 	// veto. Until a new model result arrives, the text of the message that
 	// made the call never reaches the host through TurnView.Answer.

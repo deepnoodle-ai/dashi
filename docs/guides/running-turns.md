@@ -68,6 +68,7 @@ on `Runner.Hooks`; any number run at each point, in order:
 | `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
+| `AfterTool` | on each final result from a tool, or from the host through `Settle` | replace what the model sees | the result is withheld from the model, with a warning |
 | `BeforeFinish` | on each final answer: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty answer | the turn stops failed |
 
 A zero answer means no opinion. Each hook's answer is saved in the turn record
@@ -84,6 +85,19 @@ sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
 `Continue` that raises the `Budget`; a limit the host owns, such as prepaid
 credits, uses `dashi.LimitHost`.
+
+An `AfterTool` hook changes only what the model sees of a result: the next model
+call, and the next turn's history through `dashi.Project`. The record,
+`Observer` and `Stream` events, and `ToolView.Outcome` keep the raw output, so
+it is not storage redaction; keep a secret out of the record in the tool itself
+([example](../../examples/redact/main.go)). `ToolView.Result()` shows what the
+model saw. `Output.MapText` rewrites text blocks only; a strict redactor returns
+an error, withholding the result, when it finds a block it cannot inspect, such
+as a document or a resource. A failing result hook withholds that result,
+telling the model the tool ran; set `FailOpen` on a hook that only improves
+results to keep the result instead. `FailOpen` also works on `BeforeFinish`,
+where an error then counts as no opinion. Pass the same hooks to a `Settle` that
+reports a tool result, since it runs `AfterTool`.
 
 Supply the same `Runner.Hooks` on every command for a turn: each command runs
 only the hooks it is given, and a change is recorded as a warning.

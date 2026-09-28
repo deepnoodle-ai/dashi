@@ -43,6 +43,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		// The call's slot is closed, so this last snapshot is final.
 		r.emitToolProgress(progress.take(v.call.ID, true))
 		step, stop := toolSettlement(v)
+		if step.Kind == StepToolSettled {
+			r.afterTool(ctx, step.Tool)
+		}
 		if o := r.commit(step); o != nil {
 			return o
 		}
