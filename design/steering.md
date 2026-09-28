@@ -185,7 +185,9 @@ sent new input." A steer during the model call can skip the whole batch; the
 model sees each skipped result plus the steer. A recorded skip skips the
 rest of its batch on resume. Started calls finish or re-run; approvals and
 external waits stay pending. `dashi_submit_output` is left to the finish
-point, and with no further model call the batch runs, with a warning.
+point. Calls skip only if a later call can offer tools: on the last normal
+attempt the batch runs and the steer goes to the final-answer call; with no
+call left, the batch runs, with a warning.
 
 ## Plan and tests
 

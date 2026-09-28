@@ -664,12 +664,68 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	n := 0
 	for _, w := range out.Warnings {
 		if w.Code == WarningSteering &&
-			strings.Contains(w.Message, "did not skip") {
+			strings.Contains(w.Message, "did not skip") &&
+			strings.Contains(w.Message, "stay with their source") {
 			n++
 		}
 	}
 	if n != 1 {
 		t.Fatalf("want one skip warning: %+v", out.Warnings)
+	}
+}
+
+// On the last normal attempt, only the reserved final-answer call remains.
+// It offers no tools, so the batch runs, that call receives the steer, and
+// no warning claims the steer stays with its source.
+func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
+	inbox := newWatchedInbox()
+	bench := newSkipBench()
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 2
+	client := newUrgentClient(
+		urgentCall{
+			during: func(ctx context.Context) {
+				inbox.sendUrgent(t, "note")
+				<-ctx.Done()
+			},
+			result: batchResult(allWork, "a", "b"),
+		},
+		urgentCall{result: final("x")},
+	)
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Agent = agent
+		r.Tools = tool.List{bench.tool()}
+	})
+	// A reserved final answer ends the turn as limited by ModelAttempts.
+	if out.Stop.Kind != StopLimited {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	requireRan(t, out.Turn, "a")
+	requireRan(t, out.Turn, "b")
+	for _, w := range out.Warnings {
+		if w.Code == WarningSteering {
+			t.Fatalf("unexpected steering warning: %+v", w)
+		}
+	}
+	ins := client.inputs()
+	if len(ins) != 2 {
+		t.Fatalf("want 2 model calls, got %d", len(ins))
+	}
+	if len(ins[1].Tools) != 0 {
+		t.Fatalf("final-answer call offered %d tools", len(ins[1].Tools))
+	}
+	if hasText(ins[1].Messages, "note") < 0 {
+		t.Fatal("steer missing from the final-answer call")
+	}
+	delivered := false
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepDelivered && step.Context != nil &&
+			step.Context.Steering {
+			delivered = true
+		}
+	}
+	if !delivered {
+		t.Fatal("steer not recorded as delivered")
 	}
 }
 

@@ -395,9 +395,11 @@ const (
 // steerSkips reports whether call id must not start because of an urgent
 // steer. Once a call of a batch is skipped, no later call of that batch
 // starts, so the record alone decides a resumed batch the same way.
-// Otherwise the urgent set decides, and only when a later model call can
-// deliver the steer: a skip the model never reads would only cancel its
-// work, so then the batch runs and the steer waits with a warning. Earlier
+// Otherwise the urgent set decides, and only when a later model call that
+// can offer tools will deliver the steer: a skip the model cannot act on
+// would only cancel its work. When only the reserved final-answer call
+// remains, the batch runs and that call receives the steer; when no call
+// remains, the batch runs and the steer waits with a warning. Earlier
 // calls, such as one awaiting approval, are not held back by the record.
 // Only a requested or allowed call can be skipped: a started call may have
 // taken effect. The caller exempts dashi_submit_output, whose finish point
@@ -420,17 +422,31 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 	if len(steers) == 0 {
 		return false
 	}
-	if r.nextCallPossible(s, estimatedItemTokens(steers)) {
+	extra := estimatedItemTokens(steers)
+	// Tools still running in a parallel batch have not recorded their
+	// output, so the cost estimate leaves it out. The next call's own
+	// pre-send cost check still enforces MaxCost on the real request.
+	if r.nextCallPossible(s, extra) {
 		return true
+	}
+	// Only the reserved final-answer call remains. It offers no tools, so a
+	// skip would only cancel the model's work; the batch runs and that call
+	// receives the steer, like any steer waiting before it.
+	if !r.pauseRequested() && r.callFits(s, extra, true) {
+		return false
 	}
 	if !r.steers.skipDeclined {
 		r.steers.skipDeclined = true
+		cause := noCallCause(s)
+		if s.roomForAnyCall() {
+			cause = "a limit, the deadline, or a pause"
+		}
 		r.warnSteering(fmt.Sprintf(
 			"%d urgent steer(s) did not skip the remaining tool calls: no "+
 				"further model call can happen because of %s; they stay "+
 				"with their source",
 			len(steers),
-			noCallCause(s),
+			cause,
 		))
 	}
 	return false
