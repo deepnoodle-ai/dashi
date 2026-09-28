@@ -82,8 +82,8 @@ Work state, effect knowledge, persistence acknowledgement, and caller delivery
 are separate. A turn may be waiting after its worker has returned; a caller may
 disconnect while it runs; a result may be known while its commit is uncertain.
 The returned outcome contains the turn view, stop reason, pending subjects,
-recording status, and a `ReadyToContinue` flag. The saved turn's replay has the
-same flag, so a host can find ready turns after a worker exits. Caller delivery
+and a `ReadyToContinue` flag; `Run`'s error reports a step it could not
+record. The saved turn's replay has the same flag, so a host can find ready turns after a worker exits. Caller delivery
 belongs to the runner, not the turn. Known tool failure, confirmed
 nonexecution, waiting, and uncertain execution remain different states. Stops
 distinguish completed, waiting, interrupted, limited, refused, canceled,

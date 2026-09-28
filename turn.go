@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -140,44 +139,6 @@ type Turn struct {
 // it before the call when a retry after a crash must find the same turn.
 func NewTurn(id string) Turn {
 	return Turn{ID: id}
-}
-
-// StructuredOutput returns the validated terminal value and its provenance.
-// The boolean is false when this turn has no recorded structured output.
-func (t Turn) StructuredOutput() (StructuredOutput, bool, error) {
-	view, err := Replay(t)
-	if err != nil {
-		return StructuredOutput{}, false, err
-	}
-	if view.Output == nil {
-		return StructuredOutput{}, false, nil
-	}
-	value := *view.Output
-	value.Value = append(json.RawMessage(nil), value.Value...)
-	return value, true, nil
-}
-
-// AnswerText returns text from the latest settled assistant message. A turn
-// can complete valid tool-only work and have no answer text.
-func (t Turn) AnswerText() string {
-	for _, step := range slices.Backward(t.Steps) {
-		if (step.Kind != StepModelSettled &&
-			step.Kind != StepModelReconciled) || step.Model == nil ||
-			step.Model.Result == nil || step.Model.Error != "" ||
-			step.Model.Interrupted {
-			continue
-		}
-		var out strings.Builder
-		for _, part := range step.Model.Result.Message.Content {
-			if part.Kind == llm.ContentBlock &&
-				part.Block != nil &&
-				part.Block.Text != nil {
-				out.WriteString(part.Block.Text.Text)
-			}
-		}
-		return out.String()
-	}
-	return ""
 }
 
 // StepKind identifies the fact recorded by a step.
@@ -380,17 +341,20 @@ type ToolFact struct {
 
 // ApprovalFact answers a deferred tool decision. Settle accepts it only while
 // the call awaits approval and its arguments and policy revision are the ones
-// the fact names.
+// the fact names. Pending.Approve and Pending.Deny build it.
 type ApprovalFact struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
 	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
-	// not bytes. Copy it from the pending call's ToolView.ArgsDigest (from
-	// Replay), or compute it with ArgsDigest from the arguments that were
-	// shown. Bare-hex digests from before canonical hashing are still
-	// accepted, but only while the arguments keep their original bytes.
+	// not bytes. Pending.Approve copies it from ToolView.ArgsDigest; a host
+	// can compute it with ArgsDigest from the arguments that were shown.
+	// Bare-hex digests from before canonical hashing are still accepted,
+	// but only while the arguments keep their original bytes.
 	ArgsDigest     string `json:"args_digest"`
 	PolicyRevision string `json:"policy_revision"`
+	// Reason explains a denial. The next Continue gives it to the model as
+	// the denied call's result.
+	Reason string `json:"reason,omitempty"`
 }
 
 // StopKind classifies why a turn stopped.
@@ -440,56 +404,16 @@ const (
 	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
 )
 
-// Persistence classifies whether a step write was acknowledged, rejected, or
-// left uncertain by the recorder.
+// Persistence classifies a step write the recorder did not acknowledge.
 type Persistence string
 
 const (
-	// PersistenceAcknowledged means the recorder confirmed the write.
-	PersistenceAcknowledged Persistence = "acknowledged"
 	// PersistenceRejected means the recorder confirmed that it did not commit.
 	PersistenceRejected Persistence = "rejected"
 	// PersistenceUnknown means the caller must load the turn to determine whether
 	// the recorder committed the write.
 	PersistenceUnknown Persistence = "unknown"
 )
-
-// Outcome combines the recorded turn with its projected stop and pending work.
-type Outcome struct {
-	Turn   Turn
-	Stop   Stop
-	Output *StructuredOutput
-	// Pending names calls that still need a host action or settlement.
-	Pending []string
-	// Warnings are recorded, nonfatal conditions visible on replay.
-	Warnings []Warning
-
-	// ReadyToContinue is true when Continue needs no budget raise to run.
-	ReadyToContinue bool
-	// Persistence classifies the last attempted recorder write.
-	Persistence Persistence
-	// Unacknowledged is the step whose write outcome is unknown or rejected.
-	Unacknowledged *Step
-	// WriteError is the recorder error associated with Unacknowledged.
-	WriteError error
-}
-
-// RecordingErr reports a step write the recorder did not acknowledge. It is
-// nil when every write was acknowledged, including an Outcome returned with a
-// Go error before any write. Otherwise it wraps WriteError and names the
-// Persistence state; for PersistenceUnknown, load the turn to learn whether
-// the write committed.
-func (o Outcome) RecordingErr() error {
-	switch {
-	case o.Persistence == PersistenceAcknowledged:
-		return nil
-	case o.Persistence == "" && o.WriteError == nil:
-		return nil
-	case o.WriteError == nil:
-		return fmt.Errorf("dashi: step write %s", o.Persistence)
-	}
-	return fmt.Errorf("dashi: step write %s: %w", o.Persistence, o.WriteError)
-}
 
 // Command carries a CommandID. A repeated ID with identical content
 // acknowledges the first application without advancing again. An empty
@@ -596,6 +520,13 @@ var (
 	// turn's start when Continue.OnHistoryMismatch is HistoryMismatchReject.
 	// Nothing is committed; retry with the history the turn started with.
 	ErrHistoryMismatch = errors.New("dashi: history differs from turn start")
+	// ErrNotReady rejects a Continue on a turn that cannot run yet. The
+	// wrapped message names the calls the turn waits on, or its stop.
+	ErrNotReady = errors.New("dashi: turn is not ready to continue")
+	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug
+	// in the runner or recorder. Unlike a rejected command, something was
+	// recorded. Run wraps it together with ErrInvalidTurn.
+	ErrRecordInvalid = errors.New("dashi: recorded steps fail replay")
 )
 
 func cloneStep(s Step) Step {
@@ -616,6 +547,16 @@ func cloneTurn(t Turn) Turn {
 		out.Steps[i] = cloneStep(s)
 	}
 	return out
+}
+
+// cloneTurnSafe copies a turn that may not serialize, such as a caller's
+// turn that failed replay. cloneTurn would panic on it, so such a turn is
+// copied shallowly: its steps are new values that share nested data.
+func cloneTurnSafe(t Turn) Turn {
+	if _, err := json.Marshal(t); err != nil {
+		return Turn{ID: t.ID, Steps: slices.Clone(t.Steps)}
+	}
+	return cloneTurn(t)
 }
 
 // resolveCount applies the default to a zero count and normalizes any

@@ -80,8 +80,7 @@ go func() {
 out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 switch {
 case err != nil:
-    // command rejected; nothing new was recorded
-case out.RecordingErr() != nil:
+    // command rejected, or a step was not recorded (*CommitError):
     // reload the turn before deciding anything about queued input
 case out.Stop.Final():
     next, err := inbox.Leftovers(out.Turn) // drops steers already recorded
@@ -177,7 +176,7 @@ type Steer struct {
   `BeforeSend` or an admission failure), the turn stops with that stop kind.
   Steering can therefore leave a turn without an accepted answer: the
   superseded candidate was never recorded as output. Only a completed stop
-  means an accepted answer; `AnswerText` alone does not.
+  means an accepted answer; `Answer` alone does not.
 
 **Contract details**
 

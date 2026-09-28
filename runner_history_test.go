@@ -377,11 +377,11 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
+	if persistence(err) != PersistenceRejected {
+		t.Fatalf("model intent write was not rejected: %v", err)
 	}
-	if first.Persistence != PersistenceRejected {
-		t.Fatalf("model intent write was not rejected: %s", first.Persistence)
+	if first.Turn.ID != "history-recovery" {
+		t.Fatalf("outcome lost the turn: %+v", first.Turn)
 	}
 	saved, err := recorder.Load(t.Context(), "history-recovery")
 	if err != nil {
@@ -422,9 +422,6 @@ func TestRunnerNoRecorderCanContinueReturnedTurn(t *testing.T) {
 	}
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("turn did not complete without recorder: %+v", out.Stop)
-	}
-	if out.Persistence != PersistenceAcknowledged {
-		t.Fatalf("turn persistence = %s", out.Persistence)
 	}
 	if len(out.Turn.Steps) <= len(first.Turn.Steps) {
 		t.Fatal("continuation did not append steps")

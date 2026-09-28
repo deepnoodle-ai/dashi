@@ -243,6 +243,8 @@ allowed: binding a tool enables it. This is a deliberate decision (decision
 31), matching Pi and the zero-value rule. A conformance case shows a bound tool
 running with no hooks, and not running under a deny or defer hook. The guide
 includes a five-line hook that defers any tool not annotated read-only.
+`dashi.RequireApproval(tools...)` ([run results](run-results.md)) becomes such
+a `BeforeTool` hook that defers the named tools.
 
 ## Internal alignment
 

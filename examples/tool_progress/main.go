@@ -77,10 +77,7 @@ func run(ctx context.Context) error {
 			fmt.Printf("\r%-76s\r", "")
 		case event.Outcome != nil:
 			out := event.Outcome
-			if err := out.RecordingErr(); err != nil {
-				return fmt.Errorf("tool_progress: %w", err)
-			}
-			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Turn.AnswerText())
+			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 		}
 	}
 	return nil

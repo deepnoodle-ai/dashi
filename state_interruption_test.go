@@ -77,8 +77,8 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	if len(state.Tools) != 0 {
 		t.Fatalf("partial tool calls became actionable: %+v", state.Tools)
 	}
-	if turn.AnswerText() != "" {
-		t.Fatalf("partial answer became final text: %q", turn.AnswerText())
+	if answerText(turn.Steps) != "" {
+		t.Fatalf("partial answer became final text: %q", answerText(turn.Steps))
 	}
 	if state.ReadyToContinue {
 		t.Fatal("turn at the interruption limit is ready again")

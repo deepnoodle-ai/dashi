@@ -56,7 +56,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		},
 	)
 	if err != nil || !limitedForAttempts(out.Stop) ||
-		out.Turn.AnswerText() != "Found 42; further work is unfinished." || client.sends != 2 || runs != 1 {
+		out.Answer != "Found 42; further work is unfinished." || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d runs=%d", out, err, client.sends, runs)
 	}
 	if len(client.inputs) != 2 || len(client.inputs[0].Tools) != 1 || len(client.inputs[1].Tools) != 0 ||
@@ -145,9 +145,8 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	if len(client.inputs[1].Tools) != 1 || client.inputs[1].Tools[0].Name != SubmitOutputTool {
 		t.Fatalf("final tools=%+v", client.inputs[1].Tools)
 	}
-	value, ok, err := out.Turn.StructuredOutput()
-	if err != nil || !ok || !json.Valid(value.Value) {
-		t.Fatalf("structured output=%+v ok=%t err=%v", value, ok, err)
+	if !json.Valid(out.Output.Value) {
+		t.Fatalf("structured output=%+v", out.Output)
 	}
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelIntent && step.Model.FinalAnswerOnly {
@@ -329,7 +328,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
-	if err != nil || first.Persistence != PersistenceRejected || client.sends != 2 {
+	if persistence(err) != PersistenceRejected || client.sends != 2 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "limit")
@@ -344,7 +343,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || !limitedForAttempts(second.Stop) ||
-		second.Turn.AnswerText() != "42" || client.sends != 2 {
+		second.Answer != "42" || client.sends != 2 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
 	}
 }

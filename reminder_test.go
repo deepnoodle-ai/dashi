@@ -146,7 +146,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		start.Turn,
 		Deliver{CommandID: "deliver", Items: []ContextItem{first, second}},
 	)
-	if err != nil || delivered.Persistence != PersistenceAcknowledged {
+	if err != nil {
 		t.Fatalf("delivery=%+v err=%v", delivered, err)
 	}
 	bad := ContextItem{
@@ -166,7 +166,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		delivered.Turn,
 		Deliver{CommandID: "bad", Items: []ContextItem{bad}},
 	)
-	if err != nil || rejected.Persistence != PersistenceRejected {
+	if persistence(err) != PersistenceRejected {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
 	accepted, err := (Runner{
@@ -236,7 +236,7 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 				Input:     []llm.Message{llm.ReminderMessage(r)},
 			},
 		)
-		if err != nil || got.Persistence != PersistenceRejected || client.sends != 0 {
+		if persistence(err) != PersistenceRejected || client.sends != 0 {
 			t.Fatalf("origin=%s outcome=%+v err=%v", origin, got, err)
 		}
 	}

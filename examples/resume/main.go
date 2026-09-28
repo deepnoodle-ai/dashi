@@ -115,7 +115,7 @@ func newRunner(model string, recorder dashi.Recorder) (dashi.Runner, error) {
 // the same Start command, which returns the recorded outcome instead of
 // starting over.
 func start(ctx context.Context, runner dashi.Runner, turnID string) error {
-	outcome, err := apply(ctx, runner, dashi.NewTurn(turnID), dashi.Start{
+	outcome, err := runner.Run(ctx, dashi.NewTurn(turnID), dashi.Start{
 		CommandID: "start",
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text(
@@ -125,18 +125,14 @@ func start(ctx context.Context, runner dashi.Runner, turnID string) error {
 		},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("resume: run start: %w", err)
 	}
 	if outcome.Stop.Kind != dashi.StopWaiting {
-		fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
+		fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
 		return nil
 	}
-	view, err := dashi.Replay(outcome.Turn)
-	if err != nil {
-		return fmt.Errorf("resume: replay: %w", err)
-	}
-	for _, id := range outcome.Pending {
-		fmt.Printf("Waiting for %s\n", handleID(view.Tools[id]))
+	for _, pending := range outcome.Pending {
+		fmt.Printf("Waiting for %s\n", handleID(pending))
 	}
 	fmt.Println("Stop: waiting. Run again with -mode=resume.")
 	return nil
@@ -162,55 +158,35 @@ func resume(
 		return fmt.Errorf("resume: replay: %w", err)
 	}
 	if view.Stop.Kind != dashi.StopWaiting {
-		fmt.Printf("Stop: %s\n%s\n", view.Stop.Kind, turn.AnswerText())
+		fmt.Printf("Stop: %s\n%s\n", view.Stop.Kind, view.Answer)
 		return nil
 	}
-	for _, id := range view.Pending {
-		message := handleID(view.Tools[id])
+	for _, pending := range view.Pending {
+		message := handleID(pending)
 		fmt.Printf("Webhook: %s delivered\n", message)
 		// Settle only records the result; nothing runs until Continue.
-		outcome, err := apply(ctx, runner, turn, dashi.Settle{
-			CommandID: "delivered-" + message,
-			CallID:    id,
-			// Settle takes a pointer; new(expr) points at a new copy.
-			Outcome: new(tool.Succeeded("Delivered as " + message + ".")),
-		})
+		outcome, err := runner.Run(ctx, turn, pending.Result(
+			tool.Succeeded("Delivered as "+message+"."),
+		))
 		if err != nil {
-			return err
+			return fmt.Errorf("resume: record delivery: %w", err)
 		}
 		turn = outcome.Turn
 	}
-	outcome, err := apply(ctx, runner, turn, dashi.Continue{CommandID: "continue"})
+	outcome, err := runner.Run(ctx, turn, dashi.Continue{CommandID: "continue"})
 	if err != nil {
-		return err
+		return fmt.Errorf("resume: continue: %w", err)
 	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Turn.AnswerText())
+	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
 	return nil
-}
-
-// apply runs one command. Run returns an error only for an invalid command;
-// a failed recorder write is reported in the outcome, so it is checked too.
-func apply(
-	ctx context.Context,
-	runner dashi.Runner,
-	turn dashi.Turn,
-	cmd dashi.Command,
-) (dashi.Outcome, error) {
-	outcome, err := runner.Run(ctx, turn, cmd)
-	if err != nil {
-		return outcome, fmt.Errorf("resume: run command: %w", err)
-	}
-	if err := outcome.RecordingErr(); err != nil {
-		return outcome, fmt.Errorf("resume: %w", err)
-	}
-	return outcome, nil
 }
 
 // handleID returns the mail service's message ID for a waiting call, or the
 // call ID when the call has no handle.
-func handleID(call dashi.ToolView) string {
-	if call.Outcome != nil && call.Outcome.Handle != nil {
-		return call.Outcome.Handle.ID
+func handleID(pending dashi.Pending) string {
+	if pending.Tool != nil && pending.Tool.Outcome != nil &&
+		pending.Tool.Outcome.Handle != nil {
+		return pending.Tool.Outcome.Handle.ID
 	}
-	return call.Call.ID
+	return pending.ID
 }

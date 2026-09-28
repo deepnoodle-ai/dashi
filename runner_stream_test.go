@@ -110,17 +110,18 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 		Client:   client,
 		Recorder: recorder,
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
-		if err != nil {
-			t.Fatal(err)
-		}
 		if event.Step != nil {
 			steps++
 		}
 		if event.Outcome != nil {
 			terminals++
-			if event.Outcome.Persistence != PersistenceRejected {
-				t.Fatalf("outcome=%+v", event.Outcome)
+			// The final event carries the outcome and the write failure
+			// together.
+			if persistence(err) != PersistenceRejected {
+				t.Fatalf("outcome=%+v err=%v", event.Outcome, err)
 			}
+		} else if err != nil {
+			t.Fatal(err)
 		}
 	}
 	if steps != 0 || terminals != 1 || client.sends != 0 {

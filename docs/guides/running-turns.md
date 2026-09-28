@@ -33,10 +33,63 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
   with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
   step's `CommandID` show them; see [IDs and recovery](#ids-and-recovery).
 - **Tools.** A nil `Policy` allows every bound local and external tool. To
-  ask a person first, supply a policy whose `AuthorizeTool` returns
-  `DecisionDefer`.
+  ask a person first, see [approving tool calls](#approving-tool-calls).
 - **Keys.** A client built without an API key fails on its first call with an
   error matching `llm.ErrNoAPIKey`, which names the environment variable.
+
+## Reading the result
+
+`Run` returns an `Outcome` and an error. The outcome is always the latest known
+state of the turn; the error says whether the command applied. `out.Answer` is
+the final answer text, `out.Output` the structured output, `out.Spend` the
+usage and cost, and `out.Pending` the work the turn waits on. `out.Turn` is the
+record to pass to the next call. `dashi.Replay(turn)` gives the same view for a
+turn loaded from a recorder.
+
+For most programs, `if err != nil { return err }` is enough. A host that
+recovers turns checks, in order: `errors.Is(err, dashi.ErrRevisionConflict)`
+(another worker owns the turn; reload and back off), then
+`errors.As(err, &commitErr)` for a `*dashi.CommitError` (the run executed, but
+`commitErr.Step` was not recorded; recover as after a crash). Any other error
+means the command was rejected and nothing was recorded, except
+`ErrRecordInvalid`: steps this run recorded fail replay, a bug to report. A
+failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()` and
+`out.Turn.HostedUses()` collect sources and provider-run tool calls from every
+model call in the turn.
+
+## Approving tool calls
+
+A command-line program can ask inside the policy: `AuthorizeTool` prompts, then
+allows or denies, all within one `Run`; a denial's `Reason` is what the model
+sees ([example](../../examples/approval/main.go)). A server that cannot wait
+defers instead. `dashi.RequireApproval("deploy")` allows local tools and defers
+the named ones; the turn stops with `StopWaiting`, and each pending item builds
+its own answer ([example](../../examples/durable_approval/main.go)):
+
+```go
+for _, p := range out.Pending {
+	if p.Kind != dashi.PendingApproval {
+		continue
+	}
+	answer := p.Deny("The operator declined.")
+	if approved(p.Name, p.Args) {
+		answer = p.Approve()
+	}
+	if out, err = runner.Run(ctx, out.Turn, answer); err != nil {
+		return err
+	}
+}
+out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
+```
+
+`Approve` and `Deny` bind the answer to the exact arguments shown and the
+policy revision that deferred the call. `Result(outcome)` reports the result of
+a waiting external call the same way. Each builder derives its command ID from
+the call, so a retried answer is a duplicate and a different second answer
+fails with `ErrCommandConflict`. `Settle` only records; `Continue` runs the
+approved calls and returns `ErrNotReady` while any call is unanswered. Once
+every call is answered, `out.Pending` is empty and `out.ReadyToContinue` is
+true, but `out.Stop` still says waiting until `Continue` runs.
 
 ## Prior conversation
 
@@ -97,6 +150,13 @@ that happened before the stop was written. Close the channel passed with
 `dashi.WithPause` for a graceful stop before the next model or tool call. Work
 already running finishes.
 
+A command is applied once per recorder. Running the same command again, with
+the same `CommandID` and content against the same recorder, returns the
+recorded result without calling the model or running tools again; this is how
+a restarted process safely repeats its `Start`. A new `CommandID` is a new
+command, and a new recorder (such as the default in-memory one) knows nothing
+of earlier runs.
+
 `Runner.Recorder` may be omitted. Dashi uses a fresh in-memory recorder
 for that call, and you can pass the returned `Outcome.Turn` to a later call in
 the same process. Bind a durable recorder when turns must resume across
@@ -132,11 +192,8 @@ while its usage still counts toward spend. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
 `Continue`. `Settle` only records, including for approvals and external tool
-results. To answer an approval, replay the turn and echo the pending call's
-`ToolView.ArgsDigest` and `Decision.Revision` in an `ApprovalFact`;
-`dashi.ArgsDigest(args)` gives the same digest for arguments shown earlier.
-`Outcome.ReadyToContinue` and the replayed turn's `TurnView.ReadyToContinue`
-show when no unresolved effect blocks the next `Continue`. The host's sweeper
+results. `Outcome.ReadyToContinue` and the replayed turn's
+`TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
 
 The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after

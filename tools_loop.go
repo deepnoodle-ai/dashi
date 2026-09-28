@@ -85,16 +85,20 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			continue
 		}
 		if v.Status == ToolDenied {
+			reason := v.Decision.Reason
+			if v.Approval != nil {
+				reason = v.Approval.Reason
+			}
 			out := tool.Outcome{
 				State:  tool.StateNotExecuted,
-				Output: new(tool.TextOutput(v.Decision.Reason)),
+				Output: new(tool.TextOutput(denialText(reason))),
 			}
 			if o := r.commit(Step{
 				Kind: StepToolSettled,
 				Tool: &ToolFact{
 					Call:    v.Call,
 					Outcome: &out,
-					Reason:  v.Decision.Reason,
+					Reason:  reason,
 				},
 			}); o != nil {
 				return *o, true
@@ -209,7 +213,11 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					decision = ToolDecision{Kind: DecisionAllow, Revision: "dashi-output-v1"}
 					break
 				}
-				view, _ := Replay(r.turn)
+				// A mid-run view: its Stop stays empty, unlike Replay's.
+				view := TurnView{}
+				if current, err := replay(r.turn); err == nil {
+					view = snapshotView(current.TurnView)
+				}
 				decision, err = r.runner.Policy.AuthorizeTool(ctx, call.Clone(), view)
 				if err != nil {
 					return r.failureOrContext(err), true
@@ -264,7 +272,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if decision.Kind == DecisionDeny {
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: new(tool.TextOutput(decision.Reason)),
+					Output: new(tool.TextOutput(denialText(decision.Reason))),
 				}
 				if o := r.commit(Step{
 					Kind: StepToolSettled,
@@ -525,4 +533,13 @@ func boundedOutputError(err error) string {
 		message = message[:400]
 	}
 	return message
+}
+
+// denialText is the result the model sees for a denied call. An empty
+// reason would leave the model guessing why the call did not run.
+func denialText(reason string) string {
+	if reason == "" {
+		return "The call was denied."
+	}
+	return reason
 }

@@ -38,24 +38,32 @@ func applyStructured(
 	rec Recorder,
 ) Outcome {
 	t.Helper()
-	out, err := (Runner{
+	out, err := applyStructuredErr(client, tools, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func applyStructuredErr(
+	client *scriptedClient,
+	tools tool.Toolset,
+	rec Recorder,
+) (Outcome, error) {
+	return (Runner{
 		Agent:    structuredAgent(),
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
-		t.Context(),
+		context.Background(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
 }
 
 func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
@@ -95,11 +103,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	if err != nil || view.Output == nil || view.Output.Source != OutputFromTool {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
-	result, ok, err := out.Turn.StructuredOutput()
-	if err != nil || !ok || string(result.Value) != `{"answer":42}` {
-		t.Fatalf("turn output=%+v ok=%t err=%v", result, ok, err)
-	}
-	result.Value[0] = '['
+	view.Output.Value[0] = '['
 	if string(out.Output.Value) != `{"answer":42}` {
 		t.Fatal("structured output shares mutable bytes")
 	}
@@ -192,8 +196,8 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolSettled}
-	first := applyStructured(t, client, nil, rec)
-	if first.Persistence != PersistenceRejected || client.sends != 1 {
+	first, err := applyStructuredErr(client, nil, rec)
+	if persistence(err) != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -333,9 +337,9 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolSettled}
-	first := applyStructured(t, client, nil, rec)
-	if first.Persistence != PersistenceRejected {
-		t.Fatalf("first=%+v", first)
+	first, err := applyStructuredErr(client, nil, rec)
+	if persistence(err) != PersistenceRejected {
+		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
@@ -365,9 +369,9 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
-	first := applyStructured(t, client, nil, rec)
-	if first.Persistence != PersistenceRejected {
-		t.Fatalf("persistence=%q", first.Persistence)
+	first, err := applyStructuredErr(client, nil, rec)
+	if persistence(err) != PersistenceRejected {
+		t.Fatalf("err=%v", err)
 	}
 	if first.Output == nil {
 		t.Fatal("first outcome has no output")
