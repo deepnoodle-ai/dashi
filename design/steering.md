@@ -60,7 +60,7 @@ out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 if err != nil {
     return err
 }
-if out.Stop.Final { // recorded field added by the live-delivery work
+if out.Stop.Terminal { // the turn can never run again (live delivery)
     next, _ := inbox.Leftovers(out.Turn) // input for the next turn, if any
 }
 ```
@@ -151,7 +151,7 @@ type Steer struct {
   `WarningSteering` on the next committed step (replay accepts warnings on any
   step kind).
 - FR-13: Pause and cancel win. Delivery is observable reliably through a
-  fully read `Stream` or the recorder; `Observer` is lossy.
+  fully read `Stream` or the recorder; previews are lossy; committed steps are not.
 - FR-14: `Deliver` stays for stopped turns; its docs point to steering.
 
 **Urgent steers (PR 2)**
