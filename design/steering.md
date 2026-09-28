@@ -37,8 +37,9 @@ result. What works: IDs, safe delivery points, and one fate per message.
   the record removes duplicates, until `Leftovers` resolves it on the reloaded
   turn.
 - **Leftovers.** When a turn ends, its *leftovers* are the steers the model
-  never saw: those still in the inbox, plus those recorded with no model call
-  after them. `Leftovers` returns them once so the app can start the next turn.
+  never saw: those still in the inbox, plus those recorded with no later
+  `model_requested` step (a dispatched call counts as seen, even if it was
+  interrupted). `Leftovers` returns them once so the app can start the next turn.
 - **Reconcile.** To *reconcile* is to compare steers against the saved record;
   after an unknown write, reload the turn first.
 
@@ -63,6 +64,7 @@ if err != nil {
 if out.Stop.Terminal { // the turn can never run again (live delivery)
     next, _ := inbox.Leftovers(out.Turn) // input for the next turn, if any
 }
+// otherwise: Continue with the inbox, or call Leftovers to abandon the turn
 ```
 
 A durable host implements `Steering` over its own table keyed by turn and
@@ -84,7 +86,9 @@ unknown, it reloads the turn before reconciling.
   `Send(Steer) (string, error)` validates and fills a missing ID;
   `SendText(string) (string, error)`; `Cancel(id) bool`, false once claimed or
   in doubt; `Leftovers(Turn) ([]Steer, error)` resolves that turn's in-doubt
-  steers and returns its leftovers (an invalid turn changes nothing).
+  steers and returns its leftovers. Its doc comment says to pass a freshly
+  loaded turn: a stale one makes recorded steers look unrecorded. An invalid
+  turn changes nothing.
 - FR-4: `ContextItem` gains `ID`: one delivery, unlike `Name`, a slot a later
   snapshot replaces. Optional for `Deliver` and hooks, required for steers.
   `Step.Items() []ContextItem` returns a step's context items.
@@ -117,23 +121,23 @@ type Steer struct {
   pause checks and after the previous tool batch settled. Steers are recorded
   in arrival order in one `StepDelivered`, before `BeforeModel`, so the hooks'
   input includes them.
-- FR-7: **At a candidate final answer**, before `BeforeFinish`. On the text
-  path, before output is recorded, a steer is recorded as a
-  `StepLoopContinued` whose `Supersedes` (a hooks field) names the attempt. On
-  the submission path the check runs before the submission starts: the call
-  settles not executed, reason `steering`, output "Not accepted: the user sent
-  new input. Read it, then submit again.", and FR-6 delivers the steer, so the
-  model never reads "Output accepted" for a superseded answer.
+- FR-7: **At a candidate final answer**, at the finish point (hooks.md, "The
+  finish point (PR 1b)"), before
+  `BeforeFinish`. On the text path, before output is recorded, steers are
+  recorded in a `StepLoopContinued`; replay knows from its position which
+  candidate it replaced. On the submission path, the submission settles
+  through hooks' shared rejection: it settles as failed with "Not accepted:
+  <Reason>", and steering passes the reason "the user sent new input; read it,
+  then submit again". FR-6 then delivers the steer. The model never reads "Output
+  accepted" for a superseded answer.
 - FR-8: **Never between a tool call and its result.** Projection emits results
   with their call, so a later item follows them; tests lock this in.
 - FR-9: **Never on the last possible answer.** Dashi supersedes or interrupts
-  only when hooks' `nextCallPossible` holds (hooks.md owns the rule and its
-  worked example): one more call must still leave the reserved final-answer
-  call available, counting an interrupted call first. Also: the deadline has
-  not passed, no pause or context end is pending, the token budget is not
-  spent, and under a cost cap the next call's estimated worst case (the last
-  intent's `AtRisk` plus the steers' estimated input tokens) fits the
-  remaining cap. Otherwise steers wait, and Dashi records `WarningSteering`
+  only when hooks' `nextCallPossible` holds. Hooks owns every check in it
+  (attempts with the reserve, deadline, pause, budget, and the cost-cap
+  worst case) and its worked example; steering passes only the waiting
+  steers' estimated input tokens, and counts an interrupted call first.
+  Otherwise steers wait, and Dashi records `WarningSteering`
   naming the limit, once per candidate. Only hooks and unpredictable failures
   can still refuse the next call; then the turn stops with that stop kind and
   no accepted answer.
@@ -158,6 +162,8 @@ type Steer struct {
 
 - FR-15: `Steer` gains `Urgent`. An optional `SteeringNotifier` interface adds
   `Ready() <-chan struct{}`, a coalesced hint; `Steers` stays the authority.
+  Without a notifier, `Urgent` has no effect and the steer waits for the next
+  delivery point.
 - FR-16: Each model call runs under its own context derived from the run's.
   While a call is active, a listener waits on `Ready`, then calls `Steers`. If
   an urgent steer is present and FR-9 allows, Dashi cancels the call and
@@ -168,8 +174,9 @@ type Steer struct {
 - FR-17: Partial text of a steering-interrupted call is projected into later
   calls: its text blocks only (no tool calls, reasoning, or replay data),
   followed by a projected runtime reminder that the user interrupted the
-  response. This refines decision 9 ("never acted on") for steering only;
-  nothing in it runs. Other interrupted calls stay out of projection.
+  response. If no text was streamed, nothing is added. This refines decision
+  9 ("never acted on") for steering only; nothing in it runs. Other
+  interrupted calls stay out of projection.
 - FR-18: A call offering a provider-hosted tool unsafe to repeat is not
   interrupted; the steer waits, with a warning.
 - FR-19: During a tool batch the listener also runs, and `Ready` is checked
@@ -187,7 +194,7 @@ type Steer struct {
 - FR-21: `modelSystem` always includes the `<system-reminder>` instruction, so
   the system prompt stays identical across a turn's calls (except the reserved
   final answer) and the prompt cache survives reminders coming and going. Its
-  own commit; it can land before hooks.
+  own commit.
 - FR-22: A running-turns guide section: the contract, one active run per
   inbox, that a steer may cost an extra model call (several share one), and
   the `WarningSteering` limit signal.
@@ -197,25 +204,26 @@ type Steer struct {
 1. Model path order: limit checks, the steering step, `BeforeModel` on a
    fresh projection, then hook deliveries as their own `StepDelivered`.
 2. One finish point for both answer paths, before output is recorded, with
-   steering's check first. The `BeforeFinish` retry after `hook_failed` goes
+   steering's check first. The finish retry after a hook failure stop goes
    through it too.
-3. `Step.Supersedes` and `nextCallPossible(state)`, both owned by hooks;
-   steering adds the deadline, pause, and budget terms.
-4. Warnings on any step kind, buffered onto the next committed step.
-5. A point in the tools loop, before `BeforeTool`, for steering's check.
-6. `BeforeFinish.Continue` on a submission meets the same "Output accepted"
-   text; hooks should settle the submission after `BeforeFinish` or reword it.
+3. The shared rejection of a submission (failed, "Not accepted: <Reason>"),
+   including its status transition; steering supplies only the reason.
+4. `nextCallPossible(state, extraInputTokens)` with every check (FR-9).
+5. Warnings on any step kind, buffered onto the next committed step.
+6. A point in the tools loop, before `BeforeTool`, for steering's check.
 
-Already true in hooks.md: an invalid hook delivery is a skipped hook, and
-`AfterTool` skips not-run outcomes.
+Already true in hooks.md: an invalid hook delivery is a skipped hook.
+`AfterTool` (hooks.md, "Later: PR 2") must skip steering's not-run outcomes.
 
 ## Recorded-format changes
 
-- `ContextItem.id`; `Step.supersedes` (from hooks); warning code `steering`.
-- A tool settlement from `allowed` to `not_executed` with reason `steering`
-  (PR 1 for submissions, PR 2 for batches).
+- `ContextItem.id`; warning code `steering`; steering's reason on hooks'
+  rejected-submission settlement.
+- PR 2: a tool settlement from `allowed` to `not_executed` with reason
+  `steering` (skipped batch calls).
 - PR 2: `ModelFact.interrupted` changes from a bool to a cause: `worker`
-  (recovery after a crash), `context`, `pause`, or `steering`. This touches the
+  (recovery after a crash), `context` (the context ended, or a pause
+  stopped the call before dispatch), or `steering`. This touches the
   existing interruption code in `runner.go`, `state.go`, `project.go`, and their
   tests; replay counts `steering` as an attempt.
 
@@ -223,7 +231,8 @@ No migration (no users).
 
 ## Plan and tests
 
-**PR 1:** `steering.go`, `inbox.go`, delivery points in `runner.go` and
+**PR 1** builds on hooks 1b (the finish point and seams) and on live
+delivery's recorded `Stop.Terminal`; FR-21 can land first. It adds `steering.go`, `inbox.go`, delivery points in `runner.go` and
 `tools_loop.go`, rules in `state.go` and `validateContext`, fields in
 `turn.go`, `examples/steering` (CLI), the guide section. The durable host is a
 `dashitest` fault-injection test plus a guide snippet. **PR 2:** FR-15–20.
