@@ -62,8 +62,10 @@ func (approvalPolicy) AuthorizeTool(context.Context, tool.Call, kernel.TurnView)
 // sorted keys, decoded escapes, and exponent numbers expanded.
 type jsonbStore struct{ *kernel.MemoryRecorder }
 
-func (s jsonbStore) Load(id string) (kernel.Turn, error) {
-	turn, err := s.MemoryRecorder.Load(id)
+var _ kernel.Loader = jsonbStore{}
+
+func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
+	turn, err := s.MemoryRecorder.Load(ctx, id)
 	if err != nil {
 		return kernel.Turn{}, err
 	}
@@ -115,7 +117,7 @@ func pendingApproval(t *testing.T) (kernel.Turn, kernel.Definition, kernel.Bindi
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	// A host with durable storage reloads the turn before answering.
-	turn, err := store.Load("t1")
+	turn, err := store.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}

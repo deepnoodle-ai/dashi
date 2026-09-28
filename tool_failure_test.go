@@ -454,7 +454,7 @@ func resultText(result *llm.ToolResult) string {
 // that its JSON form replays to the same view.
 func assertRecordRoundTrips(t *testing.T, rec *MemoryRecorder, turn Turn) {
 	t.Helper()
-	saved, err := rec.Load(turn.ID)
+	saved, err := rec.Load(context.Background(), turn.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

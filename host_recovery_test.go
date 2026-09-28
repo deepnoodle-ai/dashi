@@ -37,8 +37,16 @@ type budgetRecorder struct {
 func newBudgetRecorder() *budgetRecorder {
 	return &budgetRecorder{base: NewMemoryRecorder(), balance: 10, reservations: map[string]int{}, charged: map[string]bool{}, loseIntent: true}
 }
-func (r *budgetRecorder) Claim(id, owner string)       { r.base.Claim(id, owner) }
-func (r *budgetRecorder) Load(id string) (Turn, error) { return r.base.Load(id) }
+func (r *budgetRecorder) Claim(ctx context.Context, id, owner string) error {
+	return r.base.Claim(ctx, id, owner)
+}
+
+func (r *budgetRecorder) Load(ctx context.Context, id string) (Turn, error) {
+	return r.base.Load(ctx, id)
+}
+
+var _ Loader = (*budgetRecorder)(nil)
+
 func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -88,7 +96,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	lastModel.Usage = &llm.Usage{InputTokens: 1}
 	client := &scriptedClient{results: []llm.Result{firstModel, lastModel}}
 	rec := newBudgetRecorder()
-	rec.Claim("t1", "owner-a")
+	rec.Claim(context.Background(), "t1", "owner-a")
 	history := []llm.Message{llm.UserMessage(llm.Text("previous context"))}
 	startCommand := Start{ID: "start", Origin: StartScheduled, History: history, Input: []llm.Message{llm.UserMessage(llm.Text("run job"))}}
 	tools := fixedTools{tool.Tool{Definition: tool.Definition{Name: "work", Schema: []byte(`{"type":"object"}`), Kind: tool.KindExternal}}}
@@ -99,7 +107,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || first.Persistence != PersistenceUnknown || client.sends != 0 || rec.balance != 7 {
 		t.Fatalf("lost admission: out=%+v err=%v sends=%d balance=%d", first, err, client.sends, rec.balance)
 	}
-	saved, err := rec.Load("t1")
+	saved, err := rec.Load(context.Background(), "t1")
 	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Admission) == 0 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
@@ -119,7 +127,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if !errors.Is(err, ErrDefinitionChanged) {
 		t.Fatalf("changed definition accepted: %v", err)
 	}
-	rec.Claim("t1", "owner-b")
+	rec.Claim(context.Background(), "t1", "owner-b")
 	proof := Accept{ID: "no-dispatch", CallID: "t1:model:1", ModelFailure: &ModelFailure{Disposition: llm.FailureNotDispatched, Reason: "worker did not send", Evidence: "dispatch log cursor 1"}}
 	stale, err := (Engine{}).Apply(context.Background(), saved, definition(), proof, binding("owner-a"))
 	if err != nil || stale.Persistence != PersistenceRejected || rec.balance != 7 {
@@ -140,7 +148,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || waiting.Stop.Kind != StopWaiting || client.sends != 1 || rec.balance != 8 {
 		t.Fatalf("external wait: out=%+v err=%v sends=%d balance=%d", waiting, err, client.sends, rec.balance)
 	}
-	rec.Claim("t1", "owner-c")
+	rec.Claim(context.Background(), "t1", "owner-c")
 	result := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("completed in host worker"))}
 	accept := Accept{ID: "external-result", CallID: "job", Outcome: &result}
 	stale, err = (Engine{}).Apply(context.Background(), waiting.Turn, definition(), accept, binding("owner-b"))

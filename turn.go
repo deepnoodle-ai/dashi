@@ -449,6 +449,8 @@ var (
 	ErrInvalidTurn       = errors.New("kernel: invalid turn record")
 	ErrRevisionConflict  = errors.New("kernel: revision conflict")
 	ErrStreamConsumed    = errors.New("kernel: stream already consumed")
+	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.
+	ErrTurnNotFound = errors.New("kernel: turn not found")
 	// ErrHistoryMismatch rejects a Continue whose History differs from the
 	// turn's start when Bindings.OnHistoryMismatch is HistoryMismatchReject.
 	// Nothing is committed; retry with the history the turn started with.

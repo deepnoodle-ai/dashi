@@ -15,6 +15,8 @@ other.
 - `media`: Image, video, and non-speech audio values, preparation, results, and
   video jobs.
 - `speech`: Recognition and synthesis values and capability descriptions.
+- `kerneltest`: A conformance suite for host recorders and a fault-injecting
+  recorder for recovery tests.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 

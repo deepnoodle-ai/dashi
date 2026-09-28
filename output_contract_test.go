@@ -126,7 +126,7 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(t *testing.
 	if first.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
 	}
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	if first.Persistence != PersistenceRejected {
 		t.Fatalf("first=%+v", first)
 	}
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(t *
 		t.Fatalf("sends=%d", client.sends)
 	}
 
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(t *
 
 func assertStepCount(t *testing.T, base *MemoryRecorder, want int) {
 	t.Helper()
-	turn, err := base.Load("t1")
+	turn, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -351,7 +351,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 
 func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 	rec := NewMemoryRecorder()
-	rec.Claim("t1", "worker-a")
+	rec.Claim(context.Background(), "t1", "worker-a")
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	client := &interruptionClient{
@@ -360,7 +360,7 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 			llm.Result, error,
 		) {
 			if index == 0 {
-				rec.Claim("t1", "worker-b")
+				rec.Claim(context.Background(), "t1", "worker-b")
 				cancel(errors.New("lease lost"))
 				return llm.Result{}, ctx.Err()
 			}
@@ -379,7 +379,7 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		!errors.Is(first.WriteError, ErrRevisionConflict) {
 		t.Fatalf("stale write=%+v err=%v", first, err)
 	}
-	saved, err := rec.Load("t1")
+	saved, err := rec.Load(context.Background(), "t1")
 	if err != nil || len(saved.Steps) != 2 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}

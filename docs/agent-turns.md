@@ -7,8 +7,8 @@ recorder and observer. The caller supplies a stable `Turn.ID` and a unique ID
 for each `Start`, `Deliver`, `Continue`, `Accept`, or `Cancel` command.
 Repeating the same command ID and payload acknowledges its
 recorded step without repeating an effect. Pass the returned `Outcome.Turn` to
-the next call, or reload it from a durable recorder. When the recorder exposes
-`Load`, Kernel can refresh a stale turn snapshot on a retried command.
+the next call, or reload it from a durable recorder. When the recorder implements
+`Loader`, Kernel can refresh a stale turn snapshot on a retried command.
 Reusing an ID with different content fails. `Start` records its origin and own
 input, plus a fingerprint of `Start.History`. Pass the earlier conversation
 again in `Continue.History` on every resume, including after a crash. Kernel
@@ -123,16 +123,23 @@ an unknown result. With nil `Bindings.Recorder`, Kernel creates a fresh
 `MemoryRecorder` for that call; keep `Outcome.Turn` for same-process
 continuation. Bind a durable recorder for cross-process recovery, and pass the
 earlier history on `Continue`. `MemoryRecorder` and its `Claim` method are
-local fixtures, not a production lease service. `Engine.Apply` uses an
-optional recorder `Load(string)` method to recognize a command retried with
-an old turn snapshot; other hosts should reload before retrying after an
-ambiguous write.
+local fixtures, not a production lease service. A recorder that also
+implements `Loader` lets `Engine.Apply` recognize a command retried with an
+old turn snapshot and answer from the stored record; other hosts should
+reload before retrying after an ambiguous write. `Load` reports a turn with no
+steps as `ErrTurnNotFound` or an empty turn with the requested ID. Any other
+`Load` error is returned from `Apply` without committing, because the
+caller's snapshot may be stale.
 
 A recorder must preserve each step's JSON meaning, not its bytes. Storage that
 reorders keys, drops whitespace, or respells numbers and strings, such as a
 Postgres `jsonb` column, is fine: Kernel compares recorded values with live
 ones by their canonical JSON (RFC 8785 layout, numbers compared by exact
 decimal value), and history passed on `Continue` may round-trip the same way.
+
+Package `kerneltest` checks a host recorder against this contract with
+`kerneltest.Run`, and its `FaultRecorder` fails one chosen commit (rejected,
+lost write, or lost acknowledgement) so a host can test recovery end to end.
 
 The engine records a model intent before `Send` and a tool start before a local
 executor call. It records their outcomes before acting on them. After a crash,

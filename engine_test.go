@@ -230,7 +230,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	if got.Persistence != PersistenceRejected || runs != 0 {
 		t.Fatalf("first outcome=%+v runs=%d", got, runs)
 	}
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +690,7 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 	if got.Persistence != PersistenceRejected || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
 		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
 	}
-	saved, err := rec.Load("t1")
+	saved, err := rec.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	if got.Persistence != PersistenceUnknown || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
 		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
 	}
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,7 +806,7 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	if err != nil || first.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	saved, err := base.Load("t1")
+	saved, err := base.Load(context.Background(), "t1")
 	if err != nil || saved.Steps[len(saved.Steps)-1].Kind != StepModelSettled || saved.Steps[len(saved.Steps)-1].Model.Error == "" {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}

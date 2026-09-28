@@ -24,8 +24,10 @@ import (
 // (1e2 becomes 100) while decimal scale is kept (1.50 stays 1.50).
 type jsonbRecorder struct{ *MemoryRecorder }
 
-func (r jsonbRecorder) Load(turnID string) (Turn, error) {
-	t, err := r.MemoryRecorder.Load(turnID)
+var _ Loader = jsonbRecorder{}
+
+func (r jsonbRecorder) Load(ctx context.Context, turnID string) (Turn, error) {
+	t, err := r.MemoryRecorder.Load(ctx, turnID)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -216,11 +218,11 @@ func messyHistory() []llm.Message {
 // checks that the store really changed its bytes.
 func reload(t *testing.T, rec jsonbRecorder, id string) Turn {
 	t.Helper()
-	stored, err := rec.MemoryRecorder.Load(id)
+	stored, err := rec.MemoryRecorder.Load(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := rec.Load(id)
+	loaded, err := rec.Load(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +405,7 @@ func TestLegacyDigestsStillMatch(t *testing.T) {
 
 func mustLoad(t *testing.T, rec jsonbRecorder) Turn {
 	t.Helper()
-	turn, err := rec.Load("t1")
+	turn, err := rec.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}

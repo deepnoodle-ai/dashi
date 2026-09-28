@@ -266,7 +266,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 	if out.Stop.Kind != StopInterrupted || out.Stop.Reason != "lease lost" {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	saved, err := rec.Load("t1")
+	saved, err := rec.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}

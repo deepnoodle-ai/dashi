@@ -345,7 +345,7 @@ func runLiveAgentTurn(t *testing.T, provider string, client llm.Client, modelNam
 				A int `json:"a"`
 				B int `json:"b"`
 			}) (tool.Outcome, error) {
-				saved, err := recorder.Load(turnID)
+				saved, err := recorder.Load(context.Background(), turnID)
 				if err != nil {
 					return tool.Outcome{}, tool.Fatal(err)
 				}

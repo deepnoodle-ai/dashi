@@ -54,7 +54,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 	client := &attemptClient{scriptedClient: &scriptedClient{results: []llm.Result{final("done")}}}
 	client.onSend = func(a llm.Attempt) {
 		// The intent carrying this ID is durable before Send is called.
-		saved, err := rec.Load("t1")
+		saved, err := rec.Load(context.Background(), "t1")
 		if err != nil {
 			t.Fatal(err)
 		}
