@@ -92,6 +92,30 @@ func TestTornTailIsIgnoredAndReplaced(t *testing.T) {
 	}
 }
 
+// A reader with its own index, as in another process, sees each commit on
+// its next read, and a torn tail never appears as a step.
+func TestStepsAfterFromAnotherRecorder(t *testing.T) {
+	dir := t.TempDir()
+	writer, reader := newRecorder(t, dir), newRecorder(t, dir)
+	commit(t, writer, step("turn", 1, "first"), "")
+	steps, err := reader.StepsAfter(t.Context(), "turn", 0, 0)
+	if err != nil || len(steps) != 1 {
+		t.Fatalf("steps=%d err=%v", len(steps), err)
+	}
+	appendBytes(t, writer.Path("turn"), `{"step":{"version":1,"turn_id":"turn","seq":2`)
+	if steps, err = reader.StepsAfter(t.Context(), "turn", 1, 0); err != nil || len(steps) != 0 {
+		t.Fatalf("torn tail read as steps=%d err=%v", len(steps), err)
+	}
+	commit(t, writer, step("turn", 2, "second"), "")
+	steps, err = reader.StepsAfter(t.Context(), "turn", 1, 0)
+	if err != nil || len(steps) != 1 || steps[0].Seq != 2 {
+		t.Fatalf("steps=%+v err=%v", steps, err)
+	}
+	if _, err := reader.StepsAfter(t.Context(), "turn", 3, 0); !errors.Is(err, dashi.ErrCursorAhead) {
+		t.Fatalf("cursor ahead err=%v", err)
+	}
+}
+
 func TestTornHeaderIsReplaced(t *testing.T) {
 	r := newRecorder(t, t.TempDir())
 	path := r.Path("turn")

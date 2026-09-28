@@ -22,8 +22,12 @@
 // and is removed by the next commit. Any other damage is reported as
 // ErrCorrupt rather than repaired.
 //
-// Commit reads only the lines appended since it last saw the turn, using an
-// in-process index of recently used turns; Load reads the whole log.
+// Commit and StepsAfter read only the lines appended since this process last
+// saw the turn, using an in-process index of recently used turns; Load reads
+// the whole log. The Recorder is also a dashi.StepReader, so dashi.Follow
+// can serve a turn to live readers, and a dashi.StepWaiter that wakes them
+// on this process's commits; commits from other processes reach them by
+// poll.
 //
 // The package supports Linux, macOS, iOS, Android, FreeBSD, OpenBSD, and
 // NetBSD on local filesystems. Advisory locks on network filesystems are
@@ -47,6 +51,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/internal/wake"
 )
 
 // ErrCorrupt reports a turn log that cannot be read as a sequence of
@@ -96,6 +101,7 @@ type Recorder struct {
 	mu     sync.Mutex
 	failed map[string]error
 	index  *indexCache
+	wakes  wake.Set
 
 	// writeAt and syncFile are the file operations whose failures tests
 	// inject.
@@ -104,9 +110,14 @@ type Recorder struct {
 }
 
 var (
-	_ dashi.Recorder = (*Recorder)(nil)
-	_ dashi.Loader   = (*Recorder)(nil)
+	_ dashi.Recorder   = (*Recorder)(nil)
+	_ dashi.Loader     = (*Recorder)(nil)
+	_ dashi.StepReader = (*Recorder)(nil)
+	_ dashi.StepWaiter = (*Recorder)(nil)
 )
+
+// defaultStepsLimit is the page size StepsAfter uses for a limit of zero.
+const defaultStepsLimit = 100
 
 // New returns a recorder for the turn logs in cfg.Dir, creating the
 // directory if needed.
@@ -338,7 +349,93 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	case req.ExpectedSeq > n:
 		return rejected(dashi.ErrRevisionConflict)
 	}
-	return r.append(f, turnID, log, record)
+	if err := r.append(f, turnID, log, record); err != nil {
+		return err
+	}
+	r.wakes.Notify(turnID)
+	return nil
+}
+
+// StepsAfter returns up to limit committed steps after the cursor, following
+// the dashi.StepReader rules. It holds a shared lock on the log while it
+// reads, so it never sees a partly written line, and waits for a writer
+// holding the log until ctx ends. A damaged log gives an error matching
+// ErrCorrupt.
+func (r *Recorder) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	if limit <= 0 {
+		limit = defaultStepsLimit
+	}
+	after = max(after, 0)
+	ahead := func(n int64) error {
+		return fmt.Errorf(
+			"%w: turn %q has %d steps; cursor %d",
+			dashi.ErrCursorAhead,
+			turnID,
+			n,
+			after,
+		)
+	}
+	f, err := os.Open(r.Path(turnID))
+	if errors.Is(err, fs.ErrNotExist) {
+		if after > 0 {
+			return nil, ahead(0)
+		}
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("filerecorder: open log: %w", err)
+	}
+	defer f.Close()
+	if err := lock(ctx, f, false); err != nil {
+		return nil, fmt.Errorf("filerecorder: lock log: %w", err)
+	}
+	r.mu.Lock()
+	cached := r.index.get(turnID)
+	r.mu.Unlock()
+	log, data, err := scan(f, turnID, cached)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.index.put(turnID, log)
+	r.mu.Unlock()
+	n := int64(len(log.steps))
+	if after > n {
+		return nil, ahead(n)
+	}
+	base := log.size - int64(len(data))
+	page := log.steps[after:min(n, after+int64(limit))]
+	steps := make([]dashi.Step, len(page))
+	for i, entry := range page {
+		if steps[i], err = entry.decode(f, data, base); err != nil {
+			return nil, err
+		}
+	}
+	return steps, nil
+}
+
+// Wait returns once the turn has a step after the cursor, when this process
+// commits to the turn, or when ctx ends. It does not see commits from other
+// processes; dashi.Follow polls for those.
+func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
+	woken := r.wakes.Watch(turnID)
+	steps, err := r.StepsAfter(ctx, turnID, after, 1)
+	if err != nil || len(steps) > 0 {
+		// A read error is for StepsAfter to report; return and let the
+		// caller read.
+		return nil
+	}
+	select {
+	case <-woken:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // scan updates the turn's cached index from its log. The caller holds the
