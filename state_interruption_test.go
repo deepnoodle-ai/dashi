@@ -410,20 +410,6 @@ func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 	}
 }
 
-func TestLimitsInterruptionDefaultAndValidation(t *testing.T) {
-	if got := DefaultLimits().Interruptions; got != 10 {
-		t.Fatalf("default interruption limit=%d, want 10", got)
-	}
-	def := definition()
-	if got := def.Limits.interruptionLimit(); got != 10 {
-		t.Fatalf("legacy definition interruption limit=%d, want 10", got)
-	}
-	def.Limits.Interruptions = -1
-	if err := def.Validate(); err == nil {
-		t.Fatal("negative interruption limit was accepted")
-	}
-}
-
 func interruptionRecord(steps ...Step) Turn {
 	turn := Turn{ID: "interruption-test"}
 	for i, step := range steps {

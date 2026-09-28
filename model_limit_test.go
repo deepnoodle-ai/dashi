@@ -17,8 +17,7 @@ func limitedForAttempts(stop Stop) bool {
 
 func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	def := definition()
-	def.Limits = DefaultLimits()
-	def.Limits.ModelAttempts = 2
+	def.Limits = Limits{ModelAttempts: 2}
 	def.Settings.ToolChoice = &llm.ToolChoice{Mode: llm.ToolChoiceAny}
 	client := &scriptedClient{
 		results: []llm.Result{
@@ -125,7 +124,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	def := structuredDefinition()
 	def.Limits.ModelAttempts = 2
-	def.Limits.ReserveFinalAnswer = true
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("lookup-1", "lookup"),
@@ -222,7 +220,6 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 
 	def := structuredDefinition()
 	def.Limits.ModelAttempts = 2
-	def.Limits.ReserveFinalAnswer = true
 	final := &scriptedClient{
 		results: []llm.Result{
 			callResult("lookup-1", "lookup"),
@@ -261,7 +258,6 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 	def := definition()
 	def.Limits.ModelAttempts = 2
-	def.Limits.ReserveFinalAnswer = true
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("first", "lookup"),
@@ -311,7 +307,6 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	def := definition()
 	def.Limits.ModelAttempts = 2
-	def.Limits.ReserveFinalAnswer = true
 	client := &scriptedClient{
 		results: []llm.Result{callResult("first", "lookup"), final("42")},
 	}

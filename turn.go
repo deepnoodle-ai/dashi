@@ -3,6 +3,7 @@
 package kernel
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,40 +34,41 @@ type Definition struct {
 }
 
 // Limits bounds model calls, interruptions, pauses, tool concurrency, and time
-// for turns using a definition.
+// for turns using a definition. The zero value gives the default limits, so
+// set only the fields you want to change. For counts where "none" is a
+// meaningful setting, a negative value means none.
+//
+// Kernel resolves defaults when it accepts a definition and records the
+// resolved values, so a recorded turn keeps its limits even if the library
+// defaults change later.
 type Limits struct {
 	// ModelAttempts counts settled calls; interrupted calls have their own cap.
+	// Zero means 8. It must not be negative.
 	ModelAttempts int `json:"model_attempts"`
-
 	// Interruptions bounds how many times a stopped or crashed turn may be
-	// resumed. Zero uses the default to preserve older definitions.
-	Interruptions int `json:"interruptions,omitempty"`
-	// ProviderPauses bounds provider-requested continuations.
-	ProviderPauses  int `json:"provider_pauses"`
+	// resumed. Zero means 10; a negative value allows no resumes.
+	Interruptions int `json:"interruptions"`
+	// ProviderPauses bounds provider-requested continuations. Zero means 3;
+	// a negative value allows none.
+	ProviderPauses int `json:"provider_pauses"`
+	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
+	// It must not be negative.
 	ToolConcurrency int `json:"tool_concurrency"`
-	// ReserveFinalAnswer uses the last allowed model attempt for an answer
-	// after earlier attempts, without advertising application tools.
-	ReserveFinalAnswer bool      `json:"reserve_final_answer,omitempty"`
-	Deadline           time.Time `json:"deadline,omitzero"`
+	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
+	// the last allowed model attempt, after earlier attempts, asks for an
+	// answer without advertising application tools.
+	NoReservedFinalAnswer bool `json:"no_reserved_final_answer,omitempty"`
+	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
+	Deadline time.Time `json:"deadline,omitzero"`
 }
 
-// DefaultLimits returns the library's turn limits.
-func DefaultLimits() Limits {
-	return Limits{
-		ModelAttempts:      8,
-		Interruptions:      10,
-		ProviderPauses:     3,
-		ToolConcurrency:    1,
-		ReserveFinalAnswer: true,
-	}
-}
-
-func (l Limits) interruptionLimit() int {
-	if l.Interruptions == 0 {
-		return DefaultLimits().Interruptions
-	}
-	return l.Interruptions
-}
+// Default turn limits, applied when a Limits field is zero.
+const (
+	defaultModelAttempts   = 8
+	defaultInterruptions   = 10
+	defaultProviderPauses  = 3
+	defaultToolConcurrency = 1
+)
 
 // Validate checks required identity fields, limits, and output settings.
 func (d Definition) Validate() error {
@@ -77,9 +79,10 @@ func (d Definition) Validate() error {
 		d.Model == "" {
 		return errors.New("kernel: definition requires ID, revision, provider, API, and model")
 	}
-	if d.Limits.ModelAttempts < 1 || d.Limits.ToolConcurrency < 1 ||
-		d.Limits.ProviderPauses < 0 || d.Limits.Interruptions < 0 {
-		return errors.New("kernel: invalid limits")
+	if d.Limits.ModelAttempts < 0 || d.Limits.ToolConcurrency < 0 {
+		return errors.New(
+			"kernel: model attempts and tool concurrency cannot be negative",
+		)
 	}
 	if len(d.OutputSchema) > 0 {
 		if _, err := compileOutputSchema(d.OutputSchema); err != nil {
@@ -90,6 +93,19 @@ func (d Definition) Validate() error {
 		}
 	}
 	return nil
+}
+
+// resolved returns d with every zero limit replaced by its default and every
+// negative "none" count normalized to -1. Kernel records the result, so the
+// same definition always compares equal to its record. Runtime checks read -1
+// as zero allowed, through max(count, 0).
+func (d Definition) resolved() Definition {
+	l := &d.Limits
+	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
+	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
+	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
+	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
+	return d
 }
 
 // ContextItem carries content whose origin and replacement behavior are
@@ -551,4 +567,16 @@ func cloneTurn(t Turn) Turn {
 		out.Steps[i] = cloneStep(s)
 	}
 	return out
+}
+
+// resolveCount applies the default to a zero count and normalizes any
+// negative count to -1, which means none.
+func resolveCount(n, def int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n == 0:
+		return def
+	}
+	return n
 }

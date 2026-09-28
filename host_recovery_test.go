@@ -112,6 +112,9 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 }
 
 func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
+	// The third and last attempt must complete the turn normally.
+	def := definition()
+	def.Limits.NoReservedFinalAnswer = true
 	firstModel := callResult("job", "work")
 	firstModel.Usage = &llm.Usage{InputTokens: 2}
 	lastModel := final("done")
@@ -147,7 +150,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	first, err := (Engine{}).Apply(
 		t.Context(),
 		Turn{ID: "t1"},
-		definition(),
+		def,
 		startCommand,
 		binding("owner-a"),
 	)
@@ -168,7 +171,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || !view.ReadyToContinue {
 		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
 	}
-	changed := definition()
+	changed := def
 	changed.Revision = "r2"
 	_, err = (Engine{}).Apply(
 		t.Context(),
@@ -193,7 +196,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	stale, err := (Engine{}).Apply(
 		t.Context(),
 		saved,
-		definition(),
+		def,
 		proof,
 		binding("owner-a"),
 	)
@@ -203,7 +206,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	proved, err := (Engine{}).Apply(
 		t.Context(),
 		saved,
-		definition(),
+		def,
 		proof,
 		binding("owner-b"),
 	)
@@ -220,7 +223,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	waiting, err := (Engine{}).Apply(
 		t.Context(),
 		proved.Turn,
-		definition(),
+		def,
 		Continue{ID: "retry", History: history},
 		binding("owner-b"),
 	)
@@ -242,7 +245,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	stale, err = (Engine{}).Apply(
 		t.Context(),
 		waiting.Turn,
-		definition(),
+		def,
 		accept,
 		binding("owner-b"),
 	)
@@ -257,7 +260,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	accepted, err := (Engine{}).Apply(
 		t.Context(),
 		waiting.Turn,
-		definition(),
+		def,
 		accept,
 		binding("owner-c"),
 	)
@@ -274,7 +277,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	done, err := (Engine{}).Apply(
 		t.Context(),
 		accepted.Turn,
-		definition(),
+		def,
 		Continue{ID: "finish", History: history},
 		binding("owner-c"),
 	)
@@ -290,7 +293,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	duplicate, err := (Engine{}).Apply(
 		t.Context(),
 		waiting.Turn,
-		definition(),
+		def,
 		accept,
 		binding("owner-c"),
 	)

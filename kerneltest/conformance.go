@@ -257,7 +257,6 @@ func startStep(id string) kernel.Step {
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
-		Limits:   kernel.DefaultLimits(),
 	}
 	return kernel.Step{
 		Version:       1,
