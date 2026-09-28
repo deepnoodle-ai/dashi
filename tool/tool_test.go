@@ -304,3 +304,61 @@ func newSearchTool(t *testing.T, calls *int) Tool {
 func searchCall(args string) Call {
 	return Call{ID: "call-1", Name: "search", Args: json.RawMessage(args)}
 }
+
+func TestListReturnsCopy(t *testing.T) {
+	list := List{{Definition: Definition{Name: "a"}}}
+	got, err := list.Tools(t.Context())
+	if err != nil || len(got) != 1 || got[0].Definition.Name != "a" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	got[0].Definition.Name = "changed"
+	if list[0].Definition.Name != "a" {
+		t.Fatalf("list shares its backing array: %+v", list)
+	}
+}
+
+func TestOutcomeConstructors(t *testing.T) {
+	valid := map[string]Outcome{
+		"succeeded":       Succeeded("done"),
+		"succeeded empty": Succeeded(""),
+		"failed":          Failed("broken"),
+		"waiting":         Waiting("needs review"),
+		"detached":        Detached("job-1"),
+	}
+	for name, out := range valid {
+		if err := out.Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if s := Succeeded("done"); s.State != StateSucceeded ||
+		s.Output.Content[0].Text.Text != "done" {
+		t.Errorf("succeeded = %+v", s)
+	}
+	if f := Failed("broken"); f.State != StateFailed ||
+		f.Output.Content[0].Text.Text != "broken" {
+		t.Errorf("failed = %+v", f)
+	}
+	for name, out := range map[string]Outcome{
+		"waiting without reason":  Waiting(""),
+		"detached without handle": Detached(""),
+	} {
+		if err := out.Validate(); err == nil {
+			t.Errorf("%s: want invalid", name)
+		}
+	}
+}
+
+func TestFuncRequiresStructArguments(t *testing.T) {
+	fn := func(context.Context, Call, string) (Outcome, error) {
+		return Succeeded(""), nil
+	}
+	if _, err := Func("echo", "", fn); err == nil {
+		t.Fatal("string arguments: want error")
+	}
+	ptr := func(context.Context, Call, *searchInput) (Outcome, error) {
+		return Succeeded(""), nil
+	}
+	if _, err := Func("search", "", ptr); err != nil {
+		t.Fatalf("pointer to struct: %v", err)
+	}
+}

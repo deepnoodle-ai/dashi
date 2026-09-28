@@ -64,7 +64,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		out, _ := (Runner{
 			Agent:    def,
 			Client:   client,
-			Tools:    fixedTools{first, second},
+			Tools:    tool.List{first, second},
 			Recorder: rec,
 			Policy:   AllowLocalPolicy{},
 		}).Run(
@@ -175,7 +175,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 		out, _ := (Runner{
 			Agent:    testAgent(),
 			Client:   client,
-			Tools:    fixedTools{makeTool("first"), makeTool("second"), third},
+			Tools:    tool.List{makeTool("first"), makeTool("second"), third},
 			Recorder: rec,
 			Policy:   AllowLocalPolicy{},
 		}).Run(
@@ -225,7 +225,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 	first, err := start(
 		t,
 		client,
-		fixedTools{
+		tool.List{
 			tool.Tool{
 				Definition: tool.Definition{
 					Name:   "write",
@@ -319,7 +319,7 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 	out, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(

@@ -81,7 +81,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		}),
 	}
 	rec := NewMemoryRecorder()
-	out := applyStructured(t, client, fixedTools{binding}, rec)
+	out := applyStructured(t, client, tool.List{binding}, rec)
 	if out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"answer":42}` ||
 		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v sends=%d runs=%d", out, client.sends, runs)
@@ -106,7 +106,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	again, err := (Runner{
 		Agent:    structuredAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(

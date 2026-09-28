@@ -44,7 +44,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	out, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -83,7 +83,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	again, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -106,7 +106,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	if _, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), out.Turn, Continue{CommandID: "too-late"}); err == nil {
@@ -127,7 +127,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	out, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -225,7 +225,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	runner := Runner{
 		Agent:    def,
 		Client:   final,
-		Tools:    fixedTools{answerLookup()},
+		Tools:    tool.List{answerLookup()},
 		Recorder: NewMemoryRecorder(),
 		Policy:   AllowLocalPolicy{},
 	}
@@ -273,7 +273,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 	out, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -318,7 +318,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	first, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -339,7 +339,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	second, err := (Runner{
 		Agent:    def,
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})

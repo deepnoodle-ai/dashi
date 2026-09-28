@@ -328,7 +328,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 	runner := Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{local},
+		Tools:    tool.List{local},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}

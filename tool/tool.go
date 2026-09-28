@@ -263,6 +263,36 @@ const (
 	StateDetached State = "detached"
 )
 
+// Succeeded returns a successful outcome whose output is text. An empty text
+// is valid.
+func Succeeded(text string) Outcome {
+	return Outcome{State: StateSucceeded, Output: new(TextOutput(text))}
+}
+
+// Failed returns a failed outcome whose output is text, which the model sees.
+// In an executor, return an error instead: the runner records it as a failure
+// the model sees and keeps the error text for the host. Use Failed when
+// settling an external or detached call, or to attach a Cost to a failure.
+func Failed(text string) Outcome {
+	return Outcome{State: StateFailed, Output: new(TextOutput(text))}
+}
+
+// Waiting returns an outcome that pauses the call until the host settles it.
+// reason is required; set Wait.Prompt on the result to add a question or
+// instruction for the user. Waiting("") is invalid, and the runner stops the
+// turn with ErrInvalidOutcome if an executor returns it.
+func Waiting(reason string) Outcome {
+	return Outcome{State: StateWaiting, Wait: &Wait{Reason: reason}}
+}
+
+// Detached returns an outcome for work that continues elsewhere and whose
+// result the host records later with Settle. handleID correlates that result
+// and is required: Detached("") is invalid, and the runner stops the turn
+// with ErrInvalidOutcome if an executor returns it.
+func Detached(handleID string) Outcome {
+	return Outcome{State: StateDetached, Handle: &Handle{ID: handleID}}
+}
+
 // Wait describes why a call is waiting before it can complete.
 type Wait struct {
 	// Reason is required so the host can explain why execution is waiting.
@@ -414,12 +444,20 @@ func (e fatalError) Is(target error) bool {
 }
 
 // Tool pairs a definition with the executor that runs its calls.
+//
+// A Tool with a nil Executor is definition-only: the model sees it, but the
+// runner never executes it. That is meaningful for two kinds. A
+// KindProviderHosted tool runs inside the model call, so the runner neither
+// dispatches it nor consults a Policy; provider packages construct these. A
+// KindExternal tool is checked by the Policy like a local tool, then waits
+// until the host records its result with Settle. A local or unspecified-kind
+// tool with a nil Executor stops the turn as failed when the model calls it.
 type Tool struct {
 	// Definition is presented to the model; copying Tool shares its nested
 	// data.
 	Definition Definition
 
-	// Executor runs local calls and may be nil for external or provider-hosted
+	// Executor runs local calls and is nil for external or provider-hosted
 	// tools.
 	Executor Executor
 }
@@ -429,6 +467,17 @@ type Tool struct {
 type Toolset interface {
 	// Tools resolves the definitions and executors available for this call.
 	Tools(context.Context) ([]Tool, error)
+}
+
+// List is a fixed Toolset: every model call sees the same tools.
+//
+//	runner.Tools = tool.List{weather, search}
+type List []Tool
+
+// Tools returns a copy of l, so callers that append to the result never
+// write into l's backing array.
+func (l List) Tools(context.Context) ([]Tool, error) {
+	return slices.Clone(l), nil
 }
 
 func cloneBool(p *bool) *bool {

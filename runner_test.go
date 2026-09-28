@@ -74,12 +74,6 @@ func (c *scriptedClient) Send(
 	return result, err
 }
 
-type fixedTools []tool.Tool
-
-func (f fixedTools) Tools(context.Context) ([]tool.Tool, error) {
-	return []tool.Tool(f), nil
-}
-
 type execFunc func(context.Context, tool.Call) (tool.Outcome, error)
 
 func (f execFunc) Execute(
@@ -216,7 +210,7 @@ func TestExternalToolSettlement(t *testing.T) {
 			Kind:   tool.KindExternal,
 		},
 	}
-	got, err := start(t, client, fixedTools{external}, rec, AllowLocalPolicy{})
+	got, err := start(t, client, tool.List{external}, rec, AllowLocalPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +224,7 @@ func TestExternalToolSettlement(t *testing.T) {
 	accepted, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -247,7 +241,7 @@ func TestExternalToolSettlement(t *testing.T) {
 	completed, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
@@ -264,7 +258,7 @@ func TestExternalToolSettlement(t *testing.T) {
 	same, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{external},
+		Tools:    tool.List{external},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(
@@ -361,7 +355,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, fixedTools{binding}, rec, denyPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, denyPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +369,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	resumed, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   AllowLocalPolicy{},
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
@@ -436,7 +430,7 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, fixedTools{binding}, rec, rewritePolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, rewritePolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +466,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, fixedTools{binding}, rec, deferredPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, deferredPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +482,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	_, err = (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   deferredPolicy{},
 	}).Run(
@@ -512,7 +506,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	accepted, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   deferredPolicy{},
 	}).Run(
@@ -529,7 +523,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 	completed, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    fixedTools{binding},
+		Tools:    tool.List{binding},
 		Recorder: rec,
 		Policy:   deferredPolicy{},
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
@@ -933,7 +927,7 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 			}, nil
 		}),
 	}
-	got, err := start(t, client, fixedTools{binding}, rec, AllowLocalPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, AllowLocalPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1051,7 +1045,7 @@ func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 	got, err := start(
 		t,
 		client,
-		fixedTools{first, second},
+		tool.List{first, second},
 		rec,
 		AllowLocalPolicy{},
 	)
@@ -1461,7 +1455,7 @@ func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
 			Kind:   tool.KindLocal,
 		},
 	}
-	got, err := start(t, client, fixedTools{binding}, rec, deferredPolicy{})
+	got, err := start(t, client, tool.List{binding}, rec, deferredPolicy{})
 	if err != nil || got.Stop.Kind != StopWaiting {
 		t.Fatalf("start: stop=%+v err=%v", got.Stop, err)
 	}

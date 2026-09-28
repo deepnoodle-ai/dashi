@@ -17,6 +17,10 @@ import (
 // Func builds a local tool from typed Go arguments. The input schema is
 // generated from T once, at construction, and both the returned Definition and
 // argument validation use it; construct a new tool when the contract changes.
+// T must be a struct: each field is required unless its json tag has
+// omitempty, and description and enum tags describe it to the model.
+// Arguments that do not match the schema are refused before fn runs; see
+// docs/guides/model-calls.md#defining-tools for the complete rules.
 // The callback also receives the stable call identity, suitable for downstream
 // idempotency and reconciliation. An error from the callback is returned
 // unchanged, so it follows the Executor contract: a plain error goes to the
@@ -40,6 +44,13 @@ func Func[T any](
 			"tool: %q: generate schema: %w",
 			name,
 			err,
+		)
+	}
+	if s.Type != schema.Object {
+		return Tool{}, fmt.Errorf(
+			"tool: %q: arguments type %T must be a struct",
+			name,
+			zero,
 		)
 	}
 	raw, err := json.Marshal(s)
