@@ -39,9 +39,12 @@ type Client struct {
 
 	// Headers is an owned template cloned for each dispatch.
 	Headers http.Header
-	scope   string
-	models  map[string]llm.ModelInfo
-	policy  llm.CapabilityPolicy
+	// Classify refines rejected responses with an llm.ErrorReason. Nil
+	// applies only the provider-independent rules.
+	Classify Classifier
+	scope    string
+	models   map[string]llm.ModelInfo
+	policy   llm.CapabilityPolicy
 }
 
 // NewClient snapshots configuration and derives a replay namespace from the
@@ -195,8 +198,10 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	if KnownRejection(pe.statusCode) {
 		disposition = llm.FailureRejected
 	}
-	return nil, &llm.Error{Provider: c.Provider, Category: category, Disposition: disposition, Status: pe.statusCode,
-		Code: pe.code, Body: body, RetryAfter: pe.retryAfter,
+	rejection := ParseRejection(pe.statusCode, body)
+	rejection.HasMedia = HasMedia(request)
+	return nil, &llm.Error{Provider: c.Provider, Category: category, Reason: Reason(c.Classify, rejection),
+		Disposition: disposition, Status: pe.statusCode, Code: pe.code, Body: body, RetryAfter: pe.retryAfter,
 		Retryable: shouldRetry(pe.statusCode, pe.code), Cause: pe}
 }
 

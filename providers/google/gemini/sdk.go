@@ -218,7 +218,10 @@ func (r *captureBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func sdkError(provider string, err error, body []byte) error {
+// sdkError converts an SDK failure. hasMedia reports whether the request
+// carried media, which media classification requires; the provider-independent
+// rules apply after Gemini's own, as they do for other HTTP providers.
+func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 	var api genai.APIError
 	var apiPointer *genai.APIError
 	if errors.As(err, &api) || errors.As(err, &apiPointer) {
@@ -238,8 +241,9 @@ func sdkError(provider string, err error, body []byte) error {
 		if providerhttp.KnownRejection(api.Code) {
 			disposition = llm.FailureRejected
 		}
-		return &llm.Error{Provider: provider, Category: category, Disposition: disposition, Status: api.Code,
-			Body: bytes.Clone(body), Retryable: api.Code == 408 || api.Code == 429 || api.Code >= 500, Cause: err}
+		rejection := providerhttp.Rejection{Status: api.Code, Type: api.Status, Message: api.Message, HasMedia: hasMedia}
+		return &llm.Error{Provider: provider, Category: category, Reason: providerhttp.Reason(errorReason, rejection),
+			Disposition: disposition, Status: api.Code, Body: bytes.Clone(body), Retryable: api.Code == 408 || api.Code == 429 || api.Code >= 500, Cause: err}
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }

@@ -91,6 +91,7 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Classify = providerhttp.OpenAIReason
 	return &Client{client: client, systemRole: config.SystemRole,
 		costField: config.ReportedCostField, costCurrency: config.CostCurrency}, nil
 }

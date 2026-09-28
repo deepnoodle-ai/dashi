@@ -84,6 +84,7 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Classify = providerhttp.OpenAIReason
 	return &Client{client: client}, nil
 }
 
@@ -250,7 +251,7 @@ var apiLimits = llm.Capabilities{
 // result may still carry the content received before the failure.
 func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
-	wire := codec{origin: p.client.Origin(prepared.Input().Model)}
+	wire := codec{origin: p.client.Origin(prepared.Input().Model), media: providerhttp.HasMedia(prepared.Input())}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
@@ -281,6 +282,9 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 // codec carries call-specific provenance through encoding and decoding.
 type codec struct {
 	origin content.Origin
+	// media reports whether the request being sent carries media, so errors
+	// reported in its response body can be classified as media rejections.
+	media bool
 }
 
 // encodeData encodes a shared content block as a Responses content part.
@@ -534,12 +538,12 @@ func (wire codec) decode(raw []byte, requested llm.ModelRef) (llm.Result, error)
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(stop), Raw: rawStop}
 	if v.Status == "failed" || (len(v.Error) > 0 && string(v.Error) != "null") {
 		r.Stop.Kind = llm.StopIncomplete
-		return r, &llm.Error{
+		return r, providerhttp.Classify(&llm.Error{
 			Provider: wire.origin.Provider,
 			Category: llm.ErrorProtocol,
 			Body:     slices.Clone(v.Error),
 			Cause:    errors.New("responses: provider reported response failure"),
-		}
+		}, providerhttp.OpenAIReason, wire.media)
 	}
 	return r, nil
 }

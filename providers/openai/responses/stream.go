@@ -163,7 +163,7 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 		case "response.completed", "response.incomplete", "response.failed":
 			return wire.decode(e.Response, result.Requested)
 		case "error":
-			return build(), &llm.Error{Provider: wire.origin.Provider, Category: llm.ErrorProtocol, Body: raw}
+			return build(), providerhttp.Classify(&llm.Error{Provider: wire.origin.Provider, Category: llm.ErrorProtocol, Body: raw}, providerhttp.OpenAIReason, wire.media)
 		default:
 			// Lifecycle metadata and final snapshots carry no additional deltas.
 			// Unknown delta shapes must not disappear silently.

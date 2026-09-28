@@ -47,7 +47,7 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 			return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "decode stream chunk: %w", err)
 		}
 		if len(envelope["error"]) > 0 {
-			return build(), &llm.Error{Provider: wire.origin.Provider, Category: llm.ErrorProtocol, Body: raw}
+			return build(), providerhttp.Classify(&llm.Error{Provider: wire.origin.Provider, Category: llm.ErrorProtocol, Body: raw}, errorReason, wire.media)
 		}
 		var chunk responseWire
 		if err := json.Unmarshal(raw, &chunk); err != nil {
