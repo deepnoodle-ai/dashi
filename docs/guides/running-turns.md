@@ -73,7 +73,19 @@ call. Work already running finishes.
 `Runner.Recorder` may be omitted. Dashi uses a fresh in-memory recorder
 for that call, and you can pass the returned `Outcome.Turn` to a later call in
 the same process. Bind a durable recorder when turns must resume across
-processes.
+processes. `filerecorder` keeps each turn in an append-only file on local
+disk and is safe for several processes sharing the directory:
+
+```go
+recorder, err := filerecorder.New(filerecorder.Config{Dir: "var/turns"})
+runner := dashi.Runner{Agent: agent, Client: client, Recorder: recorder}
+```
+
+To keep turns in your database instead, implement `dashi.Recorder` and
+`dashi.Loader`. The `Recorder` doc comment states the rules; compare a
+retried step with the recorded one using `Step.Equal`, and check your
+recorder with `dashitest.Run`. See [durable recorders](../../design/durable-recorders.md)
+for what a SQL recorder must guarantee.
 
 An interrupted model call is sent again; its partial output is display-only,
 while its usage still counts toward spend. A started tool without a result is
