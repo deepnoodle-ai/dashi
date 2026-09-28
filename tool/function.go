@@ -11,6 +11,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,14 @@ func Func[T any](
 	raw, err := json.Marshal(s)
 	if err != nil {
 		return Tool{}, err
+	}
+	raw, err = normalizeNullableSchema(raw)
+	if err != nil {
+		return Tool{}, fmt.Errorf(
+			"tool: %q: normalize schema: %w",
+			name,
+			err,
+		)
 	}
 	d := Definition{
 		Name:        name,
@@ -189,7 +198,15 @@ func checkFieldTypes(
 	}
 	seen[t] = true
 	for field := range t.Fields() {
-		_, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		name, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if field.IsExported() {
+			if err := checkNullableTag(t, field); err != nil {
+				return err
+			}
+		}
 		if slices.Contains(strings.Split(opts, ","), "string") {
 			return fmt.Errorf(
 				"field %s.%s: the json \",string\" option is not supported",
@@ -203,6 +220,130 @@ func checkFieldTypes(
 		}
 	}
 	return nil
+}
+
+// checkNullableTag refuses tags that would make the generated schema disagree
+// with encoding/json. Wonton otherwise silently ignores malformed values and
+// emits no base type for interfaces and json.RawMessage.
+func checkNullableTag(owner reflect.Type, field reflect.StructField) error {
+	raw, ok := field.Tag.Lookup("nullable")
+	if !ok {
+		return nil
+	}
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+	if name == "-" {
+		return nil
+	}
+	path := fmt.Sprintf("field %s.%s", owner, field.Name)
+	if field.Anonymous && name == "" {
+		base := field.Type
+		if base.Kind() == reflect.Pointer {
+			base = base.Elem()
+		}
+		if base.Kind() == reflect.Struct {
+			return fmt.Errorf("%s: nullable tag on flattened field is unsupported", path)
+		}
+	}
+	nullable, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fmt.Errorf("%s: invalid nullable tag %q", path, raw)
+	}
+	if nullable && field.Type.Kind() != reflect.Pointer {
+		return fmt.Errorf("%s: nullable:true requires a pointer", path)
+	}
+	if !nullable && unconstrainedSchemaType(field.Type) {
+		return fmt.Errorf(
+			"%s: nullable:false cannot exclude null from an unconstrained schema",
+			path,
+		)
+	}
+	return nil
+}
+
+func unconstrainedSchemaType(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t.Kind() == reflect.Interface || t == reflect.TypeFor[json.RawMessage]()
+}
+
+// normalizeNullableSchema turns Wonton's nullable extension into standard JSON
+// Schema before the same bytes are published and compiled. RawMessage maps
+// preserve number and default values while descending through generated nodes.
+func normalizeNullableSchema(raw []byte) ([]byte, error) {
+	if !bytes.Contains(raw, []byte(`"nullable"`)) {
+		return raw, nil
+	}
+	var node map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return nil, err
+	}
+	if value, ok := node["nullable"]; ok {
+		var nullable bool
+		if err := json.Unmarshal(value, &nullable); err != nil {
+			return nil, err
+		}
+		delete(node, "nullable")
+		if nullable {
+			if value, ok := node["type"]; ok {
+				var base string
+				if err := json.Unmarshal(value, &base); err != nil {
+					return nil, err
+				}
+				union, err := json.Marshal([]string{base, "null"})
+				if err != nil {
+					return nil, err
+				}
+				node["type"] = union
+			}
+			if value, ok := node["enum"]; ok {
+				var values []json.RawMessage
+				if err := json.Unmarshal(value, &values); err != nil {
+					return nil, err
+				}
+				if !slices.ContainsFunc(values, func(v json.RawMessage) bool {
+					return bytes.Equal(bytes.TrimSpace(v), []byte("null"))
+				}) {
+					values = append(values, json.RawMessage("null"))
+				}
+				encoded, err := json.Marshal(values)
+				if err != nil {
+					return nil, err
+				}
+				node["enum"] = encoded
+			}
+		}
+	}
+	if value, ok := node["properties"]; ok {
+		var properties map[string]json.RawMessage
+		if err := json.Unmarshal(value, &properties); err != nil {
+			return nil, err
+		}
+		for name, property := range properties {
+			var err error
+			properties[name], err = normalizeNullableSchema(property)
+			if err != nil {
+				return nil, fmt.Errorf("property %q: %w", name, err)
+			}
+		}
+		var err error
+		node["properties"], err = json.Marshal(properties)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range []string{"items", "additionalProperties"} {
+		value, ok := node[name]
+		if !ok || len(value) == 0 || value[0] != '{' {
+			continue
+		}
+		var err error
+		node[name], err = normalizeNullableSchema(value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return json.Marshal(node)
 }
 
 // compileSchema compiles a generated schema. Generated schemas are

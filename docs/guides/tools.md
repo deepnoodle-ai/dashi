@@ -48,8 +48,14 @@ function runs. The rules:
   `minItems`, and `maxItems` constrain it; a malformed number tag is ignored.
 - `default` and `example` are hints to the model only: a default is never
   applied to an omitted field.
-- `nullable` is written to the schema, but validation still refuses `null`
-  for a pointer field.
+- Pointer fields accept an explicit JSON `null` and decode it as nil. A pointer
+  field is still required unless its `json` tag has `omitempty` or a
+  `required:"false"` tag. An omitted optional pointer also decodes as nil;
+  inspect `call.Args` when the distinction between omitted and null matters.
+- `nullable:"false"` can forbid null for a pointer with a concrete schema
+  type. `nullable:"true"` on a non-pointer field, and `nullable:"false"` on an
+  unconstrained `*any` or `*json.RawMessage`, fail when the tool is built.
+  Malformed `nullable` tags and tags on flattened embedded structs fail too.
 - Nested structs are closed at every level: unknown properties are refused.
   An embedded struct without a `json` name is flattened, and its fields are
   optional when it is embedded by pointer; with a name it is a regular field.
