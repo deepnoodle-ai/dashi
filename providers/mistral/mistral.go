@@ -4,9 +4,11 @@
 package mistral
 
 import (
+	"context"
 	"net/http"
 	"os"
 
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
@@ -26,6 +28,7 @@ type Config struct {
 // Client uses the Chat Completions format with Mistral's destination identity.
 type Client struct {
 	*completions.Client
+	noKey error
 }
 
 var _ llm.Client = (*Client)(nil)
@@ -50,5 +53,22 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: client}, nil
+	return &Client{
+		Client: client,
+		noKey: providerhttp.NoAPIKey(
+			client.Provider(),
+			config.APIKey,
+			config.Endpoint == DefaultEndpoint && config.Client == nil,
+			"MISTRAL_API_KEY",
+		),
+	}, nil
+}
+
+// Send fails before dispatch, with an error wrapping llm.ErrNoAPIKey, when
+// New found no API key for the public endpoint.
+func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	if c.noKey != nil {
+		return llm.Result{}, c.noKey
+	}
+	return c.Client.Send(ctx, call)
 }

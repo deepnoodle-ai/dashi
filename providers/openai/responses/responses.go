@@ -42,7 +42,9 @@ type Config struct {
 	// require an explicit name.
 	Provider string
 
-	// APIKey defaults to OPENAI_API_KEY at construction time.
+	// APIKey defaults to OPENAI_API_KEY at construction time. With no key
+	// for the public endpoint, New and Prepare still succeed and Send fails
+	// before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint defaults to the public API URL.
@@ -83,6 +85,7 @@ func New(config Config) (*Client, error) {
 	if config.Endpoint == "" {
 		config.Endpoint = endpoint
 	}
+	public := config.Endpoint == endpoint && config.Client == nil
 	if config.Provider == "" {
 		if config.Endpoint != endpoint {
 			return nil, errors.New("responses: custom endpoint requires provider identity")
@@ -105,6 +108,12 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	client.Classify = providerhttp.OpenAIReason
+	client.NoKey = providerhttp.NoAPIKey(
+		config.Provider,
+		config.APIKey,
+		public,
+		"OPENAI_API_KEY",
+	)
 	return &Client{client: client}, nil
 }
 

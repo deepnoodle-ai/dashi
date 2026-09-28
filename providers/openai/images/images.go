@@ -21,6 +21,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/media"
 	"github.com/deepnoodle-ai/dashi/model"
 )
@@ -37,7 +38,9 @@ type Config struct {
 	// public endpoint defaults to "openai"; custom endpoints require a name.
 	Provider string
 
-	// APIKey defaults to OPENAI_API_KEY when New is called.
+	// APIKey defaults to OPENAI_API_KEY when New is called. With no key for
+	// the public endpoint, New and PrepareImage still succeed and SendImage
+	// fails before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
 
 	// Endpoint defaults to the public /v1 base URL.
@@ -62,6 +65,7 @@ type Client struct {
 	provider string
 	endpoint string
 	apiKey   string
+	noKey    error
 	http     *http.Client
 	scope    string
 	models   map[string]media.ModelInfo
@@ -76,11 +80,16 @@ func New(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		config.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
-	if config.APIKey == "" {
-		return nil, errors.New("images: API key is required")
-	}
 	if config.Endpoint == "" {
 		config.Endpoint = defaultEndpoint
+	}
+	var noKey error
+	if config.APIKey == "" && config.Endpoint == defaultEndpoint &&
+		config.Client == nil {
+		noKey = fmt.Errorf(
+			"%w: set OPENAI_API_KEY or Config.APIKey",
+			llm.ErrNoAPIKey,
+		)
 	}
 	if config.Provider == "" {
 		if config.Endpoint != defaultEndpoint {
@@ -120,6 +129,7 @@ func New(config Config) (*Client, error) {
 		provider: config.Provider,
 		endpoint: config.Endpoint,
 		apiKey:   config.APIKey,
+		noKey:    noKey,
 		http:     config.Client,
 		scope:    fmt.Sprintf("%x", sha256.Sum256(scopeBytes)),
 		models:   catalog,
@@ -220,6 +230,9 @@ func (c *Client) PrepareImageWithOptions(ctx context.Context,
 // transport error does not establish whether OpenAI received the request.
 func (c *Client) SendImage(ctx context.Context,
 	request media.ImageRequest) (media.Result, error) {
+	if c.noKey != nil {
+		return media.Result{}, c.failure(media.ErrorAuthentication, c.noKey)
+	}
 	input := request.Input()
 	if request.Origin() != c.origin(input.Model) {
 		return media.Result{}, c.failure(

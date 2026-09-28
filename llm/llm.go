@@ -631,6 +631,13 @@ const (
 	ReasonMediaRejected ErrorReason = "media_rejected"
 )
 
+// ErrNoAPIKey reports a client built without an API key for an endpoint that
+// needs one. Construction and Prepare still succeed, so offline work such as
+// tests and cost estimates needs no key; Send fails before dispatch with an
+// *Error of category ErrorAuthentication that wraps ErrNoAPIKey and names the
+// environment variables the constructor read.
+var ErrNoAPIKey = errors.New("llm: no API key")
+
 // Error is a categorized provider failure. Status, Code, and Body carry the
 // provider's response when there was one; RetryAfter is the provider's hint,
 // or zero.

@@ -30,6 +30,9 @@ const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
 // supply their own stable Provider name and Endpoint.
 type Config struct {
 	Provider string
+	// APIKey defaults to OPENAI_API_KEY at construction time. With no key
+	// for the public endpoint, New and Prepare still succeed and Send fails
+	// before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey   string
 	Endpoint string
 	Client   *http.Client
@@ -67,6 +70,7 @@ func New(config Config) (*Client, error) {
 	if config.Endpoint == "" {
 		config.Endpoint = openAIEndpoint
 	}
+	public := config.Endpoint == openAIEndpoint && config.Client == nil
 	if config.Provider == "" {
 		if config.Endpoint != openAIEndpoint {
 			return nil, errors.New("completions: custom endpoint requires provider identity")
@@ -105,6 +109,12 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	client.Classify = providerhttp.OpenAIReason
+	client.NoKey = providerhttp.NoAPIKey(
+		config.Provider,
+		config.APIKey,
+		public,
+		"OPENAI_API_KEY",
+	)
 	return &Client{
 		client:       client,
 		systemRole:   config.SystemRole,

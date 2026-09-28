@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
@@ -29,6 +30,7 @@ type Config struct {
 // Client reports DeepInfra's usage.estimated_cost as a provider estimate.
 type Client struct {
 	*completions.Client
+	noKey error
 }
 
 var _ llm.Client = (*Client)(nil)
@@ -65,7 +67,15 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: client}, nil
+	return &Client{
+		Client: client,
+		noKey: providerhttp.NoAPIKey(
+			client.Provider(),
+			config.APIKey,
+			config.Endpoint == DefaultEndpoint && config.Client == nil,
+			"DEEP_INFRA_API_KEY, DEEPINFRA_API_KEY, or DEEPINFRA_TOKEN",
+		),
+	}, nil
 }
 
 // Prepare rejects media documents before dispatch because DeepInfra's Chat
@@ -87,4 +97,13 @@ func (p *Client) Prepare(
 		}
 	}
 	return p.Client.Prepare(ctx, input)
+}
+
+// Send fails before dispatch, with an error wrapping llm.ErrNoAPIKey, when
+// New found no API key for the public endpoint.
+func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	if c.noKey != nil {
+		return llm.Result{}, c.noKey
+	}
+	return c.Client.Send(ctx, call)
 }
