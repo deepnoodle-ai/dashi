@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Reviewed for implementation; code review pending, 2026-09-28 |
+| Status | Implemented; independently reviewed; PR open, 2026-09-28 |
 | Roadmap | [Item 10](../remaining-work.md), S / medium difficulty |
 | Evidence | [Source survey](10-extra-tool-args-research.md), [tools guide](../../docs/guides/tools.md), [Pi edit-call report](https://github.com/earendil-works/pi/issues/6278) |
 
@@ -43,7 +43,7 @@ This changes the default of existing `tool.Func` calls, including downstream too
 
 Two alternatives were considered. Keeping strictness by default and adding a lenient option avoids a behavior change but leaves every ordinary tool exposed to a needless repair step. Stripping extras into a new effective `Call.Args` would mislead hooks or audit records. Canonicalizing only for validation and typed decoding preserves the raw recorded call and Dashi's existing JSON meaning; hand-written and external tool contracts are unaffected.
 
-## Review questions
+## Review outcomes
 
-- Is `WithStrictArguments()` the clearest small opt-in name, or does the tool package's constructor style call for an options value? This does not change the proposed semantics.
-- The call-site audit above is a proposed migration choice. Review whether any other example's user-facing meaning also needs exact keys; do not alter hand-written or provider-owned tool contracts by default.
+- The PRD received independent feedback. `WithStrictArguments()` was chosen as the small per-tool opt-in; the call-site audit selected the three side-effecting examples above.
+- Two independent code review rounds caught case-folded aliases, a duplicate-key replay mismatch against [decision 27](../decisions.md), and an extra Toolset lookup. The implementation and tests now cover those cases.
