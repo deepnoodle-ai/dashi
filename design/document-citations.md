@@ -1,231 +1,143 @@
 # Documents, citations, and content construction
 
-**Status:** Proposal · **Date:** 2026-09-28 · **Addresses:**
+**Status:** Accepted · **Date:** 2026-09-28 · **Addresses:**
 [gaps/F](gaps/F-example-ports.md) 9.1, 9.2, 9.3, 9.6, 9.7, 9.8, 5.1
 
 ## Problem
 
 Dive's `citations_example` asked Claude to cite a plain-text document and
-printed each citation. Dashi cannot do this today:
+printed each citation. Dashi could not: nothing requested citations, inline text
+documents were sent as base64 (Anthropic accepts that only for PDFs) and failed
+at send, and decoding read `title` where document citations carry
+`document_title`. Around this, content took three nested constructors, inline
+bytes needed a hand-detected MIME type, and structured output needed a
+hand-built schema.
 
-- `content.Document` has no way to request citations, and Anthropic returns
-  document citations only when a document enables them. Supplying the flag
-  through replay data needs the destination's private scope hash, so a caller
-  cannot do it either.
-- Inline documents are always sent to Anthropic as base64, which it accepts only
-  for PDFs. A text document fails at send, not at prepare.
-- Decoding reads a citation's `title`, but document citations carry
-  `document_title`, so their titles come back empty. Where a citation points
-  (page or character range) is only in `Raw`.
+## Decisions
 
-Around this, building content takes too many layers
-(`llm.UserMessage(llm.Block(content.ImageBlock(src)))`), inline bytes need a
-hand-detected MIME type, and structured output needs a hand-built schema.
-
-## Proposal
-
-### Requesting citations (9.1)
+### Citations are a request setting (9.1)
 
 ```go
-// content
-type Document struct {
-	Source Source `json:"source"`
-	Title  string `json:"title,omitempty"`
-	// Citations asks the model to cite passages of this document. APIs that
-	// cannot honor it send the document without it and warn.
-	Citations bool `json:"citations,omitempty"`
-}
+// llm.Settings
+Citations bool `json:"citations,omitempty"`
+```
 
-// Location says where a document citation points. Ranges are half-open:
-// [Start, End). Pages count from 1; characters and blocks from 0.
+Set through `Agent.Settings` or `Input.Settings`. Anthropic requires citations
+on all documents in a request or none, and no other supported API has a
+per-document switch, so a request-level setting is the honest shape; a
+per-document flag would invite mixed requests Anthropic rejects.
+
+- **Anthropic** marks every document in the request, including documents in tool
+  results, with `"citations": {"enabled": true}`.
+- **Other APIs** declare the capability unsupported. `Fit` omits the setting
+  through the existing path: an `omit` adjustment with a `setting_omitted`
+  warning, or an Unsupported error under `CapabilityStrict`. It does so only
+  when the request contains a document; otherwise the setting has no effect and
+  nothing is warned.
+
+Citations cost a little more input and split the answer into several text
+blocks, one per cited passage. The answer accessor must join adjacent text
+blocks without inserting separators.
+
+Decoded document citations carry their title and a location:
+
+```go
 type CitationLocation struct {
-	Document int          `json:"document"` // index among the request's documents
-	Unit     LocationUnit `json:"unit"`     // "page", "char", or "block"
-	Start    int          `json:"start"`
-	End      int          `json:"end"`
-}
-
-type Citation struct {
-	URL, Title, Text string
-	Location *CitationLocation // new; nil for web and URL citations
-	Origin   Origin
-	Raw      json.RawMessage
+	DocumentIndex int          // see below
+	Unit          LocationUnit // LocationPage or LocationChar
+	Start, End    int          // half-open; pages count from 1, chars from 0
 }
 ```
 
-**Anthropic** sends `"citations": {"enabled": true}` on each requesting document
-and decodes `document_title`, `cited_text`, and the location of `char_location`,
-`page_location`, and `content_block_location` citations. Anthropic requires
-citations on all documents in a request or none. When some documents request
-them and others do not (common once a conversation adds a second document),
-Dashi enables them on all and records each promoted document as a content change
-(`enable_citations`), without a warning, since nothing the caller asked for is
-lost.
+`DocumentIndex` counts the document blocks of the request that produced the
+citation, in the order sent: every message, then each tool result's blocks. It
+is not stable across calls, since next-call-only context and new tool results
+change the order. Translating it to caller coordinates is not clean: hosted
+results such as web fetch can contain documents that the provider counts and
+Dashi does not author. Callers who need a stable key should title their
+documents; `Citation.Title` carries it. Other citation kinds stay in `Raw`.
 
-**Every other API** (Responses, Chat Completions, Gemini) drops the request.
-`providercontent.Adapt` does this for all of them, controlled by a new
-`AdaptOptions.DocumentCitations` that only Anthropic sets. Each dropped request
-is a content change (`omit_citations`) at the document's original position, and
-a warning. Under `CapabilityStrict` it is an Unsupported error instead.
+The raw-field escape hatch is unchanged: replay data is for content a provider
+produced, and its origin check keeps one destination's data from reaching
+another. Provider options on caller-authored blocks (prompt caching, a
+document's `context`) need their own design.
 
-**Warnings from content changes.** Today warnings come only from setting
-adjustments. `ContentChange` gains a `Warning()` method like
-`Adjustment.Warning()`; `NewRequest` appends the warnings of content changes
-that lose something the caller asked for (so far only `omit_citations`, code
-`citations_omitted`). They reach `Request.Warnings()` and `Result.Warnings`
-through the existing path. `Warning.Field` stays empty; the message names the
-message and content position.
-
-**Raw-field escape hatch.** Not changed. Replay data (`Content.Replay`) is for
-content a provider produced, and its origin check is what stops a record from
-one destination leaking into another. Exposing the scope hash so callers can
-author replay would weaken that. Provider options on caller-authored blocks,
-such as Anthropic prompt caching (`cache_control`, which Dive's example also
-used) and a document's `context` field, deserve their own design; not in this
-change.
-
-Citations and Anthropic's native structured-output format cannot be combined,
-but Dashi's structured output uses a reserved tool, so the two work together.
-
-### Plain-text documents and media types at prepare (9.2)
-
-Anthropic encodes inline documents by media type:
-
-| Inline media type                          | Anthropic source                     |
-| ------------------------------------------ | ------------------------------------ |
-| `application/pdf`                          | `base64` (unchanged)                 |
-| `text/*` (plain, markdown, csv, html, ...) | `text` with `media_type: text/plain` |
-| anything else                              | Unsupported error at prepare         |
-
-Text must be valid UTF-8, else an error at prepare. A URL document with a
-non-PDF `MIMEType` set is also rejected at prepare (Anthropic fetches only
-PDFs). Anthropic images get the same check against JPEG, PNG, GIF, and WebP.
-Other APIs keep sending what they are given; their accepted types are not
-documented precisely enough to check. Responses stops naming every inline file
-`document.pdf` and derives the extension from the media type.
-
-### MIME detection for inline bytes (9.8)
+### Media types are checked and detected at prepare (9.2, 9.8)
 
 `Source.MIMEType` becomes optional for inline bytes. When it is empty,
-preparation detects it (`content.DetectMIMEType(data, name)`: a document title's
-file extension first, then `http.DetectContentType`, parameters stripped) on the
-adapted copy and records a content change (`detect_mime_type`, reason naming the
-type). The caller's input and the recorded turn keep the empty value; detection
-is deterministic, so a replayed request matches. If detection finds nothing
-better than `application/octet-stream`, the request warns (`mime_type_unknown`)
-and sends that type, and APIs with a known list (above) fail at prepare with a
-message saying to set `MIMEType`. `content.DetectMIMEType` is exported for
-callers who want the value up front.
+preparation fills it on its working copy with `content.DetectMIMEType(data,
+name)`: a fixed extension table (pdf, txt, md, csv, html, json, png, jpg, jpeg,
+gif, webp) for a document title, then `http.DetectContentType` with parameters
+stripped. Both are deterministic, so a replayed request matches. Each position
+is recorded as a `detect_mime_type` content change on every call; the caller's
+input and the recorded turn keep the empty value. One change covers a whole tool
+result, so two documents in one result do not collide. When detection finds only
+`application/octet-stream`, a second change, `unknown_mime_type`, becomes a
+`mime_type_unknown` warning.
+
+Anthropic then encodes inline documents by type: `application/pdf` as `base64`,
+any `text/*` as a `text` source with `media_type: text/plain` (valid UTF-8
+required), and anything else is an Unsupported error at prepare. A URL document
+with a non-PDF `MIMEType` and an inline image outside JPEG, PNG, GIF, and WebP
+fail at prepare too. Other APIs send what they get; their accepted types are not
+documented precisely enough to check. Responses no longer names every inline
+file `document.pdf`: a title without an extension gains one from the media type.
 
 ### Flat constructors (9.3, 9.7)
 
 ```go
-// llm, beside Text and Block
-func Image(source content.Source) Content
-func Document(source content.Source, title string) Content
-func CitedDocument(source content.Source, title string) Content // Citations: true
-
-// content: DocumentBlock takes the title
-func DocumentBlock(source Source, title string) Block
+func Image(source content.Source) Content                // llm
+func Document(source content.Source, title string) Content // llm
+func DocumentBlock(source Source, title string) Block     // content
 ```
 
-Audio and video stay on `llm.Block`; they are rarely model input. No source
-constructors: `content.Source{URL: u}` and `content.Source{Data: b}` are already
-short once the MIME type is optional.
+Audio and video stay on `llm.Block`.
 
 ```go
 llm.UserMessage(
-	llm.CitedDocument(content.Source{Data: data}, "notes.txt"),
-	llm.Text("What color is the sky? Cite the document."),
+	llm.Document(content.Source{Data: notes}, "notes.txt"),
+	llm.Text("What color is the sky?"),
 )
 ```
 
-`CitedDocument` rather than a boolean argument, which reads poorly at a call
-site, or a two-line field assignment on the returned union.
-
-### Output schema from a struct (9.6)
+### Structured output helpers (9.6)
 
 ```go
-// package dashi, new file
 func MustOutputSchema[T any]() json.RawMessage
-func DecodeOutput[T any](out *StructuredOutput) (T, error)
+func DecodeOutput[T any](o Outcome) (T, error)
 ```
 
-`MustOutputSchema` uses the generator and options `tool.Func` uses (fields are
-required unless `omitempty`; `description` and `enum` tags are read; extra
-properties are disallowed). It panics only when the type cannot be expressed as
-a schema, a programming error found on first run, like `regexp.MustCompile`; a
-non-object type is still rejected by agent validation. `DecodeOutput` returns an
-error for a nil output. Both live in the root package because
-`Agent.OutputSchema` does, and they leave `tool` untouched (another stream owns
-it); sharing the generator between the two is a later cleanup.
-
-```go
-runner.Agent.OutputSchema = dashi.MustOutputSchema[Person]()
-person, err := dashi.DecodeOutput[Person](outcome.Output)
-```
+`MustOutputSchema` generates the schema with `tool.Func`'s rules and runs the
+same compile check as agent validation, so a non-object `T` panics on first use,
+like `regexp.MustCompile`. `DecodeOutput` decodes a value Dashi already
+validated against the schema before recording it; when there is none it returns
+an error wrapping `ErrNoOutput` that names why (the stop kind and reason, or a
+completed turn without a schema). Both live in the root package, where
+`Agent.OutputSchema` is.
 
 ### Typed context origin (5.1)
 
-```go
-type ContextOrigin string
-
-const (
-	ContextUser     ContextOrigin = "user"
-	ContextLibrary  ContextOrigin = "library"
-	ContextTool     ContextOrigin = "tool"
-	ContextOperator ContextOrigin = "operator"
-)
-```
-
-`ContextItem.Origin` changes from `string` to `ContextOrigin` (one line in
-`turn.go`; constants in a new file). The names parallel `StartUser` and
-`StartOperator`. [gaps/B](gaps/B-developer-experience.md) suggests one
-`Authority` type for both; the two sets differ (`scheduled` versus `library` and
-`tool`), and one type would let each field accept the other's values, so this
-keeps two typed sets.
+`ContextItem.Origin` becomes `ContextOrigin` with `ContextUser`,
+`ContextRuntime`, `ContextTool`, and `ContextOperator`. `ContextRuntime`
+replaces the undefined `"library"`: context the application's runtime adds on
+its own, such as reminders and environment state, at user trust. An empty origin
+means `ContextUser`, the least trusted. This stays separate from `StartOrigin`:
+the sets differ, and one type would let each field accept the other's values.
 
 ## Recorded format
 
-New optional JSON fields: `document.citations`, `citation.location`. New content
-change actions `enable_citations`, `omit_citations`, `detect_mime_type`, and
-warning codes `citations_omitted`, `mime_type_unknown`. Inline sources may omit
-`mime_type`. Context origin strings are unchanged. No migration: Dashi has no
-users.
+New optional fields `settings.citations` and `citation.location`; content change
+actions `detect_mime_type` and `unknown_mime_type`; warning code
+`mime_type_unknown`; inline sources may omit `mime_type`; context origin
+`library` becomes `runtime`. No migration: Dashi has no users.
 
 ## Tests
 
-- Anthropic wire: text source for `text/*`, base64 for PDF; citations flag;
-  all-or-none promotion recorded; unsupported media types fail at prepare;
-  decoding char, page, and block citations with title and location (fixtures
-  from the documented response shapes).
-- Adapt: `omit_citations` for Responses, Chat Completions, and Gemini, in
-  messages and tool results; strict policy error; warnings on the request and
-  result.
-- `DetectMIMEType` table (PDF, PNG, JPEG, text, markdown by title, unknown);
-  prepare records `detect_mime_type` and leaves the input unchanged.
-- `llm.Image`, `Document`, `CitedDocument`; `MustOutputSchema` and
-  `DecodeOutput`; `validateContext` with the constants.
-- Examples: `documents` requests and prints citations (with an embedded text
-  default so it shows character ranges; `-pdf` still works); `vision` drops its
-  own MIME sniffing; `structured_output` uses the two helpers. Run live with a
-  cheap model.
-
-## Risks
-
-- Promoting citations to all documents changes output format for a conversation
-  whose later document asked for them. It is recorded; the alternative, failing
-  or dropping, loses more.
-- Relaxing `Source.Validate` means an inline source without a type is no longer
-  caught at construction; preparation catches it for APIs with a known list.
-- `turn.go` is shared: only the `ContextItem.Origin` type changes there.
-
-## Files
-
-`content/content.go`, new `content/mime.go`; `llm/llm.go`,
-`llm/content_change.go`, `llm/adjustment.go`, `llm/request.go`;
-`internal/providercontent/adapt.go`; `providers/anthropic/messages/messages.go`,
-`providers/openai/responses/responses.go`; new `structured.go` and
-`context_origin.go`; one line in `turn.go`; `state.go` (`validateContext`);
-`examples/documents`, `vision`, `structured_output`;
-`docs/guides/model-calls.md`.
+- Anthropic wire: text and PDF sources, citations on every document including
+  tool results, prepare-time media errors, and decoding of page and character
+  citations from the documented response shapes.
+- Preparation: citations omitted with a warning on other APIs only when
+  documents are present, strict errors, MIME detection and its warning, and one
+  change per tool result.
+- Helpers: constructors, `DetectMIMEType`, `MustOutputSchema`, `DecodeOutput`,
+  and context origins; the three examples run live.
