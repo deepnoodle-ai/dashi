@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/model"
 	"github.com/deepnoodle-ai/dashi/speech"
 )
@@ -368,7 +369,32 @@ func (c *Client) do(ctx context.Context, path, ctype string,
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		defer response.Body.Close()
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxErrorBytes))
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, maxErrorBytes+1))
+		if readErr != nil {
+			return nil, &speech.Error{
+				Category:             speech.ErrorTransport,
+				Status:               response.StatusCode,
+				RemoteOutcomeUnknown: response.StatusCode >= 500,
+				Cause:                readErr,
+			}
+		}
+		truncated := len(body) > maxErrorBytes
+		if truncated {
+			body = body[:maxErrorBytes]
+		}
+		providerError := providerhttp.NewError(
+			response.StatusCode,
+			string(body),
+			providerhttp.WithErrorHeader(response.Header),
+		)
+		code := safeProviderCode(providerError.Code())
+		retryAfter, _ := providerError.RetryAfter()
+		retryable := providerhttp.RetryableStatus(response.StatusCode, code)
+		if truncated {
+			// A truncated envelope may hide a terminal quota code. Do not
+			// advise retry when its full classification is unavailable.
+			retryable = false
+		}
 		category := speech.ErrorProvider
 		switch response.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
@@ -379,8 +405,26 @@ func (c *Client) do(ctx context.Context, path, ctype string,
 		return nil, &speech.Error{
 			Category:             category,
 			Status:               response.StatusCode,
+			Code:                 code,
+			RetryAfter:           retryAfter,
+			Retryable:            retryable,
 			RemoteOutcomeUnknown: response.StatusCode >= 500,
 		}
 	}
 	return response, nil
+}
+
+func safeProviderCode(code string) string {
+	if len(code) == 0 || len(code) > 128 {
+		return ""
+	}
+	for _, c := range code {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9', c == '_', c == '-', c == '.':
+		default:
+			return ""
+		}
+	}
+	return code
 }

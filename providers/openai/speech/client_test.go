@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/model"
@@ -441,6 +442,71 @@ func TestSendTranscriptionFailureClassesAndNoRetry(t *testing.T) {
 				t.Fatalf("err=%v calls=%d", err, calls)
 			}
 		})
+	}
+}
+
+func TestSendTranscriptionDistinguishesRateLimitFromQuota(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		code       string
+		retryAfter string
+		wantAfter  time.Duration
+		retryable  bool
+	}{
+		{"throttled", "rate_limit_exceeded", "3", 3 * time.Second, true},
+		{"quota exhausted", "insufficient_quota", "12", 12 * time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			c := testClient(t, func(*http.Request) (*http.Response, error) {
+				calls++
+				r := response(http.StatusTooManyRequests, "application/json",
+					strings.NewReader(`{"error":{"code":"`+tc.code+`","message":"private provider text"}}`))
+				r.Header.Set("Retry-After", tc.retryAfter)
+				return r, nil
+			})
+			request, err := c.PrepareTranscription(t.Context(),
+				audioInput(fixtureMP3, "audio/mpeg"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.SendTranscription(t.Context(), request)
+			var speechErr *speech.Error
+			if !errors.As(err, &speechErr) || calls != 1 ||
+				speechErr.Category != speech.ErrorRateLimited ||
+				speechErr.Status != http.StatusTooManyRequests ||
+				speechErr.Code != tc.code ||
+				speechErr.RetryAfter != tc.wantAfter ||
+				speechErr.Retryable != tc.retryable ||
+				speechErr.RemoteOutcomeUnknown ||
+				strings.Contains(err.Error(), "private provider text") {
+				t.Fatalf("rate-limit classification: calls=%d err=%v, detail=%+v",
+					calls, err, speechErr)
+			}
+		})
+	}
+}
+
+func TestSendTranscriptionDoesNotRetryUnclassifiedLargeRejection(t *testing.T) {
+	calls := 0
+	c := testClient(t, func(*http.Request) (*http.Response, error) {
+		calls++
+		return response(http.StatusTooManyRequests, "application/json",
+			strings.NewReader(strings.Repeat("x", maxErrorBytes+10))), nil
+	})
+	request, err := c.PrepareTranscription(t.Context(),
+		audioInput(fixtureMP3, "audio/mpeg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.SendTranscription(t.Context(), request)
+	var speechErr *speech.Error
+	if !errors.As(err, &speechErr) || calls != 1 ||
+		speechErr.Status != http.StatusTooManyRequests ||
+		speechErr.Code != "" || speechErr.Retryable ||
+		strings.Contains(err.Error(), "xxxxxxxx") {
+		t.Fatalf("large rejection: calls=%d err=%v detail=%+v",
+			calls, err, speechErr)
 	}
 }
 

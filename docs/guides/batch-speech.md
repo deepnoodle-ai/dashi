@@ -42,6 +42,10 @@ Prepare does no network work. The request keeps its exact wire body privately;
 Send makes one attempt. If a `*speech.Error` has `RemoteOutcomeUnknown`, a lost
 or unusable response does not establish whether the provider processed the request.
 Do not automatically retry it.
+An explicit HTTP rejection carries `Status`, a bounded provider `Code`, a
+positive `RetryAfter` hint when sent, and advisory `Retryable`. OpenAI may use
+429 for both temporary throttling and `insufficient_quota`; the latter has
+`Retryable=false`. Error strings omit the provider response body.
 
 Transcription accepts inline MP3 or WAV up to 25,000,000 file bytes. Dashi
 identifies the bytes, checks any declared MIME type, and makes an upload
