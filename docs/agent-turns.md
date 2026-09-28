@@ -183,6 +183,14 @@ event. Set `OnContextDone: ContextCancel` when leaving the range should end
 the turn instead. Reload the record by turn ID to inspect what was committed,
 including partial model results or pending tools. The sequence is single-use;
 another range returns `ErrStreamConsumed`. `Bindings.Observer` remains an independent,
-lossy hook, while `Engine.Apply` remains the collected call. The engine does
-not own session storage, durable leases, budget enforcement, child turns, or
-compaction. Its Go API and record shape are experimental.
+lossy hook, while `Engine.Apply` remains the collected call. Do not range
+`Stream` in an HTTP handler for a durable turn: a client disconnect would end
+it. See [serving live updates](guides/running-turns.md#serving-live-updates).
+
+Kernel enforces an optional per-turn `Budget`: output-token, total-token, and
+model-cost caps, with a resumable `limited` stop. `BeforeSend` admission lets
+the host hold credits and deny a call with the same resumable stop. The host
+owns credit balances, plan ceilings, and any ceiling on tool charges; see
+[turn budgets](guides/budgets.md). The engine does not own session storage,
+durable leases, child turns, or compaction. Its Go API and record shape are
+experimental.

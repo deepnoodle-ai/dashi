@@ -9,7 +9,7 @@ Task-oriented guides for building with Kernel.
 - [Model calls](model-calls.md): preparing, sending, and streaming one model
   call, with validation, replay, tools, and cost.
 - [Running turns](running-turns.md): running an agent turn, recovering effects,
-  structured output, and turn streaming.
+  structured output, turn streaming, and serving live updates.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 

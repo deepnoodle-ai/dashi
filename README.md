@@ -19,8 +19,8 @@ around when building durable agent runtimes on Dive.
   range-over-func iterators, with backpressure.
 - **Excellent cross-provider support.** One model layer across providers, with
   thorough coverage of provider-specific behavior.
-- **Cost tracking.** Results carry usage and cost today; tracking grows from
-  measurement into enforceable budget limits.
+- **Cost tracking and budgets.** Results carry usage and cost, and per-turn
+  budgets enforce token and model-cost caps.
 - **Small, idiomatic Go.** Clear package boundaries, with shared content and
   model packages that depend only on the standard library.
 
