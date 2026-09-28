@@ -76,8 +76,8 @@ func (wire codec) readStream(ctx context.Context, body io.ReadCloser, initial ll
 			if message := streamErrorMessage(chunk.Error, raw); message != "" {
 				cause = fmt.Errorf("provider stream error: %s", message)
 			}
-			return partial, &llm.Error{Provider: wire.provider, Category: llm.ErrorProtocol,
-				Body: slices.Clone(raw), Cause: cause}
+			return partial, providerhttp.Classify(&llm.Error{Provider: wire.provider, Category: llm.ErrorProtocol,
+				Body: slices.Clone(raw), Cause: cause}, providerhttp.OpenAIReason, wire.media)
 		}
 		if chunk.ID != "" {
 			result.ID = chunk.ID

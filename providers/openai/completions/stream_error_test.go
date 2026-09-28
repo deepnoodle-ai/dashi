@@ -22,7 +22,15 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 		events  []string
 		text    string
 		message string
+		want    llm.ErrorReason
 	}{
+		{
+			// A context overflow reported inside the stream.
+			name:    "context window",
+			events:  []string{`{"error":{"message":"This model's maximum context length is 8192 tokens. However, you requested 9000 tokens.","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`},
+			message: "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens.",
+			want:    llm.ReasonContextWindowExceeded,
+		},
 		{
 			// OpenRouter: an error object alongside finish_reason "error".
 			name: "openrouter after text",
@@ -67,11 +75,14 @@ func TestStreamErrorObjectFailsTheCall(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := p.Send(context.Background(), prepared, nil)
+			result, err := p.Send(context.Background(), llm.Call{Request: prepared})
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol ||
 				!strings.Contains(string(e.Body), `error`) {
 				t.Fatalf("err = %v, want a protocol error carrying the provider body", err)
+			}
+			if e.Reason != tt.want {
+				t.Fatalf("reason = %q, want %q", e.Reason, tt.want)
 			}
 			if !strings.HasSuffix(err.Error(), "provider stream error: "+tt.message) {
 				t.Fatalf("err = %v, want the provider's message %q", err, tt.message)
