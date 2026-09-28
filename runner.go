@@ -811,7 +811,13 @@ func (r *runtime) terminalAfter(stop Stop) bool {
 	return state.terminal()
 }
 
+// emit stamps event.Seq with the number of recorded steps, so a step event
+// carries its own Seq and a preview the Seq of the step it follows. That is
+// exact only because commit and emit both run on the run goroutine; never
+// emit from a tool goroutine or commit from another goroutine
+// (TestEventSeqPlacesPreviews checks this).
 func (r *runtime) emit(event Event) {
+	event.Seq = int64(len(r.turn.Steps))
 	if r.emitter.active() {
 		if event.Progress != nil {
 			r.emitter.sendProgress(cloneEvent(event))

@@ -12,8 +12,15 @@ type Event struct {
 	TurnID    string
 	AttemptID string
 	MessageID string
-	Step      *Step
-	Delta     *llm.Delta
+	// Seq places the event in the turn's record. On a step event it equals
+	// Step.Seq. On a preview or gap it is the Seq of the last step committed
+	// before it: the preview belongs after that step and is superseded by a
+	// later one. A delta's Seq is its model_requested step; a progress
+	// snapshot's lies between its tool_started and tool_settled steps. A
+	// relay that carries events between processes keeps Seq unchanged.
+	Seq   int64
+	Step  *Step
+	Delta *llm.Delta
 	// Progress is the latest tool.Report snapshot of a running tool call. It
 	// is a preview, like Delta: never recorded and never replayed.
 	Progress *ToolProgress
@@ -119,6 +126,7 @@ func (e *emitter) send(event Event) {
 					TurnID:    event.TurnID,
 					AttemptID: event.AttemptID,
 					MessageID: event.MessageID,
+					Seq:       event.Seq,
 					Gap:       true,
 				}
 			}
