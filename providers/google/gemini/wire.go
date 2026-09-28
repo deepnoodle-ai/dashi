@@ -17,12 +17,18 @@ type responseWire struct {
 	ResponseID   string `json:"responseId"`
 	ModelVersion string `json:"modelVersion"`
 	Candidates   []struct {
-		Content *struct {
-			Parts []json.RawMessage `json:"parts"`
-		} `json:"content"`
-		FinishReason string `json:"finishReason"`
+		Content      *contentWire `json:"content"`
+		FinishReason string       `json:"finishReason"`
+		// The metadata fields stay raw so a stream can carry them into its
+		// assembled response unchanged; metadataMeters decodes them.
+		GroundingMetadata  json.RawMessage `json:"groundingMetadata"`
+		URLContextMetadata json.RawMessage `json:"urlContextMetadata"`
 	} `json:"candidates"`
 	UsageMetadata *usageWire `json:"usageMetadata"`
+}
+
+type contentWire struct {
+	Parts []json.RawMessage `json:"parts"`
 }
 
 type functionCallWire struct {
@@ -141,7 +147,12 @@ func (wire codec) decode(
 		result.Stop.Raw = "other"
 	}
 	result.Stop.Kind = llm.ClassifyStopReason(result.Stop.Raw)
+	meters := metadataMeters(
+		candidate.GroundingMetadata,
+		candidate.URLContextMetadata,
+	)
 	if candidate.Content == nil {
+		recordMeters(result.Usage, meters)
 		return result, nil
 	}
 	seed := response.ResponseID
@@ -163,8 +174,10 @@ func (wire codec) decode(
 		result.Message.Content = append(result.Message.Content, part)
 		if part.HostedUse != nil {
 			codeID = part.HostedUse.ID
+			meters[llm.MeterCodeExecution]++
 		}
 	}
+	recordMeters(result.Usage, meters)
 	result.Message.Source = &llm.MessageSource{
 		Requested:  requested,
 		Served:     result.Served,

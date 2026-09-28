@@ -319,38 +319,26 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }
 
-func emitSDKChunk(sink llm.Sink, response *genai.GenerateContentResponse) {
-	if response == nil ||
-		len(response.Candidates) == 0 ||
-		response.Candidates[0].Content == nil {
+// sdkStream forwards SDK stream chunks to a sink as provisional deltas. It
+// keeps state across chunks so usage deltas carry cumulative hosted-tool
+// counts, including counts from metadata that arrives after the last
+// usageMetadata.
+type sdkStream struct {
+	sink   llm.Sink
+	meters streamMeters
+	usage  *llm.Usage
+}
+
+// emit forwards one chunk. Content deltas are indexed within the chunk.
+func (s *sdkStream) emit(response *genai.GenerateContentResponse) {
+	if response == nil {
 		return
 	}
-	for index, part := range response.Candidates[0].Content.Parts {
-		if part.Text != "" {
-			kind := llm.DeltaText
-			if part.Thought {
-				kind = llm.DeltaReasoning
-			}
-			providerhttp.Emit(
-				sink,
-				llm.Delta{
-					Kind:  kind,
-					Index: index,
-					Text:  part.Text,
-				},
-			)
-		}
-		if part.FunctionCall != nil {
-			args, _ := json.Marshal(part.FunctionCall.Args)
-			providerhttp.Emit(
-				sink,
-				llm.Delta{
-					Kind:  llm.DeltaToolArguments,
-					Index: index,
-					Text:  string(args),
-				},
-			)
-		}
+	changed := false
+	if len(response.Candidates) > 0 && response.Candidates[0] != nil {
+		candidate := response.Candidates[0]
+		s.emitContent(candidate.Content)
+		changed = s.observe(candidate)
 	}
 	if response.UsageMetadata != nil {
 		usage := usageWire{
@@ -362,7 +350,72 @@ func emitSDKChunk(sink llm.Sink, response *genai.GenerateContentResponse) {
 			TotalTokenCount:         int(response.UsageMetadata.TotalTokenCount),
 		}
 		if normalized, err := usage.normalize(); err == nil {
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: normalized})
+			s.usage = normalized
+			changed = true
 		}
 	}
+	if changed && s.usage != nil {
+		providerhttp.Emit(s.sink, llm.Delta{
+			Kind:  llm.DeltaUsage,
+			Usage: usageWithMeters(s.usage, s.meters.counts()),
+		})
+	}
+}
+
+func (s *sdkStream) emitContent(content *genai.Content) {
+	if content == nil {
+		return
+	}
+	for index, part := range content.Parts {
+		if part == nil {
+			continue
+		}
+		if part.Text != "" {
+			kind := llm.DeltaText
+			if part.Thought {
+				kind = llm.DeltaReasoning
+			}
+			providerhttp.Emit(
+				s.sink,
+				llm.Delta{
+					Kind:  kind,
+					Index: index,
+					Text:  part.Text,
+				},
+			)
+		}
+		if part.FunctionCall != nil {
+			args, _ := json.Marshal(part.FunctionCall.Args)
+			providerhttp.Emit(
+				s.sink,
+				llm.Delta{
+					Kind:  llm.DeltaToolArguments,
+					Index: index,
+					Text:  string(args),
+				},
+			)
+		}
+	}
+}
+
+// observe counts one chunk's hosted work. The SDK's typed metadata is
+// re-encoded to its wire JSON so both stream paths count with one set of
+// rules.
+func (s *sdkStream) observe(candidate *genai.Candidate) bool {
+	var grounding, urlContext json.RawMessage
+	if candidate.GroundingMetadata != nil {
+		grounding, _ = json.Marshal(candidate.GroundingMetadata)
+	}
+	if candidate.URLContextMetadata != nil {
+		urlContext, _ = json.Marshal(candidate.URLContextMetadata)
+	}
+	runs := 0
+	if candidate.Content != nil {
+		for _, part := range candidate.Content.Parts {
+			if part != nil && part.ExecutableCode != nil {
+				runs++
+			}
+		}
+	}
+	return s.meters.observe(grounding, urlContext, runs)
 }

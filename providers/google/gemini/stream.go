@@ -12,8 +12,14 @@ import (
 )
 
 // readStream assembles GenerateContent SSE chunks before authoritative decode.
-// Google sends content fragments, while usage and finish reason can arrive on
-// later chunks. A read failure retains the parts already observed.
+// Google sends content fragments, while usage, finish reason, and grounding
+// metadata can arrive on later chunks. A read failure retains the parts
+// already observed.
+//
+// Hosted-tool counts reach the final Usage whichever chunk carried them:
+// the assembled response keeps the latest grounding and URL context metadata,
+// and the counts seen across all chunks are merged in by maximum, so metadata
+// that repeats across chunks is never summed.
 func (wire codec) readStream(
 	ctx context.Context,
 	body io.ReadCloser,
@@ -23,7 +29,9 @@ func (wire codec) readStream(
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	var parts []map[string]any
 	var responseID, modelVersion, reason string
-	var usage json.RawMessage
+	var usage, grounding, urlContext json.RawMessage
+	var meters streamMeters
+	var lastUsage *llm.Usage
 	seen := false
 	build := func() llm.Result {
 		candidate := map[string]any{
@@ -31,6 +39,12 @@ func (wire codec) readStream(
 		}
 		if reason != "" {
 			candidate["finishReason"] = reason
+		}
+		if grounding != nil {
+			candidate["groundingMetadata"] = grounding
+		}
+		if urlContext != nil {
+			candidate["urlContextMetadata"] = urlContext
 		}
 		response := map[string]any{
 			"responseId":   responseID,
@@ -45,6 +59,7 @@ func (wire codec) readStream(
 		if err != nil {
 			return initial
 		}
+		recordMeters(result.Usage, meters.counts())
 		return result
 	}
 	for {
@@ -87,6 +102,21 @@ func (wire codec) readStream(
 		if chunk.ModelVersion != "" {
 			modelVersion = chunk.ModelVersion
 		}
+		changed := false
+		if len(chunk.Candidates) > 0 {
+			candidate := chunk.Candidates[0]
+			if present(candidate.GroundingMetadata) {
+				grounding = candidate.GroundingMetadata
+			}
+			if present(candidate.URLContextMetadata) {
+				urlContext = candidate.URLContextMetadata
+			}
+			changed = meters.observe(
+				candidate.GroundingMetadata,
+				candidate.URLContextMetadata,
+				codeRuns(candidate.Content),
+			)
+		}
 		if chunk.UsageMetadata != nil {
 			usage = envelope["usageMetadata"]
 			normalized, err := chunk.UsageMetadata.normalize()
@@ -98,7 +128,16 @@ func (wire codec) readStream(
 					err,
 				)
 			}
-			providerhttp.Emit(sink, llm.Delta{Kind: llm.DeltaUsage, Usage: normalized})
+			lastUsage = normalized
+			changed = true
+		}
+		// A usage delta also follows metadata that arrives after the last
+		// usageMetadata, so live totals see the counts before the Result.
+		if changed && lastUsage != nil {
+			providerhttp.Emit(sink, llm.Delta{
+				Kind:  llm.DeltaUsage,
+				Usage: usageWithMeters(lastUsage, meters.counts()),
+			})
 		}
 		if len(chunk.Candidates) == 0 {
 			continue
@@ -194,4 +233,22 @@ func (wire codec) readStream(
 		)
 	}
 	return partial, nil
+}
+
+// codeRuns counts the executableCode parts in one chunk's content. Each is one
+// code run in Google's sandbox.
+func codeRuns(content *contentWire) int {
+	if content == nil {
+		return 0
+	}
+	runs := 0
+	for _, raw := range content.Parts {
+		var part struct {
+			ExecutableCode json.RawMessage `json:"executableCode"`
+		}
+		if json.Unmarshal(raw, &part) == nil && present(part.ExecutableCode) {
+			runs++
+		}
+	}
+	return runs
 }
