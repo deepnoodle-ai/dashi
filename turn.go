@@ -511,7 +511,10 @@ type Start struct {
 	Input   []llm.Message
 }
 
-// Deliver adds context to a turn between runs.
+// Deliver adds context to a turn between runs. To reach a turn while it
+// runs, pass a Steering source with WithSteering instead. An item with an ID
+// already recorded with the same content is skipped; with different content,
+// Run returns an error.
 type Deliver struct {
 	CommandID string
 	Items     []ContextItem

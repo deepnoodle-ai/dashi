@@ -1,6 +1,6 @@
 # PRD: Steering a running turn
 
-**Status:** Approach, revised after design review · **Date:** 2026-09-28 ·
+**Status:** PR 1 implemented; PR 2 (urgent steers) pending · **Date:** 2026-09-28 ·
 **Owner:** Curtis · **Decision:** 32 · **Builds on:** [hooks](hooks.md)
 
 ## Problem
@@ -88,7 +88,8 @@ unknown, it reloads the turn before reconciling.
   in doubt; `Leftovers(Turn) ([]Steer, error)` resolves that turn's in-doubt
   steers and returns its leftovers. Its doc comment says to pass a freshly
   loaded turn: a stale one makes recorded steers look unrecorded. An invalid
-  turn changes nothing.
+  turn changes nothing. The inbox remembers the IDs a turn recorded until
+  `Leftovers` for that turn, to find the ones no model call saw.
 - FR-4: `ContextItem` gains `ID`: one delivery, unlike `Name`, a slot a later
   snapshot replaces. Optional for `Deliver` and hooks, required for steers.
   `Step.Items() []ContextItem` returns a step's context items.
@@ -154,13 +155,17 @@ type Steer struct {
   neither acknowledged nor confirmed rejected.
 - FR-11: IDs are unique within a turn; replay rejects duplicates. A repeat
   with the same JSON value is skipped. With different content, `Deliver`
-  returns an error and a steer is skipped with a warning, left unacknowledged.
+  returns an error (before recording anything) and a steer is skipped with a
+  warning, left unacknowledged. A hook item that repeats an ID with other
+  content is dropped with `WarningDeliveryDropped`.
 - FR-12: `Steers` errors and invalid steers never fail the turn; they record
   `WarningSteering` on the next committed step (replay accepts warnings on any
   step kind).
 - FR-13: Pause and cancel win. Delivery is observable reliably through a
   fully read `Stream` or the recorder; previews are lossy; committed steps are not.
 - FR-14: `Deliver` stays for stopped turns; its docs point to steering.
+  Context delivered after an interrupted stop at a final text answer reaches
+  the model on `Continue`, under hooks' nudge rule, as after a hook failure.
 
 **Urgent steers (PR 2)**
 

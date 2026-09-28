@@ -13,6 +13,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `approval`          | Anthropic | A person approves or denies a tool call during the run         |
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
+| `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
 | `live_follow`       | Anthropic | Two readers following one running turn by cursor               |
 | `hosted_tools`      | Anthropic | Provider-hosted web search and code execution, with sources    |
