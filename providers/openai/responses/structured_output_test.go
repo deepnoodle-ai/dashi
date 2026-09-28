@@ -257,6 +257,14 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 		"name":      "unexpected",
 		"arguments": `{}`,
 	}})
+	userText := fixtureResponse("completed", []any{map[string]any{
+		"type": "message",
+		"role": "user",
+		"content": []any{map[string]any{
+			"type": "output_text",
+			"text": `{"label":"ok"}`,
+		}},
+	}})
 	for _, tc := range []struct {
 		name   string
 		body   []byte
@@ -275,6 +283,12 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 			stop: llm.StopOutputLimit,
 		},
 		{name: "unexpected tool", body: toolUse, stop: llm.StopToolUse},
+		{
+			name:  "user-role text",
+			body:  userText,
+			stop:  llm.StopIncomplete,
+			error: llm.ErrorProtocol,
+		},
 		{
 			name:  "failed provider",
 			body:  fixtureResponse("failed", nil),

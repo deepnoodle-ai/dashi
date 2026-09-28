@@ -421,6 +421,23 @@ func (wire codec) validateOutput(
 		if part.Block == nil || part.Block.Text == nil {
 			continue
 		}
+		// The canonical Result role is assistant; the Responses item that
+		// produced this text must independently identify the assistant too.
+		var source struct {
+			Message struct {
+				Role llm.Role `json:"role"`
+			} `json:"message"`
+		}
+		if part.Replay == nil ||
+			part.Replay.Unit != llm.OpaqueUnitMessagePart ||
+			json.Unmarshal(part.Replay.Raw, &source) != nil ||
+			source.Message.Role != llm.RoleAssistant {
+			return providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"output_schema: final text must come from an assistant message",
+			)
+		}
 		if raw != nil {
 			return providerhttp.Failure(
 				wire.origin.Provider,
