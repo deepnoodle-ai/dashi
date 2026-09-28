@@ -104,7 +104,10 @@ type TurnView struct {
 // next model call would still see, so a BeforeModel hook can tell whether
 // the item it would deliver is already current. An empty origin means
 // ContextUser.
-func (v TurnView) Context(origin ContextOrigin, name string) (ContextItem, bool) {
+func (v TurnView) Context(
+	origin ContextOrigin,
+	name string,
+) (ContextItem, bool) {
 	item, ok := v.live[contextKey(ContextItem{Origin: origin, Name: name})]
 	if !ok {
 		return ContextItem{}, false
@@ -198,12 +201,9 @@ func replay(t Turn) (*replayState, error) {
 			if step.CommandDigest == "" {
 				return nil, fmt.Errorf("%w: command digest missing", ErrInvalidTurn)
 			}
-			old, ok := s.commandDigests[step.CommandID]
-			if ok && old != step.CommandDigest {
+			if old, ok := s.commandDigests[step.CommandID]; ok &&
+				old != step.CommandDigest {
 				return nil, ErrCommandConflict
-			}
-			if !ok {
-				s.activeHooks = step.ActiveHooks
 			}
 			s.commandDigests[step.CommandID] = step.CommandDigest
 		}
@@ -217,6 +217,9 @@ func replay(t Turn) (*replayState, error) {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		s.Warnings = append(s.Warnings, step.Warnings...)
+		if step.Kind == StepStarted || step.Kind == StepContinued {
+			s.activeHooks = step.ActiveHooks
+		}
 		s.trackContext(step)
 		s.Revision = step.Seq
 	}
@@ -409,6 +412,11 @@ func (s *replayState) apply(step Step) error {
 	case StepDelivered:
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
+		}
+		// A candidate kept by a BeforeFinish failure is superseded by new
+		// context: Continue asks the model again instead of re-checking it.
+		if s.Stop.Kind == StopFailed && s.Stop.Reason == StopReasonHookFailed {
+			s.awaitingClassification = false
 		}
 		for _, item := range step.Context.Items {
 			if err := validateContext(item); err != nil {
@@ -1313,6 +1321,56 @@ func (s *replayState) trackContext(step Step) {
 	}
 }
 
+// hookVerdicts lists the verdicts each hook point can record.
+var hookVerdicts = map[HookPoint][]HookVerdict{
+	HookBeforeModel: {VerdictChange, VerdictStop, VerdictFailed},
+	HookBeforeSend:  {VerdictAdmit, VerdictDeny, VerdictLimit, VerdictFailed},
+	HookBeforeTool: {
+		VerdictAllow,
+		VerdictDeny,
+		VerdictDefer,
+		VerdictRewrite,
+		VerdictFailed,
+	},
+	HookBeforeFinish: {VerdictDeliver, VerdictAcceptEmpty, VerdictFailed},
+}
+
+func validateHookResult(result HookResult) error {
+	verdicts, ok := hookVerdicts[result.Point]
+	if !ok {
+		return errors.New("invalid hook point")
+	}
+	if result.Name == "" || !slices.Contains(verdicts, result.Verdict) {
+		return errors.New("invalid hook result")
+	}
+	if result.Pass < 0 || result.Pass > 0 && result.Point != HookBeforeTool {
+		return errors.New("hook result pass is only for before_tool")
+	}
+	if (result.Error != "") != (result.Verdict == VerdictFailed) {
+		return errors.New("a hook error goes with a failed verdict")
+	}
+	return nil
+}
+
+// validate checks that each point lists unique, nonempty hook names.
+func (a ActiveHooks) validate() error {
+	for _, names := range [][]string{
+		a.BeforeModel,
+		a.BeforeSend,
+		a.BeforeTool,
+		a.BeforeFinish,
+	} {
+		seen := map[string]bool{}
+		for _, name := range names {
+			if name == "" || seen[name] {
+				return errors.New("invalid active hook names")
+			}
+			seen[name] = true
+		}
+	}
+	return nil
+}
+
 // validateAdmission checks the BeforeSend admissions recorded on an intent.
 func validateAdmission(admission map[string]json.RawMessage) error {
 	total := 0
@@ -1354,17 +1412,17 @@ func validateStepPayload(step Step) error {
 		}
 	}
 	for _, result := range step.HookResults {
-		switch result.Point {
-		case HookBeforeModel, HookBeforeSend, HookBeforeTool, HookBeforeFinish:
-		default:
-			return errors.New("invalid hook point")
-		}
-		if result.Name == "" || result.Verdict == "" || result.Pass < 0 {
-			return errors.New("invalid hook result")
+		if err := validateHookResult(result); err != nil {
+			return err
 		}
 	}
-	if step.ActiveHooks != nil && step.CommandID == "" {
-		return errors.New("active hooks require a command step")
+	if step.ActiveHooks != nil {
+		if step.Kind != StepStarted && step.Kind != StepContinued {
+			return errors.New("active hooks require a start or continuation step")
+		}
+		if err := step.ActiveHooks.validate(); err != nil {
+			return err
+		}
 	}
 	count := 0
 	for _, present := range []bool{

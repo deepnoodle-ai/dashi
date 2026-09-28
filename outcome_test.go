@@ -664,10 +664,10 @@ func TestRequireApprovalDefersNamedTools(t *testing.T) {
 		t.Fatal("different tool lists share a revision")
 	}
 	all := RequireApproval().BeforeTool[0]
-	any, err := all.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
+	every, err := all.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
 	if err != nil || all.Name != "require_approval:*" ||
-		any.Kind != DecisionDefer {
-		t.Fatalf("all tools name=%q decision=%+v err=%v", all.Name, any, err)
+		every.Kind != DecisionDefer {
+		t.Fatalf("all tools name=%q decision=%+v err=%v", all.Name, every, err)
 	}
 }
 

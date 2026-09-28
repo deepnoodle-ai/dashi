@@ -6,14 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// maxHookError bounds the hook error text kept on the record and in
-// warnings, which are persisted with every turn.
-const maxHookError = 1 << 10
+// maxHookError bounds the hook error text, including a panic's stack, kept
+// on the record and in warnings, which are persisted with every turn.
+const maxHookError = 4 << 10
 
 // maxRewrites is how many BeforeTool rewrites one call may take before it is
 // denied; rewrites must converge.
@@ -29,6 +30,7 @@ func (r *runtime) beforeModel(
 	input *llm.Input,
 ) ([]ContextItem, *Stop, *Outcome) {
 	var deliver []ContextItem
+	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeModel {
 		d, err := callHook(r.ctx, h, ModelPlan{
 			Input: cloneInput(*input),
@@ -39,6 +41,7 @@ func (r *runtime) beforeModel(
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
+				r.dropHooks(mark)
 				o := r.contextStop()
 				return nil, nil, &o
 			}
@@ -49,7 +52,7 @@ func (r *runtime) beforeModel(
 			r.addHookResult(HookResult{
 				Point:   HookBeforeModel,
 				Name:    h.Name,
-				Verdict: "stop",
+				Verdict: VerdictStop,
 				Reason:  d.Stop.Reason,
 			})
 			stop := *d.Stop
@@ -71,7 +74,7 @@ func (r *runtime) beforeModel(
 		r.addHookResult(HookResult{
 			Point:   HookBeforeModel,
 			Name:    h.Name,
-			Verdict: "change",
+			Verdict: VerdictChange,
 		})
 	}
 	return deliver, nil, nil
@@ -79,7 +82,10 @@ func (r *runtime) beforeModel(
 
 func validModelDecision(d ModelDecision) error {
 	if d.Stop != nil && !validHookStop(*d.Stop) {
-		return errors.New("invalid stop: a hook may refuse, fail, or report a host, cost, or token limit")
+		return errors.New(
+			"invalid stop: a hook may refuse, fail, or report a host, cost, " +
+				"or token limit, and may not use a reserved stop reason",
+		)
 	}
 	for _, item := range d.Deliver {
 		if err := validateContext(item); err != nil {
@@ -101,6 +107,7 @@ func (r *runtime) beforeSend(
 ) (map[string]json.RawMessage, *Stop, *Outcome) {
 	var admission map[string]json.RawMessage
 	total := 0
+	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeSend {
 		plan := SendPlan{Request: req, Turn: snapshotView(s.TurnView)}
 		if atRisk != nil {
@@ -115,6 +122,7 @@ func (r *runtime) beforeSend(
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
+				r.dropHooks(mark)
 				o := r.contextStop()
 				return nil, nil, &o
 			}
@@ -125,12 +133,12 @@ func (r *runtime) beforeSend(
 			result := HookResult{
 				Point:   HookBeforeSend,
 				Name:    h.Name,
-				Verdict: "deny",
+				Verdict: VerdictDeny,
 				Reason:  d.Reason,
 			}
 			stop := &Stop{Kind: StopRefused, Reason: d.Reason}
 			if d.Limit != nil {
-				result.Verdict = "limit"
+				result.Verdict = VerdictLimit
 				limit := *d.Limit
 				stop = &Stop{Kind: StopLimited, Reason: d.Reason, Limit: &limit}
 			}
@@ -146,7 +154,7 @@ func (r *runtime) beforeSend(
 			r.addHookResult(HookResult{
 				Point:   HookBeforeSend,
 				Name:    h.Name,
-				Verdict: "admit",
+				Verdict: VerdictAdmit,
 			})
 		}
 	}
@@ -155,7 +163,9 @@ func (r *runtime) beforeSend(
 
 func validSendDecision(d SendDecision, used int) error {
 	if d.Limit != nil && !validHookLimit(*d.Limit) {
-		return errors.New("invalid limit: a hook may report a host, cost, or token limit")
+		return errors.New(
+			"invalid limit: a hook may report a host, cost, or token limit",
+		)
 	}
 	if len(d.Admission) > 0 && !json.Valid(d.Admission) {
 		return errors.New("admission is not valid JSON")
@@ -180,24 +190,27 @@ func (r *runtime) authorizeTool(
 	call tool.Call,
 ) (tool.Call, ToolVerdict, *Outcome) {
 	pass := 0
+	mark := r.hookMark()
+	// A mid-run view: its Stop stays empty, unlike Replay's. Nothing is
+	// committed during the chain, so one replay serves every hook.
+	view := TurnView{}
+	if current, err := replay(r.turn); err == nil {
+		view = current.TurnView
+	}
 restart:
 	var allow, deferred *ToolVerdict
 	for _, h := range r.hooks.BeforeTool {
-		// A mid-run view: its Stop stays empty, unlike Replay's.
-		view := TurnView{}
-		if current, err := replay(r.turn); err == nil {
-			view = snapshotView(current.TurnView)
-		}
 		d, err := callHook(ctx, h, ToolPlan{
 			Call:       call.Clone(),
 			Definition: def.Clone(),
-			Turn:       view,
+			Turn:       snapshotView(view),
 		})
 		if err == nil {
 			err = validToolDecision(d, def, call)
 		}
 		if err != nil {
 			if ctx.Err() != nil {
+				r.dropHooks(mark)
 				o := r.contextStop()
 				return call, ToolVerdict{}, &o
 			}
@@ -215,7 +228,7 @@ restart:
 			r.addHookResult(HookResult{
 				Point:    HookBeforeTool,
 				Name:     h.Name,
-				Verdict:  "rewrite",
+				Verdict:  VerdictRewrite,
 				Pass:     pass,
 				Revision: d.Revision,
 				Reason:   d.Reason,
@@ -231,7 +244,7 @@ restart:
 				})
 				return call, ToolVerdict{
 					Kind:   DecisionDeny,
-					Reason: "rewrite limit",
+					Reason: "Not run: a check kept changing the arguments.",
 					Hook:   h.Name,
 				}, nil
 			}
@@ -248,7 +261,7 @@ restart:
 		r.addHookResult(HookResult{
 			Point:    HookBeforeTool,
 			Name:     h.Name,
-			Verdict:  string(d.Kind),
+			Verdict:  HookVerdict(d.Kind),
 			Pass:     pass,
 			Revision: d.Revision,
 			Reason:   d.Reason,
@@ -281,7 +294,11 @@ restart:
 	return call, ToolVerdict{Kind: DecisionAllow, Reason: "no hook opinion"}, nil
 }
 
-func validToolDecision(d ToolDecision, def tool.Definition, call tool.Call) error {
+func validToolDecision(
+	d ToolDecision,
+	def tool.Definition,
+	call tool.Call,
+) error {
 	if len(d.Rewrite) > 0 {
 		if !json.Valid(d.Rewrite) {
 			return errors.New("rewrite is not valid JSON")
@@ -310,6 +327,7 @@ type finishResult struct {
 // candidate survives the stop, so Continue asks the hooks again.
 func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 	var out finishResult
+	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeFinish {
 		p := plan
 		p.Turn = snapshotView(plan.Turn)
@@ -325,6 +343,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
+				r.dropHooks(mark)
 				o := r.contextStop()
 				return finishResult{}, &o
 			}
@@ -339,7 +358,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			r.addHookResult(HookResult{
 				Point:   HookBeforeFinish,
 				Name:    h.Name,
-				Verdict: "deliver",
+				Verdict: VerdictDeliver,
 			})
 		}
 		if d.AcceptEmpty {
@@ -347,11 +366,25 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			r.addHookResult(HookResult{
 				Point:   HookBeforeFinish,
 				Name:    h.Name,
-				Verdict: "accept_empty",
+				Verdict: VerdictAcceptEmpty,
 			})
 		}
 	}
 	return out, nil
+}
+
+// hookMark and dropHooks bracket one hook chain. When the run's context ends
+// during a chain, no decision was made, so the answers already given are
+// dropped: the chain runs again on resume and records them then.
+type chainMark struct{ hooks, warnings int }
+
+func (r *runtime) hookMark() chainMark {
+	return chainMark{hooks: len(r.pendingHooks), warnings: len(r.pendingWarnings)}
+}
+
+func (r *runtime) dropHooks(m chainMark) {
+	r.pendingHooks = r.pendingHooks[:m.hooks]
+	r.pendingWarnings = r.pendingWarnings[:m.warnings]
 }
 
 func (r *runtime) addHookResult(result HookResult) {
@@ -360,12 +393,17 @@ func (r *runtime) addHookResult(result HookResult) {
 
 // hookFailed records a failed hook, and a warning when the turn works around
 // the failure instead of stopping.
-func (r *runtime) hookFailed(point HookPoint, name string, err error, warn bool) {
+func (r *runtime) hookFailed(
+	point HookPoint,
+	name string,
+	err error,
+	warn bool,
+) {
 	text := boundedHookError(err)
 	r.addHookResult(HookResult{
 		Point:   point,
 		Name:    name,
-		Verdict: "failed",
+		Verdict: VerdictFailed,
 		Error:   text,
 	})
 	if warn {
@@ -388,5 +426,5 @@ func boundedHookError(err error) string {
 	if len(text) > maxHookError {
 		text = text[:maxHookError]
 	}
-	return text
+	return strings.ToValidUTF8(text, "\uFFFD")
 }

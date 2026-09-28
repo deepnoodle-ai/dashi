@@ -329,7 +329,6 @@ func (r Runner) apply(
 		hooks:       hooks,
 		activeHooks: r.Hooks.active(),
 		lastHooks:   state.activeHooks,
-		hadCommand:  len(state.commandDigests) > 0,
 	}
 	defer rt.emitter.close()
 	switch c := command.(type) {
@@ -621,12 +620,10 @@ type runtime struct {
 	err error
 	// hooks are the Runner's hooks followed by this call's WithHooks.
 	hooks Hooks
-	// activeHooks, lastHooks and hadCommand decide the ActiveHooks record
-	// and WarningHooksChanged on this command's first step.
-	activeHooks   *ActiveHooks
-	lastHooks     *ActiveHooks
-	hadCommand    bool
-	hooksRecorded bool
+	// activeHooks is recorded on a Start or Continue step, and a Continue
+	// warns when it differs from lastHooks, the previous one's.
+	activeHooks *ActiveHooks
+	lastHooks   *ActiveHooks
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook answer is saved with the step it leads to.
 	pendingWarnings []Warning
@@ -711,9 +708,10 @@ func sameAgent(a, b Agent) bool {
 }
 
 func (r *runtime) commit(step Step) *Outcome {
-	if step.CommandID != "" && !r.hooksRecorded {
+	if step.Kind == StepStarted || step.Kind == StepContinued {
 		step.ActiveHooks = r.activeHooks
-		if r.hadCommand && !sameJSONValue(r.lastHooks, r.activeHooks) {
+		if step.Kind == StepContinued &&
+			!sameJSONValue(r.lastHooks, r.activeHooks) {
 			step.Warnings = append(step.Warnings, Warning{
 				Code:    WarningHooksChanged,
 				Message: "this command's Runner hooks differ from the previous command's",
@@ -760,9 +758,6 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
-	if step.CommandID != "" {
-		r.hooksRecorded = true
-	}
 	r.pendingWarnings = nil
 	r.pendingHooks = nil
 	if r.emitter.active() || r.opts.streamSink != nil {
@@ -1446,11 +1441,13 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
 		}
 	}
+	mark := r.hookMark()
 	finish, o := r.beforeFinish(plan)
 	if o != nil {
 		return *o, false
 	}
 	if r.ctx.Err() != nil {
+		r.dropHooks(mark)
 		return r.contextStop(), false
 	}
 	if len(finish.deliver) > 0 {
@@ -1465,8 +1462,9 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			return Outcome{}, true
 		}
 		r.pendingWarnings = append(r.pendingWarnings, Warning{
-			Code:    WarningDeliveryDropped,
-			Message: "BeforeFinish items dropped: the reserved final answer allows no further model call",
+			Code: WarningDeliveryDropped,
+			Message: "BeforeFinish items dropped: the reserved final answer " +
+				"allows no further model call",
 		})
 	}
 	if !structured {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strings"
 
@@ -12,55 +13,67 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Hook is a named function Dashi calls at one hook point of a turn. Every
-// hook at a point runs, one at a time and in order, and their answers combine
-// by the point's rule; see Hooks. A zero answer means no opinion. Dashi
-// records each hook's answer with the step it leads to, and replay reads that
-// record instead of calling hooks again, so a hook may be called again only
-// when a crash came before its answer was saved.
+// Hook is the shape of every hook: a named function Dashi calls at one hook
+// point of a turn. Use it through ModelHook, SendHook, ToolHook and
+// FinishHook, one per point. Every hook at a point runs, one at a time and in
+// order, and their answers combine by the point's rule; see Hooks. A zero
+// answer means no opinion. Dashi records each hook's answer with the step it
+// leads to, and replay reads that record instead of calling hooks again, so a
+// hook may be called again only when a crash came before its answer was
+// saved.
 //
 // A hook receives copies and returns a value: it cannot change the turn in
-// place. It should honor ctx, which ends with the run.
+// place. It should honor ctx, which ends with the run. One Runner may run
+// many turns at once and calls the same hook from each, so a hook that keeps
+// state must guard it. A BeforeTool hook that blocks, such as a terminal
+// prompt, holds up the batch it belongs to while earlier calls run.
 type Hook[P, D any] struct {
 	// Name identifies the hook in the record. It must be nonempty and unique
-	// within its hook point. Reusable packages should prefix their names.
+	// within its hook point. Reusable packages should prefix their names. A
+	// failing BeforeTool hook's name is shown to the model, so keep private
+	// details out of it.
 	Name string
 	Func func(context.Context, P) (D, error)
 }
 
-// Hooks returns a Hooks value holding just h, for a Runner or WithHooks. It
-// panics for a type pair other than ModelHook, SendHook, ToolHook and
-// FinishHook, since no hook point accepts it.
-func (h Hook[P, D]) Hooks() Hooks {
-	switch v := any(h).(type) {
-	case ModelHook:
-		return Hooks{BeforeModel: []ModelHook{v}}
-	case SendHook:
-		return Hooks{BeforeSend: []SendHook{v}}
-	case ToolHook:
-		return Hooks{BeforeTool: []ToolHook{v}}
-	case FinishHook:
-		return Hooks{BeforeFinish: []FinishHook{v}}
-	}
-	panic(fmt.Sprintf("dashi: hook %q has no hook point", h.Name))
-}
-
 // ModelHook runs before each model request is prepared. It fails open: an
 // error or invalid answer skips that hook with a WarningHookFailed.
-type ModelHook = Hook[ModelPlan, ModelDecision]
+type ModelHook Hook[ModelPlan, ModelDecision]
+
+// Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
+func (h ModelHook) Hooks() Hooks {
+	return Hooks{BeforeModel: []ModelHook{h}}
+}
 
 // SendHook authorizes each prepared model request and its spend. It fails
 // closed: an error stops the turn as StopFailed with StopReasonHookFailed.
-type SendHook = Hook[SendPlan, SendDecision]
+type SendHook Hook[SendPlan, SendDecision]
+
+// Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
+func (h SendHook) Hooks() Hooks {
+	return Hooks{BeforeSend: []SendHook{h}}
+}
 
 // ToolHook decides whether a model-requested client tool call may run. It
 // fails closed: an error denies the call and records a WarningHookFailed.
-type ToolHook = Hook[ToolPlan, ToolDecision]
+type ToolHook Hook[ToolPlan, ToolDecision]
 
-// FinishHook sees each candidate final answer and may ask the model to
-// continue. It fails closed: an error stops the turn as StopFailed with
-// StopReasonHookFailed, and Continue runs the hooks again on the same answer.
-type FinishHook = Hook[FinishPlan, FinishDecision]
+// Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
+func (h ToolHook) Hooks() Hooks {
+	return Hooks{BeforeTool: []ToolHook{h}}
+}
+
+// FinishHook sees each final text answer and may ask the model to continue
+// instead. Structured output submitted with dashi_submit_output does not
+// pass it yet. It fails closed: an error stops the turn as StopFailed with
+// StopReasonHookFailed, and Continue runs the hooks again on the same answer,
+// unless context was delivered since, in which case the model is asked again.
+type FinishHook Hook[FinishPlan, FinishDecision]
+
+// Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
+func (h FinishHook) Hooks() Hooks {
+	return Hooks{BeforeFinish: []FinishHook{h}}
+}
 
 // Hooks holds the hooks for each hook point. The zero value has none, and
 // then Dashi runs every bound tool and every model call.
@@ -119,18 +132,38 @@ const (
 	HookBeforeFinish HookPoint = "before_finish"
 )
 
+// HookVerdict summarizes one hook's answer in the record.
+type HookVerdict string
+
+const (
+	// VerdictFailed is a hook error, panic or invalid answer, at any point.
+	VerdictFailed HookVerdict = "failed"
+	// VerdictChange and VerdictStop are BeforeModel answers: changed
+	// settings or delivered context, or a stop.
+	VerdictChange HookVerdict = "change"
+	VerdictStop   HookVerdict = "stop"
+	// VerdictAdmit and VerdictLimit are BeforeSend answers: admission terms,
+	// or a denial with a limit. VerdictDeny is also a BeforeTool answer.
+	VerdictAdmit HookVerdict = "admit"
+	VerdictLimit HookVerdict = "limit"
+	VerdictDeny  HookVerdict = "deny"
+	// VerdictAllow, VerdictDefer and VerdictRewrite are BeforeTool answers.
+	VerdictAllow   HookVerdict = "allow"
+	VerdictDefer   HookVerdict = "defer"
+	VerdictRewrite HookVerdict = "rewrite"
+	// VerdictDeliver and VerdictAcceptEmpty are BeforeFinish answers.
+	VerdictDeliver     HookVerdict = "deliver"
+	VerdictAcceptEmpty HookVerdict = "accept_empty"
+)
+
 // HookResult records one hook's answer: every answer that was not "no
 // opinion", and every failure. It rides on the next step committed after
 // the hook ran, whatever that step's kind.
 type HookResult struct {
-	Point HookPoint `json:"point"`
-	Name  string    `json:"name"`
-	// Verdict summarizes the answer: allow, deny, defer or rewrite for
-	// before_tool; deny, limit or admit for before_send; change or stop for
-	// before_model; deliver or accept_empty for before_finish; and failed at
-	// any point.
-	Verdict string `json:"verdict"`
-	// Pass counts the rewrite restarts before this answer, for before_tool.
+	Point   HookPoint   `json:"point"`
+	Name    string      `json:"name"`
+	Verdict HookVerdict `json:"verdict"`
+	// Pass counts the rewrite restarts before a BeforeTool answer.
 	Pass     int    `json:"pass,omitempty"`
 	Revision string `json:"revision,omitempty"`
 	Reason   string `json:"reason,omitempty"`
@@ -139,9 +172,10 @@ type HookResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// ActiveHooks lists the names of the Runner's hooks per point when a command
-// ran. Hooks added with WithHooks are left out, since they are per-command
-// by design.
+// ActiveHooks lists the names of the Runner's hooks per point, recorded on
+// the first step of each Start and Continue, the commands that run hooks.
+// Hooks added with WithHooks are left out, since they are per-command by
+// design.
 type ActiveHooks struct {
 	BeforeModel  []string `json:"before_model,omitempty"`
 	BeforeSend   []string `json:"before_send,omitempty"`
@@ -322,8 +356,8 @@ func Defer(reason string) ToolDecision {
 // Rewrite replaces the call's arguments with args encoded as JSON. The new
 // arguments must match the tool's schema, and every hook is asked again
 // about them, so rewrites must converge: a rewrite that leaves the
-// arguments' JSON meaning unchanged is no opinion, and after three rewrites
-// the call is denied.
+// arguments' JSON meaning unchanged is no opinion, and the call is denied
+// when a fourth rewrite would restart the chain a fourth time.
 func Rewrite(args any) (ToolDecision, error) {
 	b, err := json.Marshal(args)
 	if err != nil {
@@ -374,9 +408,22 @@ func (h Hooks) validate() error {
 	)
 }
 
-func validatePoint[P, D any](point HookPoint, hooks []Hook[P, D]) error {
+// hookShape matches the four hook types, which share Hook's fields, so the
+// helpers below serve every hook point.
+type hookShape[P, D any] interface {
+	~struct {
+		Name string
+		Func func(context.Context, P) (D, error)
+	}
+}
+
+func validatePoint[H hookShape[P, D], P, D any](
+	point HookPoint,
+	hooks []H,
+) error {
 	seen := map[string]bool{}
-	for i, h := range hooks {
+	for i, x := range hooks {
+		h := Hook[P, D](x)
 		if h.Name == "" {
 			return fmt.Errorf("dashi: %s hook %d has no name", point, i+1)
 		}
@@ -406,26 +453,28 @@ func (h Hooks) active() *ActiveHooks {
 	return a
 }
 
-func hookNames[P, D any](hooks []Hook[P, D]) []string {
+func hookNames[H hookShape[P, D], P, D any](hooks []H) []string {
 	var names []string
 	for _, h := range hooks {
-		names = append(names, h.Name)
+		names = append(names, Hook[P, D](h).Name)
 	}
 	return names
 }
 
-// callHook runs one hook, turning a panic into an error so a hook bug never
-// leaves the turn half-recorded.
-func callHook[P, D any](
+// callHook runs one hook, turning a panic into an error that keeps a bounded
+// stack, so a hook bug never leaves the turn half-recorded and can still be
+// debugged from the record.
+func callHook[H hookShape[P, D], P, D any](
 	ctx context.Context,
-	h Hook[P, D],
+	x H,
 	plan P,
 ) (decision D, err error) {
+	h := Hook[P, D](x)
 	defer func() {
 		if v := recover(); v != nil {
 			var zero D
 			decision = zero
-			err = fmt.Errorf("panic: %v", v)
+			err = fmt.Errorf("panic: %v\n%s", v, debug.Stack())
 		}
 	}()
 	return h.Func(ctx, plan)
@@ -436,6 +485,9 @@ func callHook[P, D any](
 // make a stop terminal, and a completed or waiting stop would misstate the
 // turn.
 func validHookStop(stop Stop) bool {
+	if reservedStopReason(stop.Reason) {
+		return false
+	}
 	switch stop.Kind {
 	case StopRefused, StopFailed:
 		return stop.Limit == nil
@@ -449,6 +501,16 @@ func validHookLimit(limit LimitDetail) bool {
 	switch limit.Kind {
 	case LimitHost, LimitCost, LimitOutputTokens, LimitTotalTokens:
 		return limit.Validate() == nil
+	}
+	return false
+}
+
+// reservedStopReason reports the reasons Dashi gives its own failed stops, so
+// a host branching on them never mistakes a hook's stop for one.
+func reservedStopReason(reason string) bool {
+	switch reason {
+	case StopReasonHookFailed, StopReasonToolFatal, StopReasonToolOutcomeInvalid:
+		return true
 	}
 	return false
 }

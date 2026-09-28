@@ -326,7 +326,8 @@ func TestRunawayRewriteIsDeniedAndTurnContinues(t *testing.T) {
 		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, remote.runs, err)
 	}
 	v := out.Tools["call-1"].Verdict
-	if v.Kind != DecisionDeny || v.Reason != "rewrite limit" ||
+	if v.Kind != DecisionDeny ||
+		v.Reason != "Not run: a check kept changing the arguments." ||
 		!hasWarning(out, WarningHookFailed) {
 		t.Fatalf("verdict=%+v warnings=%+v", v, out.Warnings)
 	}
@@ -730,14 +731,6 @@ func TestHooksValidation(t *testing.T) {
 			t.Fatal("a duplicate across Runner and WithHooks was accepted")
 		}
 	})
-	t.Run("unsupported type pair", func(t *testing.T) {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("no panic")
-			}
-		}()
-		Hook[int, int]{Name: "x"}.Hooks()
-	})
 }
 
 func TestJoinHooksNeverAliases(t *testing.T) {
@@ -939,10 +932,12 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	if out.Tools["call-1"].Verdict.Revision != "require_approval:remote" {
 		t.Fatalf("verdict = %+v", out.Tools["call-1"].Verdict)
 	}
-	// The host's rules changed: the hooks it now passes would not defer.
-	runner.Hooks = Hooks{}
+	// The answer comes from a handler whose Runner has no hooks, which
+	// Settle does not need; that is not a change of hooks.
+	settler := runner
+	settler.Hooks = Hooks{}
 	answer := out.Pending[0].Approve()
-	if out, err = runner.Run(t.Context(), out.Turn, answer); err != nil {
+	if out, err = settler.Run(t.Context(), out.Turn, answer); err != nil {
 		t.Fatal(err)
 	}
 	stale := answer
@@ -955,5 +950,229 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
 	if err != nil || out.Stop.Kind != StopCompleted || remote.runs != 1 {
 		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, remote.runs, err)
+	}
+	if hasWarning(out, WarningHooksChanged) {
+		t.Fatalf("warnings = %+v", out.Warnings)
+	}
+}
+
+// TestHookErrorAfterContextEndsAtEveryPoint checks that a hook failing
+// because the run's context ended gives the context stop at each point, and
+// that earlier hooks in the same chain leave no record.
+func TestHookErrorAfterContextEndsAtEveryPoint(t *testing.T) {
+	type setup func(cancel context.CancelFunc) Hooks
+	ended := func(ctx context.Context, cancel context.CancelFunc) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	cases := map[string]setup{
+		"before_model": func(cancel context.CancelFunc) Hooks {
+			return Hooks{BeforeModel: []ModelHook{
+				{Name: "a", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+					s := p.Input.Settings
+					return ModelDecision{Settings: &s}, nil
+				}},
+				{Name: "b", Func: func(ctx context.Context, _ ModelPlan) (ModelDecision, error) {
+					return ModelDecision{}, ended(ctx, cancel)
+				}},
+			}}
+		},
+		"before_send": func(cancel context.CancelFunc) Hooks {
+			return Hooks{BeforeSend: []SendHook{
+				{Name: "a", Func: func(context.Context, SendPlan) (SendDecision, error) {
+					return SendDecision{Admission: json.RawMessage(`{}`)}, nil
+				}},
+				{Name: "b", Func: func(ctx context.Context, _ SendPlan) (SendDecision, error) {
+					return SendDecision{}, ended(ctx, cancel)
+				}},
+			}}
+		},
+		"before_tool": func(cancel context.CancelFunc) Hooks {
+			return Hooks{BeforeTool: []ToolHook{
+				{Name: "a", Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+					return Allow("ok"), nil
+				}},
+				{Name: "b", Func: func(ctx context.Context, _ ToolPlan) (ToolDecision, error) {
+					return ToolDecision{}, ended(ctx, cancel)
+				}},
+			}}
+		},
+		"before_finish": func(cancel context.CancelFunc) Hooks {
+			return Hooks{BeforeFinish: []FinishHook{
+				{Name: "a", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+					return FinishDecision{AcceptEmpty: true}, nil
+				}},
+				{Name: "b", Func: func(ctx context.Context, _ FinishPlan) (FinishDecision, error) {
+					return FinishDecision{}, ended(ctx, cancel)
+				}},
+			}}
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			remote := &valueTool{}
+			client := &scriptedClient{
+				results: []llm.Result{callResult("call-1", "remote"), final("done")},
+			}
+			out, err := (Runner{
+				Agent:  testAgent(),
+				Client: client,
+				Tools:  tool.List{remote.binding()},
+				Hooks:  build(cancel),
+			}).Run(ctx, Turn{ID: "t1"}, Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+			})
+			if err != nil || out.Stop.Kind != StopInterrupted {
+				t.Fatalf("stop=%+v err=%v", out.Stop, err)
+			}
+			if results := allHookResults(out.Turn); len(results) != 0 {
+				t.Fatalf("recorded %+v for an unfinished chain", results)
+			}
+		})
+	}
+}
+
+func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
+	fail := true
+	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		if fail {
+			return FinishDecision{}, errors.New("guard down")
+		}
+		return FinishDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("old"), final("nouveau")}}
+	runner := Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	})
+	if err != nil || out.Stop.Reason != StopReasonHookFailed {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	fail = false
+	out, err = runner.Run(t.Context(), out.Turn, Deliver{
+		CommandID: "note",
+		Items: []ContextItem{{
+			Message: llm.UserMessage(llm.Text("answer in French")),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "nouveau" ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+	last := client.inputs[len(client.inputs)-1].Messages
+	if last[len(last)-1].Text() != "answer in French" {
+		t.Fatalf("the model did not see the delivered context: %+v", last)
+	}
+}
+
+func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
+	fail := true
+	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		if fail {
+			return FinishDecision{}, errors.New("guard down")
+		}
+		return FinishDecision{}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 2
+	remote := &valueTool{}
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "remote"),
+		final("last"),
+	}}
+	runner := Runner{
+		Agent:  agent,
+		Client: client,
+		Tools:  tool.List{remote.binding()},
+		Hooks:  guard.Hooks(),
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	})
+	if err != nil || out.Stop.Reason != StopReasonHookFailed {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	fail = false
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
+	if err != nil || out.Stop.Kind != StopLimited || out.Answer != "last" ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+}
+
+func TestHookStopCannotUseReservedReasons(t *testing.T) {
+	fake := ModelHook{Name: "fake", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{Stop: &Stop{Kind: StopFailed, Reason: StopReasonHookFailed}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out, err := runHooked(t, client, nil, fake.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted || !hasWarning(out, WarningHookFailed) {
+		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+}
+
+func TestReplayRejectsInvalidHookRecords(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out, err := runHooked(t, client, nil, RequireApproval())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*Turn){
+		"unknown verdict": func(turn *Turn) {
+			turn.Steps[1].HookResults = []HookResult{
+				{Point: HookBeforeSend, Name: "x", Verdict: "bogus"},
+			}
+		},
+		"verdict from another point": func(turn *Turn) {
+			turn.Steps[1].HookResults = []HookResult{
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictDefer},
+			}
+		},
+		"pass outside before_tool": func(turn *Turn) {
+			turn.Steps[1].HookResults = []HookResult{
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictAdmit, Pass: 2},
+			}
+		},
+		"error without failure": func(turn *Turn) {
+			turn.Steps[1].HookResults = []HookResult{
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictAdmit, Error: "e"},
+			}
+		},
+		"failure without error": func(turn *Turn) {
+			turn.Steps[1].HookResults = []HookResult{
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictFailed},
+			}
+		},
+		"duplicate active names": func(turn *Turn) {
+			turn.Steps[0].ActiveHooks = &ActiveHooks{BeforeTool: []string{"a", "a"}}
+		},
+		"empty active name": func(turn *Turn) {
+			turn.Steps[0].ActiveHooks = &ActiveHooks{BeforeTool: []string{""}}
+		},
+		"active hooks on a later step": func(turn *Turn) {
+			turn.Steps[1].ActiveHooks = &ActiveHooks{BeforeTool: []string{"a"}}
+		},
+	}
+	if _, err := Replay(out.Turn); err != nil {
+		t.Fatalf("valid record rejected: %v", err)
+	}
+	for name, corrupt := range cases {
+		t.Run(name, func(t *testing.T) {
+			turn := cloneTurn(out.Turn)
+			corrupt(&turn)
+			if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+				t.Fatalf("replay err = %v", err)
+			}
+		})
 	}
 }
