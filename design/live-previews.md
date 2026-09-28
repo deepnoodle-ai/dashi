@@ -46,7 +46,10 @@ Let `p` be a preview's place and `c` the last step the reader was sent.
 `feed.Follow` drops the preview if `p < c` (a later step superseded it),
 yields it if `p == c`, and holds it if `p > c` until step `p` is yielded.
 Held previews come out right after their step, before the next step of the
-same page. A delta sits at its `model_requested` step, since nothing commits
+same page. Before yielding a step, `feed.Follow` places the previews already
+queued, and while a message streams in this process it waits up to 250 ms
+for the hub to observe that step, since the store can be ahead of the
+Observer; otherwise the last deltas before a settle would be dropped. A delta sits at its `model_requested` step, since nothing commits
 before its `model_settled`, and a progress snapshot sits between its call's
 `tool_started` and `tool_settled`. An unplaced preview (`Seq` 0) is dropped.
 
@@ -57,18 +60,20 @@ before its `model_settled`, and a progress snapshot sits between its call's
 - **Steps are hints, never delivery.** They wake `feed.Follow`'s read of the
   record, so previews are not held for a poll interval, and they close the
   turn's open message. Without the reader's own `StepWaiter`, `feed.Follow`
-  still reads the record at least every second, for runs in other
-  processes.
+  still reads the record every second for runs in other processes, except
+  while the turn rests at a stop, when it reads as rarely as `dashi.Follow`.
 - **Mid-stream joins.** The hub remembers each turn's streaming message
-  (`MessageID`, `Seq`), set by its deltas and cleared by its settling step
+  (`MessageID`, `Seq`), set by its deltas and gaps (never by an older run's,
+  placed earlier) and cleared by its settling step
   or a terminal stop, and forgotten after ten idle minutes as a fallback. A
   new reader starts with a gap for it, placed at its `Seq`, so a reader
   already past it drops the gap.
-- **Queues.** Each reader queues up to 256 previews. At the bound, progress
+- **Queues.** Each reader queues up to 256 previews in the hub, and
+  `feed.Follow` holds up to 256 more; each message has at most one gap. At the bound, progress
   is dropped and a delta becomes that message's gap. Gaps, from overflow or
   from the Observer, mark the message as having lost deltas: later deltas
   are dropped, and at most one gap per message is queued. Gaps are placed
-  like previews. `feed.Follow`'s held previews have their own bound of 256.
+  like previews.
 - **Locking.** A hub lock covers the turn map; a per-turn lock covers its
   readers. A turn's entry lives while it has readers or a streaming message.
   `Observe` on a nil hub does nothing; the zero value is ready.
@@ -85,7 +90,8 @@ func Follow(ctx context.Context, h *Hub, r dashi.StepReader,
 
 It registers with the hub before its first read of the record. It reads the
 record on one goroutine of its own. Any exit (break, ctx, a terminal stop,
-an error) unsubscribes, stops that goroutine, and drops held previews. A nil
+an error) stops that goroutine and waits for it, then unsubscribes and
+drops held previews, so no hub entry outlives its readers. A nil
 hub yields steps only. The guide's handler ranges over it, sends steps with
 `id: Seq` and previews and gaps without an id, and returns after `reset`.
 The page still clears a preview when it applies the step whose

@@ -476,9 +476,11 @@ runner's process; a multi-process host relays the Observer's events, with
 it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
 signed reasoning, the agent's instructions and tool definitions (the
 `turn_started` step), command digests, and lease owners. `project` builds the
-client's view from the fields it needs, and is the one place to hide
-reasoning if your product does not show it. `examples/live_follow` runs two
-followers on one turn.
+client's view from the fields it needs. Reasoning reaches the client two
+ways, in steps and as reasoning deltas, so if your product does not show it,
+hide it in `project` and have `projectPreview` skip deltas whose
+`Delta.Kind` is `llm.DeltaReasoning`. `examples/live_follow` runs two
+followers on one turn, one of them streaming the model's text.
 
 ## Observing a run in process
 

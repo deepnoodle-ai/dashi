@@ -1,7 +1,9 @@
 // Command live_follow runs one agent turn in a background worker while two
-// readers follow its record with dashi.Follow, as two browser tabs would.
-// The first follows from the start; the second joins late from a cursor and
-// leaves early, which does not affect the turn. Set ANTHROPIC_API_KEY before
+// readers follow it with feed.Follow, as two browser tabs would. The first
+// follows from the start and also shows the model's text as it streams,
+// through a feed.Hub set as the runner's Observer; the second follows steps
+// only, joins late from a cursor, and leaves early, which does not affect
+// the turn. Set ANTHROPIC_API_KEY before
 // running it; ANTHROPIC_MODEL optionally overrides the catalog's default
 // model.
 package main
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/feed"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -61,6 +64,8 @@ func run(ctx context.Context) error {
 	// The store the worker commits to is the one readers follow. A server
 	// would use a durable recorder that implements dashi.StepReader.
 	store := dashi.NewMemoryRecorder()
+	// The hub carries the runner's live previews to readers in this process.
+	var hub feed.Hub
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
@@ -69,6 +74,7 @@ func run(ctx context.Context) error {
 		Client:   client,
 		Tools:    tool.List{weather},
 		Recorder: store,
+		Observer: hub.Observe,
 	}
 	const turnID = "live-follow-demo"
 	start := dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
@@ -85,9 +91,11 @@ func run(ctx context.Context) error {
 	// read seq 2, tab B opens from that cursor, reads three steps, and
 	// closes; its leaving ends only its own follow.
 	wg.Go(func() {
-		follow(followCtx, store, "A", turnID, 0, 0, func(seq int64) {
+		follow(followCtx, &hub, store, "A", turnID, 0, 0, func(seq int64) {
 			if seq == 2 {
-				wg.Go(func() { follow(followCtx, store, "B", turnID, 2, 3, nil) })
+				wg.Go(func() {
+					follow(followCtx, nil, store, "B", turnID, 2, 3, nil)
+				})
 			}
 		})
 	})
@@ -113,10 +121,12 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// follow prints the turn's steps after the cursor, leaving after limit steps
-// when limit is positive, and calls onStep with each Seq it reads.
+// follow prints the turn's steps after the cursor, and with a hub the
+// model's text as it streams. It leaves after limit steps when limit is
+// positive, and calls onStep with each Seq it reads.
 func follow(
 	ctx context.Context,
+	hub *feed.Hub,
 	store dashi.StepReader,
 	tab, turnID string,
 	after int64,
@@ -126,11 +136,34 @@ func follow(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	read := 0
-	for step, err := range dashi.Follow(ctx, store, turnID, after) {
+	streaming := false
+	for e, err := range feed.Follow(ctx, hub, store, turnID, after) {
 		if err != nil {
 			fmt.Printf("[%s] error: %v\n", tab, err)
 			return
 		}
+		switch {
+		case e.Gap:
+			fmt.Print("[…]") // lost deltas; the settled message has the text
+			continue
+		case e.Delta != nil:
+			if e.Delta.Kind != llm.DeltaText {
+				continue // show text only; hide reasoning and tool arguments
+			}
+			if !streaming {
+				fmt.Printf("[%s] streaming: ", tab)
+				streaming = true
+			}
+			fmt.Print(e.Delta.Text)
+			continue
+		case e.Step == nil:
+			continue // tool progress
+		}
+		if streaming {
+			fmt.Println()
+			streaming = false
+		}
+		step := *e.Step
 		fmt.Printf("[%s] seq %d %s%s\n", tab, step.Seq, step.Kind, detail(step))
 		if onStep != nil {
 			onStep(step.Seq)

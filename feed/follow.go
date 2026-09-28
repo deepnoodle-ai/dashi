@@ -15,14 +15,15 @@ import (
 //
 // It ends as dashi.Follow does: when ctx ends, after a terminal stop, or
 // after yielding an error, such as one matching dashi.ErrCursorAhead. On any
-// exit, including a break, it unsubscribes from h, stops its reader of the
-// record, and drops previews it was holding.
+// exit, including a break, it stops its reader of the record and waits for
+// it, unsubscribes from h, and drops previews it was holding.
 //
 // It registers with h before its first read of the record, so no preview
 // falls between the two; a message already streaming then arrives as a gap.
 // Steps the hub observes wake the read of the record, so previews are not
-// held back by the reader's poll interval; r's own StepWaiter, if any, still
-// applies, and without one the record is read at least every second.
+// held back by the reader's poll interval. r's own StepWaiter, if any, still
+// applies; without one the record is read every second, or as rarely as
+// dashi.Follow reads it while the turn rests at a stop.
 //
 // Each call starts one goroutine to read the record. Placement is exact
 // because the Runner stamps Seq on the goroutine that commits.
@@ -43,7 +44,7 @@ func Follow(
 			rd = h.subscribe(turnID)
 			defer h.unsubscribe(turnID, rd)
 			ready = rd.ready
-			source = wakingReader{StepReader: r, hub: h}
+			source = &wakingReader{StepReader: r, hub: h}
 		}
 		type read struct {
 			step dashi.Step
@@ -60,8 +61,20 @@ func Follow(
 				}
 			}
 		}()
+		// Stop and wait for the record's reader before unsubscribing, so it
+		// cannot touch the hub for this turn afterwards.
+		defer func() {
+			cancel()
+			for range steps {
+			}
+		}()
 
-		m := merger{cursor: max(after, 0), lost: map[string]bool{}, yield: yield}
+		m := merger{
+			cursor:   max(after, 0),
+			lost:     map[string]bool{},
+			heldLost: map[string]bool{},
+			yield:    yield,
+		}
 		for {
 			select {
 			case got, ok := <-steps:
@@ -71,6 +84,17 @@ func Follow(
 				if got.err != nil {
 					yield(dashi.Event{}, got.err)
 					return
+				}
+				// Previews the Observer delivered before this step belong
+				// at or before it: place them first, or the last deltas
+				// before a settle would be dropped. The store can be ahead
+				// of the Observer, so while a message streams in this
+				// process, wait briefly for the hub to observe the step.
+				if rd != nil {
+					h.awaitStep(ctx, turnID, got.step.Seq)
+					if !m.place(h.take(turnID, rd)) {
+						return
+					}
 				}
 				step := got.step
 				event := dashi.Event{
@@ -112,8 +136,11 @@ func Follow(
 type merger struct {
 	cursor int64
 	held   []dashi.Event
-	lost   map[string]bool
-	yield  func(dashi.Event, error) bool
+	// lost holds messages whose gap was yielded; heldLost those whose gap is
+	// held, so each message holds at most one gap and no later deltas.
+	lost     map[string]bool
+	heldLost map[string]bool
+	yield    func(dashi.Event, error) bool
 }
 
 // place yields each event whose place is the cursor, holds those whose
@@ -135,13 +162,21 @@ func (m *merger) place(events []dashi.Event) bool {
 	return true
 }
 
-// hold keeps a preview until its step is yielded, within queueLimit.
+// hold keeps a preview until its step is yielded. Up to queueLimit
+// previews are held; past that, progress is dropped and a delta becomes its
+// message's gap. A message holds at most one gap, after which its deltas
+// are dropped, so the held gaps are bounded by the messages.
 func (m *merger) hold(e dashi.Event) {
-	if e.Gap || len(m.held) < queueLimit {
-		m.held = append(m.held, e)
+	switch {
+	case m.heldLost[e.MessageID] && (e.Gap || e.Delta != nil):
 		return
-	}
-	if e.Delta != nil && !m.lost[e.MessageID] {
+	case e.Gap:
+		m.heldLost[e.MessageID] = true
+		m.held = append(m.held, e)
+	case len(m.held) < queueLimit:
+		m.held = append(m.held, e)
+	case e.Delta != nil:
+		m.heldLost[e.MessageID] = true
 		gap := e
 		gap.Delta, gap.Gap = nil, true
 		m.held = append(m.held, gap)
@@ -200,13 +235,31 @@ func (h *Hub) take(turnID string, r *reader) []dashi.Event {
 // matching dashi.Follow's poll. It is a variable so tests can shorten it.
 var followPoll = time.Second
 
-// wakingReader lets steps the Hub observes wake dashi.Follow.
+// wakingReader lets steps the Hub observes wake dashi.Follow. dashi.Follow
+// calls it from one goroutine, so its fields need no lock.
 type wakingReader struct {
 	dashi.StepReader
 	hub *Hub
+	// resting records that the last step read is a stop. dashi.Follow then
+	// reads the record only every 30 seconds, and so does Wait: it skips its
+	// one-second poll and relies on the hub's wake.
+	resting bool
 }
 
-func (w wakingReader) Wait(ctx context.Context, turnID string, after int64) error {
+func (w *wakingReader) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	steps, err := w.StepReader.StepsAfter(ctx, turnID, after, limit)
+	if len(steps) > 0 {
+		w.resting = steps[len(steps)-1].Kind == dashi.StepStopped
+	}
+	return steps, err
+}
+
+func (w *wakingReader) Wait(ctx context.Context, turnID string, after int64) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	woken := w.hub.wakeAfter(turnID, after)
@@ -214,7 +267,7 @@ func (w wakingReader) Wait(ctx context.Context, turnID string, after int64) erro
 	var poll <-chan time.Time
 	if waiter, ok := w.StepReader.(dashi.StepWaiter); ok {
 		go func() { inner <- waiter.Wait(ctx, turnID, after) }()
-	} else {
+	} else if !w.resting {
 		timer := time.NewTimer(followPoll)
 		defer timer.Stop()
 		poll = timer.C

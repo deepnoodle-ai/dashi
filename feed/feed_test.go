@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -245,7 +246,7 @@ func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
 // Steps from overlapping runs may reach the hub out of order; placement
 // uses each event's own Seq, so an older preview stays out.
 func TestFollowPlacesPreviewsDespiteOutOfOrderSteps(t *testing.T) {
-	m := merger{cursor: 4, lost: map[string]bool{}}
+	m := merger{cursor: 4, lost: map[string]bool{}, heldLost: map[string]bool{}}
 	var got []dashi.Event
 	m.yield = func(e dashi.Event, _ error) bool { got = append(got, e); return true }
 	delta := dashi.Event{TurnID: "t1", MessageID: "m", Seq: 3, Delta: &llm.Delta{Text: "old"}}
@@ -268,7 +269,7 @@ func TestFollowPlacesPreviewsDespiteOutOfOrderSteps(t *testing.T) {
 // the same page.
 func TestFollowReleasesHeldPreviewsWithinAPage(t *testing.T) {
 	var got []dashi.Event
-	m := merger{cursor: 1, lost: map[string]bool{}}
+	m := merger{cursor: 1, lost: map[string]bool{}, heldLost: map[string]bool{}}
 	m.yield = func(e dashi.Event, _ error) bool { got = append(got, e); return true }
 	m.place([]dashi.Event{
 		{MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}},
@@ -387,7 +388,7 @@ func TestObserverGapSuppressesLaterDeltas(t *testing.T) {
 		t.Fatalf("queued %q", s)
 	}
 	var got []dashi.Event
-	m := merger{cursor: 3, lost: map[string]bool{}}
+	m := merger{cursor: 3, lost: map[string]bool{}, heldLost: map[string]bool{}}
 	m.yield = func(e dashi.Event, _ error) bool { got = append(got, e); return true }
 	m.place(events)
 	if len(got) != 0 {
@@ -437,10 +438,111 @@ func TestFollowCleansUpOnExit(t *testing.T) {
 	}()
 	for range Follow(t.Context(), &hub, rec, "t1", 0) {
 	}
-	waitFor(t, func() bool {
-		return hub.readers("t1") == 0 && hub.readers("other") == 0 &&
-			runtime.NumGoroutine() <= base
-	})
+	// Cleanup is synchronous: Follow has returned, so the hub is empty.
+	if n := hub.entries(); n != 0 {
+		t.Fatalf("hub holds %d turns after every reader left", n)
+	}
+	waitFor(t, func() bool { return runtime.NumGoroutine() <= base })
+}
+
+// Readers leaving a resting turn in quick succession leave no hub entry
+// behind, even when the record's reader is mid-wait as they leave.
+func TestManyDisconnectsLeaveNoEntries(t *testing.T) {
+	var hub Hub
+	rec := dashi.NewMemoryRecorder()
+	client := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
+	if _, err := runner(client, rec, hub.Observe).Run(
+		t.Context(), dashi.Turn{ID: "t1"}, start(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2000 {
+		for range Follow(t.Context(), &hub, readerOnly{rec}, "t1", int64(i%4)) {
+			break
+		}
+		if n := hub.entries(); n != 0 {
+			t.Fatalf("after disconnect %d the hub holds %d turns", i, n)
+		}
+	}
+}
+
+// A turn resting at a stop is read about as often as dashi.Follow alone
+// would read it, not every poll interval.
+func TestRestingTurnIsNotPolled(t *testing.T) {
+	old := followPoll
+	followPoll = 50 * time.Millisecond
+	t.Cleanup(func() { followPoll = old })
+	var hub Hub
+	rec := dashi.NewMemoryRecorder()
+	client := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
+	if _, err := runner(client, rec, hub.Observe).Run(
+		t.Context(), dashi.Turn{ID: "t1"}, start(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	counter := &countingReader{r: rec}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	for range Follow(ctx, &hub, counter, "t1", 0) {
+	}
+	if n := counter.reads.Load(); n > 3 {
+		t.Fatalf("%d reads of a resting turn in 1s at a %v poll", n, followPoll)
+	}
+}
+
+type countingReader struct {
+	r     dashi.StepReader
+	reads atomic.Int64
+}
+
+func (c *countingReader) StepsAfter(ctx context.Context, id string, after int64, limit int) ([]dashi.Step, error) {
+	c.reads.Add(1)
+	return c.r.StepsAfter(ctx, id, after, limit)
+}
+
+// Held previews stay bounded when a reader catching up holds a long message:
+// one gap stands for all the deltas past the bound.
+func TestHeldGapsAreBounded(t *testing.T) {
+	m := merger{cursor: 1, lost: map[string]bool{}, heldLost: map[string]bool{}}
+	m.yield = func(dashi.Event, error) bool { return true }
+	for range 10_300 {
+		m.place([]dashi.Event{{MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}}})
+	}
+	m.place([]dashi.Event{{MessageID: "m", Seq: 2, Gap: true}})
+	if n := len(m.held); n != queueLimit+1 {
+		t.Fatalf("held %d events; want %d deltas and one gap", n, queueLimit+1)
+	}
+}
+
+// A late delta from an older run does not replace the message streaming
+// now, so a reader that joins still gets a gap for the current message.
+func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
+	var hub Hub
+	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m2", Seq: 8, Delta: &llm.Delta{Text: "x"}})
+	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m1", Seq: 2, Delta: &llm.Delta{Text: "y"}})
+	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		Model: &dashi.ModelFact{MessageID: "m1"},
+	}})
+	rd := hub.subscribe("t1")
+	defer hub.unsubscribe("t1", rd)
+	events := hub.take("t1", rd)
+	if len(events) != 1 || !events[0].Gap || events[0].MessageID != "m2" || events[0].Seq != 8 {
+		t.Fatalf("joined with %+v; want a gap for m2 at 8", events)
+	}
+}
+
+// An Observer gap for a turn nobody follows yet still marks its message
+// streaming, so a reader that joins before the next delta gets a gap.
+func TestObserverGapOpensTheTurn(t *testing.T) {
+	var hub Hub
+	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Gap: true})
+	rd := hub.subscribe("t1")
+	defer hub.unsubscribe("t1", rd)
+	events := hub.take("t1", rd)
+	if len(events) != 1 || !events[0].Gap || events[0].MessageID != "m" {
+		t.Fatalf("joined with %+v; want a gap for m", events)
+	}
 }
 
 // Many readers join and leave while a run streams.

@@ -23,14 +23,16 @@
 package feed
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 )
 
-// queueLimit bounds the previews waiting for one reader, including those
-// held until their step arrives. Gap markers do not count against it.
+// queueLimit bounds the previews queued in the hub for one reader, and
+// separately those Follow holds until their step arrives. Gap markers do not
+// count against either; each message has at most one.
 const queueLimit = 256
 
 // openTimeout forgets an open message whose deltas stopped without a
@@ -97,23 +99,20 @@ func (h *Hub) Observe(e dashi.Event) {
 		h.observeStep(e)
 	case e.Delta != nil:
 		t := h.lock(e.TurnID, true)
-		t.open = &openMessage{
-			attemptID: e.AttemptID,
-			messageID: e.MessageID,
-			seq:       e.Seq,
-			last:      time.Now(),
-		}
+		t.streaming(e)
 		for r := range t.readers {
 			r.delta(e)
 		}
 		t.mu.Unlock()
 	case e.Gap:
-		if t := h.lock(e.TurnID, false); t != nil {
-			for r := range t.readers {
-				r.gap(e)
-			}
-			t.mu.Unlock()
+		// A gap also marks its message streaming, so a reader that joins
+		// before its next delta starts with a gap for it.
+		t := h.lock(e.TurnID, true)
+		t.streaming(e)
+		for r := range t.readers {
+			r.gap(e)
 		}
+		t.mu.Unlock()
 	case e.Progress != nil:
 		if t := h.lock(e.TurnID, false); t != nil {
 			for r := range t.readers {
@@ -143,6 +142,21 @@ func (h *Hub) observeStep(e dashi.Event) {
 	t.mu.Unlock()
 	if idle {
 		h.forget(e.TurnID)
+	}
+}
+
+// streaming records e's message as the turn's open message. An event from
+// an older run, placed before the open message, leaves it alone. The caller
+// holds t.mu.
+func (t *turnState) streaming(e dashi.Event) {
+	if t.open != nil && e.Seq < t.open.seq {
+		return
+	}
+	t.open = &openMessage{
+		attemptID: e.AttemptID,
+		messageID: e.MessageID,
+		seq:       e.Seq,
+		last:      time.Now(),
 	}
 }
 
@@ -209,8 +223,8 @@ func (h *Hub) sweep() {
 		if !t.mu.TryLock() {
 			continue
 		}
-		if len(t.readers) == 0 && t.open != nil &&
-			now.Sub(t.open.last) > openTimeout {
+		if len(t.readers) == 0 &&
+			(t.open == nil || now.Sub(t.open.last) > openTimeout) {
 			t.dead = true
 			delete(h.turns, id)
 		}
@@ -251,9 +265,16 @@ func (h *Hub) unsubscribe(turnID string, r *reader) {
 }
 
 // wakeAfter returns a channel that is closed once the Hub has observed a
-// step after the given Seq for the turn.
+// step after the given Seq for the turn. It never creates an entry: a
+// reader's entry exists while it is registered, and without one it returns
+// a closed channel so the caller reads the record.
 func (h *Hub) wakeAfter(turnID string, after int64) <-chan struct{} {
-	t := h.lock(turnID, true)
+	t := h.lock(turnID, false)
+	if t == nil {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
 	defer t.mu.Unlock()
 	if t.stepSeq > after {
 		done := make(chan struct{})
@@ -261,6 +282,57 @@ func (h *Hub) wakeAfter(turnID string, after int64) <-chan struct{} {
 		return done
 	}
 	return t.wake
+}
+
+// observerLag bounds how long Follow waits for the hub to observe a step it
+// has read from the store while a message streams in this process.
+const observerLag = 250 * time.Millisecond
+
+// awaitStep returns once the hub has observed the turn's step seq, or at
+// once when no message of the turn is streaming in this process, which is
+// when the Observer could still hold previews that belong before it.
+func (h *Hub) awaitStep(ctx context.Context, turnID string, seq int64) {
+	t := h.lock(turnID, false)
+	if t == nil {
+		return
+	}
+	streaming := t.open != nil && t.open.seq < seq
+	var woken <-chan struct{}
+	if streaming && t.stepSeq < seq {
+		woken = t.wake
+	}
+	t.mu.Unlock()
+	if woken == nil {
+		return
+	}
+	timer := time.NewTimer(observerLag)
+	defer timer.Stop()
+	for {
+		select {
+		case <-woken:
+		case <-timer.C:
+			return
+		case <-ctx.Done():
+			return
+		}
+		t := h.lock(turnID, false)
+		if t == nil {
+			return
+		}
+		done := t.stepSeq >= seq
+		woken = t.wake
+		t.mu.Unlock()
+		if done {
+			return
+		}
+	}
+}
+
+// entries reports the turns the hub holds, for tests.
+func (h *Hub) entries() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.turns)
 }
 
 // readers reports the turn's readers, for tests.
