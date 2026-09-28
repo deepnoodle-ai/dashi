@@ -231,6 +231,121 @@ func TestEngineStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 	}
 }
 
+func TestEngineStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
+	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
+	changed := []llm.Message{llm.UserMessage(llm.Text("changed history"))}
+	def, recorder, limited := interruptionLimitedHistoryTurn(t, history)
+	_, err := (Engine{}).Apply(
+		context.Background(),
+		limited,
+		def,
+		Continue{ID: "at-limit", History: changed},
+		Bindings{
+			Client:            &scriptedClient{},
+			Recorder:          recorder,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
+	)
+	if !errors.Is(err, ErrHistoryMismatch) {
+		t.Fatalf("error = %v, want ErrHistoryMismatch", err)
+	}
+	assertSavedSteps(t, recorder, limited)
+
+	// Warn mode still records the interruption-limit stop.
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		limited,
+		def,
+		Continue{ID: "at-limit", History: changed},
+		Bindings{Client: &scriptedClient{}, Recorder: recorder},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopLimited {
+		t.Fatalf("warn mode stop = %+v, want limited", out.Stop)
+	}
+}
+
+func TestEngineInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
+	def, recorder, limited := interruptionLimitedHistoryTurn(t, nil)
+	_, err := (Engine{}).Apply(
+		context.Background(),
+		limited,
+		def,
+		Continue{
+			ID:      "at-limit",
+			History: []llm.Message{{Role: llm.RoleUser}},
+		},
+		Bindings{Client: &scriptedClient{}, Recorder: recorder},
+	)
+	if err == nil {
+		t.Fatal("invalid history was accepted")
+	}
+	assertSavedSteps(t, recorder, limited)
+}
+
+// interruptionLimitedHistoryTurn returns a turn that has used its only
+// resume, so the next Continue reaches the interruption limit.
+func interruptionLimitedHistoryTurn(
+	t *testing.T,
+	history []llm.Message,
+) (Definition, *MemoryRecorder, Turn) {
+	t.Helper()
+	def := definition()
+	def.Limits.Interruptions = 1
+	recorder := NewMemoryRecorder()
+	paused := make(chan struct{})
+	close(paused)
+	b := Bindings{Client: &scriptedClient{}, Recorder: recorder, Pause: paused}
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "history-limit"},
+		def,
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
+		},
+		b,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = (Engine{}).Apply(
+		context.Background(),
+		out.Turn,
+		def,
+		Continue{ID: "resume", History: history},
+		b,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopInterrupted {
+		t.Fatalf("resume did not interrupt: %+v", out.Stop)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Interruptions != 1 || view.ReadyToContinue {
+		t.Fatalf("turn is not at its interruption limit: %+v", view)
+	}
+	return def, recorder, out.Turn
+}
+
+func assertSavedSteps(t *testing.T, recorder *MemoryRecorder, want Turn) {
+	t.Helper()
+	saved, err := recorder.Load(want.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != len(want.Steps) {
+		t.Fatalf("saved steps = %d, want %d", len(saved.Steps), len(want.Steps))
+	}
+}
+
 func TestEngineStrictContinueWithoutFingerprintProceeds(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	first := startPausedHistoryTurn(t, client, nil, nil)

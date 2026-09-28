@@ -255,6 +255,9 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		return rt.current(), nil
 	case Continue:
+		if len(turn.Steps) == 0 {
+			return Outcome{}, errors.New("kernel: turn cannot continue")
+		}
 		if c.Budget != nil {
 			old := Budget{}
 			if state.Budget != nil {
@@ -263,6 +266,20 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 			if err := c.Budget.raisedFrom(old); err != nil {
 				return Outcome{}, err
 			}
+		}
+		// History is checked before any path that can commit, so a rejected
+		// Continue never changes the record.
+		if err := validateHistory(c.History); err != nil {
+			return Outcome{}, err
+		}
+		fingerprint, err := historyFingerprint(c.History)
+		if err != nil {
+			return Outcome{}, err
+		}
+		stored := turn.Steps[0].Started.HistoryFingerprint
+		mismatch := stored != "" && fingerprint != stored
+		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
+			return Outcome{}, ErrHistoryMismatch
 		}
 		if state.interruptionLimitReached() {
 			step := Step{
@@ -286,18 +303,6 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		}
 		if !state.canContinueWithBudget(c.Budget) {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
-		}
-		if err := validateHistory(c.History); err != nil {
-			return Outcome{}, err
-		}
-		fingerprint, err := historyFingerprint(c.History)
-		if err != nil {
-			return Outcome{}, err
-		}
-		stored := turn.Steps[0].Started.HistoryFingerprint
-		mismatch := stored != "" && fingerprint != stored
-		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
-			return Outcome{}, ErrHistoryMismatch
 		}
 		rt.history = cloneMessages(c.History)
 		step := Step{
