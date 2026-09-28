@@ -82,15 +82,15 @@ object with root `"type":"object"`, at most 32 KiB, recorded at start.
 `dashi.MustOutputSchema[T]()` generates one from a Go struct with `tool.Func`'s
 rules. The runner advertises a reserved `dashi_submit_output` tool; the model
 may use application tools first, then submit the object. Dashi validates and
-records it; an invalid submission is returned to the model as a tool error. A final
-response holding exactly one JSON object is accepted as a fallback. Without a
-valid value the turn stops with `output_schema_unsatisfied`. `Outcome.Output`
-holds the value (at most 256 KiB), its source, and its attempt and call IDs;
-`Answer` may be empty. Once recorded the result is final: `Continue` can finish
-an unacknowledged stop, while `Deliver` and `Cancel` are rejected. This is a
+records it; an invalid submission is returned to the model as a tool error. A
+final response holding exactly one JSON object is accepted as a fallback.
+Without a valid value the turn stops with `output_schema_unsatisfied`.
+`Outcome.Output` holds the value (at most 256 KiB), its source, and its attempt
+and call IDs; `Answer` may be empty. `dashi.DecodeOutput[T](outcome)` decodes
+the value, or returns an error wrapping `ErrNoOutput` that names the stop when
+there is none. Once recorded the result is final: `Continue` can finish an
+unacknowledged stop, while `Deliver` and `Cancel` are rejected. This is a
 result contract; the provider may not constrain generation.
-`dashi.DecodeOutput[T](outcome)` decodes the value, or returns an error wrapping
-`ErrNoOutput` that names the stop when there is none.
 
 ## Recorder contract
 

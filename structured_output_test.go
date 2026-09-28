@@ -46,31 +46,32 @@ func TestMustOutputSchema(t *testing.T) {
 }
 
 func TestDecodeOutput(t *testing.T) {
-	person, err := DecodeOutput[testPerson](Outcome{
-		Stop:   Stop{Kind: StopCompleted},
-		Output: &StructuredOutput{Value: json.RawMessage(`{"name":"Ada"}`)},
-	})
+	ada := &StructuredOutput{Value: json.RawMessage(`{"name":"Ada"}`)}
+	completed := Stop{Kind: StopCompleted}
+	person, err := DecodeOutput[testPerson](outcomeOf(completed, ada))
 	if err != nil || person.Name != "Ada" {
 		t.Fatalf("person=%+v err=%v", person, err)
 	}
 
-	_, err = DecodeOutput[testPerson](Outcome{
-		Stop: Stop{Kind: StopLimited, Reason: "model_attempts"},
-	})
+	limited := Stop{Kind: StopLimited, Reason: "model_attempts"}
+	_, err = DecodeOutput[testPerson](outcomeOf(limited, nil))
 	if !errors.Is(err, ErrNoOutput) ||
 		!strings.Contains(err.Error(), "limited: model_attempts") {
 		t.Fatalf("limited err = %v", err)
 	}
-	_, err = DecodeOutput[testPerson](Outcome{Stop: Stop{Kind: StopCompleted}})
+	_, err = DecodeOutput[testPerson](outcomeOf(completed, nil))
 	if !errors.Is(err, ErrNoOutput) ||
 		!strings.Contains(err.Error(), "without an output schema") {
 		t.Fatalf("completed err = %v", err)
 	}
-	_, err = DecodeOutput[int](Outcome{
-		Stop:   Stop{Kind: StopCompleted},
-		Output: &StructuredOutput{Value: json.RawMessage(`{"name":"Ada"}`)},
-	})
+	_, err = DecodeOutput[int](outcomeOf(completed, ada))
 	if err == nil || errors.Is(err, ErrNoOutput) {
 		t.Fatalf("mismatched type err = %v", err)
 	}
+}
+
+// outcomeOf builds the result Run returns, whose Stop and Output are promoted
+// from the embedded TurnView.
+func outcomeOf(stop Stop, output *StructuredOutput) Outcome {
+	return Outcome{TurnView: TurnView{Stop: stop, Output: output}}
 }
