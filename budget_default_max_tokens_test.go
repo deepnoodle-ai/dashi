@@ -94,7 +94,6 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 			Provider: "router",
 			API:      completions.API,
 			Model:    "priced",
-			Limits:   kernel.DefaultLimits(),
 		},
 		kernel.Start{
 			ID: "start",
