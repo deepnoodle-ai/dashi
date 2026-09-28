@@ -19,6 +19,7 @@ package gemini
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -51,8 +52,9 @@ const DefaultEndpoint = "https://generativelanguage.googleapis.com/v1beta/models
 // name its resolved model-specific endpoint, not the endpoint template.
 type Config struct {
 	Provider string
-	// APIKey defaults to GEMINI_API_KEY, then GOOGLE_API_KEY, except on
-	// Vertex. With no key for the public endpoint, New and Prepare still
+	// APIKey defaults to GEMINI_API_KEY, then GOOGLE_API_KEY, read only for the
+	// "google" provider so the key never reaches another destination, and never
+	// for Vertex. With no key for the public endpoint, New and Prepare still
 	// succeed and Send fails before dispatch with an error wrapping
 	// llm.ErrNoAPIKey.
 	APIKey string
@@ -111,16 +113,18 @@ func New(config Config) (*Client, error) {
 			url.PathEscape(config.Location),
 		)
 		defaultProvider = "google-vertex"
-	} else {
-		if config.APIKey == "" {
-			config.APIKey = os.Getenv("GEMINI_API_KEY")
-		}
-		if config.APIKey == "" {
-			config.APIKey = os.Getenv("GOOGLE_API_KEY")
-		}
 	}
 	if config.Endpoint == "" {
 		config.Endpoint = defaultEndpoint
+	}
+	// The Gemini key is read only for the "google" destination, so a client
+	// for another provider never sends it elsewhere.
+	if !config.Vertex && config.APIKey == "" &&
+		cmp.Or(config.Provider, defaultProvider) == "google" {
+		config.APIKey = cmp.Or(
+			os.Getenv("GEMINI_API_KEY"),
+			os.Getenv("GOOGLE_API_KEY"),
+		)
 	}
 	if config.Provider == "" {
 		if config.Endpoint != defaultEndpoint {

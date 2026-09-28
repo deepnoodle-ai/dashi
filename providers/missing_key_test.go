@@ -163,3 +163,81 @@ type failingTransport struct{}
 func (failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errTransport
 }
+
+// recordingTransport keeps every request's headers and then fails it.
+type recordingTransport struct{ headers *[]http.Header }
+
+func (r recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	*r.headers = append(*r.headers, req.Header.Clone())
+	return nil, errTransport
+}
+
+// A provider's key must reach only that provider. Before this test, the
+// OpenAI-format and Anthropic-format clients read OPENAI_API_KEY or
+// ANTHROPIC_API_KEY for any destination, so a wrapper whose own variable was
+// unset sent the OpenAI key to xAI, Mistral, and the others.
+func TestProviderKeysNeverReachOtherDestinations(t *testing.T) {
+	const openAIKey, anthropicKey = "sk-openai-secret", "sk-ant-secret"
+	for _, v := range keyVariables {
+		t.Setenv(v, "")
+	}
+	t.Setenv("OPENAI_API_KEY", openAIKey)
+	t.Setenv("ANTHROPIC_API_KEY", anthropicKey)
+	for _, name := range []string{
+		"openrouter", "grok", "mistral", "deepinfra", "meta", "gateway",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var headers []http.Header
+			custom := &http.Client{Transport: recordingTransport{&headers}}
+			var client llm.Client
+			var err error
+			if name == "gateway" {
+				client, err = messages.New(messages.Config{
+					Provider: "gateway",
+					Endpoint: "https://gateway.example/v1/messages",
+					Client:   custom,
+				})
+			} else {
+				client, err = clientFor(name, custom)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := client.Prepare(t.Context(), modelInput())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = client.Send(t.Context(), llm.Call{Request: request})
+			if len(headers) != 1 {
+				t.Fatalf("requests sent = %d, want 1", len(headers))
+			}
+			for key, values := range headers[0] {
+				for _, v := range values {
+					if strings.Contains(v, openAIKey) ||
+						strings.Contains(v, anthropicKey) {
+						t.Fatalf("header %s carried another provider's key", key)
+					}
+				}
+			}
+		})
+	}
+	// The OpenAI and Anthropic destinations still read their own keys.
+	var headers []http.Header
+	custom := &http.Client{Transport: recordingTransport{&headers}}
+	for _, name := range []string{"openai responses", "anthropic"} {
+		client, err := clientFor(name, custom)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := client.Prepare(t.Context(), modelInput())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = client.Send(t.Context(), llm.Call{Request: request})
+	}
+	if len(headers) != 2 ||
+		headers[0].Get("Authorization") != "Bearer "+openAIKey ||
+		headers[1].Get("X-Api-Key") != anthropicKey {
+		t.Fatalf("own keys not sent: %v", headers)
+	}
+}

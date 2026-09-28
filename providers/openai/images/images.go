@@ -38,7 +38,8 @@ type Config struct {
 	// public endpoint defaults to "openai"; custom endpoints require a name.
 	Provider string
 
-	// APIKey defaults to OPENAI_API_KEY when New is called. With no key for
+	// APIKey defaults to OPENAI_API_KEY, read only when Provider is "openai"
+	// so the key never reaches another destination. With no key for
 	// the public endpoint, New and PrepareImage still succeed and SendImage
 	// fails before dispatch with an error wrapping llm.ErrNoAPIKey.
 	APIKey string
@@ -77,11 +78,19 @@ var _ media.ImageClient = (*Client)(nil)
 // New snapshots configuration. A custom endpoint needs a provider identity so
 // recorded requests cannot be mistaken for the public OpenAI destination.
 func New(config Config) (*Client, error) {
-	if config.APIKey == "" {
-		config.APIKey = os.Getenv("OPENAI_API_KEY")
-	}
 	if config.Endpoint == "" {
 		config.Endpoint = defaultEndpoint
+	}
+	if config.Provider == "" {
+		if config.Endpoint != defaultEndpoint {
+			return nil, errors.New("images: custom endpoint requires provider identity")
+		}
+		config.Provider = "openai"
+	}
+	// The openai key is read only for the openai destination, so a
+	// client for another provider never sends it elsewhere.
+	if config.APIKey == "" && config.Provider == "openai" {
+		config.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
 	var noKey error
 	if config.APIKey == "" && config.Endpoint == defaultEndpoint &&
@@ -90,12 +99,6 @@ func New(config Config) (*Client, error) {
 			"%w: set OPENAI_API_KEY or Config.APIKey",
 			llm.ErrNoAPIKey,
 		)
-	}
-	if config.Provider == "" {
-		if config.Endpoint != defaultEndpoint {
-			return nil, errors.New("images: custom endpoint requires provider identity")
-		}
-		config.Provider = "openai"
 	}
 	if strings.TrimSpace(config.Provider) != config.Provider ||
 		config.Provider == "" {
