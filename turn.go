@@ -258,6 +258,23 @@ type Stop struct {
 	Reason string   `json:"reason,omitempty"`
 }
 
+// Stop reasons for a StopFailed turn ended by a tool. The reason is a stable
+// code a host can branch on; the error text stays on the call's settled step
+// in ToolFact.Reason. Both leave the failing call settled, so once the host
+// has fixed the cause, Continue resumes the turn and the model sees the
+// failure as the call's result.
+const (
+	// StopReasonToolFatal means an executor returned an error wrapped with
+	// tool.Fatal.
+	StopReasonToolFatal = "tool_fatal"
+
+	// StopReasonToolOutcomeInvalid means an executor returned an outcome
+	// that fails tool.Outcome.Validate. This is a bug in the executor, not
+	// an uncertain effect: the engine observed the result, and it was
+	// malformed.
+	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
+)
+
 type Persistence string
 
 const (

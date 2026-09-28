@@ -18,7 +18,9 @@ import (
 // generated from T once, at construction, and both the returned Definition and
 // argument validation use it; construct a new tool when the contract changes.
 // The callback also receives the stable call identity, suitable for downstream
-// idempotency and reconciliation.
+// idempotency and reconciliation. An error from the callback is returned
+// unchanged, so it follows the Executor contract: a plain error goes to the
+// model as a failure, and one wrapped with Fatal stops the turn.
 func Func[T any](
 	name, description string,
 	fn func(context.Context, Call, T) (Outcome, error),
@@ -58,7 +60,8 @@ type typedExecutor[T any] struct {
 
 // Execute passes fn a clone of call, so the callback cannot alter the
 // caller's arguments. An outcome from fn that fails validation is returned as
-// an error.
+// a fatal ErrInvalidOutcome error, since the callback, not the model, is at
+// fault.
 func (e typedExecutor[T]) Execute(ctx context.Context, call Call) (Outcome, error) {
 	if err := ctx.Err(); err != nil {
 		return notExecuted(err.Error()), nil
@@ -90,7 +93,7 @@ func (e typedExecutor[T]) Execute(ctx context.Context, call Call) (Outcome, erro
 		return Outcome{}, err
 	}
 	if err = outcome.Validate(); err != nil {
-		return Outcome{}, err
+		return Outcome{}, Fatal(fmt.Errorf("%w: %w", ErrInvalidOutcome, err))
 	}
 	return outcome, nil
 }

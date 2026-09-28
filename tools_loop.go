@@ -3,35 +3,45 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
+// toolResult is what the dispatcher observed from one executor call.
+// When the executor panicked, panicked holds the recorded reason and outcome
+// and err are meaningless.
 type toolResult struct {
-	call    tool.Call
-	outcome tool.Outcome
-	err     error
+	call     tool.Call
+	outcome  tool.Outcome
+	err      error
+	panicked string
 }
+
+// maxPanicReason bounds the panic value and stack kept on the record, which
+// is persisted with every turn.
+const maxPanicReason = 4 << 10
 
 func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	ctx, cancel := context.WithCancel(r.ctx)
 	defer cancel()
 	results := make(chan toolResult, len(s.callOrder))
 	running := 0
+	// fatal holds the stop reason of the first result that ends the turn.
+	// Once set, no further call starts; running calls still settle.
+	fatal := ""
 	settle := func(v toolResult) *Outcome {
-		fact := &ToolFact{Call: v.call}
-		if v.err != nil {
-			fact.Reason = v.err.Error()
-		} else {
-			fact.Outcome = &v.outcome
+		step, stop := toolSettlement(v)
+		if o := r.commit(step); o != nil {
+			return o
 		}
-		kind := StepToolSettled
-		if v.err == nil && (v.outcome.State == tool.StateWaiting || v.outcome.State == tool.StateDetached) {
-			kind = StepToolWaiting
+		if fatal == "" {
+			fatal = stop
 		}
-		return r.commit(Step{Kind: kind, Tool: fact})
+		return nil
 	}
 	drainOne := func() *Outcome {
 		select {
@@ -46,6 +56,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	for _, id := range s.callOrder {
 		if err := ctx.Err(); err != nil {
 			return r.stop(StopCanceled, err.Error()), true
+		}
+		if fatal != "" {
+			break
 		}
 		state, _ := replay(r.turn)
 		v := state.Tools[id]
@@ -209,6 +222,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				cancel()
 				return *o, true
 			}
+			if fatal != "" {
+				break
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return r.stop(StopCanceled, err.Error()), true
@@ -227,13 +243,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		running++
 		call := v.Call.Clone()
 		go func() {
-			out, err := ex.Execute(ctx, call)
-			if err == nil {
-				if e := out.Validate(); e != nil {
-					err = e
-				}
-			}
-			results <- toolResult{call: call, outcome: out, err: err}
+			results <- execute(ctx, ex, call)
 		}()
 	}
 	for running > 0 {
@@ -249,10 +259,93 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			return r.stop(StopUncertain, "tool outcome needs reconciliation"), true
 		}
 	}
+	// An uncertain call outranks a fatal one: Continue is refused until the
+	// host reconciles it, and the fatal failure stays on its settled step.
+	if fatal != "" {
+		return r.stop(StopFailed, fatal), true
+	}
 	if hasOpenTools(state) {
 		return r.stop(StopWaiting, "tool result or approval pending"), true
 	}
 	return Outcome{}, false
+}
+
+// execute runs one call and always yields a result, so a panicking executor
+// cannot leave the dispatcher waiting on results with running overcounted.
+// This single dispatch path serves both sequential and parallel calls. A
+// panic is recovered, not re-raised: the call may have taken effect before it
+// panicked, so its result is unknown and the engine records it as uncertain
+// rather than running it again.
+func execute(
+	ctx context.Context,
+	ex tool.Executor,
+	call tool.Call,
+) (result toolResult) {
+	result.call = call
+	defer func() {
+		if v := recover(); v != nil {
+			result = toolResult{call: call, panicked: panicReason(v)}
+		}
+	}()
+	result.outcome, result.err = ex.Execute(ctx, call.Clone())
+	return result
+}
+
+// toolSettlement converts an observed executor result into the step to record
+// and, when the result ends the turn, the StopFailed reason. It applies the
+// contract in design/decisions.md entry 1: an error is a failure the model
+// sees, tool.ErrFatal also stops the turn, and uncertainty is reserved for a
+// result the engine did not observe. An invalid outcome was observed, so it is
+// a fatal executor bug, not uncertainty.
+func toolSettlement(v toolResult) (Step, string) {
+	fact := &ToolFact{Call: v.call}
+	if v.panicked != "" {
+		// No outcome records the call as uncertain.
+		fact.Reason = v.panicked
+		return Step{Kind: StepToolSettled, Tool: fact}, ""
+	}
+	err := v.err
+	if err == nil {
+		if e := v.outcome.Validate(); e != nil {
+			err = tool.Fatal(fmt.Errorf("%w: %w", tool.ErrInvalidOutcome, e))
+		}
+	}
+	if err == nil {
+		fact.Outcome = &v.outcome
+		kind := StepToolSettled
+		switch v.outcome.State {
+		case tool.StateWaiting, tool.StateDetached:
+			kind = StepToolWaiting
+		}
+		return Step{Kind: kind, Tool: fact}, ""
+	}
+	fact.Reason = err.Error()
+	text := fact.Reason
+	if text == "" {
+		text = "Tool failed."
+	}
+	fact.Outcome = &tool.Outcome{
+		State:  tool.StateFailed,
+		Output: ptr(tool.TextOutput(text)),
+	}
+	step := Step{Kind: StepToolSettled, Tool: fact}
+	switch {
+	case errors.Is(err, tool.ErrInvalidOutcome):
+		return step, StopReasonToolOutcomeInvalid
+	case errors.Is(err, tool.ErrFatal):
+		return step, StopReasonToolFatal
+	}
+	return step, ""
+}
+
+// panicReason records the panic value and a bounded stack, prefixed so hosts
+// can recognize a recovered panic among uncertain calls.
+func panicReason(v any) string {
+	reason := fmt.Sprintf("panic: %v\n%s", v, debug.Stack())
+	if len(reason) > maxPanicReason {
+		reason = reason[:maxPanicReason]
+	}
+	return strings.ToValidUTF8(reason, "\uFFFD")
 }
 
 func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {

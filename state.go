@@ -404,6 +404,11 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
+			// No outcome records a result the engine did not observe: a
+			// panic, or a start with no result after a crash. A returned
+			// error settles with a failed outcome instead. Replay does not
+			// second-guess the reason text, so an older or forged record
+			// claiming uncertainty for an error still needs Accept.
 			if v.Status != ToolStarted && v.Status != ToolWaiting {
 				return errors.New("uncertainty without start")
 			}

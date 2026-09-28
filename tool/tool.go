@@ -223,8 +223,8 @@ func (o Output) Clone() Output {
 // set of Outcome payloads; see Outcome.Validate.
 type State string
 
-// Outcome states. StateFailed is a known failure reported by the tool, distinct
-// from an uncertain execution error returned by an Executor.
+// Outcome states. StateFailed is a known failure the model sees, whether the
+// executor returned it or the engine derived it from an executor's error.
 const (
 	// StateSucceeded requires output from a completed call.
 	StateSucceeded State = "succeeded"
@@ -307,12 +307,59 @@ func (o Outcome) Validate() error {
 	return nil
 }
 
-// Executor returns a definite outcome with nil error. An execution error means
-// the outcome is uncertain, even when an Outcome was also returned.
+// Executor runs one call. A returned error is a failure the model sees: the
+// engine records the call as StateFailed with the error text and continues the
+// turn, ignoring any Outcome returned with it. Returning an Outcome with
+// StateFailed and nil error does the same with content the tool chooses. Wrap
+// the error with Fatal when continuing the turn would be wrong.
+//
+// An executor never reports uncertainty. The engine alone decides that a
+// result was not observed: after a panic, or when a recorded start has no
+// recorded result after a crash.
 type Executor interface {
-	// Execute returns a definite outcome or an error indicating execution
-	// uncertainty.
+	// Execute returns the call's outcome, or an error describing why it
+	// failed.
 	Execute(context.Context, Call) (Outcome, error)
+}
+
+// ErrFatal marks an executor error that ends the turn instead of returning to
+// the model. Match it with errors.Is; construct it with Fatal.
+var ErrFatal = errors.New("tool: fatal error")
+
+// ErrInvalidOutcome marks an executor result that fails Outcome.Validate. It
+// is a programming error, so it also matches ErrFatal.
+var ErrInvalidOutcome = errors.New("tool: invalid outcome")
+
+// Fatal marks err as fatal to the turn while keeping it as the cause, so
+// errors.Is and errors.As still see err and the recorded text is unchanged.
+// Use it for faults the model cannot correct and should not be told to work
+// around: an infrastructure outage, lost or revoked credentials, a broken
+// dependency, or any state in which continuing the turn is wrong. The engine
+// records the call as failed and stops the turn; the host can fix the fault
+// and continue it. Fatal(nil) returns ErrFatal, so a fatal marker is never
+// lost.
+func Fatal(err error) error {
+	if err == nil {
+		return ErrFatal
+	}
+	return fatalError{err: err}
+}
+
+// fatalError keeps the cause's message and chain while matching ErrFatal.
+type fatalError struct {
+	err error
+}
+
+func (e fatalError) Error() string {
+	return e.err.Error()
+}
+
+func (e fatalError) Unwrap() error {
+	return e.err
+}
+
+func (e fatalError) Is(target error) bool {
+	return target == ErrFatal
 }
 
 // Tool pairs a definition with the executor that runs its calls.

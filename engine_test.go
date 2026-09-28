@@ -617,37 +617,6 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 		t.Fatalf("saved steps=%d", len(saved.Steps))
 	}
 }
-func TestUncertainToolRequiresAcceptance(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote"), final("reconciled")}}
-	rec := NewMemoryRecorder()
-	runs := 0
-	binding := tool.Tool{Definition: tool.Definition{Name: "remote", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}, Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		runs++
-		return tool.Outcome{}, errors.New("connection lost")
-	})}
-	got, err := start(t, client, fixedTools{binding}, rec, AllowLocalPolicy{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Stop.Kind != StopUncertain || runs != 1 || client.sends != 1 {
-		t.Fatalf("stop=%+v runs=%d sends=%d", got.Stop, runs, client.sends)
-	}
-	view, err := Replay(got.Turn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.Tools["call-1"].Status != ToolUncertain {
-		t.Fatalf("state=%s", view.Tools["call-1"].Status)
-	}
-	out := tool.Outcome{State: tool.StateSucceeded, Output: ptr(tool.TextOutput("verified"))}
-	accepted, err := (Engine{}).Apply(context.Background(), got.Turn, definition(), Accept{ID: "reconcile", CallID: "call-1", Outcome: &out}, Bindings{Client: client, Tools: fixedTools{binding}, Recorder: rec, Policy: AllowLocalPolicy{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accepted.Stop.Kind != StopCompleted || runs != 1 || client.sends != 2 {
-		t.Fatalf("stop=%+v runs=%d sends=%d", accepted.Stop, runs, client.sends)
-	}
-}
 func TestChangedDefinitionAndCommandConflict(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
