@@ -50,13 +50,6 @@ func (p approvalPolicy) AuthorizeTool(
 	return p.AllowLocalPolicy.AuthorizeTool(ctx, call, view)
 }
 
-// tools is a fixed tool.Toolset.
-type tools []tool.Tool
-
-func (ts tools) Tools(context.Context) ([]tool.Tool, error) {
-	return ts, nil
-}
-
 func main() {
 	log.SetFlags(0)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -85,10 +78,7 @@ func run(ctx context.Context) error {
 		func(_ context.Context, _ tool.Call, in deployArgs) (tool.Outcome, error) {
 			fmt.Printf("Deploying %s to %s.\n", in.Version, in.Environment)
 			text := fmt.Sprintf("Deployed %s to %s.", in.Version, in.Environment)
-			return tool.Outcome{
-				State:  tool.StateSucceeded,
-				Output: new(tool.TextOutput(text)),
-			}, nil
+			return tool.Succeeded(text), nil
 		},
 	)
 	if err != nil {
@@ -102,7 +92,7 @@ func run(ctx context.Context) error {
 			Model:        model,
 		},
 		Client:   client,
-		Tools:    tools{deploy},
+		Tools:    tool.List{deploy},
 		Recorder: dashi.NewMemoryRecorder(),
 		Policy:   approvalPolicy{},
 	}

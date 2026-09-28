@@ -20,7 +20,7 @@ import (
 // T must be a struct: each field is required unless its json tag has
 // omitempty, and description and enum tags describe it to the model.
 // Arguments that do not match the schema are refused before fn runs; see
-// docs/guides/model-calls.md#defining-tools for the complete rules.
+// docs/guides/tools.md#defining-tools for the complete rules.
 // The callback also receives the stable call identity, suitable for downstream
 // idempotency and reconciliation. An error from the callback is returned
 // unchanged, so it follows the Executor contract: a plain error goes to the
