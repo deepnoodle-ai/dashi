@@ -86,6 +86,12 @@ keeps it for the host. Wrap it with `tool.Fatal` to stop the turn instead.
 `tool.Failed(text)` is for settling an external or detached call, or for
 attaching a `Cost` to a failure.
 
+A failed, denied, or skipped call reaches the model as a result flagged as an
+error. Anthropic and Gemini carry the flag natively. OpenAI Responses and Chat
+Completions have no flag, so the result text is preceded by `Tool failed:` and
+the prepared request records an `encode_tool_error` content change, not a
+warning.
+
 ## Hosted tools
 
 Provider packages construct tools that the provider runs inside the model

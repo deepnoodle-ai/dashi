@@ -342,6 +342,51 @@ func TestInterruptedStreamKeepsPartialToolArguments(t *testing.T) {
 	}
 }
 
+func TestPrepareStatesToolErrorInText(t *testing.T) {
+	p := testClient(t, "https://unused.invalid")
+	input := testInput(false)
+	input.Messages = append(
+		input.Messages,
+		llm.AssistantMessage(llm.Content{
+			Kind:     llm.ContentToolCall,
+			ToolCall: &tool.Call{ID: "call-1", Name: "search", Args: json.RawMessage(`{}`)},
+		}),
+		llm.Message{
+			Role: llm.RoleUser,
+			Content: []llm.Content{{
+				Kind: llm.ContentToolResult,
+				ToolResult: &llm.ToolResult{
+					CallID:  "call-1",
+					Output:  tool.TextOutput("The call was denied."),
+					IsError: true,
+				},
+			}},
+		},
+	)
+	prepared, err := p.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(prepared.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	last := body.Messages[len(body.Messages)-1]
+	if last["role"] != "tool" || last["tool_call_id"] != "call-1" ||
+		last["content"] != "Tool failed:\nThe call was denied." {
+		t.Fatalf("tool error encoded as %v", last)
+	}
+	changes := prepared.ContentChanges()
+	if len(changes) != 1 ||
+		changes[0].Action != llm.ContentChangeEncodeToolError ||
+		changes[0].MessageIndex != 2 ||
+		len(prepared.Warnings()) != 0 {
+		t.Fatalf("changes=%+v warnings=%+v", changes, prepared.Warnings())
+	}
+}
+
 func TestPrepareNamesOutputLimitForEachDestination(t *testing.T) {
 	for _, test := range []struct {
 		name     string
