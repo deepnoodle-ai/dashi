@@ -160,9 +160,9 @@ type Warning struct {
 	Message string `json:"message"`
 }
 
-// Warnings returns the caller-facing warnings of the given decisions, in
-// order: setting adjustments first, then content changes.
-func Warnings(
+// collectWarnings returns the caller-facing warnings of the given decisions,
+// in order: setting adjustments first, then content changes.
+func collectWarnings(
 	adjustments []Adjustment,
 	changes []ContentChange,
 ) []Warning {

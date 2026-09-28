@@ -140,12 +140,13 @@ const (
 // CitationLocation points at a passage of a cited document. The range
 // [Start, End) is half-open.
 type CitationLocation struct {
-	// DocumentIndex counts the document blocks of the request that produced
-	// the citation, from 0, in the order sent: through every message in order,
-	// including the blocks of each tool result. It is not stable across calls,
-	// because context and tool results change which documents a request
-	// carries; title documents and use the citation's Title as a stable key.
-	DocumentIndex int `json:"document_index"`
+	// RequestDocumentIndex counts the document blocks of the request that
+	// produced the citation, from 0, in the order sent: through every message
+	// in order, including the blocks of each tool result. It is not stable
+	// across calls, because context and tool results change which documents a
+	// request carries; give documents titles and use Citation.Title as a
+	// stable key.
+	RequestDocumentIndex int `json:"request_document_index"`
 
 	// Unit says whether Start and End count pages or characters.
 	Unit LocationUnit `json:"unit"`
@@ -162,7 +163,7 @@ func (l CitationLocation) Validate() error {
 	switch {
 	case l.Unit != LocationPage && l.Unit != LocationChar:
 		return fmt.Errorf("content: unknown citation location unit %q", l.Unit)
-	case l.DocumentIndex < 0 || l.Start < 0 || l.End < l.Start:
+	case l.RequestDocumentIndex < 0 || l.Start < 0 || l.End < l.Start:
 		return errors.New("content: invalid citation location range")
 	case l.Unit == LocationPage && l.Start < 1:
 		return errors.New("content: citation pages count from 1")

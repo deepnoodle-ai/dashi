@@ -43,19 +43,20 @@ Decoded document citations carry their title and a location:
 
 ```go
 type CitationLocation struct {
-	DocumentIndex int          // see below
-	Unit          LocationUnit // LocationPage or LocationChar
-	Start, End    int          // half-open; pages count from 1, chars from 0
+	RequestDocumentIndex int          // see below
+	Unit                 LocationUnit // LocationPage or LocationChar
+	Start, End           int          // half-open; pages from 1, chars from 0
 }
 ```
 
-`DocumentIndex` counts the document blocks of the request that produced the
-citation, in the order sent: every message, then each tool result's blocks. It
-is not stable across calls, since next-call-only context and new tool results
+`RequestDocumentIndex` counts the document blocks of the request that produced
+the citation, in the order sent: every message, then each tool result's blocks.
+It is not stable across calls, since next-call-only context and new tool results
 change the order. Translating it to caller coordinates is not clean: hosted
 results such as web fetch can contain documents that the provider counts and
-Dashi does not author. Callers who need a stable key should title their
-documents; `Citation.Title` carries it. Other citation kinds stay in `Raw`.
+Dashi does not author. Callers who need a stable key should give documents
+titles and use `Citation.Title`. Search result citations map their `source` to
+`Citation.URL`; other citation kinds stay in `Raw`.
 
 The raw-field escape hatch is unchanged: replay data is for content a provider
 produced, and its origin check keeps one destination's data from reaching
@@ -68,20 +69,22 @@ document's `context`) need their own design.
 preparation fills it on its working copy with `content.DetectMIMEType(data,
 name)`: a fixed extension table (pdf, txt, md, csv, html, json, png, jpg, jpeg,
 gif, webp) for a document title, then `http.DetectContentType` with parameters
-stripped. Both are deterministic, so a replayed request matches. Each position
-is recorded as a `detect_mime_type` content change on every call; the caller's
-input and the recorded turn keep the empty value. One change covers a whole tool
-result, so two documents in one result do not collide. When detection finds only
-`application/octet-stream`, a second change, `unknown_mime_type`, becomes a
-`mime_type_unknown` warning.
+stripped. The extension table is fixed; sniffed results could change with a Go
+release, so the recorded change's reason, which names the type, is the record of
+what a past request sent. Each position is recorded as a `detect_mime_type`
+content change on every call; the caller's input and the recorded turn keep the
+empty value. One change covers a whole tool result, so two documents in one
+result do not collide. When detection finds only `application/octet-stream`, a
+second change, `unknown_mime_type`, becomes a `mime_type_unknown` warning.
 
 Anthropic then encodes inline documents by type: `application/pdf` as `base64`,
-any `text/*` as a `text` source with `media_type: text/plain` (valid UTF-8
-required), and anything else is an Unsupported error at prepare. A URL document
-with a non-PDF `MIMEType` and an inline image outside JPEG, PNG, GIF, and WebP
-fail at prepare too. Other APIs send what they get; their accepted types are not
-documented precisely enough to check. Responses no longer names every inline
-file `document.pdf`: a title without an extension gains one from the media type.
+any `text/*` type, and JSON, XML, and YAML, as a `text` source with `media_type:
+text/plain` (valid UTF-8 required), and anything else is an Unsupported error at
+prepare. A URL document with a non-PDF `MIMEType` and an inline image outside
+JPEG, PNG, GIF, and WebP fail at prepare too. Other APIs send what they get;
+their accepted types are not documented precisely enough to check. Responses no
+longer names every inline file `document.pdf`: a title without an extension
+gains one from the media type.
 
 ### Flat constructors (9.3, 9.7)
 

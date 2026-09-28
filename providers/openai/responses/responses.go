@@ -457,12 +457,14 @@ var fileExtensions = map[string]string{
 	"text/html":        ".html",
 }
 
-// fileName returns title, or "document", with an extension for mimeType
-// added when the name has none and the type is known.
+// fileName returns title, or "document", with the extension for mimeType
+// added unless the name already ends in it. A title such as "Q3 v1.2" has a
+// dot but no file extension, so it gains one too.
 func fileName(title, mimeType string) string {
 	name := cmp.Or(title, "document")
-	if path.Ext(name) == "" {
-		name += fileExtensions[mimeType]
+	ext := fileExtensions[mimeType]
+	if ext != "" && !strings.EqualFold(path.Ext(name), ext) {
+		name += ext
 	}
 	return name
 }

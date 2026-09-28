@@ -144,6 +144,33 @@ func TestMessagesEncodesTextAndPDFDocumentsWithCitations(t *testing.T) {
 	}
 }
 
+func TestMessagesSendsTextLikeDocumentsAsPlainText(t *testing.T) {
+	for _, tc := range []struct{ title, data string }{
+		{title: "notes.md", data: "# Notes"},
+		{title: "table.csv", data: "a,b\n1,2"},
+		{title: "data.json", data: `{"a":1}`},
+	} {
+		t.Run(tc.title, func(t *testing.T) {
+			p := anthropicClient(t, "http://unused.invalid", llm.CapabilityAdjust)
+			r := modelInput()
+			r.Messages[0].Content = append(
+				r.Messages[0].Content,
+				llm.Document(content.Source{Data: []byte(tc.data)}, tc.title),
+			)
+			prepared, err := p.Prepare(t.Context(), r)
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			source := wireDocuments(wireBody(t, prepared))[0]["source"].(map[string]any)
+			if source["type"] != "text" ||
+				source["media_type"] != "text/plain" ||
+				source["data"] != tc.data {
+				t.Fatalf("source = %v", source)
+			}
+		})
+	}
+}
+
 func TestMessagesOmitsCitationsWhenNotRequested(t *testing.T) {
 	p := anthropicClient(t, "http://unused.invalid", llm.CapabilityAdjust)
 	prepared, err := p.Prepare(t.Context(), documentInput())
@@ -345,7 +372,10 @@ func TestMessagesDecodesDocumentCitations(t *testing.T) {
 		`{"type":"page_location","cited_text":"Risks rose.","document_index":1,` +
 		`"document_title":"report.pdf","start_page_number":2,"end_page_number":3},` +
 		`{"type":"content_block_location","cited_text":"x","document_index":1,` +
-		`"document_title":"report.pdf","start_block_index":0,"end_block_index":1}]}]}`
+		`"document_title":"report.pdf","start_block_index":0,"end_block_index":1},` +
+		`{"type":"search_result_location","source":"https://example.com/r",` +
+		`"title":"Result","cited_text":"y","search_result_index":0,` +
+		`"start_block_index":0,"end_block_index":1}]}]}`
 	server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(response))
 	})
@@ -362,10 +392,10 @@ func TestMessagesDecodesDocumentCitations(t *testing.T) {
 	char := result.Message.Content[0].Block.Text.Citations[0]
 	if char.Title != "sky.txt" || char.Text != "The sky is blue." ||
 		*char.Location != (content.CitationLocation{
-			DocumentIndex: 0,
-			Unit:          content.LocationChar,
-			Start:         0,
-			End:           16,
+			RequestDocumentIndex: 0,
+			Unit:                 content.LocationChar,
+			Start:                0,
+			End:                  16,
 		}) {
 		t.Fatalf("char citation = %+v %+v", char, char.Location)
 	}
@@ -373,14 +403,18 @@ func TestMessagesDecodesDocumentCitations(t *testing.T) {
 	page := cites[0]
 	if page.Title != "report.pdf" ||
 		*page.Location != (content.CitationLocation{
-			DocumentIndex: 1,
-			Unit:          content.LocationPage,
-			Start:         2,
-			End:           3,
+			RequestDocumentIndex: 1,
+			Unit:                 content.LocationPage,
+			Start:                2,
+			End:                  3,
 		}) {
 		t.Fatalf("page citation = %+v %+v", page, page.Location)
 	}
 	if block := cites[1]; block.Location != nil || len(block.Raw) == 0 {
 		t.Fatalf("block citation = %+v", block)
+	}
+	if search := cites[2]; search.URL != "https://example.com/r" ||
+		search.Title != "Result" || search.Location != nil {
+		t.Fatalf("search result citation = %+v", search)
 	}
 }

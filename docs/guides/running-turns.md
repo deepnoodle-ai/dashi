@@ -218,7 +218,8 @@ person, err := dashi.DecodeOutput[Person](outcome)
 
 `MustOutputSchema` follows `tool.Func`'s schema rules and panics for a type
 that cannot be an object schema. `DecodeOutput` returns an error wrapping
-`dashi.ErrNoOutput`, naming the stop, when the turn has no output. The output fact includes tool-call or final-text provenance;
+`dashi.ErrNoOutput`, naming the stop, when the turn has no output. The output
+fact includes tool-call or final-text provenance;
 see [structured final results](../agent-turns.md#structured-final-results).
 
 ## Streaming a turn

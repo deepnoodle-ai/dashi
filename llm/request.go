@@ -13,7 +13,8 @@ import (
 // keeps the caller's original history and settings; Effective includes provider
 // defaults. ContentChanges describes adaptations using original input positions.
 // Unverified names features sent without known support. Warnings project the
-// adjustments that replaced a requested value, for callers to surface.
+// adjustments that replaced a requested value, and content changes the caller
+// should fix, for callers to surface.
 // Body is the single encoded payload Send will send, including stream mode.
 // JSON encodes Body as base64 so recorded bytes survive without normalization.
 type RequestSnapshot struct {
@@ -103,7 +104,7 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	); err != nil {
 		return Request{}, err
 	}
-	warnings := Warnings(p.Adjustments, p.ContentChanges)
+	warnings := collectWarnings(p.Adjustments, p.ContentChanges)
 	if p.Warnings != nil && !slices.Equal(p.Warnings, warnings) {
 		return Request{}, errors.New(
 			"llm: warnings disagree with adjustments and content changes",

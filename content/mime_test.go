@@ -41,7 +41,7 @@ func TestDetectMIMEType(t *testing.T) {
 func TestCitationLocation(t *testing.T) {
 	valid := []CitationLocation{
 		{Unit: LocationChar, Start: 0, End: 10},
-		{DocumentIndex: 2, Unit: LocationPage, Start: 1, End: 2},
+		{RequestDocumentIndex: 2, Unit: LocationPage, Start: 1, End: 2},
 	}
 	for _, l := range valid {
 		if err := l.Validate(); err != nil {
@@ -52,7 +52,7 @@ func TestCitationLocation(t *testing.T) {
 		{Unit: "block", Start: 0, End: 1},
 		{Unit: LocationChar, Start: 5, End: 4},
 		{Unit: LocationPage, Start: 0, End: 1},
-		{DocumentIndex: -1, Unit: LocationChar},
+		{RequestDocumentIndex: -1, Unit: LocationChar},
 	}
 	for _, l := range invalid {
 		if l.Validate() == nil {

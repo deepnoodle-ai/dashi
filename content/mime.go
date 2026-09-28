@@ -33,7 +33,8 @@ var extensionTypes = map[string]string{
 // on name wins, since text formats such as Markdown and CSV cannot be told
 // apart by content; otherwise the bytes are sniffed with
 // http.DetectContentType. Parameters such as charset are removed. The result
-// is UnknownMIMEType when nothing matches. Detection is deterministic.
+// is UnknownMIMEType when nothing matches. The extension table is fixed, but
+// sniffed results could change with a Go release.
 func DetectMIMEType(data []byte, name string) string {
 	ext := strings.ToLower(path.Ext(name))
 	if t, ok := extensionTypes[ext]; ok {

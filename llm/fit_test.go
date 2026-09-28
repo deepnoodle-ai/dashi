@@ -176,7 +176,7 @@ func TestFitRanksEffortAliasesUnderBothPolicies(t *testing.T) {
 					test.want,
 				)
 			}
-			warnings := Warnings(adjustments, nil)
+			warnings := collectWarnings(adjustments, nil)
 			if len(warnings) != 1 ||
 				warnings[0].Code != WarningSettingClamped {
 				t.Fatalf(
@@ -231,7 +231,7 @@ func TestFitClampsUnderAdjustAndFailsUnderStrict(t *testing.T) {
 		*r.Settings.Temperature != 1.5 {
 		t.Fatal("fitting changed the caller's settings")
 	}
-	if len(adjustments) != 3 || len(Warnings(adjustments, nil)) != 3 {
+	if len(adjustments) != 3 || len(collectWarnings(adjustments, nil)) != 3 {
 		t.Fatalf("adjustments = %+v", adjustments)
 	}
 	if err := validateAdjustments(
@@ -269,7 +269,7 @@ func TestFitKeepsFittedDefaultSilent(t *testing.T) {
 		string(prior[0].Effective) != "4096" {
 		t.Fatal("default was not refitted without changing prior")
 	}
-	if len(Warnings(adjustments, nil)) != 0 {
+	if len(collectWarnings(adjustments, nil)) != 0 {
 		t.Fatal("a default the caller never set produced a warning")
 	}
 	if err := validateAdjustments(
@@ -349,7 +349,7 @@ func TestFitDefaultsUnsetMaxTokens(t *testing.T) {
 				adjustments[0].Action != AdjustmentDefault {
 				t.Fatalf("default recorded as %+v", adjustments)
 			}
-			if len(Warnings(adjustments, nil)) != 0 {
+			if len(collectWarnings(adjustments, nil)) != 0 {
 				t.Fatal("a default the caller never set produced a warning")
 			}
 			if err := validateAdjustments(
@@ -390,7 +390,7 @@ func TestFitOmitsOnlyParallelRequests(t *testing.T) {
 	if fitted.Settings.ParallelTools != nil {
 		t.Fatal("omitted setting was kept")
 	}
-	warnings := Warnings(adjustments, nil)
+	warnings := collectWarnings(adjustments, nil)
 	if len(warnings) != 1 || warnings[0].Code != WarningSettingOmitted {
 		t.Fatalf("omission warnings = %+v", warnings)
 	}

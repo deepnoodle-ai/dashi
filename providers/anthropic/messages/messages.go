@@ -828,6 +828,7 @@ func (wire codec) decodeCitation(raw json.RawMessage) (content.Citation, error) 
 		EndCharIndex    int    `json:"end_char_index"`
 		StartPageNumber int    `json:"start_page_number"`
 		EndPageNumber   int    `json:"end_page_number"`
+		Source          string
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return content.Citation{}, err
@@ -839,7 +840,11 @@ func (wire codec) decodeCitation(raw json.RawMessage) (content.Citation, error) 
 		Origin: wire.origin,
 		Raw:    slices.Clone(raw),
 	}
-	location := content.CitationLocation{DocumentIndex: v.DocumentIndex}
+	// A search result citation names its result's source, usually a URL.
+	if v.Type == "search_result_location" && c.URL == "" {
+		c.URL = v.Source
+	}
+	location := content.CitationLocation{RequestDocumentIndex: v.DocumentIndex}
 	switch v.Type {
 	case "char_location":
 		location.Unit = content.LocationChar
@@ -861,9 +866,19 @@ func (wire codec) decodeCitation(raw json.RawMessage) (content.Citation, error) 
 // imageTypes are the inline image types Messages accepts.
 var imageTypes = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
 
+// textDocumentTypes are non-text/* types that are plain text in practice and
+// are sent as text documents.
+var textDocumentTypes = []string{
+	"application/json",
+	"application/xml",
+	"application/yaml",
+	"application/x-yaml",
+}
+
 // documentSource encodes a document source. Messages takes inline PDFs as
-// base64 and text as a text source; any text type is sent as text/plain,
-// which is how Messages expects Markdown, CSV, and similar files. It fetches
+// base64 and text as a text source; any text type, and JSON, XML, and YAML,
+// is sent as text/plain, which is how Messages expects Markdown, CSV, and
+// similar files. It fetches
 // only PDFs by URL. Other types fail here rather than at send.
 func (wire codec) documentSource(s content.Source) (map[string]any, error) {
 	switch {
@@ -876,7 +891,8 @@ func (wire codec) documentSource(s content.Source) (map[string]any, error) {
 		)
 	case s.Data == nil || s.MIMEType == "application/pdf":
 		return source(s), nil
-	case strings.HasPrefix(s.MIMEType, "text/"):
+	case strings.HasPrefix(s.MIMEType, "text/") ||
+		slices.Contains(textDocumentTypes, s.MIMEType):
 		if !utf8.Valid(s.Data) {
 			return nil, wire.unsupported(
 				"text document of type %q is not valid UTF-8",

@@ -80,9 +80,9 @@ a final answer: it omits tools and ends with `StopLimited` and reason
 Set `Agent.OutputSchema`, or `Start.OutputSchema` for one turn: a JSON Schema
 object with root `"type":"object"`, at most 32 KiB, recorded at start.
 `dashi.MustOutputSchema[T]()` generates one from a Go struct with `tool.Func`'s
-rules. The runner advertises a reserved `dashi_submit_output` tool; the model may use
-application tools first, then submit the object. Dashi validates and records
-it; an invalid submission is returned to the model as a tool error. A final
+rules. The runner advertises a reserved `dashi_submit_output` tool; the model
+may use application tools first, then submit the object. Dashi validates and
+records it; an invalid submission is returned to the model as a tool error. A final
 response holding exactly one JSON object is accepted as a fallback. Without a
 valid value the turn stops with `output_schema_unsatisfied`. `Outcome.Output`
 holds the value (at most 256 KiB), its source, and its attempt and call IDs;

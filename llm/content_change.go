@@ -38,6 +38,9 @@ const (
 	// bytes that had none. One change covers every such block at a position,
 	// including all blocks of a tool result; Reason names the types. It is
 	// recorded on every preparation, since the input keeps the empty type.
+	// Extension matches are fixed; sniffed results come from
+	// http.DetectContentType and could change with a Go release, so the
+	// recorded Reason, not a new detection, says what a past request sent.
 	ContentChangeDetectMIMEType ContentChangeAction = "detect_mime_type"
 	// ContentChangeUnknownMIMEType accompanies ContentChangeDetectMIMEType
 	// when detection found nothing better than content.UnknownMIMEType. It is
