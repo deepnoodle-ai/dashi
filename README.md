@@ -3,6 +3,32 @@
 The foundation of a Go agent library. Public interfaces are experimental and
 will evolve as the agent layer takes shape.
 
+## Goals
+
+Kernel is the successor foundation to Dive, Deep Noodle's Go library for
+cross-provider LLM support and agents. It exists to fix, in the library, what
+our production applications had to work around when building durable agent
+runtimes on Dive.
+
+- Durable turns: recovery, accounting, and live presentation read recorded
+  execution facts instead of reconstructing them.
+- Reliable records: transcripts that need no repair, errors with one meaning,
+  and stable identities for billing.
+- A clearer programmatic API than Dive, with types and concepts designed as one
+  coherent vocabulary around the Turn.
+- Iterator (range-over-func) streaming for model calls and agent turns.
+- Excellent cross-provider LLM support, with thorough coverage of
+  provider-specific behavior.
+- Cost tracking and budgeting, extended from measurement to enforceable budget
+  limits.
+- Proven ideas from adjacent agent frameworks and coding-agent projects,
+  without the pitfalls their public issue trackers reveal.
+- Patterns from open agent protocol specifications, including their newer
+  revisions.
+- Live turn updates shaped by the careful design of our existing streaming
+  protocol.
+- A small, idiomatic Go foundation with clear package boundaries.
+
 ## Foundation packages
 
 - `kernel`: Agent definitions, identified turn records, an acknowledged recorder, and the execution loop.
