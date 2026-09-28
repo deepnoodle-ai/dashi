@@ -56,11 +56,21 @@ every numbered answer with comments into plain text he pastes back to an agent.
    line worth knowing. Backticks render as code. Write for someone who has
    not read the document today. Plain strings still work but read worse.
 
-4. **Fill the template.** Copy `template.html` from this skill's directory to
-   the scratchpad directory under a distinctive file name, for example
-   `budgets-review.html`. Replace `__TITLE__` with a two-to-four-word name for
-   the page (the proposal's subject, such as `Budgets Review`). Replace
-   `__DATA__` with one JSON object:
+4. **Fill the template.** Write the review data as one JSON object to a
+   file in the scratchpad directory, for example `budgets-review.json`, then
+   build the page with this skill's fill script:
+
+   ```sh
+   python3 .claude/skills/proposal-review/fill.py \
+     "$SCRATCH/budgets-review.json" "$SCRATCH/budgets-review.html"
+   ```
+
+   `$SCRATCH` stands for the scratchpad directory. Never paste text into
+   `template.html` by hand. The script checks the data,
+   HTML-escapes the title, and writes the JSON so that proposal text such as
+   `</script>` cannot close the data block or inject markup. `title` in the
+   data becomes the page's `<title>`: a two-to-four-word name such as
+   `Budgets Review`. The data looks like this:
 
    ```json
    {
@@ -95,7 +105,9 @@ every numbered answer with comments into plain text he pastes back to an agent.
    `id` keys the browser-side draft, so keep it stable if you republish the
    same review. Do not edit the template's CSS or script; the styling is
    deliberately fixed so every review looks the same and takes no design time.
-   Escape nothing by hand; the page escapes text itself.
+   Escape nothing yourself; `fill.py` makes the data safe to embed and the
+   page escapes text again when it renders. `test_fill.py` in this directory
+   pins that behavior.
 
 5. **Publish.** Call the Artifact tool with the file path, `icon: "checklist"`,
    and a one-sentence `description` naming the proposal. To update an existing
