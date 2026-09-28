@@ -153,22 +153,42 @@ func costLimitReason(
 }
 
 // uncheckableCostReason explains why recorded spend cannot be compared with
-// the cost cap, and what the caller can do about it.
+// the cost cap, naming each cause present, and what the caller can do.
 func uncheckableCostReason(spend Spend) string {
-	if len(spend.UnpricedRequests) > 0 {
-		keys := slices.Sorted(maps.Keys(spend.UnpricedRequests))
-		return fmt.Sprintf(
-			"cost cannot be checked: a model call billed hosted requests "+
-				"with no price (%s), so spend is only known to be at least "+
-				"the recorded cost; this turn cannot continue under its cost "+
-				"cap; start a new turn with this turn's history, and supply "+
-				"prices for these requests or remove the tools that cause them",
-			strings.Join(keys, ", "),
+	var reserved, priceable []string
+	for _, key := range slices.Sorted(maps.Keys(spend.UnpricedRequests)) {
+		if llm.IsReservedMeter(key) {
+			reserved = append(reserved, key)
+		} else {
+			priceable = append(priceable, key)
+		}
+	}
+	var causes []string
+	if len(priceable) > 0 {
+		causes = append(causes, fmt.Sprintf(
+			"a model call billed hosted requests with no price (%s); "+
+				"supply prices for them or remove the tools that cause them",
+			strings.Join(priceable, ", "),
+		))
+	}
+	if len(reserved) > 0 {
+		causes = append(causes, fmt.Sprintf(
+			"a model call ran hosted work whose billing could not be "+
+				"attributed (%s)",
+			strings.Join(reserved, ", "),
+		))
+	}
+	// Under a cap every partial charge also counts as unknown, so any
+	// excess is a missing charge or one in another currency.
+	if spend.CostUnknown > spend.CostPartial || len(causes) == 0 {
+		causes = append(
+			causes,
+			"an earlier charge is unknown or in another currency",
 		)
 	}
-	return "cost cannot be checked: an earlier charge is unknown or in " +
-		"another currency; this turn cannot continue under its cost cap; " +
-		"start a new turn with this turn's history"
+	return "cost cannot be checked: " + strings.Join(causes, "; ") +
+		"; this turn cannot continue under its cost cap; start a new " +
+		"turn with this turn's history"
 }
 
 func hasHostedTools(request llm.Request) bool {

@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func attemptSpend(
@@ -45,8 +46,8 @@ func attemptSpend(
 			)
 		}
 	}
-	if estimated && settlement != nil && settlement.Result != nil {
-		addUnreportedRequests(usage, settlement.Result)
+	if estimated && settlement != nil {
+		addUnreportedRequests(usage, intent, settlement.Result)
 	}
 	if settlement != nil && settlement.Charge != nil {
 		return usage, settlement.Charge, estimated, true
@@ -62,22 +63,45 @@ func attemptSpend(
 	return usage, nil, estimated, true
 }
 
-// addUnreportedRequests covers hosted uses whose billing the provider never
+// addUnreportedRequests covers hosted work whose billing the provider never
 // reported. Adapters count hosted requests from the final usage, so a call
 // cut off before it (or one with no usage at all) can show hosted activity
 // with fewer counted requests. The difference is recorded under
 // llm.MeterUnreported, which no sheet prices, so the cost shows as partial
-// rather than complete.
-func addUnreportedRequests(usage *llm.Usage, result *llm.Result) {
+// rather than complete. Uses with an error result are skipped, since
+// providers do not bill refused or failed uses.
+//
+// Some hosted work leaves no block at all: Gemini reports search grounding
+// only in metadata near the end of a stream. So when nothing was counted or
+// seen but the request declared a hosted tool, one unreported request marks
+// the call as possibly incomplete.
+func addUnreportedRequests(
+	usage *llm.Usage,
+	intent *ModelFact,
+	result *llm.Result,
+) {
 	uses := 0
-	for _, part := range result.Message.Content {
-		if part.Kind == llm.ContentHostedUse && part.HostedUse != nil {
-			uses++
+	if result != nil {
+		failed := map[string]bool{}
+		for _, part := range result.Message.Content {
+			if part.HostedResult != nil && part.HostedResult.IsError {
+				failed[part.HostedResult.CallID] = true
+			}
+		}
+		for _, part := range result.Message.Content {
+			use := part.HostedUse
+			if part.Kind == llm.ContentHostedUse && use != nil &&
+				!use.IsError && !failed[use.ID] {
+				uses++
+			}
 		}
 	}
 	counted := 0
 	for _, count := range usage.Requests {
 		counted += max(count, 0)
+	}
+	if uses == 0 && counted == 0 && declaresHostedTool(intent) {
+		uses = 1
 	}
 	if uses <= counted {
 		return
@@ -86,6 +110,18 @@ func addUnreportedRequests(usage *llm.Usage, result *llm.Result) {
 		usage.Requests = map[string]int{}
 	}
 	usage.Requests[llm.MeterUnreported] += uses - counted
+}
+
+func declaresHostedTool(intent *ModelFact) bool {
+	if intent == nil {
+		return false
+	}
+	for _, def := range intent.Tools {
+		if def.Kind == tool.KindProviderHosted {
+			return true
+		}
+	}
+	return false
 }
 
 func estimatedOutputTokens(result *llm.Result) int {

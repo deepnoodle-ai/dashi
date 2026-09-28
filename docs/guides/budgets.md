@@ -21,24 +21,25 @@ start := dashi.Start{
 }
 ```
 
-Dashi lowers the next request's output allowance to the remaining output
-tokens and records a warning. The total-token cap is checked after each call.
-For a cost cap, the prepared request must carry model prices and a finite
-effective output allowance. An unset `MaxTokens` becomes
-`llm.DefaultMaxTokens` (32,768, or the model's smaller documented limit), so
-the default settings are bounded on every provider. Dashi estimates the full input and output cost
-before `BeforeSend`. If it cannot bound the call or the call would exceed the
-cap, the turn stops `limited` before dispatch. It does not shrink the reply to
-fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case
-(`CostLimit`, `CostUsed`, `CostAtRisk`), and the output-token allowance that
-would fit. A call whose worst case reaches the cap exactly is admitted. If input alone consumes the remaining
-cap, no positive allowance fits; raise the cap or reduce input/history.
-A model without prices has an explicit `UnpricedModel` detail. A call with
-provider-hosted tools also stops before dispatch: within one call the provider
-may bill an unbounded number of hosted requests and re-read their results as
-input, so no worst case exists. Remove the hosted tools or run without a cost
-cap. So does a call without an output limit, which happens only under the
-strict capability policy when the model's `max_tokens` support is unknown.
+Dashi lowers the next request's output allowance to the remaining output tokens
+and records a warning. The total-token cap is checked after each call. For a
+cost cap, the prepared request must carry model prices and a finite effective
+output allowance. An unset `MaxTokens` becomes `llm.DefaultMaxTokens` (32,768,
+or the model's smaller documented limit), so the default settings are bounded on
+every provider. Dashi estimates the full input and output cost before
+`BeforeSend`. If it cannot bound the call or the call would exceed the cap, the
+turn stops `limited` before dispatch. It does not shrink the reply to fit a cost
+cap. The stop's `Limit` gives the cap, spent amount, worst case (`CostLimit`,
+`CostUsed`, `CostAtRisk`), and the output-token allowance that would fit. A call
+whose worst case reaches the cap exactly is admitted. If input alone consumes
+the remaining cap, no positive allowance fits; raise the cap or reduce
+input/history. A model without prices has an explicit `UnpricedModel` detail. A
+call with provider-hosted tools also stops before dispatch: within one call the
+provider may bill an unbounded number of hosted requests and re-read their
+results as input, so no worst case exists. Remove the hosted tools or run
+without a cost cap. So does a call without an output limit, which happens only
+under the strict capability policy when the model's `max_tokens` support is
+unknown.
 
 `Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token
 totals, model costs by currency, counts of calls with estimated usage, and counts of calls with unknown or
@@ -46,19 +47,18 @@ incompatible-currency model cost. A call that billed hosted requests with no
 list price (Anthropic code execution, for example) is **partial**: its known
 cost is in `Spend.Cost`, it counts in `Spend.CostPartial`, and the unpriced
 counts are in `Spend.UnpricedRequests` by meter key. `Spend.Cost` is then a
-lower bound. Under a cost cap a partial charge also counts as unknown, since
-a lower bound cannot show the cap holds: the turn stops `limited`, and raising
-the cap does not clear it. The stop reason names the unpriced requests; start
-a new turn with the history to go on. `Spend.ToolCost` reports local tool charges
-by currency. Each settled model fact records its `Charge`; the intent records
-`AtRisk`. When final usage is missing, Dashi preserves streamed counts,
-fills absent input from the prepared request, and counts the greater of
-streamed output and a visible-text estimate. It marks the call estimated.
-This best guess can undercount a cut-off call, so a cost cap is not a strict
-charge guarantee for that case. A tool may return `tool.Outcome.Cost`; it is
-counted after the tool settles and does not consume
-`MaxCost`. The application must bound and admit charged tools before execution
-if it promises a cap covering them.
+lower bound. Under a cost cap a partial charge also counts as unknown, since a
+lower bound cannot show the cap holds: the turn stops `limited`, and raising the
+cap does not clear it. The stop reason names the unpriced requests; start a new
+turn with the history to go on. `Spend.ToolCost` reports local tool charges by
+currency. Each settled model fact records its `Charge`; the intent records
+`AtRisk`. When final usage is missing, Dashi preserves streamed counts, fills
+absent input from the prepared request, and counts the greater of streamed
+output and a visible-text estimate. It marks the call estimated. This best guess
+can undercount a cut-off call, so a cost cap is not a strict charge guarantee
+for that case. A tool may return `tool.Outcome.Cost`; it is counted after the
+tool settles and does not consume `MaxCost`. The application must bound and
+admit charged tools before execution if it promises a cap covering them.
 
 Amounts are exact. `money.Amount` counts nano-units (1e-9) of the currency in
 an int64 and encodes in JSON as a decimal string such as `"0.5"`; it also reads

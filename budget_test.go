@@ -761,10 +761,17 @@ func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 	if limit.CostUsed != amount("0.00002") {
 		t.Fatalf("known part used=%s", limit.CostUsed)
 	}
-	for _, want := range []string{"unrecognized:mystery_call", "start a new turn"} {
+	for _, want := range []string{
+		"could not be attributed (unrecognized:mystery_call)",
+		"start a new turn",
+	} {
 		if !strings.Contains(out.Stop.Reason, want) {
 			t.Fatalf("reason %q lacks %q", out.Stop.Reason, want)
 		}
+	}
+	if strings.Contains(out.Stop.Reason, "supply prices") ||
+		strings.Contains(out.Stop.Reason, "another currency") {
+		t.Fatalf("reason names a cause that did not occur: %q", out.Stop.Reason)
 	}
 	if client.sends != 1 || out.ReadyToContinue {
 		t.Fatalf("sends=%d ready=%v", client.sends, out.ReadyToContinue)
@@ -1049,6 +1056,207 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	if view.Spend.Usage.Requests[llm.MeterUnreported] != 2 ||
 		view.Spend.CostPartial != 1 ||
 		view.Spend.UnpricedRequests[llm.MeterUnreported] != 2 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
+func TestUncheckableCostReasonNamesEachCause(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		spend   Spend
+		want    []string
+		without []string
+	}{
+		{
+			name: "priceable",
+			spend: Spend{
+				CostUnknown:      1,
+				CostPartial:      1,
+				UnpricedRequests: map[string]int{llm.MeterCodeExecution: 1},
+			},
+			want:    []string{"no price (code_execution)", "supply prices"},
+			without: []string{"attributed", "another currency"},
+		},
+		{
+			name: "reserved and priceable",
+			spend: Spend{
+				CostUnknown: 2,
+				CostPartial: 2,
+				UnpricedRequests: map[string]int{
+					llm.MeterUnreported:    1,
+					llm.MeterCodeExecution: 1,
+				},
+			},
+			want: []string{
+				"no price (code_execution)",
+				"could not be attributed (unreported)",
+			},
+			without: []string{"another currency"},
+		},
+		{
+			name:    "missing charge",
+			spend:   Spend{CostUnknown: 1},
+			want:    []string{"unknown or in another currency"},
+			without: []string{"hosted"},
+		},
+		{
+			name: "partial and missing charge",
+			spend: Spend{
+				CostUnknown:      2,
+				CostPartial:      1,
+				UnpricedRequests: map[string]int{llm.MeterUnreported: 1},
+			},
+			want: []string{"attributed (unreported)", "another currency"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reason := uncheckableCostReason(tc.spend)
+			for _, want := range append(tc.want, "start a new turn") {
+				if !strings.Contains(reason, want) {
+					t.Fatalf("reason %q lacks %q", reason, want)
+				}
+			}
+			for _, bad := range tc.without {
+				if strings.Contains(reason, bad) {
+					t.Fatalf("reason %q contains %q", reason, bad)
+				}
+			}
+		})
+	}
+}
+
+func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
+	first := callResult("lookup-1", "lookup")
+	first.Usage = &llm.Usage{
+		InputTokens:  10,
+		OutputTokens: 10,
+		Requests:     map[string]int{llm.MeterCodeExecution: 2},
+	}
+	second := final("done")
+	second.Usage = &llm.Usage{
+		InputTokens:  10,
+		OutputTokens: 10,
+		Requests:     map[string]int{llm.MeterCodeExecution: 3},
+	}
+	client := newPricedClient(first, second)
+	out := runBudgetTurn(
+		t,
+		client,
+		nil,
+		llm.Settings{MaxTokens: 100},
+		tool.List{budgetLookup(nil)},
+		nil,
+	)
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.CostPartial != 2 ||
+		view.Spend.UnpricedRequests[llm.MeterCodeExecution] != 5 ||
+		view.Spend.Cost["USD"] != amount("0.00004") {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
+func TestUnreportedRequestsSkipFailedUsesAndCoverSilentHostedTools(t *testing.T) {
+	failed := hostedUse("search-2")
+	result := &llm.Result{Message: llm.Message{Content: []llm.Content{
+		hostedUse("search-1"),
+		failed,
+		{
+			Kind: llm.ContentHostedResult,
+			HostedResult: &llm.HostedResult{
+				CallID:  "search-2",
+				Type:    "web_search_tool_result",
+				IsError: true,
+			},
+		},
+	}}}
+	usage := &llm.Usage{}
+	addUnreportedRequests(usage, &ModelFact{}, result)
+	if usage.Requests[llm.MeterUnreported] != 1 {
+		t.Fatalf("a refused use counted as billed: %v", usage.Requests)
+	}
+
+	hosted := &ModelFact{Tools: []tool.Definition{{
+		Name: "google_search",
+		Kind: tool.KindProviderHosted,
+		Hosted: &tool.HostedSpec{
+			Provider: "test",
+			API:      "test.chat",
+			Type:     "googleSearch",
+		},
+	}}}
+	usage = &llm.Usage{InputTokens: 10}
+	addUnreportedRequests(usage, hosted, nil)
+	if usage.Requests[llm.MeterUnreported] != 1 {
+		t.Fatalf("silent hosted tool left the call looking complete: %v", usage.Requests)
+	}
+	usage = &llm.Usage{InputTokens: 10}
+	addUnreportedRequests(usage, &ModelFact{}, nil)
+	if len(usage.Requests) != 0 {
+		t.Fatalf("call without hosted tools marked unreported: %v", usage.Requests)
+	}
+}
+
+type groundingCutClient struct {
+	*pricedClient
+	cancel context.CancelFunc
+}
+
+func (c *groundingCutClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	// Gemini sends usage on each chunk and grounding metadata near the end;
+	// this stream is cut before any grounding arrives.
+	call.Sink(llm.Delta{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 50}})
+	call.Sink(llm.Delta{Kind: llm.DeltaText, Text: "Spain won"})
+	c.cancel()
+	return llm.Result{}, ctx.Err()
+}
+
+func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &groundingCutClient{pricedClient: newPricedClient(), cancel: cancel}
+	def := testAgent()
+	def.Settings.MaxTokens = 100
+	search := tool.Tool{Definition: tool.Definition{
+		Name: "google_search",
+		Kind: tool.KindProviderHosted,
+		Hosted: &tool.HostedSpec{
+			Provider: "test",
+			API:      "test.chat",
+			Type:     "googleSearch",
+		},
+	}}
+	out, err := (Runner{
+		Agent:  def,
+		Client: client,
+		Tools:  tool.List{search},
+		Policy: AllowLocalPolicy{},
+	}).Run(
+		ctx,
+		Turn{ID: "grounding-cut"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("who won?"))},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A cut-off call with a hosted tool may have run it, so it is uncertain.
+	if out.Stop.Kind != StopUncertain {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.CostPartial != 1 ||
+		view.Spend.UnpricedRequests[llm.MeterUnreported] != 1 {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 }

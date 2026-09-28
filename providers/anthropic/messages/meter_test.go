@@ -79,6 +79,17 @@ func TestHostedRequestsFromResponse(t *testing.T) {
 			},
 		},
 		{
+			// Built from documentation; names invented. A new tool that has
+			// both an unknown counter and blocks is counted once.
+			name: "unknown tool with its counter is counted once",
+			response: meterResponse(
+				`{"input_tokens":5,"output_tokens":3,"server_tool_use":{"future_requests":2}}`,
+				`{"type":"server_tool_use","id":"srvtoolu_1","name":"future","input":{}}`,
+				`{"type":"server_tool_use","id":"srvtoolu_2","name":"future","input":{}}`,
+			),
+			want: map[string]int{llm.UnrecognizedMeter("future_requests"): 2},
+		},
+		{
 			// Built from the tool search documentation, which bills it as
 			// tokens only.
 			name: "tool search is not counted",

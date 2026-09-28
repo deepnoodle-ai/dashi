@@ -158,23 +158,23 @@ func (l LimitDetail) Validate() error {
 // Spend is reconstructed from committed model and tool settlements. MaxCost
 // applies to Cost, while ToolCost is reported separately for host admission.
 // Estimated counts calls without final usage, including partial streamed
-// frames; CostUnknown counts calls whose model charge is unknown or in another
-// currency. CostPartial counts calls whose charge is known except for hosted
-// requests without a price.
+// frames; CostUnknown counts calls whose model charge is unknown, in another
+// currency, or (under a cost cap) partial. CostPartial counts calls whose
+// charge is known except for hosted requests without a price.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
 	// Cost contains exact model-call charges by currency, without
-	// conversion. It is a lower bound when CostPartial is nonzero, because
-	// UnpricedRequests are not in it.
+	// conversion. It is a lower bound when CostPartial or CostUnknown is
+	// nonzero: unpriced requests and unknown charges are not in it.
 	Cost map[string]money.Amount `json:"cost,omitempty"`
 	// ToolCost contains exact local tool charges outside MaxCost.
 	ToolCost map[string]money.Amount `json:"tool_cost,omitempty"`
 	// Estimated counts calls without complete provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
-	// CostUnknown counts attempts whose charge cannot enforce a cost cap. Under
-	// a cost cap it includes partial charges, since their full amount is
-	// unknown.
+	// CostUnknown counts attempts whose charge cannot enforce a cost cap:
+	// no charge, a charge in another currency than the cap, or, under a cost
+	// cap, a partial charge, whose full amount is unknown.
 	CostUnknown int `json:"cost_unknown,omitempty"`
 	// CostPartial counts calls whose known charge is in Cost but whose hosted
 	// requests were partly unpriced.

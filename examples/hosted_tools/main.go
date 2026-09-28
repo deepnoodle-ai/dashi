@@ -97,14 +97,14 @@ func run(ctx context.Context, prompt string) error {
 		fmt.Printf("Cost: unknown for %d model call(s)\n", spend.CostUnknown)
 	}
 	for currency, amount := range spend.Cost {
-		if spend.CostPartial > 0 {
-			fmt.Printf("Cost: at least %s %s\n", amount, currency)
-			continue
-		}
 		fmt.Printf("Cost: %s %s\n", amount, currency)
 	}
 	if spend.CostPartial > 0 {
-		fmt.Printf("Unpriced hosted requests: %v\n", spend.UnpricedRequests)
+		fmt.Printf(
+			"  a lower bound: %d call(s) had unpriced hosted requests %v\n",
+			spend.CostPartial,
+			spend.UnpricedRequests,
+		)
 	}
 	return nil
 }

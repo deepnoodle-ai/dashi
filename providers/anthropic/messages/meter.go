@@ -101,6 +101,11 @@ func countHostedBlocks(
 		case "server_tool_use":
 			known, ok := serverToolNames[b.Name]
 			switch {
+			case !ok && reported[llm.UnrecognizedMeter(b.Name+"_requests")]:
+				// An unknown tool whose usage counter is also unknown is
+				// already counted under the counter's key; skip the block so
+				// it is not counted twice.
+				continue
 			case !ok:
 				meter = llm.UnrecognizedMeter(b.Name)
 			case known == "" || failed[b.ID]:
