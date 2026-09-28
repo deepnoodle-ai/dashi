@@ -22,6 +22,50 @@ turns resume across processes, cost says where each number came from) but asks
 too much for simple cases. The approval example is about 220 lines against
 Dive's 60.
 
+## Status (2026-09-28)
+
+Every finding in sections 1–11 is fixed on main; the findings below are kept
+as written for the record. The approval example is now 99 lines, and the
+durable (settle-later) approval example is 86.
+
+| PR | Findings | What changed |
+| --- | --- | --- |
+| #46 | 1.1, 1.2, 1.3, 2.1, 3.1 | Generated IDs; `Agent{}` works; default and `catalog.Small` models; a nil Policy allows registered tools; `llm.ErrNoAPIKey`. Also fixed provider keys sent to other providers. |
+| #45 | 4.1, 4.2, 4.3, 8.1, 8.2, 9.4, 9.5 | One error (`*CommitError`); `Outcome` carries the view, `Answer`, typed `Pending`, and `Spend`; `Pending.Approve()`/`Deny(reason)`; `RequireApproval`; `Turn.Citations()`, `Turn.HostedUses()`. |
+| #41 | 3.2, 3.3, 3.4, 3.5 | `tool.List`; `tool.Succeeded`/`Failed`/`Waiting`/`Detached`; documented `tool.Func` rules; one hosted-tool constructor shape; tools guide. |
+| #40 | 10.1 | `tool.Report` and `Event.Progress`, live-only, latest-wins per call. |
+| #42 | 7.1, 7.2 | `filerecorder` package; exported `Step.Equal`. |
+| #43 | 5.1, 9.1, 9.2, 9.3, 9.6, 9.7, 9.8 | `llm.Settings.Citations`; Anthropic text documents; `llm.Image`/`llm.Document`; `MustOutputSchema[T]`, `DecodeOutput[T]`; MIME detection; `ContextOrigin` constants. |
+| #44 | 11.1 | Hosted requests priced by meter key; `Cost.Partial()` and `Spend.CostPartial` mark the unknown part. |
+
+New from this work:
+
+- **11.2 Medium · Design. Hosted tools cannot be admitted under a cost cap.**
+  Under `MaxCost`, a request that declares hosted tools stops `limited` before
+  it is sent, since its worst case has no bound. Live Anthropic web search showed input is rebilled on
+  each internal pass (27,702 input tokens billed against a 16,037-token final
+  context) and `max_uses` caps billed uses, not passes. A safe bound needs a
+  provider-enforced pass limit (xAI `max_turns` is one). See
+  [hosted tool pricing](../hosted-tool-pricing.md).
+
+Follow-ups found while fixing (Low · Small unless noted):
+
+- The schema generator behind `tool.Func` marks pointer fields `nullable`,
+  which the draft 2020-12 validator ignores, so `null` is refused; it should
+  emit `type: [X, "null"]`. It also fails on recursive collections, which
+  `tool.Func` now refuses up front.
+- Gemini hosted tools on a custom-named Vertex client need `Provider` set;
+  only the default-named client works with zero options.
+- Anthropic `CodeExecutionToolOptions.Type` exposes the legacy sandbox type.
+  Newer web search and fetch versions make code execution free; Dashi still
+  sends the older versions.
+- OpenAI `image_generation` image tokens are not priced.
+- Anthropic URL documents with no MIME type are assumed to be PDF; the URL's
+  extension could be checked at prepare.
+- OpenAI hosted tools are bound to the `openai` provider name, so
+  OpenAI-compatible destinations cannot use them.
+- The Gemini live tests have not been run (no key available).
+
 ## Priorities
 
 | #    | Item                                         | Severity | Scope  |
@@ -163,15 +207,8 @@ title)` beside `llm.Text`.
 
 - **10.1 High · Design. Tools cannot report progress while running.**
   `Execute` returns only a final outcome, and `Event` carries no tool
-  progress; `tool_progress_example` could not be ported. Already listed as open
-  in [live delivery](../live-delivery.md) and D row 13. The
-  [tool progress proposal](../tool-progress.md) recommends: a context-carried `tool.Report(ctx, tool.Progress{Message, Done,
-Total, Data})` with replace semantics; live-only (never recorded or
-  replayed); delivered as `Event.Progress` to the Observer and `Runner.Stream`
-  through a latest-wins slot per call, so tools never block and nothing arrives
-  after `tool_settled`. Open: ship appended `tool.Output(ctx) io.Writer` now or
-  later; keep `Done`/`Total`; a recorded checkpoint for crash salvage; a
-  runner-emitted liveness heartbeat.
+  progress; `tool_progress_example` could not be ported. See the
+  [tool progress proposal](../tool-progress.md).
 
 ## 11. Resource limits and accounting
 
