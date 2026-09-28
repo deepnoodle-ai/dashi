@@ -23,7 +23,6 @@
 package feed
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -282,50 +281,6 @@ func (h *Hub) wakeAfter(turnID string, after int64) <-chan struct{} {
 		return done
 	}
 	return t.wake
-}
-
-// observerLag bounds how long Follow waits for the hub to observe a step it
-// has read from the store while a message streams in this process.
-const observerLag = 250 * time.Millisecond
-
-// awaitStep returns once the hub has observed the turn's step seq, or at
-// once when no message of the turn is streaming in this process, which is
-// when the Observer could still hold previews that belong before it.
-func (h *Hub) awaitStep(ctx context.Context, turnID string, seq int64) {
-	t := h.lock(turnID, false)
-	if t == nil {
-		return
-	}
-	streaming := t.open != nil && t.open.seq < seq
-	var woken <-chan struct{}
-	if streaming && t.stepSeq < seq {
-		woken = t.wake
-	}
-	t.mu.Unlock()
-	if woken == nil {
-		return
-	}
-	timer := time.NewTimer(observerLag)
-	defer timer.Stop()
-	for {
-		select {
-		case <-woken:
-		case <-timer.C:
-			return
-		case <-ctx.Done():
-			return
-		}
-		t := h.lock(turnID, false)
-		if t == nil {
-			return
-		}
-		done := t.stepSeq >= seq
-		woken = t.wake
-		t.mu.Unlock()
-		if done {
-			return
-		}
-	}
 }
 
 // entries reports the turns the hub holds, for tests.

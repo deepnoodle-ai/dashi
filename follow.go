@@ -31,6 +31,9 @@ var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 // for the previous one, so a plain range query is exact: no reader sees Seq 6
 // before 5. Read from the primary; a lagging replica breaks that.
 // dashitest.Run checks these rules for any store that implements StepReader.
+//
+// StepsAfter must return promptly once ctx ends: readers such as
+// feed.Follow wait for their read to finish before they return.
 type StepReader interface {
 	StepsAfter(
 		ctx context.Context,
@@ -49,7 +52,8 @@ type StepReader interface {
 // Follow reads again at least every 15 seconds while it waits, so a missed
 // wake delays a step by up to that long. A Wait that also sees commits from
 // other processes should notice them within about a second. An error makes
-// Follow poll instead.
+// Follow poll instead. Like StepsAfter, Wait must return promptly once ctx
+// ends.
 type StepWaiter interface {
 	Wait(ctx context.Context, turnID string, after int64) error
 }

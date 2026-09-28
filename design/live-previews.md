@@ -47,11 +47,12 @@ Let `p` be a preview's place and `c` the last step the reader was sent.
 yields it if `p == c`, and holds it if `p > c` until step `p` is yielded.
 Held previews come out right after their step, before the next step of the
 same page. Before yielding a step, `feed.Follow` places the previews already
-queued, and while a message streams in this process it waits up to 250 ms
-for the hub to observe that step, since the store can be ahead of the
-Observer; otherwise the last deltas before a settle would be dropped. A delta sits at its `model_requested` step, since nothing commits
-before its `model_settled`, and a progress snapshot sits between its call's
-`tool_started` and `tool_settled`. An unplaced preview (`Seq` 0) is dropped.
+queued. The store can be ahead of the Observer, so a delta can arrive after
+its settling step; it is dropped, and the step carries the whole message.
+Waiting for the hub instead would stall every step behind a dead run or a
+blocked Observer. A delta sits at its `model_requested` step, since nothing
+commits before its `model_settled`, and a progress snapshot sits between its
+call's `tool_started` and `tool_settled`. An unplaced preview (`Seq` 0) is dropped.
 
 ## The hub
 

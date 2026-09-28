@@ -24,6 +24,10 @@ import (
 type streamClient struct {
 	words []string
 	hold  chan struct{}
+	// read, when set, holds the reply until the reader has consumed the
+	// deltas: a delta the Observer delivers after its settling step is
+	// rightly dropped, which would make a test's expected shape racy.
+	read chan struct{}
 	// stop is the model's stop; zero means finished.
 	stop llm.StopKind
 }
@@ -51,6 +55,13 @@ func (c *streamClient) Send(ctx context.Context, call llm.Call) (llm.Result, err
 			case <-c.hold:
 			case <-ctx.Done():
 			}
+		}
+	}
+	if c.read != nil {
+		select {
+		case <-c.read:
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
 		}
 	}
 	return llm.Result{
@@ -129,19 +140,36 @@ func shape(events []dashi.Event) string {
 func TestFollowMergesPreviewsInPlace(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
-	client := &streamClient{words: []string{"a", "b", "c"}, hold: make(chan struct{})}
-	follow := collect(t.Context(), &hub, rec, 0)
-	waitReaders(t, &hub, 1)
+	client := &streamClient{words: []string{"a", "b", "c"}, read: make(chan struct{})}
+	done := make(chan struct{})
+	var events []dashi.Event
+	var err error
 	go func() {
-		// Let the reader take the first delta before the rest stream.
-		time.Sleep(50 * time.Millisecond)
-		close(client.hold)
+		defer close(done)
+		deltas := 0
+		for e, e2 := range Follow(t.Context(), &hub, rec, "t1", 0) {
+			if e2 != nil {
+				err = e2
+				return
+			}
+			events = append(events, e)
+			if e.Delta != nil {
+				if deltas++; deltas == 3 {
+					close(client.read)
+				}
+			}
+		}
 	}()
-	out, err := runner(client, rec, hub.Observe).Run(t.Context(), dashi.Turn{ID: "t1"}, start())
-	if err != nil {
-		t.Fatal(err)
+	waitReaders(t, &hub, 1)
+	out, runErr := runner(client, rec, hub.Observe).Run(t.Context(), dashi.Turn{ID: "t1"}, start())
+	if runErr != nil {
+		t.Fatal(runErr)
 	}
-	events, err := follow(t)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("follow did not end")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

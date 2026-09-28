@@ -85,16 +85,12 @@ func Follow(
 					yield(dashi.Event{}, got.err)
 					return
 				}
-				// Previews the Observer delivered before this step belong
-				// at or before it: place them first, or the last deltas
-				// before a settle would be dropped. The store can be ahead
-				// of the Observer, so while a message streams in this
-				// process, wait briefly for the hub to observe the step.
-				if rd != nil {
-					h.awaitStep(ctx, turnID, got.step.Seq)
-					if !m.place(h.take(turnID, rd)) {
-						return
-					}
+				// Previews queued before this step was read belong at or
+				// before it: place them first. A delta the Observer
+				// delivers after its settling step is dropped; the step
+				// carries the whole message.
+				if rd != nil && !m.place(h.take(turnID, rd)) {
+					return
 				}
 				step := got.step
 				event := dashi.Event{
