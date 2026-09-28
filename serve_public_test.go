@@ -21,7 +21,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// These tests run the web handler from the running-turns guide, "Serving
+// These tests run the web handler from the live-updates guide, "Serving
 // live updates", against a real turn. The handler below is the guide's code.
 
 type Server struct {
@@ -317,7 +317,7 @@ func TestGuideHandlerMatchesGuide(t *testing.T) {
 		}
 		return strings.Join(strings.Fields(text[i:i+j+3]), " ")
 	}
-	if extract("docs/guides/running-turns.md") != extract("serve_public_test.go") {
+	if extract("docs/guides/live-updates.md") != extract("serve_public_test.go") {
 		t.Fatal("the guide's events handler differs from serve_public_test.go; update one to match the other")
 	}
 }

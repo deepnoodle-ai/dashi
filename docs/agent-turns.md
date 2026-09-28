@@ -166,7 +166,7 @@ with an `Event.Gap` that names the message. `Runner.Stream` is a
 backpressured iterator over acknowledged steps, provisional deltas, and tool
 progress, ending with one `Event.Outcome`. Leaving the range interrupts the
 turn by default; do not range it in an HTTP handler for a durable turn (see
-[serving live updates](guides/running-turns.md#serving-live-updates)).
+[serving live updates](guides/live-updates.md#serving-live-updates)).
 
 An optional per-turn `Budget` caps output tokens, total tokens, and model cost
 with a resumable `limited` stop; see [turn budgets](guides/budgets.md). The

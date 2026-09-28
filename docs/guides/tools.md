@@ -92,6 +92,37 @@ Completions have no flag, so the result text is preceded by `Tool failed:` and
 the prepared request records an `encode_tool_error` content change, not a
 warning.
 
+## Tool progress
+
+A long-running tool can report a status snapshot with `tool.Report`. Each
+report replaces the previous one; `Total` of zero means unknown, and `Data`
+holds optional JSON for custom displays.
+
+```go
+tool.Report(ctx, tool.Progress{
+	Message: fmt.Sprintf("processed %d/%d records", i, total),
+	Done:    float64(i),
+	Total:   float64(total),
+})
+```
+
+Snapshots arrive as `Event.Progress` on `Runner.Stream` and on
+`Runner.Observer`, labeled with the call's `CallID` and tool `Name`. They are
+previews: never recorded, never replayed, and never shown to the model, so the
+tool's `Outcome` must still carry its full result. `Report` never blocks and
+does nothing when no one listens. When the consumer is slower than the tool,
+snapshots merge and the latest wins. On `Stream`, the last report before
+`Execute` returns arrives before the call's settled step. `Observer` gets
+progress at the lowest priority and may drop it: progress fills at most half
+its preview queue, and deltas evict queued progress when the queue is full.
+Nothing for a call follows its settled step, and no progress is delivered once
+the turn's context ends, such as after breaking a `Stream` range. A snapshot
+may wait while the runner authorizes or commits another call.
+Report at human rates, a few times a second at most, and throttle rendering
+if needed. To test a tool on its own, install a reporter with
+`tool.WithReporter`. See `examples/tool_progress`, and
+[live updates](live-updates.md) for serving progress to browsers.
+
 ## Hosted tools
 
 Provider packages construct tools that the provider runs inside the model
