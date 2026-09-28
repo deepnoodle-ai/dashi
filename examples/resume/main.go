@@ -3,7 +3,8 @@
 // the result arrives later, as a delivery webhook would bring it. The first
 // run starts the turn and exits while it waits. The second run records the
 // delivery result and continues the turn to its answer. Both runs share a
-// file-backed recorder, which is what lets the turn outlive the process.
+// filerecorder, a durable recorder that keeps each turn in a file, which is
+// what lets the turn outlive the process.
 //
 // Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL, then run:
 //
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -60,7 +62,7 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	recorder, err := newFileRecorder(*dir)
+	recorder, err := filerecorder.New(filerecorder.Config{Dir: *dir})
 	if err != nil {
 		return fmt.Errorf("resume: open recorder: %w", err)
 	}

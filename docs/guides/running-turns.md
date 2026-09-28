@@ -73,7 +73,32 @@ call. Work already running finishes.
 `Runner.Recorder` may be omitted. Dashi uses a fresh in-memory recorder
 for that call, and you can pass the returned `Outcome.Turn` to a later call in
 the same process. Bind a durable recorder when turns must resume across
-processes.
+processes. `filerecorder` keeps each turn in an append-only file on local
+disk and is safe for several processes sharing the directory:
+
+```go
+recorder, err := filerecorder.New(filerecorder.Config{Dir: "var/turns"})
+runner := dashi.Runner{Agent: agent, Client: client, Recorder: recorder}
+```
+
+To keep turns in your database instead, implement `dashi.Recorder` and
+`dashi.Loader`; the `Recorder` doc comment states the rules, and
+`dashitest.Run` checks them. In a SQL store, commit each step in one
+transaction with your own rows:
+
+- Lock the turn's row. Reject a commit from an owner other than the latest
+  claim. A known command ID succeeds only with the same kind and digest.
+  At an occupied sequence, succeed only if the stored step `Equal`s the new
+  one; otherwise require `seq = ExpectedSeq`, insert, and advance.
+- Keep the step's own JSON as the record. Do not rebuild `At` from a
+  timestamp column: steps carry nanoseconds, a microsecond column drops
+  them, and a genuine retry would then be rejected.
+- Postgres `jsonb` rejects `\u0000` in strings; store such steps as `json`
+  or text, or reject them explicitly.
+- Return a `*dashi.CommitError` with `PersistenceRejected` only when the
+  transaction certainly wrote nothing. A timeout or lost connection after
+  `COMMIT` was sent must be a plain error, which Dashi treats as unknown.
+- `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.
 
 An interrupted model call is sent again; its partial output is display-only,
 while its usage still counts toward spend. A started tool without a result is

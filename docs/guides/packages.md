@@ -17,6 +17,8 @@ other.
 - `media`: Image, video, and non-speech audio values, preparation, results, and
   video jobs.
 - `speech`: Recognition and synthesis values and capability descriptions.
+- `filerecorder`: A durable recorder that keeps each turn in an append-only
+  file, shared safely by processes on one machine (Unix only).
 - `dashitest`: A conformance suite for host recorders and a fault-injecting
   recorder for recovery tests.
 - `catalog`: Documented capabilities, limits, and prices for known models at
@@ -43,7 +45,9 @@ Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
 `speech` share `model` identity and evidence. Shared content, model, and money
 depend only on the standard library; `money` is a leaf so that `tool` can
 report exact charges without importing `llm`. The root agent loop depends on
-`llm` and `tool`; session storage remains an optional future adapter.
+`llm` and `tool`; `filerecorder` and `dashitest` depend only on the root
+package and the standard library. Session storage remains an optional
+future adapter.
 
 The Google adapter depends on `google.golang.org/genai` and gRPC, so it is its
 own module and the root module does not require them. The other providers use
