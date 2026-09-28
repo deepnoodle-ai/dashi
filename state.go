@@ -1562,8 +1562,12 @@ func (a ActiveHooks) validate() error {
 }
 
 // validateHidden checks the tools recorded as hidden from a model call:
-// named once each, never the submit tool, and not also offered.
+// named once each, never the submit tool, and not also offered. The
+// reserved final-answer call runs no hides, so it records none.
 func validateHidden(fact *ModelFact) error {
+	if fact.FinalAnswerOnly && len(fact.Hidden) > 0 {
+		return errors.New("invalid hidden tools")
+	}
 	seen := map[string]bool{}
 	for _, name := range fact.Hidden {
 		offered := slices.ContainsFunc(fact.Tools, func(d tool.Definition) bool {

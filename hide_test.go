@@ -294,6 +294,16 @@ func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 	if len(intentOf(t, out.Turn, 2).Hidden) != 0 {
 		t.Fatalf("final call recorded hides")
 	}
+	// Replay rejects a record that claims hides on the final call.
+	turn := cloneTurn(out.Turn)
+	for i, step := range turn.Steps {
+		if step.Kind == StepModelIntent && step.Model.FinalAnswerOnly {
+			turn.Steps[i].Model.Hidden = []string{"remote"}
+		}
+	}
+	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("replay err = %v", err)
+	}
 }
 
 func TestCallToAHiddenToolIsUnavailable(t *testing.T) {
@@ -370,8 +380,10 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The resuming worker's hook hides nothing: the call still resolves
-	// from the recorded intent, and its hook runs only for the next call.
+	// The resuming worker's hook hides nothing and its toolset no longer
+	// has write, which alone would read "Unknown tool.": the call still
+	// resolves from the recorded hides, and its hook runs only for the next
+	// call.
 	resumed := 0
 	counter := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		resumed++
@@ -380,7 +392,7 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 	out, err := (Runner{
 		Agent:    testAgent(),
 		Client:   client,
-		Tools:    tools,
+		Tools:    tool.List{namedTool("read", nil)},
 		Recorder: base,
 		Hooks:    counter.Hooks(),
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
