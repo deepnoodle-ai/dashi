@@ -184,7 +184,8 @@ type WarningCode string
 
 const (
 	// WarningHistoryMismatch means Continue received different prior history
-	// from Start. The turn still runs with the history supplied to Continue.
+	// from Start. The turn still runs with the history supplied to Continue,
+	// unless Bindings.OnHistoryMismatch rejects the command instead.
 	WarningHistoryMismatch WarningCode = "history_mismatch"
 	// WarningBudgetClamp records an output allowance reduced by a turn cap.
 	WarningBudgetClamp WarningCode = "budget_clamp"
@@ -456,6 +457,10 @@ var (
 	ErrInvalidTurn       = errors.New("kernel: invalid turn record")
 	ErrRevisionConflict  = errors.New("kernel: revision conflict")
 	ErrStreamConsumed    = errors.New("kernel: stream already consumed")
+	// ErrHistoryMismatch rejects a Continue whose History differs from the
+	// turn's start when Bindings.OnHistoryMismatch is HistoryMismatchReject.
+	// Nothing is committed; retry with the history the turn started with.
+	ErrHistoryMismatch = errors.New("kernel: history differs from turn start")
 )
 
 func cloneStep(s Step) Step {

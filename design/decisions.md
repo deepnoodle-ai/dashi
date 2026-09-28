@@ -126,7 +126,9 @@ not store it.** Decided; answers decision 5. `Start` and every `Continue`
 carry the earlier conversation, and the engine uses it for that call only. The
 turn-started step keeps the turn's own input and a fingerprint of the history,
 not the history itself. A `Continue` whose history does not match the
-fingerprint records a warning and proceeds. Rationale: none of the compared
+fingerprint records a warning and proceeds; a host may set
+`Bindings.OnHistoryMismatch` to reject that `Continue` before any step is
+committed instead. Rationale: none of the compared
 libraries copies history into each run, and a turn record that grows with the
 conversation stores what the application already keeps. The cost: a turn's
 record no longer shows the earlier conversation, and a wrong history on resume
