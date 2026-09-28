@@ -11,6 +11,7 @@ it needs.
 | `agent`             | OpenAI    | One recorded agent turn                                        |
 | `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
 | `approval`          | Anthropic | A tool that waits for a person to approve it                   |
+| `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
 | `hosted_tools`      | Anthropic | Provider-hosted web search and code execution, with sources    |
 | `structured_output` | OpenAI    | A final answer that matches a JSON schema, decoded into a type |

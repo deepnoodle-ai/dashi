@@ -30,6 +30,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	defer cancel()
 	results := make(chan toolResult, len(s.callOrder))
 	running := 0
+	progress := newProgressHub(r.emitter.active() || r.opts.streamSink != nil)
 	// fatal holds the stop reason of the first result that ends the turn.
 	// Once set, no further call starts; running calls still settle.
 	fatal := ""
@@ -38,6 +39,8 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			o := r.contextStop()
 			return &o
 		}
+		// The call's slot is closed, so this last snapshot is final.
+		r.emitToolProgress(progress.take(v.call.ID, true))
 		step, stop := toolSettlement(v)
 		if o := r.commit(step); o != nil {
 			return o
@@ -52,13 +55,17 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			o := r.contextStop()
 			return &o
 		}
-		select {
-		case v := <-results:
-			running--
-			return settle(v)
-		case <-ctx.Done():
-			o := r.contextStop()
-			return &o
+		for {
+			select {
+			case v := <-results:
+				running--
+				return settle(v)
+			case <-progress.readyChan():
+				r.emitProgress(progress, s.callOrder)
+			case <-ctx.Done():
+				o := r.contextStop()
+				return &o
+			}
 		}
 	}
 	paused := false
@@ -353,8 +360,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		running++
 		call := v.Call.Clone()
+		slot := progress.open(call)
 		go func() {
-			results <- execute(ctx, ex, call)
+			results <- execute(ctx, ex, call, slot)
 		}()
 	}
 	for running > 0 {
@@ -395,13 +403,17 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 // This single dispatch path serves both sequential and parallel calls. A
 // panic is recovered, not re-raised: the call may have taken effect before it
 // panicked, so its result is unknown and the runner records it as uncertain
-// rather than running it again.
+// rather than running it again. The call's progress slot closes before the
+// result is sent, even on panic, so no report follows the settlement.
 func execute(
 	ctx context.Context,
 	ex tool.Executor,
 	call tool.Call,
+	slot *progressSlot,
 ) (result toolResult) {
 	result.call = call
+	ctx = tool.WithReporter(ctx, slot.reporter())
+	defer slot.close()
 	defer func() {
 		if v := recover(); v != nil {
 			result = toolResult{call: call, panicked: panicReason(v)}

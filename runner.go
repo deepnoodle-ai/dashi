@@ -28,9 +28,10 @@ type Runner struct {
 	Recorder Recorder
 	// Policy defaults to denying tool calls when nil.
 	Policy Policy
-	// Observer receives committed steps and provisional deltas. When it is
-	// set, Run requests streamed model output so the Observer sees text as it
-	// arrives; Stream always does.
+	// Observer receives committed steps, provisional deltas, and tool
+	// progress. When it is set, Run requests streamed model output and
+	// delivers tool.Report snapshots so the Observer sees work as it happens;
+	// Stream always does.
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
@@ -89,12 +90,13 @@ const (
 )
 
 // Stream advances a turn when iteration begins, requesting streamed model
-// output. A fully read sequence ends with one Outcome event; command
-// validation errors appear in the error slot. Breaking the range ends the
-// context. By default, the turn records an interruption; ContextCancel on the
-// Runner makes the break a final cancel. Reload the turn by ID to inspect
-// committed facts, since no final event follows a break.
-// A second range yields ErrStreamConsumed instead of repeating work.
+// output and tool progress. Events carry committed steps, model deltas, and
+// tool.Report snapshots. A fully read sequence ends with one Outcome event;
+// command validation errors appear in the error slot. Breaking the range ends
+// the context. By default, the turn records an interruption; ContextCancel on
+// the Runner makes the break a final cancel. Reload the turn by ID to inspect
+// committed facts, since no final event follows a break. A second range
+// yields ErrStreamConsumed instead of repeating work.
 func (r Runner) Stream(
 	ctx context.Context,
 	turn Turn,
@@ -672,7 +674,7 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
-	if (r.emitter != nil && r.emitter.ch != nil) || r.opts.streamSink != nil {
+	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
 			event.AttemptID = step.Model.AttemptID
@@ -684,8 +686,12 @@ func (r *runtime) commit(step Step) *Outcome {
 }
 
 func (r *runtime) emit(event Event) {
-	if r.emitter != nil && r.emitter.ch != nil {
-		r.emitter.send(cloneEvent(event))
+	if r.emitter.active() {
+		if event.Progress != nil {
+			r.emitter.sendProgress(cloneEvent(event))
+		} else {
+			r.emitter.send(cloneEvent(event))
+		}
 	}
 	if r.opts.streamSink != nil {
 		r.opts.streamSink(cloneEvent(event))
@@ -696,6 +702,9 @@ func cloneEvent(event Event) Event {
 	if event.Step != nil {
 		step := cloneStep(*event.Step)
 		event.Step = &step
+	}
+	if event.Progress != nil {
+		event.Progress = cloneToolProgress(event.Progress)
 	}
 	if event.Delta != nil {
 		delta := *event.Delta
