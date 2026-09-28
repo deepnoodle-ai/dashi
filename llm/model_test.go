@@ -40,7 +40,10 @@ func TestModelInfoDecodesRecordWithoutContextWindow(t *testing.T) {
 		t.Fatalf("decode older record: %v", err)
 	}
 	if info.Capabilities.ContextWindow != 0 {
-		t.Fatalf("context window = %d, want unknown", info.Capabilities.ContextWindow)
+		t.Fatalf(
+			"context window = %d, want unknown",
+			info.Capabilities.ContextWindow,
+		)
 	}
 	if info.Capabilities.MaxOutputTokens != 8192 {
 		t.Fatal("existing output limit was lost")

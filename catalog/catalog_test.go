@@ -36,7 +36,7 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 				endpoint := d.resolve(e.Model)
 				info, ok := Lookup(d.API, endpoint, e.Model)
 				if !ok {
-					t.Fatalf("%s %s: lookup at %s failed", name, e.Model, endpoint)
+					t.Fatalf("%s %s: no lookup at %s", name, e.Model, endpoint)
 				}
 				if err := info.Validate(); err != nil {
 					t.Fatalf("%s %s: %v", name, e.Model, err)
@@ -61,7 +61,7 @@ func TestEntriesDateEveryClaim(t *testing.T) {
 				t.Fatalf("%s %s price is dated in the future", name, e.Model)
 			}
 			if e.Pricing.Currency != "USD" || e.Pricing.Reference == "" {
-				t.Fatalf("%s %s price lacks currency or reference", name, e.Model)
+				t.Fatalf("%s %s price lacks a reference", name, e.Model)
 			}
 		}
 	}
@@ -79,7 +79,10 @@ func TestEntriesNeverClaimLiveProbes(t *testing.T) {
 				t.Fatal(err)
 			}
 			if info.Evidence.Method != llm.EvidenceDocumentation {
-				t.Fatalf("%s %s method = %q", name, e.Model, info.Evidence.Method)
+				t.Fatalf(
+					"%s %s method = %q",
+					name, e.Model, info.Evidence.Method,
+				)
 			}
 			if info.Evidence.Owner != Owner {
 				t.Fatalf("%s %s owner = %q", name, e.Model, info.Evidence.Owner)
@@ -283,7 +286,9 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 		},
 		{
 			name: "unknown feature",
-			data: fmt.Sprintf(valid, fmt.Sprintf(entry, `"features":{"x":"supported"}`, "")),
+			data: fmt.Sprintf(valid, fmt.Sprintf(
+				entry, `"features":{"x":"supported"}`, "",
+			)),
 			want: "invalid capability",
 		},
 		{

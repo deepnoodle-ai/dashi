@@ -154,14 +154,14 @@ func TestCatalogLimitsAdjustRequestsWithWarnings(t *testing.T) {
 		t.Fatal("temperature was sent to a model documented to reject it")
 	}
 	if effective.MaxTokens != 128_000 {
-		t.Fatalf("max tokens = %d, want the documented 128000", effective.MaxTokens)
+		t.Fatalf("max tokens = %d, want 128000", effective.MaxTokens)
 	}
 	fields := map[llm.Setting]bool{}
 	for _, w := range prep.Warnings() {
 		fields[w.Field] = true
 	}
 	if !fields[llm.SettingTemperature] || !fields[llm.SettingMaxTokens] {
-		t.Fatalf("warnings = %+v, want temperature and max tokens", prep.Warnings())
+		t.Fatalf("warnings = %+v, want both fields", prep.Warnings())
 	}
 }
 

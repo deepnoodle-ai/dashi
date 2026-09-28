@@ -36,8 +36,8 @@ other.
 
 Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
 `speech` share `model` identity and evidence. Shared content and model depend
-only on the standard library. The root agent loop depends on `llm` and `tool`; session
-storage remains an optional future adapter.
+only on the standard library. The root agent loop depends on `llm` and `tool`;
+session storage remains an optional future adapter.
 
 The Google adapter depends on `google.golang.org/genai`; the core packages do
 not.
