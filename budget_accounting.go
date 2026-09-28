@@ -32,13 +32,16 @@ func attemptSpend(
 	}
 	if settlement != nil && settlement.Interrupted {
 		// Streamed usage may describe only the input or an earlier output
-		// frame. Keep reported counts and fill absent buckets from evidence.
+		// frame. Keep reported counts and include later visible output.
 		estimated = true
 		if usage.TotalInputTokens() == 0 {
 			usage.InputTokens = intent.EstimatedInputTokens
 		}
-		if settlement.Result != nil && usage.OutputTokens == 0 {
-			usage.OutputTokens = estimatedOutputTokens(settlement.Result)
+		if settlement.Result != nil {
+			usage.OutputTokens = max(
+				usage.OutputTokens,
+				estimatedOutputTokens(settlement.Result),
+			)
 		}
 	}
 	if settlement != nil && settlement.Result != nil {

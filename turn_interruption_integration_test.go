@@ -76,7 +76,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		}
 		if view.ModelAttempts != 0 || view.Interruptions != i ||
 			view.Spend.Usage.InputTokens != 2*(i+1) ||
-			view.Spend.Usage.OutputTokens != i+1 {
+			view.Spend.Usage.OutputTokens != 2*(i+1) {
 			t.Fatalf("interruption %d: view=%+v", i, view)
 		}
 		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||

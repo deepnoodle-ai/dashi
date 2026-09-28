@@ -43,8 +43,8 @@ the raise.
 **A call whose final bill never arrived.** A worker is redeployed while a
 reply is streaming. Kernel may have input usage and some text, but no final
 output count. The call is sent again on resume ([decision 9](decisions.md));
-the lost try preserves the input count, infers visible output when its count is
-absent, and is marked estimated in the running total.
+the lost try preserves the input count, counts the greater of streamed output
+and the visible-text estimate, and is marked estimated in the running total.
 
 ## How nvoken does it today
 
@@ -138,11 +138,11 @@ refusals.
 **Actual and estimated spend.** After each call Kernel records its charge: the
 provider-reported cost, else the price sheet applied to observed or estimated
 usage. A call without final usage (a crash or cut-off) keeps streamed counts,
-fills missing input, and infers visible output text when no output count was
-reported. The usage is marked estimated. The consequence, accepted: for such
-calls the cap is not a strict charge guarantee, since the guess can undercount.
-The admission check also relies
-on the supplied rates and the provider respecting its output allowance.
+fills missing input, and counts the greater of streamed output and a
+visible-text estimate. The usage is marked estimated. The consequence,
+accepted: for such calls the cap is not a strict charge guarantee, since the
+guess can undercount. The admission check also relies on the supplied rates
+and the provider respecting its output allowance.
 `TurnView.Spend` replaces the token-only `Usage` (`state.go:115-121`): token
 totals, model and local-tool cost per currency, and counts of estimated calls
 and calls with unknown model cost. A model charge in another currency counts as

@@ -71,8 +71,8 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		t.Fatalf("resumes=%d, want 3", state.Interruptions)
 	}
 	if state.Spend.Usage.InputTokens != 9 ||
-		state.Spend.Usage.OutputTokens != 4 {
-		t.Fatalf("usage=%+v, want input 9 and output 4", state.Spend.Usage)
+		state.Spend.Usage.OutputTokens != 10 {
+		t.Fatalf("usage=%+v, want input 9 and output 10", state.Spend.Usage)
 	}
 	if len(state.Tools) != 0 {
 		t.Fatalf("partial tool calls became actionable: %+v", state.Tools)
