@@ -133,9 +133,10 @@ Snapshots arrive as `Event.Progress` on `Runner.Stream` and on
 previews: never recorded, never replayed, and never shown to the model, so the
 tool's `Outcome` must still carry its full result. `Report` never blocks and
 does nothing when no one listens. When the consumer is slower than the tool,
-snapshots merge and the latest wins; the last report before `Execute` returns
-arrives before the call's settled step, and nothing for the call follows it.
-With one tool at a time, a snapshot may wait while the runner does other work.
+snapshots merge and the latest wins. On `Stream`, the last report before
+`Execute` returns arrives before the call's settled step; `Observer` is lossy
+and may drop progress. Nothing for a call follows its settled step. A snapshot
+may wait while the runner authorizes or commits another call.
 Report at human rates, a few times a second at most, and throttle rendering
 if needed. To test a tool on its own, install a reporter with
 `tool.WithReporter`. See `examples/tool_progress`.

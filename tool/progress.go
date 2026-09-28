@@ -59,11 +59,9 @@ func Report(ctx context.Context, p Progress) {
 // on the reporting goroutine, may be called from several goroutines at once,
 // and keeps receiving reports after Execute returns if the tool leaks ctx, so
 // it must be safe for concurrent use and should return quickly. A nil fn
-// silences Report.
+// silences Report, including any reporter from an outer context, at no cost.
 func WithReporter(ctx context.Context, fn func(Progress)) context.Context {
-	if fn == nil {
-		fn = func(Progress) {}
-	}
+	// A typed nil still shadows outer reporters; Report sees nil and returns.
 	return context.WithValue(ctx, reporterKey{}, fn)
 }
 

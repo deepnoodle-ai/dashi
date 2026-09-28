@@ -114,9 +114,8 @@ forgets the slot. Nothing for that call follows, including reports from a
 detached call or a leaked goroutine, and nothing is emitted after `tools()`
 returns.
 
-**Lag.** With `ToolConcurrency` 1, snapshots wait while the runner does other
-work (authorizing the next call, recorder commits). They merge; the latest is
-delivered at the next wait.
+**Lag.** Snapshots wait while the runner authorizes or commits another call.
+They merge; the latest is delivered at the next wait.
 
 **Observer headroom.** The Observer buffer is lossy (64 events). A progress
 event is queued only when the buffer is at most half full, so progress never

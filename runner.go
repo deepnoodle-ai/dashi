@@ -90,12 +90,13 @@ const (
 )
 
 // Stream advances a turn when iteration begins, requesting streamed model
-// output. A fully read sequence ends with one Outcome event; command
-// validation errors appear in the error slot. Breaking the range ends the
-// context. By default, the turn records an interruption; ContextCancel on the
-// Runner makes the break a final cancel. Reload the turn by ID to inspect
-// committed facts, since no final event follows a break.
-// A second range yields ErrStreamConsumed instead of repeating work.
+// output and tool progress. Events carry committed steps, model deltas, and
+// tool.Report snapshots. A fully read sequence ends with one Outcome event;
+// command validation errors appear in the error slot. Breaking the range ends
+// the context. By default, the turn records an interruption; ContextCancel on
+// the Runner makes the break a final cancel. Reload the turn by ID to inspect
+// committed facts, since no final event follows a break. A second range
+// yields ErrStreamConsumed instead of repeating work.
 func (r Runner) Stream(
 	ctx context.Context,
 	turn Turn,

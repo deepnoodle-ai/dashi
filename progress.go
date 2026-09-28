@@ -10,8 +10,10 @@ import (
 // ToolProgress is the latest snapshot a running tool reported with
 // tool.Report. It is a preview: never recorded, never replayed, and never
 // delivered after the call's tool_settled or tool_waiting step. Snapshots
-// merge when the consumer is slower than the tool, so only the latest is
-// guaranteed to arrive.
+// merge when the consumer is slower than the tool. While the turn runs,
+// Runner.Stream delivers each call's latest snapshot before the call
+// settles; Runner.Observer is lossy and may drop any snapshot, and a
+// canceled turn delivers no more.
 type ToolProgress struct {
 	// CallID identifies the call, as on its tool_started step.
 	CallID string
@@ -144,7 +146,7 @@ func (r *runtime) emitProgress(h *progressHub, order []string) {
 }
 
 func (r *runtime) emitToolProgress(p *ToolProgress) {
-	if p == nil || r.ctx.Err() != nil {
+	if p == nil {
 		return
 	}
 	r.emit(Event{TurnID: r.turn.ID, Progress: p})

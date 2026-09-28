@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,8 +40,15 @@ func succeededOutcome() tool.Outcome {
 func namedCallsResult(names ...string) llm.Result {
 	var parts []llm.Content
 	for i, name := range names {
-		call := tool.Call{ID: fmt.Sprintf("c%d", i), Name: name, Args: []byte(`{}`)}
-		parts = append(parts, llm.Content{Kind: llm.ContentToolCall, ToolCall: &call})
+		call := tool.Call{
+			ID:   fmt.Sprintf("c%d", i),
+			Name: name,
+			Args: []byte(`{}`),
+		}
+		parts = append(
+			parts,
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &call},
+		)
 	}
 	return llm.Result{
 		Message:   llm.AssistantMessage(parts...),
@@ -219,8 +227,11 @@ func TestSlowStreamConsumerDoesNotBlockReporting(t *testing.T) {
 		}
 	}
 	n := len(order.progress)
-	if n == 0 || n > reports || order.progress[n-1].Done != reports {
-		t.Fatalf("events=%d last=%+v", n, order.progress[n-1])
+	if n == 0 || n > reports {
+		t.Fatalf("events=%d", n)
+	}
+	if last := order.progress[n-1]; last.Done != reports {
+		t.Fatalf("last=%+v", last)
 	}
 }
 
@@ -288,6 +299,9 @@ func TestProgressBeforePanicIsDelivered(t *testing.T) {
 	}
 }
 
+// A call that hands off work keeps a leaked goroutine reporting while a
+// second call holds the runner in its drain loop, so a late report would be
+// delivered if the settled call's slot still accepted or forwarded reports.
 func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 	for _, state := range []tool.State{tool.StateWaiting, tool.StateDetached} {
 		t.Run(string(state), func(t *testing.T) {
@@ -297,19 +311,23 @@ func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 				close(stop)
 				leaked.Wait()
 			}()
+			handedOff := make(chan struct{})
+			var late atomic.Int64
 			work := progressTool("work", func(
 				ctx context.Context,
 				_ tool.Call,
 			) (tool.Outcome, error) {
 				tool.Report(ctx, tool.Progress{Message: "handing off"})
 				leaked.Go(func() {
+					<-handedOff
 					for {
 						select {
 						case <-stop:
 							return
 						default:
 							tool.Report(ctx, tool.Progress{Message: "late"})
-							time.Sleep(time.Millisecond)
+							late.Add(1)
+							time.Sleep(100 * time.Microsecond)
 						}
 					}
 				})
@@ -321,10 +339,39 @@ func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 				}
 				return out, nil
 			})
+			hold := progressTool("hold", func(
+				ctx context.Context,
+				_ tool.Call,
+			) (tool.Outcome, error) {
+				select {
+				case <-handedOff:
+				case <-time.After(5 * time.Second):
+					return tool.Outcome{}, errors.New("work never waited")
+				}
+				for late.Load() < 50 {
+					time.Sleep(100 * time.Microsecond)
+				}
+				return succeededOutcome(), nil
+			})
+			runner := progressRunner(
+				2,
+				[]llm.Result{namedCallsResult("work", "hold")},
+				work,
+				hold,
+			)
+			runner.Recorder = notifyingRecorder{
+				Recorder: runner.Recorder,
+				onCommit: func(step Step) {
+					if step.Kind == StepToolWaiting {
+						close(handedOff)
+					}
+				},
+			}
 			order := newProgressOrder(t)
-			order.stream(progressRunner(1, []llm.Result{callResult("call", "work")}, work))
 			// progressOrder fails on any report delivered after tool_waiting.
-			if len(order.progress) == 0 || order.progress[0].Message != "handing off" {
+			order.stream(runner)
+			if len(order.progress) == 0 ||
+				order.progress[0].Message != "handing off" {
 				t.Fatalf("progress=%+v", order.progress)
 			}
 			if order.outcome == nil || order.outcome.Stop.Kind != StopWaiting {
@@ -347,7 +394,11 @@ func TestBreakingStreamWhileToolReports(t *testing.T) {
 		}
 		return tool.Outcome{}, ctx.Err()
 	})
-	runner := progressRunner(1, []llm.Result{callResult("call", "work")}, work)
+	runner := progressRunner(
+		1,
+		[]llm.Result{callResult("call", "work")},
+		work,
+	)
 	recorder := runner.Recorder.(*MemoryRecorder)
 	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
 	for event, err := range events {
@@ -435,7 +486,10 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 		ctx context.Context,
 		_ tool.Call,
 	) (tool.Outcome, error) {
-		tool.Report(ctx, tool.Progress{Message: "m", Data: json.RawMessage(`{"n":1}`)})
+		tool.Report(ctx, tool.Progress{
+			Message: "m",
+			Data:    json.RawMessage(`{"n":1}`),
+		})
 		return succeededOutcome(), nil
 	})
 	var mu sync.Mutex
@@ -491,7 +545,8 @@ func TestRunWithObserverDeliversProgress(t *testing.T) {
 			got <- event.Progress.Message
 		}
 	}
-	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, streamStart()); err != nil {
+	_, err := runner.Run(t.Context(), Turn{ID: "t1"}, streamStart())
+	if err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -534,5 +589,55 @@ func TestProgressNeverFillsObserverPastHalf(t *testing.T) {
 		if len(e.ch) != before+1 {
 			t.Fatal("step dropped while progress held the queue")
 		}
+	}
+}
+
+// A parked Observer must still receive the turn's later steps while a tool
+// floods progress, because progress uses at most half of its queue.
+func TestProgressFloodKeepsObserverSteps(t *testing.T) {
+	const reports = 200
+	ack := make(chan struct{})
+	work := progressTool("work", func(
+		ctx context.Context,
+		_ tool.Call,
+	) (tool.Outcome, error) {
+		for i := 1; i <= reports; i++ {
+			tool.Report(ctx, tool.Progress{Done: float64(i)})
+			select {
+			case <-ack:
+			case <-time.After(5 * time.Second):
+				return tool.Outcome{}, errors.New("progress not delivered")
+			}
+		}
+		return succeededOutcome(), nil
+	})
+	release := make(chan struct{})
+	stopped := make(chan struct{})
+	runner := progressRunner(1, oneCall("work"), work)
+	runner.Observer = func(event Event) {
+		<-release
+		if event.Step != nil && event.Step.Kind == StepStopped {
+			close(stopped)
+		}
+	}
+	order := newProgressOrder(t)
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	for event, err := range events {
+		if err != nil {
+			t.Fatal(err)
+		}
+		order.add(event)
+		if event.Progress != nil {
+			ack <- struct{}{}
+		}
+	}
+	if len(order.progress) != reports {
+		t.Fatalf("stream progress=%d", len(order.progress))
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("observer lost the stop step to progress")
 	}
 }
