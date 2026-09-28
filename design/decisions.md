@@ -279,8 +279,8 @@ fail. Dashi had no users, so there is no migration.
 
 **32. Steering interruptions count as model attempts.** Decided 2026-09-28;
 supersedes part of decision 12. The design is [steering.md](steering.md). A
-model call cancelled because of an urgent steer (`ModelFact.InterruptedBy:
-"steering"`) counts toward `ModelAttempts` and spend, and not toward
+model call cancelled because of an urgent steer (`ModelFact.Interrupted:
+"steering"`, `InterruptSteering`) counts toward `ModelAttempts` and spend, and not toward
 `Interruptions`. Every other interrupted call keeps decision 12's rule. A call
 that completes before the cancel takes effect is not interrupted. Rationale: a
 steering interruption is the user's choice, not the hosting's fault, and

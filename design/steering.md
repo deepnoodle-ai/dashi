@@ -58,8 +58,11 @@ example sends lines starting with `!` as urgent.
 - **U-2. One definition of "waiting".** A pure
   `classifySteers(record, steers) (fresh, again, invalid)` serves FR-6 and the
   listener. The listener holds a snapshot of recorded IDs, refreshed after
-  each commit. It writes no run state or warnings; the run records warnings
-  after joining.
+  each commit. The U-1 mutex guards everything the run and the listener
+  share: the snapshot, the urgent set, the registered call, and the reason
+  the listener last declined to interrupt. The listener writes no warnings;
+  the run attaches that reason to the call's `StepModelSettled`, or at the
+  latest to the stop step, never after the join.
 - **U-3. What a signal does.** The listener calls `Steers`. For a fresh
   urgent steer, it adds the ID to the run's *urgent set* and cancels the
   registered model call if eligible (U-4). Each ID causes at most one
@@ -73,7 +76,9 @@ example sends lines starting with `!` as urgent.
   (U-8), with the call in flight at its worst case against every cap. At
   signal time the listener adds the actual size of the steers, the reminder,
   and the partial, and rechecks pause, deadline, and context; it never reads
-  replay state. An ineligible call is not cut; the steer waits for FR-6, and
+  replay state. Under a cost cap, a call whose worst case is unknown
+  (`AtRisk` is nil, as for an unpriced model) is ineligible, since
+  `spendWithCallInFlight` fails. An ineligible call is not cut; the steer waits for FR-6, and
   the run records one `WarningSteering` per run naming the reason.
 - **U-5. Before dispatch.** After `BeforeModel` and request preparation, but
   before `BeforeSend` admits the call, the run reads the urgent set. The run
@@ -114,7 +119,10 @@ example sends lines starting with `!` as urgent.
   sent call cut off by a steer is charged the worst case reserved at
   admission, without inspecting usage, written into the settlement's `Charge`
   (which `attemptSpend` prefers, so replay needs no cap logic). Without a
-  cap, decision 24's estimate applies. Crash recovery keeps decision 24's
+  cap, decision 24's estimate applies. Before writing the settlement, the
+  run folds its delta-based estimate into `Result.Usage.OutputTokens`,
+  taking the larger of the estimate and the reported count, so token caps
+  and replay see it with no new field; the settlement is `EstimatedUsage`. Crash recovery keeps decision 24's
   rule.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
