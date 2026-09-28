@@ -1,0 +1,262 @@
+<title>__TITLE__</title>
+<style>
+  :root {
+    --bg: #f7f6f2;
+    --surface: #ffffff;
+    --ink: #1f2328;
+    --muted: #5c6470;
+    --line: #dcd9d0;
+    --accent: #2f5d8a;
+    --accent-soft: #e6eef6;
+    --ok: #2e7d4f;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+      sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #15181c;
+      --surface: #1d2126;
+      --ink: #e6e8eb;
+      --muted: #9aa3ad;
+      --line: #313840;
+      --accent: #7fb0e0;
+      --accent-soft: #21303f;
+      --ok: #6cc08b;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #15181c;
+    --surface: #1d2126;
+    --ink: #e6e8eb;
+    --muted: #9aa3ad;
+    --line: #313840;
+    --accent: #7fb0e0;
+    --accent-soft: #21303f;
+    --ok: #6cc08b;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 var(--sans);
+    padding-block: 32px 120px;
+    padding-inline: 16px;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 4px; text-wrap: balance; }
+  h2 { font-size: 1.15rem; margin: 0 0 8px; text-wrap: balance; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+  .meta a { color: var(--accent); }
+  .eyebrow {
+    font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .context {
+    border-left: 3px solid var(--accent); padding: 4px 0 4px 14px;
+    margin: 0 0 32px; color: var(--ink);
+  }
+  .context p { margin: 0 0 8px; }
+  .context p:last-child { margin-bottom: 0; }
+  .context ul { margin: 0; padding-left: 20px; }
+  .q {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 18px 20px; margin-bottom: 16px;
+  }
+  .q .num { color: var(--accent); font-weight: 600; margin-right: 6px; }
+  .q .why { color: var(--muted); font-size: 0.93rem; margin: 0 0 12px; }
+  .q .why code, .context code { font-family: var(--mono); font-size: 0.88em; }
+  .opts { display: grid; gap: 6px; margin: 0 0 12px; }
+  .opt {
+    display: grid; grid-template-columns: 18px 1fr; gap: 10px;
+    align-items: start; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid transparent; cursor: pointer;
+  }
+  .opt:hover { background: var(--accent-soft); }
+  .opt:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); }
+  .opt input { margin-top: 4px; accent-color: var(--accent); }
+  .opt .label { font-weight: 500; }
+  .opt .desc { color: var(--muted); font-size: 0.9rem; }
+  .opt .rec {
+    font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--ok); margin-left: 6px;
+  }
+  textarea {
+    width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical;
+    font: inherit; font-size: 0.95rem; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px;
+  }
+  textarea:focus, .opt input:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  label.cmt { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface); border-top: 1px solid var(--line);
+    display: flex; gap: 12px; align-items: center; justify-content: center;
+    flex-wrap: wrap;
+  }
+  .bar .status { color: var(--muted); font-size: 0.9rem; min-width: 0; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--surface);
+    border: 0; border-radius: 6px; padding: 10px 18px;
+  }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  #out {
+    font-family: var(--mono); font-size: 0.82rem; min-height: 160px;
+    margin-top: 32px; white-space: pre; overflow-x: auto;
+  }
+  details summary { cursor: pointer; color: var(--muted); margin-top: 32px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .opt { transition: background 120ms; }
+  }
+</style>
+
+<main>
+  <div class="eyebrow">Proposal review</div>
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+  <div class="context" id="context"></div>
+  <div id="questions"></div>
+  <details>
+    <summary>Compiled responses (what the copy button copies)</summary>
+    <textarea id="out" readonly aria-label="Compiled responses"></textarea>
+  </details>
+</main>
+
+<div class="bar">
+  <span class="status" id="status">0 of 0 answered</span>
+  <button id="copy">Copy responses</button>
+  <button id="clear" class="ghost">Clear</button>
+</div>
+
+<script type="application/json" id="review-data">
+__DATA__
+</script>
+
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById('review-data').textContent);
+  var key = 'proposal-review:' + (data.id || data.title);
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) { state = {}; }
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function inline(s) {
+    return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+  function save() { try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {} }
+
+  document.getElementById('title').textContent = data.title;
+  var meta = [];
+  if (data.source) meta.push(data.source);
+  if (data.date) meta.push(data.date);
+  document.getElementById('meta').innerHTML = meta.map(esc).join(' · ');
+
+  var ctx = document.getElementById('context');
+  (data.context || []).forEach(function (p) { ctx.appendChild(el('p', null, inline(p))); });
+
+  var qwrap = document.getElementById('questions');
+  data.questions.forEach(function (q, i) {
+    var n = i + 1;
+    var st = state[n] = state[n] || { choices: [], comment: '' };
+    var card = el('section', 'q');
+    card.id = 'q' + n;
+    card.appendChild(el('div', 'eyebrow', esc(q.topic)));
+    card.appendChild(el('h2', null, '<span class="num">' + n + '.</span>' + inline(q.question)));
+    if (q.why) card.appendChild(el('p', 'why', inline(q.why)));
+    var opts = el('div', 'opts');
+    var type = q.multi ? 'checkbox' : 'radio';
+    (q.options || []).forEach(function (o, j) {
+      var id = 'q' + n + 'o' + j;
+      var lab = el('label', 'opt');
+      lab.setAttribute('for', id);
+      var inp = document.createElement('input');
+      inp.type = type; inp.name = 'q' + n; inp.id = id; inp.value = o.label;
+      inp.checked = st.choices.indexOf(o.label) >= 0;
+      inp.addEventListener('change', function () {
+        if (q.multi) {
+          st.choices = Array.prototype.slice.call(opts.querySelectorAll('input:checked')).map(function (x) { return x.value; });
+        } else {
+          st.choices = [o.label];
+        }
+        save(); render();
+      });
+      var txt = el('div', null,
+        '<span class="label">' + inline(o.label) + '</span>' +
+        (o.recommended ? '<span class="rec">recommended</span>' : '') +
+        (o.desc ? '<div class="desc">' + inline(o.desc) + '</div>' : ''));
+      lab.appendChild(inp); lab.appendChild(txt);
+      opts.appendChild(lab);
+    });
+    card.appendChild(opts);
+    var cl = el('label', 'cmt', 'Comments');
+    cl.setAttribute('for', 'c' + n);
+    var ta = document.createElement('textarea');
+    ta.id = 'c' + n; ta.value = st.comment;
+    ta.placeholder = 'Anything to add, change, or push back on';
+    ta.addEventListener('input', function () { st.comment = ta.value; save(); render(); });
+    card.appendChild(cl); card.appendChild(ta);
+    qwrap.appendChild(card);
+  });
+
+  var out = document.getElementById('out');
+  var status = document.getElementById('status');
+  function compile() {
+    var lines = ['Responses to: ' + data.title];
+    if (data.source) lines.push('Document: ' + data.source);
+    lines.push('');
+    data.questions.forEach(function (q, i) {
+      var n = i + 1, st = state[n];
+      lines.push(n + '. ' + q.topic + ' — ' + q.question);
+      lines.push('   Choice: ' + (st.choices.length ? st.choices.join('; ') : '(none)'));
+      if (st.comment.trim()) lines.push('   Comment: ' + st.comment.trim().replace(/\n/g, '\n            '));
+      lines.push('');
+    });
+    return lines.join('\n').trim() + '\n';
+  }
+  function render() {
+    out.value = compile();
+    var answered = data.questions.filter(function (q, i) {
+      var st = state[i + 1]; return st.choices.length || st.comment.trim();
+    }).length;
+    status.textContent = answered + ' of ' + data.questions.length + ' answered';
+  }
+  render();
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = compile();
+    var done = function () { status.textContent = 'Copied to clipboard'; };
+    var fallback = function () {
+      out.closest('details').open = true; out.focus(); out.select();
+      status.textContent = 'Select-all and copy the text below';
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else { fallback(); }
+  });
+  document.getElementById('clear').addEventListener('click', function () {
+    var btn = this;
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1'; btn.textContent = 'Really clear?';
+      setTimeout(function () { btn.dataset.armed = ''; btn.textContent = 'Clear'; }, 3000);
+      return;
+    }
+    state = {}; save(); location.reload();
+  });
+})();
+</script>
