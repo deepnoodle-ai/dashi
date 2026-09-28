@@ -203,6 +203,14 @@ func TestBundleValidationAndSizeLimits(t *testing.T) {
 			want: "1024 bytes",
 		},
 		{
+			name: "large multi-token description",
+			defs: []skill.Definition{{
+				Name: "one", Description: strings.Repeat("word ", 100_000),
+				Instructions: "a",
+			}},
+			want: "1024 bytes",
+		},
+		{
 			name: "long body",
 			defs: []skill.Definition{{
 				Name: "one", Instructions: strings.Repeat("a", 65537),
@@ -237,6 +245,28 @@ func TestBundleValidationAndSizeLimits(t *testing.T) {
 	if _, err := skill.New(many, skill.Options{}); err == nil ||
 		!strings.Contains(err.Error(), "catalog") {
 		t.Fatalf("large catalog error = %v", err)
+	}
+}
+
+func TestOversizedDescriptionHasBoundedConstructionAllocation(t *testing.T) {
+	// A prior implementation split the entire input into words before
+	// checking the limit. This input is much larger than the limit and has
+	// many tokens, so that path allocated proportionally to its size.
+	definitions := []skill.Definition{{
+		Name:         "one",
+		Description:  strings.Repeat("word ", 100_000),
+		Instructions: "body",
+	}}
+	result := testing.Benchmark(func(b *testing.B) {
+		for b.Loop() {
+			_, err := skill.New(definitions, skill.Options{})
+			if err == nil {
+				b.Fatal("oversized description was accepted")
+			}
+		}
+	})
+	if got := result.AllocedBytesPerOp(); got > 32<<10 {
+		t.Fatalf("constructor allocated %d bytes per rejection", got)
 	}
 }
 

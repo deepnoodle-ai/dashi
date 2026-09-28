@@ -80,6 +80,13 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 
 	entries := make([]Definition, len(definitions))
 	for i, definition := range definitions {
+		if len(definition.Description) > maxDescriptionBytes {
+			return nil, fmt.Errorf(
+				"skill: definition %d description exceeds %d bytes",
+				i,
+				maxDescriptionBytes,
+			)
+		}
 		if !utf8.ValidString(definition.Description) {
 			return nil, fmt.Errorf(
 				"skill: definition %d has invalid UTF-8 description",
@@ -106,12 +113,6 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 			return nil, fmt.Errorf(
 				"skill: description for %q has invalid text",
 				entry.Name,
-			)
-		case len(entry.Description) > maxDescriptionBytes:
-			return nil, fmt.Errorf(
-				"skill: description for %q exceeds %d bytes",
-				entry.Name,
-				maxDescriptionBytes,
 			)
 		case strings.TrimSpace(entry.Instructions) == "":
 			return nil, fmt.Errorf(
