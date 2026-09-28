@@ -135,7 +135,10 @@ type Pricing struct {
 	// Modality supplies complete rates for named modalities, independent of
 	// input-size tiers. Other tokens retain the selected base or tier rates.
 	Modality map[string]Rates `json:"modality,omitempty"`
-	// Requests prices provider-hosted operations in currency units per call.
+	// Requests prices provider-hosted work in currency units per unit, keyed
+	// by meter key (see MeterWebSearch). A key the sheet omits is unpriced,
+	// never free; a zero rate means free. Reserved keys (IsReservedMeter)
+	// cannot be priced.
 	Requests map[string]money.Amount `json:"requests,omitempty"`
 }
 
@@ -176,6 +179,12 @@ func (p Pricing) Validate() error {
 	for name, rate := range p.Requests {
 		if name == "" || rate < 0 {
 			return errors.New("llm: invalid hosted request price")
+		}
+		if IsReservedMeter(name) {
+			return fmt.Errorf(
+				"llm: hosted request key %q marks unattributed usage and cannot be priced",
+				name,
+			)
 		}
 	}
 	return nil
@@ -221,6 +230,11 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // estimate, or when the amount would overflow; nil usage never means known
 // zero usage.
 //
+// Hosted requests whose meter key the sheet does not price do not make the
+// whole estimate unavailable. The estimate then prices everything else and
+// lists those counts in Cost.UnpricedRequests; Total is a lower bound, and
+// Cost.Partial reports it.
+//
 // An estimate is a settled charge, so it rounds half to even at the nano.
 // Each field sums its exact token-rate products before rounding once, and
 // Total rounds the exact sum of all products once. Total can therefore differ
@@ -261,10 +275,21 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		}
 		applyRates(tokens, modalityRates)
 	}
+	var unpriced map[string]int
 	for name, count := range u.Requests {
-		rate, ok := p.Requests[name]
-		if !ok || count < 0 {
+		if count < 0 {
 			return Cost{}, false
+		}
+		if count == 0 {
+			continue
+		}
+		rate, ok := p.Requests[name]
+		if !ok {
+			if unpriced == nil {
+				unpriced = map[string]int{}
+			}
+			unpriced[name] = count
+			continue
 		}
 		hosted.addPerCall(count, rate)
 	}
@@ -278,8 +303,9 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		total.addSum(part)
 	}
 	cost := Cost{
-		Currency: p.Currency,
-		Source:   CostSourceListPriceEstimate,
+		Currency:         p.Currency,
+		Source:           CostSourceListPriceEstimate,
+		UnpricedRequests: unpriced,
 	}
 	for _, field := range []struct {
 		sum *exactSum
@@ -337,7 +363,8 @@ type Cost struct {
 	// Hosted values priced provider-hosted requests.
 	Hosted money.Amount `json:"hosted,omitempty"`
 	// Total may be available even when the category breakdown is not. It is
-	// the amount that budgets and ledgers use.
+	// the amount that budgets and ledgers use, except that a partial cost
+	// (see Partial) is only a lower bound on the charge.
 	Total money.Amount `json:"total"`
 	// Currency identifies the unit shared by the monetary fields.
 	Currency string `json:"currency"`
@@ -345,6 +372,22 @@ type Cost struct {
 	Source CostSource `json:"source"`
 	// BreakdownUnavailable means category zeros are unknown rather than free.
 	BreakdownUnavailable bool `json:"breakdown_unavailable,omitempty"`
+	// UnpricedRequests counts hosted requests by meter key that the price
+	// sheet had no rate for. They are excluded from Hosted and Total, so when
+	// this is non-empty the true charge is higher than Total.
+	UnpricedRequests map[string]int `json:"unpriced_requests,omitempty"`
+}
+
+// Partial reports whether some billed hosted requests could not be priced,
+// so Total is a lower bound rather than the charge.
+func (c Cost) Partial() bool {
+	return len(c.UnpricedRequests) > 0
+}
+
+// Clone returns a cost whose unpriced request counts are independently owned.
+func (c Cost) Clone() Cost {
+	c.UnpricedRequests = maps.Clone(c.UnpricedRequests)
+	return c
 }
 
 // Validate requires nonnegative amounts with a known source and
@@ -370,6 +413,13 @@ func (c Cost) Validate() error {
 	} {
 		if amount < 0 {
 			return errors.New("llm: cost requires nonnegative amounts")
+		}
+	}
+	for name, count := range c.UnpricedRequests {
+		if name == "" || count <= 0 {
+			return errors.New(
+				"llm: unpriced request counts require a key and a positive count",
+			)
 		}
 	}
 	return nil

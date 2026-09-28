@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // claimSource is one provider documentation page that states a behavioral
@@ -865,6 +866,607 @@ func TestEveryContextWindowNamesTheProviderPageThatStatesIt(t *testing.T) {
 					got,
 					w,
 				)
+			}
+		}
+	}
+}
+
+// requestPriceSource is one provider pricing page that states the rate for
+// one meter key on the listed models. Every entry of every sheet's requests
+// map must appear here, and every row must match the catalog, because a
+// priced key is what turns a hosted request from unpriced into a charge: a
+// wrong rate misstates cost, and a missing one hides it. Rates are USD per
+// unit as exact decimal text. Free allowances are ignored, so a rate is an
+// upper bound.
+type requestPriceSource struct {
+	provider string
+	meter    string
+	models   []string
+	rate     string
+	url      string
+	// checked dates the rate's last check against the page. A sheet's
+	// updated_at dates its token rates and is not changed for this.
+	checked string
+	// verified reports that the unit Dashi counts for the meter is the unit
+	// the page bills. When false, note says what is inferred.
+	verified bool
+	note     string
+}
+
+// unpricedMeter is a meter key the catalog deliberately leaves unpriced for
+// a provider, with the reason. Models nil means every priced sheet of the
+// provider. An unpriced key makes an estimate partial rather than wrong.
+type unpricedMeter struct {
+	provider string
+	meter    string
+	models   []string
+	reason   string
+}
+
+// requestPricesChecked is the date every hosted request rate was last
+// checked against the provider's pricing page.
+const requestPricesChecked = "2026-09-28"
+
+const (
+	anthropicPricing = "https://platform.claude.com/docs/en/about-claude/" +
+		"pricing.md"
+	openAIPricing  = "https://developers.openai.com/api/docs/pricing.md"
+	openAIMCPGuide = "https://developers.openai.com/api/docs/guides/" +
+		"tools-connectors-mcp.md"
+	googlePricing = "https://ai.google.dev/gemini-api/docs/pricing"
+	grokPricing   = "https://docs.x.ai/developers/pricing"
+	metaPricing   = "https://dev.meta.ai/docs/pricing-rate-limits.md"
+)
+
+var (
+	// openAIReasoningPriced lists the priced OpenAI entries in the gpt-5
+	// family, which the pricing page's "reasoning models, including gpt-5,
+	// o-series" row covers. The Daybreak aliases point at gpt-5.6 models.
+	// The o-series entries have no price sheet.
+	openAIReasoningPriced = []string{
+		"gpt-6-astra",
+		"gpt-6-sol",
+		"gpt-6-luna",
+		"gpt-5.6",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
+		"gpt-5.6-cyber",
+		"gpt-daybreak-blue-latest",
+		"gpt-daybreak-red-latest",
+		"gpt-5.5",
+		"gpt-5.5-pro",
+		"gpt-5.4",
+		"gpt-5.4-pro",
+		"gpt-5.4-mini",
+		"gpt-5.4-nano",
+		"gpt-5.2",
+		"gpt-5.2-pro",
+		"gpt-5.1",
+		"gpt-5",
+		"gpt-5-mini",
+		"gpt-5-nano",
+	}
+	// openAINonReasoningPriced lists the priced OpenAI entries without a
+	// reasoning step.
+	openAINonReasoningPriced = []string{
+		"gpt-4.1",
+		"gpt-4.1-mini",
+		"gpt-4.1-nano",
+		"gpt-4o",
+	}
+	openAIPriced = slices.Concat(
+		openAIReasoningPriced,
+		openAINonReasoningPriced,
+	)
+	// gemini3 lists the Gemini 3.x entries, whose pricing rows bill "search
+	// requests" at $14 per 1,000.
+	gemini3 = []string{
+		"gemini-3.8-flash",
+		"gemini-3.7-flash",
+		"gemini-3.6-flash",
+		"gemini-3.5-flash",
+		"gemini-3.5-flash-lite",
+		"gemini-3.1-pro-preview",
+		"gemini-3.1-pro-preview-customtools",
+		"gemini-3.1-flash-lite",
+		"gemini-3-flash-preview",
+	}
+	// gemini25 lists the Gemini 2.5 entries, whose pricing rows bill
+	// "grounded prompts" at $35 per 1,000.
+	gemini25 = []string{
+		"gemini-2.5-pro",
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+	}
+	geminiAll = slices.Concat(gemini3, gemini25)
+	grokChat  = []string{
+		"grok-4.7",
+		"grok-4.6",
+		"grok-4.5",
+		"grok-4.3",
+		"grok-4.20-0309-reasoning",
+		"grok-4.20-0309-non-reasoning",
+		"grok-4.20-multi-agent-0309",
+		"grok-build-0.1",
+	}
+	museSpark = []string{
+		"muse-spark-1.3",
+		"muse-spark-1.3-contributor",
+		"muse-spark-1.2",
+		"muse-spark-1.2-contributor",
+		"muse-spark-1.1",
+	}
+)
+
+var requestPriceSources = []requestPriceSource{
+	{
+		// "$10 per 1,000 searches"; the response reports
+		// usage.server_tool_use.web_search_requests. The page states one
+		// rate for the Claude API, so the limited-access Mythos models,
+		// which its model table lists, share it.
+		provider: "anthropic",
+		meter:    llm.MeterWebSearch,
+		models:   claudeAll,
+		rate:     "0.01",
+		url:      anthropicPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "Web fetch usage has no additional charges beyond standard token
+		// costs".
+		provider: "anthropic",
+		meter:    llm.MeterWebFetch,
+		models:   claudeAll,
+		rate:     "0",
+		url:      anthropicPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "Web search (all models) $10.00 / 1k calls". gpt-4.1-mini is left
+		// unpriced; see unpricedMeters.
+		provider: "openai",
+		meter:    llm.MeterWebSearch,
+		models: slices.DeleteFunc(
+			slices.Clone(openAIPriced),
+			func(m string) bool {
+				return m == "gpt-4.1-mini"
+			},
+		),
+		rate:    "0.01",
+		url:     openAIPricing,
+		checked: requestPricesChecked,
+		note: "Counting only web_search_call items with action " +
+			"\"search\" as billed calls is a reading of the docs.",
+	},
+	{
+		// "Web search preview (reasoning models, including gpt-5,
+		// o-series) $10.00 / 1k calls".
+		provider: "openai",
+		meter:    llm.MeterWebSearchPreview,
+		models:   openAIReasoningPriced,
+		rate:     "0.01",
+		url:      openAIPricing,
+		checked:  requestPricesChecked,
+		note: "Counting only web_search_call items with action " +
+			"\"search\" as billed calls is a reading of the docs.",
+	},
+	{
+		// "Web search preview (non-reasoning models) $25.00 / 1k calls".
+		provider: "openai",
+		meter:    llm.MeterWebSearchPreview,
+		models:   openAINonReasoningPriced,
+		rate:     "0.025",
+		url:      openAIPricing,
+		checked:  requestPricesChecked,
+		note: "Counting only web_search_call items with action " +
+			"\"search\" as billed calls is a reading of the docs.",
+	},
+	{
+		// "File search: Tool call $2.50 / 1k calls"; storage is billed
+		// separately and is not a request.
+		provider: "openai",
+		meter:    llm.MeterFileSearch,
+		models:   openAIPriced,
+		rate:     "0.0025",
+		url:      openAIPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "No additional fees apply per tool call".
+		provider: "openai",
+		meter:    llm.MeterMCP,
+		models:   openAIPriced,
+		rate:     "0",
+		url:      openAIMCPGuide,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "5,000 free search requests per month ... then $14 per 1,000
+		// requests."
+		provider: "google",
+		meter:    llm.MeterWebSearch,
+		models:   gemini3,
+		rate:     "0.014",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// Gemini 3.x bills per search request, not per grounded prompt.
+		provider: "google",
+		meter:    llm.MeterGroundedPrompt,
+		models:   gemini3,
+		rate:     "0",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "1,500 RPD (free), then $35 / 1,000 grounded prompts".
+		provider: "google",
+		meter:    llm.MeterGroundedPrompt,
+		models:   gemini25,
+		rate:     "0.035",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// Gemini 2.5 bills per grounded prompt, not per search query.
+		provider: "google",
+		meter:    llm.MeterWebSearch,
+		models:   gemini25,
+		rate:     "0",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// URL context, code execution, and file search are billed as
+		// tokens only; the page lists no per-request charge.
+		provider: "google",
+		meter:    llm.MeterURLContext,
+		models:   geminiAll,
+		rate:     "0",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		provider: "google",
+		meter:    llm.MeterCodeExecution,
+		models:   geminiAll,
+		rate:     "0",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		provider: "google",
+		meter:    llm.MeterFileSearch,
+		models:   geminiAll,
+		rate:     "0",
+		url:      googlePricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "Web Search web_search $5 / 1k calls".
+		provider: "grok",
+		meter:    llm.MeterWebSearch,
+		models:   grokChat,
+		rate:     "0.005",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "Code Execution code_execution $5 / 1k calls".
+		provider: "grok",
+		meter:    llm.MeterCodeExecution,
+		models:   grokChat,
+		rate:     "0.005",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "Collections Search collections_search file_search $2.50 / 1k
+		// calls".
+		provider: "grok",
+		meter:    llm.MeterFileSearch,
+		models:   grokChat,
+		rate:     "0.0025",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "X Search is billed per item fetched": $5 / 1k posts.
+		provider: "grok",
+		meter:    llm.MeterXSearchPost,
+		models:   grokChat,
+		rate:     "0.005",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// $10 / 1k profiles.
+		provider: "grok",
+		meter:    llm.MeterXSearchProfile,
+		models:   grokChat,
+		rate:     "0.01",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "For Remote MCP tools, you will not be charged for the tool
+		// invocation but will be charged for any tokens used."
+		provider: "grok",
+		meter:    llm.MeterMCP,
+		models:   grokChat,
+		rate:     "0",
+		url:      grokPricing,
+		checked:  requestPricesChecked,
+		verified: true,
+	},
+	{
+		// "$2.50 per 1,000 search queries ... on text models such as Muse
+		// Spark". Muse Image includes search in its per-image price and
+		// has no catalog entry.
+		provider: "meta",
+		meter:    llm.MeterWebSearch,
+		models:   museSpark,
+		rate:     "0.0025",
+		url:      metaPricing,
+		checked:  requestPricesChecked,
+		note: "Meta bills per search query; counting one query per " +
+			"web_search_call item is unverified.",
+	},
+}
+
+var unpricedMeters = []unpricedMeter{
+	{
+		provider: "anthropic",
+		meter:    llm.MeterCodeExecution,
+		reason: "Billed per container-hour with a 5-minute minimum, and " +
+			"the response reports no duration. It is also free when " +
+			"web_search_20260209 or web_fetch_20260209 or later is in the " +
+			"request, and Dashi sends older versions.",
+	},
+	{
+		provider: "anthropic",
+		meter:    llm.MeterMCP,
+		reason:   "The pricing page publishes no rate for MCP connector calls.",
+	},
+	{
+		provider: "openai",
+		meter:    llm.MeterCodeExecution,
+		reason: "Billed per 20-minute container session by memory size, " +
+			"not per call.",
+	},
+	{
+		provider: "openai",
+		meter:    llm.MeterImageGeneration,
+		reason:   "Billed as image tokens at the image model's rates.",
+	},
+	{
+		provider: "openai",
+		meter:    llm.MeterWebSearch,
+		models:   []string{"gpt-4.1-mini"},
+		reason: "Search content is billed as a fixed block of 8,000 input " +
+			"tokens per call that the usage does not report, so a per-call " +
+			"rate alone would understate it. gpt-4o-mini has the same rule " +
+			"but no catalog entry.",
+	},
+	{
+		provider: "grok",
+		meter:    llm.MeterImageGeneration,
+		reason: "Billed at Imagine API per-image rates, which vary by " +
+			"model.",
+	},
+}
+
+// emittedMeters lists every meter key each provider's adapters can count
+// into Usage.Requests. Mistral's hosted connectors exist only in its
+// Conversations API, which Dashi does not use.
+var emittedMeters = map[string][]string{
+	"anthropic": {
+		llm.MeterWebSearch,
+		llm.MeterWebFetch,
+		llm.MeterCodeExecution,
+		llm.MeterMCP,
+	},
+	"openai": {
+		llm.MeterWebSearch,
+		llm.MeterWebSearchPreview,
+		llm.MeterFileSearch,
+		llm.MeterCodeExecution,
+		llm.MeterImageGeneration,
+		llm.MeterMCP,
+	},
+	"google": {
+		llm.MeterWebSearch,
+		llm.MeterGroundedPrompt,
+		llm.MeterURLContext,
+		llm.MeterCodeExecution,
+		llm.MeterFileSearch,
+	},
+	"grok": {
+		llm.MeterWebSearch,
+		llm.MeterXSearchPost,
+		llm.MeterXSearchProfile,
+		llm.MeterCodeExecution,
+		llm.MeterFileSearch,
+		llm.MeterImageGeneration,
+		llm.MeterMCP,
+	},
+	"meta": {
+		llm.MeterWebSearch,
+	},
+	"mistral": nil,
+}
+
+func TestEveryRequestPriceNamesTheProviderPageThatStatesIt(t *testing.T) {
+	type key struct{ provider, model string }
+	want := map[key]map[string]money.Amount{}
+	for _, s := range requestPriceSources {
+		if s.url == "" || s.checked != requestPricesChecked {
+			t.Fatalf(
+				"%s %s row needs a url and checked date %s",
+				s.provider,
+				s.meter,
+				requestPricesChecked,
+			)
+		}
+		if !s.verified && s.note == "" {
+			t.Fatalf(
+				"%s %s is unverified without a note",
+				s.provider,
+				s.meter,
+			)
+		}
+		rate, err := money.ParseAmount(s.rate)
+		if err != nil {
+			t.Fatalf("%s %s: %v", s.provider, s.meter, err)
+		}
+		for _, model := range s.models {
+			if p := providerOf(t, model); p != s.provider {
+				t.Fatalf(
+					"%s row names %s model %s",
+					s.provider,
+					p,
+					model,
+				)
+			}
+			k := key{s.provider, model}
+			if want[k] == nil {
+				want[k] = map[string]money.Amount{}
+			}
+			if _, dup := want[k][s.meter]; dup {
+				t.Fatalf("%s %s is sourced twice", model, s.meter)
+			}
+			want[k][s.meter] = rate
+		}
+	}
+	for _, provider := range Providers() {
+		for _, e := range Entries(provider) {
+			var got map[string]money.Amount
+			if e.Pricing != nil {
+				got = e.Pricing.Requests
+			}
+			w := want[key{provider, e.Model}]
+			for meter, rate := range got {
+				if sourced, ok := w[meter]; !ok || sourced != rate {
+					t.Fatalf(
+						"%s %s prices %s at %s without a matching row",
+						provider,
+						e.Model,
+						meter,
+						rate,
+					)
+				}
+			}
+			for meter, rate := range w {
+				if _, ok := got[meter]; !ok {
+					t.Fatalf(
+						"%s %s lost %s, sourced at %s",
+						provider,
+						e.Model,
+						meter,
+						rate,
+					)
+				}
+			}
+		}
+	}
+}
+
+// TestEveryEmittedMeterIsPricedOrExplained keeps a new adapter meter or a
+// new sheet from silently leaving hosted work unpriced: each key an adapter
+// can count is priced on every priced sheet of its provider or listed in
+// unpricedMeters with a reason.
+func TestEveryEmittedMeterIsPricedOrExplained(t *testing.T) {
+	unpriced := func(provider, meter, model string) bool {
+		return slices.ContainsFunc(
+			unpricedMeters,
+			func(u unpricedMeter) bool {
+				return u.provider == provider &&
+					u.meter == meter &&
+					(u.models == nil || slices.Contains(u.models, model))
+			},
+		)
+	}
+	for _, u := range unpricedMeters {
+		if u.reason == "" {
+			t.Fatalf(
+				"%s %s is unpriced without a reason",
+				u.provider,
+				u.meter,
+			)
+		}
+		if !slices.Contains(emittedMeters[u.provider], u.meter) {
+			t.Fatalf(
+				"%s never emits unpriced meter %s",
+				u.provider,
+				u.meter,
+			)
+		}
+		for _, model := range u.models {
+			if p := providerOf(t, model); p != u.provider {
+				t.Fatalf(
+					"%s unpriced row names %s model %s",
+					u.provider,
+					p,
+					model,
+				)
+			}
+		}
+	}
+	for _, provider := range Providers() {
+		emitted, ok := emittedMeters[provider]
+		if !ok {
+			t.Fatalf("provider %s has no emitted meter list", provider)
+		}
+		for _, e := range Entries(provider) {
+			if e.Pricing == nil {
+				continue
+			}
+			for meter := range e.Pricing.Requests {
+				if !slices.Contains(emitted, meter) {
+					t.Fatalf(
+						"%s %s prices %s, which no adapter emits",
+						provider,
+						e.Model,
+						meter,
+					)
+				}
+				if unpriced(provider, meter, e.Model) {
+					t.Fatalf(
+						"%s %s prices %s, listed as unpriced",
+						provider,
+						e.Model,
+						meter,
+					)
+				}
+			}
+			for _, meter := range emitted {
+				_, priced := e.Pricing.Requests[meter]
+				if !priced && !unpriced(provider, meter, e.Model) {
+					t.Fatalf(
+						"%s %s leaves %s unpriced without a reason",
+						provider,
+						e.Model,
+						meter,
+					)
+				}
 			}
 		}
 	}

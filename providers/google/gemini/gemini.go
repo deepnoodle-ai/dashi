@@ -546,6 +546,7 @@ func (p *Client) Send(
 	}
 	if prepared.Input().Stream {
 		var streamErr error
+		live := sdkStream{sink: sink}
 		for chunk, err := range client.Models.GenerateContentStream(
 			ctx,
 			model,
@@ -556,7 +557,7 @@ func (p *Client) Send(
 				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
 				break
 			}
-			emitSDKChunk(sink, chunk)
+			live.emit(chunk)
 		}
 		partial, parseErr := wire.readStream(
 			ctx,

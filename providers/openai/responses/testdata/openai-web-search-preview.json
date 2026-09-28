@@ -1,0 +1,144 @@
+{
+ "id": "resp_06452dcfce681aa3016abaab3aa06087d28fc2cec26e78bc78",
+ "object": "response",
+ "created_at": 1790618426,
+ "status": "completed",
+ "access_programs": null,
+ "background": false,
+ "billing": {
+  "payer": "developer"
+ },
+ "completed_at": 1790618432,
+ "error": null,
+ "frequency_penalty": 0.0,
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": null,
+ "max_tool_calls": null,
+ "model": "gpt-5-nano-2025-08-07",
+ "moderation": null,
+ "output": [
+  {
+   "id": "rs_06452dcfce681aa3016abaab3b66a087d28f3bc26d68a5478f",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ws_06452dcfce681aa3016abaab3b9c8487d290639979d5ae8533",
+   "type": "web_search_call",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "queries": [
+     "latest stable Go release version",
+     "Go programming language latest release"
+    ],
+    "query": "latest stable Go release version"
+   }
+  },
+  {
+   "id": "rs_06452dcfce681aa3016abaab3ec8d887d2b9b7fc8ba29e7126",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "msg_06452dcfce681aa3016abaab3ffd8887d288647f4e907cdf1d",
+   "type": "message",
+   "status": "completed",
+   "content": [
+    {
+     "type": "output_text",
+     "annotations": [
+      {
+       "type": "url_citation",
+       "end_index": 95,
+       "start_index": 40,
+       "title": "Go 1.27 Release Notes - The Go Programming Language",
+       "url": "https://go.dev/doc/go1.27?utm_source=openai"
+      }
+     ],
+     "logprobs": [],
+     "text": "Go 1.27.0 is the latest stable release. ([go.dev](https://go.dev/doc/go1.27?utm_source=openai))"
+    }
+   ],
+   "role": "assistant"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0.0,
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "prompt_cache_retention": "in_memory",
+ "reasoning": {
+  "context": "current_turn",
+  "effort": "low",
+  "mode": "standard",
+  "summary": null
+ },
+ "safety_identifier": null,
+ "service_tier": "default",
+ "store": false,
+ "temperature": 1.0,
+ "text": {
+  "format": {
+   "type": "text"
+  },
+  "verbosity": "medium"
+ },
+ "tool_choice": "auto",
+ "tool_usage": {
+  "image_gen": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "total_tokens": 0
+  },
+  "web_search": {
+   "num_requests": 1
+  }
+ },
+ "tools": [
+  {
+   "type": "web_search_preview",
+   "search_content_types": [
+    "text"
+   ],
+   "search_context_size": "medium",
+   "user_location": {
+    "type": "approximate",
+    "city": null,
+    "country": "US",
+    "region": null,
+    "timezone": null
+   }
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1.0,
+ "truncation": "disabled",
+ "usage": {
+  "input_tokens": 8753,
+  "input_tokens_details": {
+   "cache_write_tokens": 0,
+   "cached_tokens": 0
+  },
+  "output_tokens": 239,
+  "output_tokens_details": {
+   "reasoning_tokens": 128
+  },
+  "total_tokens": 8992
+ },
+ "user": null,
+ "metadata": {}
+}

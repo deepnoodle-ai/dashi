@@ -324,8 +324,9 @@ func (p *Client) Send(
 ) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
 	wire := codec{
-		origin: p.client.Origin(prepared.Input().Model),
-		media:  providerhttp.HasMedia(prepared.Input()),
+		origin:      p.client.Origin(prepared.Input().Model),
+		media:       providerhttp.HasMedia(prepared.Input()),
+		hostedTypes: hostedTypes(prepared.Input().Tools),
 	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
@@ -368,6 +369,22 @@ type codec struct {
 	// media reports whether the request being sent carries media, so errors
 	// reported in its response body can be classified as media rejections.
 	media bool
+	// hostedTypes lists the hosted tool types the request declared, which
+	// decide the meter a web search bills. Empty means unknown; decoding then
+	// reads the response's echo of its tools.
+	hostedTypes []string
+}
+
+// hostedTypes returns the provider types of the hosted tools in definitions.
+func hostedTypes(definitions []tool.Definition) []string {
+	var types []string
+	for _, definition := range definitions {
+		if definition.Kind == tool.KindProviderHosted &&
+			definition.Hosted != nil {
+			types = append(types, definition.Hosted.Type)
+		}
+	}
+	return types
 }
 
 // encodeData encodes a shared content block as a Responses content part.
@@ -641,6 +658,17 @@ func (wire codec) decode(
 		ResponseID: r.ID,
 	}
 	r.Usage = v.Usage
+	// Hosted counts live in Usage, so none are recorded when the provider
+	// reported no usage; the runner accounts for that case.
+	var fields meterFields
+	if r.Usage != nil && json.Unmarshal(raw, &fields) == nil {
+		r.Usage.Requests = wire.hostedRequests(fields, v.Output)
+		// Usage arrives only in a terminal response object (the stream's
+		// response.completed or response.incomplete event), whose counters
+		// and output items are complete.
+		r.Usage.RequestsFinal = true
+		r.Cost = reportedCost(fields.Usage)
+	}
 	switch v.Status {
 	case "completed", "incomplete", "failed", "cancelled":
 	default:

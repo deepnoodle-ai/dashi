@@ -57,7 +57,13 @@
               "cache_write": "25"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -104,7 +110,13 @@
               "cache_write": "5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -151,7 +163,13 @@
               "cache_write": "0.25"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -199,7 +217,13 @@
               "cache_write": "10"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -247,7 +271,13 @@
               "cache_write": "10"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -295,7 +325,13 @@
               "cache_write": "5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -343,7 +379,13 @@
               "cache_write": "0.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -370,6 +412,12 @@
           "output": "75",
           "cache_read": "1.25",
           "cache_write": "15.625"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -408,7 +456,13 @@
               "cache_write": "10"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -435,6 +489,12 @@
           "output": "75",
           "cache_read": "1.25",
           "cache_write": "15.625"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -482,7 +542,13 @@
               "cache_write": "10"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -526,7 +592,13 @@
               "cache_write": "60"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -573,7 +645,13 @@
               "cache_write": "5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -617,7 +695,13 @@
               "cache_write": "60"
             }
           }
-        ]
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -652,6 +736,12 @@
           "output": "4.5",
           "cache_read": "0.075",
           "cache_write": "0.75"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -687,6 +777,12 @@
           "output": "1.25",
           "cache_read": "0.02",
           "cache_write": "0.2"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -722,6 +818,12 @@
           "output": "14",
           "cache_read": "0.175",
           "cache_write": "1.75"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -754,6 +856,12 @@
           "output": "168",
           "cache_read": "21",
           "cache_write": "21"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -788,6 +896,12 @@
           "output": "10",
           "cache_read": "0.125",
           "cache_write": "1.25"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -822,6 +936,12 @@
           "output": "10",
           "cache_read": "0.125",
           "cache_write": "1.25"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -868,6 +988,12 @@
           "output": "2",
           "cache_read": "0.025",
           "cache_write": "0.25"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -895,6 +1021,12 @@
           "output": "0.4",
           "cache_read": "0.005",
           "cache_write": "0.05"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
         }
       }
     },
@@ -923,6 +1055,12 @@
           "output": "8",
           "cache_read": "0.5",
           "cache_write": "2"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.025"
         }
       }
     },
@@ -951,6 +1089,11 @@
           "output": "1.6",
           "cache_read": "0.1",
           "cache_write": "0.4"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search_preview": "0.025"
         }
       }
     },
@@ -979,6 +1122,12 @@
           "output": "0.4",
           "cache_read": "0.025",
           "cache_write": "0.1"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.025"
         }
       }
     },
@@ -1006,6 +1155,12 @@
           "output": "10",
           "cache_read": "1.25",
           "cache_write": "2.5"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.025"
         }
       }
     },

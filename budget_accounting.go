@@ -1,9 +1,11 @@
 package dashi
 
 import (
+	"math"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func attemptSpend(
@@ -44,22 +46,8 @@ func attemptSpend(
 			)
 		}
 	}
-	if settlement != nil && settlement.Result != nil {
-		observed := map[string]int{}
-		for _, part := range settlement.Result.Message.Content {
-			if part.Kind != llm.ContentHostedUse ||
-				part.HostedUse == nil {
-				continue
-			}
-			name := part.HostedUse.Name
-			observed[name]++
-		}
-		if len(observed) > 0 && usage.Requests == nil {
-			usage.Requests = map[string]int{}
-		}
-		for name, count := range observed {
-			usage.Requests[name] = max(usage.Requests[name], count)
-		}
+	if settlement != nil && !usage.RequestsFinal {
+		addUnreportedRequests(usage, intent, settlement.Result)
 	}
 	if settlement != nil && settlement.Charge != nil {
 		return usage, settlement.Charge, estimated, true
@@ -73,6 +61,64 @@ func attemptSpend(
 		}
 	}
 	return usage, nil, estimated, true
+}
+
+// addUnreportedRequests covers hosted work whose billing the provider never
+// reported: the call's usage is missing or not final (Usage.RequestsFinal),
+// as for a stream cut off before its final usage. Counts an adapter inferred
+// from the blocks seen so far are kept, but they may miss billed work, so
+// the call gets at least one llm.MeterUnreported request, which no sheet
+// prices, and its cost shows as partial rather than complete. Visible uses
+// beyond the counted requests are all unreported. Uses with an error result
+// are skipped, since providers do not bill refused or failed uses.
+//
+// Some hosted work leaves no block at all: Gemini reports search grounding
+// only in metadata near the end of a stream. So a request that declared a
+// hosted tool counts as hosted activity even with no visible use.
+func addUnreportedRequests(
+	usage *llm.Usage,
+	intent *ModelFact,
+	result *llm.Result,
+) {
+	uses := 0
+	if result != nil {
+		failed := map[string]bool{}
+		for _, part := range result.Message.Content {
+			if part.HostedResult != nil && part.HostedResult.IsError {
+				failed[part.HostedResult.CallID] = true
+			}
+		}
+		for _, part := range result.Message.Content {
+			use := part.HostedUse
+			if part.Kind == llm.ContentHostedUse && use != nil &&
+				!use.IsError && !failed[use.ID] {
+				uses++
+			}
+		}
+	}
+	counted := 0
+	for _, count := range usage.Requests {
+		counted += max(count, 0)
+	}
+	if uses == 0 && counted == 0 && !declaresHostedTool(intent) {
+		return
+	}
+	if usage.Requests == nil {
+		usage.Requests = map[string]int{}
+	}
+	usage.Requests[llm.MeterUnreported] += max(uses-counted, 1)
+}
+
+func declaresHostedTool(intent *ModelFact) bool {
+	if intent == nil {
+		return false
+	}
+	for _, def := range intent.Tools {
+		if def.Kind == tool.KindProviderHosted {
+			return true
+		}
+	}
+	return false
 }
 
 func estimatedOutputTokens(result *llm.Result) int {
@@ -89,4 +135,12 @@ func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
 		settlement.Charge = charge
 		settlement.EstimatedUsage = estimated
 	}
+}
+
+// sumCounts adds two nonnegative counts, reporting overflow.
+func sumCounts(a, b int) (int, bool) {
+	if a < 0 || b < 0 || a > math.MaxInt-b {
+		return 0, false
+	}
+	return a + b, true
 }

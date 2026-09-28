@@ -240,8 +240,25 @@ func (s *replayState) calculateSpend() error {
 		); err != nil {
 			return err
 		}
-		if s.Budget != nil && s.Budget.MaxCost != nil &&
-			charge.Currency != s.Budget.MaxCost.Currency {
+		capped := s.Budget != nil && s.Budget.MaxCost != nil
+		if charge.Partial() {
+			s.Spend.CostPartial++
+			if s.Spend.UnpricedRequests == nil {
+				s.Spend.UnpricedRequests = map[string]int{}
+			}
+			for key, count := range charge.UnpricedRequests {
+				total, ok := sumCounts(s.Spend.UnpricedRequests[key], count)
+				if !ok {
+					return errors.New("dashi: unpriced request count overflows")
+				}
+				s.Spend.UnpricedRequests[key] = total
+			}
+		}
+		// A partial total is a lower bound, so it cannot show that a cap
+		// holds. Admission refuses hosted tools under a cap, so a partial
+		// charge there is hosted work nothing foresaw.
+		if capped && (charge.Currency != s.Budget.MaxCost.Currency ||
+			charge.Partial()) {
 			s.Spend.CostUnknown++
 		}
 	}

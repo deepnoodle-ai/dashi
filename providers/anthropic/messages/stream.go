@@ -35,6 +35,10 @@ func (wire codec) readStream(
 	stopped := map[int]bool{}
 	var buildErr error
 	var envelope map[string]json.RawMessage
+	// usage holds the native usage object, with each message_delta's
+	// cumulative fields laid over message_start's, so the final decode sees
+	// what a complete response would report, server_tool_use included.
+	var usage map[string]json.RawMessage
 	started := false
 
 	// build reassembles the accumulated blocks into a complete message and
@@ -71,19 +75,17 @@ func (wire codec) readStream(
 			content = append(content, b)
 		}
 		envelope["content"], _ = json.Marshal(content)
-		if result.Usage != nil {
-			usage, _ := json.Marshal(result.Usage)
-			if result.ServiceTier != "" {
-				var fields map[string]json.RawMessage
-				_ = json.Unmarshal(usage, &fields)
-				fields["service_tier"], _ = json.Marshal(result.ServiceTier)
-				usage, _ = json.Marshal(fields)
-			}
-			envelope["usage"] = usage
+		if usage != nil {
+			envelope["usage"], _ = json.Marshal(usage)
 		}
 		raw, _ := json.Marshal(envelope)
 		decoded, err := wire.decode(raw, result.Requested)
 		buildErr = err
+		// Absorb keeps the largest value seen for each counter, as the live
+		// usage deltas did.
+		if decoded.Usage != nil {
+			decoded.Usage.Absorb(result.Usage)
+		}
 		for position, replay := range partial {
 			if position < len(decoded.Message.Content) {
 				decoded.Message.Content[position] = llm.Content{
@@ -142,6 +144,11 @@ func (wire codec) readStream(
 			started = true
 			if err := json.Unmarshal(e.Message, &envelope); err != nil {
 				return result, err
+			}
+			if raw := envelope["usage"]; len(raw) > 0 && string(raw) != "null" {
+				if err := json.Unmarshal(raw, &usage); err != nil {
+					return result, err
+				}
 			}
 			var err error
 			result, err = wire.decode(e.Message, result.Requested)
@@ -262,7 +269,7 @@ func (wire codec) readStream(
 			// Usage in message_delta is cumulative, so it is absorbed into the
 			// usage reported at message_start rather than summed.
 			if len(e.Usage) > 0 {
-				usage, tier, err := decodeUsage(e.Usage)
+				delta, tier, _, err := decodeUsage(e.Usage)
 				if err != nil {
 					return build(), providerhttp.Failure(
 						wire.origin.Provider,
@@ -274,11 +281,27 @@ func (wire codec) readStream(
 				if tier != "" {
 					result.ServiceTier = tier
 				}
-				if usage != nil {
+				if delta != nil {
+					// The message_delta that carries the stop reason also
+					// carries the final server_tool_use counters.
+					delta.RequestsFinal = e.Delta.StopReason != ""
+					var fields map[string]json.RawMessage
+					if err := json.Unmarshal(e.Usage, &fields); err != nil {
+						return build(), providerhttp.Failure(
+							wire.origin.Provider,
+							llm.ErrorProtocol,
+							"decode stream usage: %w",
+							err,
+						)
+					}
+					if usage == nil {
+						usage = map[string]json.RawMessage{}
+					}
+					maps.Copy(usage, fields)
 					if result.Usage == nil {
 						result.Usage = &llm.Usage{}
 					}
-					result.Usage.Absorb(usage)
+					result.Usage.Absorb(delta)
 					providerhttp.Emit(
 						sink,
 						llm.Delta{

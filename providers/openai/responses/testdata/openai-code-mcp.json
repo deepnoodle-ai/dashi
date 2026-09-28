@@ -1,0 +1,186 @@
+{
+ "id": "resp_0d54296fabfb4d9c016abaab4147d087d2a8d4ce0fa07d5381",
+ "object": "response",
+ "created_at": 1790618433,
+ "status": "completed",
+ "access_programs": null,
+ "background": false,
+ "billing": {
+  "payer": "developer"
+ },
+ "completed_at": 1790618439,
+ "error": null,
+ "frequency_penalty": 0.0,
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": null,
+ "max_tool_calls": null,
+ "model": "gpt-5-nano-2025-08-07",
+ "moderation": null,
+ "output": [
+  {
+   "id": "mcpl_0d54296fabfb4d9c016abaab41750087d2bc3e23bfa18e6f56",
+   "type": "mcp_list_tools",
+   "server_label": "deepwiki",
+   "tools": [
+    {
+     "annotations": {
+      "read_only": false
+     },
+     "description": "Get a list of documentation topics for a GitHub repository.",
+     "input_schema": {
+      "properties": {
+       "repoName": {
+        "description": "GitHub repository in owner/repo format (e.g. \"facebook/react\").",
+        "type": "string"
+       }
+      },
+      "required": [
+       "repoName"
+      ],
+      "type": "object"
+     },
+     "name": "read_wiki_structure"
+    }
+   ]
+  },
+  {
+   "id": "rs_0d54296fabfb4d9c016abaab42c90c87d289fd1dd1d5796e23",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ci_0d54296fabfb4d9c016abaab437c9487d2946eccd4614662b1",
+   "type": "code_interpreter_call",
+   "status": "completed",
+   "code": "2**100",
+   "container_id": "cntr_6abaab4165d8819186312c0a5544075a0f4a787ec377a6a6",
+   "outputs": null
+  },
+  {
+   "id": "rs_0d54296fabfb4d9c016abaab44450c87d2a6fd640244c1517b",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ci_0d54296fabfb4d9c016abaab44674487d2b79deb0f34645f37",
+   "type": "code_interpreter_call",
+   "status": "completed",
+   "code": "# placeholder to indicate we will call the tool next; actual tool call is separate\n",
+   "container_id": "cntr_6abaab4165d8819186312c0a5544075a0f4a787ec377a6a6",
+   "outputs": null
+  },
+  {
+   "id": "mcp_0d54296fabfb4d9c016abaab454cc087d29208569db63f30f5",
+   "type": "mcp_call",
+   "status": "completed",
+   "approval_request_id": null,
+   "arguments": "{\"repoName\":\"golang/go\"}",
+   "error": null,
+   "name": "read_wiki_structure",
+   "output": "Available pages for golang/go:\n\n- 1 Overview of Go\n  - 1.1 Repository Structure\n  - 1.2 Development Workflow\n- 2 Go Runtime\n  - 2.1 Goroutine Scheduler\n  - 2.2 Memory Management\n  - 2.3 Garbage Collec [trimmed]",
+   "server_label": "deepwiki"
+  },
+  {
+   "id": "rs_0d54296fabfb4d9c016abaab45f45c87d2af319d80c02e4544",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "msg_0d54296fabfb4d9c016abaab46934087d28be2074f3e9ba7f4",
+   "type": "message",
+   "status": "completed",
+   "content": [
+    {
+     "type": "output_text",
+     "annotations": [],
+     "logprobs": [],
+     "text": "1267650600228229401496703205376\nAvailable topics for golang/go: Overview, Go Runtime, Go Compiler, Build System, Standard Library, Language Specification and Documentation, Glossary"
+    }
+   ],
+   "role": "assistant"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0.0,
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "prompt_cache_retention": "in_memory",
+ "reasoning": {
+  "context": "current_turn",
+  "effort": "low",
+  "mode": "standard",
+  "summary": null
+ },
+ "safety_identifier": null,
+ "service_tier": "default",
+ "store": false,
+ "temperature": 1.0,
+ "text": {
+  "format": {
+   "type": "text"
+  },
+  "verbosity": "medium"
+ },
+ "tool_choice": "auto",
+ "tool_usage": {
+  "image_gen": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "total_tokens": 0
+  },
+  "web_search": {
+   "num_requests": 0
+  }
+ },
+ "tools": [
+  {
+   "type": "code_interpreter",
+   "container": {
+    "type": "auto"
+   }
+  },
+  {
+   "type": "mcp",
+   "allowed_tools": [
+    "read_wiki_structure"
+   ],
+   "headers": null,
+   "require_approval": "never",
+   "server_description": null,
+   "server_label": "deepwiki",
+   "server_url": "https://mcp.deepwiki.com/mcp"
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1.0,
+ "truncation": "disabled",
+ "usage": {
+  "input_tokens": 1474,
+  "input_tokens_details": {
+   "cache_write_tokens": 0,
+   "cached_tokens": 0
+  },
+  "output_tokens": 334,
+  "output_tokens_details": {
+   "reasoning_tokens": 128
+  },
+  "total_tokens": 1808
+ },
+ "user": null,
+ "metadata": {}
+}

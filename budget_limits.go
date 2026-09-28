@@ -2,6 +2,9 @@ package dashi
 
 import (
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -27,9 +30,8 @@ func checkSendBudget(
 	used, known := s.Spend.costIn(cap.Currency)
 	if !known {
 		return atRisk, nil, &Stop{
-			Kind: StopLimited,
-			Reason: "cost cannot be checked: an earlier charge is unknown " +
-				"or in another currency",
+			Kind:   StopLimited,
+			Reason: uncheckableCostReason(s.Spend),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: cap.Amount,
@@ -66,9 +68,11 @@ func checkSendBudget(
 			)
 		} else if hasHostedTools(request) {
 			reason = fmt.Sprintf(
-				"cost risk unavailable for model %s: provider-hosted tool "+
-					"request counts are unbounded; remove hosted tools to "+
-					"enforce the %s %s cost cap",
+				"cost risk unavailable for model %s: provider-hosted tools "+
+					"can bill an unbounded number of requests and add "+
+					"unbounded input tokens within one call; remove hosted "+
+					"tools to enforce the %s %s cost cap, or run the turn "+
+					"without a cost cap",
 				model,
 				cap.Amount,
 				cap.Currency,
@@ -148,6 +152,45 @@ func costLimitReason(
 	)
 }
 
+// uncheckableCostReason explains why recorded spend cannot be compared with
+// the cost cap, naming each cause present, and what the caller can do.
+func uncheckableCostReason(spend Spend) string {
+	var reserved, priceable []string
+	for _, key := range slices.Sorted(maps.Keys(spend.UnpricedRequests)) {
+		if llm.IsReservedMeter(key) {
+			reserved = append(reserved, key)
+		} else {
+			priceable = append(priceable, key)
+		}
+	}
+	var causes []string
+	if len(priceable) > 0 {
+		causes = append(causes, fmt.Sprintf(
+			"a model call billed hosted requests with no price (%s); "+
+				"supply prices for them or remove the tools that cause them",
+			strings.Join(priceable, ", "),
+		))
+	}
+	if len(reserved) > 0 {
+		causes = append(causes, fmt.Sprintf(
+			"a model call ran hosted work whose billing could not be "+
+				"attributed (%s)",
+			strings.Join(reserved, ", "),
+		))
+	}
+	// Under a cap every partial charge also counts as unknown, so any
+	// excess is a missing charge or one in another currency.
+	if spend.CostUnknown > spend.CostPartial || len(causes) == 0 {
+		causes = append(
+			causes,
+			"an earlier charge is unknown or in another currency",
+		)
+	}
+	return "cost cannot be checked: " + strings.Join(causes, "; ") +
+		"; this turn cannot continue under its cost cap; start a new " +
+		"turn with this turn's history"
+}
+
 func hasHostedTools(request llm.Request) bool {
 	for _, def := range request.Input().Tools {
 		if def.Kind == tool.KindProviderHosted {
@@ -203,9 +246,8 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 	used, known := s.Spend.costIn(b.MaxCost.Currency)
 	if !known {
 		return &Stop{
-			Kind: StopLimited,
-			Reason: "cost cannot be checked: an earlier charge is unknown " +
-				"or in another currency",
+			Kind:   StopLimited,
+			Reason: uncheckableCostReason(s.Spend),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,
