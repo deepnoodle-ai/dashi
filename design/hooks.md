@@ -7,7 +7,9 @@
 Dashi's one `Policy` interface has the right contract (read-only views in,
 recorded decisions out) but the wrong packaging: "policy" suggests allow/deny
 rules, only one is allowed, and every error ends the turn. Default allow
-shipped in #46; this replaces `Policy` with hooks.
+shipped in #46; this replaces `Policy` with hooks. PR 1a replaced `Policy`;
+PR 1b adds the submission path and vetoes; PR 2 adds `AfterTool` with
+`FailOpen`, `ModelDecision.Hide`, hook state, `tool.Join` and recipes.
 
 ## Approach
 
@@ -144,10 +146,12 @@ schema checks, unless a hook rejected the answer. A `Reason` is a *veto*
   source, items)` settles it as `tool.StateFailed` with that output,
   `ToolFact.Reason` naming the source, and the items in the same step's
   `Context`, so a crash cannot separate them.
-- **No further call.** A nudge is dropped with `WarningDeliveryDropped` and
-  the answer stands. A veto is still recorded, and the turn stops
-  `StopFailed` with `output_rejected`, no output and an empty `Answer`;
-  `Continue` after a raise lets the model answer again.
+- **No further call.** A nudge never spends the reserved call: without a
+  normal call it is dropped with `WarningDeliveryDropped` and the answer
+  stands. A veto may use the reserved call; when no call fits at all, or the
+  reserved answer is vetoed, it is still recorded and the turn stops
+  `StopFailed` with `output_rejected` and no output. A vetoed answer never
+  shows in `Answer` until a new one arrives (`ContextFact.Vetoed`).
 - **After `hook_failed`.** Context delivered since turns the kept answer
   down at `Continue` when a further call fits; otherwise it is dropped with a
   warning and the hooks run again on the kept answer.
@@ -176,9 +180,3 @@ answer.
 - `ModelFact.Admission` becomes a map by hook name.
 - Warnings, buffered by the runtime, ride on the next step of any kind.
   `TurnView.Context(origin, name)` returns a live named item.
-
-## Plan
-
-PR 1a replaces `Policy` (steering seams 1, 5, 6); PR 1b adds the submission
-path and vetoes (seams 2 to 4); PR 2 adds `AfterTool` with `FailOpen`,
-`ModelDecision.Hide`, hook state, `tool.Join` and recipes.

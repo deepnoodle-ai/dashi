@@ -1466,7 +1466,13 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			})
 		}
 		items = append(items, finish.deliver...)
-		step := Step{Kind: StepLoopContinued, Context: &ContextFact{Items: items}}
+		step := Step{
+			Kind: StepLoopContinued,
+			Context: &ContextFact{
+				Items:  items,
+				Vetoed: finish.reason != "",
+			},
+		}
 		if o := r.commit(step); o != nil {
 			return *o, false
 		}

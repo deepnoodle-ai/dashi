@@ -310,11 +310,13 @@ type FinishDecision struct {
 	// dropped with a warning and the candidate stands.
 	Deliver []ContextItem
 	// Reason vetoes the candidate: it is unacceptable. The model sees "Not
-	// accepted: " and the reason, on either path, and answers again. When no
-	// further model call can happen, the veto still holds: the rejection is
-	// recorded and the turn stops as StopFailed with
-	// StopReasonOutputRejected, instead of accepting the answer. Deliver
-	// alone is a nudge, which is dropped in that case. The first hook's
+	// accepted: " and the reason, on either path, and answers again, using
+	// the reserved final-answer call if that is the only one left. When no
+	// model call at all can happen, or the reserved answer itself is vetoed,
+	// the veto still holds: the rejection is recorded and the turn stops as
+	// StopFailed with StopReasonOutputRejected, instead of accepting the
+	// answer. Deliver alone is a nudge, which never spends the reserved call
+	// and is dropped when no normal call remains. The first hook's
 	// reason is used, bounded to 1 KiB. An empty reason on a submission
 	// turned down by items gives "a check did not accept this output".
 	Reason string

@@ -151,7 +151,7 @@ func TestFinishNudgeIsDroppedWhenNoNormalCallRemains(t *testing.T) {
 	}
 }
 
-func TestFinishVetoStopsWhenNoNormalCallRemains(t *testing.T) {
+func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 	veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		return FinishDecision{Reason: "contains PII"}, nil
 	}}
@@ -163,22 +163,17 @@ func TestFinishVetoStopsWhenNoNormalCallRemains(t *testing.T) {
 			submitResult("out-2", `{"answer":2}`),
 		}}
 		runner, out, err := runStructured(t, agent, client, veto.Hooks())
+		// Call 2 is the reserved final answer; it is vetoed too.
 		if err != nil || out.Stop.Kind != StopFailed ||
 			out.Stop.Reason != StopReasonOutputRejected || out.Output != nil ||
-			out.Stop.Terminal {
-			t.Fatalf("stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
+			out.Stop.Terminal || client.sends != 2 {
+			t.Fatalf("stop=%+v output=%+v sends=%d err=%v", out.Stop, out.Output, client.sends, err)
 		}
-		if seen := toolResultText(t, out.Turn, "out-1"); seen != "Not accepted: contains PII" {
+		if seen := toolResultText(t, out.Turn, "out-2"); seen != "Not accepted: contains PII" {
 			t.Fatalf("model would see %q", seen)
 		}
-		// Continue spends the reserved final answer, which the hook vetoes
-		// again; with no attempts left, the next Continue ends the turn
-		// limited, never with a vetoed output.
-		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
-			client.sends != 2 || out.Output != nil {
-			t.Fatalf("resumed stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
-		}
+		// No attempts remain: Continue ends the turn limited, never with a
+		// vetoed output.
 		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "again"})
 		if err != nil || out.Stop.Kind != StopLimited || out.Output != nil ||
 			client.sends != 2 {
@@ -188,17 +183,96 @@ func TestFinishVetoStopsWhenNoNormalCallRemains(t *testing.T) {
 	t.Run("text", func(t *testing.T) {
 		agent := testAgent()
 		agent.Limits.ModelAttempts = 2
-		client := &scriptedClient{results: []llm.Result{final("ssn 123")}}
-		out, err := (Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}).Run(
-			t.Context(),
-			Turn{ID: "t1"},
-			Start{
-				CommandID: "start",
-				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
-			},
-		)
+		client := &scriptedClient{results: []llm.Result{final("ssn 123"), final("ssn 456")}}
+		runner := Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}
+		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		})
 		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
-			out.Answer != "" {
+			out.Answer != "" || client.sends != 2 {
+			t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+		}
+		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "again"})
+		if err != nil || out.Stop.Kind != StopLimited || out.Answer != "" {
+			t.Fatalf("limited stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+	})
+}
+
+func TestFinishVetoBeforeTheReserveContinuesIntoIt(t *testing.T) {
+	veto := FinishHook{Name: "pii", Func: func(_ context.Context, p FinishPlan) (FinishDecision, error) {
+		if strings.Contains(p.Answer, "ssn") {
+			return FinishDecision{Reason: "contains PII"}, nil
+		}
+		return FinishDecision{}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 3
+	remote := &valueTool{}
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "remote"),
+		final("ssn 123"),
+		final("clean"),
+	}}
+	out, err := (Runner{
+		Agent:  agent,
+		Client: client,
+		Tools:  tool.List{remote.binding()},
+		Hooks:  veto.Hooks(),
+	}).Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	})
+	if err != nil || out.Answer != "clean" || client.sends != 3 ||
+		out.Stop.Reason == StopReasonOutputRejected {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+	if len(client.inputs[2].Tools) != 0 {
+		t.Fatalf("the reserved call advertised tools: %+v", client.inputs[2].Tools)
+	}
+}
+
+func TestVetoedAnswerNeverReturnsThroughAnswer(t *testing.T) {
+	t.Run("interrupted", func(t *testing.T) {
+		pause := make(chan struct{})
+		veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+			close(pause)
+			return FinishDecision{Reason: "contains PII"}, nil
+		}}
+		client := &scriptedClient{results: []llm.Result{final("ssn 123")}}
+		out, err := runHooked(t, client, nil, veto.Hooks(), WithPause(pause))
+		if err != nil || out.Stop.Kind != StopInterrupted || out.Answer != "" {
+			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+	})
+	t.Run("uncertain", func(t *testing.T) {
+		asked := 0
+		veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+			asked++
+			return FinishDecision{Reason: "contains PII"}, nil
+		}}
+		client := &scriptedClient{
+			results: []llm.Result{final("ssn 123"), {}},
+			errors:  []error{nil, errors.New("connection reset")},
+		}
+		out, err := runHooked(t, client, nil, veto.Hooks())
+		if err != nil || out.Stop.Kind != StopUncertain || out.Answer != "" {
+			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		}
+	})
+	t.Run("a new answer clears the mark", func(t *testing.T) {
+		asked := 0
+		veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+			asked++
+			if asked == 1 {
+				return FinishDecision{Reason: "contains PII"}, nil
+			}
+			return FinishDecision{}, nil
+		}}
+		client := &scriptedClient{results: []llm.Result{final("ssn 123"), final("clean")}}
+		out, err := runHooked(t, client, nil, veto.Hooks())
+		if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "clean" {
 			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
 		}
 	})

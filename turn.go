@@ -290,6 +290,10 @@ const (
 // ContextFact records context delivered to an existing turn.
 type ContextFact struct {
 	Items []ContextItem `json:"items"`
+	// Vetoed marks a loop continuation that records a BeforeFinish veto of
+	// the latest answer. Until a new model result arrives, that answer never
+	// reaches the host through TurnView.Answer, whatever the stop.
+	Vetoed bool `json:"vetoed,omitempty"`
 }
 
 // ModelFact records intent without persisting the potentially secret-bearing
@@ -440,7 +444,8 @@ const (
 	StopReasonHookFailed = "hook_failed"
 
 	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
-	// answer with a Reason when no further model call could happen. The
+	// answer with a Reason when no further model call could happen, or
+	// vetoed the reserved final answer itself. The
 	// rejection is recorded and no output is accepted; Outcome.Answer is
 	// empty. Continue after raising the limit that stopped it (such as the
 	// Budget) lets the model see the rejection and answer again; with no

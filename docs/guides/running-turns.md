@@ -108,12 +108,14 @@ runner.Hooks = gate.Hooks()
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
 item that is already current. `BeforeFinish` vetoes an answer with a
 `Reason`, which the model sees as "Not accepted: …" before it answers again,
-or nudges with `Deliver` items alone. When no further normal model call is
-possible (on the reserved final-answer call or the one before it, past the
-deadline, or when the next call would exceed a cost cap), a nudge is dropped
-with a warning and the answer stands, but a veto stops the turn failed with
+or nudges with `Deliver` items alone. A nudge never spends the reserved
+final-answer call: when no normal model call is possible (on the reserved
+call or the one before it, past the deadline, or when the next call would
+exceed a cost cap), it is dropped with a warning and the answer stands. A
+veto may use the reserved call. When no call fits at all, or the reserved
+answer is vetoed too, the turn stops failed with
 `dashi.StopReasonOutputRejected` and no answer; `Continue` after raising the
-limit lets the model try again.
+limit lets the model try again. A vetoed answer never shows in `out.Answer`.
 
 `out.Answer` is the latest assistant text, even when the turn did not
 complete. Check `out.Stop` before showing it.

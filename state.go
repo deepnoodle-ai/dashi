@@ -141,6 +141,9 @@ type replayState struct {
 	failedModel            string
 	// activeHooks is the ActiveHooks of the latest command.
 	activeHooks *ActiveHooks
+	// answerVetoed is set while the latest answer is one a BeforeFinish hook
+	// vetoed; see ContextFact.Vetoed.
+	answerVetoed bool
 	// deliveredOnKept sizes the context delivered while a BeforeFinish
 	// failure kept a final text answer; see keptFinishCandidate.
 	deliveredOnKept int
@@ -242,7 +245,7 @@ func replay(t Turn) (*replayState, error) {
 	s.Pending = s.pendingItems()
 	s.Answer = answerText(t.Steps)
 	// A vetoed answer never reaches the host through Answer.
-	if s.Stop.Kind == StopFailed && s.Stop.Reason == StopReasonOutputRejected {
+	if s.answerVetoed {
 		s.Answer = ""
 	}
 	if err := s.calculateSpend(); err != nil {
@@ -477,6 +480,9 @@ func (s *replayState) apply(step Step) error {
 				if err := validateContext(item); err != nil {
 					return err
 				}
+			}
+			if step.Context.Vetoed {
+				s.answerVetoed = true
 			}
 		}
 	case StepModelIntent:
@@ -1065,6 +1071,7 @@ func (s *replayState) recordResult(
 	if !actionable {
 		return nil
 	}
+	s.answerVetoed = false
 	if err := validateModelResult(*result, s.Agent); err != nil {
 		return err
 	}
@@ -1354,6 +1361,16 @@ func (s *replayState) keptFinishCandidate() bool {
 		s.Stop.Reason == StopReasonHookFailed
 }
 
+// roomForAnyCall reports whether one more model call fits ModelAttempts,
+// the reserved final-answer call included. A call in flight counts as used.
+func (s *replayState) roomForAnyCall() bool {
+	used := s.ModelAttempts
+	if s.modelIntent != "" {
+		used++
+	}
+	return used < s.Agent.Limits.ModelAttempts
+}
+
 // roomForNormalCall reports whether one more model call fits before the
 // reserved final-answer call, or within ModelAttempts when there is no
 // reserve. A model call in flight, requested but not settled, counts as
@@ -1469,6 +1486,10 @@ func validateStepPayload(step Step) error {
 		if err := validateHookResult(result); err != nil {
 			return err
 		}
+	}
+	if step.Kind != StepLoopContinued && step.Context != nil &&
+		step.Context.Vetoed {
+		return errors.New("only a loop continuation records a veto")
 	}
 	if step.ActiveHooks != nil {
 		if step.Kind != StepStarted && step.Kind != StepContinued {

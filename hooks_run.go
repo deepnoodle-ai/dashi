@@ -439,11 +439,13 @@ func (r *runtime) finishPoint(
 		return finish, nil
 	}
 	extra := estimatedItemTokens(finish.deliver) + len(finish.reason)
-	if r.nextCallFits(s, extra) {
+	if finish.reason != "" {
+		// Once the answer is vetoed, the reserve protects nothing, so the
+		// reserved final-answer call may answer again.
+		finish.noCall = !r.callFits(s, extra, true)
 		return finish, nil
 	}
-	if finish.reason != "" {
-		finish.noCall = true
+	if r.nextCallFits(s, extra) {
 		return finish, nil
 	}
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
@@ -536,7 +538,21 @@ func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
 // extraInputTokens, priced like BeforeSend's check; a cost cap that cannot
 // be priced fails it, since that call would stop anyway.
 func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
-	if !s.roomForNormalCall() {
+	return r.callFits(s, extraInputTokens, false)
+}
+
+// callFits is nextCallFits, with the reserved final-answer call counted as
+// available when reserved is true: any call that fits ModelAttempts.
+func (r *runtime) callFits(
+	s *replayState,
+	extraInputTokens int,
+	reserved bool,
+) bool {
+	if reserved {
+		if !s.roomForAnyCall() {
+			return false
+		}
+	} else if !s.roomForNormalCall() {
 		return false
 	}
 	if d := r.agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
