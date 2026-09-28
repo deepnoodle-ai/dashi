@@ -51,11 +51,11 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
 			Tools: []tool.Definition{
-				web,
-				x,
-				collections,
-				grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}),
-				image,
+				web.Definition,
+				x.Definition,
+				collections.Definition,
+				grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}).Definition,
+				image.Definition,
 			},
 		},
 	)
@@ -107,7 +107,7 @@ func TestMetaHostedWebSearchIncludesResults(t *testing.T) {
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
-			Tools:    []tool.Definition{web},
+			Tools:    []tool.Definition{web.Definition},
 		},
 	)
 	if err != nil {

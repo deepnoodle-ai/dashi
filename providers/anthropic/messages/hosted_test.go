@@ -104,7 +104,7 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetch, err := NewWebFetchTool("", 2)
+	fetch, err := NewWebFetchTool(WebFetchToolOptions{MaxUses: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,11 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Search"))},
-			Tools:    []tool.Definition{web, fetch, NewCodeExecutionTool("")},
+			Tools: []tool.Definition{
+				web.Definition,
+				fetch.Definition,
+				NewCodeExecutionTool(CodeExecutionToolOptions{}).Definition,
+			},
 		},
 	)
 	if err != nil {
@@ -164,13 +168,10 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewMCPToolset(
-		"",
-		MCPToolsetOptions{
-			Name: "docs",
-			URL:  "https://example.com/mcp",
-		},
-	)
+	definition, err := NewMCPToolset(MCPToolsetOptions{
+		Name: "docs",
+		URL:  "https://example.com/mcp",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +180,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
-			Tools:    []tool.Definition{definition},
+			Tools:    []tool.Definition{definition.Definition},
 		},
 	)
 	if err != nil {
@@ -293,5 +294,32 @@ func TestMCPResultExposesImageAndResource(t *testing.T) {
 	resource := part.HostedResult.Output[1].Resource
 	if resource == nil || resource.URI != "https://example.com/report" {
 		t.Fatal("MCP resource link was lost")
+	}
+}
+
+func TestHostedToolProviderBinding(t *testing.T) {
+	code := NewCodeExecutionTool(CodeExecutionToolOptions{})
+	if code.Executor != nil || code.Definition.Hosted.Provider != "anthropic" {
+		t.Fatalf("zero value = %+v", code)
+	}
+	fetch, err := NewWebFetchTool(WebFetchToolOptions{Provider: "proxy"})
+	if err != nil || fetch.Definition.Hosted.Provider != "proxy" {
+		t.Fatalf("fetch = %+v, err = %v", fetch, err)
+	}
+	if _, err := NewWebFetchTool(WebFetchToolOptions{MaxUses: -1}); err == nil {
+		t.Fatal("accepted negative max uses")
+	}
+	mcp, err := NewMCPToolset(MCPToolsetOptions{
+		Provider: "proxy",
+		Name:     "docs",
+		URL:      "https://example.com/mcp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mcp.Definition.Hosted.Provider != "proxy" ||
+		string(mcp.Definition.Hosted.Options) !=
+			`{"name":"docs","url":"https://example.com/mcp"}` {
+		t.Fatalf("mcp = %+v", mcp.Definition.Hosted)
 	}
 }

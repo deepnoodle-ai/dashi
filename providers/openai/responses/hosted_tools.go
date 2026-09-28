@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"slices"
@@ -11,25 +12,35 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// WebSearchOptions configures OpenAI's web search tool.
-type WebSearchOptions struct {
+// Hosted tool constructors return a definition-only tool.Tool: OpenAI runs it
+// inside the model call, so it has no Executor and needs no Policy. Add it to
+// a Runner with tool.List, or pass its Definition in llm.Request.Tools. A
+// constructor returns an error only when its options can be invalid. These
+// tools are bound to the destination named "openai", the default
+// Config.Provider; destinations with other names do not accept them.
+
+// WebSearchToolOptions configures OpenAI's web search tool.
+type WebSearchToolOptions struct {
 	// AllowedDomains narrows search to these domains when using web_search.
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
-	// SearchContextSize trades returned context for latency and token use.
+	// SearchContextSize is "low", "medium", or "high"; empty uses the
+	// provider default. It trades returned context for latency and token use.
 	SearchContextSize string `json:"search_context_size,omitempty"`
 }
 
 // NewWebSearchTool declares OpenAI's provider-executed web search.
-func NewWebSearchTool(options WebSearchOptions) (tool.Definition, error) {
+func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	if !searchContextSize(options.SearchContextSize) {
-		return tool.Definition{}, errors.New("responses: invalid search context size")
+		return tool.Tool{}, errors.New("responses: invalid search context size")
 	}
-	return hostedDefinition("web_search", "web_search", options)
+	return hostedTool("web_search", "web_search", options), nil
 }
 
-// FileSearchOptions identifies the vector stores available to OpenAI search.
-type FileSearchOptions struct {
-	// VectorStoreIDs selects the stores this call may query.
+// FileSearchToolOptions identifies the vector stores available to OpenAI
+// search.
+type FileSearchToolOptions struct {
+	// VectorStoreIDs selects the stores this call may query; at least one is
+	// required.
 	VectorStoreIDs []string `json:"vector_store_ids"`
 	// MaxNumResults caps matched chunks; zero accepts the provider default.
 	MaxNumResults int `json:"max_num_results,omitempty"`
@@ -38,30 +49,28 @@ type FileSearchOptions struct {
 }
 
 // NewFileSearchTool declares provider-managed vector-store search.
-func NewFileSearchTool(options FileSearchOptions) (tool.Definition, error) {
+func NewFileSearchTool(options FileSearchToolOptions) (tool.Tool, error) {
 	if len(options.VectorStoreIDs) == 0 || options.MaxNumResults < 0 {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"responses: file search requires stores and nonnegative limit",
 		)
 	}
-	return hostedDefinition("file_search", "file_search", options)
+	return hostedTool("file_search", "file_search", options), nil
 }
 
-// CodeInterpreterOptions supplies files to the provider's code container.
-type CodeInterpreterOptions struct {
+// CodeInterpreterToolOptions supplies files to the provider's code container.
+type CodeInterpreterToolOptions struct {
 	// FileIDs makes provider-managed files available inside the container.
 	FileIDs []string `json:"file_ids,omitempty"`
 }
 
 // NewCodeInterpreterTool declares OpenAI's provider-managed code container.
-func NewCodeInterpreterTool(
-	options CodeInterpreterOptions,
-) (tool.Definition, error) {
-	return hostedDefinition("code_interpreter", "code_interpreter", options)
+func NewCodeInterpreterTool(options CodeInterpreterToolOptions) tool.Tool {
+	return hostedTool("code_interpreter", "code_interpreter", options)
 }
 
-// ImageGenerationOptions configures the provider-hosted image generator.
-type ImageGenerationOptions struct {
+// ImageGenerationToolOptions configures the provider-hosted image generator.
+type ImageGenerationToolOptions struct {
 	// Model selects a GPT Image model independently of the mainline model.
 	Model string `json:"model,omitempty"`
 	// Size selects a provider-supported image dimension.
@@ -72,16 +81,28 @@ type ImageGenerationOptions struct {
 	Background string `json:"background,omitempty"`
 	// OutputFormat selects the returned image encoding.
 	OutputFormat string `json:"output_format,omitempty"`
-	// OutputCompression is a percentage for JPEG or WebP. A pointer preserves
-	// an explicit zero, which means no compression.
+	// OutputCompression is a percentage from 0 to 100 for JPEG or WebP. A
+	// pointer preserves an explicit zero, which means no compression.
 	OutputCompression *int `json:"output_compression,omitempty"`
-	// Action selects automatic generation/editing or forces one operation.
+	// Action is "auto", "generate", or "edit"; empty uses the provider
+	// default.
 	Action string `json:"action,omitempty"`
 }
 
-// MCPOptions connects an unauthenticated remote MCP server. Tokens and custom
-// headers are deliberately excluded from the recordable tool definition.
-type MCPOptions struct {
+// NewImageGenerationTool declares OpenAI's provider-hosted image generator.
+func NewImageGenerationTool(
+	options ImageGenerationToolOptions,
+) (tool.Tool, error) {
+	if err := validateImageGeneration(options); err != nil {
+		return tool.Tool{}, errors.New("responses: " + err.Error())
+	}
+	return hostedTool("image_generation", "image_generation", options), nil
+}
+
+// MCPToolOptions connects an unauthenticated remote MCP server. Tokens and
+// custom headers are deliberately excluded from the recordable tool
+// definition.
+type MCPToolOptions struct {
 	// ServerLabel names the remote server in the provider's response.
 	ServerLabel string `json:"server_label"`
 	// ServerURL must be HTTPS and contain no embedded credentials or query.
@@ -96,28 +117,19 @@ type MCPOptions struct {
 
 // NewMCPTool declares an unauthenticated remote server. Approval defaults to
 // the provider's ask-every-time behavior; this constructor never sets tokens.
-func NewMCPTool(options MCPOptions) (tool.Definition, error) {
+func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
 	if err := validateMCPOptions(options); err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return hostedDefinition("mcp:"+options.ServerLabel, "mcp", options)
+	return hostedTool("mcp:"+options.ServerLabel, "mcp", options), nil
 }
 
-// NewImageGenerationTool declares OpenAI's provider-hosted image generator.
-func NewImageGenerationTool(
-	options ImageGenerationOptions,
-) (tool.Definition, error) {
-	return hostedDefinition("image_generation", "image_generation", options)
-}
-
-func hostedDefinition(
-	name string,
-	toolType string,
-	options any,
-) (tool.Definition, error) {
+// hostedTool binds options to the "openai" destination. Options are plain
+// structs of strings, numbers, and slices, so encoding cannot fail.
+func hostedTool(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		panic("responses: encode hosted tool options: " + err.Error())
 	}
 	definition := tool.Definition{
 		Name: name,
@@ -132,7 +144,7 @@ func hostedDefinition(
 	if toolType == "web_search" || toolType == "file_search" {
 		definition.Annotations.ReadOnly = new(true)
 	}
-	return definition, nil
+	return tool.Tool{Definition: definition}
 }
 
 func (wire codec) hostedTool(
@@ -155,7 +167,7 @@ func (wire codec) hostedTool(
 		if definition.Name != "web_search" {
 			return nil, nil, wire.unsupported("web search requires name web_search")
 		}
-		var options WebSearchOptions
+		var options WebSearchToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("web search options: %v", err)
 		}
@@ -178,7 +190,7 @@ func (wire codec) hostedTool(
 		if definition.Name != "file_search" {
 			return nil, nil, wire.unsupported("file search requires name file_search")
 		}
-		var options FileSearchOptions
+		var options FileSearchToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("file search options: %v", err)
 		}
@@ -200,7 +212,7 @@ func (wire codec) hostedTool(
 				"code interpreter requires name code_interpreter",
 			)
 		}
-		var options CodeInterpreterOptions
+		var options CodeInterpreterToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("code interpreter options: %v", err)
 		}
@@ -216,22 +228,14 @@ func (wire codec) hostedTool(
 				"image generation requires name image_generation",
 			)
 		}
-		var options ImageGenerationOptions
+		var options ImageGenerationToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("image generation options: %v", err)
 		}
-		if options.Action != "" && options.Action != "auto" &&
-			options.Action != "generate" && options.Action != "edit" {
-			return nil, nil, wire.unsupported(
-				"image generation action %q",
-				options.Action,
-			)
+		if err := validateImageGeneration(options); err != nil {
+			return nil, nil, wire.unsupported("%v", err)
 		}
 		if options.OutputCompression != nil {
-			if *options.OutputCompression < 0 || *options.OutputCompression > 100 ||
-				(options.OutputFormat != "jpeg" && options.OutputFormat != "webp") {
-				return nil, nil, wire.unsupported("image compression requires JPEG or WebP and a value from 0 to 100")
-			}
 			config["output_compression"] = *options.OutputCompression
 		}
 		for key, value := range map[string]string{
@@ -247,7 +251,7 @@ func (wire codec) hostedTool(
 			}
 		}
 	case "mcp":
-		var options MCPOptions
+		var options MCPToolOptions
 		if err := decodeHostedOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("mcp options: %w", err)
 		}
@@ -276,7 +280,7 @@ func (wire codec) hostedTool(
 	return config, includes, nil
 }
 
-func validateMCPOptions(options MCPOptions) error {
+func validateMCPOptions(options MCPToolOptions) error {
 	if options.ServerLabel == "" {
 		return errors.New("responses: mcp requires a server label")
 	}
@@ -290,6 +294,19 @@ func validateMCPOptions(options MCPOptions) error {
 		return nil
 	}
 	return errors.New("responses: mcp approval must be always or never")
+}
+
+func validateImageGeneration(options ImageGenerationToolOptions) error {
+	if options.Action != "" && options.Action != "auto" &&
+		options.Action != "generate" && options.Action != "edit" {
+		return fmt.Errorf("image generation action %q", options.Action)
+	}
+	if options.OutputCompression != nil &&
+		(*options.OutputCompression < 0 || *options.OutputCompression > 100 ||
+			(options.OutputFormat != "jpeg" && options.OutputFormat != "webp")) {
+		return errors.New("image compression requires JPEG or WebP and a value from 0 to 100")
+	}
+	return nil
 }
 
 func decodeHostedOptions(raw json.RawMessage, out any) error {

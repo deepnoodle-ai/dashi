@@ -42,20 +42,24 @@ type WebSearchToolOptions struct {
 	IncludeResults bool `json:"include_results,omitempty"`
 }
 
-// NewWebSearchTool declares Meta's provider-executed search grounding.
-func NewWebSearchTool(options WebSearchToolOptions) (tool.Definition, error) {
+// NewWebSearchTool declares Meta's provider-executed search grounding. It
+// returns a definition-only tool.Tool: Meta runs it inside the model call, so
+// it has no Executor and needs no Policy. Add it to a Runner with tool.List,
+// or pass its Definition in llm.Request.Tools. The tool is bound to the
+// destination named "meta" that New configures.
+func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	switch options.SearchContextSize {
 	case "", SearchContextLow, SearchContextMedium, SearchContextHigh:
 	default:
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"meta: search context size must be low, medium, or high",
 		)
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
+	return tool.Tool{Definition: tool.Definition{
 		Name:        "web_search",
 		Kind:        tool.KindProviderHosted,
 		Annotations: tool.Annotations{ReadOnly: new(true)},
@@ -65,5 +69,5 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Definition, error) {
 			Type:     "web_search",
 			Options:  raw,
 		},
-	}, nil
+	}}, nil
 }

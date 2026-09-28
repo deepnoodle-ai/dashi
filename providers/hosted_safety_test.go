@@ -14,40 +14,40 @@ import (
 func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string
-		makeTool func() (tool.Definition, error)
+		makeTool func() (tool.Tool, error)
 		readOnly bool
 	}{
 		{
 			name: "Anthropic web search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return messages.NewWebSearchTool(messages.WebSearchToolOptions{})
 			},
 			readOnly: true,
 		},
 		{
 			name: "Anthropic web fetch",
-			makeTool: func() (tool.Definition, error) {
-				return messages.NewWebFetchTool("", 0)
+			makeTool: func() (tool.Tool, error) {
+				return messages.NewWebFetchTool(messages.WebFetchToolOptions{})
 			},
 			readOnly: true,
 		},
 		{
 			name: "Anthropic code execution",
-			makeTool: func() (tool.Definition, error) {
-				return messages.NewCodeExecutionTool(""), nil
+			makeTool: func() (tool.Tool, error) {
+				return messages.NewCodeExecutionTool(messages.CodeExecutionToolOptions{}), nil
 			},
 		},
 		{
 			name: "OpenAI web search",
-			makeTool: func() (tool.Definition, error) {
-				return responses.NewWebSearchTool(responses.WebSearchOptions{})
+			makeTool: func() (tool.Tool, error) {
+				return responses.NewWebSearchTool(responses.WebSearchToolOptions{})
 			},
 			readOnly: true,
 		},
 		{
 			name: "OpenAI file search",
-			makeTool: func() (tool.Definition, error) {
-				return responses.NewFileSearchTool(responses.FileSearchOptions{
+			makeTool: func() (tool.Tool, error) {
+				return responses.NewFileSearchTool(responses.FileSearchToolOptions{
 					VectorStoreIDs: []string{"store"},
 				})
 			},
@@ -55,37 +55,37 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 		},
 		{
 			name: "OpenAI code interpreter",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return responses.NewCodeInterpreterTool(
-					responses.CodeInterpreterOptions{},
-				)
+					responses.CodeInterpreterToolOptions{},
+				), nil
 			},
 		},
 		{
 			name: "OpenAI image generation",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return responses.NewImageGenerationTool(
-					responses.ImageGenerationOptions{},
+					responses.ImageGenerationToolOptions{},
 				)
 			},
 		},
 		{
 			name: "Grok web search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return grok.NewWebSearchTool(grok.WebSearchToolOptions{})
 			},
 			readOnly: true,
 		},
 		{
 			name: "Grok X search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return grok.NewXSearchTool(grok.XSearchToolOptions{})
 			},
 			readOnly: true,
 		},
 		{
 			name: "Grok collections search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return grok.NewCollectionsSearchTool(
 					grok.CollectionsSearchToolOptions{
 						CollectionIDs: []string{"collection"},
@@ -96,13 +96,13 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 		},
 		{
 			name: "Grok code execution",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return grok.NewCodeExecutionTool(grok.CodeExecutionToolOptions{}), nil
 			},
 		},
 		{
 			name: "Grok image generation",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return grok.NewImageGenerationTool(
 					grok.ImageGenerationToolOptions{},
 				)
@@ -110,7 +110,7 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 		},
 		{
 			name: "Meta web search",
-			makeTool: func() (tool.Definition, error) {
+			makeTool: func() (tool.Tool, error) {
 				return meta.NewWebSearchTool(meta.WebSearchToolOptions{})
 			},
 			readOnly: true,
@@ -118,10 +118,11 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			definition, err := tc.makeTool()
+			hosted, err := tc.makeTool()
 			if err != nil {
 				t.Fatal(err)
 			}
+			definition := hosted.Definition
 			got := definition.Annotations.ReadOnly != nil &&
 				*definition.Annotations.ReadOnly
 			if got != tc.readOnly {

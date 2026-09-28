@@ -9,6 +9,12 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
+// Hosted tool constructors return a definition-only tool.Tool: xAI runs it
+// inside the model call, so it has no Executor and needs no Policy. Add it to
+// a Runner with tool.List, or pass its Definition in llm.Request.Tools. A
+// constructor returns an error only when its options can be invalid. These
+// tools are bound to the destination named "grok" that New configures.
+
 // WebSearchToolOptions controls Grok's web search domain and image features.
 type WebSearchToolOptions struct {
 	// AllowedDomains limits retrieval to at most five domains.
@@ -22,14 +28,14 @@ type WebSearchToolOptions struct {
 }
 
 // NewWebSearchTool declares Grok's provider-executed web search.
-func NewWebSearchTool(options WebSearchToolOptions) (tool.Definition, error) {
+func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	if len(options.AllowedDomains) > 5 || len(options.ExcludedDomains) > 5 ||
 		(len(options.AllowedDomains) > 0 && len(options.ExcludedDomains) > 0) {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"grok: web search requires at most five allowed or excluded domains",
 		)
 	}
-	return newHosted("web_search", "web_search", options)
+	return newHosted("web_search", "web_search", options), nil
 }
 
 // XSearchToolOptions controls search over X posts and media.
@@ -50,11 +56,11 @@ type XSearchToolOptions struct {
 }
 
 // NewXSearchTool declares Grok's provider-executed X search.
-func NewXSearchTool(options XSearchToolOptions) (tool.Definition, error) {
+func NewXSearchTool(options XSearchToolOptions) (tool.Tool, error) {
 	if len(options.AllowedXHandles) > 20 ||
 		len(options.ExcludedXHandles) > 20 ||
 		(len(options.AllowedXHandles) > 0 && len(options.ExcludedXHandles) > 0) {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"grok: X search requires at most twenty allowed or excluded handles",
 		)
 	}
@@ -63,18 +69,18 @@ func NewXSearchTool(options XSearchToolOptions) (tool.Definition, error) {
 			continue
 		}
 		if _, err := time.Parse("2006-01-02", date); err != nil {
-			return tool.Definition{}, errors.New(
+			return tool.Tool{}, errors.New(
 				"grok: X search dates require YYYY-MM-DD",
 			)
 		}
 	}
 	if options.FromDate != "" && options.ToDate != "" &&
 		options.FromDate > options.ToDate {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"grok: X search from date must precede to date",
 		)
 	}
-	return newHosted("x_search", "x_search", options)
+	return newHosted("x_search", "x_search", options), nil
 }
 
 // CollectionsSearchToolOptions identifies xAI knowledge collections.
@@ -90,14 +96,14 @@ type CollectionsSearchToolOptions struct {
 // NewCollectionsSearchTool maps Grok collections to file_search on the wire.
 func NewCollectionsSearchTool(
 	options CollectionsSearchToolOptions,
-) (tool.Definition, error) {
+) (tool.Tool, error) {
 	if len(options.CollectionIDs) == 0 ||
 		options.MaxNumResults < 0 || options.MaxNumResults > 50 {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"grok: collections search requires IDs and at most fifty results",
 		)
 	}
-	return newHosted("collections_search", "file_search", options)
+	return newHosted("collections_search", "file_search", options), nil
 }
 
 // CodeExecutionToolOptions controls return of Grok's provider sandbox output.
@@ -107,44 +113,35 @@ type CodeExecutionToolOptions struct {
 }
 
 // NewCodeExecutionTool declares Grok's hosted Python sandbox.
-func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Definition {
-	raw := json.RawMessage(`{}`)
-	if options.IncludeOutputs {
-		raw = json.RawMessage(`{"include_outputs":true}`)
-	}
-	return tool.Definition{
-		Name: "code_execution",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
-			Provider: "grok",
-			API:      responses.API,
-			Type:     "code_interpreter",
-			Options:  raw,
-		},
-	}
+func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
+	return newHosted("code_execution", "code_interpreter", options)
 }
 
 // ImageGenerationToolOptions controls whether Grok may generate, edit, or
 // choose between the two. The hosted tool chooses its own size and format.
 type ImageGenerationToolOptions struct {
+	// Action is "auto", "generate", or "edit"; empty uses the provider
+	// default.
 	Action string `json:"action,omitempty"`
 }
 
 // NewImageGenerationTool lets Grok generate or edit images within a response.
 func NewImageGenerationTool(
 	options ImageGenerationToolOptions,
-) (tool.Definition, error) {
+) (tool.Tool, error) {
 	if options.Action != "" && options.Action != "auto" &&
 		options.Action != "generate" && options.Action != "edit" {
-		return tool.Definition{}, errors.New("grok: image action must be auto, generate, or edit")
+		return tool.Tool{}, errors.New("grok: image action must be auto, generate, or edit")
 	}
-	return newHosted("image_generation", "image_generation", options)
+	return newHosted("image_generation", "image_generation", options), nil
 }
 
-func newHosted(name, toolType string, options any) (tool.Definition, error) {
+// newHosted binds options to the "grok" destination. Options are plain
+// structs of strings, numbers, and slices, so encoding cannot fail.
+func newHosted(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		panic("grok: encode hosted tool options: " + err.Error())
 	}
 	definition := tool.Definition{
 		Name: name,
@@ -160,5 +157,5 @@ func newHosted(name, toolType string, options any) (tool.Definition, error) {
 		toolType == "file_search" {
 		definition.Annotations.ReadOnly = new(true)
 	}
-	return definition, nil
+	return tool.Tool{Definition: definition}
 }

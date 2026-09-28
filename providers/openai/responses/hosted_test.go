@@ -93,24 +93,21 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web, err := NewWebSearchTool(WebSearchOptions{
+	web, err := NewWebSearchTool(WebSearchToolOptions{
 		AllowedDomains: []string{"example.com"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := NewFileSearchTool(FileSearchOptions{
+	files, err := NewFileSearchTool(FileSearchToolOptions{
 		VectorStoreIDs: []string{"vs_1"},
 		IncludeResults: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, err := NewCodeInterpreterTool(CodeInterpreterOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	image, err := NewImageGenerationTool(ImageGenerationOptions{
+	code := NewCodeInterpreterTool(CodeInterpreterToolOptions{})
+	image, err := NewImageGenerationTool(ImageGenerationToolOptions{
 		Model:             "gpt-image-2.5-sunburst",
 		Action:            "generate",
 		OutputFormat:      "webp",
@@ -124,7 +121,12 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
-			Tools:    []tool.Definition{web, files, code, image},
+			Tools: []tool.Definition{
+				web.Definition,
+				files.Definition,
+				code.Definition,
+				image.Definition,
+			},
 		},
 	)
 	if err != nil {
@@ -158,19 +160,25 @@ func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := NewImageGenerationTool(ImageGenerationOptions{
+	if _, err := NewImageGenerationTool(ImageGenerationToolOptions{
 		OutputFormat:      "png",
 		OutputCompression: new(50),
-	})
+	}); err == nil {
+		t.Fatal("constructor accepted JPEG/WebP compression for PNG")
+	}
+	image, err := NewImageGenerationTool(ImageGenerationToolOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	image.Definition.Hosted.Options = json.RawMessage(
+		`{"output_format":"png","output_compression":50}`,
+	)
 	_, err = client.Prepare(
 		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Draw"))},
-			Tools:    []tool.Definition{image},
+			Tools:    []tool.Definition{image.Definition},
 		},
 	)
 	if err == nil {
@@ -186,7 +194,7 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewMCPTool(MCPOptions{
+	definition, err := NewMCPTool(MCPToolOptions{
 		ServerLabel: "docs",
 		ServerURL:   "https://example.com/mcp",
 	})
@@ -207,7 +215,7 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 			llm.UserMessage(llm.Text("Read the docs")),
 			llm.AssistantMessage(items[0]),
 		},
-		Tools: []tool.Definition{definition},
+		Tools: []tool.Definition{definition.Definition},
 	}
 	if _, err := client.Prepare(t.Context(), input); err != nil {
 		t.Fatalf("pending approval should replay without a decision: %v", err)
@@ -239,14 +247,14 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 }
 
 func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
-	definition, err := NewMCPTool(MCPOptions{
+	definition, err := NewMCPTool(MCPToolOptions{
 		ServerLabel: "docs",
 		ServerURL:   "https://example.com/mcp",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition.Hosted.Options = json.RawMessage(`{
+	definition.Definition.Hosted.Options = json.RawMessage(`{
 		"server_label":"docs","server_url":"https://example.com/mcp",
 		"authorization":"secret"
 	}`)
@@ -262,7 +270,7 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Read"))},
-			Tools:    []tool.Definition{definition},
+			Tools:    []tool.Definition{definition.Definition},
 		},
 	)
 	if err == nil {

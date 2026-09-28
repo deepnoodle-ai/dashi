@@ -39,9 +39,8 @@ type UserLocation struct {
 }
 
 // WebSearchToolOptions retains Dive's domain, location, and usage controls.
-// Provider defaults to the public Anthropic destination.
 type WebSearchToolOptions struct {
-	// Provider identifies the configured Messages destination.
+	// Provider names the configured destination; empty means "anthropic".
 	Provider string
 	// Type selects the wire tool version; empty selects WebSearchType.
 	Type string
@@ -56,23 +55,29 @@ type WebSearchToolOptions struct {
 	UserLocation *UserLocation
 }
 
-// NewWebSearchTool returns a server-executed definition with no local schema.
-// The destination validates the wire options again during preparation.
-func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
-	if opts.Provider == "" {
-		opts.Provider = "anthropic"
-	}
+// Hosted tool constructors return a definition-only tool.Tool: Anthropic runs
+// it inside the model call, so it has no Executor and needs no Policy. Add it
+// to a Runner with tool.List, or pass its Definition in llm.Request.Tools. A
+// constructor returns an error only when its options can be invalid.
+//
+// Each options struct has a Provider field that binds the tool to one
+// configured destination. Empty means "anthropic", the default name of
+// Config.Provider; set it to the client's Provider() for a destination with a
+// custom name, since a destination refuses hosted tools bound to another.
+
+// NewWebSearchTool declares Anthropic's server-side web search.
+func NewWebSearchTool(opts WebSearchToolOptions) (tool.Tool, error) {
 	if opts.Type == "" {
 		opts.Type = WebSearchType
 	}
 	if opts.Type != WebSearchType {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"messages: unsupported web search tool version",
 		)
 	}
 	if opts.MaxUses < 0 ||
 		(len(opts.AllowedDomains) > 0 && len(opts.BlockedDomains) > 0) {
-		return tool.Definition{}, errors.New(
+		return tool.Tool{}, errors.New(
 			"messages: invalid web search limits or domains",
 		)
 	}
@@ -88,7 +93,7 @@ func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
 			location.Type = "approximate"
 		}
 		if location.Type != "approximate" {
-			return tool.Definition{}, errors.New(
+			return tool.Tool{}, errors.New(
 				"messages: web search location must be approximate",
 			)
 		}
@@ -96,72 +101,55 @@ func NewWebSearchTool(opts WebSearchToolOptions) (tool.Definition, error) {
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name:        "web_search",
-		Kind:        tool.KindProviderHosted,
-		Annotations: tool.Annotations{ReadOnly: new(true)},
-		Hosted: &tool.HostedSpec{
-			Provider: opts.Provider,
-			API:      API,
-			Type:     opts.Type,
-			Options:  raw,
-		},
-	}, nil
+	return hostedTool("web_search", opts.Provider, opts.Type, raw, true), nil
 }
 
-// NewCodeExecutionTool declares Anthropic's provider-executed sandbox. It
-// never exposes an application executor.
-func NewCodeExecutionTool(provider string) tool.Definition {
-	if provider == "" {
-		provider = "anthropic"
-	}
-	return tool.Definition{
-		Name: "code_execution",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
-			Provider: provider,
-			API:      API,
-			Type:     CodeExecutionType,
-		},
-	}
+// CodeExecutionToolOptions binds Anthropic's code execution sandbox to a
+// destination.
+type CodeExecutionToolOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	Provider string
 }
 
-// NewWebFetchTool declares Anthropic's server-side page fetch tool. maxUses
-// limits fetches in one request; zero leaves the cap to the provider and sends
-// no max_uses.
-func NewWebFetchTool(provider string, maxUses int) (tool.Definition, error) {
-	if maxUses < 0 {
-		return tool.Definition{}, errors.New(
+// NewCodeExecutionTool declares Anthropic's provider-executed sandbox with
+// bash and file editing.
+func NewCodeExecutionTool(opts CodeExecutionToolOptions) tool.Tool {
+	return hostedTool("code_execution", opts.Provider, CodeExecutionType, nil, false)
+}
+
+// WebFetchToolOptions configures Anthropic's server-side page fetch tool.
+type WebFetchToolOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	Provider string
+	// MaxUses caps fetches in one request; zero leaves the cap to the
+	// provider and sends no max_uses. It cannot be negative.
+	MaxUses int
+}
+
+// NewWebFetchTool declares Anthropic's server-side page fetch tool.
+func NewWebFetchTool(opts WebFetchToolOptions) (tool.Tool, error) {
+	if opts.MaxUses < 0 {
+		return tool.Tool{}, errors.New(
 			"messages: web fetch max uses cannot be negative",
 		)
 	}
-	if provider == "" {
-		provider = "anthropic"
-	}
 	options, err := json.Marshal(struct {
 		MaxUses int `json:"max_uses,omitempty"`
-	}{MaxUses: maxUses})
+	}{MaxUses: opts.MaxUses})
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name:        "web_fetch",
-		Kind:        tool.KindProviderHosted,
-		Annotations: tool.Annotations{ReadOnly: new(true)},
-		Hosted: &tool.HostedSpec{
-			Provider: provider,
-			API:      API,
-			Type:     WebFetchType,
-			Options:  options,
-		},
-	}, nil
+	return hostedTool("web_fetch", opts.Provider, WebFetchType, options, true), nil
 }
 
 // MCPToolsetOptions describes an unauthenticated remote MCP server. Tokens
 // are excluded because tool definitions are stored in request snapshots.
 type MCPToolsetOptions struct {
+	// Provider names the configured destination; empty means "anthropic".
+	// It is not sent to the server.
+	Provider string `json:"-"`
 	// Name is the label used by toolset and server declarations.
 	Name string `json:"name"`
 	// URL is the public HTTPS endpoint without query or embedded credentials.
@@ -169,30 +157,39 @@ type MCPToolsetOptions struct {
 }
 
 // NewMCPToolset declares an unauthenticated server-side MCP connector.
-func NewMCPToolset(
-	provider string,
-	options MCPToolsetOptions,
-) (tool.Definition, error) {
+func NewMCPToolset(options MCPToolsetOptions) (tool.Tool, error) {
 	if err := validateMCPToolset(options); err != nil {
-		return tool.Definition{}, err
-	}
-	if provider == "" {
-		provider = "anthropic"
+		return tool.Tool{}, err
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {
-		return tool.Definition{}, err
+		return tool.Tool{}, err
 	}
-	return tool.Definition{
-		Name: "mcp:" + options.Name,
+	return hostedTool("mcp:"+options.Name, options.Provider, MCPToolsetType, raw, false), nil
+}
+
+func hostedTool(
+	name, provider, toolType string,
+	options json.RawMessage,
+	readOnly bool,
+) tool.Tool {
+	if provider == "" {
+		provider = "anthropic"
+	}
+	d := tool.Definition{
+		Name: name,
 		Kind: tool.KindProviderHosted,
 		Hosted: &tool.HostedSpec{
 			Provider: provider,
 			API:      API,
-			Type:     MCPToolsetType,
-			Options:  raw,
+			Type:     toolType,
+			Options:  options,
 		},
-	}, nil
+	}
+	if readOnly {
+		d.Annotations.ReadOnly = new(true)
+	}
+	return tool.Tool{Definition: d}
 }
 
 type webSearchOptions struct {
