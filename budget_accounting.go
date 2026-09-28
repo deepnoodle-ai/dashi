@@ -26,7 +26,7 @@ func attemptSpend(
 	if estimated {
 		guess := &llm.Usage{InputTokens: intent.EstimatedInputTokens}
 		if settlement != nil && settlement.Result != nil {
-			guess.OutputTokens = estimatedOutputTokens(settlement.Result)
+			guess.OutputTokens = cappedOutputEstimate(intent, settlement.Result)
 		}
 		usage = guess
 	} else {
@@ -43,7 +43,7 @@ func attemptSpend(
 		if settlement.Result != nil {
 			usage.OutputTokens = max(
 				usage.OutputTokens,
-				estimatedOutputTokens(settlement.Result),
+				cappedOutputEstimate(intent, settlement.Result),
 			)
 		}
 	}
@@ -146,6 +146,18 @@ func declaresHostedTool(intent *ModelFact) bool {
 func estimatedOutputTokens(result *llm.Result) int {
 	runes := utf8.RuneCountInString(result.Message.Text())
 	return runes/4 + min(1, runes%4)
+}
+
+// cappedOutputEstimate estimates a settled call's output from its text,
+// capped at the intent's effective max_tokens as the live settlement's
+// estimate is, since a provider bills no more output than the call allowed.
+// Replay then never counts more than the run did.
+func cappedOutputEstimate(intent *ModelFact, result *llm.Result) int {
+	estimate := estimatedOutputTokens(result)
+	if limit := intent.Effective.MaxTokens; limit > 0 {
+		estimate = min(estimate, limit)
+	}
+	return estimate
 }
 
 func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {

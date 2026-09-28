@@ -1412,15 +1412,8 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var validationErr error
 	if sendErr != nil {
 		// A failed call keeps what it streamed, with its reported usage.
-		if merged := interruptedResult(
-			result,
-			observedContent,
-			observedUsage,
-			0,
-			0,
-		); merged != nil {
-			result = *merged
-		}
+		result = mergeObserved(result, observedContent, observedUsage)
+		markIncomplete(&result)
 		settled.Error = sendErr.Error()
 		settled.ErrorReason = sendReason
 		settled.Failure = failureDisposition(sendErr, result)
@@ -1564,21 +1557,27 @@ func (r *runtime) settleSteered(
 }
 
 // completeResult reports whether a call returned a result that stands on
-// its own: no error, a stop kind, and a valid result.
+// its own: no error, a stop kind other than incomplete, and a valid result.
+// An incomplete result from a call a steer cut short settles as steered, so
+// the steer is delivered instead of the turn failing.
 func completeResult(result llm.Result, err error, agent Agent) bool {
 	return err == nil && result.Stop.Kind != "" &&
+		result.Stop.Kind != llm.StopIncomplete &&
 		validateModelResult(result, agent) == nil
 }
 
-// interruptedResult keeps what an interrupted call produced: the result the
-// client returned, or else the content streamed before the cut, with the
-// usage observed on the stream. Its output count is the larger of the
-// reported count and the estimate from every streamed delta, so replay and
-// token caps count output that was generated but never shown (decision
-// 24). The estimate is capped at maxTokens when positive, since a provider
-// bills no more output than the call allowed. A result with output but no
-// stop kind is marked incomplete. It returns nil when the call left no
-// trace.
+// interruptedResult keeps what an interrupted call produced. Its partial
+// response is only the content streamed before the call's context ended
+// (U-6): a message the client returns may hold text generated after the
+// cut, which was never shown, so that message only adds to the output
+// estimate. A collected call shows nothing before the cut, so it keeps no
+// partial. The returned ID and usage stand, with the usage observed on the
+// stream. The output count is the larger of the reported count and the
+// estimate from every streamed delta or the returned message, so replay
+// and token caps count output that was generated but never shown
+// (decision 24). The estimate is capped at maxTokens when positive, since a
+// provider bills no more output than the call allowed. It returns nil when
+// the call left no trace.
 func interruptedResult(
 	result llm.Result,
 	content []llm.Content,
@@ -1586,16 +1585,9 @@ func interruptedResult(
 	streamedTokens int,
 	maxTokens int,
 ) *llm.Result {
-	if len(result.Message.Content) == 0 && len(content) > 0 {
-		result.Message = llm.AssistantMessage(content...)
-	}
-	if observed != nil {
-		if result.Usage == nil {
-			result.Usage = observed
-		} else {
-			result.Usage.Absorb(observed)
-		}
-	}
+	streamedTokens = max(streamedTokens, estimatedOutputTokens(&result))
+	result.Message.Content = nil
+	result = mergeObserved(result, content, observed)
 	if maxTokens > 0 {
 		streamedTokens = min(streamedTokens, maxTokens)
 	}
@@ -1608,15 +1600,40 @@ func interruptedResult(
 			streamedTokens,
 		)
 	}
-	if result.Stop.Kind == "" &&
-		(len(result.Message.Content) > 0 || result.Usage != nil) {
-		result.Stop.Kind = llm.StopIncomplete
-	}
+	markIncomplete(&result)
 	if result.ID == "" && len(result.Message.Content) == 0 &&
 		result.Usage == nil {
 		return nil
 	}
 	return &result
+}
+
+// mergeObserved folds what a call streamed into the result it returned:
+// the streamed content when the result has none, and the observed usage.
+func mergeObserved(
+	result llm.Result,
+	content []llm.Content,
+	observed *llm.Usage,
+) llm.Result {
+	if len(result.Message.Content) == 0 && len(content) > 0 {
+		result.Message = llm.AssistantMessage(content...)
+	}
+	if observed != nil {
+		if result.Usage == nil {
+			result.Usage = observed
+		} else {
+			result.Usage.Absorb(observed)
+		}
+	}
+	return result
+}
+
+// markIncomplete marks a result with output but no stop kind incomplete.
+func markIncomplete(result *llm.Result) {
+	if result.Stop.Kind == "" &&
+		(len(result.Message.Content) > 0 || result.Usage != nil) {
+		result.Stop.Kind = llm.StopIncomplete
+	}
 }
 
 // streamedOutput sizes every generated delta of a call, including those

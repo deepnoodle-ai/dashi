@@ -1136,3 +1136,150 @@ func TestAnswerAfterSteerOmitsTextBeforeThePause(t *testing.T) {
 		)
 	}
 }
+
+func TestSteeredPartialIgnoresReturnedTextAfterTheCut(t *testing.T) {
+	inbox := newWatchedInbox()
+	returned := llm.Result{
+		ID: "resp_1",
+		Message: llm.AssistantMessage(
+			llm.Text("Editing main.go and more text never shown"),
+		),
+		Usage: &llm.Usage{InputTokens: 7},
+	}
+	client := newUrgentClient(
+		urgentCall{
+			deltas: []llm.Delta{textDelta("Editing main.go")},
+			during: func(context.Context) { inbox.sendUrgent(t, "stop") },
+			block:  true,
+			late:   []llm.Delta{textDelta(" and more text never shown")},
+			result: returned,
+		},
+		urgentCall{result: final("ok")},
+	)
+	out := runUrgent(t, client, inbox)
+	cut := settlements(out.Turn)[0]
+	if cut.Interrupted != InterruptSteering || cut.Result == nil {
+		t.Fatalf("the cut call was settled as %+v", cut)
+	}
+	if got := cut.Result.Message.Text(); got != "Editing main.go" {
+		t.Fatalf("partial = %q; text after the cut must not be kept", got)
+	}
+	if cut.Result.ID != "resp_1" || cut.Result.Usage == nil ||
+		cut.Result.Usage.InputTokens != 7 {
+		t.Fatalf("the returned ID or usage was lost: %+v", cut.Result)
+	}
+	// 41 runes streamed in all, four to a token.
+	if cut.Result.Usage.OutputTokens != 11 {
+		t.Fatalf(
+			"output = %d; text after the cut must still count",
+			cut.Result.Usage.OutputTokens,
+		)
+	}
+	next := client.inputs()[1].Messages
+	for _, m := range next {
+		if strings.Contains(m.Text(), "never shown") {
+			t.Fatal("text returned after the cut reached the model")
+		}
+	}
+	if hasText(next, "Editing main.go") < 0 {
+		t.Fatal("the partial seen before the cut was not projected")
+	}
+}
+
+// A collected call shows nothing before it is cut, so a buffered result it
+// returns afterward has no visible partial; its output still counts.
+func TestSteeredCollectedCallKeepsNoPartialButCountsOutput(t *testing.T) {
+	inbox := newWatchedInbox()
+	client := newUrgentClient(
+		urgentCall{
+			during: func(context.Context) { inbox.sendUrgent(t, "stop") },
+			block:  true,
+			result: llm.Result{
+				ID: "resp_1",
+				Message: llm.AssistantMessage(
+					llm.Text(strings.Repeat("x", 40)),
+				),
+			},
+		},
+		urgentCall{result: final("ok")},
+	)
+	out := runUrgent(t, client, inbox)
+	cut := settlements(out.Turn)[0]
+	if cut.Interrupted != InterruptSteering || cut.Result == nil {
+		t.Fatalf("the cut call was settled as %+v", cut)
+	}
+	if len(cut.Result.Message.Content) != 0 {
+		t.Fatalf(
+			"partial = %q; nothing was shown before the cut",
+			cut.Result.Message.Text(),
+		)
+	}
+	if cut.Result.ID != "resp_1" || cut.Result.Usage == nil ||
+		cut.Result.Usage.OutputTokens != 10 {
+		t.Fatalf("the returned output was not counted: %+v", cut.Result)
+	}
+	for _, m := range client.inputs()[1].Messages {
+		if strings.Contains(m.Text(), "xxxx") {
+			t.Fatal("text returned after the cut reached the model")
+		}
+	}
+}
+
+func TestIncompleteResultAfterUrgentCutIsSteered(t *testing.T) {
+	inbox := newWatchedInbox()
+	incomplete := final("Editing")
+	incomplete.Stop = llm.Stop{Kind: llm.StopIncomplete}
+	if err := validateModelResult(incomplete, testAgent()); err != nil {
+		t.Fatalf("the fixture must be a valid result: %v", err)
+	}
+	client := newUrgentClient(
+		urgentCall{
+			deltas: []llm.Delta{textDelta("Editing")},
+			during: func(ctx context.Context) {
+				inbox.sendUrgent(t, "stop, wrong file")
+				<-ctx.Done()
+			},
+			result: incomplete,
+		},
+		urgentCall{result: final("ok")},
+	)
+	out := runUrgent(t, client, inbox)
+	if out.Stop.Kind != StopCompleted || out.Answer != "ok" {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	}
+	if cut := settlements(out.Turn)[0]; cut.Interrupted != InterruptSteering {
+		t.Fatalf("the incomplete call was settled as %+v", cut)
+	}
+	if hasText(client.inputs()[1].Messages, "stop, wrong file") < 0 {
+		t.Fatal("the steer did not reach the next call")
+	}
+}
+
+func TestReplayedInterruptSpendIsCappedAtMaxTokens(t *testing.T) {
+	inbox := newWatchedInbox()
+	def := testAgent()
+	def.Settings.MaxTokens = 5
+	client := newUrgentClient(
+		cutCall(t, inbox, strings.Repeat("x", 400), "stop"),
+		urgentCall{result: final("ok")},
+	)
+	out := runUrgent(t, client, inbox, func(r *Runner) { r.Agent = def })
+	cut := settlements(out.Turn)[0]
+	if cut.Result == nil || cut.Result.Usage == nil ||
+		cut.Result.Usage.OutputTokens != 5 {
+		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 5 for the cut call, capped, and 1 estimated for "ok".
+	if view.Spend.Usage.OutputTokens != 6 ||
+		out.Spend.Usage.OutputTokens != 6 {
+		t.Fatalf(
+			"replayed output = %d, outcome output = %d; want 6",
+			view.Spend.Usage.OutputTokens,
+			out.Spend.Usage.OutputTokens,
+		)
+	}
+}

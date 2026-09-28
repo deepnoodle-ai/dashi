@@ -98,12 +98,13 @@ example sends lines starting with `!` as urgent.
   a context derived from the run's, cancelled with a private cause
   `errSteered`. The stream loop emits and accumulates partial text only while
   that context is live; later frames still count toward usage and the
-  estimate. The run marks the attempt *handed off* just before it calls
+  estimate, as does a message returned after the cut, which is never kept as
+  the partial. The run marks the attempt *handed off* just before it calls
   `llm.Stream`.
 - **U-7. Settlement order.** After the call returns:
   1. The run's context ended: cause `run`, as today.
-  2. The result is complete (no error, a stop kind, `validateModelResult`
-     passes): the call stands and the steer waits for FR-6. If that result
+  2. The result is complete (no error, a stop kind other than
+     `incomplete`, `validateModelResult` passes): the call stands and the steer waits for FR-6. If that result
      stops the turn (an `output` or `context` limit), the steer goes to
      `Leftovers`.
   3. The call context's cause is `errSteered`: cause `steering`. It is
@@ -127,8 +128,8 @@ example sends lines starting with `!` as urgent.
   the settlement's `Charge` (which `attemptSpend` prefers, so replay needs no
   cap logic). Without a cap, decision 24's estimate applies. For every
   interrupt cause, `Result.Usage.OutputTokens` records the larger of the
-  reported count and the delta estimate (capped at `max_tokens`), so token
-  caps and replay see it with no new field; the settlement is
+  reported count and the delta estimate (capped at `max_tokens`, in replay
+  too), so token caps and replay see it with no new field; the settlement is
   `EstimatedUsage`. Crash recovery keeps decision 24's rule.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
