@@ -524,3 +524,67 @@ func streamOutcome(
 		"providertest: stream ended without an outcome",
 	)
 }
+
+// SteerAfterToolBatch makes two paid calls. A steer sent while the tool runs
+// must reach the second call after the tool result, which every provider
+// must accept, and change the answer.
+func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	inbox := dashi.NewInbox()
+	sent := false
+	type args struct {
+		A int `json:"a"`
+		B int `json:"b"`
+	}
+	multiply, err := tool.Func(
+		"multiply_numbers",
+		"Multiply two integers and return the product.",
+		func(_ context.Context, _ tool.Call, in args) (tool.Outcome, error) {
+			if !sent {
+				sent = true
+				if _, err := inbox.SendText(
+					"Change of plan: add 10 to the product and answer with only that total.",
+				); err != nil {
+					return tool.Outcome{}, tool.Fatal(err)
+				}
+			}
+			return tool.Succeeded(strconv.Itoa(in.A * in.B)), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := (dashi.Runner{
+		Agent: dashi.Agent{
+			Provider:     client.Provider(),
+			API:          client.API(),
+			Model:        modelName,
+			Instructions: "Use multiply_numbers to calculate products.",
+			Settings:     llm.Settings{MaxTokens: 1024},
+			Limits:       dashi.Limits{ModelAttempts: 4},
+		},
+		Client: client,
+		Tools:  tool.List{multiply},
+	}).Run(
+		ctx,
+		dashi.Turn{},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Use multiply_numbers to calculate 7 times 8.",
+		))}},
+		dashi.WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != dashi.StopCompleted ||
+		!strings.Contains(out.Answer, "66") {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+	delivered := 0
+	for _, step := range out.Turn.Steps {
+		delivered += len(step.Items())
+	}
+	if delivered != 1 {
+		t.Fatalf("delivered %d steers; want 1", delivered)
+	}
+	t.Logf("model=%s answer=%q", modelName, out.Answer)
+}

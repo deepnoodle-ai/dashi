@@ -211,7 +211,7 @@ and reuse them on retry; nobody can reuse an ID generated inside a call that
 crashed. Without that, a retry from an old turn snapshot is still refused by
 the recorder, because its step numbers are taken, so no model call or tool
 runs twice. What can happen is a second turn from a `Start` retried with no
-turn ID, or a `Deliver` recorded twice.
+turn ID, or a `Deliver` recorded twice when its items carry no IDs.
 
 On an existing turn, a zero `Agent` runs with the turn's recorded agent, which
 suits commands such as `Settle` and `Cancel`. Setting any field, even only
@@ -503,6 +503,62 @@ runner.Observer = func(e dashi.Event) {
 	}
 }
 ```
+
+## Steering a running turn
+
+People type while an agent works: "use the staging database", "stop, wrong
+file". Pass a steering source to the run, and each message reaches the turn
+at a safe point: before the next model call, or, when the model has just
+answered, as a reason to ask it again. A steer never lands between a tool
+call and its result, and never stops a running tool.
+
+```go
+inbox := dashi.NewInbox()
+go func() {
+	for line := range input {
+		inbox.SendText(line)
+	}
+}()
+out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
+if err != nil {
+	return err
+}
+if out.Stop.Terminal {
+	next, _ := inbox.Leftovers(out.Turn) // input for the next turn, if any
+}
+// otherwise: Continue with the inbox, or call Leftovers to abandon the turn
+```
+
+[`examples/steering`](../../examples/steering) is a complete chat CLI.
+
+- **One active run per inbox.** An inbox can serve many turns, one at a time.
+- **Claims.** A steer the inbox hands to a run is claimed: `Cancel` returns
+  false from then on. Claims the run did not record are released when it ends.
+- **Leftovers.** `Leftovers(turn)` returns, once, the steers not recorded in
+  that turn: those still queued or never written. Recorded steers are part of
+  the turn's history, so they reach the next turn through `Project(turn)`,
+  even when no model call saw them. Pass a freshly loaded turn.
+- **A steer may cost a model call.** A steer that supersedes an answer needs
+  another call; several steers share one, and a steer that arrives before a
+  planned call adds none. Steering never spends the reserved final-answer
+  call or goes past a limit, the deadline, or a pause: the steer then waits
+  for the next turn, and a `WarningSteering` on the record says why.
+  Interactive agents should raise `Limits.ModelAttempts` from its default
+  of 8.
+
+A durable host implements `dashi.Steering` over its own table, keyed by turn:
+`Steers` returns the rows not yet acknowledged, and `Delivered` consumes them.
+The record is the authority: each steer carries an ID, a turn records an ID at
+most once, and Dashi skips a steer it finds already recorded, so a steer
+presented twice after a crash is delivered once. A host may instead consume
+rows in the recorder transaction that saves the step, reading the IDs from
+`Step.Items()` of a step whose `Context.Steering` is set. After a
+`*CommitError` whose persistence is unknown, reload the turn before deciding
+what happened to its steers.
+
+`Deliver` adds context to a turn that is not running. Its items may carry IDs
+too; a repeat with the same content is skipped. Context items, from steers,
+`Deliver`, or hooks, may hold only text, media, documents, and reminders.
 
 ## Runtime reminders
 

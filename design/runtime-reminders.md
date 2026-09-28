@@ -14,7 +14,10 @@ return one through `ModelDecision.Deliver`. The full typed content is saved in
 the turn record and reconstructed by `Project`, including after an external tool
 wait or process restart. `ContextItem.Snapshot` replaces older items of the same
 origin and context-item name in the model projection; `NextCallOnly` keeps a
-recorded item for one model call. Neither rule edits the saved facts.
+recorded item until a later model call shows evidence of dispatch (a provider
+response or rejection); after an ambiguous crash the resent call carries it
+again, so it may reach the model twice rather than never. Neither rule edits
+the saved facts.
 
 This matches Nvoken's choice to keep application context in its authoritative
 transcript. Nvoken also deduplicates unchanged named values and carries them
@@ -29,9 +32,10 @@ as `<system-reminder name="...">` text and records a `render_reminder`
 in a developer message. Contextual reminders remain user messages. Anthropic
 Messages, Gemini, and other routes use user messages for both tiers because
 Dashi cannot preserve mid-history developer authority on those routes. The
-recorded content change shows that reduction. When a request carries a reminder,
-Dashi adds a system instruction telling the model to follow the prepared
-role rather than infer authority from the tag. Authorization of operator origin
+recorded content change shows that reduction. Dashi always adds a system
+instruction telling the model to follow the prepared role rather than infer
+authority from the tag, so the system prompt, and the provider's prompt cache,
+do not change as reminders come and go. Authorization of operator origin
 and tool use remains an application policy decision.
 
 This adapts Dive's typed recorded reminders to Dashi's `ContextItem` projection

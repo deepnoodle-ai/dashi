@@ -478,9 +478,10 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			},
 		})
 	}
-	// Context delivered while a BeforeFinish failure kept this submission
-	// supersedes it, when the model can still be asked again.
-	if since := deliveredSinceStart(r.turn, call.ID); len(since) > 0 {
+	// Context delivered while a stop kept this submission, after the model
+	// made it, supersedes it when the model can still be asked again.
+	since := deliveredSinceCandidate(r.turn, state.callAttempts[call.ID])
+	if len(since) > 0 {
 		if r.nextCallFits(state, estimatedItemTokens(since)) {
 			return r.rejectSubmission(
 				call,
@@ -505,6 +506,20 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	if o != nil {
 		return o
 	}
+	if len(finish.steers) > 0 {
+		return r.afterSteerWrite(
+			finish.steers,
+			// A steer is a nudge, not a veto: the message's text keeps
+			// its place in Answer.
+			r.rejectSubmission(
+				call,
+				steerNotAccepted,
+				sourceSteering,
+				finish.steers,
+				false,
+			),
+		)
+	}
 	if finish.rejects() {
 		if o := r.rejectSubmission(
 			call,
@@ -528,17 +543,19 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 	})
 }
 
-// deliveredSinceStart returns the context delivered after the call started.
-func deliveredSinceStart(t Turn, callID string) []ContextItem {
-	started := false
+// deliveredSinceCandidate returns the context delivered after the model
+// attempt that made a candidate answer settled: the same rule the text path
+// applies, so a Deliver made before the submission call started counts too.
+func deliveredSinceCandidate(t Turn, attemptID string) []ContextItem {
+	settled := false
 	var items []ContextItem
 	for _, step := range t.Steps {
-		if step.Kind == StepToolStarted && step.Tool != nil &&
-			step.Tool.Call.ID == callID {
-			started = true
+		if (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) &&
+			step.Model != nil && step.Model.AttemptID == attemptID {
+			settled = true
 			continue
 		}
-		if started && step.Kind == StepDelivered && step.Context != nil {
+		if settled && step.Kind == StepDelivered && step.Context != nil {
 			items = append(items, step.Context.Items...)
 		}
 	}

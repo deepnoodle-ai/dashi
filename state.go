@@ -144,9 +144,17 @@ type replayState struct {
 	// answerVetoed is set while the latest answer is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
-	// deliveredOnKept sizes the context delivered while a BeforeFinish
-	// failure kept a final text answer; see keptFinishCandidate.
+	// deliveredOnKept sizes the context delivered while a final text answer
+	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
+	// contextIDs maps each recorded context item ID to its item, so a
+	// repeated delivery is recognized.
+	contextIDs map[string]ContextItem
+	// liveSeq holds the step that recorded each live item, and intentSeq
+	// the step that recorded each model request, so a NextCallOnly item
+	// expires only after a later dispatched call.
+	liveSeq   map[string]int64
+	intentSeq map[string]int64
 }
 
 // Replay verifies a turn's versioned prefix and reconstructs its current view.
@@ -228,6 +236,9 @@ func replay(t Turn) (*replayState, error) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
+		if err := s.trackIDs(step); err != nil {
+			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
+		}
 		if !s.awaitingClassification {
 			s.deliveredOnKept = 0
 		}
@@ -1337,7 +1348,7 @@ func validateModelAccounting(fact *ModelFact) error {
 
 // trackContext keeps the named items the next model call would see: the
 // latest item per origin and name, less NextCallOnly items once a model call
-// has been requested after them.
+// that was dispatched follows them, as Project does.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
 	case StepDelivered, StepLoopContinued, StepToolSettled:
@@ -1350,25 +1361,64 @@ func (s *replayState) trackContext(step Step) {
 			}
 			if s.live == nil {
 				s.live = map[string]ContextItem{}
+				s.liveSeq = map[string]int64{}
 			}
-			s.live[contextKey(item)] = cloneContextItem(item)
+			key := contextKey(item)
+			s.live[key] = cloneContextItem(item)
+			s.liveSeq[key] = step.Seq
 		}
 	case StepModelIntent:
+		if s.intentSeq == nil {
+			s.intentSeq = map[string]int64{}
+		}
+		s.intentSeq[step.Model.AttemptID] = step.Seq
+	case StepModelSettled, StepModelReconciled:
+		if !modelDispatched(step.Model) {
+			return
+		}
+		intent := s.intentSeq[step.Model.AttemptID]
 		for key, item := range s.live {
-			if item.NextCallOnly {
+			if item.NextCallOnly && s.liveSeq[key] < intent {
 				delete(s.live, key)
 			}
 		}
 	}
 }
 
-// keptFinishCandidate reports a final text answer kept by a BeforeFinish
-// failure. Context delivered while it is kept is counted in deliveredOnKept,
-// and Continue decides at run time whether the model can be asked again.
+// keptFinishCandidate reports a final text answer kept by a stop before it
+// was accepted: a BeforeFinish failure, an interruption, or a worker that
+// stopped with no stop recorded. Context delivered while it is kept is
+// counted in deliveredOnKept, and Continue decides at run time whether the
+// model can be asked again.
 func (s *replayState) keptFinishCandidate() bool {
-	return s.awaitingClassification &&
-		s.Stop.Kind == StopFailed &&
-		s.Stop.Reason == StopReasonHookFailed
+	if !s.awaitingClassification {
+		return false
+	}
+	switch s.Stop.Kind {
+	case StopInterrupted, "":
+		return true
+	case StopFailed:
+		return s.Stop.Reason == StopReasonHookFailed
+	}
+	return false
+}
+
+// trackIDs records the step's context item IDs. An ID may appear once in a
+// turn: the runner skips a repeat before recording it.
+func (s *replayState) trackIDs(step Step) error {
+	for _, item := range step.Items() {
+		if item.ID == "" {
+			continue
+		}
+		if _, ok := s.contextIDs[item.ID]; ok {
+			return fmt.Errorf("repeated context item ID %q", item.ID)
+		}
+		if s.contextIDs == nil {
+			s.contextIDs = map[string]ContextItem{}
+		}
+		s.contextIDs[item.ID] = item
+	}
+	return nil
 }
 
 // roomForAnyCall reports whether one more model call fits ModelAttempts,
@@ -1485,7 +1535,8 @@ func validateStepPayload(step Step) error {
 			valid = step.Kind == StepContinued
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
-		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped:
+		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
+			WarningSteering:
 			valid = true
 		}
 		if !valid || warning.Message == "" {
@@ -1500,6 +1551,24 @@ func validateStepPayload(step Step) error {
 	if step.Kind != StepLoopContinued && step.Context != nil &&
 		step.Context.Vetoed {
 		return errors.New("only a loop continuation records a veto")
+	}
+	if step.Context != nil && step.Context.Steering {
+		if step.Context.Vetoed {
+			return errors.New("a steer is not a veto")
+		}
+		// The runner records steers; no command does.
+		if step.CommandID != "" {
+			return errors.New("a command cannot record steers")
+		}
+		if step.Kind == StepToolSettled &&
+			(step.Tool == nil || step.Tool.Call.Name != SubmitOutputTool) {
+			return errors.New("only a rejected submission settles with steers")
+		}
+		for _, item := range step.Context.Items {
+			if item.ID == "" {
+				return errors.New("a steer requires an ID")
+			}
+		}
 	}
 	if step.ActiveHooks != nil {
 		if step.Kind != StepStarted && step.Kind != StepContinued {
@@ -1630,6 +1699,17 @@ func validateContext(item ContextItem) error {
 	}
 	if item.Snapshot && item.Name == "" {
 		return errors.New("snapshot context requires a name")
+	}
+	// Context is input from the application or a person, never a turn's own
+	// machinery: a tool result or call here would pair with nothing, and
+	// providers reject it.
+	for _, part := range item.Message.Content {
+		if part.Kind != llm.ContentBlock && part.Kind != llm.ContentReminder {
+			return fmt.Errorf(
+				"context may carry only content blocks and reminders, not %s",
+				part.Kind,
+			)
+		}
 	}
 	if reminder := messageReminder(item.Message); reminder != nil &&
 		reminder.Tier == llm.ReminderOperator &&

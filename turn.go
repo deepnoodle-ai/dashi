@@ -116,6 +116,12 @@ func (a Agent) resolved() Agent {
 // ContextItem carries content whose origin and replacement behavior are
 // independent of its message role. All content needed for recovery is recorded.
 type ContextItem struct {
+	// ID identifies one delivery of this item. A turn records an ID at most
+	// once, and a repeat with the same content is skipped, so a source that
+	// retries a delivery cannot deliver it twice. Name, by contrast, names a
+	// slot that a later snapshot replaces. ID is optional for Deliver and
+	// hook items and required for steers.
+	ID string `json:"id,omitempty"`
 	// Name identifies an item that a later snapshot may replace.
 	Name string `json:"name,omitempty"`
 	// Origin records who supplied the item; empty means ContextUser.
@@ -123,7 +129,10 @@ type ContextItem struct {
 	Message llm.Message   `json:"message"`
 	// Snapshot replaces an earlier item with the same name.
 	Snapshot bool `json:"snapshot,omitempty"`
-	// NextCallOnly omits this item from later model calls.
+	// NextCallOnly keeps this item until a later model call shows evidence
+	// of dispatch (a provider response or rejection), then omits it. A call
+	// with no such evidence, such as one recovered after a crash, is resent
+	// with the item, so the model may see it twice rather than never.
 	NextCallOnly bool `json:"next_call_only,omitempty"`
 }
 
@@ -211,6 +220,16 @@ type Step struct {
 	ActiveHooks *ActiveHooks `json:"active_hooks,omitempty"`
 }
 
+// Items returns the context items the step delivered: those of a
+// Deliver or steer, a loop continuation, or a rejected submission. A durable
+// host can read steer IDs from them in the transaction that saves the step.
+func (s Step) Items() []ContextItem {
+	if s.Context == nil {
+		return nil
+	}
+	return s.Context.Items
+}
+
 // WarningCode identifies a nonfatal condition recorded during a turn.
 type WarningCode string
 
@@ -233,6 +252,10 @@ const (
 	// continue when no further model call was possible, so its items were
 	// not delivered.
 	WarningDeliveryDropped WarningCode = "delivery_dropped"
+	// WarningSteering means a steering source failed or returned an invalid
+	// steer, or waiting steers could not be delivered because no further
+	// model call can happen. The steers stay with their source.
+	WarningSteering WarningCode = "steering"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -294,6 +317,10 @@ type ContextFact struct {
 	// the latest answer. Until a new model result arrives, that answer never
 	// reaches the host through TurnView.Answer, whatever the stop.
 	Vetoed bool `json:"vetoed,omitempty"`
+	// Steering marks items that came from a Steering source, recorded on
+	// their own step. Inbox.Leftovers uses it to tell steers from Deliver
+	// and hook items.
+	Steering bool `json:"steering,omitempty"`
 }
 
 // ModelFact records intent without persisting the potentially secret-bearing
@@ -491,7 +518,10 @@ type Start struct {
 	Input   []llm.Message
 }
 
-// Deliver adds context to a turn between runs.
+// Deliver adds context to a turn between runs. To reach a turn while it
+// runs, pass a Steering source with WithSteering instead. An item with an ID
+// already recorded with the same content is skipped; with different content,
+// Run returns an error.
 type Deliver struct {
 	CommandID string
 	Items     []ContextItem

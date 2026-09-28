@@ -57,12 +57,10 @@ func projectWithHistory(
 			}
 		}
 	}
-	var lastIntent int64
-	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent {
-			lastIntent = step.Seq
-		}
-	}
+	// A NextCallOnly item expires once a model call that was dispatched
+	// follows it. A request settled without dispatch, or not settled at all,
+	// showed the model nothing.
+	lastDispatched := lastDispatchedIntent(t)
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepStarted:
@@ -82,7 +80,7 @@ func projectWithHistory(
 				}) {
 					continue
 				}
-				if item.NextCallOnly && lastIntent > step.Seq {
+				if item.NextCallOnly && lastDispatched > step.Seq {
 					continue
 				}
 				out = append(out, item.Message.Clone())
@@ -181,4 +179,42 @@ func projectWithHistory(
 		}
 	}
 	return out, nil
+}
+
+// lastDispatchedIntent returns the sequence number of the latest model
+// request whose call was dispatched, or zero.
+func lastDispatchedIntent(t Turn) int64 {
+	intents := map[string]int64{}
+	var last int64
+	for _, step := range t.Steps {
+		switch step.Kind {
+		case StepModelIntent:
+			intents[step.Model.AttemptID] = step.Seq
+		case StepModelSettled, StepModelReconciled:
+			if seq := intents[step.Model.AttemptID]; modelDispatched(step.Model) &&
+				seq > last {
+				last = seq
+			}
+		}
+	}
+	return last
+}
+
+// modelDispatched reports whether a settlement shows evidence that the call
+// reached the provider: any part of a provider response (an ID, content,
+// usage, or a stop), or a rejection, which only a provider gives. A
+// settlement without such evidence, such as a call stopped before dispatch
+// or one recovered after a worker crash, does not count; a recovered call is
+// resent on resume, so an item kept for it goes with the resend, and a
+// NextCallOnly item may reach the model twice rather than never.
+func modelDispatched(f *ModelFact) bool {
+	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+		return false
+	}
+	if f.Failure == llm.FailureRejected {
+		return true
+	}
+	r := f.Result
+	return r != nil && (r.ID != "" || len(r.Message.Content) > 0 ||
+		r.Usage != nil || r.Stop.Kind != "")
 }
