@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/internal/providercontent"
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -36,6 +37,8 @@ import (
 
 // API identifies the wire format independently of provider identity.
 const API = "openai.responses"
+
+const openAIEndpoint = "https://api.openai.com/v1/responses"
 
 // Config describes one destination using the Responses API format.
 type Config struct {
@@ -83,13 +86,12 @@ var _ llm.Client = (*Client)(nil)
 // New snapshots configuration. Custom endpoints require a provider identity.
 // Sharing a name never authorizes replay across endpoints or credentials.
 func New(config Config) (*Client, error) {
-	const endpoint = "https://api.openai.com/v1/responses"
 	if config.Endpoint == "" {
-		config.Endpoint = endpoint
+		config.Endpoint = openAIEndpoint
 	}
-	public := config.Endpoint == endpoint && config.Client == nil
+	public := config.Endpoint == openAIEndpoint && config.Client == nil
 	if config.Provider == "" {
-		if config.Endpoint != endpoint {
+		if config.Endpoint != openAIEndpoint {
 			return nil, errors.New("responses: custom endpoint requires provider identity")
 		}
 		config.Provider = "openai"
@@ -163,6 +165,25 @@ func (p *Client) Prepare(
 			err,
 		)
 	}
+	if len(r.OutputSchema) > 0 {
+		if p.client.Endpoint != openAIEndpoint {
+			info, known := p.client.ModelInfo(r.Model)
+			if !known || info.Capabilities.Features[llm.FeatureStructuredOutput] != llm.SupportSupported {
+				return llm.Request{}, wire.unsupported(
+					"output_schema on a custom Responses endpoint requires endpoint-scoped ModelInfo support",
+				)
+			}
+		}
+		if len(r.Tools) > 0 || r.Settings.ToolChoice != nil ||
+			r.Settings.ParallelTools != nil {
+			return llm.Request{}, wire.unsupported(
+				"output_schema cannot be combined with current-call tools, tool_choice, or parallel_tools",
+			)
+		}
+		if err := outputschema.CheckOpenAIStrict(r.OutputSchema); err != nil {
+			return llm.Request{}, wire.unsupported("%v", err)
+		}
+	}
 	r, changes, err := providercontent.Adapt(r, wire.origin)
 	if err != nil {
 		return llm.Request{}, err
@@ -180,6 +201,16 @@ func (p *Client) Prepare(
 	}
 	if r.System != "" {
 		body["instructions"] = r.System
+	}
+	if len(r.OutputSchema) > 0 {
+		body["text"] = map[string]any{
+			"format": map[string]any{
+				"type":   "json_schema",
+				"name":   "dashi_output",
+				"strict": true,
+				"schema": r.OutputSchema,
+			},
+		}
 	}
 	if n := r.Settings.MaxTokens; n > 0 {
 		body["max_output_tokens"] = n
@@ -302,9 +333,10 @@ func (p *Client) Prepare(
 // effort levels, not token budgets, and an output limit for every model.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
-		llm.FeatureCitations:       llm.SupportUnsupported,
-		llm.FeatureMaxTokens:       llm.SupportSupported,
-		llm.FeatureReasoningBudget: llm.SupportUnsupported,
+		llm.FeatureCitations:        llm.SupportUnsupported,
+		llm.FeatureMaxTokens:        llm.SupportSupported,
+		llm.FeatureReasoningBudget:  llm.SupportUnsupported,
+		llm.FeatureStructuredOutput: llm.SupportSupported,
 	},
 	ReasoningEfforts: []string{
 		"none",
@@ -356,6 +388,9 @@ func (p *Client) Send(
 		if callErr == nil {
 			callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
 		}
+		if callErr == nil && len(prepared.Input().OutputSchema) > 0 {
+			callErr = wire.validateOutput(&result, prepared.Input().OutputSchema)
+		}
 		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
@@ -366,7 +401,56 @@ func (p *Client) Send(
 	if callErr == nil {
 		callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
 	}
+	if callErr == nil && len(prepared.Input().OutputSchema) > 0 {
+		callErr = wire.validateOutput(&result, prepared.Input().OutputSchema)
+	}
 	return result, callErr
+}
+
+// validateOutput runs only after transport completion. A decoded terminal
+// response can still be followed by a total-timeout failure from Complete.
+func (wire codec) validateOutput(
+	result *llm.Result,
+	rawSchema json.RawMessage,
+) error {
+	if result.Stop.Kind != llm.StopFinished {
+		return nil
+	}
+	var raw json.RawMessage
+	for _, part := range result.Message.Content {
+		if part.Block == nil || part.Block.Text == nil {
+			continue
+		}
+		if raw != nil {
+			return providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"output_schema: final response contains multiple text parts",
+			)
+		}
+		raw = json.RawMessage(strings.TrimSpace(part.Block.Text.Text))
+	}
+	if raw == nil {
+		return providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"output_schema: final response contains no text object",
+		)
+	}
+	schema, err := outputschema.Compile(rawSchema)
+	if err == nil {
+		err = outputschema.Validate(schema, raw)
+	}
+	if err != nil {
+		return providerhttp.Failure(
+			wire.origin.Provider,
+			llm.ErrorProtocol,
+			"output_schema: %w",
+			err,
+		)
+	}
+	result.Output = slices.Clone(raw)
+	return nil
 }
 
 // codec carries call-specific provenance through encoding and decoding.

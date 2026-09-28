@@ -244,6 +244,13 @@ func (p *Client) Prepare(
 			err,
 		)
 	}
+	if len(input.OutputSchema) > 0 {
+		return llm.Request{}, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorUnsupported,
+			"output_schema is not supported by this route",
+		)
+	}
 	if !p.config.Vertex {
 		_, version, _ := sdkEndpoint(p.config.Endpoint, false)
 		if version == "v1" && hasClientFunctionCalls(input) {

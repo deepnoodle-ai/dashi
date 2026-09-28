@@ -168,6 +168,9 @@ func (p *Client) Prepare(
 			err,
 		)
 	}
+	if len(r.OutputSchema) > 0 {
+		return llm.Request{}, wire.unsupported("output_schema is not supported by this route")
+	}
 	r, changes, err := providercontent.Adapt(r, wire.origin)
 	if err != nil {
 		return llm.Request{}, err

@@ -5,6 +5,7 @@ package meta
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 
@@ -35,6 +36,28 @@ type Client struct {
 }
 
 var _ llm.Client = (*Client)(nil)
+
+// Prepare rejects OpenAI-specific native formatting on the Meta route.
+func (c *Client) Prepare(ctx context.Context, input llm.Input) (llm.Request, error) {
+	if err := ctx.Err(); err != nil {
+		return llm.Request{}, err
+	}
+	if len(input.OutputSchema) > 0 {
+		if err := input.Validate(); err != nil {
+			return llm.Request{}, &llm.Error{
+				Provider: "meta",
+				Category: llm.ErrorInvalidRequest,
+				Cause:    err,
+			}
+		}
+		return llm.Request{}, &llm.Error{
+			Provider: "meta",
+			Category: llm.ErrorUnsupported,
+			Cause:    errors.New("meta: native output_schema is not qualified for this route"),
+		}
+	}
+	return c.Client.Prepare(ctx, input)
+}
 
 // New uses MODEL_API_KEY, then META_API_KEY, when no explicit key is supplied.
 func New(config Config) (*Client, error) {

@@ -72,6 +72,8 @@ const (
 	// document. APIs that cannot request citations declare it unsupported,
 	// and Fit omits the setting; elsewhere it is checked like any feature.
 	FeatureCitations Feature = "citations"
+	// FeatureStructuredOutput describes native JSON Schema response formatting.
+	FeatureStructuredOutput Feature = "structured_output"
 )
 
 // HostedToolFeature scopes model evidence to a provider's wire tool type.
@@ -231,7 +233,7 @@ func knownFeature(f Feature) bool {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
 		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming,
-		FeatureCitations:
+		FeatureCitations, FeatureStructuredOutput:
 		return true
 	}
 	return strings.HasPrefix(string(f), "hosted_tool:") &&
@@ -260,6 +262,9 @@ func requestedFeatures(r Input) []Feature {
 	}
 	if r.Stream {
 		add(FeatureStreaming)
+	}
+	if len(r.OutputSchema) > 0 {
+		add(FeatureStructuredOutput)
 	}
 	if len(r.Tools) > 0 {
 		add(FeatureTools)
