@@ -1,0 +1,148 @@
+{
+ "created_at": 1790618371,
+ "completed_at": 1790618372,
+ "id": "cab8df01-7691-9b0a-82e8-83cf6279a34d",
+ "max_output_tokens": null,
+ "model": "grok-4.20-0309-non-reasoning",
+ "object": "response",
+ "output": [
+  {
+   "id": "ws_cab8df01-7691-9b0a-82e8-83cf6279a34d_call-33bbb7d6-e333-46be-a63d-afcfaff7d789-0",
+   "type": "web_search_call",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "query": "latest Go release",
+    "sources": [
+     {
+      "type": "url",
+      "url": "https://releasealert.dev/github/golang/go"
+     },
+     {
+      "type": "url",
+      "url": "https://dev.golang.org/release"
+     }
+    ]
+   }
+  },
+  {
+   "call_id": "xs_call-33bbb7d6-e333-46be-a63d-afcfaff7d789-1",
+   "input": "{\"query\":\"from:golang\",\"limit\":\"1\",\"mode\":\"Latest\"}",
+   "name": "x_keyword_search",
+   "type": "custom_tool_call",
+   "id": "ctc_cab8df01-7691-9b0a-82e8-83cf6279a34d_call-33bbb7d6-e333-46be-a63d-afcfaff7d789-1",
+   "status": "completed"
+  },
+  {
+   "id": "tco_cab8df01-7691-9b0a-82e8-83cf6279a34d_call-33bbb7d6-e333-46be-a63d-afcfaff7d789-0",
+   "summary": [],
+   "type": "reasoning",
+   "status": "completed"
+  },
+  {
+   "id": "tco_cab8df01-7691-9b0a-82e8-83cf6279a34d_call-33bbb7d6-e333-46be-a63d-afcfaff7d789-1",
+   "summary": [],
+   "type": "reasoning",
+   "status": "completed"
+  },
+  {
+   "content": [
+    {
+     "type": "output_text",
+     "text": "Latest Go release is 1.27.1 (Sep 2026).[[1]](https://releasealert.dev/github/golang/go)\n@golang recently posted about Rob Pike's USENIX award.[[2]](https://x.com/golang/status/2092990941174919595)",
+     "logprobs": [],
+     "annotations": [
+      {
+       "type": "url_citation",
+       "url": "https://releasealert.dev/github/golang/go",
+       "start_index": 39,
+       "end_index": 87,
+       "title": "1"
+      },
+      {
+       "type": "url_citation",
+       "url": "https://x.com/golang/status/2092990941174919595",
+       "start_index": 142,
+       "end_index": 196,
+       "title": "2"
+      }
+     ]
+    }
+   ],
+   "id": "msg_cab8df01-7691-9b0a-82e8-83cf6279a34d",
+   "role": "assistant",
+   "type": "message",
+   "status": "completed"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "previous_response_id": null,
+ "reasoning": {
+  "effort": null,
+  "summary": null
+ },
+ "temperature": 0.7,
+ "text": {
+  "format": {
+   "type": "text"
+  }
+ },
+ "tool_choice": "auto",
+ "tools": [
+  {
+   "type": "web_search",
+   "search_context_size": "medium"
+  },
+  {
+   "type": "x_search"
+  }
+ ],
+ "top_p": 0.95,
+ "usage": {
+  "input_tokens": 7870,
+  "input_tokens_details": {
+   "cached_tokens": 3264
+  },
+  "output_tokens": 88,
+  "output_tokens_details": {
+   "reasoning_tokens": 0
+  },
+  "total_tokens": 7958,
+  "num_sources_used": 0,
+  "num_server_side_tools_used": 2,
+  "cost_in_usd_ticks": 166303000,
+  "server_side_tool_usage_details": {
+   "web_search_calls": 1,
+   "x_search_calls": 1,
+   "x_posts_fetched": 1,
+   "x_users_fetched": 0,
+   "code_interpreter_calls": 0,
+   "file_search_calls": 0,
+   "mcp_calls": 0,
+   "document_search_calls": 0,
+   "image_generation_calls": 0
+  },
+  "context_details": {
+   "input_tokens": 6012,
+   "output_tokens": 55
+  }
+ },
+ "user": null,
+ "incomplete_details": null,
+ "status": "completed",
+ "store": false,
+ "metadata": {
+  "system_fingerprint": "fp_41d52165d8"
+ },
+ "background": false,
+ "service_tier": "default",
+ "truncation": "disabled",
+ "top_logprobs": 0,
+ "presence_penalty": 0.0,
+ "frequency_penalty": 0.0,
+ "prompt_cache_key": null,
+ "max_tool_calls": null,
+ "safety_identifier": null,
+ "error": null,
+ "instructions": null
+}

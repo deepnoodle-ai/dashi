@@ -1,0 +1,201 @@
+{
+ "id": "resp_02e5c31825fa0c1d016abaaaf1623487d28e610f566fc1fb84",
+ "object": "response",
+ "created_at": 1790618353,
+ "status": "completed",
+ "access_programs": null,
+ "background": false,
+ "billing": {
+  "payer": "developer"
+ },
+ "completed_at": 1790618370,
+ "error": null,
+ "frequency_penalty": 0.0,
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": null,
+ "max_tool_calls": null,
+ "model": "gpt-5-nano-2025-08-07",
+ "moderation": null,
+ "output": [
+  {
+   "id": "rs_02e5c31825fa0c1d016abaaaf1f7e887d2a0e0da50a436c395",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ws_02e5c31825fa0c1d016abaaaf2e9f887d2990ce99b07e26fd1",
+   "type": "web_search_call",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "queries": [
+     "latest stable Go release version",
+     "go.dev release history"
+    ],
+    "query": "latest stable Go release version",
+    "sources": [
+     {
+      "type": "url",
+      "url": "https://go.dev/doc/devel/release"
+     },
+     {
+      "type": "url",
+      "url": "https://go.dev/doc/go1.27"
+     }
+    ]
+   }
+  },
+  {
+   "id": "rs_02e5c31825fa0c1d016abaaaf5681087d2affbcc64055bd1f0",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ws_02e5c31825fa0c1d016abaaaf6154087d296a7a12b44c44e8c",
+   "type": "web_search_call",
+   "status": "completed",
+   "action": {
+    "type": "open_page",
+    "url": "https://go.dev/doc/devel/release"
+   }
+  },
+  {
+   "id": "rs_02e5c31825fa0c1d016abaaaf6ac3087d29f4c9133c06a4347",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "ws_02e5c31825fa0c1d016abaaaf872d887d2bc66bda44597f122",
+   "type": "web_search_call",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "queries": [
+     "site:go.dev go1.27.2",
+     "Go 1.27.2 released"
+    ],
+    "query": "site:go.dev go1.27.2",
+    "sources": [
+     {
+      "type": "url",
+      "url": "https://go.dev/doc/go1.27"
+     },
+     {
+      "type": "url",
+      "url": "https://go.dev/doc/devel/release"
+     }
+    ]
+   }
+  },
+  {
+   "id": "rs_02e5c31825fa0c1d016abaaafbed1087d28816a952875312c8",
+   "type": "reasoning",
+   "content": [],
+   "encrypted_content": "trimmed",
+   "summary": []
+  },
+  {
+   "id": "msg_02e5c31825fa0c1d016abaab01bef887d29395b7ce79967dfe",
+   "type": "message",
+   "status": "completed",
+   "content": [
+    {
+     "type": "output_text",
+     "annotations": [
+      {
+       "type": "url_citation",
+       "end_index": 194,
+       "start_index": 150,
+       "title": "Release History - The Go Programming Language",
+       "url": "https://go.dev/doc/devel/release"
+      }
+     ],
+     "logprobs": [],
+     "text": "Go 1.27.1 is the latest stable Go release (released 2026-09-01); the go.dev Release History confirms go1.27.0 (2026-08-19) and go1.27.1 (2026-09-01). ([go.dev](https://go.dev/doc/devel/release))"
+    }
+   ],
+   "role": "assistant"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0.0,
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "prompt_cache_retention": "in_memory",
+ "reasoning": {
+  "context": "current_turn",
+  "effort": "medium",
+  "mode": "standard",
+  "summary": null
+ },
+ "safety_identifier": null,
+ "service_tier": "default",
+ "store": false,
+ "temperature": 1.0,
+ "text": {
+  "format": {
+   "type": "text"
+  },
+  "verbosity": "medium"
+ },
+ "tool_choice": "auto",
+ "tool_usage": {
+  "image_gen": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "image_tokens": 0,
+    "text_tokens": 0
+   },
+   "total_tokens": 0
+  },
+  "web_search": {
+   "num_requests": 2
+  }
+ },
+ "tools": [
+  {
+   "type": "web_search",
+   "return_token_budget": "default",
+   "search_content_types": [
+    "text"
+   ],
+   "search_context_size": "medium",
+   "user_location": {
+    "type": "approximate",
+    "city": null,
+    "country": "US",
+    "region": null,
+    "timezone": null
+   }
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1.0,
+ "truncation": "disabled",
+ "usage": {
+  "input_tokens": 18275,
+  "input_tokens_details": {
+   "cache_write_tokens": 0,
+   "cached_tokens": 0
+  },
+  "output_tokens": 1954,
+  "output_tokens_details": {
+   "reasoning_tokens": 1792
+  },
+  "total_tokens": 20229
+ },
+ "user": null,
+ "metadata": {}
+}

@@ -1,0 +1,197 @@
+{
+ "top_logprobs": 0,
+ "temperature": 1.0,
+ "top_p": 1.0,
+ "service_tier": "auto",
+ "model": "muse-spark-1.3",
+ "reasoning": {
+  "effort": "high"
+ },
+ "background": false,
+ "tools": [
+  {
+   "type": "web_search"
+  }
+ ],
+ "tool_choice": "auto",
+ "truncation": "disabled",
+ "id": "resp_6abaab06bdbf52ce1aa44325",
+ "object": "response",
+ "status": "completed",
+ "created_at": 1790618374.0,
+ "completed_at": 1790618398.0,
+ "error": null,
+ "incomplete_details": null,
+ "output": [
+  {
+   "type": "reasoning",
+   "id": "rs_6abaab06bdbf52ce1aa44325:rs_703f2cc4-725f-4872-b52e-ad0373e87be8",
+   "encrypted_content": "trimmed",
+   "summary": [],
+   "status": "completed"
+  },
+  {
+   "type": "message",
+   "id": "rs_1b99be8b-bb0b-4147-ad21-9ce5abd3082e",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "output_text",
+     "text": "Finding the latest Go and Rust releases \u2014 two quick searches.",
+     "annotations": [],
+     "logprobs": []
+    }
+   ],
+   "phase": "commentary",
+   "status": "completed"
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_915078b8-aa4a-4cdf-9bee-820d9f95d5ed",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "query": "latest stable Go release version"
+   }
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_3882d78f-49ec-443a-88a8-66a45a4861b6",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "query": "latest Rust release version"
+   }
+  },
+  {
+   "type": "reasoning",
+   "id": "rs_6abaab06bdbf52ce1aa44325:rs_866a0754-3b8d-4d23-b4ff-f28b41472a7e",
+   "encrypted_content": "trimmed",
+   "summary": [],
+   "status": "completed"
+  },
+  {
+   "type": "message",
+   "id": "rs_f55fe0a6-7b6c-4580-b952-ac35c774eb61",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "output_text",
+     "text": "First results point to Go 1.27 and Rust 1.97 \u2014 now verifying against official sources.",
+     "annotations": [],
+     "logprobs": []
+    }
+   ],
+   "phase": "commentary",
+   "status": "completed"
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_163b834d-ff13-4032-8668-4626a5e46a7c",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "query": "Go 1.27.1 stable release go.dev download"
+   }
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_058f394f-b5c1-4204-8b94-9cc4d7ea0e88",
+   "status": "completed",
+   "action": {
+    "type": "search",
+    "query": "Rust 1.89 stable release September 2026 site:rust-lang.org"
+   }
+  },
+  {
+   "type": "reasoning",
+   "id": "rs_6abaab06bdbf52ce1aa44325:rs_f5ea522a-14c2-4ab2-a127-3b4bbb35a0a1",
+   "encrypted_content": "trimmed",
+   "summary": [],
+   "status": "completed"
+  },
+  {
+   "type": "message",
+   "id": "rs_d6ce3721-e7d8-4aea-8e52-aa17050fee4e",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "output_text",
+     "text": "Both versions look identified \u2014 now pulling the official announcements for confirmation.",
+     "annotations": [],
+     "logprobs": []
+    }
+   ],
+   "phase": "commentary",
+   "status": "completed"
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_1d8f5757-fcbc-4091-ab8d-d0ce521d6045",
+   "status": "completed",
+   "action": {
+    "type": "open_page",
+    "url": "https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/"
+   }
+  },
+  {
+   "type": "web_search_call",
+   "id": "ws_call_490e40e6-947a-4a58-83f3-2e5f4f82a7fe",
+   "status": "completed",
+   "action": {
+    "type": "open_page",
+    "url": "https://groups.google.com/g/golang-announce/c/QiTRm-HGGtI/m/cpfkLlpMAQAJ"
+   }
+  },
+  {
+   "type": "reasoning",
+   "id": "rs_6abaab06bdbf52ce1aa44325:rs_3c766059-d682-4cf1-b24e-1aed01b6fc1e",
+   "encrypted_content": "trimmed",
+   "summary": [],
+   "status": "completed"
+  },
+  {
+   "type": "message",
+   "id": "msg_fdda6489-05bf-41ae-9c6b-412a439b3c8f",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "output_text",
+     "text": "Latest stable Go is Go 1.27.1.\nLatest Rust release is Rust 1.98.1.",
+     "annotations": [
+      {
+       "type": "url_citation",
+       "url": "https://groups.google.com/g/golang-announce/c/QiTRm-HGGtI/m/cpfkLlpMAQAJ",
+       "start_index": 0,
+       "end_index": 29,
+       "title": "Go 1.27.1 and Go 1.26.8 are released"
+      },
+      {
+       "type": "url_citation",
+       "url": "https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/",
+       "start_index": 31,
+       "end_index": 65,
+       "title": "Announcing Rust 1.98.1 | Rust Blog"
+      }
+     ],
+     "logprobs": []
+    }
+   ],
+   "status": "completed"
+  }
+ ],
+ "instructions": null,
+ "usage": {
+  "input_tokens": 18161,
+  "input_tokens_details": {
+   "cached_tokens": 8784
+  },
+  "output_tokens": 1608,
+  "output_tokens_details": {
+   "reasoning_tokens": 1084
+  },
+  "total_tokens": 19769
+ },
+ "parallel_tool_calls": true,
+ "store": false
+}
