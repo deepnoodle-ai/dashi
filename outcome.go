@@ -37,7 +37,9 @@ const (
 	PendingApproval PendingKind = "approval"
 	// PendingTool is a local call that started, waits for an external
 	// result, or has an uncertain effect; Tool.Status says which. Report
-	// its result with Result.
+	// its result with Result. Continue also recovers a started call: it
+	// reruns a call declared read-only or idempotent and marks any other
+	// uncertain.
 	PendingTool PendingKind = "tool"
 	// PendingModel is a model attempt without a recorded result. Continue
 	// recovers it, or Settle reconciles it with a ModelResult or
@@ -125,8 +127,7 @@ func (p Pending) answer(approve bool, reason string) Settle {
 // RequireApproval returns a policy that allows local and external tools and
 // defers each call to one of the named tools until a host answers it with
 // Pending.Approve or Pending.Deny. The deferral's revision is derived from
-// the names, so an answer given under one list cannot authorize a call
-// deferred under another.
+// the names; it records which list deferred the call.
 func RequireApproval(tools ...string) Policy {
 	names := slices.Clone(tools)
 	slices.Sort(names)
@@ -197,7 +198,7 @@ func commitError(step Step, err error) *CommitError {
 	out := &CommitError{Persistence: PersistenceUnknown, Step: &step, Err: err}
 	var ce *CommitError
 	if errors.As(err, &ce) {
-		out.Persistence = ce.Persistence
+		out.Persistence = cmp.Or(ce.Persistence, PersistenceUnknown)
 		if e, ok := err.(*CommitError); ok {
 			out.Err = e.Err
 		}

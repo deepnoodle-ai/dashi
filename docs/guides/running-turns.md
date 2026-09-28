@@ -52,8 +52,9 @@ recovers turns checks, in order: `errors.Is(err, dashi.ErrRevisionConflict)`
 (another worker owns the turn; reload and back off), then
 `errors.As(err, &commitErr)` for a `*dashi.CommitError` (the run executed, but
 `commitErr.Step` was not recorded; recover as after a crash). Any other error
-means the command was rejected and nothing was recorded. A failed or limited
-turn is not an error; see `out.Stop`. `out.Turn.Citations()` and
+means the command was rejected and nothing was recorded, except
+`ErrRecordInvalid`: steps this run recorded fail replay, a bug to report. A
+failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()` and
 `out.Turn.HostedUses()` collect sources and provider-run tool calls from every
 model call in the turn.
 
@@ -68,6 +69,9 @@ its own answer ([example](../../examples/durable_approval/main.go)):
 
 ```go
 for _, p := range out.Pending {
+	if p.Kind != dashi.PendingApproval {
+		continue
+	}
 	answer := p.Deny("The operator declined.")
 	if approved(p.Name, p.Args) {
 		answer = p.Approve()
@@ -84,7 +88,9 @@ policy revision that deferred the call. `Result(outcome)` reports the result of
 a waiting external call the same way. Each builder derives its command ID from
 the call, so a retried answer is a duplicate and a different second answer
 fails with `ErrCommandConflict`. `Settle` only records; `Continue` runs the
-approved calls and returns `ErrNotReady` while any call is unanswered.
+approved calls and returns `ErrNotReady` while any call is unanswered. Once
+every call is answered, `out.Pending` is empty and `out.ReadyToContinue` is
+true, but `out.Stop` still says waiting until `Continue` runs.
 
 ## Prior conversation
 
@@ -187,8 +193,8 @@ while its usage still counts toward spend. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
 `Continue`. `Settle` only records, including for approvals and external tool
-results. `Outcome.ReadyToContinue` and the replayed turn's `TurnView.ReadyToContinue`
-show when no unresolved effect blocks the next `Continue`. The host's sweeper
+results. `Outcome.ReadyToContinue` and the replayed turn's
+`TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
 
 The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after

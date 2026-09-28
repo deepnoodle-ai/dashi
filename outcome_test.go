@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -340,7 +341,8 @@ func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
 
 type viewRecordingPolicy struct {
 	AllowLocalPolicy
-	stops *[]Stop
+	stops      *[]Stop
+	authorized *int
 }
 
 func (p viewRecordingPolicy) BeforeModel(
@@ -349,6 +351,16 @@ func (p viewRecordingPolicy) BeforeModel(
 ) (ModelDecision, error) {
 	*p.stops = append(*p.stops, plan.Turn.Stop)
 	return ModelDecision{}, nil
+}
+
+func (p viewRecordingPolicy) AuthorizeTool(
+	ctx context.Context,
+	call tool.Call,
+	view TurnView,
+) (ToolDecision, error) {
+	*p.stops = append(*p.stops, view.Stop)
+	*p.authorized++
+	return p.AllowLocalPolicy.AuthorizeTool(ctx, call, view)
 }
 
 func (p viewRecordingPolicy) OnStop(
@@ -361,15 +373,20 @@ func (p viewRecordingPolicy) OnStop(
 
 func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "work"),
 		final("paused"),
 		final("done"),
 	}}
-	client.results[0].Stop = llm.Stop{Kind: llm.StopPause}
+	client.results[1].Stop = llm.Stop{Kind: llm.StopPause}
 	var stops []Stop
+	runs, authorized := 0, 0
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
 	runner := Runner{
-		Agent:  testAgent(),
+		Agent:  agent,
 		Client: client,
-		Policy: viewRecordingPolicy{stops: &stops},
+		Tools:  tool.List{countingTool("work", &runs)},
+		Policy: viewRecordingPolicy{stops: &stops, authorized: &authorized},
 	}
 	out, err := runner.Run(
 		t.Context(),
@@ -379,8 +396,8 @@ func TestPolicyViewStopIsEmptyMidRun(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if len(stops) == 0 {
-		t.Fatal("policy saw no views")
+	if len(stops) == 0 || authorized != 1 || runs != 1 {
+		t.Fatalf("views=%d authorized=%d runs=%d", len(stops), authorized, runs)
 	}
 	for _, stop := range stops {
 		if stop.Kind != "" {
@@ -511,10 +528,11 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 	result := llm.Content{
 		Kind: llm.ContentHostedResult,
 		HostedResult: &llm.HostedResult{
-			CallID: "u1",
-			Type:   "web_search_tool_result",
-			Origin: fixtureOrigin,
-			Output: []content.Block{content.TextBlock("page")},
+			CallID:  "u1",
+			Type:    "web_search_tool_result",
+			Origin:  fixtureOrigin,
+			Output:  []content.Block{content.TextBlock("page")},
+			IsError: true,
 		},
 	}
 	interrupted := settledStep(llm.Result{
@@ -549,10 +567,235 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 	if len(uses) != 2 || uses[0].ID != "u1" || uses[1].ID != "u2" {
 		t.Fatalf("hosted uses=%+v", uses)
 	}
-	if len(uses[0].Output) != 1 || uses[0].Output[0].Text.Text != "page" {
+	if len(uses[0].Output) != 1 ||
+		uses[0].Output[0].Text.Text != "page" ||
+		!uses[0].IsError {
 		t.Fatalf("hosted result was not paired: %+v", uses[0].Output)
 	}
 	if got := answerText(turn.Steps); got != "A\n\nB" {
 		t.Fatalf("answer across a pause=%q", got)
+	}
+}
+
+func TestPendingItemsListOnlyHostWork(t *testing.T) {
+	s := &replayState{
+		TurnView: TurnView{Tools: map[string]ToolView{}},
+		hosted:   map[string]llm.HostedApprovalRequest{},
+	}
+	statuses := []ToolStatus{
+		ToolRequested,
+		ToolAllowed,
+		ToolDenied,
+		ToolStarted,
+		ToolWaiting,
+		ToolUncertain,
+		ToolApprovalPending,
+		ToolSettled,
+	}
+	for _, status := range statuses {
+		id := string(status)
+		s.Tools[id] = ToolView{Call: tool.Call{ID: id, Name: "work"}, Status: status}
+		s.callOrder = append(s.callOrder, id)
+	}
+	// Hosted requests keep the model's order, not map order.
+	for _, id := range []string{"h9", "h1", "h5"} {
+		s.hosted[id] = llm.HostedApprovalRequest{ID: id, Name: "remote"}
+		s.hostedOrder = append(s.hostedOrder, id)
+	}
+	s.modelIntent = "attempt-1"
+	got := strings.Join(pendingIDs(s.pendingItems()), ",")
+	want := "attempt-1,started,waiting,uncertain,approval_pending,h9,h1,h5"
+	if got != want {
+		t.Fatalf("pending=%s, want %s", got, want)
+	}
+	kinds := map[string]PendingKind{}
+	for _, p := range s.pendingItems() {
+		kinds[p.ID] = p.Kind
+	}
+	if kinds["attempt-1"] != PendingModel ||
+		kinds["uncertain"] != PendingTool ||
+		kinds["approval_pending"] != PendingApproval ||
+		kinds["h1"] != PendingApproval {
+		t.Fatalf("kinds=%v", kinds)
+	}
+}
+
+func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
+	s := &replayState{
+		TurnView: TurnView{Tools: map[string]ToolView{
+			"a": {Call: tool.Call{ID: "a"}, Status: ToolRequested},
+		}},
+		callOrder: []string{"a"},
+	}
+	s.Pending = s.pendingItems()
+	if len(s.Pending) != 0 {
+		t.Fatalf("requested call listed as host work: %v", s.Pending)
+	}
+	if stop := s.projectedStop(); stop.Kind != StopInterrupted {
+		t.Fatalf("stop=%+v", stop)
+	}
+	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolSettled}
+	if stop := s.projectedStop(); stop.Kind != "" {
+		t.Fatalf("settled turn without a stop step projected %+v", stop)
+	}
+}
+
+func TestRequireApprovalDefersNamedTools(t *testing.T) {
+	policy := RequireApproval("b", "a", "a")
+	named, err := policy.AuthorizeTool(t.Context(), tool.Call{Name: "a"}, TurnView{})
+	if err != nil ||
+		named.Kind != DecisionDefer ||
+		named.Revision != "require-approval:a,b" {
+		t.Fatalf("named decision=%+v err=%v", named, err)
+	}
+	other, err := policy.AuthorizeTool(t.Context(), tool.Call{Name: "c"}, TurnView{})
+	if err != nil || other.Kind != DecisionAllow {
+		t.Fatalf("other decision=%+v err=%v", other, err)
+	}
+	single, _ := RequireApproval("a").AuthorizeTool(
+		t.Context(),
+		tool.Call{Name: "a"},
+		TurnView{},
+	)
+	if single.Revision == named.Revision {
+		t.Fatal("different tool lists share a revision")
+	}
+}
+
+func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
+	t.Helper()
+	client := &scriptedClient{results: []llm.Result{
+		toolUse(toolCall("call-1", "deploy", `{}`)),
+		final("understood"),
+	}}
+	runs := 0
+	runner := Runner{
+		Agent:  testAgent(),
+		Client: client,
+		Tools:  tool.List{countingTool("deploy", &runs)},
+		Policy: RequireApproval("deploy"),
+	}
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Deny(reason)); err != nil {
+		t.Fatal(err)
+	}
+	return out, client
+}
+
+func TestDenialKeepsPolicyDecisionAndRecordsAnswer(t *testing.T) {
+	out, _ := deniedDeploy(t, "No.")
+	call := out.Tools["call-1"]
+	if call.Status != ToolDenied ||
+		call.Decision.Kind != DecisionDefer ||
+		call.Decision.Revision != "require-approval:deploy" {
+		t.Fatalf("policy decision changed: %+v", call.Decision)
+	}
+	if call.Approval == nil || call.Approval.Approve || call.Approval.Reason != "No." {
+		t.Fatalf("recorded answer=%+v", call.Approval)
+	}
+}
+
+func TestEmptyDenialReasonGivesDefaultText(t *testing.T) {
+	out, client := deniedDeploy(t, "")
+	done, err := (Runner{
+		Agent:  testAgent(),
+		Client: client,
+		Tools:  tool.List{countingTool("deploy", new(int))},
+		Policy: RequireApproval("deploy"),
+	}).Run(t.Context(), out.Turn, Continue{CommandID: "c"})
+	if err != nil || done.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", done.Stop, err)
+	}
+	result := done.Tools["call-1"].Outcome
+	if result == nil || result.Output == nil ||
+		result.Output.Content[0].Text.Text != "The call was denied." {
+		t.Fatalf("denied result=%+v", result)
+	}
+}
+
+func TestReplayRejectsStaleApprovalStep(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{
+		toolUse(toolCall("call-1", "deploy", `{}`)),
+	}}
+	out, err := (Runner{
+		Agent:  testAgent(),
+		Client: client,
+		Tools:  tool.List{countingTool("deploy", new(int))},
+		Policy: RequireApproval("deploy"),
+	}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact := out.Pending[0].Approve().Approval
+	fact.ArgsDigest = ArgsDigest([]byte(`{"other":true}`))
+	turn := cloneTurn(out.Turn)
+	turn.Steps = append(turn.Steps, Step{
+		Version:       1,
+		TurnID:        "t1",
+		Seq:           int64(len(turn.Steps) + 1),
+		Kind:          StepApprovalSettled,
+		CommandID:     "forged",
+		CommandDigest: "forged",
+		Approval:      fact,
+	})
+	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("replay accepted a stale approval: %v", err)
+	}
+}
+
+func TestCorruptRecordAfterCommitIsDistinct(t *testing.T) {
+	rt := &runtime{turn: Turn{ID: "t1", Steps: []Step{{Kind: StepStopped}}}}
+	out := rt.current()
+	if !errors.Is(rt.err, ErrRecordInvalid) || !errors.Is(rt.err, ErrInvalidTurn) {
+		t.Fatalf("err=%v", rt.err)
+	}
+	if !recorded(rt.err) {
+		t.Fatal("a corrupt record after commits reads as a rejected command")
+	}
+	if len(out.Turn.Steps) != 1 {
+		t.Fatalf("outcome dropped the recorded steps: %+v", out.Turn)
+	}
+	// A caller's invalid turn is a rejected command, not ErrRecordInvalid.
+	_, err := (Runner{Agent: testAgent(), Client: &scriptedClient{}}).Run(
+		t.Context(),
+		rt.turn,
+		Continue{CommandID: "c"},
+	)
+	if !errors.Is(err, ErrInvalidTurn) || errors.Is(err, ErrRecordInvalid) {
+		t.Fatalf("input turn err=%v", err)
+	}
+}
+
+type wrappingRecorder struct{ base *MemoryRecorder }
+
+func (r wrappingRecorder) Commit(ctx context.Context, req CommitRequest) error {
+	if req.Step.Kind == StepModelIntent {
+		return fmt.Errorf("pg: %w", &CommitError{
+			Persistence: PersistenceRejected,
+			Err:         errors.New("fence"),
+		})
+	}
+	return r.base.Commit(ctx, req)
+}
+
+func TestWrappedRecorderCommitErrorIsNotRepeated(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("unused")}}
+	_, err := start(t, client, nil, wrappingRecorder{NewMemoryRecorder()}, nil)
+	if persistence(err) != PersistenceRejected || unacknowledged(err) == nil {
+		t.Fatalf("err=%v", err)
+	}
+	if n := strings.Count(err.Error(), "rejected"); n != 1 {
+		t.Fatalf("message repeats its persistence: %q", err.Error())
 	}
 }

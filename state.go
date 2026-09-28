@@ -45,6 +45,9 @@ type ToolView struct {
 	// Call.Args by JSON meaning; echo it in ApprovalFact.ArgsDigest to approve
 	// or deny exactly the arguments shown.
 	ArgsDigest string
+	// Approval is the host's answer to a deferred call, recorded by Settle.
+	// Decision remains the policy's deferral.
+	Approval *ApprovalFact
 }
 
 // TurnView is the current state reconstructed from acknowledged steps.
@@ -72,8 +75,10 @@ type TurnView struct {
 	// view is taken mid-run, so its Stop is empty.
 	Stop   Stop
 	Output *StructuredOutput
-	// Answer is the text of the latest assistant answer. A turn can finish
-	// valid tool-only work with no answer text.
+	// Answer is the text of the latest assistant message. On a completed
+	// turn it is the final answer, and valid tool-only work can leave it
+	// empty; on a waiting turn it is text the model wrote alongside its
+	// tool calls.
 	Answer string
 	// Pending lists the work awaiting a host action or settlement: model
 	// attempts, then local calls in call order, then hosted approval
@@ -740,15 +745,15 @@ func (s *replayState) apply(step Step) error {
 			v.Decision.Revision != step.Approval.PolicyRevision {
 			return errors.New("stale approval")
 		}
-		// The answer becomes the call's final decision, so a denial's
-		// reason reaches the model when Continue settles the call.
-		v.Decision.Reason = step.Approval.Reason
-		if step.Approval.Approve {
+		// Decision stays the policy's; the host's answer is kept beside it,
+		// so a denial's reason reaches the model when Continue settles the
+		// call.
+		answer := *step.Approval
+		v.Approval = &answer
+		if answer.Approve {
 			v.Status = ToolAllowed
-			v.Decision.Kind = DecisionAllow
 		} else {
 			v.Status = ToolDenied
-			v.Decision.Kind = DecisionDeny
 		}
 		s.Tools[v.Call.ID] = v
 	case StepHostedApprovalSettled:

@@ -346,8 +346,9 @@ type ApprovalFact struct {
 	Approve bool   `json:"approve"`
 	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
 	// not bytes. Pending.Approve copies it from ToolView.ArgsDigest; a host
-	// can compute it with ArgsDigest from the arguments that were shown. Bare-hex digests from before canonical hashing are still
-	// accepted, but only while the arguments keep their original bytes.
+	// can compute it with ArgsDigest from the arguments that were shown.
+	// Bare-hex digests from before canonical hashing are still accepted,
+	// but only while the arguments keep their original bytes.
 	ArgsDigest     string `json:"args_digest"`
 	PolicyRevision string `json:"policy_revision"`
 	// Reason explains a denial. The next Continue gives it to the model as
@@ -521,6 +522,10 @@ var (
 	// ErrNotReady rejects a Continue on a turn that cannot run yet. The
 	// wrapped message names the calls the turn waits on, or its stop.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
+	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug
+	// in the runner or recorder. Unlike a rejected command, something was
+	// recorded. Run wraps it together with ErrInvalidTurn.
+	ErrRecordInvalid = errors.New("dashi: recorded steps fail replay")
 )
 
 func cloneStep(s Step) Step {

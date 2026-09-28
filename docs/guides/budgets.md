@@ -38,9 +38,9 @@ provider-hosted tools also stops before dispatch, since its cost cannot be
 bounded; so does one without an output limit, which happens only under the
 strict capability policy when the model's `max_tokens` support is unknown.
 
-`Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token totals, model costs by currency, counts of
-calls with estimated usage, and counts of calls with unknown or
-incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
+`Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token
+totals, model costs by currency, counts of calls with estimated usage, and
+counts of calls with unknown or incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
 by currency. Each settled model fact records its `Charge`; the intent records
 `AtRisk`. When final usage is missing, Dashi preserves streamed counts,
 fills absent input from the prepared request, and counts the greater of

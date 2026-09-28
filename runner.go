@@ -150,8 +150,12 @@ func (r Runner) Stream(
 //   - *CommitError: the run executed, but CommitError.Step was not saved,
 //     or may have been. The Outcome holds the steps this run knows were
 //     saved; see CommitError.
+//   - ErrRecordInvalid (which also matches ErrInvalidTurn): steps this run
+//     recorded fail replay, a bug in the runner or recorder. Something was
+//     recorded; the Outcome holds the steps without a view.
 //   - any other error: the command was rejected and nothing was recorded.
-//     The Outcome is the caller's turn and its view, unchanged.
+//     The Outcome is the caller's turn and its view, unchanged. An invalid
+//     input turn gives ErrInvalidTurn alone.
 //
 // Run requests streamed model output only when the Runner has an Observer,
 // which is then the only consumer of deltas.
@@ -186,7 +190,7 @@ func (r Runner) run(
 func recorded(err error) bool {
 	var ce *CommitError
 	return errors.As(err, &ce) && ce.Step != nil ||
-		errors.Is(err, errRecordInvalid)
+		errors.Is(err, ErrRecordInvalid)
 }
 
 func (r Runner) apply(
@@ -764,15 +768,11 @@ func cloneEvent(event Event) Event {
 	return event
 }
 
-// errRecordInvalid marks a run whose own acknowledged record fails replay,
-// which is a bug in the runner or recorder rather than a turn result.
-var errRecordInvalid = errors.New("dashi: recorded steps fail replay")
-
 func (r *runtime) current() Outcome {
 	s, e := replay(r.turn)
 	if e != nil {
 		if r.err == nil {
-			r.err = fmt.Errorf("%w: %w: %v", errRecordInvalid, ErrInvalidTurn, e)
+			r.err = fmt.Errorf("%w: %w: %v", ErrRecordInvalid, ErrInvalidTurn, e)
 		}
 		return Outcome{Turn: cloneTurn(r.turn)}
 	}

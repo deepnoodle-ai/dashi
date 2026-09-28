@@ -26,6 +26,9 @@ type deployArgs struct {
 
 func main() {
 	log.SetFlags(0)
+	if os.Getenv("ANTHROPIC_MODEL") == "" || os.Getenv("ANTHROPIC_API_KEY") == "" {
+		log.Fatal("durable_approval: set ANTHROPIC_MODEL and ANTHROPIC_API_KEY")
+	}
 	ctx := context.Background()
 	client, err := messages.New(messages.Config{})
 	if err != nil {

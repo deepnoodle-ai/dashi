@@ -38,7 +38,8 @@ never mutated), so the message is not doubled. Check in this order:
    invalid input turn gives `Outcome{Turn: turn}`.
 
 If the runner's own record fails to replay after a commit (a bug), `Run`
-returns an `ErrInvalidTurn` error instead of a failed stop that looks recorded.
+returns `ErrRecordInvalid`, which also matches `ErrInvalidTurn`, with the
+recorded steps; a caller's invalid input turn gives `ErrInvalidTurn` alone.
 `Stream` yields its final `Outcome` with the same error in one pair. Execution
 failures stay in `Outcome.Stop`: a failed or limited turn is a result.
 `Continue` on a turn that is not ready returns `ErrNotReady`, wrapped with the
@@ -107,9 +108,9 @@ separate (decision 18); a combined command is deferred.
 **4. A denial carries its reason to the model (8.2).** `ApprovalFact` gains
 `Reason`. `Settle` records only the approval, as decision 18 intends; today
 it also writes an uncommanded `tool_settled` step, and a crash between the two
-writes loses the operator's reason. Replay turns a denial into the call's
-final decision (`ToolDecision{Kind: DecisionDeny, Reason: reason}`), and the
-next `Continue` settles the call as not executed with the reason as its
+writes loses the operator's reason. Replay keeps the policy's decision and
+records the answer beside it in `ToolView.Approval`, and the next `Continue`
+settles the call as not executed with the reason as its
 output. The model sees that text as the tool result; an empty reason from an
 approval or a policy gives `The call was denied.`
 
@@ -149,6 +150,9 @@ runner.Policy = dashi.RequireApproval("deploy")
 out, err := runner.Run(ctx, dashi.NewTurn("deploy"), start)
 for err == nil && out.Stop.Kind == dashi.StopWaiting {
 	for _, p := range out.Pending {
+		if p.Kind != dashi.PendingApproval {
+			continue
+		}
 		answer := p.Deny("The operator declined.")
 		if ask(p.Name, p.Args) {
 			answer = p.Approve()

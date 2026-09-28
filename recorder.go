@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -103,6 +104,16 @@ type CommitError struct {
 }
 
 func (e *CommitError) Error() string {
+	var inner *CommitError
+	if e.Step != nil && errors.As(e.Err, &inner) {
+		// The recorder's own CommitError already names the persistence.
+		return fmt.Sprintf(
+			"dashi: step %d (%s) not recorded: %v",
+			e.Step.Seq,
+			e.Step.Kind,
+			e.Err,
+		)
+	}
 	if e.Step != nil {
 		return fmt.Sprintf(
 			"dashi: %s commit of step %d (%s): %v",
