@@ -21,11 +21,12 @@ once at dispatch, commit the settled step with the panic value as the reason,
 and stop the turn as uncertain. Nothing is re-run.
 
 **3. Live updates use three delivery classes and a cursor.** Decided in
-direction. Committed steps are never dropped; previews are lossy and a gap
-signal tells the consumer to resync; UIs follow the record by `Seq` through a
-read-after-cursor path so several readers can replay independently and a
-disconnect never cancels work. The backend shape is open and should be the
-simplest thing that meets those properties; a design note precedes the code.
+direction; proposal in [live-delivery.md](live-delivery.md). Committed steps are
+never dropped; previews are lossy and a gap signal tells the consumer to resync;
+UIs follow the record by `Seq` through a read-after-cursor path so several
+readers can replay independently and a disconnect never cancels work. The
+backend shape is open and should be the simplest thing that meets those
+properties; a design note precedes the code.
 
 **4. Capability checks warn and adjust by default; they do not fail.** Decided
 in direction. When a request asks for something the model cannot take, prefer
@@ -37,17 +38,20 @@ the result. Dive's model catalog, with pricing and features, is to be ported so
 the defaults work for known models.
 
 **5. Prior history: reference large content, more analysis for text.** Design
-first. Referencing attachments and other large content through an
-application-owned reference is agreed in principle. Whether text history is
-copied, referenced with a digest, or handled by an immutable session history
-needs its own document with growth numbers before choosing.
+first; proposal in [history-storage.md](history-storage.md). Referencing
+attachments and other large content through an application-owned reference is
+agreed in principle. Whether text history is copied, referenced with a digest,
+or handled by an immutable session history needs its own document with growth
+numbers before choosing.
 
-**6. Context cancellation must not end the turn.** Design first. Agreed: the Go
-context ending is not a terminal event. Not agreed: the shape of pause and
-resume. The design document must explain how the production gateway runs a turn
-today (whether a goroutine stays live per turn, how a dead worker's turn is
-picked up) and propose the Kernel model from that.
+**6. Context cancellation must not end the turn.** Design first; proposal in
+[turn-interruption.md](turn-interruption.md). Agreed: the Go context ending is
+not a terminal event. Not agreed: the shape of pause and resume. The design
+document must explain how the production gateway runs a turn today (whether a
+goroutine stays live per turn, how a dead worker's turn is picked up) and
+propose the Kernel model from that.
 
-**7. Budgets.** Design first. A product-level document should define where
-limits are declared, how they are checked and reserved, how a budget stop is
-represented and resumed, and what stays in the application.
+**7. Budgets.** Design first; proposal in [budgets.md](budgets.md). A
+product-level document should define where limits are declared, how they are
+checked and reserved, how a budget stop is represented and resumed, and what
+stays in the application.
