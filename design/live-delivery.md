@@ -117,9 +117,14 @@ before release.
 already started* (`StepModelSettled`, `StepModelReconciled`,
 `StepToolSettled`), as a canceled turn does today. Replay applies the cancel
 rules to every terminal stop: unstarted calls settle as not executed and
-pending hosted approvals clear, so no UI offers "Approve" on a dead turn. The
-runner rejects `Deliver`, approvals, `Cancel`, raises, and new work with
-`ErrTurnEnded` ("dashi: turn has ended"). Late results may therefore follow a
+pending hosted approvals clear, so no UI offers "Approve" on a dead turn; a
+late model result's tool calls never enter the turn (the two replay checks
+and the top of `run()` that test "canceled" today test "terminal"). After the
+idempotent-retry check, so a retried `Cancel` still gets its recorded answer,
+the runner rejects `Deliver`, approvals, `Cancel`, raises, new work, and a
+`Settle` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
+turn has ended"). `canContinue` also keys on `Limit.Kind`, so the two checks
+cannot disagree. Late results may therefore follow a
 terminal stop: `Follow` ending there is a display convenience; a reload or a
 later read from the same cursor shows them. A reader that must see every step
 (accounting, mirroring) keeps its cursor.
@@ -184,20 +189,14 @@ tells the client to reset and reconnect from 0 rather than retry. `Follow`
 needs the store the `Runner` commits to; the default private recorder cannot
 be followed.
 
-**Recorders.** `MemoryRecorder` implements both: under its lock, check for a
-newer step, else take a per-turn channel closed on commit. `filerecorder`
-implements `StepReader` (shared lock, its line index, decode after the cursor)
-and a `StepWaiter` that wakes on this process's commits; commits from other
-processes arrive by poll. A Postgres recorder needs a unique `(turn_id, seq)`,
-selects `seq >= after LIMIT limit+1` so a missing first row reveals
-`ErrCursorAhead` in one query (special-casing `after == 0`), reads the primary,
-and may wake with `pg_notify` in the commit transaction and one shared
-`LISTEN` connection feeding in-process waiters. `dashitest.Run` checks a store
-that implements `StepReader`: contiguous ascending `Seq` from `after+1`, each
-step's committed JSON meaning, limits, `after == last` and `after == 0` on a
-missing turn, turn isolation, claims interleaved with commits, a reader racing
-a writer, and `ErrCursorAhead`; and, with `StepWaiter`, an immediate return
-when a newer step exists, a wake on commit, and a return when ctx ends.
+**Recorders.** `MemoryRecorder` implements both (check under its lock, else
+a per-turn channel closed on commit). `filerecorder` implements `StepReader`
+over its line index, and a `StepWaiter` for this process's commits. A Postgres
+recorder needs a unique `(turn_id, seq)`, reads the primary, selects `seq >=
+after LIMIT limit+1` to detect `ErrCursorAhead` in one query (special-casing
+`after == 0`), and may wake via `pg_notify` and one shared `LISTEN`.
+`dashitest.Run` checks any store that implements `StepReader` (and
+`StepWaiter`) against these rules.
 
 ## Plan and tests
 
@@ -223,10 +222,6 @@ falls back; `Seq` discontinuity errors.
 
 ## What not to build
 
-- **An in-process broadcast bus.** A multi-instance host needs a cross-process
-  one for previews anyway; a single-process host fans out with a map of
-  bounded channels fed by the Observer.
-- **A multi-reader `Stream`,** which would buffer per reader or block on the
-  slowest and end with the invocation.
-- **A Dashi-owned event store,** which duplicates the recorder's rows and can
-  diverge from them.
+- **An in-process broadcast bus:** multi-instance hosts need their own anyway.
+- **A multi-reader `Stream`:** it would buffer or block per reader.
+- **A Dashi-owned event store:** it would duplicate the recorder's rows.
