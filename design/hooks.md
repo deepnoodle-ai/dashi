@@ -1,83 +1,73 @@
 # PRD: Hooks
 
-**Status:** Approach for implementation (decision 31) · **Date:** 2026-09-28 ·
-**Owner:** Curtis
+**Status:** Approach, revised after design review (decision 31) ·
+**Date:** 2026-09-28 · **Owner:** Curtis
 
 ## Problem
 
 Dashi's extension point is one `Policy` interface (`BeforeModel`, `BeforeSend`,
-`AuthorizeTool`, `OnStop`) plus the watch-only `Observer`. Its contract is
-right: read-only views in, typed decisions out, recorded. Its packaging is not.
-"Policy" elsewhere means allow/deny rules, and developers look for "hooks".
-There is only one policy, so budget rules, approvals and reminders are merged by
-hand. Every error ends the turn. Nothing runs after a tool, no hook can hide
-tools, and hooks cannot keep state. Most hook bugs elsewhere come from mutable,
-wrapped state or hooks that skip some paths.
-
-The default-allow half of decision 31 already shipped (#46): a nil `Policy`
-allows bound tools with revision `default-v1`. This change removes `Policy`
-itself.
+`AuthorizeTool`, `OnStop`). Its contract is right: read-only views in, typed
+decisions out, recorded. Its packaging is not. "Policy" elsewhere means
+allow/deny rules, and developers look for "hooks". There is only one policy, so
+budget rules, approvals and reminders are merged by hand. Every error ends the
+turn. Nothing runs after a tool, and hooks cannot keep state. The default-allow
+half of decision 31 already shipped (#46); this change removes `Policy`.
 
 ## Approach
 
-Named hooks, as in the best-regarded coding-agent harnesses, fitted to Dashi:
-one input and one result type per hook point; any number of hooks per point in
-an immutable `Hooks` value; a pure, documented combining rule; gatekeeping
-points fail closed and shaping points fail open; every hook result recorded with
-the step it enables and never re-run on replay. `Observer` stays separate and
-read-only; previews are lossy, committed steps are not (see live-delivery.md).
-Arguments are re-checked by every hook after a rewrite. No middleware,
-request-only transforms, raw payload edits, or hooks for provider-hosted tools.
+A *hook* is a named function that Dashi calls at one *hook point* of a turn.
+Any number of hooks run at each point, in order, and their answers combine by a
+fixed rule. Each hook's answer is saved in the turn record with the step it
+leads to, and replay reads that record instead of calling hooks again. A hook
+point that guards something *fails closed* (a hook error blocks the action);
+one that only shapes a request *fails open* (a hook error skips that hook, with
+a warning). `Observer` stays separate and read-only; previews are lossy,
+committed steps are not (see live-delivery.md).
 
 ## API
-
-Before: implement four methods, usually by embedding `AllowLocalPolicy`.
-
-```go
-type askPolicy struct{ dashi.AllowLocalPolicy; answers *bufio.Reader }
-func (p askPolicy) AuthorizeTool(ctx context.Context, call tool.Call,
-    view dashi.TurnView) (dashi.ToolDecision, error) { /* parse call.Args */ }
-runner.Policy = askPolicy{answers: in}
-```
-
-After:
 
 ```go
 type Hook[P, D any] struct {
     Name     string // nonempty, unique within its hook point
     Func     func(context.Context, P) (D, error)
-    FailOpen bool   // AfterTool and BeforeFinish only
+    FailOpen bool   // AfterTool only (PR 2)
 }
+func (h Hook[P, D]) Hooks() Hooks // a Hooks value holding just h
+
 type (
     ModelHook  = Hook[ModelPlan, ModelDecision]
     SendHook   = Hook[SendPlan, SendDecision]
     ToolHook   = Hook[ToolPlan, ToolDecision]
-    ResultHook = Hook[ToolResultView, ToolResultDecision] // PR 2
     FinishHook = Hook[FinishPlan, FinishDecision]
 )
 type Hooks struct {
     BeforeModel  []ModelHook
     BeforeSend   []SendHook
     BeforeTool   []ToolHook
-    AfterTool    []ResultHook // PR 2
     BeforeFinish []FinishHook
 }
 
 func JoinHooks(hs ...Hooks) Hooks // always allocates
 func WithHooks(Hooks) RunOption   // runs after Runner.Hooks, this call only
-func OnTool[T any](name, tool string,
+// OnTool decodes a tool's arguments into T. The hook is named after the
+// tool; set Name for a second hook on the same tool.
+func OnTool[T any](tool string,
     f func(context.Context, ToolPlan, T) (ToolDecision, error)) ToolHook
-func Allow(reason string) ToolDecision  // recorded; combines as no opinion
+func Allow(reason string) ToolDecision // recorded; combines as no opinion
 func Deny(reason string) ToolDecision
+// Defer makes the call wait for approval: the turn stops waiting, and the
+// host answers with Pending.Approve or Pending.Deny.
 func Defer(reason string) ToolDecision
 func Rewrite(args any) (ToolDecision, error)
-func RequireApproval(tools ...string) ToolHook
+// RequireApproval defers the named tools, or every application tool when
+// none are named. Its hook is named "require_approval:<sorted names>".
+func RequireApproval(tools ...string) Hooks
 ```
 
-The blocking CLI approval (`examples/approval`):
+The blocking approval (`examples/approval`):
 
 ```go
-ask := dashi.OnTool("ask", "deploy",
+ask := dashi.OnTool("deploy",
     func(_ context.Context, _ dashi.ToolPlan, in deployArgs) (dashi.ToolDecision, error) {
         fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
         if yes(answers) {
@@ -85,194 +75,183 @@ ask := dashi.OnTool("ask", "deploy",
         }
         return dashi.Deny("The operator declined this deploy."), nil
     })
-runner.Hooks = dashi.Hooks{BeforeTool: []dashi.ToolHook{ask}}
+runner := dashi.Runner{Client: client, Tools: tool.List{deploy}, Hooks: ask.Hooks()}
 ```
 
-The server form (`examples/durable_approval`) changes one line:
-`Hooks: dashi.Hooks{BeforeTool: []dashi.ToolHook{dashi.RequireApproval("deploy")}}`.
+The server form (`examples/durable_approval`): `Hooks:
+dashi.RequireApproval("deploy")`.
 
-**Plans and decisions.** A zero decision is *no opinion*.
+**Plans and decisions.** A zero decision means *no opinion*.
 
-- `ModelPlan{Input, Turn}` and `SendPlan{Request, Turn, AtRisk, Remaining}`:
-  unchanged.
-- `ModelDecision{Settings, Deliver, Stop, Hide, State}`.
-- `SendDecision{Deny, Reason, Limit, Admission, State}`: replaces
+- `ModelPlan{Input, Turn}` and `SendPlan{Request, Turn, AtRisk, Remaining}`
+  are unchanged. `ToolPlan{Call, Definition, Turn}`.
+  `FinishPlan{Turn, AttemptID, Answer, Output, OutputErr}`: on a structured
+  turn, `Output` is the parsed value or `OutputErr` says why parsing failed.
+- `ModelDecision{Settings, Deliver, Stop}`.
+- `SendDecision{Deny, Reason, Limit, Admission}` replaces
   `ModelAuthorization`, whose zero value denied. A `Limit` implies `Deny`.
-- `ToolPlan{Call, Definition, Turn}`.
-- `ToolDecision{Kind, Reason, Revision, Rewrite, Stop, State}`: a hook's
-  answer, never recorded as a whole.
-- `ToolVerdict{Kind, Reason, Hook, Revision}`: the combined result, recorded in
-  `ToolFact.Decision` and shown as `ToolView.Decision`.
-- `FinishPlan{Turn, AttemptID, CallID, Answer, Output}`: the candidate. On a
-  structured turn, `Output` is already schema-valid.
-- `FinishDecision{Continue, Deliver, AcceptEmpty, State}`: replaces
-  `StopDecision`. A nonempty `Deliver` implies `Continue`.
-- `ToolResultView{Call, Definition, Outcome, Presented, Turn}` and
-  `ToolResultDecision{Replace, Failed, Stop, State}`: PR 2.
+- `ToolDecision{Kind, Reason, Revision, Rewrite}`: a hook's answer.
+- `FinishDecision{Deliver, AcceptEmpty, Reason}`. A nonempty `Deliver` asks
+  the model again with those items. `AcceptEmpty` accepts an empty answer.
+  `Reason` is shown to the model when a submission is not accepted.
+- `ToolVerdict{Kind, Reason, Hook, Revision}`: the combined result for a call,
+  recorded as `ToolFact.Verdict` and shown as `ToolView.Verdict`. For allow, it
+  takes the name and reason of the first hook that returned `Allow`; if none
+  did, `Hook` is empty and the reason is `no hook opinion`.
 
-Removed: `Runner.Policy`, `Policy`, `AllowLocalPolicy`, `defaultPolicy`,
-`ModelAuthorization`, `StopDecision`.
+Removed: `Runner.Policy`, `Policy`, `AllowLocalPolicy`, `ModelAuthorization`,
+`StopDecision`, `ApprovalFact.PolicyRevision`.
 
 ## Hook points
 
-Hooks at a point run one at a time in registration order (`Runner.Hooks`,
-then `WithHooks`). Panics are recovered as errors. Hooks honor the run's
-context.
+Hooks run one at a time: `Runner.Hooks`, then `WithHooks`, each in list order.
 
-| Hook | Combining rule | On error or invalid result |
+| Point | Combining rule | Hook error or invalid result |
 |---|---|---|
-| `BeforeModel` | Each hook sees `Input.Settings` as changed by earlier hooks; non-nil `Settings` replaces the struct; `Deliver` appends; `Hide` unions; the first `Stop` ends the chain. Deliveries commit as one `StepDelivered` | `WarningHookFailed`; that hook is skipped |
-| `BeforeSend` | The first `Deny` is `StopRefused`, or `StopLimited` with `Limit`. Each hook's `Admission` is kept under its name | `StopInterrupted`, reason `hook_failed`; resumable, not counted in `Interruptions` |
-| `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` ignores `Kind`, is schema-validated, and restarts the chain (at most 3). All no opinion allows, reason `no hook opinion` | The call is denied. The model sees "Denied: check `<name>` failed."; the error text stays in `Step.Hooks` |
-| `AfterTool` (PR 2) | `Replace` and `Failed` chain; a `Stop` applies after the batch settles | "Result withheld: hook `<name>` failed"; with `FailOpen`, keep the output and warn |
-| `BeforeFinish` | `Continue` and `AcceptEmpty` if any hook says so; `Deliver` appends | As `BeforeSend`; with `FailOpen`, a warning and no opinion |
+| `BeforeModel` | Each hook sees `Input.Settings` as changed by earlier hooks; non-nil `Settings` replaces the struct; `Deliver` appends; the first `Stop` ends the chain, and no deliveries are committed | Fails open: `WarningHookFailed`, and that hook's answer is dropped |
+| `BeforeSend` | The first `Deny` stops the turn: `StopRefused`, or `StopLimited` with `Limit`. Each `Admission` is kept under its hook's name | `StopFailed`, reason `hook_failed` |
+| `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied; the model sees "Denied: check `<name>` failed."; `WarningHookFailed` |
+| `BeforeFinish` | Deliveries from all hooks append; `AcceptEmpty` if any hook says so | `StopFailed`, reason `hook_failed` |
 
+- **Ended context.** When the run's context has ended, a hook's error or panic
+  gives the normal context stop (interrupted, or canceled under
+  `OnContextDone`), at every point. Nothing is recorded for that hook.
+- **Panics** are recovered as hook errors.
+- **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.
+  A failed stop does not count toward `Interruptions`, so hosts that resume
+  interrupted turns automatically do not loop on it. After a `BeforeFinish`
+  failure, `Continue` runs the finish point again on the recorded answer,
+  without another model call. A `hook_failed` stop is never terminal, so the
+  record still accepts this retry.
 - **Validation.** `Run` rejects, before recording anything: an empty or
-  duplicate name within one point, a nil `Func`, and `FailOpen` outside
-  `AfterTool`/`BeforeFinish`. The same name at different points is one bundle
-  and shares state (PR 2). Nothing detects unrelated packages picking the same
-  name; the docs say to prefix names.
-- **Tools.** Arguments are schema-checked before `BeforeTool` (already true
-  today); invalid, unknown, hidden and `dashi_submit_output` calls skip hooks.
-  A `Defer` no longer requires a revision. A decode failure in `OnTool` is a
-  hook error, so the call is denied.
-- **Finish.** `BeforeFinish` replaces `OnStop` and runs at every candidate final
-  answer: the final-text path (after the structured-output parse) and the
-  successful-submission path (before `StepOutputRecorded`). `Continue`
-  records a `StepLoopContinued` whose new `Supersedes` field names the
-  candidate (attempt ID or submission call ID); replay then accepts later
-  model calls and picks the latest unsuperseded submission. When no further
-  model call is possible (reserved final answer, attempts, budget, deadline),
-  `Continue` is ignored with a warning; `AcceptEmpty` still applies. After a
-  `hook_failed` stop, `Continue` re-runs `BeforeFinish` on the recorded
-  candidate without another model call.
-- **Approvals.** `ApprovalFact.PolicyRevision` becomes an optional
-  `DecisionRevision`, checked by `Settle` only when set; the argument digest
-  stays mandatory. `Pending.Approve` copies it from `ToolView.Decision`.
-  Dashi does not re-run hooks at `Settle`. `RequireApproval` is a `BeforeTool`
-  hook named `require_approval` that defers the named tools with revision
-  `require-approval:<sorted names>`.
+  duplicate name within a point, a nil `Func`, and `FailOpen` outside
+  `AfterTool`. Docs say to prefix names in reusable packages.
+- **Stops.** A `BeforeModel` hook may return `refused`, `limited` (with a
+  valid `Limit`) or `failed`; any other kind is an invalid result. The runner
+  sets `Stop.Terminal` (live delivery), never the hook.
+- **Admission** from all hooks is limited to 16 KiB in total; the hook that
+  exceeds it is an invalid result.
+- **Rewrites.** A rewrite equal to the current arguments by JSON meaning
+  (decision 27) is no opinion. Rewrites must converge: after 3 restarts the
+  call is denied with reason `rewrite limit` and `WarningHookFailed`, and the
+  turn continues. `Call.RequestedArgs` keeps the model's arguments.
+- **Tools.** Arguments are schema-checked before `BeforeTool` (already true).
+  Invalid, unknown and `dashi_submit_output` calls skip hooks. `OnTool`
+  decode failures are hook errors.
+- **Approvals.** The call ID and the argument digest bind an approval to the
+  exact call. Dashi does not re-run hooks at `Settle`. A host whose rules
+  changed can compare `ToolView.Verdict.Revision` with its current rules
+  before calling `Approve`.
+- **Delivered items** from hooks pass the same `validateContext` check as any
+  delivered context before they are recorded.
 - **Configuration.** Like tools and the client, the host supplies the same
-  `Runner.Hooks` on every command for a turn. `WithHooks` is for extras such as
-  a CLI prompt, never a required redactor. Dashi never appends into caller
-  slices.
-- **PR 2 items.** `AfterTool` runs once per outcome whose content came from a
-  tool or the host (including `Settle`, inside that command), on the goroutine
-  that drains results. Changes go to `ToolFact.Presented{Output, IsError}`,
-  used by projection; `Outcome` stays authoritative for state and cost.
-  `ModelDecision.Hide` removes application tools from one call (never
-  `dashi_submit_output`); a call to a hidden tool settles as "tool
-  unavailable". `State json.RawMessage` (at most 16 KiB) is saved in
-  `Step.Hooks`; `TurnView.HookState(name)` returns the latest value, with a
-  call-local overlay so `BeforeSend` sees the same pass's `BeforeModel` state.
-  `TurnView.Context(origin, name)` returns the live named item.
+  hooks on every command for a turn. `WithHooks` is for extras such as a CLI
+  prompt.
 
-**Packaging.** A reusable package exports `Hooks() dashi.Hooks` and
-`Tools() tool.Toolset`; the app joins them with `JoinHooks` and a new
-`tool.Join` (PR 2). No "extension" concept is needed. The guide shows a
-five-line hook that defers any tool not annotated read-only.
+## The finish point (PR 1b)
 
-## Recording and replay
+A *candidate* is a model answer that would end the turn: final text, or a
+schema-valid `dashi_submit_output` call. Both paths go through one function,
+in this order: steering's check (design/steering.md), then `BeforeFinish`,
+then the empty-answer and schema checks, unless a hook delivered items.
 
-- `Step.Hooks []HookResult{Point, Name, Verdict, Revision, Reason, Error,
-  State}` holds the non-zero and failed results. Results ride on the next
-  committed step: `StepDelivered` or `StepModelIntent` for `BeforeModel` and
-  `BeforeSend`, `StepToolDecision` for `BeforeTool`, `StepLoopContinued`,
-  `StepOutputRecorded` or `StepStopped` for `BeforeFinish`. Warnings use the
-  same rule. A turn with no hooks records no hook results.
-- `ToolFact.Decision` becomes `ToolVerdict`. `Hook` names the deciding hook;
-  `Rewrite` leaves the record (`Call.RequestedArgs` keeps the original).
+- **Text path.** Deliveries are recorded in a `StepLoopContinued`, which
+  already means the answer was not accepted. No new record field is needed.
+- **Submission path.** The finish point runs after the submission's
+  `tool_started` step. If a hook delivers, the submission settles as failed
+  with the output "Not accepted: `<Reason>`", and the items are recorded before
+  the next model call. Steering uses the same function with its own text. The
+  submission never succeeded, so replay needs no new rule.
+- **No further call.** Deliveries are dropped with a warning unless
+  `nextCallPossible` holds; `AcceptEmpty` still applies.
+
+`nextCallPossible(state)` (in `state.go`, next to the `Stop.Terminal` rule) is
+true when one more model call still leaves the reserved final-answer call
+available, the budget is not spent, the deadline has not passed, no pause is
+requested, and the context is live. With the defaults (8 attempts, reserve on),
+call 8 is the reserved final answer:
+
+| Candidate from call | Next call | Possible? |
+|---|---|---|
+| 1 to 6 | 2 to 7, a normal call | Yes |
+| 7 | 8, the reserved final answer | No |
+| 8 | none | No |
+
+With `NoReservedFinalAnswer`, a candidate from calls 1 to 7 may continue.
+
+## Recording
+
+- `Step.HookResults []HookResult{Point, Name, Verdict, Pass, Revision, Reason,
+  Error}` holds every non-zero or failed answer, attached to the next
+  committed step, whatever its kind. `Pass` counts rewrite restarts, so an
+  audit shows who rewrote what. `Verdict` values: `allow`, `deny`, `defer`,
+  `rewrite` (tool); `deny`, `limit`, `admit` (send); `change`, `stop`
+  (model); `deliver`, `accept_empty` (finish); `failed` (any).
+- Each step that carries a command ID records `ActiveHooks`, the configured
+  names per point. `WarningHooksChanged` is recorded when they differ from
+  the previous command. A tool hook leaves a positive record with `Allow`.
 - `ModelFact.Admission` becomes `map[string]json.RawMessage` keyed by hook
-  name, 16 KiB total. Recorders reserve each entry atomically.
-- New: `WarningHookFailed`, the stop reason `hook_failed` (a constant), and
-  `Step.Supersedes`. Replay does not count a `Continue` after a `hook_failed`
-  stop toward `Interruptions`.
-- Removed: revision `default-v1`. Old records need no reading (no users).
+  name. Recorders reserve each entry atomically.
+- Warnings may ride on any step kind; the runtime buffers them until the next
+  commit. New codes: `WarningHookFailed`, `WarningHooksChanged`.
+- `TurnView.Context(origin, name)` returns the live named item, so a
+  `BeforeModel` injector can skip an item already current.
 
 ## Guarantees
 
-- **Recorded.** Every result is saved with the step it enables. After a crash
-  before that commit, recovery may call a hook again, so hooks stay
-  idempotent (`BeforeModel` runs on every loop pass).
+- **Recorded.** Every answer is saved with the step it leads to. After a crash
+  before that commit, recovery may call a hook again, so hooks stay idempotent
+  (`BeforeModel` runs on every loop pass).
 - **Complete.** Every model call passes `BeforeModel` and `BeforeSend`,
   including the reserved final answer. Every eligible client call passes
   `BeforeTool`, streamed or not, and after resume.
-- **Pure combining.** Replay reads recorded results and never calls hooks.
-- **Authorized on final values.** Hooks authorize the arguments that will run.
+- **Replay** reads recorded answers and never calls hooks.
+- **Authorized on final values.** Hooks authorize the arguments that run.
+
+## Later: PR 2
+
+`AfterTool` (hooks run on each tool or host result, may replace what the model
+sees in `ToolFact.Presented`, fail closed unless `FailOpen`), with
+`ToolResultPlan`/`ToolResultDecision`; `ModelDecision.Hide` (remove tools
+from one call); hook state saved per name and read with
+`TurnView.HookState`; `ToolDecision.Stop`; `tool.Join`; recipe examples
+(context injector, result redactor, test-until-green, plan mode). Revisit
+cross-point name sharing when state lands.
 
 ## Implementation plan
 
-**Split.** PR 1 (this branch) replaces `Policy`: the `Hooks` type, combiners,
-validation, `WithHooks`, `OnTool` and helpers, `BeforeModel` (settings,
-deliver, stop), `BeforeSend` with named admission, `BeforeTool`,
-`BeforeFinish` on both paths with `Supersedes`, `Step.Hooks`, failure modes,
-`DecisionRevision`, and the examples and guides. PR 2: `AfterTool` and
-`Presented`, `Hide`, hook state, `TurnView.Context`, and
-`ToolDecision.Stop`. PR 1 must include `BeforeFinish`, since removing `OnStop`
-needs it and steering depends on it.
-
-**Files.** `policy.go` becomes `hooks.go`; `runner.go` (model, send, classify,
-the submission path, `WithHooks`); `tools_loop.go` (the tool chain); `turn.go`,
-`state.go` (formats, replay rules); `outcome.go` (`RequireApproval`,
-`Pending`); `internal/providertest/live_agent.go`; provider doc comments
-that say "needs no Policy"; `examples/approval`, `durable_approval`, `tools`;
-`docs/guides/running-turns.md`, `tools.md`, `docs/agent-turns.md`;
-`design/agent-loop.md`, `ubiquitous-language.md`, `decisions.md` if the
-decision text changes. Live delivery also edits stop recording (a recorded
-`Stop.Final`), so the `OnStop` replacement rebases carefully onto it.
-
-**Tests.** Every combining rule and failure mode per point, including panics;
-the rewrite restart and limit; validation errors; `OnTool` decode failures;
-`JoinHooks` and concurrent `WithHooks` without aliasing; approvals with and
-without `DecisionRevision`; `BeforeFinish` on text and submission paths,
-`Supersedes`, the ignored-`Continue` case, and `hook_failed` resume without a
-model call or an interruption count; a hook-call-order suite over streamed and
-collected calls, crash resume, deferred approval, and the reserved final
-answer. It lives in the root package's tests, not `dashitest`, because it
-tests the runner, not a host's recorder. The ~20 test policies port to
-hooks. Guardrail: turns with no hooks record the same steps as today, apart
-from the verdict shape. PR 2 adds short examples of a context injector, a
-result redactor, test-until-green, and plan-mode tool hiding, each as short
-as its counterpart in other harnesses.
-
-**What steering needs.** Steering (design/steering.md) builds on PR 1,
-which provides all seven seams it lists; steering itself is not built here.
-
-1. **Model path order.** `run` checks limits, budget, deadline and pause;
-   `model()` then has an empty slot where steering commits its
-   `StepDelivered`; the `BeforeModel` plan is built from a fresh replay after
-   it, so hooks see steers in `Input.Messages`; hook deliveries commit as
-   their own `StepDelivered`.
-2. **One finish point**, `finishCandidate`, serves the text and submission
-   paths before `StepOutputRecorded`. Steering's check goes first in it.
-3. **`Step.Supersedes`** and the replay rule for superseded submissions.
-4. **`nextCallPossible(state)`** with the reserve, attempt, budget, deadline
-   and pause terms, used by `BeforeFinish.Continue`.
-5. **Warnings on any step kind** (replay allows only some today), buffered in
-   the runtime and attached to the next committed step.
-6. **One `validateContext` check** on every delivered item before commit. An
-   invalid `BeforeModel` item skips that hook with a warning; an invalid
-   `BeforeFinish` item is a hook error.
-7. **A pre-decision point** in the tools loop, before each call's
-   `BeforeTool` chain, where steering can check its flag.
-
-**Changes from the reviewed draft.**
-
-- `JoinHooks` no longer detects one name in two values: it cannot tell one
-  bundle's hooks at two points from two packages' hooks.
-- A failed `BeforeTool` hook's error text is not shown to the model, since it
-  may hold internal details.
-- `ToolVerdict` splits the recorded result from the hook's answer.
-- `Allow(reason)` is added for recorded approvals.
-- `Deliver` implies `Continue`.
-- The call-order suite is internal (see Tests).
-- Schema-before-hooks already shipped.
+- **PR 1a** replaces `Policy`: types, validation, `WithHooks`, `OnTool`, the
+  helpers, `BeforeModel`, `BeforeSend`, `BeforeTool`, `ToolVerdict`,
+  `HookResults`, `ActiveHooks`, `TurnView.Context`, failure and context
+  rules, and `BeforeFinish` on the text path only, where `OnStop` runs today.
+  Steering seams 1 (model-path order), 5 (warnings on any step), 6 (one
+  `validateContext`) and 7 (a point before each call's `BeforeTool` chain).
+- **PR 1b** adds the finish point on both paths, the shared submission
+  rejection, `nextCallPossible`, and the finish retry after `hook_failed`:
+  steering seams 2, 3 and 4.
+- **Files.** The `Policy` parts of `policy.go` move to a new `hooks.go`;
+  `Event` and `Observer` stay put until live delivery's first PR moves them
+  to `observer.go`, and this branch rebases onto it. `runner.go`,
+  `tools_loop.go` (error strings lose "policy"), `turn.go`, `state.go`,
+  `outcome.go`; `internal/providertest/live_agent.go`; provider doc comments
+  that say "needs no Policy"; `examples/approval`, `durable_approval`,
+  `tools`; `docs/guides/running-turns.md`, `tools.md`, `docs/agent-turns.md`;
+  `design/agent-loop.md`, `ubiquitous-language.md`.
+- **Tests.** Every combining rule and failure mode per point, panics, and the
+  ended-context rule; a normalizing rewrite hook; the rewrite limit;
+  validation; `OnTool` decode failures; `JoinHooks` and concurrent
+  `WithHooks` without aliasing; `RequireApproval` naming and no-argument
+  form; `ActiveHooks` changes; approvals after the revision check is removed.
+  A hook-call-order suite in the root package covers streamed and collected
+  calls, crash resume, deferred approval, and the reserved final answer.
+  About 20 test policies port to hooks. Guardrail: turns without hooks record
+  the same steps as today, apart from the verdict shape.
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Default allow runs something unexpected | The app bound every tool; `RequireApproval`; the guide's read-only recipe |
+| Default allow runs something unexpected | The app bound every tool; `RequireApproval()` gates all |
 | A fail-open `BeforeModel` hook skips a check | Checks that must hold go in `BeforeSend` or `BeforeTool`; documented |
-| Two packages pick the same hook name | Rejected within a point; documented prefixing across points |
-| A flaky `AfterTool` withholds results (PR 2) | The warning names the hook; `FailOpen` for cosmetic hooks |
+| Two packages pick the same hook name | Rejected within a point; prefixing documented |
+| A hook that always fails | `hook_failed` needs an explicit `Continue`; the warning names the hook |
