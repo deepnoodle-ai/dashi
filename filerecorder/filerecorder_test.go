@@ -45,7 +45,10 @@ func TestConformsWithoutSync(t *testing.T) {
 func TestNewRequiresDir(t *testing.T) {
 	_, err := filerecorder.New(filerecorder.Config{})
 	if err == nil || !strings.Contains(err.Error(), "Config.Dir") {
-		t.Fatalf("New with no Dir returned %v; want an error naming Config.Dir", err)
+		t.Fatalf(
+			"New with no Dir returned %v; want an error naming Config.Dir",
+			err,
+		)
 	}
 }
 
@@ -74,7 +77,10 @@ func TestTornTailIsIgnoredAndReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	if lines := bytes.Count(data, []byte("\n")); lines != 3 {
-		t.Fatalf("log has %d lines after repair; want header and two steps", lines)
+		t.Fatalf(
+			"log has %d lines after repair; want header and two steps",
+			lines,
+		)
 	}
 }
 
@@ -85,7 +91,8 @@ func TestTornHeaderIsReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	appendBytes(t, path, `{"format":1,"tu`)
-	if _, err := r.Load(t.Context(), "turn"); !errors.Is(err, dashi.ErrTurnNotFound) {
+	_, err := r.Load(t.Context(), "turn")
+	if !errors.Is(err, dashi.ErrTurnNotFound) {
 		t.Fatalf("load of a torn header returned %v", err)
 	}
 	commit(t, r, step("turn", 1, "first"), "")
@@ -159,7 +166,8 @@ func TestTurnIDsMapToDistinctFiles(t *testing.T) {
 	}
 	for i, id := range ids {
 		requireSteps(t, r, id, i+1)
-		if path := r.Path(id); !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		path := r.Path(id)
+		if !strings.HasPrefix(path, dir+string(filepath.Separator)) {
 			t.Fatalf("path for %q is outside Dir: %s", id, path)
 		}
 	}
@@ -195,9 +203,18 @@ func TestLogIsReadableJSONLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	prefixes := []string{`{"format":1,"turn_id":"turn"}`, `{"claim":`, `{"step":`}
+	prefixes := []string{
+		`{"format":1,"turn_id":"turn"}`,
+		`{"claim":`,
+		`{"step":`,
+	}
 	if len(lines) != len(prefixes) {
-		t.Fatalf("log has %d lines; want %d:\n%s", len(lines), len(prefixes), data)
+		t.Fatalf(
+			"log has %d lines; want %d:\n%s",
+			len(lines),
+			len(prefixes),
+			data,
+		)
 	}
 	for i, prefix := range prefixes {
 		if !strings.HasPrefix(lines[i], prefix) {
@@ -239,7 +256,11 @@ func TestProcessesRaceForOneSequence(t *testing.T) {
 		}
 	}
 	if wins != 1 {
-		t.Fatalf("%d processes committed seq 2; want exactly 1: %v", wins, results)
+		t.Fatalf(
+			"%d processes committed seq 2; want exactly 1: %v",
+			wins,
+			results,
+		)
 	}
 	requireSteps(t, r, "turn", 2)
 }
@@ -365,7 +386,12 @@ func step(turnID string, seq int64, text string) dashi.Step {
 	return s
 }
 
-func commit(t testing.TB, r *filerecorder.Recorder, s dashi.Step, owner string) {
+func commit(
+	t testing.TB,
+	r *filerecorder.Recorder,
+	s dashi.Step,
+	owner string,
+) {
 	t.Helper()
 	err := r.Commit(t.Context(), dashi.CommitRequest{
 		Step:        s,
@@ -384,7 +410,13 @@ func requireSteps(t *testing.T, r *filerecorder.Recorder, id string, n int) {
 		t.Fatalf("load %q: %v", id, err)
 	}
 	if turn.ID != id || len(turn.Steps) != n {
-		t.Fatalf("loaded %q with %d steps; want %q with %d", turn.ID, len(turn.Steps), id, n)
+		t.Fatalf(
+			"loaded %q with %d steps; want %q with %d",
+			turn.ID,
+			len(turn.Steps),
+			id,
+			n,
+		)
 	}
 }
 

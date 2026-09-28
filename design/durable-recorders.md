@@ -79,11 +79,14 @@ of sequence fail with `ErrCorrupt`, naming the path and line; Run stops on
 that Load error. There is no automatic repair. The host must not delete a
 log while its turn may still run.
 
-**Cost.** Commit reads the whole log, O(n²) bytes per turn of n steps. A
-benchmark (500 steps of about 100 KB) decides whether to add an index. If
-needed: per turn, remember the offset of the last newline and read on from
-there, in a bounded LRU; file size alone is not a valid cache key, since a
-truncate and equal-length append defeats it.
+**Cost.** Reading the whole log on every commit was O(n²) per turn: a
+500-step turn took 0.7 s at 1 KB per step and 42 s at 100 KB. So Commit
+keeps a per-turn index (offset past the last complete line, step summaries,
+owner) in a 1,024-turn LRU and reads only what was appended since; the same
+turns take 24 ms and 0.25 s. The index is dropped when the file is not the
+same file (`os.SameFile`) or is shorter than the indexed offset; file size
+alone would not do, since a truncate and equal-length append defeats it.
+Load still reads the whole log.
 
 **Tests.** Conformance; the fault-recovery matrix; processes racing for one
 sequence and taking over a lease; a claimed turn with no steps; a lock wait

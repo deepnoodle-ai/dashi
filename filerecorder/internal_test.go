@@ -45,7 +45,8 @@ func TestFailedWriteIsRejectedAndRolledBack(t *testing.T) {
 		n, _ := f.WriteAt(b[:len(b)/2], off)
 		return n, errors.New("disk full")
 	}
-	requirePersistence(t, r.Commit(t.Context(), request(2)), dashi.PersistenceRejected)
+	err := r.Commit(t.Context(), request(2))
+	requirePersistence(t, err, dashi.PersistenceRejected)
 	requireCount(t, r, 1)
 	info, err := os.Stat(r.Path("turn"))
 	if err != nil {
@@ -70,11 +71,12 @@ func TestFailedSyncIsUnknownAndRetiresTheLog(t *testing.T) {
 	r.syncFile = func(*os.File) error {
 		return errors.New("EIO")
 	}
-	requirePersistence(t, r.Commit(t.Context(), request(2)), dashi.PersistenceUnknown)
+	err := r.Commit(t.Context(), request(2))
+	requirePersistence(t, err, dashi.PersistenceUnknown)
 	r.syncFile = func(f *os.File) error {
 		return f.Sync()
 	}
-	err := r.Commit(t.Context(), request(3))
+	err = r.Commit(t.Context(), request(3))
 	requirePersistence(t, err, dashi.PersistenceRejected)
 	if !errors.Is(err, errLogFailed) {
 		t.Fatalf("commit after a failed sync returned %v; want errLogFailed", err)
@@ -141,7 +143,11 @@ func requirePersistence(t *testing.T, err error, want dashi.Persistence) {
 	t.Helper()
 	commitErr, ok := errors.AsType[*dashi.CommitError](err)
 	if !ok || commitErr.Persistence != want {
-		t.Fatalf("commit returned %v; want a *dashi.CommitError that is %s", err, want)
+		t.Fatalf(
+			"commit returned %v; want a *dashi.CommitError that is %s",
+			err,
+			want,
+		)
 	}
 }
 

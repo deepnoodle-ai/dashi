@@ -81,14 +81,17 @@ func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
 	if err != nil {
 		return turnLog{}, nil, fmt.Errorf("filerecorder: read log: %w", err)
 	}
-	if log.file == nil || !os.SameFile(log.file, info) || info.Size() < log.end {
+	if log.file == nil ||
+		!os.SameFile(log.file, info) ||
+		info.Size() < log.end {
 		// The file was replaced or shrank below what was indexed, which the
 		// log format never does; start over rather than trust the index.
 		log = turnLog{}
 	}
 	log.file = info
 	log.steps = slices.Clip(log.steps)
-	data, err := io.ReadAll(io.NewSectionReader(f, log.end, info.Size()-log.end))
+	unread := io.NewSectionReader(f, log.end, info.Size()-log.end)
+	data, err := io.ReadAll(unread)
 	if err != nil {
 		return turnLog{}, nil, fmt.Errorf("filerecorder: read log: %w", err)
 	}
@@ -161,7 +164,11 @@ func (log *turnLog) add(line []byte, off int64, turnID, path string) error {
 
 // decode returns the full step recorded on the entry's line, taken from
 // data when it holds the line (data starts at offset base) or read from f.
-func (e stepEntry) decode(f *os.File, data []byte, base int64) (dashi.Step, error) {
+func (e stepEntry) decode(
+	f *os.File,
+	data []byte,
+	base int64,
+) (dashi.Step, error) {
 	var line []byte
 	if e.off >= base && e.off+e.size <= base+int64(len(data)) {
 		line = data[e.off-base : e.off-base+e.size]

@@ -1,6 +1,6 @@
 // Package filerecorder is a durable dashi.Recorder that keeps each turn in an
 // append-only file, so a turn started by one process can be continued by
-// another on the same machine or shared local disk. It is a reference
+// another on the same machine. It is a reference
 // implementation of the recorder contract and passes dashitest.Run; a host
 // that commits steps alongside its own database rows writes its own recorder
 // instead (see design/durable-recorders.md).
@@ -21,6 +21,9 @@
 // most a torn final line without a newline, which never counts as written
 // and is removed by the next commit. Any other damage is reported as
 // ErrCorrupt rather than repaired.
+//
+// Commit reads only the lines appended since it last saw the turn, using an
+// in-process index of recently used turns; Load reads the whole log.
 //
 // The package supports Linux, macOS, iOS, Android, FreeBSD, OpenBSD, and
 // NetBSD on local filesystems. Advisory locks on network filesystems are
@@ -57,7 +60,9 @@ var ErrCorrupt = errors.New("filerecorder: corrupt turn log")
 // process. The kernel may have dropped the data, so later reads of the file
 // cannot be trusted to match the disk; the log accepts no more commits until
 // the process restarts and reads it afresh.
-var errLogFailed = errors.New("filerecorder: an earlier write to this log failed")
+var errLogFailed = errors.New(
+	"filerecorder: an earlier write to this log failed",
+)
 
 // Config configures a Recorder.
 type Config struct {
@@ -137,7 +142,10 @@ func (r *Recorder) Path(turnID string) string {
 // Load returns the turn's committed steps, or an error matching
 // dashi.ErrTurnNotFound when it has none. A damaged log gives an error
 // matching ErrCorrupt. It waits for a writer holding the log until ctx ends.
-func (r *Recorder) Load(ctx context.Context, turnID string) (dashi.Turn, error) {
+func (r *Recorder) Load(
+	ctx context.Context,
+	turnID string,
+) (dashi.Turn, error) {
 	path := r.Path(turnID)
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
