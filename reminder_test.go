@@ -54,22 +54,21 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Tier:    llm.ReminderContextual,
 		Content: "persistent context",
 	}
-	got, err := (Engine{}).Apply(
+	got, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+		Tools:    fixedTools{binding},
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "r1"},
-		definition(),
 		Start{
-			ID: "start",
+			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("go")),
 				llm.ReminderMessage(reminder),
 			},
-		},
-		Bindings{
-			Client:   client,
-			Recorder: rec,
-			Tools:    fixedTools{binding},
-			Policy:   AllowLocalPolicy{},
 		},
 	)
 	if err != nil || got.Stop.Kind != StopCompleted ||
@@ -102,17 +101,16 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 			Kind:   tool.KindExternal,
 		},
 	}
-	start, err := (Engine{}).Apply(
+	start, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+		Tools:    fixedTools{external},
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		Turn{ID: "r2"},
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{
-			Client:   client,
-			Recorder: rec,
-			Tools:    fixedTools{external},
-			Policy:   AllowLocalPolicy{},
-		},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || start.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", start.Stop, err)
@@ -137,17 +135,16 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 			Content: "new",
 		}),
 	}
-	delivered, err := (Engine{}).Apply(
+	delivered, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+		Tools:    fixedTools{external},
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		start.Turn,
-		definition(),
-		Deliver{ID: "deliver", Items: []ContextItem{first, second}},
-		Bindings{
-			Client:   client,
-			Recorder: rec,
-			Tools:    fixedTools{external},
-			Policy:   AllowLocalPolicy{},
-		},
+		Deliver{CommandID: "deliver", Items: []ContextItem{first, second}},
 	)
 	if err != nil || delivered.Persistence != PersistenceAcknowledged {
 		t.Fatalf("delivery=%+v err=%v", delivered, err)
@@ -160,50 +157,46 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 			Content: "elevate",
 		}),
 	}
-	rejected, err := (Engine{}).Apply(
+	rejected, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(
 		t.Context(),
 		delivered.Turn,
-		definition(),
-		Deliver{ID: "bad", Items: []ContextItem{bad}},
-		Bindings{Client: client, Recorder: rec},
+		Deliver{CommandID: "bad", Items: []ContextItem{bad}},
 	)
 	if err != nil || rejected.Persistence != PersistenceRejected {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
-	accepted, err := (Engine{}).Apply(
+	accepted, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+		Tools:    fixedTools{external},
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		delivered.Turn,
-		definition(),
-		Accept{
-			ID:     "accept",
-			CallID: "c1",
+		Settle{
+			CommandID: "accept",
+			CallID:    "c1",
 			Outcome: &tool.Outcome{
 				State:  tool.StateSucceeded,
 				Output: new(tool.TextOutput("found")),
 			},
 		},
-		Bindings{
-			Client:   client,
-			Recorder: rec,
-			Tools:    fixedTools{external},
-			Policy:   AllowLocalPolicy{},
-		},
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
 		t.Fatalf("accept=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
-	completed, err := (Engine{}).Apply(
-		t.Context(),
-		accepted.Turn,
-		definition(),
-		Continue{ID: "continue"},
-		Bindings{
-			Client:   client,
-			Recorder: rec,
-			Tools:    fixedTools{external},
-			Policy:   AllowLocalPolicy{},
-		},
-	)
+	completed, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+		Tools:    fixedTools{external},
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {
 		t.Fatalf("continue=%+v err=%v", completed, err)
 	}
@@ -230,16 +223,18 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 	}
 	for _, origin := range []StartOrigin{StartUser, StartScheduled} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
-		got, err := (Engine{}).Apply(
+		got, err := (Runner{
+			Agent:    testAgent(),
+			Client:   client,
+			Recorder: NewMemoryRecorder(),
+		}).Run(
 			t.Context(),
 			Turn{ID: "r3"},
-			definition(),
 			Start{
-				ID:     "start",
-				Origin: origin,
-				Input:  []llm.Message{llm.ReminderMessage(r)},
+				CommandID: "start",
+				Origin:    origin,
+				Input:     []llm.Message{llm.ReminderMessage(r)},
 			},
-			Bindings{Client: client, Recorder: NewMemoryRecorder()},
 		)
 		if err != nil || got.Persistence != PersistenceRejected || client.sends != 0 {
 			t.Fatalf("origin=%s outcome=%+v err=%v", origin, got, err)
@@ -250,12 +245,15 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	base := &scriptedClient{results: []llm.Result{final("done")}}
 	client := droppingReminderClient{base}
-	got, err := (Engine{}).Apply(
+	got, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+	}).Run(
 		t.Context(),
 		Turn{ID: "r5"},
-		definition(),
 		Start{
-			ID: "start",
+			CommandID: "start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("go")),
 				llm.ReminderMessage(llm.Reminder{
@@ -265,7 +263,6 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 				}),
 			},
 		},
-		Bindings{Client: client, Recorder: NewMemoryRecorder()},
 	)
 	if err != nil || got.Stop.Kind != StopFailed || base.sends != 0 {
 		t.Fatalf("outcome=%+v err=%v sends=%d", got.Stop, err, base.sends)
@@ -305,15 +302,18 @@ func TestReminderInstructionOnlySentWithReminders(t *testing.T) {
 	run := func(t *testing.T, input []llm.Message, policy Policy) string {
 		t.Helper()
 		client := &scriptedClient{results: []llm.Result{final("done")}}
-		got, err := (Engine{}).Apply(
+		got, err := (Runner{
+			Agent:    testAgent(),
+			Client:   client,
+			Recorder: NewMemoryRecorder(),
+			Policy:   policy,
+		}).Run(
 			t.Context(),
 			Turn{ID: "r6"},
-			definition(),
-			Start{ID: "start", Input: input},
-			Bindings{Client: client, Recorder: NewMemoryRecorder(), Policy: policy},
+			Start{CommandID: "start", Input: input},
 		)
 		if err != nil {
-			t.Fatalf("apply failed: %v", err)
+			t.Fatalf("run failed: %v", err)
 		}
 		if got.Stop.Kind != StopCompleted {
 			t.Fatalf("turn did not complete: %+v", got.Stop)

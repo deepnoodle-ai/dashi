@@ -57,21 +57,20 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	def := definition()
+	def := testAgent()
 	def.Limits.ToolConcurrency = 1
 	finished := make(chan Outcome, 1)
 	go func() {
-		out, _ := (Engine{}).Apply(
+		out, _ := (Runner{
+			Agent:    def,
+			Client:   client,
+			Tools:    fixedTools{first, second},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		}).Run(
 			ctx,
 			Turn{ID: "t1"},
-			def,
-			Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-			Bindings{
-				Client:   client,
-				Tools:    fixedTools{first, second},
-				Recorder: rec,
-				Policy:   AllowLocalPolicy{},
-			},
+			Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		)
 		finished <- out
 	}()
@@ -85,7 +84,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	select {
 	case out = <-finished:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Apply waited for an executor that ignored cancellation")
+		t.Fatal("Run waited for an executor that ignored cancellation")
 	}
 	if out.Stop.Kind != StopInterrupted || secondRuns != 0 {
 		t.Fatalf("stop=%+v second runs=%d", out.Stop, secondRuns)
@@ -108,12 +107,10 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("late")),
 	}
-	settled, err := (Engine{}).Apply(
+	settled, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
-		def,
-		Accept{ID: "late", CallID: "a", Outcome: &late},
-		Bindings{Client: client, Recorder: rec},
+		Settle{CommandID: "late", CallID: "a", Outcome: &late},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -175,17 +172,16 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	finished := make(chan Outcome, 1)
 	rec := NewMemoryRecorder()
 	go func() {
-		out, _ := (Engine{}).Apply(
+		out, _ := (Runner{
+			Agent:    testAgent(),
+			Client:   client,
+			Tools:    fixedTools{makeTool("first"), makeTool("second"), third},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		}).Run(
 			ctx,
 			Turn{ID: "t1"},
-			definition(),
-			Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-			Bindings{
-				Client:   client,
-				Tools:    fixedTools{makeTool("first"), makeTool("second"), third},
-				Recorder: rec,
-				Policy:   AllowLocalPolicy{},
-			},
+			Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		)
 		finished <- out
 	}()
@@ -201,7 +197,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	select {
 	case out = <-finished:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Apply waited for the parallel executors")
+		t.Fatal("Run waited for the parallel executors")
 	}
 	if out.Stop.Kind != StopInterrupted || thirdRuns.Load() != 0 ||
 		len(out.Pending) != 3 {
@@ -244,13 +240,11 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", first, err)
 	}
-	canceled, err := (Engine{}).Apply(
-		t.Context(),
-		first.Turn,
-		definition(),
-		Cancel{ID: "cancel"},
-		Bindings{Client: client, Recorder: rec},
-	)
+	canceled, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
 	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
 		t.Fatalf("cancel=%+v err=%v", canceled, err)
 	}
@@ -272,12 +266,14 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 			}
 		},
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{Client: client, Recorder: rec},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted ||
 		client.sends != 0 || len(out.Pending) != 0 {
@@ -320,17 +316,16 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded}, nil
 		}),
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted || runs != 0 ||
 		client.sends != 1 || len(out.Pending) != 1 {

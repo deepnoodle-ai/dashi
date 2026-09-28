@@ -54,7 +54,7 @@ comparisons][survey] and [ACP research][acp] inform integration boundaries.
 These references point to the temporary local research snapshot.
 
 Current area designs: [turns and their record](turn.md) and
-[agent definition and loop](agent-loop.md).
+[agent and loop](agent-loop.md).
 
 [model]: ../tmp/research/design/2026-09-26-dive-v2-conceptual-model.md
 [analysis]: ../tmp/research/design/2026-09-26-dive-v2-conceptual-design.md

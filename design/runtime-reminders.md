@@ -30,7 +30,7 @@ in a developer message. Contextual reminders remain user messages. Anthropic
 Messages, Gemini, and other routes use user messages for both tiers because
 Kernel cannot preserve mid-history developer authority on those routes. The
 recorded content change shows that reduction. When a request carries a reminder,
-the engine adds a system instruction telling the model to follow the prepared
+Kernel adds a system instruction telling the model to follow the prepared
 role rather than infer authority from the tag. Authorization of operator origin
 and tool use remains an application policy decision.
 

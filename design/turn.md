@@ -5,11 +5,13 @@
 
 ## Boundary
 
-A **turn** is one identified unit of agent work. It may span invocations and
-processes and need not belong to a session. A session organizes turns and supplies
-conversation history; it does not own a turn's execution rules. An agent
-definition describes reusable behavior. The turn records which definition
-revision accepted its work, while runtime bindings supply clients, executors,
+A **turn** is one input processed until the agent settles, possibly across
+many model calls. It is identified, may span invocations and processes, and
+need not belong to a session. (Some SDKs call one model call a "turn"; Kernel
+calls that a model attempt.) A session, reserved for later, organizes turns and
+supplies conversation history; it does not own a turn's execution rules. An
+`Agent` describes reusable behavior. The turn records which agent revision
+accepted its work, while the `Runner` supplies clients, executors,
 credentials, and storage.
 
 The authoritative turn is an ordered, versioned record of facts. Its current
@@ -26,30 +28,30 @@ model history; projection decisions are explicit and leave facts intact.
 | Turn ID | Recover the accepted work, independently of a session or invocation. |
 | Step sequence | Order facts and provide the expected state revision for a write. |
 | Effect ID and attempt ID | Separate a logical model/tool operation from each execution try. |
-| Command ID | Deduplicate a delivered input, decision, result, or cancellation. |
-| Definition revision | Pin accepted behavior; each model request also captures its resolved tools and effective settings. |
+| Command ID | `CommandID`, an idempotency key: deduplicate a delivered input, decision, result, or cancellation. |
+| Agent revision | Pin accepted behavior; each model request also captures its resolved tools and effective settings. |
 | Ownership token | Fence a host's stale writer separately from step revision. |
 
 All mutating commands carry a stable command ID and payload digest. Repeating the
 same ID and content acknowledges the prior application; changing the content
 conflicts. A different ID cannot settle an already settled subject again. The
-host authenticates and authorizes each command submitter; the engine validates
+host authenticates and authorizes each command submitter; the runner validates
 its turn state and pending-subject correlation.
 
 | Command | Contract |
 | --- | --- |
-| **Start** | Admit a new turn, its origin, pinned prior history, initial input, limits, and definition revision; only the first acknowledged start permits execution. |
+| **Start** | Admit a new turn, its origin, pinned prior history, initial input, limits, and agent revision; only the first acknowledged start permits execution. |
 | **Deliver** | Record context for an open, waiting, or continuable turn without advancing it. The next eligible model call sees it according to its scope and replacement rule. |
 | **Continue** | Resume a stopped turn, including one interrupted by a context end or crash. It does not reset limits. |
-| **Accept** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. It never runs the turn. |
+| **Settle** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. It never runs the turn. |
 | **Cancel** | Request no further work. Unstarted calls become known not executed; started effects remain pending for late reconciliation and accounting, without restarting the loop. |
 
-The admitted definition must be available by revision on recovery. A hash alone
-detects drift but cannot reconstruct behavior. A different definition cannot be
+The admitted agent must be available by revision on recovery. A hash alone
+detects drift but cannot reconstruct behavior. A different agent cannot be
 silently accepted by `Continue`. The first implementation rejects a changed
-definition for that turn; a later explicit revision transition can define safe
-in-place changes. Dynamic toolsets resolve before each
-model call, and that call records the effective definitions. Durable context
+agent for that turn (`ErrAgentChanged`); a later explicit revision transition
+can define safe in-place changes. Dynamic toolsets resolve before each model
+call, and that call records the effective definitions. Durable context
 must contain its content or an immutable, resolvable reference. A digest-only
 delivery proves what was offered but cannot reconstruct it; such context cannot
 support automatic recovery. Context retained for just one model call still
@@ -66,7 +68,7 @@ settlement; tool decision, start, wait, and settlement; validated output
 recorded when a schema is requested; turn stop. A model
 settlement records the complete assistant result and its client tool calls as
 one accepted fact. Requested and effective tool arguments, the authorization
-decision, and the definition/policy revision belong to the tool facts. A
+decision, and the agent/policy revision belong to the tool facts. A
 provider-hosted activity remains inside the model result; it is never converted
 into a locally executable call. Each step has a schema version, turn ID,
 monotonic sequence, and one validated payload.
@@ -80,7 +82,7 @@ same flag, so a host can find ready turns after a worker exits. Caller delivery
 belongs to the runner, not the turn. Known tool failure, confirmed
 nonexecution, waiting, and uncertain execution remain different states. Stops
 distinguish completed, waiting, interrupted, limited, refused, canceled,
-failed, and uncertain. `Accept` commits a report or approval but does not
+failed, and uncertain. `Settle` commits a report or approval but does not
 restart the loop; only `Continue` does.
 Invalid commands and corrupt records fail before a first write; after a first
 acknowledged step, the outcome retains partial work and its stop even on failure.
@@ -105,7 +107,7 @@ Interrupted model output is kept for display and its usage for accounting,
 but is never acted on. A context end uses a bounded commit context to save an
 interrupted stop with the context cause. `Cancel` (or a caller's explicit
 `ContextCancel` option) ends the turn; unstarted calls become known not
-executed. `Bindings.Pause` requests interruption before the next effect
+executed. `WithPause` requests interruption before the next effect
 without cutting off current work. `Limits.Interruptions` bounds resumes
 independently of model attempts; `Limits.Deadline` is a limit, while a host
 deadline interrupts the turn.

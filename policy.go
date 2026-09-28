@@ -129,17 +129,17 @@ func (AllowLocalPolicy) OnStop(
 	return StopDecision{}, nil
 }
 
-// Event carries a committed step or provisional model delta from Engine.Stream.
+// Event carries a committed step or provisional model delta from Runner.Stream.
 type Event struct {
 	TurnID    string
 	AttemptID string
 	MessageID string
 	Step      *Step
 	Delta     *llm.Delta
-	// Outcome is set only on the final Engine.Stream event. Observer receives
+	// Outcome is set only on the final Runner.Stream event. Observer receives
 	// committed steps and provisional deltas, not this terminal event.
 	Outcome *Outcome
 }
 
-// Observer receives progress while an engine invocation is running.
+// Observer receives progress while a run is in progress.
 type Observer func(Event)

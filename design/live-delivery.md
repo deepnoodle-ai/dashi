@@ -7,9 +7,9 @@
 
 A UI host needs several readers on one turn, each replaying from its own cursor,
 reconnecting without loss or duplication, and never cancelling work by
-disconnecting. Kernel offers two things. `Engine.Stream` is one backpressured
+disconnecting. Kernel offers two things. `Runner.Stream` is one backpressured
 reader for the caller that runs the turn; it is single-use, and breaking the
-range cancels the turn (engine.go:30-34, 46-53). `Bindings.Observer` is a
+range cancels the turn (engine.go:30-34, 46-53). `Runner.Observer` is a
 64-slot channel that drops any event when full, committed steps included, with
 no signal (observer.go:11, 19-26). That contradicts agent-loop.md:99-100 and
 leaves every host to rebuild the reader, gap handling, and preview bookkeeping
@@ -40,10 +40,10 @@ nvoken-cloud meets the same properties with a database and a lossy bus.
 
 ## Proposal
 
-**(a) Owner and readers.** `Engine.Stream` stays what it is: the owner's
+**(a) Owner and readers.** `Runner.Stream` stays what it is: the owner's
 backpressured view of one invocation, where breaking means "stop this work".
 Everyone else reads the record. A UI host runs the turn detached (a worker calls
-`Apply` or `Stream` under its own context) and each HTTP connection follows the
+`Run` or `Stream` under its own context) and each HTTP connection follows the
 record by `Seq` under the request context, so a disconnect ends only the follow.
 Guides should steer hosts away from ranging `Stream` in a request handler.
 
@@ -68,12 +68,12 @@ needs is its cursor, and the database already serializes and stores every step.
 
 **(d) Committed steps are lossless to the Observer.** Stop copying steps into
 the lossy channel. The observer goroutine instead walks the runtime's own
-`turn.Steps` from its last delivered `Seq`; the engine already holds that slice
+`turn.Steps` from its last delivered `Seq`; the runner already holds that slice
 for the invocation (engine.go:334). Previews stay in the bounded channel, each
 tagged with the `Seq` current at emission, so steps through that `Seq` are
 delivered first and the original order survives. This never blocks and adds no
 queue. Tradeoff: a stuck observer pins a goroutine and the turn's steps after
-`Apply` returns. Rejected: blocking the commit path (design-pitfalls item 10);
+`Run` returns. Rejected: blocking the commit path (design-pitfalls item 10);
 an unbounded channel (a second copy of the same data); dropping steps from the
 observer (breaks agent-loop.md:99-100 and pushes in-process loggers to the
 store).
@@ -83,7 +83,7 @@ channel overflows, the goroutine delivers one `Event{Gap: true}` before the next
 preview. The consumer discards previews for the turn and relies on the record,
 where `model_settled` carries the whole result. Two additions are needed.
 `Offset` is the UTF-8 byte count already emitted for the same `(MessageID,
-Index)`; the engine sees every delta before the lossy buffer, so it can number
+Index)`; the runner sees every delta before the lossy buffer, so it can number
 them, as nvoken does. `ToolCallID` and `Name` on every `tool_arguments` delta
 come from a normalized block start in each provider adapter; only Anthropic
 emits one today (providers/anthropic/messages/stream.go:151). An execution epoch
@@ -140,7 +140,7 @@ type Event struct {
   would be the wrong one there. A single-process host fans out with a map of
   bounded channels (nvoken's is 131 lines, liveevents/inprocess.go). Reconsider
   if two hosts write the same one.
-- **A multi-reader `Engine.Stream`.** It would buffer per reader or block on the
+- **A multi-reader `Runner.Stream`.** It would buffer per reader or block on the
   slowest, serve only readers in the owning process, and end when the invocation
   ends, so a late or reconnecting reader gets nothing. The record already serves
   any number of readers across processes and restarts.

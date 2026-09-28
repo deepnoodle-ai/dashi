@@ -61,18 +61,13 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 					}, nil
 				}),
 			}
-			out, err := (Engine{}).Apply(
-				t.Context(),
-				turn,
-				definition(),
-				Continue{ID: "resume"},
-				Bindings{
-					Client:   client,
-					Tools:    fixedTools{bound},
-					Recorder: rec,
-					Policy:   AllowLocalPolicy{},
-				},
-			)
+			out, err := (Runner{
+				Agent:    testAgent(),
+				Client:   client,
+				Tools:    fixedTools{bound},
+				Recorder: rec,
+				Policy:   AllowLocalPolicy{},
+			}).Run(t.Context(), turn, Continue{CommandID: "resume"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +138,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 			}, nil
 		}),
 	}
-	def := definition()
+	def := testAgent()
 	def.Limits.ToolConcurrency = 1
 	rec := NewMemoryRecorder()
 	type result struct {
@@ -152,21 +147,20 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	}
 	finished := make(chan result, 1)
 	go func() {
-		out, err := (Engine{}).Apply(
+		out, err := (Runner{
+			Agent:    def,
+			Client:   client,
+			Tools:    fixedTools{first, second},
+			Recorder: rec,
+			Policy:   AllowLocalPolicy{},
+		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
-			def,
 			Start{
-				ID:    "start",
-				Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 			},
-			Bindings{
-				Client:   client,
-				Tools:    fixedTools{first, second},
-				Recorder: rec,
-				Policy:   AllowLocalPolicy{},
-				Pause:    pause,
-			},
+			WithPause(pause),
 		)
 		finished <- result{out: out, err: err}
 	}()
@@ -204,18 +198,13 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	if secondStatus != ToolRequested && secondStatus != ToolAllowed {
 		t.Fatalf("second tool status=%s; want pending", secondStatus)
 	}
-	resumed, err := (Engine{}).Apply(
-		t.Context(),
-		got.out.Turn,
-		def,
-		Continue{ID: "resume"},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{first, second},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
-	)
+	resumed, err := (Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    fixedTools{first, second},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), got.out.Turn, Continue{CommandID: "resume"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,17 +234,16 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 			}, nil
 		}),
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    fixedTools{binding},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{binding},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +276,7 @@ func startedLocalToolTurn(
 	toolDef tool.Definition,
 ) Turn {
 	t.Helper()
-	def := definition()
+	def := testAgent()
 	turn := Turn{ID: "t1"}
 	commit := func(step Step) {
 		t.Helper()
@@ -307,8 +295,8 @@ func startedLocalToolTurn(
 	commit(Step{
 		Kind: StepStarted,
 		Started: &StartFact{
-			Definition: def,
-			Input:      []llm.Message{llm.UserMessage(llm.Text("go"))},
+			Agent: def,
+			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	})
 	commit(Step{

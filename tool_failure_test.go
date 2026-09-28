@@ -87,8 +87,8 @@ func TestToolFailureRecordShapes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &scriptedClient{results: test.results}
 			rec := NewMemoryRecorder()
-			b := toolBindings(client, rec, test.executor)
-			got, err := startTurn(definition(), b)
+			runner := toolRunner(client, rec, test.executor)
+			got, err := startTurn(testAgent(), runner)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,8 +123,8 @@ func TestToolErrorReachesModelAsFailure(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote"), final("ok")},
 	}
 	executor := failingFunc(t, errors.New("quota exceeded"))
-	b := toolBindings(client, NewMemoryRecorder(), executor)
-	got, err := startTurn(definition(), b)
+	runner := toolRunner(client, NewMemoryRecorder(), executor)
+	got, err := startTurn(testAgent(), runner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestToolErrorReachesModelAsFailure(t *testing.T) {
 }
 
 func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	def.Limits.ToolConcurrency = 1
 	client := &scriptedClient{
 		results: []llm.Result{callsResult("a", "b"), final("ok")},
@@ -161,8 +161,8 @@ func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
 		runsB.Add(1)
 		return succeeded("done"), nil
 	}
-	b := toolBindings(client, NewMemoryRecorder(), execFunc(work))
-	first, err := startTurn(def, b)
+	runner := toolRunner(client, NewMemoryRecorder(), execFunc(work))
+	first, err := startTurn(def, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
 	if status := view.Tools["b"].Status; status != ToolAllowed {
 		t.Fatalf("later call status=%s, want allowed", status)
 	}
-	resumed, err := apply(first.Turn, def, Continue{ID: "continue"}, b)
+	resumed, err := apply(first.Turn, def, Continue{CommandID: "continue"}, runner)
 	if err != nil {
 		t.Fatalf("continue after fatal tool error: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			def := definition()
+			def := testAgent()
 			def.Limits.ToolConcurrency = test.concurrency
 			client := &scriptedClient{
 				results: []llm.Result{callsResult("a", "b"), final("ok")},
@@ -224,8 +224,8 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 				}
 				return succeeded("done"), nil
 			}
-			b := toolBindings(client, NewMemoryRecorder(), execFunc(work))
-			first, err := startTurn(def, b)
+			runner := toolRunner(client, NewMemoryRecorder(), execFunc(work))
+			first, err := startTurn(def, runner)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -246,20 +246,20 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 			if !strings.HasPrefix(reason, "panic: boom\n") {
 				t.Fatalf("panic reason=%q", reason)
 			}
-			continued := Continue{ID: "continue"}
-			if _, err := apply(first.Turn, def, continued, b); err == nil {
+			continued := Continue{CommandID: "continue"}
+			if _, err := apply(first.Turn, def, continued, runner); err == nil {
 				t.Fatal("continued past an unreconciled panic")
 			}
 			out := succeeded("verified")
-			accept := Accept{ID: "reconcile", CallID: "a", Outcome: &out}
-			accepted, err := apply(first.Turn, def, accept, b)
+			settle := Settle{CommandID: "reconcile", CallID: "a", Outcome: &out}
+			accepted, err := apply(first.Turn, def, settle, runner)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !accepted.ReadyToContinue || client.sends != 1 {
 				t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 			}
-			completed, err := apply(accepted.Turn, def, continued, b)
+			completed, err := apply(accepted.Turn, def, continued, runner)
 			if err != nil || completed.Stop.Kind != StopCompleted {
 				t.Fatalf("continued=%+v err=%v", completed, err)
 			}
@@ -275,12 +275,12 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote")},
 	}
 	executor := failingFunc(t, tool.Fatal(errors.New("connection lost")))
-	b := toolBindings(client, NewMemoryRecorder(), executor)
-	got, err := startTurn(definition(), b)
+	runner := toolRunner(client, NewMemoryRecorder(), executor)
+	got, err := startTurn(testAgent(), runner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A record from an older engine, or a forged one, may claim uncertainty
+	// A record from an older runner, or a forged one, may claim uncertainty
 	// for a returned error. Replay honors the record rather than guessing.
 	forged := Turn{ID: got.Turn.ID}
 	for _, step := range got.Turn.Steps {
@@ -315,54 +315,56 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		t.Fatalf("status=%s", view.Tools["call-1"].Status)
 	}
 	client = &scriptedClient{results: []llm.Result{final("ok")}}
-	b = toolBindings(client, rec, executor)
-	continued := Continue{ID: "continue"}
-	if _, err := apply(forged, definition(), continued, b); err == nil {
+	runner = toolRunner(client, rec, executor)
+	continued := Continue{CommandID: "continue"}
+	if _, err := apply(forged, testAgent(), continued, runner); err == nil {
 		t.Fatal("continued past a recorded uncertain call")
 	}
 	out := tool.Outcome{
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput("connection lost")),
 	}
-	accept := Accept{ID: "reconcile", CallID: "call-1", Outcome: &out}
-	accepted, err := apply(forged, definition(), accept, b)
+	settle := Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
+	accepted, err := apply(forged, testAgent(), settle, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !accepted.ReadyToContinue || client.sends != 0 {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
-	completed, err := apply(accepted.Turn, definition(), continued, b)
+	completed, err := apply(accepted.Turn, testAgent(), continued, runner)
 	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("continued=%+v err=%v sends=%d", completed, err, client.sends)
 	}
 }
 
 // startTurn starts turn "t1" with a fixed user input.
-func startTurn(def Definition, b Bindings) (Outcome, error) {
+func startTurn(def Agent, runner Runner) (Outcome, error) {
 	command := Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	return apply(Turn{ID: "t1"}, def, command, b)
+	return apply(Turn{ID: "t1"}, def, command, runner)
 }
 
 func apply(
 	turn Turn,
-	def Definition,
+	def Agent,
 	command Command,
-	b Bindings,
+	runner Runner,
 ) (Outcome, error) {
-	return (Engine{}).Apply(context.Background(), turn, def, command, b)
+	runner.Agent = def
+	return runner.Run(context.Background(), turn, command)
 }
 
-// toolBindings binds executor as the "remote" tool and allows local calls.
-func toolBindings(
+// toolRunner binds executor as the "remote" tool and allows local calls. The
+// agent is set per call by apply.
+func toolRunner(
 	client *scriptedClient,
 	rec Recorder,
 	executor tool.Executor,
-) Bindings {
-	return Bindings{
+) Runner {
+	return Runner{
 		Client:   client,
 		Tools:    fixedTools{localTool("remote", executor)},
 		Recorder: rec,

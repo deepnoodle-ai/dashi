@@ -16,9 +16,11 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// Definition is reusable behavior. Runtime clients, credentials, and storage
-// are supplied separately to Engine.Apply.
-type Definition struct {
+// Agent is reusable, serializable behavior: what to ask which model, with
+// which settings and limits. Clients, credentials, tools, and storage are
+// supplied separately on a Runner. Provider and API may be left empty; the
+// Runner fills them from its client before pinning the agent at Start.
+type Agent struct {
 	ID string `json:"id"`
 	// Revision pins behavior so a continued turn cannot silently change it.
 	Revision     string       `json:"revision"`
@@ -28,17 +30,17 @@ type Definition struct {
 	Model        string       `json:"model"`
 	Settings     llm.Settings `json:"settings"`
 	// OutputSchema is the default final-result schema for turns using this
-	// definition. Start.OutputSchema may override it for one turn.
+	// agent. Start.OutputSchema may override it for one turn.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Limits       Limits          `json:"limits"`
 }
 
 // Limits bounds model calls, interruptions, pauses, tool concurrency, and time
-// for turns using a definition. The zero value gives the default limits, so
+// for turns using an agent. The zero value gives the default limits, so
 // set only the fields you want to change. For counts where "none" is a
 // meaningful setting, a negative value means none.
 //
-// Kernel resolves defaults when it accepts a definition and records the
+// Kernel resolves defaults when it accepts an agent and records the
 // resolved values, so a recorded turn keeps its limits even if the library
 // defaults change later.
 type Limits struct {
@@ -71,41 +73,43 @@ const (
 )
 
 // Validate checks required identity fields, limits, and output settings.
-func (d Definition) Validate() error {
-	if d.ID == "" ||
-		d.Revision == "" ||
-		d.Provider == "" ||
-		d.API == "" ||
-		d.Model == "" {
-		return errors.New("kernel: definition requires ID, revision, provider, API, and model")
+func (a Agent) Validate() error {
+	if a.ID == "" ||
+		a.Revision == "" ||
+		a.Provider == "" ||
+		a.API == "" ||
+		a.Model == "" {
+		return errors.New(
+			"kernel: agent requires ID, revision, provider, API, and model",
+		)
 	}
-	if d.Limits.ModelAttempts < 0 || d.Limits.ToolConcurrency < 0 {
+	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
 			"kernel: model attempts and tool concurrency cannot be negative",
 		)
 	}
-	if len(d.OutputSchema) > 0 {
-		if _, err := compileOutputSchema(d.OutputSchema); err != nil {
+	if len(a.OutputSchema) > 0 {
+		if _, err := compileOutputSchema(a.OutputSchema); err != nil {
 			return err
 		}
-		if err := validateOutputToolChoice(d.Settings); err != nil {
+		if err := validateOutputToolChoice(a.Settings); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// resolved returns d with every zero limit replaced by its default and every
+// resolved returns a with every zero limit replaced by its default and every
 // negative "none" count normalized to -1. Kernel records the result, so the
-// same definition always compares equal to its record. Runtime checks read -1
-// as zero allowed, through max(count, 0).
-func (d Definition) resolved() Definition {
-	l := &d.Limits
+// same agent always compares equal to its record. Runtime checks read -1 as
+// zero allowed, through max(count, 0).
+func (a Agent) resolved() Agent {
+	l := &a.Limits
 	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
 	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
 	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
-	return d
+	return a
 }
 
 // ContextItem carries content whose origin and replacement behavior are
@@ -126,6 +130,11 @@ type ContextItem struct {
 type Turn struct {
 	ID    string `json:"id"`
 	Steps []Step `json:"steps"`
+}
+
+// NewTurn returns an empty turn to start under the caller-assigned id.
+func NewTurn(id string) Turn {
+	return Turn{ID: id}
 }
 
 // StructuredOutput returns the validated terminal value and its provenance.
@@ -170,9 +179,9 @@ func (t Turn) AnswerText() string {
 type StepKind string
 
 const (
-	// StepStarted pins the accepted definition and initial input.
+	// StepStarted pins the resolved agent and initial input.
 	StepStarted StepKind = "turn_started"
-	// StepDelivered records context supplied between engine calls.
+	// StepDelivered records context supplied between runs.
 	StepDelivered StepKind = "context_delivered"
 	// StepContinued records a command that resumes a stopped turn.
 	StepContinued StepKind = "turn_continued"
@@ -192,13 +201,15 @@ const (
 	StepToolWaiting StepKind = "tool_waiting"
 	// StepToolSettled records a final tool outcome.
 	StepToolSettled StepKind = "tool_settled"
-	// StepApproval records a host answer to a deferred local tool decision.
-	StepApproval StepKind = "approval_accepted"
-	// StepHostedApproval records a host answer to provider-hosted approval.
-	StepHostedApproval StepKind = "hosted_approval_accepted"
+	// StepApprovalSettled records a host answer to a deferred local tool
+	// decision, supplied by Settle.
+	StepApprovalSettled StepKind = "approval_settled"
+	// StepHostedApprovalSettled records a host answer to provider-hosted
+	// approval, supplied by Settle.
+	StepHostedApprovalSettled StepKind = "hosted_approval_settled"
 	// StepOutputRecorded pins a validated structured result.
 	StepOutputRecorded StepKind = "output_recorded"
-	// StepStopped records why engine execution ended.
+	// StepStopped records why a run ended.
 	StepStopped StepKind = "turn_stopped"
 )
 
@@ -235,7 +246,7 @@ type WarningCode string
 const (
 	// WarningHistoryMismatch means Continue received different prior history
 	// from Start. The turn still runs with the history supplied to Continue,
-	// unless Bindings.OnHistoryMismatch rejects the command instead.
+	// unless Continue.OnHistoryMismatch rejects the command instead.
 	WarningHistoryMismatch WarningCode = "history_mismatch"
 	// WarningBudgetClamp records an output allowance reduced by a turn cap.
 	WarningBudgetClamp WarningCode = "budget_clamp"
@@ -267,9 +278,9 @@ type StructuredOutput struct {
 	AttemptID  string          `json:"attempt_id"`
 }
 
-// StartFact pins the definition, inputs, and optional cap for a turn.
+// StartFact pins the agent, inputs, and optional cap for a turn.
 type StartFact struct {
-	Definition Definition `json:"definition"`
+	Agent Agent `json:"agent"`
 	// Budget pins the caller's cap at the start of the turn.
 	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
@@ -362,7 +373,7 @@ type ToolFact struct {
 	Reason     string          `json:"reason,omitempty"`
 }
 
-// ApprovalFact answers a deferred tool decision. It is accepted only while
+// ApprovalFact answers a deferred tool decision. Settle accepts it only while
 // the call awaits approval and its arguments and policy revision are the ones
 // the fact names.
 type ApprovalFact struct {
@@ -419,7 +430,7 @@ const (
 
 	// StopReasonToolOutcomeInvalid means an executor returned an outcome
 	// that fails tool.Outcome.Validate. This is a bug in the executor, not
-	// an uncertain effect: the engine observed the result, and it was
+	// an uncertain effect: the runner observed the result, and it was
 	// malformed.
 	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
 )
@@ -458,17 +469,35 @@ type Outcome struct {
 	WriteError error
 }
 
-// Command carries a caller-assigned stable ID. A repeated ID with identical
-// content acknowledges the first application without advancing again.
+// RecordingErr reports a step write the recorder did not acknowledge. It is
+// nil when every write was acknowledged, including an Outcome returned with a
+// Go error before any write. Otherwise it wraps WriteError and names the
+// Persistence state; for PersistenceUnknown, load the turn to learn whether
+// the write committed.
+func (o Outcome) RecordingErr() error {
+	switch {
+	case o.Persistence == PersistenceAcknowledged:
+		return nil
+	case o.Persistence == "" && o.WriteError == nil:
+		return nil
+	case o.WriteError == nil:
+		return fmt.Errorf("kernel: step write %s", o.Persistence)
+	}
+	return fmt.Errorf("kernel: step write %s: %w", o.Persistence, o.WriteError)
+}
+
+// Command carries a caller-assigned stable CommandID. A repeated ID with
+// identical content acknowledges the first application without advancing
+// again.
 type Command interface{ commandID() string }
 
 // Start begins a turn with caller-owned prior history and initial input.
 type Start struct {
-	ID     string
-	Origin StartOrigin
-	// Budget applies to this turn, independently of its definition.
+	CommandID string
+	Origin    StartOrigin
+	// Budget applies to this turn, independently of its agent.
 	Budget *Budget
-	// OutputSchema overrides the definition's default for this turn. The
+	// OutputSchema overrides the agent's default for this turn. The
 	// admitted schema is pinned in the start fact for replay and recovery.
 	OutputSchema json.RawMessage
 	// History is caller-owned prior conversation and is not stored in the turn.
@@ -476,24 +505,34 @@ type Start struct {
 	Input   []llm.Message
 }
 
-// Deliver adds context to a turn between engine calls.
+// Deliver adds context to a turn between runs.
 type Deliver struct {
-	ID    string
-	Items []ContextItem
+	CommandID string
+	Items     []ContextItem
 }
 
 // Continue resumes a turn using the prior conversation supplied for this
 // call. Pass no History when Start had no prior history.
 type Continue struct {
-	ID      string
-	History []llm.Message
+	CommandID string
+	History   []llm.Message
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget
+	// OnHistoryMismatch controls what happens when History differs from the
+	// fingerprint recorded at Start. The default warns and proceeds.
+	//
+	// It is left out of the command digest because it says how to handle a
+	// mismatch, not what the command asks for. A rejected Continue commits
+	// nothing, and a retry of an applied one returns the recorded result, so
+	// changing it on a retry is not a conflicting command.
+	OnHistoryMismatch HistoryMismatch `json:"-"`
 }
 
-// Accept records a host-supplied tool, approval, or model settlement.
-type Accept struct {
-	ID             string
+// Settle records a host-supplied settlement: a final tool outcome, an answer
+// to a tool or provider-hosted approval, or a model result or verified
+// failure. Exactly one fact is set.
+type Settle struct {
+	CommandID      string
 	CallID         string
 	Outcome        *tool.Outcome
 	Approval       *ApprovalFact
@@ -506,33 +545,33 @@ type Accept struct {
 
 // Cancel ends a turn with a caller-supplied reason.
 type Cancel struct {
-	ID     string
-	Reason string
+	CommandID string
+	Reason    string
 }
 
 func (c Start) commandID() string {
-	return c.ID
+	return c.CommandID
 }
 
 func (c Deliver) commandID() string {
-	return c.ID
+	return c.CommandID
 }
 
 func (c Continue) commandID() string {
-	return c.ID
+	return c.CommandID
 }
 
-func (c Accept) commandID() string {
-	return c.ID
+func (c Settle) commandID() string {
+	return c.CommandID
 }
 
 func (c Cancel) commandID() string {
-	return c.ID
+	return c.CommandID
 }
 
 var (
-	// ErrDefinitionChanged reports a turn continued with a different definition.
-	ErrDefinitionChanged = errors.New("kernel: definition changed")
+	// ErrAgentChanged reports a turn continued with a different agent.
+	ErrAgentChanged = errors.New("kernel: agent changed")
 	// ErrCommandConflict reports a reused command ID with different content.
 	ErrCommandConflict = errors.New("kernel: command conflict")
 	// ErrInvalidTurn reports a turn record that fails replay validation.
@@ -544,7 +583,7 @@ var (
 	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.
 	ErrTurnNotFound = errors.New("kernel: turn not found")
 	// ErrHistoryMismatch rejects a Continue whose History differs from the
-	// turn's start when Bindings.OnHistoryMismatch is HistoryMismatchReject.
+	// turn's start when Continue.OnHistoryMismatch is HistoryMismatchReject.
 	// Nothing is committed; retry with the history the turn started with.
 	ErrHistoryMismatch = errors.New("kernel: history differs from turn start")
 )

@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,32 +16,55 @@ import (
 	"github.com/deepnoodle-ai/kernel/tool"
 )
 
-// Bindings supplies the runtime capabilities and host controls for one engine
-// invocation. The definition and turn carry reusable and recorded state.
-type Bindings struct {
+// Runner runs turns for one agent with the long-lived services it needs. It
+// holds configuration only, so one value can serve many turns; per-call
+// controls are RunOption values, and each turn's state lives in its Turn.
+type Runner struct {
+	Agent  Agent
 	Client llm.Client
 	Tools  tool.Toolset
-	// Recorder acknowledges steps. When nil, Apply uses an in-memory recorder
+	// Recorder acknowledges steps. When nil, Run uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
 	// Policy defaults to denying tool calls when nil.
-	Policy   Policy
+	Policy Policy
+	// Observer receives committed steps and provisional deltas. When it is
+	// set, Run requests streamed model output so the Observer sees text as it
+	// arrives; Stream always does.
 	Observer Observer
-	Stream   bool
-	// Owner is forwarded to recorder commits for host lease fencing.
-	Owner string
-	// Pause requests a stop before the next model or tool call. Closing it
-	// does not interrupt work already in flight.
-	Pause <-chan struct{}
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
-	// OnHistoryMismatch controls what Continue does when its History differs
-	// from the fingerprint recorded at Start. The default warns and proceeds.
-	OnHistoryMismatch HistoryMismatch
-	streamSink        func(Event)
 }
 
-// ContextDone selects the meaning of an ended Go context for one invocation.
+// RunOption adjusts one Run or Stream call.
+type RunOption func(*runOptions)
+
+// runOptions holds per-call controls. The stream fields are set only by Run
+// and Stream, so a streamed model request always has a consumer for its
+// deltas: an Observer, a Stream range, or both.
+type runOptions struct {
+	owner      string
+	pause      <-chan struct{}
+	stream     bool
+	streamSink func(Event)
+}
+
+// WithOwner forwards owner to recorder commits for host lease fencing.
+func WithOwner(owner string) RunOption {
+	return func(o *runOptions) {
+		o.owner = owner
+	}
+}
+
+// WithPause requests a stop before the next model or tool call once pause is
+// closed. Closing it does not interrupt work already in flight.
+func WithPause(pause <-chan struct{}) RunOption {
+	return func(o *runOptions) {
+		o.pause = pause
+	}
+}
+
+// ContextDone selects the meaning of an ended Go context for one run.
 type ContextDone string
 
 const (
@@ -64,22 +88,18 @@ const (
 	HistoryMismatchReject HistoryMismatch = "reject"
 )
 
-// Engine applies commands to turns and streams their recorded progress.
-type Engine struct{}
-
-// Stream advances a turn when iteration begins. A fully read sequence ends
-// with one Outcome event; command validation errors appear in the error slot.
-// Breaking the range ends the context. By default, the turn records an
-// interruption; ContextCancel on Bindings makes the break a final cancel.
-// Reload the turn by ID to inspect committed facts, since no final event
-// follows a break.
+// Stream advances a turn when iteration begins, requesting streamed model
+// output. A fully read sequence ends with one Outcome event; command
+// validation errors appear in the error slot. Breaking the range ends the
+// context. By default, the turn records an interruption; ContextCancel on the
+// Runner makes the break a final cancel. Reload the turn by ID to inspect
+// committed facts, since no final event follows a break.
 // A second range yields ErrStreamConsumed instead of repeating work.
-func (Engine) Stream(
+func (r Runner) Stream(
 	ctx context.Context,
 	turn Turn,
-	def Definition,
 	command Command,
-	b Bindings,
+	opts ...RunOption,
 ) iter.Seq2[Event, error] {
 	var started atomic.Bool
 	return func(yield func(Event, error) bool) {
@@ -90,8 +110,9 @@ func (Engine) Stream(
 		streamCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 		stopped := false
-		b.Stream = true
-		b.streamSink = func(event Event) {
+		o := newRunOptions(opts)
+		o.stream = true
+		o.streamSink = func(event Event) {
 			if stopped {
 				return
 			}
@@ -100,7 +121,7 @@ func (Engine) Stream(
 				cancel(errors.New("kernel: stream consumer stopped"))
 			}
 		}
-		out, err := (Engine{}).Apply(streamCtx, turn, def, command, b)
+		out, err := r.run(streamCtx, turn, command, o)
 		if stopped {
 			return
 		}
@@ -112,49 +133,63 @@ func (Engine) Stream(
 	}
 }
 
-// Apply advances one turn from an explicit command. A Go error means command
+// Run advances one turn from an explicit command. A Go error means command
 // validation failed before a new fact was acknowledged. Once a commit succeeds,
 // execution failures are represented in Outcome, retaining partial work.
-func (Engine) Apply(
+// Run requests streamed model output only when the Runner has an Observer,
+// which is then the only consumer of deltas.
+func (r Runner) Run(
 	ctx context.Context,
 	turn Turn,
-	def Definition,
 	command Command,
-	b Bindings,
+	opts ...RunOption,
+) (Outcome, error) {
+	o := newRunOptions(opts)
+	o.stream = r.Observer != nil
+	return r.run(ctx, turn, command, o)
+}
+
+func (r Runner) run(
+	ctx context.Context,
+	turn Turn,
+	command Command,
+	opts runOptions,
 ) (Outcome, error) {
 	if command == nil || command.commandID() == "" {
 		return Outcome{}, errors.New("kernel: command ID is required")
 	}
-	if b.OnContextDone != "" && b.OnContextDone != ContextInterrupt &&
-		b.OnContextDone != ContextCancel {
+	if r.OnContextDone != "" && r.OnContextDone != ContextInterrupt &&
+		r.OnContextDone != ContextCancel {
 		return Outcome{}, errors.New("kernel: invalid context-done behavior")
 	}
-	if b.OnHistoryMismatch != "" && b.OnHistoryMismatch != HistoryMismatchWarn &&
-		b.OnHistoryMismatch != HistoryMismatchReject {
-		return Outcome{}, errors.New("kernel: invalid history-mismatch behavior")
-	}
-	if err := def.Validate(); err != nil {
-		return Outcome{}, err
-	}
-	def = def.resolved()
-	if turn.ID == "" || b.Client == nil {
+	if turn.ID == "" || r.Client == nil {
 		return Outcome{}, errors.New("kernel: turn ID and client are required")
 	}
-	if b.Client.Provider() != def.Provider || b.Client.API() != def.API {
-		return Outcome{}, errors.New("kernel: client does not match accepted definition")
+	agent := r.Agent
+	// An agent may leave its destination to the client. The filled values are
+	// validated and pinned like explicit ones, so replay and Continue compare
+	// the same resolved agent.
+	agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
+	agent.API = cmp.Or(agent.API, r.Client.API())
+	if err := agent.Validate(); err != nil {
+		return Outcome{}, err
 	}
-	if b.Policy == nil {
-		b.Policy = denyToolPolicy{}
+	agent = agent.resolved()
+	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
+		return Outcome{}, errors.New("kernel: client does not match agent provider and API")
+	}
+	if r.Policy == nil {
+		r.Policy = denyToolPolicy{}
 	}
 	state, err := replay(turn)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if b.Recorder == nil {
-		b.Recorder = newMemoryRecorderForTurn(turn)
+	if r.Recorder == nil {
+		r.Recorder = newMemoryRecorderForTurn(turn)
 	}
-	if len(turn.Steps) > 0 && !sameDefinition(def, state.Definition) {
-		return Outcome{}, ErrDefinitionChanged
+	if len(turn.Steps) > 0 && !sameAgent(agent, state.Agent) {
+		return Outcome{}, ErrAgentChanged
 	}
 	d, err := commandDigest(command)
 	if err != nil {
@@ -164,7 +199,7 @@ func (Engine) Apply(
 		if old != d {
 			return Outcome{}, ErrCommandConflict
 		}
-		if loader, ok := b.Recorder.(Loader); ok {
+		if loader, ok := r.Recorder.(Loader); ok {
 			saved, loadErr := loader.Load(ctx, turn.ID)
 			if loadErr != nil {
 				return Outcome{}, loadErr
@@ -173,8 +208,8 @@ func (Engine) Apply(
 			if replayErr != nil {
 				return Outcome{}, replayErr
 			}
-			if !sameDefinition(def, current.Definition) {
-				return Outcome{}, ErrDefinitionChanged
+			if !sameAgent(agent, current.Agent) {
+				return Outcome{}, ErrAgentChanged
 			}
 			if current.commandDigests[command.commandID()] != d {
 				return Outcome{}, ErrRevisionConflict
@@ -186,7 +221,7 @@ func (Engine) Apply(
 	// A caller can retry with an old snapshot after an acknowledgement was lost.
 	// Only a turn known not to exist falls back to the caller's snapshot;
 	// acting on a snapshot the recorder could not confirm might repeat work.
-	if loader, ok := b.Recorder.(Loader); ok {
+	if loader, ok := r.Recorder.(Loader); ok {
 		saved, loadErr := loader.Load(ctx, turn.ID)
 		if loadErr != nil && !errors.Is(loadErr, ErrTurnNotFound) {
 			return Outcome{}, loadErr
@@ -197,8 +232,8 @@ func (Engine) Apply(
 				return Outcome{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
-				if !sameDefinition(def, current.Definition) {
-					return Outcome{}, ErrDefinitionChanged
+				if !sameAgent(agent, current.Agent) {
+					return Outcome{}, ErrAgentChanged
 				}
 				if old != d {
 					return Outcome{}, ErrCommandConflict
@@ -208,11 +243,11 @@ func (Engine) Apply(
 		}
 	}
 	runCtx := ctx
-	if !def.Limits.Deadline.IsZero() {
+	if !agent.Limits.Deadline.IsZero() {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithDeadlineCause(
 			ctx,
-			def.Limits.Deadline,
+			agent.Limits.Deadline,
 			errTurnDeadline,
 		)
 		defer cancel()
@@ -220,9 +255,10 @@ func (Engine) Apply(
 	rt := runtime{
 		ctx:     runCtx,
 		turn:    cloneTurn(turn),
-		def:     def,
-		b:       b,
-		emitter: newEmitter(b.Observer),
+		agent:   agent,
+		runner:  r,
+		opts:    opts,
+		emitter: newEmitter(r.Observer),
 	}
 	defer rt.emitter.close()
 	switch c := command.(type) {
@@ -247,7 +283,7 @@ func (Engine) Apply(
 			if _, err := compileOutputSchema(c.OutputSchema); err != nil {
 				return Outcome{}, err
 			}
-			if err := validateOutputToolChoice(def.Settings); err != nil {
+			if err := validateOutputToolChoice(agent.Settings); err != nil {
 				return Outcome{}, err
 			}
 		}
@@ -257,10 +293,10 @@ func (Engine) Apply(
 		}
 		if o := rt.commit(Step{
 			Kind:          StepStarted,
-			CommandID:     c.ID,
+			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Started: &StartFact{
-				Definition:         def,
+				Agent:              agent,
 				Budget:             cloneBudget(c.Budget),
 				OutputSchema:       slices.Clone(c.OutputSchema),
 				Origin:             origin,
@@ -280,7 +316,7 @@ func (Engine) Apply(
 		}
 		if o := rt.commit(Step{
 			Kind:          StepDelivered,
-			CommandID:     c.ID,
+			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
 		}); o != nil {
@@ -290,6 +326,11 @@ func (Engine) Apply(
 	case Continue:
 		if len(turn.Steps) == 0 {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
+		}
+		if c.OnHistoryMismatch != "" &&
+			c.OnHistoryMismatch != HistoryMismatchWarn &&
+			c.OnHistoryMismatch != HistoryMismatchReject {
+			return Outcome{}, errors.New("kernel: invalid history-mismatch behavior")
 		}
 		if c.Budget != nil {
 			old := Budget{}
@@ -311,20 +352,20 @@ func (Engine) Apply(
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
 		mismatch := stored != fingerprint
-		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
+		if mismatch && c.OnHistoryMismatch == HistoryMismatchReject {
 			return Outcome{}, ErrHistoryMismatch
 		}
 		if state.interruptionLimitReached() {
 			step := Step{
 				Kind:          StepStopped,
-				CommandID:     c.ID,
+				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Stop: &Stop{
 					Kind:   StopLimited,
 					Reason: "interruptions",
 					Limit: &LimitDetail{
 						Kind:  LimitInterruptions,
-						Limit: int64(max(def.Limits.Interruptions, 0)),
+						Limit: int64(max(agent.Limits.Interruptions, 0)),
 						Used:  int64(state.Interruptions),
 					},
 				},
@@ -340,7 +381,7 @@ func (Engine) Apply(
 		rt.history = cloneMessages(c.History)
 		step := Step{
 			Kind:          StepContinued,
-			CommandID:     c.ID,
+			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Budget:        cloneBudget(c.Budget),
 		}
@@ -355,9 +396,9 @@ func (Engine) Apply(
 		if o := rt.commit(step); o != nil {
 			return *o, nil
 		}
-	case Accept:
+	case Settle:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("kernel: cannot accept before start")
+			return Outcome{}, errors.New("kernel: cannot settle before start")
 		}
 		n := 0
 		if c.Outcome != nil {
@@ -370,7 +411,7 @@ func (Engine) Apply(
 			n++
 		}
 		if c.ModelResult != nil {
-			if err := validateModelResult(*c.ModelResult, def); err != nil {
+			if err := validateModelResult(*c.ModelResult, agent); err != nil {
 				return Outcome{}, err
 			}
 			n++
@@ -385,7 +426,7 @@ func (Engine) Apply(
 			n++
 		}
 		if n != 1 {
-			return Outcome{}, errors.New("kernel: accept requires one fact")
+			return Outcome{}, errors.New("kernel: settle requires one fact")
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" ||
@@ -410,7 +451,7 @@ func (Engine) Apply(
 			setSettlementCharge(state.modelIntents[c.CallID], fact)
 			if o := rt.commit(Step{
 				Kind:          kind,
-				CommandID:     c.ID,
+				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Model:         fact,
 			}); o != nil {
@@ -425,8 +466,8 @@ func (Engine) Apply(
 				return Outcome{}, errors.New("kernel: hosted approval is not pending")
 			}
 			if o := rt.commit(Step{
-				Kind:           StepHostedApproval,
-				CommandID:      c.ID,
+				Kind:           StepHostedApprovalSettled,
+				CommandID:      c.CommandID,
 				CommandDigest:  d,
 				HostedApproval: c.HostedApproval,
 			}); o != nil {
@@ -442,8 +483,8 @@ func (Engine) Apply(
 				return Outcome{}, errors.New("kernel: stale tool approval")
 			}
 			if o := rt.commit(Step{
-				Kind:          StepApproval,
-				CommandID:     c.ID,
+				Kind:          StepApprovalSettled,
+				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Approval:      c.Approval,
 			}); o != nil {
@@ -470,18 +511,18 @@ func (Engine) Apply(
 				return Outcome{}, errors.New("kernel: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
-				return Outcome{}, errors.New("kernel: structured output is settled by the engine")
+				return Outcome{}, errors.New("kernel: structured output is settled by the runner")
 			}
 			if e := c.Outcome.Validate(); e != nil {
 				return Outcome{}, e
 			}
 			if c.Outcome.State == tool.StateWaiting ||
 				c.Outcome.State == tool.StateDetached {
-				return Outcome{}, errors.New("kernel: accept requires a final tool outcome")
+				return Outcome{}, errors.New("kernel: settle requires a final tool outcome")
 			}
 			if o := rt.commit(Step{
 				Kind:          StepToolSettled,
-				CommandID:     c.ID,
+				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Tool:          &ToolFact{Call: v.Call, Outcome: c.Outcome},
 			}); o != nil {
@@ -498,7 +539,7 @@ func (Engine) Apply(
 		}
 		if o := rt.commit(Step{
 			Kind:          StepStopped,
-			CommandID:     c.ID,
+			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Stop:          &Stop{Kind: StopCanceled, Reason: c.Reason},
 		}); o != nil {
@@ -515,8 +556,9 @@ type runtime struct {
 	ctx     context.Context
 	turn    Turn
 	history []llm.Message
-	def     Definition
-	b       Bindings
+	agent   Agent
+	runner  Runner
+	opts    runOptions
 	emitter *emitter
 }
 
@@ -542,18 +584,18 @@ func (r *runtime) contextStop() Outcome {
 	if cause == nil {
 		cause = context.Canceled
 	}
-	if r.b.OnContextDone == ContextCancel {
+	if r.runner.OnContextDone == ContextCancel {
 		return r.stop(StopCanceled, cause.Error())
 	}
 	return r.stop(StopInterrupted, cause.Error())
 }
 
 func (r *runtime) pauseRequested() bool {
-	if r.b.Pause == nil {
+	if r.opts.pause == nil {
 		return false
 	}
 	select {
-	case <-r.b.Pause:
+	case <-r.opts.pause:
 		return true
 	default:
 		return false
@@ -586,9 +628,9 @@ func unsafeHosted(defs []tool.Definition) bool {
 	return false
 }
 
-// sameDefinition compares definitions after both were resolved, so a caller's
-// zero limit matches the default recorded for it.
-func sameDefinition(a, b Definition) bool {
+// sameAgent compares agents after both were resolved, so a caller's zero limit
+// matches the default recorded for it.
+func sameAgent(a, b Agent) bool {
 	return sameJSONValue(a, b)
 }
 
@@ -610,12 +652,12 @@ func (r *runtime) commit(step Step) *Outcome {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 	}
-	err := r.b.Recorder.Commit(
+	err := r.runner.Recorder.Commit(
 		ctx,
 		CommitRequest{
 			Step:        step,
 			ExpectedSeq: step.Seq - 1,
-			Owner:       r.b.Owner,
+			Owner:       r.opts.owner,
 		},
 	)
 	if err != nil {
@@ -630,7 +672,7 @@ func (r *runtime) commit(step Step) *Outcome {
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
-	if (r.emitter != nil && r.emitter.ch != nil) || r.b.streamSink != nil {
+	if (r.emitter != nil && r.emitter.ch != nil) || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
 			event.AttemptID = step.Model.AttemptID
@@ -645,8 +687,8 @@ func (r *runtime) emit(event Event) {
 	if r.emitter != nil && r.emitter.ch != nil {
 		r.emitter.send(cloneEvent(event))
 	}
-	if r.b.streamSink != nil {
-		r.b.streamSink(cloneEvent(event))
+	if r.opts.streamSink != nil {
+		r.opts.streamSink(cloneEvent(event))
 	}
 }
 
@@ -730,25 +772,25 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 			case "model_attempts":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitModelAttempts,
-					Limit: int64(r.def.Limits.ModelAttempts),
+					Limit: int64(r.agent.Limits.ModelAttempts),
 					Used:  int64(state.ModelAttempts),
 				}
 			case "interruptions":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitInterruptions,
-					Limit: int64(max(r.def.Limits.Interruptions, 0)),
+					Limit: int64(max(r.agent.Limits.Interruptions, 0)),
 					Used:  int64(state.Interruptions),
 				}
 			case "provider_pauses":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitProviderPauses,
-					Limit: int64(max(r.def.Limits.ProviderPauses, 0)),
+					Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
 					Used:  int64(state.ProviderPauses),
 				}
 			case "deadline":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitDeadline,
-					Limit: r.def.Limits.Deadline.Unix(),
+					Limit: r.agent.Limits.Deadline.Unix(),
 					Used:  time.Now().Unix(),
 				}
 			}
@@ -784,7 +826,7 @@ func (r *runtime) run() Outcome {
 		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
 			return r.current()
 		}
-		if s.Interruptions > max(r.def.Limits.Interruptions, 0) {
+		if s.Interruptions > max(r.agent.Limits.Interruptions, 0) {
 			return r.stop(StopLimited, "interruptions")
 		}
 		if r.ctx.Err() != nil {
@@ -836,11 +878,11 @@ func (r *runtime) run() Outcome {
 		if stop := budgetSpentStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
-		if r.def.Limits.ModelAttempts <= s.ModelAttempts {
+		if r.agent.Limits.ModelAttempts <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")
 		}
-		if !r.def.Limits.Deadline.IsZero() &&
-			!time.Now().Before(r.def.Limits.Deadline) {
+		if !r.agent.Limits.Deadline.IsZero() &&
+			!time.Now().Before(r.agent.Limits.Deadline) {
 			return r.stop(StopLimited, "deadline")
 		}
 		if r.pauseRequested() {
@@ -889,16 +931,16 @@ func hasOpenTools(s *replayState) bool {
 }
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
-	finalAnswerOnly := !r.def.Limits.NoReservedFinalAnswer &&
+	finalAnswerOnly := !r.agent.Limits.NoReservedFinalAnswer &&
 		s.ModelAttempts > 0 &&
-		s.ModelAttempts+1 == r.def.Limits.ModelAttempts
+		s.ModelAttempts+1 == r.agent.Limits.ModelAttempts
 	messages, err := projectWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if !finalAnswerOnly && r.b.Tools != nil {
-		tools, e := r.b.Tools.Tools(r.ctx)
+	if !finalAnswerOnly && r.runner.Tools != nil {
+		tools, e := r.runner.Tools.Tools(r.ctx)
 		if e != nil {
 			return r.failureOrContext(e), false
 		}
@@ -929,24 +971,24 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		)
 	}
 	system := modelSystem(
-		r.def.Instructions,
+		r.agent.Instructions,
 		containsReminder(messages),
 		structured,
 		finalAnswerOnly,
 	)
 	input := llm.Input{
-		Model:    r.def.Model,
+		Model:    r.agent.Model,
 		System:   system,
 		Messages: messages,
 		Tools:    defs,
-		Settings: r.def.Settings,
-		Stream:   r.b.Stream,
+		Settings: r.agent.Settings,
+		Stream:   r.opts.stream,
 	}
 	if finalAnswerOnly {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	decision, err := r.b.Policy.BeforeModel(
+	decision, err := r.runner.Policy.BeforeModel(
 		r.ctx,
 		ModelPlan{Input: cloneInput(input), Turn: snapshotView(s.TurnView)},
 	)
@@ -974,7 +1016,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			return r.stop(StopFailed, err.Error()), false
 		}
 		input.System = modelSystem(
-			r.def.Instructions,
+			r.agent.Instructions,
 			containsReminder(input.Messages),
 			structured,
 			finalAnswerOnly,
@@ -1016,13 +1058,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			)
 		}
 	}
-	req, err := r.b.Client.Prepare(r.ctx, input)
+	req, err := r.runner.Client.Prepare(r.ctx, input)
 	if err != nil {
 		return r.failureOrContext(err), false
 	}
-	if origin := req.Origin(); origin.Provider != r.def.Provider ||
-		origin.API != r.def.API ||
-		origin.Model != r.def.Model {
+	if origin := req.Origin(); origin.Provider != r.agent.Provider ||
+		origin.API != r.agent.API ||
+		origin.Model != r.agent.Model {
 		return r.stop(StopFailed, "prepared request changed destination"), false
 	}
 	snapshot := req.Snapshot()
@@ -1032,11 +1074,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			"prepared request changed original model input",
 		), false
 	}
-	atRisk, remainingCost, costStop := checkSendBudget(s, req, r.def.Model)
+	atRisk, remainingCost, costStop := checkSendBudget(s, req, r.agent.Model)
 	if costStop != nil {
 		return r.stopWith(costStop), false
 	}
-	authorization, err := r.b.Policy.BeforeSend(
+	authorization, err := r.runner.Policy.BeforeSend(
 		r.ctx,
 		SendPlan{
 			Request:   req,
@@ -1086,9 +1128,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		),
 		AtRisk:               atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
-		Provider:             r.b.Client.Provider(),
-		API:                  r.b.Client.API(),
-		Model:                r.def.Model,
+		Provider:             r.runner.Client.Provider(),
+		API:                  r.runner.Client.API(),
+		Model:                r.agent.Model,
 		Effective:            snapshot.Effective,
 		Origin:               snapshot.Origin,
 		Adjustments:          snapshot.Adjustments,
@@ -1132,7 +1174,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	var observedUsage *llm.Usage
 	for item, err := range llm.Stream(
 		r.ctx,
-		r.b.Client,
+		r.runner.Client,
 		llm.Call{
 			Request: req,
 			// The client may key durable work by this ID; see llm.Attempt.
@@ -1194,7 +1236,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
 			return *o, false
 		}
-		if settled.Uncertain && r.b.OnContextDone != ContextCancel &&
+		if settled.Uncertain && r.runner.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
 			return r.stop(StopUncertain, "provider-hosted tool may have run"), false
 		}
@@ -1215,7 +1257,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			}
 		}
 	} else {
-		validationErr = validateModelResult(result, r.def)
+		validationErr = validateModelResult(result, r.agent)
 		if validationErr != nil {
 			settled.Error = validationErr.Error()
 		}
@@ -1270,7 +1312,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	if r.ctx.Err() != nil {
 		return r.contextStop(), false
 	}
-	if err := validateModelResult(result, r.def); err != nil {
+	if err := validateModelResult(result, r.agent); err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	calls := 0
@@ -1314,7 +1356,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	switch result.Stop.Kind {
 	case llm.StopPause:
 		state, _ := replay(r.turn)
-		if state.ProviderPauses > max(r.def.Limits.ProviderPauses, 0) {
+		if state.ProviderPauses > max(r.agent.Limits.ProviderPauses, 0) {
 			return r.stop(StopLimited, "provider_pauses"), false
 		}
 		if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
@@ -1329,7 +1371,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		return r.stop(StopLimited, "context"), false
 	case llm.StopFinished, llm.StopOther:
 		state, _ := replay(r.turn)
-		sd, e := r.b.Policy.OnStop(r.ctx, snapshotView(state.TurnView))
+		sd, e := r.runner.Policy.OnStop(r.ctx, snapshotView(state.TurnView))
 		if e != nil {
 			return r.failureOrContext(e), false
 		}
@@ -1402,7 +1444,7 @@ func submittedOutput(s *replayState) *StructuredOutput {
 	return nil
 }
 
-func validateModelResult(result llm.Result, def Definition) error {
+func validateModelResult(result llm.Result, agent Agent) error {
 	if result.Usage != nil {
 		if err := result.Usage.Validate(); err != nil {
 			return err
@@ -1413,9 +1455,9 @@ func validateModelResult(result llm.Result, def Definition) error {
 			return err
 		}
 	}
-	if result.Requested.Provider != def.Provider ||
-		result.Requested.Model != def.Model {
-		return errors.New("kernel: model result requested destination differs from definition")
+	if result.Requested.Provider != agent.Provider ||
+		result.Requested.Model != agent.Model {
+		return errors.New("kernel: model result requested destination differs from agent")
 	}
 	if result.Message.Role != llm.RoleAssistant {
 		return errors.New("kernel: model result requires assistant message")
@@ -1461,7 +1503,7 @@ func cloneInput(in llm.Input) llm.Input {
 	return out
 }
 
-// modelSystem joins the definition's instructions with the engine's own
+// modelSystem joins the agent's instructions with the runner's own
 // additions. The reminder instruction primes the model to expect
 // <system-reminder> messages, so it is sent only when the request carries one.
 func modelSystem(
@@ -1504,4 +1546,12 @@ func containsReminder(messages []llm.Message) bool {
 			})
 		},
 	)
+}
+
+func newRunOptions(opts []RunOption) runOptions {
+	var o runOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
 }

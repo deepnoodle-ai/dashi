@@ -163,7 +163,7 @@ type Ref struct{ ID, Digest string; Size int64 } // opaque app ID, sha256, bytes
 
 **Resolution.** Replay, `Project`, and inspection never resolve. Immediately
 before `Prepare`, the engine passes the projected messages through an optional
-`Bindings.Content` resolver: `Resolve(ctx, Ref) (Source, error)`. It returns
+`Runner.Content` resolver: `Resolve(ctx, Ref) (Source, error)`. It returns
 inline bytes, a signed URL, or a provider file ID with origin (upload once,
 reuse the ID); the engine checks digest and size of returned bytes. The recorded
 intent keeps the reference; the request digest already covers the resolved body

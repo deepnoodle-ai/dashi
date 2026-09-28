@@ -38,7 +38,7 @@ Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
 
 On 2026-09-27, Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
 Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`) agent turns
-passed live using `Engine.Apply`: a streamed final answer and a local tool call
+passed live: a streamed final answer and a local tool call
 followed by a second model call. With the corresponding API keys set:
 
 ```sh
@@ -81,8 +81,8 @@ KERNEL_LIVE_AGENT_TEST=1 go test -tags live . -run '^TestLiveReservedFinalAnswer
 
 ## Iterator streaming
 
-On 2026-09-27, `Engine.Stream` also passed one live streamed turn per provider
-on those models. Run
+On 2026-09-27, the turn iterator (now `Runner.Stream`) also passed one live
+streamed turn per provider on those models. Run
 `go test -tags live . -run '^TestLiveIteratorAgentTurns$' -v`
 with `KERNEL_LIVE_AGENT_TEST=1`, keys, and model names to repeat the probe.
 

@@ -3,6 +3,10 @@
 Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
+**Names:** written before [decision 30](../decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 Kernel (main, 2026-09-27) already removes the central reconstruction burden that
 both apps carry. The Turn is now an authoritative sequence of acknowledged
 steps. The app's `Recorder` commits each fact before the next effect. Model

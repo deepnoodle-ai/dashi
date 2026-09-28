@@ -27,42 +27,38 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("result")),
 	}
-	accepted, err := (Engine{}).Apply(
+	accepted, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    fixedTools{external},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Accept{ID: "result", CallID: "call-1", Outcome: &result},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{external},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
+		Settle{CommandID: "result", CallID: "call-1", Outcome: &result},
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
-		t.Fatalf("accept: out=%+v err=%v sends=%d", accepted, err, client.sends)
+		t.Fatalf("settle: out=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
-	completed, err := (Engine{}).Apply(
-		t.Context(),
-		accepted.Turn,
-		definition(),
-		Continue{ID: "continue"},
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{external},
-			Recorder: rec,
-			Policy:   AllowLocalPolicy{},
-		},
-	)
+	completed, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    fixedTools{external},
+		Recorder: rec,
+		Policy:   AllowLocalPolicy{},
+	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {
-		t.Fatalf("accept: stop=%+v err=%v", completed.Stop, err)
+		t.Fatalf("settle: stop=%+v err=%v", completed.Stop, err)
 	}
-	duplicate, err := (Engine{}).Apply(
+	duplicate, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
-		Bindings{Client: client, Recorder: rec},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
 	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || len(duplicate.Turn.Steps) != len(completed.Turn.Steps) || client.sends != 2 {
 		t.Fatalf(

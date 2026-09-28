@@ -72,12 +72,14 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 			)
 		}
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: rec,
+	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		definition(),
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{Client: client, Recorder: rec},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -92,7 +94,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 }
 
 func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	rec := NewMemoryRecorder()
 	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
@@ -104,22 +106,18 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 			cancel(errors.New("deploying"))
 		}
 	}
-	first, err := (Engine{}).Apply(
+	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		def,
-		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
-		Bindings{Client: client, Recorder: rec},
+		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
-		def,
-		Continue{ID: "continue"},
-		Bindings{Client: client, Recorder: rec},
+		Continue{CommandID: "continue"},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", out.Stop, err)
@@ -142,18 +140,16 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 }
 
 func TestCrashedIntentIsNeverSentUnderItsID(t *testing.T) {
-	def := definition()
+	def := testAgent()
 	rec := NewMemoryRecorder()
 	turn := seedOpenModelIntent(t, rec, def, nil)
 	client := &attemptClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 	}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
-		def,
-		Continue{ID: "recover"},
-		Bindings{Client: client, Recorder: rec},
+		Continue{CommandID: "recover"},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)

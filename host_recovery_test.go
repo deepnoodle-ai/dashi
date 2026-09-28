@@ -113,7 +113,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 
 func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	// The third and last attempt must complete the turn normally.
-	def := definition()
+	def := testAgent()
 	def.Limits.NoReservedFinalAnswer = true
 	firstModel := callResult("job", "work")
 	firstModel.Usage = &llm.Usage{InputTokens: 2}
@@ -124,10 +124,10 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	rec.Claim(t.Context(), "t1", "owner-a")
 	history := []llm.Message{llm.UserMessage(llm.Text("previous context"))}
 	startCommand := Start{
-		ID:      "start",
-		Origin:  StartScheduled,
-		History: history,
-		Input:   []llm.Message{llm.UserMessage(llm.Text("run job"))},
+		CommandID: "start",
+		Origin:    StartScheduled,
+		History:   history,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("run job"))},
 	}
 	tools := fixedTools{
 		tool.Tool{
@@ -138,21 +138,18 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			},
 		},
 	}
-	binding := func(owner string) Bindings {
-		return Bindings{
-			Client:   client,
-			Tools:    tools,
-			Recorder: rec,
-			Policy:   budgetPolicy{},
-			Owner:    owner,
-		}
+	runner := Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    tools,
+		Recorder: rec,
+		Policy:   budgetPolicy{},
 	}
-	first, err := (Engine{}).Apply(
+	first, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		def,
 		startCommand,
-		binding("owner-a"),
+		WithOwner("owner-a"),
 	)
 	if err != nil || first.Persistence != PersistenceUnknown || client.sends != 0 || rec.balance != 7 {
 		t.Fatalf(
@@ -171,44 +168,41 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || !view.ReadyToContinue {
 		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
 	}
-	changed := def
-	changed.Revision = "r2"
-	_, err = (Engine{}).Apply(
+	changed := runner
+	changed.Agent.Revision = "r2"
+	_, err = changed.Run(
 		t.Context(),
 		saved,
-		changed,
-		Continue{ID: "config-drift", History: history},
-		binding("owner-a"),
+		Continue{CommandID: "config-drift", History: history},
+		WithOwner("owner-a"),
 	)
-	if !errors.Is(err, ErrDefinitionChanged) {
-		t.Fatalf("changed definition accepted: %v", err)
+	if !errors.Is(err, ErrAgentChanged) {
+		t.Fatalf("changed agent accepted: %v", err)
 	}
 	rec.Claim(t.Context(), "t1", "owner-b")
-	proof := Accept{
-		ID:     "no-dispatch",
-		CallID: "t1:model:1",
+	proof := Settle{
+		CommandID: "no-dispatch",
+		CallID:    "t1:model:1",
 		ModelFailure: &ModelFailure{
 			Disposition: llm.FailureNotDispatched,
 			Reason:      "worker did not send",
 			Evidence:    "dispatch log cursor 1",
 		},
 	}
-	stale, err := (Engine{}).Apply(
+	stale, err := runner.Run(
 		t.Context(),
 		saved,
-		def,
 		proof,
-		binding("owner-a"),
+		WithOwner("owner-a"),
 	)
 	if err != nil || stale.Persistence != PersistenceRejected || rec.balance != 7 {
 		t.Fatalf("stale owner: out=%+v err=%v balance=%d", stale, err, rec.balance)
 	}
-	proved, err := (Engine{}).Apply(
+	proved, err := runner.Run(
 		t.Context(),
 		saved,
-		def,
 		proof,
-		binding("owner-b"),
+		WithOwner("owner-b"),
 	)
 	if err != nil || !proved.ReadyToContinue || rec.balance != 10 ||
 		client.sends != 0 {
@@ -220,12 +214,11 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			client.sends,
 		)
 	}
-	waiting, err := (Engine{}).Apply(
+	waiting, err := runner.Run(
 		t.Context(),
 		proved.Turn,
-		def,
-		Continue{ID: "retry", History: history},
-		binding("owner-b"),
+		Continue{CommandID: "retry", History: history},
+		WithOwner("owner-b"),
 	)
 	if err != nil || waiting.Stop.Kind != StopWaiting || client.sends != 1 || rec.balance != 8 {
 		t.Fatalf(
@@ -241,13 +234,12 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("completed in host worker")),
 	}
-	accept := Accept{ID: "external-result", CallID: "job", Outcome: &result}
-	stale, err = (Engine{}).Apply(
+	settle := Settle{CommandID: "external-result", CallID: "job", Outcome: &result}
+	stale, err = runner.Run(
 		t.Context(),
 		waiting.Turn,
-		def,
-		accept,
-		binding("owner-b"),
+		settle,
+		WithOwner("owner-b"),
 	)
 	if err != nil || stale.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf(
@@ -257,12 +249,11 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			client.sends,
 		)
 	}
-	accepted, err := (Engine{}).Apply(
+	accepted, err := runner.Run(
 		t.Context(),
 		waiting.Turn,
-		def,
-		accept,
-		binding("owner-c"),
+		settle,
+		WithOwner("owner-c"),
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 ||
 		rec.balance != 8 {
@@ -274,12 +265,11 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			rec.balance,
 		)
 	}
-	done, err := (Engine{}).Apply(
+	done, err := runner.Run(
 		t.Context(),
 		accepted.Turn,
-		def,
-		Continue{ID: "finish", History: history},
-		binding("owner-c"),
+		Continue{CommandID: "finish", History: history},
+		WithOwner("owner-c"),
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Turn.AnswerText() != "done" {
 		t.Fatalf(
@@ -290,12 +280,11 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			rec.balance,
 		)
 	}
-	duplicate, err := (Engine{}).Apply(
+	duplicate, err := runner.Run(
 		t.Context(),
 		waiting.Turn,
-		def,
-		accept,
-		binding("owner-c"),
+		settle,
+		WithOwner("owner-c"),
 	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || rec.balance != 7 || client.sends != 2 {
 		t.Fatalf(

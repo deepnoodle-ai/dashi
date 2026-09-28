@@ -4,7 +4,7 @@
 
 ## Decision
 
-An output schema is a contract for a turn's final value. A definition may set a
+An output schema is a contract for a turn's final value. An agent may set a
 default; `Start` may override it for one turn. The admitted schema is recorded
 with the start fact, so recovery validates against the same contract even if a
 later turn requests a different shape. Completion requires one validated

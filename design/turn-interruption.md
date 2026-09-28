@@ -37,14 +37,14 @@ turn from the database record. Both converge on the same practices:
    every write checks both the owner and that attempt number.
 5. **Moves are bounded,** by a requeue count or the turn's time budget.
 
-Kernel already meets points 1 and 4 (`Engine.Apply` runs from the record;
+Kernel already meets points 1 and 4 (`Runner.Run` runs from the record;
 `Recorder.Commit` carries `Owner` and `ExpectedSeq`). The gap is what happens
 when the context ends.
 
 ## The rule
 
 **By default, the Go context ending pauses the turn; it does not end it.** The
-engine records the stop `StopInterrupted` ("interrupted"), and `Continue`
+runner records the stop `StopInterrupted` ("interrupted"), and `Continue`
 resumes the turn on any worker. A crash is an interruption whose stop was never
 written; `Continue` handles both the same way. The stop's reason is the
 context's cause (`context.Cause(ctx).Error()`), so an application that cancels
@@ -52,25 +52,26 @@ with `context.WithCancelCause(ctx, ErrDeploying)` sees "deploying" in the
 record. Nothing about this status should alarm a user: it means "waiting to be
 rescheduled".
 
-Two per-call options on `Bindings` (exact placement left to implementation)
-let the caller say more:
+A per-call option and a runner field let the caller say more:
 
 ```go
-type Bindings struct {
-    // ...existing fields...
-    Pause         <-chan struct{} // closed: pause at the next safe point
-    OnContextDone ContextDone     // ContextInterrupt (default) or ContextCancel
+// closed: pause at the next safe point
+out, err := runner.Run(ctx, turn, cmd, kernel.WithPause(pause))
+
+type Runner struct {
+    // ...agent and services...
+    OnContextDone ContextDone // ContextInterrupt (default) or ContextCancel
 }
 
 const StopInterrupted StopKind = "interrupted" // resumable
 
-// ModelFact.Interrupted: the engine stopped reading this model call before it
+// ModelFact.Interrupted: the runner stopped reading this model call before it
 // finished. Partial output and usage are kept for display and accounting;
 // they are never acted on.
 Interrupted bool `json:"interrupted,omitempty"`
 ```
 
-**Pause** is for graceful shutdown. When the channel closes, the engine stops
+**Pause** is for graceful shutdown. When the channel closes, the runner stops
 at the next safe point, before the next model call or before starting the next
 tool call, and records `interrupted` with reason "pause requested". Work
 already in flight is not cut off; if it outlasts the host's grace period, the
@@ -79,7 +80,7 @@ host cancels the context as before.
 **OnContextDone** says what an ended context means. A server going down should
 say interrupted, the default. A web handler whose client disconnected knows
 the turn will never resume there, so it sets `ContextCancel`: an ended context,
-including breaking out of `Engine.Stream`, then records a final `StopCanceled`,
+including breaking out of `Runner.Stream`, then records a final `StopCanceled`,
 exactly as a `Cancel` command would, with unstarted calls marked not executed.
 Detecting this from the cause alone is not enough: `net/http` cancels a request
 context with a plain `context.Canceled`, so the handler cannot attach a cause.
@@ -107,7 +108,7 @@ action, so the call is *uncertain* (below) and is not resent. Kernel marks the
 built-in hosted tools it knows are read-only, such as web search; a tool
 definition's annotations can say so for others.
 
-**During a tool call.** The engine stops waiting. Any result that arrives after
+**During a tool call.** The runner stops waiting. Any result that arrives after
 the context ended is dropped, because an error caused by the cancellation is not
 a real outcome. The call stays marked as started with no result.
 
@@ -124,14 +125,14 @@ a real outcome. The call stays marked as started with no result.
   second email or charge a card twice. The turn stops `uncertain`, and the
   application must report what happened.
 
-The application reports with `Accept`: the tool's result if it can find it (for
+The application reports with `Settle`: the tool's result if it can find it (for
 example by looking up an idempotency key in the downstream system), or a
 failure; for an uncertain model call, the result or evidence that it never ran.
-Or it can `Cancel` the turn. `Accept` only records the report; `Continue`
-resumes the turn. The same holds everywhere `Accept` is used, including an
+Or it can `Cancel` the turn. `Settle` only records the report; `Continue`
+resumes the turn. The same holds everywhere `Settle` is used, including an
 approval or a tool result delivered to a waiting turn, which today carries on
 immediately: one rule, and the request that records an approval does not run
-the model inline. The report is committed before `Accept` returns, so a
+the model inline. The report is committed before `Settle` returns, so a
 forgotten `Continue` loses nothing; the turn stays stopped. To make that
 visible, `Outcome` and the saved turn say when nothing blocks the turn and it
 is ready to continue, so an application calls `Continue` and a host's sweeper
@@ -154,7 +155,7 @@ deploys therefore cannot exhaust a turn's model budget. When a
 resuming, so a turn that crashes its worker every time cannot loop forever.
 
 **The turn's deadline is a limit, not an interruption.** `Limits.Deadline` is
-the turn's own time budget. The engine derives its context with a distinct
+the turn's own time budget. The runner derives its context with a distinct
 cause, so reaching the deadline stops the turn as `limited`. Any other context
 deadline (a request timeout, a per-run time cap) belongs to the host and
 interrupts the turn.
@@ -169,7 +170,7 @@ recovers it the same way.
 - **Crash.** Nothing special: the sweeper requeues it; the next worker calls
   `Continue`.
 - **Lease loss.** Cancel the context with a cause such as `ErrLeaseLost`. The
-  engine still tries its final writes; the application's recorder rejects them
+  runner still tries its final writes; the application's recorder rejects them
   if another worker already holds the turn. The store must check owner and
   attempt, not the turn's status.
 - **Client disconnect in a request handler** that runs the turn itself: set
@@ -200,11 +201,11 @@ Explicit `Cancel` tests are unchanged. New tests: `Continue` after an
 interruption and after a crash, with an interrupted model call, a started safe
 tool, and a started unsafe tool; a hosted tool of unknown safety; the `Pause`
 channel during a model call and during a tool loop; `ContextCancel` with a
-broken `Stream`; `Accept` on an interrupted turn; repeated interruptions
+broken `Stream`; `Settle` on an interrupted turn; repeated interruptions
 during model calls, which reach the interruption limit while `ModelAttempts`
 is unchanged and usage still accumulates; a
 deadline cutting off a running call; and a lease loss rejected by the store.
 
-**Docs.** Update the `Engine.Stream` comment, `docs/agent-turns.md`,
+**Docs.** Update the `Runner.Stream` comment, `docs/agent-turns.md`,
 `docs/guides/running-turns.md`, `design/agent-loop.md`, and the cancellation
 and repetition rules in `design/turn.md`.

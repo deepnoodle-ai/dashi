@@ -45,7 +45,7 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 		kerneltest.LoseAck,
 	}
 	// The jsonb store returns every reloaded step respelled, so recovery must
-	// not depend on the bytes the engine wrote.
+	// not depend on the bytes the runner wrote.
 	stores := map[string]func() kerneltest.Store{
 		"memory": func() kerneltest.Store {
 			return kernel.NewMemoryRecorder()
@@ -90,27 +90,24 @@ func testRecovery(
 	fault := rec.Fault
 	model := &scriptedModel{}
 	work := &countingTool{}
-	bindings := func(owner string) kernel.Bindings {
-		return kernel.Bindings{
-			Client:   model,
-			Tools:    work,
-			Recorder: rec,
-			Policy:   kernel.AllowLocalPolicy{},
-			Owner:    owner,
-		}
+	runner := kernel.Runner{
+		Agent:    testAgent(),
+		Client:   model,
+		Tools:    work,
+		Recorder: rec,
+		Policy:   kernel.AllowLocalPolicy{},
 	}
 	begin := kernel.Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 
 	claim(t, store, "t1", "worker-1")
-	first, err := (kernel.Engine{}).Apply(
+	first, err := runner.Run(
 		t.Context(),
 		kernel.Turn{ID: "t1"},
-		definition(),
 		begin,
-		bindings("worker-1"),
+		kernel.WithOwner("worker-1"),
 	)
 	if err != nil {
 		t.Fatalf("first worker: %v", err)
@@ -154,10 +151,10 @@ func testRecovery(
 		}
 	}
 
-	out := resume(t, saved, begin, bindings("worker-2"))
+	out := resume(t, saved, begin, runner, kernel.WithOwner("worker-2"))
 	if uncertainTool(kind, committed) {
 		// The record cannot show whether the tool took effect, so the
-		// engine must stop and ask rather than run it again or assume.
+		// runner must stop and ask rather than run it again or assume.
 		if out.Stop.Kind != kernel.StopUncertain {
 			t.Fatalf("resumed stop is %+v; want uncertain", out.Stop)
 		}
@@ -165,17 +162,19 @@ func testRecovery(
 			State:  tool.StateSucceeded,
 			Output: new(tool.TextOutput("verified by the host")),
 		}
-		out = apply(
+		out = run(
 			t,
 			out.Turn,
-			kernel.Accept{ID: "reconcile", CallID: "call-1", Outcome: &result},
-			bindings("worker-2"),
+			kernel.Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
+			runner,
+			kernel.WithOwner("worker-2"),
 		)
-		out = apply(
+		out = run(
 			t,
 			out.Turn,
-			kernel.Continue{ID: "after-reconcile"},
-			bindings("worker-2"),
+			kernel.Continue{CommandID: "after-reconcile"},
+			runner,
+			kernel.WithOwner("worker-2"),
 		)
 	}
 
@@ -221,7 +220,7 @@ func testRecovery(
 }
 
 // TestStaleRetryAfterFailedLoadRepeatsNothing retries a command with an old
-// snapshot while Load fails. Apply cannot confirm the snapshot, so it returns
+// snapshot while Load fails. Run cannot confirm the snapshot, so it returns
 // the read error without committing, and no model call or tool execution
 // repeats.
 func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
@@ -248,26 +247,25 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 					Fault:    kerneltest.LoseAck,
 				}
 			}
-			b := kernel.Bindings{
+			runner := kernel.Runner{
+				Agent:    testAgent(),
 				Client:   model,
 				Tools:    work,
 				Recorder: rec,
 				Policy:   kernel.AllowLocalPolicy{},
 			}
-			apply(t, kernel.Turn{ID: "t1"}, startCommand(), b)
+			run(t, kernel.Turn{ID: "t1"}, startCommand(), runner)
 			before, err := store.Load(t.Context(), "t1")
 			if err != nil {
 				t.Fatal(err)
 			}
 			sends, runs := model.calls(), work.calls()
 
-			b.Recorder = unreadable{store}
-			_, err = (kernel.Engine{}).Apply(
+			runner.Recorder = unreadable{store}
+			_, err = runner.Run(
 				t.Context(),
 				kernel.Turn{ID: "t1"},
-				definition(),
 				startCommand(),
-				b,
 			)
 			if !errors.Is(err, errUnreadable) {
 				t.Fatalf("stale retry returned %v; want the read error", err)
@@ -323,11 +321,12 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			model := &scriptedModel{}
 			work := &countingTool{}
-			out := apply(
+			out := run(
 				t,
 				kernel.Turn{ID: "t1"},
 				startCommand(),
-				kernel.Bindings{
+				kernel.Runner{
+					Agent:    testAgent(),
 					Client:   model,
 					Tools:    work,
 					Recorder: newTurnLoader{kernel.NewMemoryRecorder(), tc.load},
@@ -350,8 +349,8 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 
 func startCommand() kernel.Start {
 	return kernel.Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 }
 
@@ -386,11 +385,12 @@ func resume(
 	t *testing.T,
 	saved kernel.Turn,
 	begin kernel.Start,
-	b kernel.Bindings,
+	runner kernel.Runner,
+	opts ...kernel.RunOption,
 ) kernel.Outcome {
 	t.Helper()
 	if len(saved.Steps) == 0 {
-		return apply(t, kernel.Turn{ID: "t1"}, begin, b)
+		return run(t, kernel.Turn{ID: "t1"}, begin, runner, opts...)
 	}
 	view, err := kernel.Replay(saved)
 	if err != nil {
@@ -398,27 +398,22 @@ func resume(
 	}
 	if view.Stop.Kind == kernel.StopCompleted {
 		// Retrying the original command returns the recorded outcome.
-		return apply(t, saved, begin, b)
+		return run(t, saved, begin, runner, opts...)
 	}
-	return apply(t, saved, kernel.Continue{ID: "resume"}, b)
+	return run(t, saved, kernel.Continue{CommandID: "resume"}, runner, opts...)
 }
 
-func apply(
+func run(
 	t *testing.T,
 	turn kernel.Turn,
 	command kernel.Command,
-	b kernel.Bindings,
+	runner kernel.Runner,
+	opts ...kernel.RunOption,
 ) kernel.Outcome {
 	t.Helper()
-	out, err := (kernel.Engine{}).Apply(
-		t.Context(),
-		turn,
-		definition(),
-		command,
-		b,
-	)
+	out, err := runner.Run(t.Context(), turn, command, opts...)
 	if err != nil {
-		t.Fatalf("apply %T: %v", command, err)
+		t.Fatalf("run %T: %v", command, err)
 	}
 	return out
 }
@@ -517,8 +512,8 @@ func requireEveryIntentSettled(t *testing.T, turn kernel.Turn) {
 	}
 }
 
-func definition() kernel.Definition {
-	return kernel.Definition{
+func testAgent() kernel.Agent {
+	return kernel.Agent{
 		ID:       "agent",
 		Revision: "r1",
 		Provider: "test",
@@ -599,7 +594,7 @@ func (m *scriptedModel) calls() int {
 }
 
 // countingTool is a local tool that is neither read-only nor idempotent, so
-// the engine must never run it twice.
+// the runner must never run it twice.
 type countingTool struct {
 	mu   sync.Mutex
 	runs int

@@ -124,9 +124,9 @@ func (s jsonbStore) Load(ctx context.Context, id string) (kernel.Turn, error) {
 
 func pendingApproval(
 	t *testing.T,
-) (kernel.Turn, kernel.Definition, kernel.Bindings, *approvalClient, *int) {
+) (kernel.Turn, kernel.Runner, *approvalClient, *int) {
 	t.Helper()
-	def := kernel.Definition{
+	def := kernel.Agent{
 		ID:       "agent",
 		Revision: "r1",
 		Provider: "test",
@@ -151,21 +151,20 @@ func pendingApproval(
 	}
 	client := &approvalClient{}
 	store := jsonbStore{kernel.NewMemoryRecorder()}
-	bindings := kernel.Bindings{
+	runner := kernel.Runner{
+		Agent:    def,
 		Client:   client,
 		Tools:    tools{write},
 		Recorder: store,
 		Policy:   approvalPolicy{},
 	}
-	out, err := (kernel.Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		kernel.Turn{ID: "t1"},
-		def,
 		kernel.Start{
-			ID:    "start",
-			Input: []llm.Message{llm.UserMessage(llm.Text("write it"))},
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 		},
-		bindings,
 	)
 	if err != nil || out.Stop.Kind != kernel.StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
@@ -182,11 +181,11 @@ func pendingApproval(
 	if string(view.Tools["call-1"].Call.Args) != `{"a":"café","b":100}` {
 		t.Fatalf("store kept argument bytes %s", view.Tools["call-1"].Call.Args)
 	}
-	return turn, def, bindings, client, runs
+	return turn, runner, client, runs
 }
 
 func TestApprovalDigestFromPublicView(t *testing.T) {
-	turn, def, bindings, _, runs := pendingApproval(t)
+	turn, runner, _, runs := pendingApproval(t)
 	view, err := kernel.Replay(turn)
 	if err != nil {
 		t.Fatal(err)
@@ -204,12 +203,10 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 		ArgsDigest:     pending.ArgsDigest,
 		PolicyRevision: pending.Decision.Revision,
 	}
-	accepted, err := (kernel.Engine{}).Apply(
+	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		def,
-		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
-		bindings,
+		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
@@ -222,12 +219,10 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 			err,
 		)
 	}
-	done, err := (kernel.Engine{}).Apply(
+	done, err := runner.Run(
 		t.Context(),
 		accepted.Turn,
-		def,
-		kernel.Continue{ID: "continue"},
-		bindings,
+		kernel.Continue{CommandID: "continue"},
 	)
 	if err != nil || done.Stop.Kind != kernel.StopCompleted || *runs != 1 {
 		t.Fatalf("continue=%+v err=%v runs=%d", done.Stop, err, *runs)
@@ -235,7 +230,7 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 }
 
 func TestApprovalDigestFromShownArguments(t *testing.T) {
-	turn, def, bindings, _, _ := pendingApproval(t)
+	turn, runner, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
 	approval := kernel.ApprovalFact{
 		CallID:         "call-1",
@@ -243,12 +238,10 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 		ArgsDigest:     kernel.ArgsDigest(shownArgs),
 		PolicyRevision: "policy-v1",
 	}
-	accepted, err := (kernel.Engine{}).Apply(
+	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		def,
-		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
-		bindings,
+		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
@@ -256,7 +249,7 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 }
 
 func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
-	turn, def, bindings, _, runs := pendingApproval(t)
+	turn, runner, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
 	approval := kernel.ApprovalFact{
 		CallID:         "call-1",
@@ -264,12 +257,10 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 		ArgsDigest:     kernel.ArgsDigest(changed),
 		PolicyRevision: "policy-v1",
 	}
-	_, err := (kernel.Engine{}).Apply(
+	_, err := runner.Run(
 		t.Context(),
 		turn,
-		def,
-		kernel.Accept{ID: "approve", CallID: "call-1", Approval: &approval},
-		bindings,
+		kernel.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err == nil || !strings.Contains(
 		err.Error(),
@@ -282,13 +273,11 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 // A call that leaves approval without an answer, here by cancellation, no
 // longer carries an approval digest.
 func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
-	turn, def, bindings, _, runs := pendingApproval(t)
-	canceled, err := (kernel.Engine{}).Apply(
+	turn, runner, _, runs := pendingApproval(t)
+	canceled, err := runner.Run(
 		t.Context(),
 		turn,
-		def,
-		kernel.Cancel{ID: "cancel", Reason: "user left"},
-		bindings,
+		kernel.Cancel{CommandID: "cancel", Reason: "user left"},
 	)
 	if err != nil || canceled.Stop.Kind != kernel.StopCanceled {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)

@@ -72,13 +72,13 @@ func (r BudgetRaise) Clone() BudgetRaise {
 type LimitKind string
 
 const (
-	// LimitModelAttempts is the definition's model call ceiling.
+	// LimitModelAttempts is the agent's model call ceiling.
 	LimitModelAttempts LimitKind = "model_attempts"
-	// LimitDeadline is the definition's time ceiling.
+	// LimitDeadline is the agent's time ceiling.
 	LimitDeadline LimitKind = "deadline"
-	// LimitInterruptions is the definition's resume ceiling.
+	// LimitInterruptions is the agent's resume ceiling.
 	LimitInterruptions LimitKind = "interruptions"
-	// LimitProviderPauses is the definition's provider pause ceiling.
+	// LimitProviderPauses is the agent's provider pause ceiling.
 	LimitProviderPauses LimitKind = "provider_pauses"
 	// LimitOutputTokens is the turn's cumulative output cap.
 	LimitOutputTokens LimitKind = "output_tokens"

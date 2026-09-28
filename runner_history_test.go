@@ -10,16 +10,18 @@ import (
 	"github.com/deepnoodle-ai/kernel/llm"
 )
 
-func TestEngineStartUsesHistoryWithoutRecordingIt(t *testing.T) {
+func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("earlier conversation"))}
 	input := llm.UserMessage(llm.Text("current input"))
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+	}).Run(
 		t.Context(),
 		Turn{ID: "history-start"},
-		definition(),
-		Start{ID: "start", History: history, Input: []llm.Message{input}},
-		Bindings{Client: client, Recorder: NewMemoryRecorder()},
+		Start{CommandID: "start", History: history, Input: []llm.Message{input}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -46,17 +48,19 @@ func TestEngineStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 	}
 }
 
-func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
+func TestRunnerContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("prior exchange"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: history},
-		Bindings{Client: client, Recorder: recorder},
+		Continue{CommandID: "continue", History: history},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -80,18 +84,20 @@ func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
 	}
 }
 
-func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
+func TestRunnerContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
 	changed := []llm.Message{llm.UserMessage(llm.Text("different history"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: changed},
-		Bindings{Client: client, Recorder: recorder},
+		Continue{CommandID: "continue", History: changed},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -126,23 +132,21 @@ func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 	}
 }
 
-func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
+func TestRunnerStrictContinueRejectsDifferentHistory(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
 	changed := []llm.Message{llm.UserMessage(llm.Text("compacted history"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
-	strict := Bindings{
-		Client:            client,
-		Recorder:          recorder,
-		OnHistoryMismatch: HistoryMismatchReject,
-	}
-	_, err := (Engine{}).Apply(
+	runner := Runner{Agent: testAgent(), Client: client, Recorder: recorder}
+	_, err := runner.Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: changed},
-		strict,
+		Continue{
+			CommandID:         "continue",
+			History:           changed,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
 	)
 	if !errors.Is(err, ErrHistoryMismatch) {
 		t.Fatalf("error = %v, want ErrHistoryMismatch", err)
@@ -159,12 +163,14 @@ func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
 	}
 
 	// The same command ID with the original history resumes the turn.
-	out, err := (Engine{}).Apply(
+	out, err := runner.Run(
 		t.Context(),
 		saved,
-		definition(),
-		Continue{ID: "continue", History: history},
-		strict,
+		Continue{
+			CommandID:         "continue",
+			History:           history,
+			OnHistoryMismatch: HistoryMismatchReject,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -180,21 +186,23 @@ func TestEngineStrictContinueRejectsDifferentHistory(t *testing.T) {
 	}
 }
 
-func TestEngineStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
+func TestRunnerStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, nil)
 	changed := []llm.Message{llm.UserMessage(llm.Text("new session input"))}
 	var events int
 	var got error
-	for event, err := range (Engine{}).Stream(
+	for event, err := range (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Stream(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: changed},
-		Bindings{
-			Client:            client,
-			Recorder:          recorder,
+		Continue{
+			CommandID:         "continue",
+			History:           changed,
 			OnHistoryMismatch: HistoryMismatchReject,
 		},
 	) {
@@ -211,18 +219,20 @@ func TestEngineStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 	}
 }
 
-func TestEngineStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
+func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
 	changed := []llm.Message{llm.UserMessage(llm.Text("changed history"))}
 	def, recorder, limited := interruptionLimitedHistoryTurn(t, history)
-	_, err := (Engine{}).Apply(
+	_, err := (Runner{
+		Agent:    def,
+		Client:   &scriptedClient{},
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		limited,
-		def,
-		Continue{ID: "at-limit", History: changed},
-		Bindings{
-			Client:            &scriptedClient{},
-			Recorder:          recorder,
+		Continue{
+			CommandID:         "at-limit",
+			History:           changed,
 			OnHistoryMismatch: HistoryMismatchReject,
 		},
 	)
@@ -232,12 +242,14 @@ func TestEngineStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	assertSavedSteps(t, recorder, limited)
 
 	// Warn mode still records the interruption-limit stop.
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    def,
+		Client:   &scriptedClient{},
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		limited,
-		def,
-		Continue{ID: "at-limit", History: changed},
-		Bindings{Client: &scriptedClient{}, Recorder: recorder},
+		Continue{CommandID: "at-limit", History: changed},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -247,14 +259,16 @@ func TestEngineStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	}
 }
 
-func TestEngineInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
+func TestRunnerInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
 	def, recorder, limited := interruptionLimitedHistoryTurn(t, nil)
-	_, err := (Engine{}).Apply(
+	_, err := (Runner{
+		Agent:    def,
+		Client:   &scriptedClient{},
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		limited,
-		def,
-		Continue{ID: "at-limit", History: []llm.Message{{Role: llm.RoleUser}}},
-		Bindings{Client: &scriptedClient{}, Recorder: recorder},
+		Continue{CommandID: "at-limit", History: []llm.Message{{Role: llm.RoleUser}}},
 	)
 	if err == nil {
 		t.Fatal("invalid history was accepted")
@@ -267,34 +281,32 @@ func TestEngineInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
 func interruptionLimitedHistoryTurn(
 	t *testing.T,
 	history []llm.Message,
-) (Definition, *MemoryRecorder, Turn) {
+) (Agent, *MemoryRecorder, Turn) {
 	t.Helper()
-	def := definition()
+	def := testAgent()
 	def.Limits.Interruptions = 1
 	recorder := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
-	b := Bindings{Client: &scriptedClient{}, Recorder: recorder, Pause: paused}
-	out, err := (Engine{}).Apply(
+	runner := Runner{Agent: def, Client: &scriptedClient{}, Recorder: recorder}
+	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "history-limit"},
-		def,
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
-		b,
+		WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err = (Engine{}).Apply(
+	out, err = runner.Run(
 		t.Context(),
 		out.Turn,
-		def,
-		Continue{ID: "resume", History: history},
-		b,
+		Continue{CommandID: "resume", History: history},
+		WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -323,16 +335,18 @@ func assertSavedSteps(t *testing.T, recorder *MemoryRecorder, want Turn) {
 	}
 }
 
-func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
+func TestRunnerInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, nil)
-	_, err := (Engine{}).Apply(
+	_, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: []llm.Message{{Role: llm.RoleUser}}},
-		Bindings{Client: client, Recorder: recorder},
+		Continue{CommandID: "continue", History: []llm.Message{{Role: llm.RoleUser}}},
 	)
 	if err == nil {
 		t.Fatal("invalid history was accepted")
@@ -346,20 +360,22 @@ func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
 	}
 }
 
-func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
+func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("history after reload"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
-	first, err := (Engine{}).Apply(
+	first, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: failIntentRecorder{base: recorder},
+	}).Run(
 		t.Context(),
 		Turn{ID: "history-recovery"},
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
-		Bindings{Client: client, Recorder: failIntentRecorder{base: recorder}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -374,13 +390,11 @@ func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepStarted {
 		t.Fatalf("saved prefix after crash = %#v", saved.Steps)
 	}
-	out, err := (Engine{}).Apply(
-		t.Context(),
-		saved,
-		definition(),
-		Continue{ID: "resume", History: history},
-		Bindings{Client: client, Recorder: recorder},
-	)
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(t.Context(), saved, Continue{CommandID: "resume", History: history})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,15 +409,13 @@ func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	}
 }
 
-func TestEngineNoRecorderCanContinueReturnedTurn(t *testing.T) {
+func TestRunnerNoRecorderCanContinueReturnedTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	first := startPausedHistoryTurn(t, client, nil, nil)
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue"},
-		Bindings{Client: client},
+		Continue{CommandID: "continue"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -419,16 +431,18 @@ func TestEngineNoRecorderCanContinueReturnedTurn(t *testing.T) {
 	}
 }
 
-func TestEngineEmptyHistoryFormsMatchOnContinue(t *testing.T) {
+func TestRunnerEmptyHistoryFormsMatchOnContinue(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, nil)
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		first.Turn,
-		definition(),
-		Continue{ID: "continue", History: []llm.Message{}},
-		Bindings{Client: client, Recorder: recorder},
+		Continue{CommandID: "continue", History: []llm.Message{}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -450,16 +464,19 @@ func startPausedHistoryTurn(
 	t.Helper()
 	paused := make(chan struct{})
 	close(paused)
-	out, err := (Engine{}).Apply(
+	out, err := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Run(
 		t.Context(),
 		Turn{ID: "history-paused"},
-		definition(),
 		Start{
-			ID:      "start",
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text("current input"))},
+			CommandID: "start",
+			History:   history,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
-		Bindings{Client: client, Recorder: recorder, Pause: paused},
+		WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)

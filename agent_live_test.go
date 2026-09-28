@@ -92,7 +92,7 @@ func TestLiveRecordedReminders(t *testing.T) {
 	}
 }
 
-// Each subtest makes one paid streamed model call through Engine.Stream.
+// Each subtest makes one paid streamed model call through Runner.Stream.
 func TestLiveIteratorAgentTurns(t *testing.T) {
 	for _, p := range liveProviders {
 		t.Run(p.name, func(t *testing.T) {

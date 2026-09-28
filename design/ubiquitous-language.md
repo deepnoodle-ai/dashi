@@ -3,12 +3,17 @@
 Public concepts grounded in the [conceptual model][model] and
 [Dive's current API][dive]. These name what callers configure, supply, inspect,
 and act on. Foundation terms follow the [accepted terminology][terminology];
-agent and session contracts remain proposed.
+the agent, runner, and command names follow [decision 30](decisions.md).
+Session contracts remain proposed.
 
 ## Define an agent
 
-- **Agent definition**: Reusable agent configuration: identity, version,
-  instructions, model, tools, and limits.
+- **Agent**: Reusable agent configuration (`kernel.Agent`): identity,
+  revision, instructions, model, settings, output schema, and limits. It is
+  plain JSON data, recorded when a turn starts, not a running object.
+- **Runner**: The value that runs turns (`kernel.Runner`): an agent plus its
+  long-lived services, such as the client, tools, recorder, policy, and
+  observer. `Run` collects a turn's result; `Stream` yields it as it happens.
 - **Model and settings**: The selected model and controls for generation,
   such as reasoning, output tokens, and tool choice.
 - **Model reference**: A configured provider identity paired with a model name.
@@ -23,21 +28,26 @@ agent and session contracts remain proposed.
 
 ## Work with turns and sessions
 
-- **Turn**: Identified work whose calls, usage, and state persist across
-  continuation, with or without a session.
-- **Session**: A named conversation organizing turns and their saved history.
+- **Turn**: One input processed until the agent settles, possibly across many
+  model calls, with its calls, usage, and state persisted across continuation.
+  Some SDKs call one model call plus its tool calls a "turn"; Kernel calls that
+  a **model attempt** and never uses "turn" for a loop iteration.
+- **Session**: Reserved for a future conversation of many turns and their
+  saved history. Avoid "thread" and "conversation" as type names.
 - **Turn outcome**: The returned turn, its **stop** (why execution paused or
   ended), and recording status.
 - **Subagent**: An agent performing delegated work as a **child turn** linked
   to its parent turn.
 
-Use the proposal's five **turn commands** as the shared verbs:
+Use the five **turn commands** as the shared verbs. Each carries a
+**command ID** (`CommandID`), an idempotency key: repeating it with the same
+payload acknowledges the recorded step instead of repeating the effect.
 
 - **Start**: Begin a new turn with input.
 - **Deliver**: Add context to an existing turn without advancing execution.
 - **Continue**: Advance an eligible existing turn, optionally with more context.
-- **Accept**: Record a tool call's delayed or reconciled outcome; advance when
-  ready.
+- **Settle**: Record a host-supplied tool outcome, approval answer, hosted
+  approval, or model result. It never runs the turn; `Continue` does.
 - **Cancel**: Request that the turn stop.
 
 These replace the lifecycle meanings currently carried by Dive's `WithInput`,

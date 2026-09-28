@@ -24,14 +24,14 @@ type Recorder interface {
 }
 
 // Loader is an optional Recorder capability that returns the authoritative
-// record of a turn. Engine.Apply uses it to recognize a command retried with
+// record of a turn. Runner.Run uses it to recognize a command retried with
 // an old turn snapshot after a lost acknowledgement, and answers from the
 // stored record instead of applying the command again.
 //
 // Load reports a turn with no committed steps as an error matching
 // ErrTurnNotFound (errors.Is), or as an empty turn with the requested ID;
-// Apply then proceeds with the caller's snapshot as a new turn. Any other
-// error means the record could not be read, and Apply returns it without
+// Run then proceeds with the caller's snapshot as a new turn. Any other
+// error means the record could not be read, and Run returns it without
 // committing, because the caller's snapshot may be stale and acting on it
 // could repeat a model call or tool execution.
 //

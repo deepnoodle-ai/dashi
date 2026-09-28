@@ -8,6 +8,10 @@ uncertainty, bound approvals, idempotent commands) is the strongest part and
 already ahead of Dive and the surveyed projects. The gaps sit around it. Gaps
 are directions, not decisions.
 
+**Names:** written before [decision 30](decisions.md); read `Definition` as
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`ID` as `CommandID`.
+
 ## Summary table
 
 | # | Theme | Severity | Goal(s) served | Status in one line |

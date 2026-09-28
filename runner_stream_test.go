@@ -11,24 +11,22 @@ import (
 
 func streamStart() Start {
 	return Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
 }
 
-func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
+func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{final("done")},
 		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "done"}},
 	}
 	recorder := NewMemoryRecorder()
-	sequence := (Engine{}).Stream(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		streamStart(),
-		Bindings{Client: client, Recorder: recorder},
-	)
+	sequence := (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart())
 	if client.sends != 0 {
 		t.Fatal("constructing iterator dispatched model")
 	}
@@ -87,14 +85,16 @@ func TestEngineStreamIsLazyOrderedAndTerminal(t *testing.T) {
 	}
 }
 
-func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
+func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
-	for event, err := range (Engine{}).Stream(
+	for event, err := range (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+	}).Stream(
 		t.Context(),
 		Turn{ID: "t1"},
-		definition(),
 		Start{Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
-		Bindings{Client: client, Recorder: NewMemoryRecorder()},
 	) {
 		if err == nil || event.Step != nil || event.Outcome != nil {
 			t.Fatalf("validation event=%+v err=%v", event, err)
@@ -105,13 +105,11 @@ func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
 	}
 	recorder := &failOnceKind{base: NewMemoryRecorder(), kind: StepStarted}
 	steps, terminals := 0, 0
-	for event, err := range (Engine{}).Stream(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		streamStart(),
-		Bindings{Client: client, Recorder: recorder},
-	) {
+	for event, err := range (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -130,18 +128,16 @@ func TestEngineStreamValidationAndRejectedWrite(t *testing.T) {
 	}
 }
 
-func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
+func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 	for _, stopAt := range []StepKind{StepStarted, StepModelIntent} {
 		t.Run(string(stopAt), func(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("unused")}}
 			recorder := NewMemoryRecorder()
-			for event, err := range (Engine{}).Stream(
-				t.Context(),
-				Turn{ID: "t1"},
-				definition(),
-				streamStart(),
-				Bindings{Client: client, Recorder: recorder},
-			) {
+			for event, err := range (Runner{
+				Agent:    testAgent(),
+				Client:   client,
+				Recorder: recorder,
+			}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -193,13 +189,11 @@ func (c *cancelAfterDeltaClient) Send(
 func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	client := &cancelAfterDeltaClient{scriptedClient: &scriptedClient{}}
 	recorder := NewMemoryRecorder()
-	for event, err := range (Engine{}).Stream(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		streamStart(),
-		Bindings{Client: client, Recorder: recorder},
-	) {
+	for event, err := range (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Recorder: recorder,
+	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,7 +226,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	}
 }
 
-func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
+func TestRunnerStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
 	runs := 0
@@ -247,18 +241,13 @@ func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded}, nil
 		}),
 	}
-	for event, err := range (Engine{}).Stream(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		streamStart(),
-		Bindings{
-			Client:   client,
-			Tools:    fixedTools{local},
-			Recorder: recorder,
-			Policy:   AllowLocalPolicy{},
-		},
-	) {
+	for event, err := range (Runner{
+		Agent:    testAgent(),
+		Client:   client,
+		Tools:    fixedTools{local},
+		Recorder: recorder,
+		Policy:   AllowLocalPolicy{},
+	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -277,20 +266,15 @@ func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	}
 }
 
-func TestEngineStreamBreakWithContextCancelEndsTurn(t *testing.T) {
+func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
-	for event, err := range (Engine{}).Stream(
-		t.Context(),
-		Turn{ID: "t1"},
-		definition(),
-		streamStart(),
-		Bindings{
-			Client:        client,
-			Recorder:      recorder,
-			OnContextDone: ContextCancel,
-		},
-	) {
+	for event, err := range (Runner{
+		Agent:         testAgent(),
+		Client:        client,
+		Recorder:      recorder,
+		OnContextDone: ContextCancel,
+	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
 		if err != nil {
 			t.Fatal(err)
 		}

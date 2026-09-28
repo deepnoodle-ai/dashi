@@ -49,8 +49,8 @@ type ToolView struct {
 
 // TurnView is the current state reconstructed from acknowledged steps.
 type TurnView struct {
-	ID         string
-	Definition Definition
+	ID    string
+	Agent Agent
 	// OutputSchema is the schema pinned at Start for this turn.
 	OutputSchema json.RawMessage
 	// Revision is the latest acknowledged step sequence number.
@@ -279,18 +279,18 @@ func (s *replayState) apply(step Step) error {
 		if step.Started == nil {
 			return errors.New("missing start")
 		}
-		if e := step.Started.Definition.Validate(); e != nil {
+		if e := step.Started.Agent.Validate(); e != nil {
 			return e
 		}
 		outputSchema := step.Started.OutputSchema
 		if len(outputSchema) == 0 {
-			outputSchema = step.Started.Definition.OutputSchema
+			outputSchema = step.Started.Agent.OutputSchema
 		}
 		if len(outputSchema) > 0 {
 			if _, err := compileOutputSchema(outputSchema); err != nil {
 				return err
 			}
-			if err := validateOutputToolChoice(step.Started.Definition.Settings); err != nil {
+			if err := validateOutputToolChoice(step.Started.Agent.Settings); err != nil {
 				return err
 			}
 		}
@@ -325,7 +325,7 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("operator reminder requires operator start origin")
 			}
 		}
-		s.Definition = step.Started.Definition.resolved()
+		s.Agent = step.Started.Agent.resolved()
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -405,9 +405,9 @@ func (s *replayState) apply(step Step) error {
 				len(step.Model.Admission) > 16<<10) {
 			return errors.New("invalid model admission metadata")
 		}
-		if step.Model.Provider != s.Definition.Provider ||
-			step.Model.API != s.Definition.API ||
-			step.Model.Model != s.Definition.Model {
+		if step.Model.Provider != s.Agent.Provider ||
+			step.Model.API != s.Agent.API ||
+			step.Model.Model != s.Agent.Model {
 			return errors.New("model intent changed destination")
 		}
 		if step.Model.EstimatedInputTokens < 0 {
@@ -419,9 +419,9 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		if step.Model.FinalAnswerOnly &&
-			(s.Definition.Limits.NoReservedFinalAnswer ||
+			(s.Agent.Limits.NoReservedFinalAnswer ||
 				s.ModelAttempts == 0 ||
-				s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
+				s.ModelAttempts+1 != s.Agent.Limits.ModelAttempts) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
 		s.modelIntent = step.Model.AttemptID
@@ -664,11 +664,11 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
-			// No outcome records a result the engine did not observe: a
+			// No outcome records a result the runner did not observe: a
 			// panic, or a start with no result after a crash. A returned
 			// error settles with a failed outcome instead. Replay does not
 			// second-guess the reason text, so an older or forged record
-			// claiming uncertainty for an error still needs Accept.
+			// claiming uncertainty for an error still needs Settle.
 			if v.Status != ToolStarted && v.Status != ToolWaiting {
 				return errors.New("uncertainty without start")
 			}
@@ -684,7 +684,7 @@ func (s *replayState) apply(step Step) error {
 			if v.Call.Name == SubmitOutputTool {
 				if step.Tool.Outcome.State != tool.StateNotExecuted &&
 					v.Status != ToolStarted {
-					return errors.New("reserved output tool requires engine start")
+					return errors.New("reserved output tool requires runner start")
 				}
 				if step.Tool.Outcome.State == tool.StateSucceeded {
 					schema, err := compileOutputSchema(s.OutputSchema)
@@ -709,7 +709,7 @@ func (s *replayState) apply(step Step) error {
 			v.Outcome = step.Tool.Outcome
 		}
 		s.Tools[v.Call.ID] = v
-	case StepApproval:
+	case StepApprovalSettled:
 		s.awaitingClassification = false
 		if step.Approval == nil {
 			return errors.New("missing approval")
@@ -728,7 +728,7 @@ func (s *replayState) apply(step Step) error {
 			v.Status = ToolDenied
 		}
 		s.Tools[v.Call.ID] = v
-	case StepHostedApproval:
+	case StepHostedApprovalSettled:
 		s.awaitingClassification = false
 		if step.HostedApproval == nil {
 			return errors.New("missing hosted approval")
@@ -866,7 +866,7 @@ func (s *replayState) recordResult(
 	if !actionable {
 		return nil
 	}
-	if err := validateModelResult(*result, s.Definition); err != nil {
+	if err := validateModelResult(*result, s.Agent); err != nil {
 		return err
 	}
 	if result.Stop.Kind == llm.StopPause {
@@ -917,7 +917,7 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 		len(s.hosted) > 0 {
 		return false
 	}
-	if s.Interruptions > max(s.Definition.Limits.Interruptions, 0) {
+	if s.Interruptions > max(s.Agent.Limits.Interruptions, 0) {
 		return false
 	}
 	if s.interruptionLimitReached() {
@@ -938,7 +938,7 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 	}
 	if s.Stop.Kind == StopLimited &&
 		(s.Stop.Reason == "deadline" || s.Stop.Reason == "interruptions" ||
-			s.ModelAttempts >= s.Definition.Limits.ModelAttempts) {
+			s.ModelAttempts >= s.Agent.Limits.ModelAttempts) {
 		return false
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
@@ -992,7 +992,7 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 
 func (s *replayState) interruptionLimitReached() bool {
 	if s.Revision == 0 ||
-		s.Interruptions < max(s.Definition.Limits.Interruptions, 0) {
+		s.Interruptions < max(s.Agent.Limits.Interruptions, 0) {
 		return false
 	}
 	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""
@@ -1090,11 +1090,11 @@ func validateStepPayload(step Step) error {
 		if step.Tool == nil {
 			return errors.New("tool payload missing")
 		}
-	case StepApproval:
+	case StepApprovalSettled:
 		if step.Approval == nil {
 			return errors.New("approval payload missing")
 		}
-	case StepHostedApproval:
+	case StepHostedApprovalSettled:
 		if step.HostedApproval == nil {
 			return errors.New("hosted approval payload missing")
 		}

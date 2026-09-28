@@ -10,7 +10,7 @@ design document before any code changes.
 **1. A tool's Go error is a model-facing failure; a sentinel stops the turn.**
 Decided. A plain error returned by a tool becomes a failed result the model
 sees, as Dive did. A typed sentinel marks an error as fatal to the turn, which
-stops it in place. Uncertainty remains the engine's word for a call whose result
+stops it in place. Uncertainty remains Kernel's word for a call whose result
 was never observed (crash, lost result, panic); it is not something a tool
 returns. Rationale: almost any error in a tool call should go back to the model,
 and returning `err` is the idiomatic way to say so. Supersedes the "Go execution
@@ -61,8 +61,8 @@ stays in the application.
 These refine decision 6; the design is
 [turn-interruption.md](turn-interruption.md).
 
-**8. The context ending pauses the turn; only `Cancel` ends it.** Decided. The
-engine records a resumable stop, and `Continue` resumes the turn on any worker.
+**8. The context ending pauses the turn; only `Cancel` ends it.** Decided.
+Kernel records a resumable stop, and `Continue` resumes the turn on any worker.
 A crash is a pause whose stop was never written. Rationale: deploys, crashes,
 and lease loss are common and recoverable, not user decisions.
 
@@ -100,35 +100,35 @@ without timing-dependent behavior.
 tell whether it ran, stays `uncertain`.
 
 **15. Graceful shutdown uses a built-in pause signal.** Decided. A per-call
-input (such as `Bindings.Pause`) makes the engine stop before the next model
+option (`WithPause`) makes the runner stop before the next model
 call or tool call and record `interrupted` ("pause requested"); in-flight work
 is not cut off. Rationale: `Policy` is a four-method interface every app would
 have to wrap, and `BeforeModel` does not fire during a long tool loop.
 
-**16. `Accept` on an interrupted turn only records.** Decided. `Continue`
+**16. `Settle` on an interrupted turn only records.** Decided. `Continue`
 resumes the turn. Generalized by decision 18.
 
 **17. The caller can declare that an ended context means cancel.** Decided.
-Interrupted is the default; a per-call option (such as
-`Bindings.OnContextDone`) set to cancel makes a context end, including leaving
-`Engine.Stream`, record a final `StopCanceled`. Rationale: a web handler whose
+Interrupted is the default; a runner setting
+(`Runner.OnContextDone`) set to cancel makes a context end, including leaving
+`Runner.Stream`, record a final `StopCanceled`. Rationale: a web handler whose
 client disconnected knows the turn will not resume, and `net/http` cancels
 without a cause, so the cause alone cannot say so.
 
-**18. `Accept` only records; only `Continue` runs a turn.** Decided. This
+**18. `Settle` only records; only `Continue` runs a turn.** Decided. This
 applies everywhere, including approvals and tool results delivered to a waiting
-turn, which today carry on immediately. The report is committed before `Accept`
+turn, which today carry on immediately. The report is committed before `Settle`
 returns, and the outcome and saved turn say when the turn is ready to continue.
 Rationale: one consistent rule, and the request that records an approval should
 not run the model inline; the ready flag keeps a forgotten `Continue` visible.
 
 **19. The application passes prior history on each call; the turn record does
 not store it.** Decided; answers decision 5. `Start` and every `Continue`
-carry the earlier conversation, and the engine uses it for that call only. The
+carry the earlier conversation, and Kernel uses it for that call only. The
 turn-started step keeps the turn's own input and a fingerprint of the history,
 not the history itself. A `Continue` whose history does not match the
 fingerprint records a warning and proceeds; a host may set
-`Bindings.OnHistoryMismatch` to reject that `Continue` before any step is
+`Continue.OnHistoryMismatch` to reject that `Continue` before any step is
 committed instead. Rationale: none of the compared
 libraries copies history into each run, and a turn record that grows with the
 conversation stores what the application already keeps. The cost: a turn's
@@ -138,7 +138,7 @@ gains sessions or conversations is a separate, open question. Referencing
 attachments in a turn's own input or tool output (the proposal's content
 references) remains a later refinement.
 
-**20. The recorder is optional.** Decided. With no recorder bound, the engine
+**20. The recorder is optional.** Decided. With no `Runner.Recorder`, the runner
 uses an in-memory one, so a simple program needs no storage; an application
 that resumes turns across processes binds a durable recorder. Rationale:
 Kernel works by default.
@@ -183,10 +183,10 @@ The admission check also relies on supplied prices and the provider respecting
 its output allowance. Rationale: charging the worst case would stop turns
 early after a bad day of deploys.
 
-**25. The caller sets a turn's budget; the definition carries none.** Decided.
+**25. The caller sets a turn's budget; the agent carries none.** Decided.
 Cost and token caps are passed on `Start` and raised on `Continue`; there is no
-definition ceiling that `Start` narrows. Plan and tenant ceilings stay in the
-application. Existing definition limits (`ModelAttempts`, `Deadline`,
+agent ceiling that `Start` narrows. Plan and tenant ceilings stay in the
+application. Existing agent limits (`ModelAttempts`, `Deadline`,
 `Interruptions`) are unchanged; whether they should also move to the caller is
 not decided. Rationale: a budget depends on who is calling and what they paid
 for, which the application knows and the agent's configuration does not.
@@ -201,7 +201,7 @@ nothing to override, so the part kept is the audit trail.
 
 **27. Recorded values are compared by JSON meaning, not bytes.** Decided. Every
 digest or comparison of a recorded value against a live one (commands, tool
-definitions and arguments, approval argument digests, the agent definition,
+definitions and arguments, approval argument digests, the agent,
 history fingerprints, idempotent step retries) hashes or compares a canonical
 JSON form: RFC 8785 layout (sorted keys, no whitespace, minimal string
 escapes, ECMAScript number layout), except that numbers keep their exact
@@ -235,10 +235,35 @@ means its default (8 model attempts, 10 interruptions, 3 provider pauses, 1
 concurrent tool); a negative `Interruptions` or `ProviderPauses` means none, as
 with `net.Dialer.KeepAlive`. `NoReservedFinalAnswer` keeps the reserve on by
 default. `DefaultLimits` was removed. Kernel resolves defaults when it accepts
-a definition and records the concrete values, so a saved turn keeps its limits.
+an agent and records the concrete values, so a saved turn keeps its limits.
 Known cost, accepted: after a default changes, continuing an older turn with
-zero limits returns `ErrDefinitionChanged`; pin the recorded values instead.
+zero limits returns `ErrAgentChanged`; pin the recorded values instead.
 Turns recorded before this change are not supported: Kernel had no users or
 stored turns, so there is no migration, and such a turn must be restarted.
 Rationale: `Limits{}` used to be rejected, and a forgotten bool silently turned
 off the final-answer reserve.
+
+**30. Names: `Agent`, `Runner`, `Settle`, and `CommandID`.** Decided 2026-09-28.
+`Definition` becomes `Agent`: the same plain JSON configuration, recorded under
+`"agent"`, with `ErrAgentChanged`. `Engine` and `Bindings` merge into `Runner`,
+a value holding the agent and its long-lived services (client, tools, recorder,
+policy, observer, `OnContextDone`). `Runner.Run(ctx, turn, cmd, opts...)`
+collects a result and `Runner.Stream` yields one; per-call options are
+`WithOwner` and `WithPause`, and `OnHistoryMismatch` moves to `Continue`. An
+empty `Agent.Provider` or `Agent.API` is filled from the runner's client; a
+value that differs from the client's is still an error. The command `Accept`
+becomes `Settle`, and every command's `ID` becomes `CommandID`. The approval
+steps become `approval_settled` and `hosted_approval_settled`. "Turn" keeps its
+meaning: one input processed until the agent settles, possibly many model calls.
+"Session" is reserved for a future conversation of many turns. Kernel keeps Go's
+`StopCanceled`; an ACP adapter maps it to `cancelled`. Rationale: every
+comparable library names these things Agent and Runner (ADK-Go and Eino each
+have a runner holding the agent and services; OpenHands' agent is frozen,
+serializable configuration like ours). Kernel's turn matches ACP's prompt turn,
+the turn in the Codex App Server's thread, turn, and item, and Anthropic's
+`end_turn`. Some SDKs (OpenAI Agents, Claude Agent, pi) count one model call
+plus its tool calls as a turn; Kernel calls that a model attempt, as in
+`Limits.ModelAttempts`. `Accept` read like "approve", which is confusing for a
+denial; `Settle` matches the step names `model_settled` and `tool_settled`. A
+command's `ID` looked like the turn ID; `CommandID` names its idempotency role.
+Kernel had no users, so there is no migration.
