@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -407,6 +408,11 @@ type Input struct {
 	// Tools contains uniquely named definitions available for this call.
 	Tools []tool.Definition `json:"tools,omitempty"`
 
+	// OutputSchema requests a schema-constrained final JSON object for this
+	// model call. Only adapters with a qualified native route accept it.
+	// Agent turns use their separate, recorded OutputSchema contract.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+
 	// Settings holds requested values; Prepare snapshots them before applying
 	// defaults.
 	Settings Settings `json:"settings,omitzero"`
@@ -423,6 +429,11 @@ func (r Input) Validate() error {
 	}
 	if err := r.ContentPolicy.Validate(); err != nil {
 		return err
+	}
+	if len(r.OutputSchema) > 0 {
+		if _, err := outputschema.Compile(r.OutputSchema); err != nil {
+			return fmt.Errorf("llm: output_schema: %w", err)
+		}
 	}
 	if r.Settings.MaxTokens < 0 {
 		return errors.New("llm: max tokens cannot be negative")
@@ -507,8 +518,8 @@ type Stop struct {
 }
 
 // Result is the outcome of one model call, identical whether streamed or not.
-// Copies share message payloads, usage, cost, and raw bytes. Message.Clone and
-// Usage.Copy detach the corresponding values for independent editing.
+// Copies share message payloads, output, usage, cost, and raw bytes.
+// Message.Clone and Usage.Copy detach their values for independent editing.
 type Result struct {
 	// ID is the provider-reported response identifier, when available.
 	ID string `json:"id,omitempty"`
@@ -516,6 +527,11 @@ type Result struct {
 	// Message holds accumulated output; inspect Stop before executing any tool
 	// calls.
 	Message Message `json:"message"`
+
+	// Output is a locally schema-validated final JSON object when this call
+	// requested OutputSchema and finished successfully. Nil means no validated
+	// value, including refusals, output limits, and partial results.
+	Output json.RawMessage `json:"output,omitempty"`
 
 	// Stop distinguishes completion, interruption, limits, and other outcomes.
 	Stop Stop `json:"stop"`

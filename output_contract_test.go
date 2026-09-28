@@ -94,6 +94,9 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		t.Fatalf("out=%+v sends=%d runs=%d", out, client.sends, runs)
 	}
 	for i, in := range client.inputs {
+		if len(in.OutputSchema) != 0 {
+			t.Fatalf("request %d leaked native output schema into turn", i)
+		}
 		if len(in.Tools) != 2 || in.Tools[1].Name != SubmitOutputTool || string(in.Tools[1].Schema) != string(answerSchema) {
 			t.Fatalf("request %d tools=%+v", i, in.Tools)
 		}
@@ -127,6 +130,42 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 			client.sends,
 			runs,
 		)
+	}
+}
+
+func TestStructuredTurnAfterModelHookUsesSubmissionTool(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submit", `{"answer":42}`)},
+	}
+	hooks := Hooks{BeforeModel: []ModelHook{{
+		Name: "settings",
+		Func: func(_ context.Context, plan ModelPlan) (ModelDecision, error) {
+			settings := plan.Input.Settings
+			settings.MaxTokens = 256
+			return ModelDecision{Settings: &settings}, nil
+		},
+	}}}
+	out, err := (Runner{
+		Agent:  structuredAgent(),
+		Client: client,
+		Hooks:  hooks,
+	}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+		},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
+		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" {
+		t.Fatalf("turn did not use submission tool: output=%+v err=%v", out, err)
+	}
+	if len(client.inputs) != 1 || len(client.inputs[0].OutputSchema) != 0 ||
+		client.inputs[0].Settings.MaxTokens != 256 ||
+		len(client.inputs[0].Tools) != 1 ||
+		client.inputs[0].Tools[0].Name != SubmitOutputTool {
+		t.Fatalf("turn sent native output or lost submission tool: %+v", client.inputs)
 	}
 }
 

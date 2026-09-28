@@ -1,7 +1,6 @@
 package dashi
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -26,48 +26,14 @@ func validateOutputToolChoice(settings llm.Settings) error {
 const (
 	// SubmitOutputTool is reserved for a turn that declares OutputSchema. Its
 	// argument object is the candidate final value, not an application tool.
-	SubmitOutputTool     = "dashi_submit_output"
-	maxOutputSchemaBytes = 32 << 10
-	maxOutputValueBytes  = 256 << 10
+	SubmitOutputTool    = "dashi_submit_output"
+	maxOutputValueBytes = outputschema.MaxValueBytes
 )
 
 func compileOutputSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
-	if len(raw) == 0 || len(raw) > maxOutputSchemaBytes {
-		return nil, fmt.Errorf(
-			"dashi: output schema must be 1-%d bytes",
-			maxOutputSchemaBytes,
-		)
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
-		return nil, errors.New("dashi: output schema must be a JSON Schema object")
-	}
-	// Tool declarations and the public turn result carry an object. Requiring
-	// the root type prevents a provider from receiving an unrepresentable
-	// boolean, scalar, or array function-argument schema.
-	var rootType string
-	if err := json.Unmarshal(
-		object["type"],
-		&rootType,
-	); err != nil || rootType != "object" {
-		return nil, errors.New("dashi: output schema root must have type object")
-	}
-	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	schema, err := outputschema.Compile(raw)
 	if err != nil {
-		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
-	}
-	compiler := jsonschema.NewCompiler()
-	compiler.DefaultDraft(jsonschema.Draft2020)
-	// No network or file fetches are permitted while admitting or replaying a
-	// turn. Local $defs remain available through the registered resource.
-	compiler.UseLoader(jsonschema.SchemeURLLoader{})
-	const location = "https://dashi.invalid/output-schema.json"
-	if err := compiler.AddResource(location, value); err != nil {
-		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
-	}
-	schema, err := compiler.Compile(location)
-	if err != nil {
-		return nil, fmt.Errorf("dashi: invalid output schema: %w", err)
+		return nil, fmt.Errorf("dashi: %w", err)
 	}
 	return schema, nil
 }
@@ -76,21 +42,8 @@ func validateOutputValue(
 	schema *jsonschema.Schema,
 	raw json.RawMessage,
 ) error {
-	if schema == nil || len(raw) == 0 || len(raw) > maxOutputValueBytes {
-		return errors.New("dashi: structured output is missing or too large")
-	}
-	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
-	if err != nil {
-		return fmt.Errorf("dashi: structured output is invalid JSON: %w", err)
-	}
-	if _, ok := value.(map[string]any); !ok {
-		return errors.New("dashi: structured output must be an object")
-	}
-	if err := schema.Validate(value); err != nil {
-		return fmt.Errorf(
-			"dashi: structured output does not satisfy schema: %w",
-			err,
-		)
+	if err := outputschema.Validate(schema, raw); err != nil {
+		return fmt.Errorf("dashi: %w", err)
 	}
 	return nil
 }

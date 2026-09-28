@@ -165,6 +165,9 @@ func (p *Client) Prepare(
 		)
 	}
 	wire := codec{origin: p.client.Origin(r.Model), provider: p.Provider()}
+	if len(r.OutputSchema) > 0 {
+		return llm.Request{}, wire.unsupported("output_schema is not supported by this route")
+	}
 	var changes []llm.ContentChange
 	var err error
 	r, changes, err = providercontent.Adapt(

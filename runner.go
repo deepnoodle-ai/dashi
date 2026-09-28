@@ -1161,6 +1161,12 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			return r.stop(StopFailed, err.Error()), false
 		}
 	}
+	// Native model-call output is direct-call-only until the turn's recorded
+	// output and recovery path can use it. Keep this guard after hooks so a
+	// future hook shape cannot activate it without a turn design.
+	if len(input.OutputSchema) > 0 {
+		return r.stop(StopFailed, "native output_schema is not supported in agent turns"), false
+	}
 	var budgetWarnings []Warning
 	if s.Budget != nil && s.Budget.MaxOutputTokens > 0 {
 		remaining := s.Budget.MaxOutputTokens - s.Spend.Usage.OutputTokens

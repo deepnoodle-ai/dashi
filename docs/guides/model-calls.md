@@ -36,6 +36,58 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 
 Running the example makes a paid request.
 
+## Native structured output on OpenAI Responses
+
+For a direct call that needs one JSON object, set `llm.Input.OutputSchema`.
+The Responses client sends OpenAI's strict JSON Schema format, then checks the
+finished answer locally. `Result.Output` contains the validated JSON object;
+`Result.Message` and `Result.Raw` still describe the provider response.
+
+```go
+schema := json.RawMessage(`{
+    "type": "object",
+    "properties": {"label": {"type": "string"}},
+    "required": ["label"],
+    "additionalProperties": false
+}`)
+result, err := llm.Generate(ctx, client, llm.Input{
+    Model:        model,
+    Messages:     []llm.Message{llm.UserMessage(llm.Text("Classify this item"))},
+    OutputSchema: schema,
+}, nil)
+if err != nil {
+    return err // result may still contain usage or response evidence
+}
+if result.Stop.Kind != llm.StopFinished {
+    return fmt.Errorf("model stopped: %s", result.Stop.Kind)
+}
+var value struct {
+    Label string `json:"label"`
+}
+if err := json.Unmarshal(result.Output, &value); err != nil {
+    return err
+}
+```
+
+Preparation rejects schemas that the first strict route cannot express. Each
+object must name all its properties in `required` and set
+`additionalProperties:false`; nested types may pair one type with `null`.
+The subset allows `type`, `properties`, `required`, `additionalProperties`,
+`items`, `enum`, and `description`, with at most five nesting levels, 100
+properties, 250 enum values, and 32 KiB of schema. The validated answer is
+limited to 256 KiB. `MustOutputSchema[T]` was designed for agent turns and can emit
+optional fields that this route rejects; use a strict-compatible schema here.
+An empty `OutputSchema` keeps ordinary model-call behavior.
+
+This route does not combine a schema with current-call tools or an agent turn.
+For other providers, native output is not yet qualified and `Prepare` rejects
+the request. A custom Responses-compatible endpoint requires matching
+`Config.Models` evidence that explicitly supports structured output. Unknown
+model support on the public OpenAI endpoint follows the capability policy;
+check `RequestSnapshot.Unverified` when that matters. Refusals and output
+limits retain their stop reason and leave `Output` empty. Failed local
+validation returns an error plus the partial result and usage, when reported.
+
 ## Validation and model evidence
 
 Requests work by default. With no `llm.ModelInfo` for a model, preparation

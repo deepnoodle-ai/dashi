@@ -54,6 +54,24 @@ and duplicate start. Filter `-run` to one provider when needed.
 
 ## Structured output
 
+### Native direct-call output
+
+The direct OpenAI Responses route has offline blocking and streaming fixtures.
+Its paid probe is opt-in and has **not been run or qualified** as of
+2026-09-28. Set `OPENAI_API_KEY` and an exact `OPENAI_MODEL`, then run:
+
+```sh
+DASHI_LIVE_STRUCTURED_OUTPUT_TEST=1 go test -tags live \
+  ./providers/openai/responses -run '^TestLiveNativeStructuredOutput$' -v
+```
+
+This makes two paid calls, one blocking and one streaming. Record the date,
+model, endpoint, schema, output, and usage from the log before claiming that
+model's route is qualified. A local fixture or a skipped probe is not live
+qualification.
+
+### Agent turn output
+
 On 2026-09-27, one-call structured-output turns also passed live on these
 three routes with a per-turn schema and a recorded `dashi_submit_output` call.
 To repeat them, set `DASHI_LIVE_AGENT_TEST=1` and the corresponding provider
