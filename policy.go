@@ -1,11 +1,11 @@
-package kernel
+package dashi
 
 import (
 	"context"
 	"encoding/json"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // ModelPlan gives policy the proposed model input and current turn state.

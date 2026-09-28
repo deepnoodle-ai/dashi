@@ -1,13 +1,13 @@
 # E. Provider coverage, cost, and budgets
 
-Source review of Kernel main at 9d28264 on 2026-09-27; findings are directions,
+Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
 `Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
 `ID` as `CommandID`.
 
-Kernel keeps Dive's four wire implementations and the same thin wrappers:
+Dashi keeps Dive's four wire implementations and the same thin wrappers:
 Messages (with Ollama), Responses (with Grok and Meta), Chat Completions (with
 OpenRouter, Mistral, DeepInfra), and Gemini/Vertex. It is ahead of Dive on
 hosted tools, tool choice, error metadata, and replay safety. It falls behind on
@@ -15,26 +15,26 @@ model catalog and prices, prompt caching, native structured output, and
 automatic retry. Its cost facts are honest, but nothing prices a call, sums turn
 cost, or declares a budget; `Policy.BeforeSend` and recorded `Admission` are the
 only hooks, so the application supplies the estimate, the ledger, and the stop
-semantics. nvoken already built these on Dive, and Kernel should absorb the
+semantics. nvoken already built these on Dive, and Dashi should absorb the
 reusable half of that design.
 
 ## Provider feature matrix
 
-S = Supported, P = Partial, M = Missing, – = not applicable. The Kernel columns
+S = Supported, P = Partial, M = Missing, – = not applicable. The Dashi columns
 are routes, and wrappers inherit from them: **Msg** = anthropic/messages
 (+ollama), **Resp** = openai/responses (+grok, meta), **CC** =
 openai/completions (+openrouter, mistral, deepinfra), **Gem** = google/gemini.
-The Dive columns are the equivalent packages. Kernel cells are grounded in the
+The Dive columns are the equivalent packages. Dashi cells are grounded in the
 files cited in the evidence column. Dive cells come from a delegated read of
 Dive's code.
 
-| Behavior | K Msg | K Resp | K CC | K Gem | D Anth | D OAI-R | D CC | D Goog | Kernel evidence / note |
+| Behavior | Msg | Resp | CC | Gem | Dive Anth | Dive OAI-R | Dive CC | Dive Goog | Dashi evidence / note |
 |---|---|---|---|---|---|---|---|---|---|
 | Streaming | S | S | S | S | S | S | S | S | `providers/*/*/stream.go`; `llm/stream.go:27` |
 | Tool calling | S | S | S | S | S | S | S | S | `messages.go:~185`, `responses.go:~185` |
 | Parallel-tools control | S | S | S | M (rejected) | S | S | S | M | `messages.go:~220` disable_parallel_tool_use; Gem rejects `gemini.go:~219` |
-| Tool choice auto/none/any/named | S | S | S | S | S | S | S | M | `llm/llm.go:216-228`; Gem `gemini.go:~255-271` (**Kernel ahead**) |
-| Structured output / JSON schema (native) | M | M | M | M | M | S | P | M | Only through the turn-level `kernel_submit_output` tool (`output_contract.go`); not available in `llm.Generate`. **Regression on Responses** |
+| Tool choice auto/none/any/named | S | S | S | S | S | S | S | M | `llm/llm.go:216-228`; Gem `gemini.go:~255-271` (**Dashi ahead**) |
+| Structured output / JSON schema (native) | M | M | M | M | M | S | P | M | Only through the turn-level `dashi_submit_output` tool (`output_contract.go`); not available in `llm.Generate`. **Regression on Responses** |
 | Reasoning effort | S (adaptive) | S | S | M (rejected) | S | S | S | S (level) | Msg `messages.go:~150-175`; Gem effort rejected `gemini.go:~211` |
 | Reasoning budget | S | M (rejected) | M | S | S | – | – | S | `llm/llm.go:306-312`; Resp rejects budget `responses.go:139` |
 | Reasoning replay (signatures / encrypted) | S | S | P (OpenRouter `reasoning_details`) | S (thought sigs) | S | S | P | S | `Content.Replay` `llm/llm.go:137`; Resp `include reasoning.encrypted_content` `responses.go:~121`; `internal/providercontent/gemini_replay.go` |
@@ -45,19 +45,19 @@ Dive's code.
 | File IDs / URIs (reference) | S | S | P (no image file ID) | S (fileData) | S | S | S | P | `messages.go:626`; `completions.go:352`; `gemini.go:518`; origin-scoped (`provider-content-replay.md`) |
 | Files API upload | M | M | M | M | M | M | M | M | Neither library has one |
 | Server tools: web search | S | S (+grok, meta) | M | S (google_search) | S | P | M | M | `anthropic/.../hosted_tools.go:16`; `responses/hosted_tools.go:23`; `gemini/hosted_tools.go:14` |
-| Server tools: code exec / fetch / file search / image gen | S (code, web_fetch) | S (code, file_search, image_gen; grok x_search, collections) | M | S (code, url_context, file_search) | P (+computer use) | P | M | M | Computer use missing in Kernel (Dive had it) |
+| Server tools: code exec / fetch / file search / image gen | S (code, web_fetch) | S (code, file_search, image_gen; grok x_search, collections) | M | S (code, url_context, file_search) | P (+computer use) | P | M | M | Computer use missing in Dashi (Dive had it) |
 | MCP passthrough | P (no auth) | P (no auth headers) | M | M | S | S | M | M | `MCPToolsetOptions{Name,URL}` `hosted_tools.go:163`; `responses/hosted_tools.go:82-99` |
 | Hosted approval flow | M | S | – | – | M | P | – | – | `llm/hosted.go:96-120` |
 | Batch API | M | M | M | M | M | M | M | M | – |
 | Stop sequences, top_p, top_k, seed | M | M | M | M | M | M | M | M | `llm.Settings` has MaxTokens, Temperature, Reasoning, ToolChoice, ParallelTools only (`llm/llm.go:327-345`) |
-| Temperature | S (rejects >1) | S | S | S | S (drops) | S | S | S | Kernel rejects out-of-range values; Dive drops them with a warning |
+| Temperature | S (rejects >1) | S | S | S | S (drops) | S | S | S | Dashi rejects out-of-range values; Dive drops them with a warning |
 | System / developer roles | S | S | S (configurable) | S | S | S | S | S | `llm/llm.go:26-39`; `openrouter.go` SystemRole |
 | Usage detail (cached, reasoning, modality) | S | S | S | S | S | S | S | S | `llm/usage.go:39-83`. Server-tool request counts are missing in both |
-| Service tier / speed (request) | M | M | M | M | S (speed) | S | S | S | Kernel records only the reported `Result.ServiceTier` (`llm/llm.go:476`) |
+| Service tier / speed (request) | M | M | M | M | S (speed) | S | S | S | Dashi records only the reported `Result.ServiceTier` (`llm/llm.go:476`) |
 | Provider-reported cost | – | – | S (OR, DI) | – | – | – | S | – | `completions.go:469-488` |
 | Retry-After / rate-limit headers | P (parsed) | P | P | P | S | S | S | P | `internal/providerhttp/errors.go:143`; `x-ratelimit-*` ignored |
 | Automatic retry | M | M | M | M | S | S | S | S | `Client` sends once (`llm/llm.go:522-546`); the engine has no retry loop |
-| Error taxonomy | S | S | S | S | M | M | M | M | `llm/llm.go:548-613`: category, disposition, retryable (**Kernel ahead**). No context-length category |
+| Error taxonomy | S | S | S | S | M | M | M | M | `llm/llm.go:548-613`: category, disposition, retryable (**Dashi ahead**). No context-length category |
 | Model catalog + pricing tables | M | M | M | M | S | S | S | S | Application must fill `Config.Models`; `ModelInfo.Pricing` is supplied by the application (`llm/model.go:148-158`) |
 
 ## Consistency findings
@@ -105,7 +105,7 @@ Dive's code.
    whereas Dive retried and honored Retry-After. *Direction:* add an engine
    retry policy. Count each retry as a model attempt, authorize each one through
    `BeforeSend`, and keep uncertain spend, as recs1 describes.
-7. **Kernel is better in several places.** `Prepare` freezes the exact body
+7. **Dashi is better in several places.** `Prepare` freezes the exact body
    along with its Adjustments and ContentChanges (`llm/request.go:18-48`).
    Replay across models is explicit and origin-scoped
    (`design/provider-content-replay.md`). Hosted tool activity and approvals are
@@ -135,7 +135,7 @@ fails closed whenever a cost ceiling or credits apply.
 **mobius-cloud:** A per-turn cost meter checks spend before each iteration, with
 no reservation, and may overshoot by one call.
 
-**Kernel:** Kernel has sound pieces, but nothing that enforces a budget. A
+**Dashi:** Dashi has sound pieces, but nothing that enforces a budget. A
 caller receives:
 - `Usage` and `Cost` with a typed `CostSource` and nil-means-unknown semantics
   (`llm/pricing.go:246-280`);
@@ -146,7 +146,7 @@ caller receives:
   recorded atomically with the model intent (`policy.go`; `engine.go:554-566`);
 - deterministic attempt IDs (`engine.go:564`).
 
-| Need | Dive | nvoken | Kernel status | Evidence | Direction |
+| Need | Dive | nvoken | Dashi status | Evidence | Direction |
 |---|---|---|---|---|---|
 | Normalized per-call usage | Yes | Via Dive | **Covered** | `llm/usage.go:39-150` | Split cache writes into 5m and 1h. Add server-tool request counts |
 | Per-call cost filled automatically | List price from registry | Catalog + Dive | **Partial**: provider-reported only (CC) | `completions.go:469`; `Estimate` has no caller | Let the application optionally configure a qualified price sheet per client, and record the sheet on the ModelFact |
@@ -173,7 +173,7 @@ caller receives:
 2. **No budget in the Turn.** `Limits` cannot express a token or cost ceiling, a
    Definition cannot set a default that a turn narrows, and nothing estimates
    the maximum cost at risk. nvoken shows the complete shape (declared limit,
-   reservation, check between steps, typed reason, resumable hold). Kernel has
+   reservation, check between steps, typed reason, resumable hold). Dashi has
    most of the plumbing; it lacks the declarative part, a standard estimator,
    and a `RaiseLimits` path.
 3. **Turn-level cost and unknown usage are not tracked.** An application cannot

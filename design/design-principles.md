@@ -1,6 +1,6 @@
 # Design principles
 
-Practices to adopt when designing Kernel, derived from Dive's [framework
+Practices to adopt when designing Dashi, derived from Dive's [framework
 comparisons][survey] dated 2026-09-26. These are proposed design guardrails, not
 approved interfaces or claims about implemented behavior. Read alongside
 [Design pitfalls](design-pitfalls.md) and [Ubiquitous language](ubiquitous-language.md).
@@ -53,7 +53,7 @@ to local, remote, and delayed tools. Validate effective arguments and bind each
 approval to its recorded call and arguments. Keep policy separate from execution
 and observation; waiting should not require re-entering tool code. Return rich
 content and distinguish model-correctable tool failures from execution failures.
-In Kernel a tool's Go error is model-facing and a sentinel stops the turn; see
+In Dashi a tool's Go error is model-facing and a sentinel stops the turn; see
 [decisions](decisions.md) entry 1. MAF's approval binding is useful; its batch
 approval limitation is instructive.
 [Evidence][tools], [approval failures][maf-issues]

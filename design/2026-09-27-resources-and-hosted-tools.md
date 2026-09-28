@@ -4,11 +4,11 @@
 
 ## Context and Dive baseline
 
-At the start of this work, Kernel could represent a `content.Resource` URI
+At the start of this work, Dashi could represent a `content.Resource` URI
 and mark a tool definition `provider_hosted`, but no adapter encoded either.
 `tool.Definition.Validate` required a JSON Schema even for a hosted tool.
 Anthropic Messages, OpenAI Responses, and Gemini rejected hosted definitions;
-generic resource blocks still fail provider encoding by design. Kernel already encoded some media references:
+generic resource blocks still fail provider encoding by design. Dashi already encoded some media references:
 OpenAI Responses accepts image/file URLs and file IDs; Anthropic accepts image
 and document URLs/IDs; Chat Completions accepts image URLs and document IDs.
 Gemini then accepted inline media only.
@@ -37,7 +37,7 @@ decision. Sources: Dive `llm/content.go`, `providers/{anthropic,openai,grok,meta
    Add a mutually exclusive provider-managed URI source with required MIME
    type and origin; add optional expiry to references. Keep `Resource` for
    display/output links with provenance, not as a generic model input. A host
-   resolves private or application URIs *before* `Prepare`; Kernel never fetches
+   resolves private or application URIs *before* `Prepare`; Dashi never fetches
    them implicitly. An adapter may encode a supported URI as a native reference
    (Gemini `fileData`, for example). Otherwise `Prepare` rejects it, including
    in tool output. Never turn a resource URI into text silently.
@@ -70,7 +70,7 @@ decision. Sources: Dive `llm/content.go`, `providers/{anthropic,openai,grok,meta
    scope. `Prepare` and `Send` must still compare exact in-memory bytes. Do not
    put MCP tokens into `Input`, `RequestSnapshot`, `Raw`, or errors. Approval
    requests/responses are explicit content and require an application decision;
-   Kernel never auto-approves.
+   Dashi never auto-approves.
 
 ## Delivery order and acceptance
 
@@ -78,9 +78,9 @@ decision. Sources: Dive `llm/content.go`, `providers/{anthropic,openai,grok,meta
 | --- | --- | --- |
 | 1. Lock the contract | Add hosted definition/activity types, clone/validation, capability evidence, replay and stop rules. Update `providercontent` to distinguish client calls from hosted activity. | Schema-free hosted definition validates; no hosted activity becomes executable; complete, paused, mixed, and interrupted history each has a deterministic result. |
 | 2. Finish references | Implement Gemini URL/file URI inputs with MIME and scope checks. Audit media URL/ID paths in all adapters; add resource provenance/expiry and explicit unsupported errors for arbitrary URIs. Preserve resource links in hosted/MCP outputs without implicit fetch. | A reference either reaches the intended wire field unchanged or fails before dispatch; foreign provider IDs/URIs fail; fixture tests cover input and tool output. |
-| 3. Port primary hosted tools | Start with Anthropic web search, web fetch replay, code execution and MCP; OpenAI Responses web search, file search, code interpreter, image generation and MCP. Copy useful Dive files with `cp`, then adapt to Kernel's contracts. | Request configuration, blocking/stream results, citations, error results, `pause_turn`, mixed client/hosted calls, and same-origin replay work in local fixtures. |
+| 3. Port primary hosted tools | Start with Anthropic web search, web fetch replay, code execution and MCP; OpenAI Responses web search, file search, code interpreter, image generation and MCP. Copy useful Dive files with `cp`, then adapt to Dashi's contracts. | Request configuration, blocking/stream results, citations, error results, `pause_turn`, mixed client/hosted calls, and same-origin replay work in local fixtures. |
 | 4. Port destination tools | Add Grok web/X/collections search and code execution, Meta web search. Add Gemini Google Search, URL Context, file search and code execution where model/API evidence supports them, exceeding Dive's Gemini coverage. Select v1beta explicitly if a tool requires it; changing API version changes replay scope. | Typed options preserve each vendor's distinct wire names and limits; includes expose requested search/code results; unsupported models/tools fail in `Prepare`. |
-| 5. Qualify | Compare every Dive fixture and feature to the Kernel matrix, then run opt-in live tests by exact provider, model, endpoint, and tool version. | `go test -race ./...` and local wire/stream parity pass; live calls verify a real hosted invocation, continuation/replay, references, citations, and usage. Unverified combinations remain labeled unverified. |
+| 5. Qualify | Compare every Dive fixture and feature to the Dashi matrix, then run opt-in live tests by exact provider, model, endpoint, and tool version. | `go test -race ./...` and local wire/stream parity pass; live calls verify a real hosted invocation, continuation/replay, references, citations, and usage. Unverified combinations remain labeled unverified. |
 
 ## Tradeoffs and decision points
 

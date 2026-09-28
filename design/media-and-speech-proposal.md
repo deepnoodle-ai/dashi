@@ -7,18 +7,18 @@ recognition and synthesis, and live voice. Related: [pricing](pricing-proposal.m
 
 ## Context
 
-Kernel abstracts over model providers for one model call. We also want it to
+Dashi abstracts over model providers for one model call. We also want it to
 abstract over voice interaction, image generation, and audio generation. These
 are foundational capabilities, and belong in this library.
 
 Dive's `media` package defines interfaces for image generation, image editing,
 video, text-to-speech, and transcription. They share one `Config`, and a
 process-global registry selects providers. It works as a prototype but
-conflicts with Kernel's accepted decisions:
+conflicts with Dashi's accepted decisions:
 
 - One settings bag serves every operation (`Voice`, `AspectRatio`,
   `Duration`, `TranscriptionPrompt`), and providers ignore what they do not
-  use. Kernel refuses unsupported settings.
+  use. Dashi refuses unsupported settings.
 - There is no preparation, recordable snapshot, adjustments, or model evidence.
 - Every operation is request/response. Speech cannot stream, there is no live
   voice, and video submission is hidden inside a call that polls for minutes.
@@ -103,7 +103,7 @@ Content gains:
   may carry raw PCM, which a MIME type alone cannot describe.
 - Source expiry for provider URLs and file IDs where known. `Source.Origin`
   remains the compatibility scope for provider file IDs; URL attribution stays
-  with the operation result. Kernel never fetches implicitly.
+  with the operation result. Dashi never fetches implicitly.
 
 ### Three routes to generated media
 
@@ -113,7 +113,7 @@ Content gains:
   OpenAI's Responses API. It produces observable tool activity as well as
   media. Selection belongs in the `llm` request contract, distinct from an
   application-executed `tool.Definition`. Adapters own API-specific configuration
-  and validate it during preparation. Kernel records requested and effective
+  and validate it during preparation. Dashi records requested and effective
   configuration and reported activity or usage, but does not turn hidden
   provider actions into `tool.Call`s it claims to dispatch or retry. The current
   `KindProviderHosted` marker alone does not provide this contract.
@@ -134,7 +134,7 @@ of non-speech audio such as music.
 ### `realtime`
 
 A **live session** is a model conversation over a live connection. The name
-keeps it distinct from a Kernel **session**, the durable conversation that
+keeps it distinct from a Dashi **session**, the durable conversation that
 organizes turns. It uses `llm` messages and instructions and `tool`
 definitions. Preparation applies when it opens and to each settings update.
 The caller sends audio, text, tool results, interruptions, and updates. The

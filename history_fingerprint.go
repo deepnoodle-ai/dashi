@@ -1,17 +1,17 @@
-package kernel
+package dashi
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
-	"github.com/deepnoodle-ai/kernel/internal/canonjson"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // historyFingerprintDomain separates history fingerprints from other SHA-256
 // hashes of the same bytes.
-const historyFingerprintDomain = "kernel/history/v2\n"
+const historyFingerprintDomain = "dashi/history/v2\n"
 
 // fingerprintMessage names the Message fields that participate in a history
 // fingerprint explicitly, so a future Message field cannot silently change
@@ -44,7 +44,7 @@ func fingerprintMessages(history []llm.Message) []fingerprintMessage {
 func historyFingerprint(history []llm.Message) (string, error) {
 	encoded, err := canonjson.Marshal(fingerprintMessages(history))
 	if err != nil {
-		return "", fmt.Errorf("kernel: encode history fingerprint: %w", err)
+		return "", fmt.Errorf("dashi: encode history fingerprint: %w", err)
 	}
 	hash := sha256.New()
 	_, _ = hash.Write([]byte(historyFingerprintDomain))

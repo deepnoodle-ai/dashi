@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"context"
@@ -52,7 +52,7 @@ type CommitError struct {
 }
 
 func (e *CommitError) Error() string {
-	return fmt.Sprintf("kernel: %s commit: %v", e.Persistence, e.Err)
+	return fmt.Sprintf("dashi: %s commit: %v", e.Persistence, e.Err)
 }
 
 // Unwrap exposes the underlying persistence error.

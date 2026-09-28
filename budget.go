@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"errors"
@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // Money is one exact amount in one currency. Budgets do not convert
@@ -42,13 +42,13 @@ func (b Budget) Clone() Budget {
 // Validate rejects invalid caps before a budget is recorded on a turn.
 func (b Budget) Validate() error {
 	if b.MaxOutputTokens < 0 || b.MaxTotalTokens < 0 {
-		return errors.New("kernel: budget token caps cannot be negative")
+		return errors.New("dashi: budget token caps cannot be negative")
 	}
 	if b.MaxCost != nil && (strings.TrimSpace(b.MaxCost.Currency) == "" ||
 		strings.TrimSpace(b.MaxCost.Currency) != b.MaxCost.Currency ||
 		b.MaxCost.Amount <= 0) {
 		return errors.New(
-			"kernel: budget cost cap requires a positive amount and currency",
+			"dashi: budget cost cap requires a positive amount and currency",
 		)
 	}
 	return nil
@@ -117,7 +117,7 @@ type LimitDetail struct {
 	CostAtRisk money.Amount `json:"cost_at_risk,omitempty"`
 	// Currency is the unit of the Cost fields and is required when any of
 	// them is nonzero: an ISO 4217 code, or a host's own code for a credit
-	// unit. Kernel sets the cap's currency on LimitCost.
+	// unit. Dashi sets the cap's currency on LimitCost.
 	Currency string `json:"currency,omitempty"`
 	// FitTokens advises a smaller allowance without changing the request.
 	FitTokens int `json:"fit_tokens,omitempty"`
@@ -131,26 +131,26 @@ func (l LimitDetail) Validate() error {
 	case LimitModelAttempts, LimitDeadline, LimitInterruptions,
 		LimitProviderPauses, LimitOutputTokens, LimitTotalTokens, LimitCost:
 		if l.Code != "" {
-			return errors.New("kernel: only host limits carry a code")
+			return errors.New("dashi: only host limits carry a code")
 		}
 	case LimitHost:
 		if l.Code == "" {
-			return errors.New("kernel: host limit requires a code")
+			return errors.New("dashi: host limit requires a code")
 		}
 	default:
-		return errors.New("kernel: invalid limit kind")
+		return errors.New("dashi: invalid limit kind")
 	}
 	if l.Limit < 0 || l.Used < 0 ||
 		l.CostLimit < 0 || l.CostUsed < 0 || l.CostAtRisk < 0 {
-		return errors.New("kernel: limit amounts must be nonnegative")
+		return errors.New("dashi: limit amounts must be nonnegative")
 	}
 	if l.FitTokens < 0 {
-		return errors.New("kernel: fit tokens cannot be negative")
+		return errors.New("dashi: fit tokens cannot be negative")
 	}
 	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.CostAtRisk != 0
 	if strings.TrimSpace(l.Currency) != l.Currency ||
 		hasMoney && l.Currency == "" {
-		return errors.New("kernel: limit amounts require a currency")
+		return errors.New("dashi: limit amounts require a currency")
 	}
 	return nil
 }
@@ -188,18 +188,18 @@ func (b Budget) raisedFrom(old Budget) error {
 	}
 	if b.MaxOutputTokens < old.MaxOutputTokens ||
 		b.MaxTotalTokens < old.MaxTotalTokens {
-		return errors.New("kernel: continuation budget cannot lower token caps")
+		return errors.New("dashi: continuation budget cannot lower token caps")
 	}
 	if old.MaxOutputTokens == 0 && b.MaxOutputTokens != 0 ||
 		old.MaxTotalTokens == 0 && b.MaxTotalTokens != 0 ||
 		old.MaxCost == nil && b.MaxCost != nil {
-		return errors.New("kernel: continuation cannot introduce a new cap")
+		return errors.New("dashi: continuation cannot introduce a new cap")
 	}
 	if old.MaxCost != nil {
 		if b.MaxCost == nil || b.MaxCost.Currency != old.MaxCost.Currency ||
 			b.MaxCost.Amount < old.MaxCost.Amount {
 			return errors.New(
-				"kernel: continuation budget cannot lower or change cost cap",
+				"dashi: continuation budget cannot lower or change cost cap",
 			)
 		}
 	}
@@ -208,7 +208,7 @@ func (b Budget) raisedFrom(old Budget) error {
 		((b.MaxCost == nil && old.MaxCost == nil) ||
 			(b.MaxCost != nil && old.MaxCost != nil &&
 				b.MaxCost.Amount == old.MaxCost.Amount)) {
-		return errors.New("kernel: continuation budget must raise a cap")
+		return errors.New("dashi: continuation budget must raise a cap")
 	}
 	return nil
 }
@@ -233,7 +233,7 @@ func addCurrencyCost(
 ) error {
 	total, ok := totals[currency].Add(amount)
 	if !ok {
-		return errors.New("kernel: cumulative cost overflows")
+		return errors.New("dashi: cumulative cost overflows")
 	}
 	totals[currency] = total
 	return nil

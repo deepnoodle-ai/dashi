@@ -10,7 +10,7 @@ design document before any code changes.
 **1. A tool's Go error is a model-facing failure; a sentinel stops the turn.**
 Decided. A plain error returned by a tool becomes a failed result the model
 sees, as Dive did. A typed sentinel marks an error as fatal to the turn, which
-stops it in place. Uncertainty remains Kernel's word for a call whose result
+stops it in place. Uncertainty remains Dashi's word for a call whose result
 was never observed (crash, lost result, panic); it is not something a tool
 returns. Rationale: almost any error in a tool call should go back to the model,
 and returning `err` is the idiomatic way to say so. Supersedes the "Go execution
@@ -49,7 +49,7 @@ numbers before choosing.
 not a terminal event. Not agreed: the shape of pause and resume. The design
 document must explain how the production gateway runs a turn today (whether a
 goroutine stays live per turn, how a dead worker's turn is picked up) and
-propose the Kernel model from that.
+propose the Dashi model from that.
 
 **7. Budgets.** Design first; proposal in [budgets.md](budgets.md). A
 product-level document should define where limits are declared, how they are
@@ -62,7 +62,7 @@ These refine decision 6; the design is
 [turn-interruption.md](turn-interruption.md).
 
 **8. The context ending pauses the turn; only `Cancel` ends it.** Decided.
-Kernel records a resumable stop, and `Continue` resumes the turn on any worker.
+Dashi records a resumable stop, and `Continue` resumes the turn on any worker.
 A crash is a pause whose stop was never written. Rationale: deploys, crashes,
 and lease loss are common and recoverable, not user decisions.
 
@@ -74,7 +74,7 @@ already resend it.
 
 **10. Provider-hosted tools follow the local-tool rule.** Decided. If a cut-off
 call may have run a hosted tool not known to be read-only or idempotent, resume
-does not resend it and the application decides; otherwise it is resent. Kernel
+does not resend it and the application decides; otherwise it is resent. Dashi
 marks built-in hosted tools it knows are read-only, such as web search;
 definitions can say so for others.
 
@@ -96,7 +96,7 @@ late-result window. Rationale: rerunning safe tools covers the common case
 without timing-dependent behavior.
 
 **14. Names: `interrupted` and `uncertain`.** Decided. The resumable stop is
-`StopInterrupted`. A call that started with no saved result, so Kernel cannot
+`StopInterrupted`. A call that started with no saved result, so Dashi cannot
 tell whether it ran, stays `uncertain`.
 
 **15. Graceful shutdown uses a built-in pause signal.** Decided. A per-call
@@ -124,7 +124,7 @@ not run the model inline; the ready flag keeps a forgotten `Continue` visible.
 
 **19. The application passes prior history on each call; the turn record does
 not store it.** Decided; answers decision 5. `Start` and every `Continue`
-carry the earlier conversation, and Kernel uses it for that call only. The
+carry the earlier conversation, and Dashi uses it for that call only. The
 turn-started step keeps the turn's own input and a fingerprint of the history,
 not the history itself. A `Continue` whose history does not match the
 fingerprint records a warning and proceeds; a host may set
@@ -133,7 +133,7 @@ committed instead. Rationale: none of the compared
 libraries copies history into each run, and a turn record that grows with the
 conversation stores what the application already keeps. The cost: a turn's
 record no longer shows the earlier conversation, and a wrong history on resume
-is the application's bug, which the fingerprint makes visible. Whether Kernel
+is the application's bug, which the fingerprint makes visible. Whether Dashi
 gains sessions or conversations is a separate, open question. Referencing
 attachments in a turn's own input or tool output (the proposal's content
 references) remains a later refinement.
@@ -141,12 +141,12 @@ references) remains a later refinement.
 **20. The recorder is optional.** Decided. With no `Runner.Recorder`, the runner
 uses an in-memory one, so a simple program needs no storage; an application
 that resumes turns across processes binds a durable recorder. Rationale:
-Kernel works by default.
+Dashi works by default.
 
 Decisions 21–26 answer decision 7; the design is [budgets.md](budgets.md).
 
 **21. A cost cap is a hard model-call admission limit.** Decided. `MaxCost`
-covers model-call charges. Kernel starts a call only when its prepared request
+covers model-call charges. Dashi starts a call only when its prepared request
 has prices, a finite output-token allowance, and a worst-case charge that fits
 the remaining cap. Provider-hosted operations with no bounded request count
 cannot run under that cap. Local tool charges are reported separately; an
@@ -155,8 +155,8 @@ tools itself. Missing usage has the exception in decision 24. Rationale: the
 worst case is what an application can reserve against tenant credit. The cost:
 turns sometimes stop with budget unused.
 
-**22. When the next call does not fit, the turn stops; Kernel does not shrink
-the reply.** Decided. The turn stops as `limited`, and Kernel does not lower
+**22. When the next call does not fit, the turn stops; Dashi does not shrink
+the reply.** Decided. The turn stops as `limited`, and Dashi does not lower
 the output-token allowance to fit a cost shortfall (it still lowers it to fit
 an output-token cap). This departs from decision 4, so the stop explains
 itself: its reason gives the cap, the call's worst case, and the output-token
@@ -174,7 +174,7 @@ request count is unbounded stops likewise. Rationale: a cap must never be
 silently ignored; applications can supply prices without a catalog update.
 
 **24. A call without final usage counts a best guess.** Decided. When a worker
-crashes or a call is cut off before final usage arrives, Kernel preserves any
+crashes or a call is cut off before final usage arrives, Dashi preserves any
 streamed counts, fills absent input from the recorded estimate, and counts the
 greater of streamed output and a visible-text estimate. The call is marked
 estimated in the running total. The consequence, accepted: for such calls the
@@ -234,11 +234,11 @@ imports `tool`, so `tool` cannot import `llm`.
 means its default (8 model attempts, 10 interruptions, 3 provider pauses, 1
 concurrent tool); a negative `Interruptions` or `ProviderPauses` means none, as
 with `net.Dialer.KeepAlive`. `NoReservedFinalAnswer` keeps the reserve on by
-default. `DefaultLimits` was removed. Kernel resolves defaults when it accepts
+default. `DefaultLimits` was removed. Dashi resolves defaults when it accepts
 an agent and records the concrete values, so a saved turn keeps its limits.
 Known cost, accepted: after a default changes, continuing an older turn with
 zero limits returns `ErrAgentChanged`; pin the recorded values instead.
-Turns recorded before this change are not supported: Kernel had no users or
+Turns recorded before this change are not supported: Dashi had no users or
 stored turns, so there is no migration, and such a turn must be restarted.
 Rationale: `Limits{}` used to be rejected, and a forgotten bool silently turned
 off the final-answer reserve.
@@ -255,27 +255,27 @@ value that differs from the client's is still an error. The command `Accept`
 becomes `Settle`, and every command's `ID` becomes `CommandID`. The approval
 steps become `approval_settled` and `hosted_approval_settled`. "Turn" keeps its
 meaning: one input processed until the agent settles, possibly many model calls.
-"Session" is reserved for a future conversation of many turns. Kernel keeps Go's
+"Session" is reserved for a future conversation of many turns. Dashi keeps Go's
 `StopCanceled`; an ACP adapter maps it to `cancelled`. Rationale: every
 comparable library names these things Agent and Runner (ADK-Go and Eino each
 have a runner holding the agent and services; OpenHands' agent is frozen,
-serializable configuration like ours). Kernel's turn matches ACP's prompt turn,
+serializable configuration like ours). Dashi's turn matches ACP's prompt turn,
 the turn in the Codex App Server's thread, turn, and item, and Anthropic's
 `end_turn`. Some SDKs (OpenAI Agents, Claude Agent, pi) count one model call
-plus its tool calls as a turn; Kernel calls that a model attempt, as in
+plus its tool calls as a turn; Dashi calls that a model attempt, as in
 `Limits.ModelAttempts`. `Accept` read like "approve", which is confusing for a
 denial; `Settle` matches the step names `model_settled` and `tool_settled`. A
 command's `ID` looked like the turn ID; `CommandID` names its idempotency role.
-Kernel had no users, so there is no migration.
+Dashi had no users, so there is no migration.
 
 **31. Hooks replace `Policy`, and bound tools run by default.** Decided
 2026-09-28; the design is [hooks.md](hooks.md). `Runner.Hooks` replaces
 `Runner.Policy`, and `denyToolPolicy` is removed. With no hook opinion, local
 and external tools the app binds are allowed; a gate is one `BeforeTool` hook
-that denies or defers. Rationale: Kernel works by default, and binding a tool is
+that denies or defers. Rationale: Dashi works by default, and binding a tool is
 the app's statement that the model may use it. Pi and most agent libraries
 behave this way, while deny-by-default made the first run of every new app
-fail. Kernel had no users, so there is no migration.
+fail. Dashi had no users, so there is no migration.
 
 **32. Steering interruptions count as model attempts.** Decided 2026-09-28;
 supersedes part of decision 12. The design is [steering.md](steering.md). A

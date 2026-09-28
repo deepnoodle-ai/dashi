@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // SearchContextSize controls how much retrieved context reaches the model.

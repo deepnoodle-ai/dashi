@@ -3,9 +3,9 @@ package llm
 import (
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func riskRequest(

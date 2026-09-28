@@ -1,12 +1,13 @@
-# Kernel
+# Dashi
 
-Kernel is a Go foundation for building agents that run as durable, recoverable
+Dashi is a Go foundation for building agents that run as durable, recoverable
 turns across LLM providers. It is the successor to Dive, Deep Noodle's Go
-library for cross-provider LLM support and agents.
+library for cross-provider LLM support and agents. Dashi (pronounced
+"DAH-shee") is named for the Japanese stock that other dishes are built on.
 
-## Why Kernel
+## Why Dashi
 
-Kernel fixes, in the library, what our production applications had to work
+Dashi fixes, in the library, what our production applications had to work
 around when building durable agent runtimes on Dive.
 
 - **Durable turns.** Every turn keeps a recorded truth. Recovery, accounting,
@@ -52,13 +53,13 @@ for a recorded agent turn. Both make paid requests.
 - Anthropic Messages
 - OpenAI Responses, Chat Completions, and Images
 - Google Gemini API and Vertex (a separate module:
-  `go get github.com/deepnoodle-ai/kernel/providers/google/gemini`)
+  `go get github.com/deepnoodle-ai/dashi/providers/google/gemini`)
 - xAI (Grok) conversations, images, and video
 - Configured destinations: DeepInfra, Mistral, OpenRouter, Meta, and Ollama
 
 ## Status
 
-Kernel is experimental; public interfaces will evolve as the agent layer takes
+Dashi is experimental; public interfaces will evolve as the agent layer takes
 shape. Selected Anthropic, OpenAI, and Gemini routes are tested live; see
 [live tests](docs/dev/live-tests.md) for the dated record.
 

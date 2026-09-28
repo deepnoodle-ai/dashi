@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestNearestEffortPrefersLowerLevels(t *testing.T) {

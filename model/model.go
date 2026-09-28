@@ -95,7 +95,7 @@ const (
 )
 
 // ModelEvidence scopes capability claims to an exact model, API, and endpoint.
-// The application owns the claims; Kernel does not upgrade their quality.
+// The application owns the claims; Dashi does not upgrade their quality.
 type ModelEvidence struct {
 	Model       string         `json:"model"`
 	API         string         `json:"api"`

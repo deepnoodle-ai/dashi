@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 const hostedWebSearchResponse = `{
 	"id":"msg_1","type":"message","model":"test-model",
 	"stop_reason":"end_turn",
 	"content":[
-		{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"kernel"}},
+		{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"dashi"}},
 		{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[
 			{"type":"web_search_result","url":"https://example.com","title":"Result",
 			 "encrypted_content":"secret-replay"}
@@ -57,7 +57,7 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 		llm.Input{
 			Model: "test-model",
 			Messages: []llm.Message{
-				llm.UserMessage(llm.Text("Find kernel")),
+				llm.UserMessage(llm.Text("Find dashi")),
 				result.Message,
 				llm.UserMessage(llm.Text("Thanks")),
 			},
@@ -223,7 +223,7 @@ func TestHostedWebSearchStreamMatchesCompleteProjection(t *testing.T) {
 
 data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}
 
-data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"kernel\"}"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"dashi\"}"}}
 
 data: {"type":"content_block_stop","index":0}
 
@@ -254,7 +254,7 @@ data: {"type":"message_stop"}
 		result.Message.Content[1].HostedResult == nil {
 		t.Fatal("hosted stream lost the call or result")
 	}
-	if string(result.Message.Content[0].HostedUse.Input) != `{"query":"kernel"}` {
+	if string(result.Message.Content[0].HostedUse.Input) != `{"query":"dashi"}` {
 		t.Fatal("streamed hosted arguments were lost")
 	}
 	if !strings.Contains(

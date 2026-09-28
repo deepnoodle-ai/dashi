@@ -31,7 +31,7 @@ every numbered answer with comments into plain text he pastes back to an agent.
    - `facts`: two to four labeled rows that give the reader the state of
      play for this one question, so it can be scanned without reading the
      document. Each is `{label, text}` or `{label, items: [...]}`. Use short
-     labels from this set where they fit: `Today` (what Kernel does now, with
+     labels from this set where they fit: `Today` (what Dashi does now, with
      a file reference), `Proposed` (what the document suggests), `At stake`
      (what applications gain or lose, what it forecloses), `Evidence` (the
      number, incident, or Dive behavior that bears on it), `Depends on` (a
@@ -46,7 +46,7 @@ every numbered answer with comments into plain text he pastes back to an agent.
 
    Write every question in plain language for someone who has not read the
    proposal or the code. Describe the situation concretely (a deploy, a
-   closed browser tab) before naming any API, define each Kernel term the
+   closed browser tab) before naming any API, define each Dashi term the
    first time it appears, and avoid the proposal's internal verbs ("settle",
    "adopt", "abandoned attempt"). Ask only about choices a product owner can
    judge; decide pure implementation details yourself and state the decision

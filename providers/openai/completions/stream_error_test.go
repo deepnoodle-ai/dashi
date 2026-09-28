@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // TestStreamErrorObjectFailsTheCall covers OpenAI-compatible servers that

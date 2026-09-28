@@ -134,7 +134,7 @@ func compileSchema(raw []byte) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
 	c.UseLoader(jsonschema.SchemeURLLoader{})
-	const location = "https://kernel.invalid/tool-schema.json"
+	const location = "https://dashi.invalid/tool-schema.json"
 	if err := c.AddResource(location, value); err != nil {
 		return nil, err
 	}

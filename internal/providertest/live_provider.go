@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // LiveFinalFacts makes two paid requests, blocking and streaming, and checks
-// the final facts. It skips unless KERNEL_LIVE_TEST=1 and fails when key or
+// the final facts. It skips unless DASHI_LIVE_TEST=1 and fails when key or
 // model is empty.
 func LiveFinalFacts(
 	t *testing.T,
@@ -21,8 +21,8 @@ func LiveFinalFacts(
 	newClient func(key string) (llm.Client, error),
 ) {
 	t.Helper()
-	if os.Getenv("KERNEL_LIVE_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_TEST=1 to make paid provider calls")
+	if os.Getenv("DASHI_LIVE_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_TEST=1 to make paid provider calls")
 	}
 	if key == "" || model == "" {
 		t.Fatal("the provider needs its API key and MODEL environment variable")
@@ -74,11 +74,11 @@ type ErrorProbe struct {
 
 // LiveErrorReasons provokes each classified rejection the probe enables and
 // logs the provider's error body as recorded evidence. It skips unless
-// KERNEL_LIVE_TEST=1.
+// DASHI_LIVE_TEST=1.
 func LiveErrorReasons(t *testing.T, p ErrorProbe) {
 	t.Helper()
-	if os.Getenv("KERNEL_LIVE_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_TEST=1 to make provider calls")
+	if os.Getenv("DASHI_LIVE_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_TEST=1 to make provider calls")
 	}
 	if os.Getenv(p.KeyEnv) == "" {
 		t.Skipf("%s is not set", p.KeyEnv)

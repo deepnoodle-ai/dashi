@@ -8,8 +8,8 @@ import (
 	"mime"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/model"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
 // Adjustment records a deliberate change to a requested setting during

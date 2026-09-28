@@ -12,7 +12,7 @@ them.
 
 Before this change, `Usage` held cost and a flag that could erase it during JSON
 normalization. `Pricing` mixed rates, two threshold conventions, fallback rules,
-and a regional multiplier. `Cost.Add` could sum different currencies. Kernel
+and a regional multiplier. `Cost.Add` could sum different currencies. Dashi
 still has no production price catalog or automatic list-price calculation.
 
 ## Scope
@@ -25,7 +25,7 @@ shared accounting contract need not live in the `model` package.
 
 A list-price estimate requires all billable quantities and applicable rates.
 A provider's reported total can still be retained with its source identified,
-even when Kernel cannot independently reproduce it.
+even when Dashi cannot independently reproduce it.
 
 ## Contract
 
@@ -102,8 +102,8 @@ new public selection type yet.
 
 Do not port Dive's process-global price registry, regional multiplier, or
 catalog generator yet. A generated catalog can produce complete sheets when
-Kernel has a consumer for it. Anthropic's mixed 5-minute and 1-hour cache
-writes require separate usage buckets before Kernel can estimate their cost;
+Dashi has a consumer for it. Anthropic's mixed 5-minute and 1-hour cache
+writes require separate usage buckets before Dashi can estimate their cost;
 using the 5-minute rate for all writes would be misleading.
 
 ## Implemented boundary

@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/media"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/media"
 )
 
 // Local preparation bound, not a provider limit. Base64 expands this inside
 // the 24 MiB prepared JSON body bound.
 const maxInlineVideoBytes = 16 << 20
 
-// VideoOptions holds xAI generation controls that do not belong to Kernel's
+// VideoOptions holds xAI generation controls that do not belong to Dashi's
 // provider-independent VideoInput. ReferenceImages guide appearance; unlike
 // VideoInput.ReferenceFrames, they do not pin the first frame.
 type VideoOptions struct {

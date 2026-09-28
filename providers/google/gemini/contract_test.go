@@ -3,10 +3,10 @@ package gemini_test
 import (
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/google/gemini"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // These are the Gemini cases of the cross-provider contract tests in the

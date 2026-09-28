@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 // These adapters must preserve the same agent-facing final facts in

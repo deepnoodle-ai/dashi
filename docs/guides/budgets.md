@@ -7,13 +7,13 @@ separately and need an application-owned ceiling for an all-in price promise.
 A zero token cap or nil cost cap means that dimension is uncapped.
 
 ```go
-start := kernel.Start{
+start := dashi.Start{
 	CommandID: "start-123",
 	Input:     input,
-	Budget: &kernel.Budget{
+	Budget: &dashi.Budget{
 		MaxOutputTokens: 4_000,
 		MaxTotalTokens:  12_000,
-		MaxCost: &kernel.Money{
+		MaxCost: &dashi.Money{
 			Amount:   money.MustParseAmount("0.50"),
 			Currency: "USD",
 		},
@@ -21,12 +21,12 @@ start := kernel.Start{
 }
 ```
 
-Kernel lowers the next request's output allowance to the remaining output
+Dashi lowers the next request's output allowance to the remaining output
 tokens and records a warning. The total-token cap is checked after each call.
 For a cost cap, the prepared request must carry model prices and a finite
 effective output allowance. An unset `MaxTokens` becomes
 `llm.DefaultMaxTokens` (32,768, or the model's smaller documented limit), so
-the default settings are bounded on every provider. Kernel estimates the full input and output cost
+the default settings are bounded on every provider. Dashi estimates the full input and output cost
 before `BeforeSend`. If it cannot bound the call or the call would exceed the
 cap, the turn stops `limited` before dispatch. It does not shrink the reply to
 fit a cost cap. The stop's `Limit` gives the cap, spent amount, worst case
@@ -42,7 +42,7 @@ strict capability policy when the model's `max_tokens` support is unknown.
 calls with estimated usage, and counts of calls with unknown or
 incompatible-currency model cost. `Spend.ToolCost` reports local tool charges
 by currency. Each settled model fact records its `Charge`; the intent records
-`AtRisk`. When final usage is missing, Kernel preserves streamed counts,
+`AtRisk`. When final usage is missing, Dashi preserves streamed counts,
 fills absent input from the prepared request, and counts the greater of
 streamed output and a visible-text estimate. It marks the call estimated.
 This best guess can undercount a cut-off call, so a cost cap is not a strict
@@ -53,7 +53,7 @@ if it promises a cap covering them.
 
 Amounts are exact. `money.Amount` counts nano-units (1e-9) of the currency in
 an int64 and encodes in JSON as a decimal string such as `"0.5"`; it also reads
-the bare JSON numbers some provider APIs report. Kernel sums charges without drift. A
+the bare JSON numbers some provider APIs report. Dashi sums charges without drift. A
 worst case (`AtRisk`) rounds up to the nano, so rounding never breaches a cap,
 and a settled list-price charge rounds half to even. A ledger in coarser units
 converts from `Nanos()` with its own rounding, for example up for holds.

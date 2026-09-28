@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"cmp"
@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Runner runs turns for one agent with the long-lived services it needs. It
@@ -118,7 +118,7 @@ func (r Runner) Stream(
 			}
 			if !yield(event, nil) {
 				stopped = true
-				cancel(errors.New("kernel: stream consumer stopped"))
+				cancel(errors.New("dashi: stream consumer stopped"))
 			}
 		}
 		out, err := r.run(streamCtx, turn, command, o)
@@ -156,14 +156,14 @@ func (r Runner) run(
 	opts runOptions,
 ) (Outcome, error) {
 	if command == nil || command.commandID() == "" {
-		return Outcome{}, errors.New("kernel: command ID is required")
+		return Outcome{}, errors.New("dashi: command ID is required")
 	}
 	if r.OnContextDone != "" && r.OnContextDone != ContextInterrupt &&
 		r.OnContextDone != ContextCancel {
-		return Outcome{}, errors.New("kernel: invalid context-done behavior")
+		return Outcome{}, errors.New("dashi: invalid context-done behavior")
 	}
 	if turn.ID == "" || r.Client == nil {
-		return Outcome{}, errors.New("kernel: turn ID and client are required")
+		return Outcome{}, errors.New("dashi: turn ID and client are required")
 	}
 	agent := r.Agent
 	// An agent may leave its destination to the client. The filled values are
@@ -176,7 +176,7 @@ func (r Runner) run(
 	}
 	agent = agent.resolved()
 	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
-		return Outcome{}, errors.New("kernel: client does not match agent provider and API")
+		return Outcome{}, errors.New("dashi: client does not match agent provider and API")
 	}
 	if r.Policy == nil {
 		r.Policy = denyToolPolicy{}
@@ -264,7 +264,7 @@ func (r Runner) run(
 	switch c := command.(type) {
 	case Start:
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
-			return Outcome{}, errors.New("kernel: start requires a new turn and input")
+			return Outcome{}, errors.New("dashi: start requires a new turn and input")
 		}
 		if c.Budget != nil {
 			if err := c.Budget.Validate(); err != nil {
@@ -312,7 +312,7 @@ func (r Runner) run(
 			state.Stop.Kind == StopCanceled ||
 			state.Output != nil ||
 			len(c.Items) == 0 {
-			return Outcome{}, errors.New("kernel: turn cannot receive context")
+			return Outcome{}, errors.New("dashi: turn cannot receive context")
 		}
 		if o := rt.commit(Step{
 			Kind:          StepDelivered,
@@ -325,12 +325,12 @@ func (r Runner) run(
 		return rt.current(), nil
 	case Continue:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("kernel: turn cannot continue")
+			return Outcome{}, errors.New("dashi: turn cannot continue")
 		}
 		if c.OnHistoryMismatch != "" &&
 			c.OnHistoryMismatch != HistoryMismatchWarn &&
 			c.OnHistoryMismatch != HistoryMismatchReject {
-			return Outcome{}, errors.New("kernel: invalid history-mismatch behavior")
+			return Outcome{}, errors.New("dashi: invalid history-mismatch behavior")
 		}
 		if c.Budget != nil {
 			old := Budget{}
@@ -376,7 +376,7 @@ func (r Runner) run(
 			return rt.current(), nil
 		}
 		if !state.canContinueWithBudget(c.Budget) {
-			return Outcome{}, errors.New("kernel: turn cannot continue")
+			return Outcome{}, errors.New("dashi: turn cannot continue")
 		}
 		rt.history = cloneMessages(c.History)
 		step := Step{
@@ -398,7 +398,7 @@ func (r Runner) run(
 		}
 	case Settle:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("kernel: cannot settle before start")
+			return Outcome{}, errors.New("dashi: cannot settle before start")
 		}
 		n := 0
 		if c.Outcome != nil {
@@ -421,18 +421,18 @@ func (r Runner) run(
 				c.ModelFailure.Disposition != llm.FailureRejected) ||
 				c.ModelFailure.Reason == "" ||
 				c.ModelFailure.Evidence == "" {
-				return Outcome{}, errors.New("kernel: model failure requires verified nonexecution evidence")
+				return Outcome{}, errors.New("dashi: model failure requires verified nonexecution evidence")
 			}
 			n++
 		}
 		if n != 1 {
-			return Outcome{}, errors.New("kernel: settle requires one fact")
+			return Outcome{}, errors.New("dashi: settle requires one fact")
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" ||
 				(c.CallID != state.modelIntent &&
 					c.CallID != state.unresolvedModel) {
-				return Outcome{}, errors.New("kernel: model attempt is not pending")
+				return Outcome{}, errors.New("dashi: model attempt is not pending")
 			}
 			kind := StepModelSettled
 			if c.CallID == state.unresolvedModel {
@@ -459,11 +459,11 @@ func (r Runner) run(
 			}
 		} else if c.HostedApproval != nil {
 			if c.CallID != "" && c.CallID != c.HostedApproval.RequestID {
-				return Outcome{}, errors.New("kernel: hosted approval ID mismatch")
+				return Outcome{}, errors.New("dashi: hosted approval ID mismatch")
 			}
 			a, ok := state.hosted[c.HostedApproval.RequestID]
 			if !ok || a.Origin != c.HostedApproval.Origin {
-				return Outcome{}, errors.New("kernel: hosted approval is not pending")
+				return Outcome{}, errors.New("dashi: hosted approval is not pending")
 			}
 			if o := rt.commit(Step{
 				Kind:           StepHostedApprovalSettled,
@@ -476,11 +476,11 @@ func (r Runner) run(
 		} else if c.Approval != nil {
 			v, ok := state.Tools[c.Approval.CallID]
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
-				return Outcome{}, errors.New("kernel: tool approval is not pending")
+				return Outcome{}, errors.New("dashi: tool approval is not pending")
 			}
 			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) ||
 				v.Decision.Revision != c.Approval.PolicyRevision {
-				return Outcome{}, errors.New("kernel: stale tool approval")
+				return Outcome{}, errors.New("dashi: stale tool approval")
 			}
 			if o := rt.commit(Step{
 				Kind:          StepApprovalSettled,
@@ -508,17 +508,17 @@ func (r Runner) run(
 				(v.Status != ToolStarted &&
 					v.Status != ToolWaiting &&
 					v.Status != ToolUncertain) {
-				return Outcome{}, errors.New("kernel: tool result is not pending")
+				return Outcome{}, errors.New("dashi: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
-				return Outcome{}, errors.New("kernel: structured output is settled by the runner")
+				return Outcome{}, errors.New("dashi: structured output is settled by the runner")
 			}
 			if e := c.Outcome.Validate(); e != nil {
 				return Outcome{}, e
 			}
 			if c.Outcome.State == tool.StateWaiting ||
 				c.Outcome.State == tool.StateDetached {
-				return Outcome{}, errors.New("kernel: settle requires a final tool outcome")
+				return Outcome{}, errors.New("dashi: settle requires a final tool outcome")
 			}
 			if o := rt.commit(Step{
 				Kind:          StepToolSettled,
@@ -535,7 +535,7 @@ func (r Runner) run(
 			state.Stop.Kind == StopCompleted ||
 			state.Stop.Kind == StopCanceled ||
 			state.Output != nil {
-			return Outcome{}, errors.New("kernel: turn cannot cancel")
+			return Outcome{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
 			Kind:          StepStopped,
@@ -547,7 +547,7 @@ func (r Runner) run(
 		}
 		return rt.current(), nil
 	default:
-		return Outcome{}, errors.New("kernel: unknown command")
+		return Outcome{}, errors.New("dashi: unknown command")
 	}
 	return rt.run(), nil
 }
@@ -565,13 +565,13 @@ type runtime struct {
 func validateHistory(history []llm.Message) error {
 	for i, message := range history {
 		if err := validateMessage(message); err != nil {
-			return fmt.Errorf("kernel: history message %d: %w", i+1, err)
+			return fmt.Errorf("dashi: history message %d: %w", i+1, err)
 		}
 	}
 	return nil
 }
 
-var errTurnDeadline = errors.New("kernel: turn deadline reached")
+var errTurnDeadline = errors.New("dashi: turn deadline reached")
 
 func (r *runtime) contextStop() Outcome {
 	cause := context.Cause(r.ctx)
@@ -1457,10 +1457,10 @@ func validateModelResult(result llm.Result, agent Agent) error {
 	}
 	if result.Requested.Provider != agent.Provider ||
 		result.Requested.Model != agent.Model {
-		return errors.New("kernel: model result requested destination differs from agent")
+		return errors.New("dashi: model result requested destination differs from agent")
 	}
 	if result.Message.Role != llm.RoleAssistant {
-		return errors.New("kernel: model result requires assistant message")
+		return errors.New("dashi: model result requires assistant message")
 	}
 	for _, part := range result.Message.Content {
 		if err := part.Validate(); err != nil {
@@ -1470,7 +1470,7 @@ func validateModelResult(result llm.Result, agent Agent) error {
 	switch result.Stop.Kind {
 	case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit, llm.StopContextLimit, llm.StopRefusal, llm.StopPause, llm.StopIncomplete, llm.StopOther:
 	default:
-		return errors.New("kernel: invalid model stop")
+		return errors.New("dashi: invalid model stop")
 	}
 	return nil
 }
@@ -1523,7 +1523,7 @@ func modelSystem(
 	if structured {
 		parts = append(
 			parts,
-			"When your work is finished, call kernel_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.",
+			"When your work is finished, call dashi_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.",
 		)
 	}
 	if finalAnswer {

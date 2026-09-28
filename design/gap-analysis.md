@@ -1,6 +1,6 @@
 # Gap analysis against the Dive v2 goals
 
-On 2026-09-27, five reviews compared Kernel `main` at 9d28264 with our
+On 2026-09-27, five reviews compared Dashi `main` at 9d28264 with our
 production apps' workarounds, Dive, adjacent frameworks and their trackers,
 agent protocol specs, our streaming protocol, and our cost and budget needs.
 The recorded Turn (acknowledged steps, intent before effect, explicit
@@ -66,7 +66,7 @@ A routine tool error freezes the turn; probes confirmed bullets 1 and 2 [C].
   (`tool/tool.go:310-315`, `tool/function.go:88-91`, `state.go:406-410`,
   `tools_loop.go:248-249`); Dive fed it to the model
   (`dive/agent.go:3482-3498`). This is Eino's pitfall in a new form.
-- No `recover` in the tool goroutine (`tools_loop.go:229-237`). Kernel adopts
+- No `recover` in the tool goroutine (`tools_loop.go:229-237`). Dashi adopts
   the provider call ID as identity, and replay rejects a repeat
   (`state.go:580-583`), so provider ID reuse across attempts wedges the turn.
 - `Execute` gets no turn or lease identity for idempotency keys
@@ -134,11 +134,11 @@ normalized block starts with offsets, and a small `WaitInfo`.
 
 ### 7. Provider parity with Dive [E, C]
 
-Kernel leads on hosted tools, tool choice, typed errors, frozen bodies, and
+Dashi leads on hosted tools, tool choice, typed errors, frozen bodies, and
 replay; an app still loses these Dive basics:
 
 - No prompt cache controls in `providers/`, no native structured output (only
-  `kernel_submit_output`, `output_contract.go:25`), no catalog or prices.
+  `dashi_submit_output`, `output_contract.go:25`), no catalog or prices.
 - No automatic retry, service tier, stop sequences, top_p, or seed
   (`llm/llm.go:327-345`); no typed escape hatch for provider controls.
 - Reasoning controls are not normalized; MCP has no credentials
@@ -168,7 +168,7 @@ An app cannot keep long sessions cheap or test its agent with public helpers.
 - `go.mod` pulls `genai` and gRPC for every user (`go.mod:8,26`).
 
 Direction: history by reference, content references, validation before commit,
-inspect-only replay, and a `kerneltest` package.
+inspect-only replay, and a `dashitest` package.
 
 ## Decisions needed
 

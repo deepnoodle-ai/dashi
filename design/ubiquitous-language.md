@@ -8,10 +8,10 @@ Session contracts remain proposed.
 
 ## Define an agent
 
-- **Agent**: Reusable agent configuration (`kernel.Agent`): identity,
+- **Agent**: Reusable agent configuration (`dashi.Agent`): identity,
   revision, instructions, model, settings, output schema, and limits. It is
   plain JSON data, recorded when a turn starts, not a running object.
-- **Runner**: The value that runs turns (`kernel.Runner`): an agent plus its
+- **Runner**: The value that runs turns (`dashi.Runner`): an agent plus its
   long-lived services, such as the client, tools, recorder, policy, and
   observer. `Run` collects a turn's result; `Stream` yields it as it happens.
 - **Model and settings**: The selected model and controls for generation,
@@ -30,7 +30,7 @@ Session contracts remain proposed.
 
 - **Turn**: One input processed until the agent settles, possibly across many
   model calls, with its calls, usage, and state persisted across continuation.
-  Some SDKs call one model call plus its tool calls a "turn"; Kernel calls that
+  Some SDKs call one model call plus its tool calls a "turn"; Dashi calls that
   a **model attempt** and never uses "turn" for a loop iteration.
 - **Session**: Reserved for a future conversation of many turns and their
   saved history. Avoid "thread" and "conversation" as type names.

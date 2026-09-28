@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 type clientConfig struct {
@@ -625,7 +625,7 @@ func textModel(tc providerCase, endpoint string) llm.ModelInfo {
 			Model:       "requested",
 			API:         api,
 			Endpoint:    endpoint,
-			Owner:       "Kernel tests",
+			Owner:       "Dashi tests",
 			Source:      "test evidence",
 			Method:      llm.EvidenceFixture,
 			QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),

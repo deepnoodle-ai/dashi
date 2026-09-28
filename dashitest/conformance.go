@@ -1,4 +1,4 @@
-package kerneltest
+package dashitest
 
 import (
 	"bytes"
@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Run checks a recorder against the commit contract Runner.Run relies on.
@@ -28,10 +28,10 @@ import (
 //     conforms; the runner compares recorded values by canonical JSON. Step
 //     times use microsecond precision, which timestamp columns preserve.
 //   - Load of a turn with no steps returns an error matching
-//     kernel.ErrTurnNotFound or an empty turn with the requested ID. Run
+//     dashi.ErrTurnNotFound or an empty turn with the requested ID. Run
 //     treats any other Load error as an unreadable record and stops.
 //   - A commit whose ExpectedSeq is not the turn's current revision is
-//     rejected with kernel.ErrRevisionConflict, including a different step
+//     rejected with dashi.ErrRevisionConflict, including a different step
 //     at an occupied sequence number. A step that differs only in its time
 //     is different: a worker retrying from an old snapshot builds new steps,
 //     and this rejection is what stops it before it repeats a model call or
@@ -42,15 +42,15 @@ import (
 //     be retried.
 //   - A step with an already recorded command ID succeeds without adding a
 //     step when its kind and digest match, and is rejected with
-//     kernel.ErrCommandConflict when they differ. Command IDs are scoped to
+//     dashi.ErrCommandConflict when they differ. Command IDs are scoped to
 //     one turn.
 //   - Turns are independent: a step for one turn never depends on another
 //     turn's revision.
 //   - Of concurrent commits at the same revision, exactly one succeeds.
 //
-// "Rejected" means a *kernel.CommitError with kernel.PersistenceRejected,
+// "Rejected" means a *dashi.CommitError with dashi.PersistenceRejected,
 // after which Load must show the record unchanged. Run does not check
-// recorder behavior Kernel does not rely on, such as validating step payloads.
+// recorder behavior Dashi does not rely on, such as validating step payloads.
 func Run(t *testing.T, newStore func(t *testing.T) Store) {
 	t.Helper()
 	tests := []struct {
@@ -77,8 +77,8 @@ func Run(t *testing.T, newStore func(t *testing.T) Store) {
 }
 
 const (
-	turnID = "kerneltest-turn"
-	owner  = "kerneltest-owner"
+	turnID = "dashitest-turn"
+	owner  = "dashitest-owner"
 )
 
 func testAppendsInOrder(t *testing.T, s Store) {
@@ -87,19 +87,19 @@ func testAppendsInOrder(t *testing.T, s Store) {
 }
 
 func testLoadWithoutSteps(t *testing.T, s Store) {
-	turn, err := s.Load(t.Context(), "kerneltest-missing")
+	turn, err := s.Load(t.Context(), "dashitest-missing")
 	switch {
-	case errors.Is(err, kernel.ErrTurnNotFound):
+	case errors.Is(err, dashi.ErrTurnNotFound):
 	case err != nil:
 		t.Fatalf(
 			"load of a turn without steps returned %v; want "+
-				"kernel.ErrTurnNotFound, or Run cannot start the turn",
+				"dashi.ErrTurnNotFound, or Run cannot start the turn",
 			err,
 		)
-	case turn.ID != "kerneltest-missing" || len(turn.Steps) != 0:
+	case turn.ID != "dashitest-missing" || len(turn.Steps) != 0:
 		t.Fatalf(
 			"load of a turn without steps returned id=%q steps=%d; want "+
-				"kernel.ErrTurnNotFound or an empty turn with the requested ID",
+				"dashi.ErrTurnNotFound or an empty turn with the requested ID",
 			turn.ID,
 			len(turn.Steps),
 		)
@@ -110,7 +110,7 @@ func testRejectsStaleRevision(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 2)
 	stale := contextStep(turnID, 2, "a different second step")
 	err := commit(t, s, stale, owner)
-	requireRejected(t, err, kernel.ErrRevisionConflict)
+	requireRejected(t, err, dashi.ErrRevisionConflict)
 	requireRecord(t, s, turnID, steps)
 }
 
@@ -119,24 +119,24 @@ func testRejectsRetimedStep(t *testing.T, s Store) {
 	retimed := steps[1]
 	retimed.At = retimed.At.Add(time.Second)
 	err := commit(t, s, retimed, owner)
-	requireRejected(t, err, kernel.ErrRevisionConflict)
+	requireRejected(t, err, dashi.ErrRevisionConflict)
 	requireRecord(t, s, turnID, steps)
 }
 
 func testRejectsRevisionGap(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 2)
 	err := commit(t, s, contextStep(turnID, 4, "skips a revision"), owner)
-	requireRejected(t, err, kernel.ErrRevisionConflict)
+	requireRejected(t, err, dashi.ErrRevisionConflict)
 	requireRecord(t, s, turnID, steps)
 }
 
 func testRejectsStaleOwner(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 1)
-	claim(t, s, turnID, "kerneltest-takeover")
+	claim(t, s, turnID, "dashitest-takeover")
 	next := contextStep(turnID, 2, "from the old owner")
 	requireRejected(t, commit(t, s, next, owner), nil)
 	requireRecord(t, s, turnID, steps)
-	if err := commit(t, s, next, "kerneltest-takeover"); err != nil {
+	if err := commit(t, s, next, "dashitest-takeover"); err != nil {
 		t.Fatalf("new owner could not commit after claim: %v", err)
 	}
 	requireRecord(t, s, turnID, append(steps, next))
@@ -163,31 +163,31 @@ func testRetriesCommand(t *testing.T, s Store) {
 func testRejectsCommandConflict(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 1)
 	conflict := steps[0]
-	conflict.CommandDigest = "kerneltest-different-digest"
+	conflict.CommandDigest = "dashitest-different-digest"
 	err := commit(t, s, conflict, owner)
-	requireRejected(t, err, kernel.ErrCommandConflict)
+	requireRejected(t, err, dashi.ErrCommandConflict)
 	requireRecord(t, s, turnID, steps)
 }
 
 func testIsolatesTurns(t *testing.T, s Store) {
-	const other = "kerneltest-other-turn"
+	const other = "dashitest-other-turn"
 	steps := seed(t, s, turnID, 2)
 	claim(t, s, other, owner)
 	err := commit(t, s, contextStep(other, 3, "wrong turn"), owner)
-	requireRejected(t, err, kernel.ErrRevisionConflict)
+	requireRejected(t, err, dashi.ErrRevisionConflict)
 	start := startStep(other)
-	start.CommandDigest = "kerneltest-other-digest"
+	start.CommandDigest = "dashitest-other-digest"
 	if err := commit(t, s, start, owner); err != nil {
 		t.Fatalf("command ID reused in another turn was not accepted: %v", err)
 	}
-	requireRecord(t, s, other, []kernel.Step{start})
+	requireRecord(t, s, other, []dashi.Step{start})
 	requireRecord(t, s, turnID, steps)
 }
 
 func testSerializesConcurrentCommits(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 1)
 	const writers = 8
-	candidates := make([]kernel.Step, writers)
+	candidates := make([]dashi.Step, writers)
 	errs := make([]error, writers)
 	var wg sync.WaitGroup
 	for i := range writers {
@@ -214,10 +214,10 @@ func testSerializesConcurrentCommits(t *testing.T, s Store) {
 }
 
 // seed claims the turn and commits n steps: a start followed by context.
-func seed(t *testing.T, s Store, id string, n int) []kernel.Step {
+func seed(t *testing.T, s Store, id string, n int) []dashi.Step {
 	t.Helper()
 	claim(t, s, id, owner)
-	steps := []kernel.Step{startStep(id)}
+	steps := []dashi.Step{startStep(id)}
 	for seq := int64(2); seq <= int64(n); seq++ {
 		steps = append(steps, contextStep(id, seq, fmt.Sprintf("step %d", seq)))
 	}
@@ -236,10 +236,10 @@ func claim(t *testing.T, s Store, id, by string) {
 	}
 }
 
-func commit(t *testing.T, s Store, step kernel.Step, by string) error {
+func commit(t *testing.T, s Store, step dashi.Step, by string) error {
 	return s.Commit(
 		t.Context(),
-		kernel.CommitRequest{
+		dashi.CommitRequest{
 			Step:        step,
 			ExpectedSeq: step.Seq - 1,
 			Owner:       by,
@@ -250,23 +250,23 @@ func commit(t *testing.T, s Store, step kernel.Step, by string) error {
 // stepTime has microsecond precision, which timestamp columns preserve.
 var stepTime = time.Date(2026, 1, 2, 3, 4, 5, 678901000, time.UTC)
 
-func startStep(id string) kernel.Step {
-	def := kernel.Agent{
-		ID:       "kerneltest",
+func startStep(id string) dashi.Step {
+	def := dashi.Agent{
+		ID:       "dashitest",
 		Revision: "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 	}
-	return kernel.Step{
+	return dashi.Step{
 		Version:       1,
 		TurnID:        id,
 		Seq:           1,
 		At:            stepTime,
-		Kind:          kernel.StepStarted,
+		Kind:          dashi.StepStarted,
 		CommandID:     "start",
-		CommandDigest: "kerneltest-digest",
-		Started: &kernel.StartFact{
+		CommandDigest: "dashitest-digest",
+		Started: &dashi.StartFact{
 			Agent: def,
 			// Raw JSON that a meaning-preserving store may respell: keys out
 			// of jsonb order, extra whitespace, and an exponent number.
@@ -279,15 +279,15 @@ func startStep(id string) kernel.Step {
 	}
 }
 
-func contextStep(id string, seq int64, text string) kernel.Step {
-	return kernel.Step{
+func contextStep(id string, seq int64, text string) dashi.Step {
+	return dashi.Step{
 		Version: 1,
 		TurnID:  id,
 		Seq:     seq,
 		At:      stepTime.Add(time.Duration(seq) * time.Millisecond),
-		Kind:    kernel.StepDelivered,
-		Context: &kernel.ContextFact{
-			Items: []kernel.ContextItem{
+		Kind:    dashi.StepDelivered,
+		Context: &dashi.ContextFact{
+			Items: []dashi.ContextItem{
 				{Origin: "user", Message: llm.UserMessage(llm.Text(text))},
 			},
 		},
@@ -296,20 +296,20 @@ func contextStep(id string, seq int64, text string) kernel.Step {
 
 func requireRejected(t *testing.T, err error, target error) {
 	t.Helper()
-	commitErr, ok := errors.AsType[*kernel.CommitError](err)
+	commitErr, ok := errors.AsType[*dashi.CommitError](err)
 	switch {
 	case err == nil:
 		t.Fatal("commit succeeded; want a rejected commit")
 	case !ok:
-		t.Fatalf("commit error %v is not a *kernel.CommitError", err)
-	case commitErr.Persistence != kernel.PersistenceRejected:
+		t.Fatalf("commit error %v is not a *dashi.CommitError", err)
+	case commitErr.Persistence != dashi.PersistenceRejected:
 		t.Fatalf("commit persistence is %q; want rejected", commitErr.Persistence)
 	case target != nil && !errors.Is(err, target):
 		t.Fatalf("commit error %v does not wrap %v", err, target)
 	}
 }
 
-func requireRecord(t *testing.T, s Store, id string, want []kernel.Step) {
+func requireRecord(t *testing.T, s Store, id string, want []dashi.Step) {
 	t.Helper()
 	turn, err := s.Load(t.Context(), id)
 	if err != nil {
@@ -347,7 +347,7 @@ func requireRecord(t *testing.T, s Store, id string, want []kernel.Step) {
 
 // sameJSON reports whether a and b have the same JSON meaning: the same
 // structure, names, strings, and literals, with numerically equal numbers.
-// It matches Kernel's canonical JSON comparison without importing it.
+// It matches Dashi's canonical JSON comparison without importing it.
 func sameJSON(a, b []byte) (bool, error) {
 	x, err := decodeJSON(a)
 	if err != nil {

@@ -1,11 +1,11 @@
 # Packages
 
-This guide lists Kernel's foundation packages and how they depend on each
+This guide lists Dashi's foundation packages and how they depend on each
 other.
 
 ## Foundation packages
 
-- `kernel`: Agents, runners, identified turn records, an acknowledged
+- `dashi`: Agents, runners, identified turn records, an acknowledged
   recorder, and the execution loop.
 - `content`: Shared text, media, resources, citations, and replay origins.
 - `money`: Exact monetary amounts in nano-units, shared by prices, charges,
@@ -17,7 +17,7 @@ other.
 - `media`: Image, video, and non-speech audio values, preparation, results, and
   video jobs.
 - `speech`: Recognition and synthesis values and capability descriptions.
-- `kerneltest`: A conformance suite for host recorders and a fault-injecting
+- `dashitest`: A conformance suite for host recorders and a fault-injecting
   recorder for recovery tests.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
@@ -30,7 +30,7 @@ other.
 - `providers/openai/images`: OpenAI image generation and editing.
 - `providers/google/gemini`: Gemini API and Vertex GenerateContent via Google's
   Go SDK. This is a separate module; add it with
-  `go get github.com/deepnoodle-ai/kernel/providers/google/gemini`.
+  `go get github.com/deepnoodle-ai/dashi/providers/google/gemini`.
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.
 - `providers/deepinfra`, `mistral`, `openrouter`: configured Chat Completions
   destinations.

@@ -1,12 +1,12 @@
-package kernel
+package dashi
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // TestBudgetCostCapBoundaryIsExact keeps the existing rule, a call whose

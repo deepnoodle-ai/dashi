@@ -1,7 +1,7 @@
 // Package responses implements the Responses API. Encoding, usage
 // normalization,
 // and replay handling are adapted from Dive's OpenAI provider (65c393f),
-// Apache-2.0. Provider wire objects stay outside Kernel's public model types.
+// Apache-2.0. Provider wire objects stay outside Dashi's public model types.
 package responses
 
 import (
@@ -16,11 +16,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/providercontent"
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providercontent"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // API identifies the wire format independently of provider identity.

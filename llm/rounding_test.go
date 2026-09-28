@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // subNanoSheet prices every bucket at 2500 nanos per million tokens, so each

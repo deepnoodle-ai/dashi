@@ -1,10 +1,10 @@
-package kernel
+package dashi
 
 import (
 	"bytes"
 	"errors"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -23,7 +23,7 @@ func validateToolCall(def tool.Definition, call tool.Call) error {
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(jsonschema.SchemeURLLoader{})
-	const location = "https://kernel.invalid/agent-tool-schema.json"
+	const location = "https://dashi.invalid/agent-tool-schema.json"
 	if err = compiler.AddResource(location, raw); err != nil {
 		return err
 	}

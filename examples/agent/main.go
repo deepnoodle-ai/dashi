@@ -11,9 +11,9 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 func main() {
@@ -38,19 +38,19 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("agent: create client: %w", err)
 	}
 	// Provider and API are left empty; the runner fills them from client.
-	runner := kernel.Runner{
-		Agent: kernel.Agent{
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
 			ID:       "example",
 			Revision: "1",
 			Model:    model,
 		},
 		Client:   client,
-		Recorder: kernel.NewMemoryRecorder(),
+		Recorder: dashi.NewMemoryRecorder(),
 	}
 	outcome, err := runner.Run(
 		ctx,
-		kernel.NewTurn("example-turn"),
-		kernel.Start{
+		dashi.NewTurn("example-turn"),
+		dashi.Start{
 			CommandID: "example-start",
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Say hello in one sentence.")),

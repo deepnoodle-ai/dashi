@@ -3,7 +3,7 @@ package responses
 import (
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Grok and Meta share the Responses envelope but not OpenAI's tool options.

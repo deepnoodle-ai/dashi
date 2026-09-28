@@ -22,12 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Owner identifies the catalog as the owner of the evidence it binds, so a
 // recorded fact distinguishes catalog claims from application claims.
-const Owner = "kernel/catalog"
+const Owner = "dashi/catalog"
 
 //go:embed *.json
 var files embed.FS
@@ -188,7 +188,7 @@ func Find(provider, model string) (Entry, bool) {
 }
 
 // Default returns the provider's documented general-purpose model. Nothing
-// in Kernel selects it implicitly; an application may use it when it has no
+// in Dashi selects it implicitly; an application may use it when it has no
 // configured model.
 func Default(provider string) (string, bool) {
 	p, ok := find(provider)

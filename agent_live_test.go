@@ -1,18 +1,18 @@
 //go:build live
 
-package kernel_test
+package dashi_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
-// Run with KERNEL_LIVE_AGENT_TEST=1 and the corresponding provider key/model.
+// Run with DASHI_LIVE_AGENT_TEST=1 and the corresponding provider key/model.
 // Each streamed final turn makes one paid call; each tool turn makes two.
 // The Gemini equivalents live in the providers/google/gemini module.
 
@@ -71,7 +71,7 @@ func TestLiveAnthropicAgentTurn(t *testing.T) {
 
 // These probes verify the shared turn contract over real provider tool calls.
 // Each test makes one paid call. Run them separately from the broader agent
-// turn probes with KERNEL_LIVE_AGENT_TEST=1.
+// turn probes with DASHI_LIVE_AGENT_TEST=1.
 func TestLiveOpenAIStructuredOutput(t *testing.T) {
 	client, modelName := liveClient(t, "openai")
 	providertest.StructuredOutput(t, client, modelName)

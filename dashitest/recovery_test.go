@@ -1,4 +1,4 @@
-package kerneltest_test
+package dashitest_test
 
 import (
 	"context"
@@ -7,11 +7,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/kerneltest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // TestRecoveryFromEachCommitFault runs a turn that calls one local tool and
@@ -26,31 +26,31 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 	// settlement at 7 and 8, and the stop. A zero Seq targets the first step
 	// of that kind.
 	targets := []struct {
-		kind kernel.StepKind
+		kind dashi.StepKind
 		seq  int64
 	}{
-		{kind: kernel.StepStarted},
-		{kind: kernel.StepModelIntent},
-		{kind: kernel.StepModelSettled},
-		{kind: kernel.StepToolDecision},
-		{kind: kernel.StepToolStarted},
-		{kind: kernel.StepToolSettled},
-		{kind: kernel.StepModelIntent, seq: 7},
-		{kind: kernel.StepModelSettled, seq: 8},
-		{kind: kernel.StepStopped},
+		{kind: dashi.StepStarted},
+		{kind: dashi.StepModelIntent},
+		{kind: dashi.StepModelSettled},
+		{kind: dashi.StepToolDecision},
+		{kind: dashi.StepToolStarted},
+		{kind: dashi.StepToolSettled},
+		{kind: dashi.StepModelIntent, seq: 7},
+		{kind: dashi.StepModelSettled, seq: 8},
+		{kind: dashi.StepStopped},
 	}
-	faults := []kerneltest.Fault{
-		kerneltest.Reject,
-		kerneltest.LoseWrite,
-		kerneltest.LoseAck,
+	faults := []dashitest.Fault{
+		dashitest.Reject,
+		dashitest.LoseWrite,
+		dashitest.LoseAck,
 	}
 	// The jsonb store returns every reloaded step respelled, so recovery must
 	// not depend on the bytes the runner wrote.
-	stores := map[string]func() kerneltest.Store{
-		"memory": func() kerneltest.Store {
-			return kernel.NewMemoryRecorder()
+	stores := map[string]func() dashitest.Store{
+		"memory": func() dashitest.Store {
+			return dashi.NewMemoryRecorder()
 		},
-		"jsonb": func() kerneltest.Store {
+		"jsonb": func() dashitest.Store {
 			return newJSONBStore()
 		},
 	}
@@ -69,7 +69,7 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 				}
 				t.Run(name, func(t *testing.T) {
 					store := newStore()
-					rec := &kerneltest.FaultRecorder{
+					rec := &dashitest.FaultRecorder{
 						Recorder: store,
 						Kind:     target.kind,
 						Seq:      target.seq,
@@ -84,20 +84,20 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 
 func testRecovery(
 	t *testing.T,
-	store kerneltest.Store,
-	rec *kerneltest.FaultRecorder,
+	store dashitest.Store,
+	rec *dashitest.FaultRecorder,
 ) {
 	fault := rec.Fault
 	model := &scriptedModel{}
 	work := &countingTool{}
-	runner := kernel.Runner{
+	runner := dashi.Runner{
 		Agent:    testAgent(),
 		Client:   model,
 		Tools:    work,
 		Recorder: rec,
-		Policy:   kernel.AllowLocalPolicy{},
+		Policy:   dashi.AllowLocalPolicy{},
 	}
-	begin := kernel.Start{
+	begin := dashi.Start{
 		CommandID: "start",
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
@@ -105,9 +105,9 @@ func testRecovery(
 	claim(t, store, "t1", "worker-1")
 	first, err := runner.Run(
 		t.Context(),
-		kernel.Turn{ID: "t1"},
+		dashi.Turn{ID: "t1"},
 		begin,
-		kernel.WithOwner("worker-1"),
+		dashi.WithOwner("worker-1"),
 	)
 	if err != nil {
 		t.Fatalf("first worker: %v", err)
@@ -117,7 +117,7 @@ func testRecovery(
 		t.Fatalf("no %s step at seq %d was committed", rec.Kind, rec.Seq)
 	}
 	kind := fired.Kind
-	committed := fault == kerneltest.LoseAck
+	committed := fault == dashitest.LoseAck
 	requireReported(t, first, fired, fault)
 
 	// A new worker takes over from the durable record alone.
@@ -128,14 +128,14 @@ func testRecovery(
 	}
 	requireRecordAt(t, saved, fired, committed)
 	if len(saved.Steps) > 0 {
-		if _, err := kernel.Replay(saved); err != nil {
+		if _, err := dashi.Replay(saved); err != nil {
 			t.Fatalf("record does not replay: %v", err)
 		}
 	}
 
 	// Nothing may depend on a step before it is acknowledged.
 	switch kind {
-	case kernel.StepModelIntent:
+	case dashi.StepModelIntent:
 		want := countIntents(saved, fired.Seq)
 		if model.calls() != want {
 			t.Fatalf(
@@ -145,17 +145,17 @@ func testRecovery(
 				want,
 			)
 		}
-	case kernel.StepToolStarted:
+	case dashi.StepToolStarted:
 		if work.calls() != 0 {
 			t.Fatal("tool ran before its start was acknowledged")
 		}
 	}
 
-	out := resume(t, saved, begin, runner, kernel.WithOwner("worker-2"))
+	out := resume(t, saved, begin, runner, dashi.WithOwner("worker-2"))
 	if uncertainTool(kind, committed) {
 		// The record cannot show whether the tool took effect, so the
 		// runner must stop and ask rather than run it again or assume.
-		if out.Stop.Kind != kernel.StopUncertain {
+		if out.Stop.Kind != dashi.StopUncertain {
 			t.Fatalf("resumed stop is %+v; want uncertain", out.Stop)
 		}
 		result := tool.Outcome{
@@ -165,23 +165,23 @@ func testRecovery(
 		out = run(
 			t,
 			out.Turn,
-			kernel.Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
+			dashi.Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
 			runner,
-			kernel.WithOwner("worker-2"),
+			dashi.WithOwner("worker-2"),
 		)
 		out = run(
 			t,
 			out.Turn,
-			kernel.Continue{CommandID: "after-reconcile"},
+			dashi.Continue{CommandID: "after-reconcile"},
 			runner,
-			kernel.WithOwner("worker-2"),
+			dashi.WithOwner("worker-2"),
 		)
 	}
 
-	if out.Stop.Kind != kernel.StopCompleted {
+	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("recovered stop is %+v; want completed", out.Stop)
 	}
-	if out.Persistence != kernel.PersistenceAcknowledged {
+	if out.Persistence != dashi.PersistenceAcknowledged {
 		t.Fatalf("recovered persistence is %q", out.Persistence)
 	}
 	if got := out.Turn.AnswerText(); got != "done" {
@@ -203,14 +203,14 @@ func testRecovery(
 	// docs promise Continue resends an interrupted call. Anything recorded
 	// must not be repeated.
 	wantCalls := 2
-	if kind == kernel.StepModelSettled && !committed {
+	if kind == dashi.StepModelSettled && !committed {
 		wantCalls = 3
 	}
 	if model.calls() != wantCalls {
 		t.Fatalf("model called %d times; want %d", model.calls(), wantCalls)
 	}
 	wantRuns := 1
-	if kind == kernel.StepToolStarted && committed {
+	if kind == dashi.StepToolStarted && committed {
 		wantRuns = 0
 	}
 	if work.calls() != wantRuns {
@@ -226,35 +226,35 @@ func testRecovery(
 func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 	tests := []struct {
 		name string
-		kind kernel.StepKind
+		kind dashi.StepKind
 	}{
 		{name: "completed"},
-		{name: "after model intent", kind: kernel.StepModelIntent},
-		{name: "after tool start", kind: kernel.StepToolStarted},
+		{name: "after model intent", kind: dashi.StepModelIntent},
+		{name: "after tool start", kind: dashi.StepToolStarted},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store := kernel.NewMemoryRecorder()
+			store := dashi.NewMemoryRecorder()
 			model := &scriptedModel{}
 			work := &countingTool{}
-			var rec kernel.Recorder = store
+			var rec dashi.Recorder = store
 			if tc.kind != "" {
 				// A lost acknowledgement stops the first worker right
 				// after the step is recorded.
-				rec = &kerneltest.FaultRecorder{
+				rec = &dashitest.FaultRecorder{
 					Recorder: store,
 					Kind:     tc.kind,
-					Fault:    kerneltest.LoseAck,
+					Fault:    dashitest.LoseAck,
 				}
 			}
-			runner := kernel.Runner{
+			runner := dashi.Runner{
 				Agent:    testAgent(),
 				Client:   model,
 				Tools:    work,
 				Recorder: rec,
-				Policy:   kernel.AllowLocalPolicy{},
+				Policy:   dashi.AllowLocalPolicy{},
 			}
-			run(t, kernel.Turn{ID: "t1"}, startCommand(), runner)
+			run(t, dashi.Turn{ID: "t1"}, startCommand(), runner)
 			before, err := store.Load(t.Context(), "t1")
 			if err != nil {
 				t.Fatal(err)
@@ -264,7 +264,7 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 			runner.Recorder = unreadable{store}
 			_, err = runner.Run(
 				t.Context(),
-				kernel.Turn{ID: "t1"},
+				dashi.Turn{ID: "t1"},
 				startCommand(),
 			)
 			if !errors.Is(err, errUnreadable) {
@@ -299,21 +299,21 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 	tests := []struct {
 		name string
-		load func(string) (kernel.Turn, error)
+		load func(string) (dashi.Turn, error)
 	}{
 		{
 			name: "wrapped not found",
-			load: func(string) (kernel.Turn, error) {
-				return kernel.Turn{}, fmt.Errorf(
+			load: func(string) (dashi.Turn, error) {
+				return dashi.Turn{}, fmt.Errorf(
 					"select steps: %w",
-					kernel.ErrTurnNotFound,
+					dashi.ErrTurnNotFound,
 				)
 			},
 		},
 		{
 			name: "empty turn",
-			load: func(id string) (kernel.Turn, error) {
-				return kernel.Turn{ID: id}, nil
+			load: func(id string) (dashi.Turn, error) {
+				return dashi.Turn{ID: id}, nil
 			},
 		},
 	}
@@ -323,17 +323,17 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 			work := &countingTool{}
 			out := run(
 				t,
-				kernel.Turn{ID: "t1"},
+				dashi.Turn{ID: "t1"},
 				startCommand(),
-				kernel.Runner{
+				dashi.Runner{
 					Agent:    testAgent(),
 					Client:   model,
 					Tools:    work,
-					Recorder: newTurnLoader{kernel.NewMemoryRecorder(), tc.load},
-					Policy:   kernel.AllowLocalPolicy{},
+					Recorder: newTurnLoader{dashi.NewMemoryRecorder(), tc.load},
+					Policy:   dashi.AllowLocalPolicy{},
 				},
 			)
-			if out.Stop.Kind != kernel.StopCompleted {
+			if out.Stop.Kind != dashi.StopCompleted {
 				t.Fatalf("new turn stopped with %+v; want completed", out.Stop)
 			}
 			if model.calls() != 2 || work.calls() != 1 {
@@ -347,35 +347,35 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 	}
 }
 
-func startCommand() kernel.Start {
-	return kernel.Start{
+func startCommand() dashi.Start {
+	return dashi.Start{
 		CommandID: "start",
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 }
 
-var errUnreadable = errors.New("kerneltest: read unavailable")
+var errUnreadable = errors.New("dashitest: read unavailable")
 
 // unreadable is a recorder whose reads fail, as during a database outage
 // that still lets the commit path through.
 type unreadable struct {
-	*kernel.MemoryRecorder
+	*dashi.MemoryRecorder
 }
 
-func (unreadable) Load(context.Context, string) (kernel.Turn, error) {
-	return kernel.Turn{}, errUnreadable
+func (unreadable) Load(context.Context, string) (dashi.Turn, error) {
+	return dashi.Turn{}, errUnreadable
 }
 
 // newTurnLoader reports every turn as new through load.
 type newTurnLoader struct {
-	*kernel.MemoryRecorder
-	load func(string) (kernel.Turn, error)
+	*dashi.MemoryRecorder
+	load func(string) (dashi.Turn, error)
 }
 
 func (l newTurnLoader) Load(
 	_ context.Context,
 	id string,
-) (kernel.Turn, error) {
+) (dashi.Turn, error) {
 	return l.load(id)
 }
 
@@ -383,33 +383,33 @@ func (l newTurnLoader) Load(
 // command when no step was recorded.
 func resume(
 	t *testing.T,
-	saved kernel.Turn,
-	begin kernel.Start,
-	runner kernel.Runner,
-	opts ...kernel.RunOption,
-) kernel.Outcome {
+	saved dashi.Turn,
+	begin dashi.Start,
+	runner dashi.Runner,
+	opts ...dashi.RunOption,
+) dashi.Outcome {
 	t.Helper()
 	if len(saved.Steps) == 0 {
-		return run(t, kernel.Turn{ID: "t1"}, begin, runner, opts...)
+		return run(t, dashi.Turn{ID: "t1"}, begin, runner, opts...)
 	}
-	view, err := kernel.Replay(saved)
+	view, err := dashi.Replay(saved)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Stop.Kind == kernel.StopCompleted {
+	if view.Stop.Kind == dashi.StopCompleted {
 		// Retrying the original command returns the recorded outcome.
 		return run(t, saved, begin, runner, opts...)
 	}
-	return run(t, saved, kernel.Continue{CommandID: "resume"}, runner, opts...)
+	return run(t, saved, dashi.Continue{CommandID: "resume"}, runner, opts...)
 }
 
 func run(
 	t *testing.T,
-	turn kernel.Turn,
-	command kernel.Command,
-	runner kernel.Runner,
-	opts ...kernel.RunOption,
-) kernel.Outcome {
+	turn dashi.Turn,
+	command dashi.Command,
+	runner dashi.Runner,
+	opts ...dashi.RunOption,
+) dashi.Outcome {
 	t.Helper()
 	out, err := runner.Run(t.Context(), turn, command, opts...)
 	if err != nil {
@@ -420,21 +420,21 @@ func run(
 
 // uncertainTool reports whether the reloaded record shows a started tool
 // with no result. Only the host can reconcile that call.
-func uncertainTool(kind kernel.StepKind, committed bool) bool {
-	return kind == kernel.StepToolStarted && committed ||
-		kind == kernel.StepToolSettled && !committed
+func uncertainTool(kind dashi.StepKind, committed bool) bool {
+	return kind == dashi.StepToolStarted && committed ||
+		kind == dashi.StepToolSettled && !committed
 }
 
 func requireReported(
 	t *testing.T,
-	out kernel.Outcome,
-	fired kernel.Step,
-	fault kerneltest.Fault,
+	out dashi.Outcome,
+	fired dashi.Step,
+	fault dashitest.Fault,
 ) {
 	t.Helper()
-	want := kernel.PersistenceUnknown
-	if fault == kerneltest.Reject {
-		want = kernel.PersistenceRejected
+	want := dashi.PersistenceUnknown
+	if fault == dashitest.Reject {
+		want = dashi.PersistenceRejected
 	}
 	if out.Persistence != want {
 		t.Fatalf("reported persistence %q; want %q", out.Persistence, want)
@@ -452,18 +452,18 @@ func requireReported(
 			fired.Seq,
 		)
 	}
-	if !errors.Is(out.WriteError, kerneltest.ErrInjected) {
+	if !errors.Is(out.WriteError, dashitest.ErrInjected) {
 		t.Fatalf("write error %v does not wrap the injected fault", out.WriteError)
 	}
-	if out.Stop.Kind == kernel.StopCompleted {
+	if out.Stop.Kind == dashi.StopCompleted {
 		t.Fatal("an unacknowledged step was reported as a completed turn")
 	}
 }
 
 func requireRecordAt(
 	t *testing.T,
-	saved kernel.Turn,
-	fired kernel.Step,
+	saved dashi.Turn,
+	fired dashi.Step,
 	committed bool,
 ) {
 	t.Helper()
@@ -484,10 +484,10 @@ func requireRecordAt(
 }
 
 // countIntents counts the model intents recorded before seq.
-func countIntents(turn kernel.Turn, seq int64) int {
+func countIntents(turn dashi.Turn, seq int64) int {
 	n := 0
 	for _, step := range turn.Steps {
-		if step.Seq < seq && step.Kind == kernel.StepModelIntent {
+		if step.Seq < seq && step.Kind == dashi.StepModelIntent {
 			n++
 		}
 	}
@@ -496,14 +496,14 @@ func countIntents(turn kernel.Turn, seq int64) int {
 
 // requireEveryIntentSettled checks that the record explains every model call
 // it began, including calls interrupted by the fault.
-func requireEveryIntentSettled(t *testing.T, turn kernel.Turn) {
+func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
 	t.Helper()
 	open := map[string]bool{}
 	for _, step := range turn.Steps {
 		switch step.Kind {
-		case kernel.StepModelIntent:
+		case dashi.StepModelIntent:
 			open[step.Model.AttemptID] = true
-		case kernel.StepModelSettled, kernel.StepModelReconciled:
+		case dashi.StepModelSettled, dashi.StepModelReconciled:
 			delete(open, step.Model.AttemptID)
 		}
 	}
@@ -512,14 +512,14 @@ func requireEveryIntentSettled(t *testing.T, turn kernel.Turn) {
 	}
 }
 
-func testAgent() kernel.Agent {
-	return kernel.Agent{
+func testAgent() dashi.Agent {
+	return dashi.Agent{
 		ID:       "agent",
 		Revision: "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
-		Limits: kernel.Limits{
+		Limits: dashi.Limits{
 			ModelAttempts:   4,
 			ProviderPauses:  1,
 			ToolConcurrency: 1,
@@ -643,7 +643,7 @@ func hasToolResult(messages []llm.Message) bool {
 	return false
 }
 
-func claim(t *testing.T, s kerneltest.Store, id, owner string) {
+func claim(t *testing.T, s dashitest.Store, id, owner string) {
 	t.Helper()
 	if err := s.Claim(t.Context(), id, owner); err != nil {
 		t.Fatalf("claim %q for %q: %v", id, owner, err)

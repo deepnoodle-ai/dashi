@@ -1,12 +1,12 @@
-package kernel
+package dashi
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func streamStart() Start {

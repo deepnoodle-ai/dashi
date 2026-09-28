@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 // Rates prices disjoint token buckets per million tokens, so a price of
@@ -321,7 +321,7 @@ const (
 // unknown, independently of whether usage is zero or unavailable. Breakdowns
 // may be unknown even when a provider reports an exact total.
 //
-// Kernel applies one rounding rule to the amounts it computes: a cost at risk
+// Dashi applies one rounding rule to the amounts it computes: a cost at risk
 // rounds up to the nano, so rounding can never let a cap be breached
 // (MaxCostAtRisk), and a settled charge rounds half to even (Pricing.Estimate).
 // Each rounds the exact sum of its token-rate products once per call.
@@ -348,7 +348,7 @@ type Cost struct {
 }
 
 // Validate requires nonnegative amounts with a known source and
-// currency. It does not equate a provider total with Kernel's breakdown.
+// currency. It does not equate a provider total with Dashi's breakdown.
 func (c Cost) Validate() error {
 	if strings.TrimSpace(c.Currency) == "" ||
 		strings.TrimSpace(c.Currency) != c.Currency {

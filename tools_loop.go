@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // toolResult is what the dispatcher observed from one executor call.
@@ -199,7 +199,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			var err error
 			for changes := range 4 {
 				if call.Name == SubmitOutputTool {
-					decision = ToolDecision{Kind: DecisionAllow, Revision: "kernel-output-v1"}
+					decision = ToolDecision{Kind: DecisionAllow, Revision: "dashi-output-v1"}
 					break
 				}
 				view, _ := Replay(r.turn)

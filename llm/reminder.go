@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // ReminderTier describes the authority of runtime context, not its lifetime.

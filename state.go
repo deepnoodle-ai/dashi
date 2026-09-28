@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // ToolStatus describes a call's recorded execution state.
@@ -591,7 +591,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if v.Call.Name == SubmitOutputTool &&
 			(v.Decision.Kind != DecisionAllow ||
-				v.Decision.Revision != "kernel-output-v1" ||
+				v.Decision.Revision != "dashi-output-v1" ||
 				len(v.Decision.Rewrite) != 0 ||
 				len(step.Tool.Call.RequestedArgs) != 0 ||
 				!sameJSON(

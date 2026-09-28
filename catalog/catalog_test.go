@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 func TestEmbeddedFilesParseAndValidate(t *testing.T) {
@@ -149,7 +149,7 @@ func TestDefaultModelIsCurrentEntry(t *testing.T) {
 }
 
 func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
-	// Kernel's Messages client sends no cache_control, so every write it can
+	// Dashi's Messages client sends no cache_control, so every write it can
 	// cause is a 5-minute write at 1.25x input. Adding TTL control must add a
 	// 1-hour usage bucket and rate; see design/model-catalog.md.
 	for _, e := range Entries("anthropic") {

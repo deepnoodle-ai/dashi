@@ -1,10 +1,10 @@
-package kernel
+package dashi
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestHistoryFingerprintTreatsNoHistoryConsistently(t *testing.T) {
@@ -23,7 +23,7 @@ func TestHistoryFingerprintTreatsNoHistoryConsistently(t *testing.T) {
 			emptyHistory,
 		)
 	}
-	const want = "v2:sha256:cebd6398674617d53df5b037c36f04f78241ec59ea669e892cf19ec1c5dbe736"
+	const want = "v2:sha256:4ab94c2dfa357a765e52d52e4f941b1026a936d05ff1ed73d6131a19d755327b"
 	if withoutHistory != want {
 		t.Fatalf("empty history fingerprint = %q, want %q", withoutHistory, want)
 	}
@@ -36,7 +36,7 @@ func TestHistoryFingerprintTracksMessageFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "v2:sha256:5e8edb9a6ec6af53b6fa2c0e9263e6eb624d32018b122e60103b95db35ea6638"
+	const want = "v2:sha256:160ff8c56674801daacaaa1ac2da75233ffd696107738894116b0cdaa17363a9"
 	if base != want {
 		t.Fatalf("single-message fingerprint = %q, want %q", base, want)
 	}

@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/grok"
-	"github.com/deepnoodle-ai/kernel/providers/meta"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/grok"
+	"github.com/deepnoodle-ai/dashi/providers/meta"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {

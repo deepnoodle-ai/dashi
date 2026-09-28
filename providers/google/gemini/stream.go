@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/internal/providerhttp"
-	"github.com/deepnoodle-ai/kernel/internal/sse"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
+	"github.com/deepnoodle-ai/dashi/internal/sse"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // readStream assembles GenerateContent SSE chunks before authoritative decode.

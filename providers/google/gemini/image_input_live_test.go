@@ -13,18 +13,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"google.golang.org/genai"
 )
 
-// Run with KERNEL_LIVE_IMAGE_INPUT_TEST=1, GEMINI_API_KEY, and GEMINI_MODEL.
+// Run with DASHI_LIVE_IMAGE_INPUT_TEST=1, GEMINI_API_KEY, and GEMINI_MODEL.
 // The inline blocking, inline streaming, URL, and file URI subtests each make
 // one paid Gemini LLM call. The file URI subtest uploads and deletes a test
 // PNG.
 func TestLiveImageInput(t *testing.T) {
-	if os.Getenv("KERNEL_LIVE_IMAGE_INPUT_TEST") != "1" {
-		t.Skip("set KERNEL_LIVE_IMAGE_INPUT_TEST=1 to make paid Gemini LLM calls")
+	if os.Getenv("DASHI_LIVE_IMAGE_INPUT_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_IMAGE_INPUT_TEST=1 to make paid Gemini LLM calls")
 	}
 	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL")
 	if key == "" || modelName == "" {

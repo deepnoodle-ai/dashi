@@ -1,10 +1,10 @@
-package kernel
+package dashi
 
 import (
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {

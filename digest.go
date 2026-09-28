@@ -1,17 +1,17 @@
-package kernel
+package dashi
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/deepnoodle-ai/kernel/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 )
 
 // Recorded values are compared by meaning, not by bytes. A recorder only has
 // to preserve JSON meaning: a store such as Postgres jsonb may reorder keys,
 // drop whitespace, and respell numbers and strings, and every comparison
-// Kernel makes between a recorded value and a live one still agrees. See
+// Dashi makes between a recorded value and a live one still agrees. See
 // package canonjson for the canonical form and its exact guarantee.
 
 // digestPrefix names the hash and the canonical encoding a digest covers.

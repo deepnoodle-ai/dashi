@@ -3,7 +3,7 @@
 // knows about turns, so every caller (normal execution, compaction, child
 // work) goes through the same Prepare and Send pipeline.
 // Usage, pricing, and stop classification are adapted from Dive (65c393f),
-// Apache-2.0; the request and preparation contracts are defined by Kernel.
+// Apache-2.0; the request and preparation contracts are defined by Dashi.
 package llm
 
 import (
@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Role attributes a message to its author. RoleDeveloper stays distinct from
@@ -474,7 +474,7 @@ func (r Input) Validate() error {
 }
 
 // Stop explains why a response ended. Kind is what an agent acts on; Raw keeps
-// the provider's value for logging and for reasons Kernel does not recognize.
+// the provider's value for logging and for reasons Dashi does not recognize.
 type Stop struct {
 	// Kind groups provider reasons for execution decisions.
 	Kind StopKind `json:"kind"`
@@ -640,7 +640,7 @@ type Error struct {
 
 	// Category allows decisions without parsing provider-specific error text.
 	Category ErrorCategory
-	// Reason refines Category when a provider reports a failure Kernel
+	// Reason refines Category when a provider reports a failure Dashi
 	// recognizes; such failures keep the category the provider's response
 	// implies, usually ErrorInvalidRequest. Classification is best effort:
 	// empty means unclassified, not that a reason is ruled out. Which

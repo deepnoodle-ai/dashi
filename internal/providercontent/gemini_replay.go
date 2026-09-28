@@ -7,8 +7,8 @@ import (
 	"io"
 	"unicode/utf8"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Gemini's content blocks have no type key. Preserve private fields only when
@@ -126,7 +126,7 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 			return nil
 		}
 		// An ID-less signed part can be replayed byte for byte. The canonical
-		// call ID is only Kernel's pairing identity; it must not be injected
+		// call ID is only Dashi's pairing identity; it must not be injected
 		// into the provider-signed functionCall.
 		if id == "" && c.ToolCall.ID == original.ToolCall.ID {
 			return nil

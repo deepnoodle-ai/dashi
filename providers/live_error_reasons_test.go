@@ -7,21 +7,21 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/anthropic/messages"
-	"github.com/deepnoodle-ai/kernel/providers/deepinfra"
-	"github.com/deepnoodle-ai/kernel/providers/grok"
-	"github.com/deepnoodle-ai/kernel/providers/mistral"
-	"github.com/deepnoodle-ai/kernel/providers/openai/completions"
-	"github.com/deepnoodle-ai/kernel/providers/openai/responses"
-	"github.com/deepnoodle-ai/kernel/providers/openrouter"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/deepinfra"
+	"github.com/deepnoodle-ai/dashi/providers/grok"
+	"github.com/deepnoodle-ai/dashi/providers/mistral"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/providers/openrouter"
 )
 
 // TestLiveErrorReasons provokes each classified rejection against real
 // providers and logs the provider's error body as recorded evidence.
 //
-// KERNEL_LIVE_TEST=1 go test -tags live ./providers -run TestLiveErrorReasons -v
+// DASHI_LIVE_TEST=1 go test -tags live ./providers -run TestLiveErrorReasons -v
 //
 // Each provider reads its usual API key variable and is skipped without one.
 // Filter a subtest such as '^TestLiveErrorReasons/anthropic$' to test one

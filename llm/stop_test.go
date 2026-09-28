@@ -1,4 +1,4 @@
-// Ported from Dive (65c393f), Apache-2.0; adapted for Kernel.
+// Ported from Dive (65c393f), Apache-2.0; adapted for Dashi.
 
 package llm
 

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // HostedUse reports provider-executed work. Output is populated only when the

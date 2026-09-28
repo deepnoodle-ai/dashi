@@ -6,9 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/internal/providertest"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/providers/google/gemini"
+	"github.com/deepnoodle-ai/dashi/internal/providertest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/google/gemini"
 )
 
 // These are the Gemini cases of the root module's live provider and agent
@@ -31,7 +31,7 @@ func liveAgentClient(t *testing.T) (llm.Client, string) {
 	return client, modelName
 }
 
-// KERNEL_LIVE_TEST=1 with GEMINI_API_KEY and GEMINI_MODEL; two paid requests.
+// DASHI_LIVE_TEST=1 with GEMINI_API_KEY and GEMINI_MODEL; two paid requests.
 func TestLiveAgentFinalFacts(t *testing.T) {
 	providertest.LiveFinalFacts(
 		t,
@@ -41,7 +41,7 @@ func TestLiveAgentFinalFacts(t *testing.T) {
 	)
 }
 
-// KERNEL_LIVE_TEST=1 with GEMINI_API_KEY. Media probes send a few bytes; the
+// DASHI_LIVE_TEST=1 with GEMINI_API_KEY. Media probes send a few bytes; the
 // context probe is rejected before inference.
 func TestLiveErrorReasons(t *testing.T) {
 	providertest.LiveErrorReasons(t, providertest.ErrorProbe{
@@ -55,7 +55,7 @@ func TestLiveErrorReasons(t *testing.T) {
 	})
 }
 
-// The agent probes below need KERNEL_LIVE_AGENT_TEST=1 with GEMINI_API_KEY
+// The agent probes below need DASHI_LIVE_AGENT_TEST=1 with GEMINI_API_KEY
 // and GEMINI_MODEL.
 
 // Three paid calls.

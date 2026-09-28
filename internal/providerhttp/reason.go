@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Rejection is a provider failure reduced to the fields a Classifier reads.

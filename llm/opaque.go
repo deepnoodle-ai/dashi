@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/deepnoodle-ai/kernel/content"
+	"github.com/deepnoodle-ai/dashi/content"
 )
 
 // OpaqueUnit identifies the structural location of provider data. Each API
@@ -28,7 +28,7 @@ const (
 // incompleteness. Version selects the wrapper contract. Copies share Raw bytes;
 // Clone detaches them.
 type Opaque struct {
-	// Version identifies Kernel's wrapper contract, not the provider payload.
+	// Version identifies Dashi's wrapper contract, not the provider payload.
 	// Version 1 is replayable; other versions remain inspectable as records.
 	Version uint16 `json:"version"`
 

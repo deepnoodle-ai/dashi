@@ -1,10 +1,10 @@
-package kernel
+package dashi
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {

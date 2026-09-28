@@ -1,11 +1,11 @@
-package kernel
+package dashi
 
 import (
 	"bytes"
 	"encoding/json"
 	"testing"
 
-	"github.com/deepnoodle-ai/kernel/llm"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {

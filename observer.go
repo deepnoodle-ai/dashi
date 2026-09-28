@@ -1,4 +1,4 @@
-package kernel
+package dashi
 
 // Display events are bounded and lossy. The recorder, not Observer, is the
 // authoritative path for committed steps. A broken observer cannot block work.

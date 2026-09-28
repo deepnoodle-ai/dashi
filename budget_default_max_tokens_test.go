@@ -1,4 +1,4 @@
-package kernel_test
+package dashi_test
 
 import (
 	"context"
@@ -9,22 +9,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/kernel"
-	"github.com/deepnoodle-ai/kernel/llm"
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
 
 // sendPlans records each admission plan and otherwise allows everything.
 type sendPlans struct {
-	kernel.AllowLocalPolicy
-	plans []kernel.SendPlan
+	dashi.AllowLocalPolicy
+	plans []dashi.SendPlan
 }
 
 func (p *sendPlans) BeforeSend(
 	ctx context.Context,
-	plan kernel.SendPlan,
-) (kernel.ModelAuthorization, error) {
+	plan dashi.SendPlan,
+) (dashi.ModelAuthorization, error) {
 	p.plans = append(p.plans, plan)
 	return p.AllowLocalPolicy.BeforeSend(ctx, plan)
 }
@@ -73,7 +73,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 					Model:       "priced",
 					API:         completions.API,
 					Endpoint:    server.URL,
-					Owner:       "Kernel tests",
+					Owner:       "Dashi tests",
 					Source:      "fixture",
 					Method:      llm.EvidenceFixture,
 					QualifiedAt: time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC),
@@ -85,8 +85,8 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &sendPlans{}
-	out, err := (kernel.Runner{
-		Agent: kernel.Agent{
+	out, err := (dashi.Runner{
+		Agent: dashi.Agent{
 			ID:       "agent",
 			Revision: "r1",
 			Provider: "router",
@@ -97,11 +97,11 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 		Policy: policy,
 	}).Run(
 		t.Context(),
-		kernel.Turn{ID: "capped"},
-		kernel.Start{
+		dashi.Turn{ID: "capped"},
+		dashi.Start{
 			CommandID: "start",
-			Budget: &kernel.Budget{
-				MaxCost: &kernel.Money{
+			Budget: &dashi.Budget{
+				MaxCost: &dashi.Money{
 					Amount:   money.MustParseAmount("1"),
 					Currency: "USD",
 				},
@@ -112,7 +112,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != kernel.StopCompleted {
+	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("capped turn with default settings stopped %+v", out.Stop)
 	}
 	if len(policy.plans) != 1 || policy.plans[0].AtRisk == nil {

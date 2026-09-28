@@ -4,8 +4,8 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/deepnoodle-ai/kernel/money"
-	"github.com/deepnoodle-ai/kernel/tool"
+	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // EstimatedInputTokens is a conservative size bound for a prepared request.

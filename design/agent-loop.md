@@ -5,18 +5,18 @@
 
 ## Shape and ownership
 
-An **agent** (`kernel.Agent`) is immutable reusable behavior:
+An **agent** (`dashi.Agent`) is immutable reusable behavior:
 identity/revision, instructions, model choice and settings, output schema, and
 turn-wide limits. It is plain JSON data with no mutable history, recorder,
 observer, or tenant credentials. One agent may serve concurrent turns. A
-**runner** (`kernel.Runner`) holds the agent and its long-lived services
+**runner** (`dashi.Runner`) holds the agent and its long-lived services
 (client, tool source, recorder, policy, observer) and runs one turn per call
 through ordinary Go code. It owns the order of model calls and client tool
 calls, while `llm` owns one prepared model call and `tool` owns tool
 definitions and outcomes. A future session layer may add history, storage, and
 claims without changing the loop's semantics.
 
-The initial package shape is a small root `kernel` package for agent, runner,
+The initial package shape is a small root `dashi` package for agent, runner,
 turn, commands, outcomes, policy, and private replay validation, with
 the existing `llm`, `tool`, and `content` packages below it. A later `session`
 package can compose the same runner with history and a store. Dependencies
@@ -127,7 +127,7 @@ after context end are dropped. A started tool without a result is rerun on
 `Continue` only when declared read-only or idempotent; other calls are uncertain
 and require `Settle` to record the application finding.
 
-By default, Kernel reserves the last attempt, after earlier attempts, for a
+By default, Dashi reserves the last attempt, after earlier attempts, for a
 final answer. It removes application and hosted tools from that request while keeping
 the internal structured-output submission tool when required. The prepared
 request and its final-only intent are recorded before dispatch. A useful answer

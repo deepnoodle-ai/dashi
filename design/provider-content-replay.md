@@ -7,7 +7,7 @@ of unreplayable reasoning. Other loss policies remain deferred.
 ## Purpose
 
 A saved conversation may continue with another selected model, including a
-model on the same provider. Kernel must explain what preparation preserves,
+model on the same provider. Dashi must explain what preparation preserves,
 changes, or refuses. This is an intended library capability, not a claim that
 an application already requires every conversion.
 
@@ -24,13 +24,13 @@ receipt; the caller owns attempts, retries, and execution records.
   facts stay empty. Partial output has source identity; failure without a
   provider message does not manufacture it. `Result` keeps its own call facts.
 - `Content.Replay` holds private data on known content, including reasoning.
-  `Content.Opaque` holds content whose semantics Kernel does not understand.
+  `Content.Opaque` holds content whose semantics Dashi does not understand.
   Unknown provider output never becomes an executable tool call by inference.
 - `Opaque.Unit` identifies an item, content block, or message part. `Partial`
-  prevents replay. `Version` identifies Kernel's wrapper: only version 1 is
+  prevents replay. `Version` identifies Dashi's wrapper: only version 1 is
   replayable. Other versions remain inspectable, without migration by guesswork.
 - `content.Source.Origin` is required for provider file IDs, including files in
-  tool outputs. Inline bytes and URLs have no file origin. Kernel fetches neither.
+  tool outputs. Inline bytes and URLs have no file origin. Dashi fetches neither.
 
 Origins retain known provenance. Compatibility rules decide which fields must
 match; they never erase an originating model to express broader compatibility.
@@ -56,7 +56,7 @@ provider encoders own wire conversion. The original `Input` is never mutated.
 | Tool exchanges | Require unique calls and exactly one later result per call. Reject unresolved calls, orphan results, or ambiguous pairing. |
 
 The initial tool-ID subset is 1–64 ASCII letters, digits, underscores, or hyphens.
-This is Kernel's conservative supported subset, not every ID an API may accept.
+This is Dashi's conservative supported subset, not every ID an API may accept.
 Nonempty UTF-8 IDs outside it are deterministically hashed into supported IDs.
 Preparation reserves existing supported IDs first and resolves collisions without
 changing them. Each changed call and its result get matching `remap_tool_id`
@@ -69,7 +69,7 @@ unfamiliar private fields prevent an edit whose dependencies are unknown.
 Gemini also uses this shared step; signed tool calls reject ID additions or
 changes. Only recognized unsigned Gemini function-call replay permits remapping,
 and foreign Gemini private replay remains unsupported. A signed call without a
-provider ID keeps Kernel's internal call/result correlation while its wire
+provider ID keeps Dashi's internal call/result correlation while its wire
 function response omits the ID.
 
 A known content kind alone does not establish portability. Unrecognized fields,

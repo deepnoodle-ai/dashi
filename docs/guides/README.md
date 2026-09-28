@@ -1,6 +1,6 @@
 # Guides
 
-Task-oriented guides for building with Kernel.
+Task-oriented guides for building with Dashi.
 
 ## Guides
 
