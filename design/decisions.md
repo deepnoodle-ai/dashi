@@ -84,7 +84,8 @@ it is uncertain and the application reports it. This does not wait for
 execution-identity work.
 
 **12. Interruptions have their own limit.** Decided. A new
-`Limits.Interruptions` (default 10) counts resumes; exceeding it stops the turn
+`Limits.Interruptions` (zero means the default, 10; negative means none) counts
+resumes; exceeding it stops the turn
 as `limited`. Interruptions do not consume `ModelAttempts`: a model call
 recorded as interrupted is not counted as an attempt, though its usage and cost
 still count toward spend. Rationale: they are
@@ -227,3 +228,14 @@ than wrapping. `LimitDetail` splits counts (`Limit`, `Used`) from money
 ledgers keyed by attempt ID, and float sums drift and can misjudge a cap at its
 boundary. The type lives in a stdlib-only `money` package because `llm`
 imports `tool`, so `tool` cannot import `llm`.
+
+**29. The zero `Limits` is the default configuration.** Decided. A zero count
+means its default (8 model attempts, 10 interruptions, 3 provider pauses, 1
+concurrent tool); a negative `Interruptions` or `ProviderPauses` means none, as
+with `net.Dialer.KeepAlive`. `NoReservedFinalAnswer` keeps the reserve on by
+default. `DefaultLimits` was removed. Kernel resolves defaults when it accepts
+a definition and records the concrete values, so a saved turn keeps its limits.
+Known cost, accepted: after a default changes, continuing an older turn with
+zero limits returns `ErrDefinitionChanged`; pin the recorded values instead.
+Rationale: `Limits{}` used to be rejected, and a forgotten bool silently turned
+off the final-answer reserve.

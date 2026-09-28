@@ -43,7 +43,6 @@ func run(ctx context.Context) error {
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    model,
-		Limits:   kernel.DefaultLimits(),
 	}
 	start := kernel.Start{
 		ID: "example-start",

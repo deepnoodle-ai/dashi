@@ -52,7 +52,7 @@ running. A request handler that treats a disconnect as final can set
 `Bindings.OnContextDone: ContextCancel`; an ended context then records
 `StopCanceled`. `Limits.Deadline` ends the turn with `StopLimited`; a host's
 context deadline interrupts it. `Limits.Interruptions` bounds resumptions
-after interruptions (10 in `DefaultLimits()`).
+after interruptions (default 10; a negative value allows none).
 
 ## Runtime reminders
 
@@ -71,7 +71,7 @@ Provider preparation renders the typed content and records the resulting role in
 first-party OpenAI Responses; other routes currently receive user-role text.
 See [runtime reminders](../design/runtime-reminders.md) for the tradeoffs.
 
-`DefaultLimits()` reserves the last model attempt for a final answer after at
+By default, Kernel reserves the last model attempt for a final answer after at
 least one earlier attempt. That request omits application and provider-hosted
 tools and clears forced tool choice. It is prepared, authorized, recorded, and
 counted like any other attempt; there is no extra call beyond `ModelAttempts`.
@@ -79,7 +79,7 @@ The final response ends with `StopLimited` and reason `model_attempts`, even
 when it contains useful text. Read that text with `Turn.AnswerText()`. A
 structured-output turn may still call the internal `kernel_submit_output` tool;
 its validated value is available in `Outcome.Output`. Set
-`Limits.ReserveFinalAnswer` on a custom `Limits` value to use this behavior.
+`Limits.NoReservedFinalAnswer` to turn this behavior off.
 With only one allowed attempt, there is no earlier call from which to reserve
 a final answer.
 

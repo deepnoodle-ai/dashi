@@ -136,6 +136,7 @@ func (Engine) Apply(
 	if err := def.Validate(); err != nil {
 		return Outcome{}, err
 	}
+	def = def.resolved()
 	if turn.ID == "" || b.Client == nil {
 		return Outcome{}, errors.New("kernel: turn ID and client are required")
 	}
@@ -323,7 +324,7 @@ func (Engine) Apply(
 					Reason: "interruptions",
 					Limit: &LimitDetail{
 						Kind:  LimitInterruptions,
-						Limit: int64(def.Limits.interruptionLimit()),
+						Limit: int64(max(def.Limits.Interruptions, 0)),
 						Used:  int64(state.Interruptions),
 					},
 				},
@@ -585,11 +586,9 @@ func unsafeHosted(defs []tool.Definition) bool {
 	return false
 }
 
+// sameDefinition compares definitions after both were resolved, so a caller's
+// zero limit matches the default recorded for it.
 func sameDefinition(a, b Definition) bool {
-	// Older turn records omit Interruptions. Its zero value already means the
-	// current default at runtime, so use that same meaning for revision checks.
-	a.Limits.Interruptions = a.Limits.interruptionLimit()
-	b.Limits.Interruptions = b.Limits.interruptionLimit()
 	return sameJSONValue(a, b)
 }
 
@@ -737,13 +736,13 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 			case "interruptions":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitInterruptions,
-					Limit: int64(r.def.Limits.interruptionLimit()),
+					Limit: int64(max(r.def.Limits.Interruptions, 0)),
 					Used:  int64(state.Interruptions),
 				}
 			case "provider_pauses":
 				stop.Limit = &LimitDetail{
 					Kind:  LimitProviderPauses,
-					Limit: int64(r.def.Limits.ProviderPauses),
+					Limit: int64(max(r.def.Limits.ProviderPauses, 0)),
 					Used:  int64(state.ProviderPauses),
 				}
 			case "deadline":
@@ -785,7 +784,7 @@ func (r *runtime) run() Outcome {
 		if s.Stop.Kind == StopCanceled || s.Stop.Kind == StopCompleted {
 			return r.current()
 		}
-		if s.Interruptions > r.def.Limits.interruptionLimit() {
+		if s.Interruptions > max(r.def.Limits.Interruptions, 0) {
 			return r.stop(StopLimited, "interruptions")
 		}
 		if r.ctx.Err() != nil {
@@ -890,7 +889,9 @@ func hasOpenTools(s *replayState) bool {
 }
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
-	finalAnswerOnly := r.def.Limits.ReserveFinalAnswer && s.ModelAttempts > 0 && s.ModelAttempts+1 == r.def.Limits.ModelAttempts
+	finalAnswerOnly := !r.def.Limits.NoReservedFinalAnswer &&
+		s.ModelAttempts > 0 &&
+		s.ModelAttempts+1 == r.def.Limits.ModelAttempts
 	messages, err := projectWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
@@ -1313,7 +1314,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	switch result.Stop.Kind {
 	case llm.StopPause:
 		state, _ := replay(r.turn)
-		if state.ProviderPauses > r.def.Limits.ProviderPauses {
+		if state.ProviderPauses > max(r.def.Limits.ProviderPauses, 0) {
 			return r.stop(StopLimited, "provider_pauses"), false
 		}
 		if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {

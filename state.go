@@ -325,7 +325,7 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("operator reminder requires operator start origin")
 			}
 		}
-		s.Definition = step.Started.Definition
+		s.Definition = step.Started.Definition.resolved()
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -419,7 +419,7 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		if step.Model.FinalAnswerOnly &&
-			(!s.Definition.Limits.ReserveFinalAnswer ||
+			(s.Definition.Limits.NoReservedFinalAnswer ||
 				s.ModelAttempts == 0 ||
 				s.ModelAttempts+1 != s.Definition.Limits.ModelAttempts) {
 			return errors.New("final-answer intent is not the last model attempt")
@@ -917,7 +917,7 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 		len(s.hosted) > 0 {
 		return false
 	}
-	if s.Interruptions > s.Definition.Limits.interruptionLimit() {
+	if s.Interruptions > max(s.Definition.Limits.Interruptions, 0) {
 		return false
 	}
 	if s.interruptionLimitReached() {
@@ -991,8 +991,8 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 }
 
 func (s *replayState) interruptionLimitReached() bool {
-	if s.Revision == 0 || s.Interruptions <
-		s.Definition.Limits.interruptionLimit() {
+	if s.Revision == 0 ||
+		s.Interruptions < max(s.Definition.Limits.Interruptions, 0) {
 		return false
 	}
 	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""

@@ -47,9 +47,8 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 		Limits: kernel.Limits{
-			ModelAttempts:   1,
-			ProviderPauses:  1,
-			ToolConcurrency: 1,
+			ModelAttempts:  1,
+			ProviderPauses: 1,
 		},
 	}
 	out, err := (kernel.Engine{}).Apply(
@@ -110,7 +109,6 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
-		Limits:   kernel.DefaultLimits(),
 	}
 	var outcome *kernel.Outcome
 	previews, committed := 0, 0
@@ -183,8 +181,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		t.Fatal(err)
 	}
 	counted := &countingClient{Client: client}
-	limits := kernel.DefaultLimits()
-	limits.ModelAttempts = 2
+	limits := kernel.Limits{ModelAttempts: 2}
 	def := kernel.Definition{
 		ID:           "limit-live",
 		Revision:     "1",
@@ -262,7 +259,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 512},
-		Limits:   kernel.Limits{ModelAttempts: 1, ToolConcurrency: 1},
+		Limits:   kernel.Limits{ModelAttempts: 1},
 	}
 	start := kernel.Start{
 		ID:           "start",
@@ -320,7 +317,6 @@ func AgentTurn(
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 1024},
-		Limits:   kernel.DefaultLimits(),
 	}
 
 	t.Run("streamed_final", func(t *testing.T) {

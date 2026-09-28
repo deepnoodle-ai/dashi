@@ -72,9 +72,13 @@ results. To answer an approval, replay the turn and echo the pending call's
 show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
 
-`Limits.Interruptions` bounds resumes after interruption (default 10); these
-resumes do not consume `ModelAttempts`. The turn's `Limits.Deadline` stops it as
-limited; a host context deadline interrupts it. See
+The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after
+interruption, 3 provider pauses, one tool call at a time, a reserved final
+answer, and no deadline. Set only the fields you want to change; a negative
+`Interruptions` or `ProviderPauses` allows none. Kernel records the resolved
+numbers at `Start`, so a saved turn keeps its limits if the defaults change.
+Resumes after interruption do not consume `ModelAttempts`. The turn's
+`Limits.Deadline` stops it as limited; a host context deadline interrupts it. See
 [agent turns and recovery](../agent-turns.md) for recording and stop details.
 
 ## Structured output

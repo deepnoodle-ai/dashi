@@ -125,14 +125,14 @@ results after context end are dropped. A started tool without a result is
 rerun on `Continue` only when declared read-only or idempotent; other calls
 are uncertain and require `Accept` to record the application finding.
 
-`DefaultLimits` reserves the last attempt, after earlier attempts, for a final
-answer. It removes application and hosted tools from that request while keeping
+By default, Kernel reserves the last attempt, after earlier attempts, for a
+final answer. It removes application and hosted tools from that request while keeping
 the internal structured-output submission tool when required. The prepared
 request and its final-only intent are recorded before dispatch. A useful answer
 at this boundary has stop kind `limited` with reason `model_attempts`, so hosts
-can show the answer and the exhausted budget together. Custom limits opt in via
-`ReserveFinalAnswer`; a one-attempt turn cannot reserve a later call. This keeps
-the total call count strict and preserves existing custom-limit behavior.
+can show the answer and the exhausted budget together. `NoReservedFinalAnswer`
+opts out; a one-attempt turn cannot reserve a later call. This keeps the total
+call count strict.
 
 The first implementation should prove: ordinary and streamed results agree;
 tool batches preserve completion evidence and call order; approval binds the
