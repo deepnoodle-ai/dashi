@@ -44,6 +44,15 @@ every numbered answer with comments into plain text he pastes back to an agent.
      real preference. Do not add an "Other" option; the comment box covers it.
    - `multi: true` only when several options can hold at once.
 
+   Write every question in plain language for someone who has not read the
+   proposal or the code. Describe the situation concretely (a deploy, a
+   closed browser tab) before naming any API, define each Kernel term the
+   first time it appears, and avoid the proposal's internal verbs ("settle",
+   "adopt", "abandoned attempt"). Ask only about choices a product owner can
+   judge; decide pure implementation details yourself and state the decision
+   in the context instead of asking. Reread each question cold before
+   publishing.
+
    Order questions from most consequential to least. Where one answer makes a
    later question moot, say so in that question's `why`.
 
