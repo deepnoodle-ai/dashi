@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implementation pending independent code review |
+| Status | Implemented and independently reviewed; [PR #64](https://github.com/deepnoodle-ai/dashi/pull/64) open, 2026-09-28 |
 | Date | 2026-09-28 |
 | Roadmap | [Item 1](../remaining-work.md), M / medium |
 | Evidence | [Source review](01-native-structured-output-research.md), [turn output contract](../structured-output.md), Dashi `16700d1` |
