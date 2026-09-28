@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,12 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
+
+type staticTransport func(*http.Request) (*http.Response, error)
+
+func (f staticTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
 
 func TestHTTPModelAdaptersReportIdleTimeoutWithPartialResult(t *testing.T) {
 	cases := []struct {
@@ -125,6 +132,51 @@ func TestSuccessfulStreamSurvivesLateTimeoutTimer(t *testing.T) {
 	time.Sleep(2 * total)
 	if result.Stop.Kind != llm.StopFinished || result.Message.Text() != "done" {
 		t.Fatalf("late timer changed terminal result: %+v", result)
+	}
+}
+
+func TestBufferedTerminalCannotOutrunTotalTimeout(t *testing.T) {
+	// The entire SSE response is in memory. No body read needs to block after
+	// the sink starts, so only the completion check can catch this expiry.
+	stream := "data: {\"id\":\"chat-1\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	httpClient := &http.Client{Transport: staticTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(stream)),
+			Request:    r,
+		}, nil
+	})}
+	total := 30 * time.Millisecond
+	client, err := completions.New(completions.Config{
+		Provider: "test", APIKey: "key", Endpoint: "https://example.test/chat",
+		Client: httpClient, Timeouts: llm.HTTPTimeouts{Total: &total},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := client.Prepare(t.Context(), llm.Input{
+		Model: "m", Stream: true,
+		Messages: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Send(t.Context(), llm.Call{
+		Request: prepared,
+		Sink: func(llm.Delta) {
+			time.Sleep(100 * time.Millisecond)
+		},
+	})
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok || failure.Category != llm.ErrorTransport ||
+		failure.Reason != llm.ReasonCallTimeout ||
+		!errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("failure=%+v err=%v", failure, err)
+	}
+	if result.Message.Text() != "done" || result.Stop.Kind != llm.StopIncomplete {
+		t.Fatalf("partial result=%+v", result)
 	}
 }
 

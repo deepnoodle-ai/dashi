@@ -457,7 +457,11 @@ func (p *Client) Send(
 	}
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
-		return wire.readStream(resp.Body, r, sink)
+		result, callErr = wire.readStream(resp.Body, r, sink)
+		if callErr == nil {
+			callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
+		}
+		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -473,6 +477,8 @@ func (p *Client) Send(
 	}
 	if err != nil {
 		decoded.Stop.Kind = llm.StopIncomplete
+	} else {
+		err = providerhttp.Complete(wire.origin.Provider, resp.Body)
 	}
 	return decoded, err
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -44,6 +44,58 @@ func ReadFailure(provider string, err error) error {
 	return failure
 }
 
+// Complete closes the successful decoding window. A timer that won before
+// completion remains a failure even if the decoder had already buffered its
+// terminal event. Stopping the total timer first prevents a late expiry from
+// changing a result that completed in time.
+func Complete(provider string, body io.ReadCloser) error {
+	b, ok := body.(*timeoutBody)
+	if !ok {
+		return nil
+	}
+	b.stopTotal()
+	if cause := context.Cause(b.ctx); cause != nil {
+		return ReadFailure(provider, cause)
+	}
+	return nil
+}
+
+// timeoutTimer serializes expiry with completion. Timer.Stop alone does not
+// wait for a callback already in progress.
+type timeoutTimer struct {
+	mu     sync.Mutex
+	active bool
+	timer  *time.Timer
+	cancel context.CancelCauseFunc
+	cause  error
+}
+
+func startTimeout(
+	duration time.Duration,
+	cancel context.CancelCauseFunc,
+	cause error,
+) *timeoutTimer {
+	guard := &timeoutTimer{active: true, cancel: cancel, cause: cause}
+	guard.timer = time.AfterFunc(duration, guard.fire)
+	return guard
+}
+
+func (g *timeoutTimer) fire() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.active {
+		g.active = false
+		g.cancel(g.cause)
+	}
+}
+
+func (g *timeoutTimer) stop() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.active = false
+	g.timer.Stop()
+}
+
 // timeoutBody holds the model-call context until the body is closed. The idle
 // timer exists only during a raw Read, so consumer processing is not idleness.
 type timeoutBody struct {
@@ -55,20 +107,13 @@ type timeoutBody struct {
 }
 
 func (b *timeoutBody) Read(p []byte) (int, error) {
-	var timer *time.Timer
-	var reading atomic.Bool
+	var timer *timeoutTimer
 	if b.idle > 0 {
-		reading.Store(true)
-		timer = time.AfterFunc(b.idle, func() {
-			if reading.CompareAndSwap(true, false) {
-				b.cancel(streamIdleCause)
-			}
-		})
+		timer = startTimeout(b.idle, b.cancel, streamIdleCause)
 	}
 	n, err := b.ReadCloser.Read(p)
 	if timer != nil {
-		reading.Store(false)
-		timer.Stop()
+		timer.stop()
 	}
 	if cause := context.Cause(b.ctx); timeoutReason(cause) != "" &&
 		(err != nil || n == 0) {

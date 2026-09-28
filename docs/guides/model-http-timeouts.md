@@ -41,6 +41,11 @@ Only Dashi-owned expiries carry precise `llm.Error.Reason` values:
 `ReasonCallTimeout`. A supplied client's shorter timeout remains a transport
 error without a guessed Dashi reason.
 
+Custom `http.RoundTripper` implementations must return from dispatch and
+unblock response-body reads when the request context is canceled. Dashi cannot
+enforce a bound while a custom transport ignores cancellation in a blocked
+operation.
+
 On a failed stream, any received text, content, and usage remain provisional.
 A `dashi.Runner` stores them on the settled model attempt and records the typed
 reason in `ModelFact.ErrorReason`. The Turn may stop `uncertain` because a

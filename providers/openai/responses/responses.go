@@ -352,13 +352,21 @@ func (p *Client) Send(
 	}
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
-		return wire.readStream(resp.Body, r, sink)
+		result, callErr = wire.readStream(resp.Body, r, sink)
+		if callErr == nil {
+			callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
+		}
+		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return r, providerhttp.ReadFailure(wire.origin.Provider, err)
 	}
-	return wire.decode(raw, r.Requested)
+	result, callErr = wire.decode(raw, r.Requested)
+	if callErr == nil {
+		callErr = providerhttp.Complete(wire.origin.Provider, resp.Body)
+	}
+	return result, callErr
 }
 
 // codec carries call-specific provenance through encoding and decoding.

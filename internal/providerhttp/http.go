@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
@@ -278,26 +277,20 @@ func (c Client) Post(
 	r = r.WithContext(callCtx)
 	stopTotal := func() {}
 	if total > 0 {
-		timer := time.AfterFunc(total, func() { cancel(callTotalCause) })
-		stopTotal = func() { timer.Stop() }
+		timer := startTimeout(total, cancel, callTotalCause)
+		stopTotal = timer.stop
 	}
-	var startTimer *time.Timer
-	var waiting atomic.Bool
+	var startTimer *timeoutTimer
 	if c.timeouts.ResponseStart > 0 {
-		waiting.Store(true)
-		startTimer = time.AfterFunc(
+		startTimer = startTimeout(
 			c.timeouts.ResponseStart,
-			func() {
-				if waiting.CompareAndSwap(true, false) {
-					cancel(responseStartCause)
-				}
-			},
+			cancel,
+			responseStartCause,
 		)
 	}
 	resp, err := client.Do(r)
 	if startTimer != nil {
-		waiting.Store(false)
-		startTimer.Stop()
+		startTimer.stop()
 	}
 	if err != nil {
 		stopTotal()

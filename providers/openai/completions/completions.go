@@ -321,13 +321,21 @@ func (p *Client) Send(
 	}
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
-		return wire.readStream(ctx, resp.Body, result, sink)
+		result, callErr = wire.readStream(ctx, resp.Body, result, sink)
+		if callErr == nil {
+			callErr = providerhttp.Complete(p.Provider(), resp.Body)
+		}
+		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return result, providerhttp.ReadFailure(p.Provider(), err)
 	}
-	return wire.decode(raw, result.Requested)
+	result, callErr = wire.decode(raw, result.Requested)
+	if callErr == nil {
+		callErr = providerhttp.Complete(p.Provider(), resp.Body)
+	}
+	return result, callErr
 }
 
 type codec struct {
