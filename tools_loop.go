@@ -131,6 +131,12 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			paused = true
 			break
 		}
+		if r.steerSkips(state, id) {
+			if o := r.skipForSteer(v.Call); o != nil {
+				return *o, true
+			}
+			continue
+		}
 		if v.Status == ToolRequested {
 			if v.Definition.Name == "" {
 				// A bound tool the call did not offer, such as one a hook
@@ -327,6 +333,15 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			break
 		}
 		if v.Status != ToolStarted {
+			// A steer may have arrived during BeforeTool or while the call
+			// waited for a slot; the call is allowed but has not started.
+			if r.urgentWaiting() {
+				if o := r.skipForSteer(v.Call); o != nil {
+					cancel()
+					return *o, true
+				}
+				continue
+			}
 			fact := &ToolFact{Call: v.Call, Definition: v.Definition}
 			if o := r.commit(Step{Kind: StepToolStarted, Tool: fact}); o != nil {
 				cancel()

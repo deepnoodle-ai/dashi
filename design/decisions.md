@@ -288,7 +288,10 @@ text, a reminder that the user interrupted it, and the steer: the one
 exception to decision 9. A call that completes before the cancel takes
 effect is not interrupted. For every interrupted call, the recorded output
 tokens are the larger of the reported count and the estimate from all
-streamed deltas, the estimate capped at the call's `max_tokens`. Rationale:
+streamed deltas, the estimate capped at the call's `max_tokens`. In a tool
+batch, an urgent steer stops no running tool, but later calls settle
+`not_executed` with reason `steering`; replay accepts a transition from
+`allowed` to `not_executed` only with that reason. Rationale:
 an interrupt is the user's choice, and each needs a new steer, so it should
 not spend the attempts a turn needs to answer; a client may keep generating
 after the cancel, so a cap charges the worst case.

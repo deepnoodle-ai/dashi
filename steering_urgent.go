@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // errSteered is the private cause a model call's context ends with when an
@@ -379,4 +381,62 @@ func reminderTokens() int {
 	return estimatedItemTokens([]ContextItem{{
 		Message: steeringReminder(),
 	}})
+}
+
+// reasonSteering is the reason recorded on a call an urgent steer kept
+// from starting, and steerSkipText is the result the model sees for it.
+const (
+	reasonSteering = "steering"
+	steerSkipText  = "Not run: the user sent new input."
+)
+
+// steerSkips reports whether call id must not start because of an urgent
+// steer. Once a call of a batch is skipped, no later call of that batch
+// starts, so the record alone decides a resumed batch the same way.
+// Otherwise the urgent set decides. Earlier calls, such as one awaiting
+// approval, are not held back by the record. Only a requested or allowed
+// call can be skipped: a started call may have taken effect.
+func (r *runtime) steerSkips(s *replayState, id string) bool {
+	if status := s.Tools[id].Status; status != ToolRequested &&
+		status != ToolAllowed {
+		return false
+	}
+	attempt := s.callAttempts[id]
+	for _, other := range s.callOrder {
+		if other == id {
+			break
+		}
+		if s.callAttempts[other] == attempt && s.Tools[other].steered {
+			return true
+		}
+	}
+	return r.urgentWaiting()
+}
+
+// urgentWaiting reports whether the urgent set holds a steer. Like
+// registerCall, it takes the source lock, so a steer the listener has
+// fetched is decided before the run looks.
+func (r *runtime) urgentWaiting() bool {
+	l := r.listen
+	if l == nil {
+		return false
+	}
+	l.lockSource()
+	defer l.sourceMu.Unlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.urgent) > 0
+}
+
+// skipForSteer settles a requested or allowed call as not executed, so the
+// steer reaches the model before the batch goes on.
+func (r *runtime) skipForSteer(call tool.Call) *Outcome {
+	out := tool.Outcome{
+		State:  tool.StateNotExecuted,
+		Output: new(tool.TextOutput(steerSkipText)),
+	}
+	return r.commit(Step{
+		Kind: StepToolSettled,
+		Tool: &ToolFact{Call: call, Outcome: &out, Reason: reasonSteering},
+	})
 }

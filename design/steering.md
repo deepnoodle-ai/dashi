@@ -1,7 +1,6 @@
 # PRD: Steering a running turn
 
-**Status:** Part 1 merged (#52); part 2 (urgent steers) implemented, except
-skipping tools not yet started ·
+**Status:** Part 1 merged (#52); part 2 (urgent steers) implemented ·
 **Date:** 2026-09-28 · **Owner:** Curtis · **Decision:** 32 · **Builds on:**
 [hooks](hooks.md)
 
@@ -189,14 +188,15 @@ still presents the steer for FR-6. The settlement closes the attempt's preview
 - `decisions.md` 32 records U-8, U-9's exemption from decision 24, and
   U-11's refinement of decision 9.
 
-### Next PR: tools not yet started
+### Tools not yet started
 
-Running tools are never interrupted. Next, the tool loop reads the urgent set
-before each call's `BeforeTool`. Once it is non-empty, no later call in the
-batch starts: requested calls settle not executed, and allowed calls gain a
-transition from `allowed` to `not_executed`, both with reason `steering` and
-output "Not run: the user sent new input." Approvals and external waits stay
-pending.
+Running tools are never interrupted. The tool loop reads the urgent set
+before each call's `BeforeTool` and before an allowed call starts. Once it
+is non-empty, no later call in the batch starts: each settles not executed
+with reason `steering` (replay accepts `allowed` to `not_executed` only
+then) and output "Not run: the user sent new input." A recorded skip skips
+the rest of its batch on resume. Started calls finish or re-run; approvals
+and external waits stay pending.
 
 ## Plan and tests
 
