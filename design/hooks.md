@@ -129,8 +129,8 @@ runner.Hooks = kernel.Hooks{BeforeTool: []kernel.ToolHook{gate}}
   (`Run` with `Start`, `Continue`, `Settle`), because `AfterTool` and resume
   depend on it. `WithHooks(Hooks)` adds hooks for one command, after the
   runner's, for extras such as a CLI prompt, never a required redactor.
-  Kernel never appends into caller slices. Names are nonempty and unique within each hook point. A name may repeat across
-  points within one `Hooks` value, which shares its state (FR-5), but
+  Kernel never appends into caller slices. Names are nonempty and unique
+  within each hook point. A name may repeat across points within one `Hooks` value, which shares its state (FR-5), but
   `JoinHooks` and `WithHooks` reject a name that appears in two different
   values, so unrelated hooks cannot collide. Violations make `Run` return an
   error, as does `FailOpen` outside `AfterTool` and `BeforeFinish`.
