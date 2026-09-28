@@ -95,7 +95,7 @@ func TestTerminalStops(t *testing.T) {
 
 func TestRecordedStopsCarryTerminal(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := start(t, client, nil, NewMemoryRecorder(), nil)
+	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil || !out.Stop.Terminal || !out.TurnView.Stop.Terminal {
 		t.Fatalf("completed stop=%+v err=%v", out.Stop, err)
 	}
@@ -179,7 +179,7 @@ func TestDeadlineStopEndsTurn(t *testing.T) {
 func TestCancelOnEndedTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, writeTool(), rec, deferredPolicy{})
+	first, err := start(t, client, writeTool(), rec, deferredHooks())
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", first.Stop, err)
 	}
@@ -209,7 +209,7 @@ func TestCancelOnEndedTurn(t *testing.T) {
 // deadline stopped the turn is settled as not executed and cannot be given.
 func TestDeadlineStopSettlesPendingApproval(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
-	first, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredPolicy{})
+	first, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredHooks())
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", first.Stop, err)
 	}
@@ -275,7 +275,7 @@ func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
 		results: []llm.Result{{}},
 		errors:  []error{errors.New("connection lost")},
 	}
-	first, err := start(t, client, writeTool(), NewMemoryRecorder(), nil)
+	first, err := start(t, client, writeTool(), NewMemoryRecorder(), Hooks{})
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
@@ -304,7 +304,7 @@ func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
 func TestHostedApprovalAfterEndIsRefused(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	rec := NewMemoryRecorder()
-	first, err := start(t, client, writeTool(), rec, deferredPolicy{})
+	first, err := start(t, client, writeTool(), rec, deferredHooks())
 	if err != nil {
 		t.Fatal(err)
 	}
