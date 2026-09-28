@@ -1,225 +1,134 @@
 # Zero-config first turn
 
-**Status:** Proposal · **Date:** 2026-09-28 · **Addresses:**
+**Status:** Accepted · **Date:** 2026-09-28 · **Addresses:**
 [gaps/F](gaps/F-example-ports.md) 1.1, 3.1, 1.2, 1.3, 2.1 · **Relates to:**
 decision 31 ([hooks.md](hooks.md)), [turn.md](turn.md)
 
 ## The problem
 
-The shortest useful program today needs an agent `ID` and `Revision`, a model
-name, a turn ID, a `CommandID`, and `Policy: dashi.AllowLocalPolicy{}` if it
-has tools. Leave out the policy and every tool call is denied without an
-error. Leave out the key and the first call fails with a 401. Each value
-matters for recovery, but a one-process program has to invent them.
-
-After this change:
+The shortest useful program needed an agent `ID` and `Revision`, a model name,
+a turn ID, a `CommandID`, and `Policy: dashi.AllowLocalPolicy{}` if it had
+tools. Without the policy, every tool call was denied silently; without a key,
+the first call failed with a bare 401. After this change:
 
 ```go
-client, err := messages.New(messages.Config{}) // errors now if no key is set
+client, err := messages.New(messages.Config{})
 runner := dashi.Runner{Client: client, Tools: tools}
 out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-	Input: []llm.Message{llm.UserMessage(llm.Text("What's the weather in Tokyo?"))},
+	Input: []llm.Message{llm.UserMessage(llm.Text("Weather in Tokyo?"))},
 })
-// out.Turn.ID, the step's CommandID, and TurnView.Agent show what was filled in.
+// out.Turn.ID, each step's CommandID, and TurnView.Agent show what was filled.
 ```
 
 ## 1.1 Identity defaults
 
-At the start of `Run` and `Stream`, after Provider and API come from the
-client, the runner fills empty values. It never overwrites a set value.
+Before replay, loading, or any commit, the runner fills empty values. It never
+overwrites a set value.
 
-| Value | When empty on a new turn | When empty on an existing turn |
+| Value | New turn | Existing turn |
 | --- | --- | --- |
-| Turn ID | `dashi.NewID()` for `Start`; an error for any other command | (not empty) |
+| Turn ID | `dashi.NewID()` for `Start`; an error for other commands | (set) |
 | `CommandID` | `dashi.NewID()` | `dashi.NewID()` |
-| `Agent.ID` | `"default"` | copied from the recorded agent |
-| `Agent.Model` | the catalog default (1.2) | copied from the recorded agent |
-| `Agent.Revision` | `"auto:"` + 16 hex of the agent's digest | copied from the recorded agent |
+| Whole `Agent` empty | defaults below | the recorded agent, whole |
+| `Agent.ID` | stays empty | recorded value |
+| `Agent.Model` | catalog default (1.2) | recorded value |
+| `Agent.Revision` | `"auto:"` + 16 hex of the agent digest | recorded value |
 
-The filled values are recorded in the start fact like explicit ones, so
-`Replay` and a later `Continue` see them. `Stream`'s final event carries the
-generated turn ID.
+The turn ID is filled before the recorder is chosen or loaded, so every
+emitted step and the final `Stream` event carry it, and a host can save it
+from the first step event, before the model call. The `CommandID` is filled
+before the command digest is computed, because the ID is part of the digest.
 
-**Why these choices.** A random agent ID or revision would change on every
-process start. `Continue` compares the whole agent with the recorded one, so
-a random value would fail with `ErrAgentChanged` on the next run. A fixed
-`"default"` ID keeps the meaning "one agent, many revisions". The derived
-revision is a digest of the resolved agent (instructions, model, settings,
-schema, limits, provider, API; not ID or Revision), so it changes exactly
-when behavior changes. The `auto:` prefix marks it as derived, not
-author-chosen. On an existing turn, empty fields come from the record
-instead of the defaults. A later catalog or library-default change therefore
-cannot make an old turn look changed. The other fields are still compared,
-so a real change is still `ErrAgentChanged`.
+**Why.** `Continue` compares the whole agent with the recorded one, so a random
+revision would fail with `ErrAgentChanged` in the next process. The derived
+revision is a digest of the recorded behavior fields (instructions, provider,
+API, model, settings, output schema, limits), excluding ID, Revision, and
+`Limits.Deadline` (a per-turn time that would make every revision unique). It
+changes exactly when behavior changes. Tools are not part of the agent and are
+not compared on `Continue`; hosts that version tools set `Revision` themselves.
+A whole-empty agent on an existing turn uses the record, so a later catalog or
+library-default change, or edited instructions, cannot block `Continue` or
+`Cancel` of an old turn. A partly set agent is still compared field by field,
+and `ErrAgentChanged` now names the differing fields and the fix: pass the
+recorded agent (`TurnView.Agent`), or cancel and start a new turn.
 
-`NewID` returns a UUIDv7 string: time-ordered, and it fits a Postgres `uuid`
-column. It is exported for hosts that must choose an ID before a call (below).
+`NewID` returns a UUIDv7 string: time-ordered and fit for a Postgres `uuid`
+column. Go 1.26 has no UUID package, so it is about fifteen lines over
+`crypto/rand` and `time`, with no new dependency.
 
-**What a generated `CommandID` cannot do.** A `CommandID` removes duplicates
-only when a retry uses the *same* ID. A caller cannot know an ID that was
-generated during a call that crashed. So a retried command with no
-`CommandID` is not recognized as a repeat. The guide says this plainly:
-*to make retries safe across restarts, choose the turn ID and each
-CommandID yourself, save them before the call, and reuse them on retry.*
-`dashi.NewID()` helps with that.
+**Retries.** A `CommandID` removes a duplicate only when a retry reuses it,
+and nobody can reuse an ID generated inside a call that crashed. To make
+retries safe across restarts, choose the turn ID and each `CommandID`, save
+them before the call, and reuse them. Without that, step numbering still
+protects the record: a retry from an old turn snapshot writes at an occupied
+sequence number, the recorder rejects the write, and no model call or tool
+runs twice; the caller sees a rejected write rather than the recorded result.
+What remains possible is a second turn from a `Start` retried with no turn ID,
+and a duplicate `Deliver` sent after reloading. No warning is recorded for
+generated IDs, and there is no durability interface: the guide says this.
 
-The cost of a missing ID is smaller than it seems, because step sequence
-fencing still applies. A retry that uses an old turn snapshot writes at a
-step number that is already taken. The recorder rejects it with
-`ErrRevisionConflict`, so no model call or tool runs twice. The caller gets
-an error instead of the recorded result. The real risks are:
-
-- a `Start` retried with no turn ID creates a second turn (a second model
-  call and its cost);
-- a `Deliver` sent again after reloading the turn is recorded twice.
-
-**Refuse, warn, or allow?** Allow, and warn when it can matter. A command
-with a generated ID keeps working. When `Runner.Recorder` is set to
-something other than `*MemoryRecorder` (a recorder that is likely durable),
-the first step that command commits records `WarningGeneratedID`. The
-warning names the generated turn or command ID. It appears in
-`Outcome.Warnings` and on replay. An in-memory program sees no warning. The
-library cannot detect durability exactly, and a durable-recorder interface
-would add a concept to fix one warning. The type check is a cheap
-heuristic; a wrapped memory recorder would warn, which is harmless.
-
-`Agent.Validate` no longer requires ID, Revision, Provider, API, or Model:
-`Agent{}` is valid. The runner returns an error only when no model can be
-found (a provider without a catalog default and no `Model` set).
+`Agent{}` is valid; `Validate` no longer requires identity fields or a model.
 
 ## 3.1 Bound tools run by default
 
-A nil `Policy` becomes an unexported `defaultPolicy`. It allows every
-registered local and external tool, and it records revision `default-v1` on
-each decision, so an audit can tell "allowed by default" from "allowed by
-the host's policy" (`allow-local-v1`). `denyToolPolicy` is removed. This is
-decision 31 applied early to `Policy`. The hooks design removes `Policy`
-later and keeps this default.
-
-Is allowing external tools the safe choice? An external tool is not run by
-the runner. Allowing it records a `tool_waiting` step and stops the turn
-until the host sends `Settle` with a result. The host registered the tool
-and runs it itself, so allowing it gives the model no new ability. Denying
-it would bring back the silent failure for external tools. Provider-hosted
-tools never reach `AuthorizeTool`. Approval stays opt-in: a policy (later, a
-hook) that returns `DecisionDefer`. `AllowLocalPolicy` stays exported for
-embedding in a custom policy. `examples/tools` and `examples/resume` drop
-their `Policy` line.
+A nil `Policy` becomes an unexported `defaultPolicy` that allows every
+registered local and external tool, recording revision `default-v1`, so an
+audit can tell a default allow from an explicit `AllowLocalPolicy`
+(`allow-local-v1`). `denyToolPolicy` is removed. This is decision 31 applied
+early; hooks later replace `Policy` and keep this default. Allowing an external
+tool records a `tool_waiting` step until the host settles it, so it grants the
+model nothing the host does not run itself. Provider-hosted tools never reach
+`AuthorizeTool`. Approval is opt-in: a policy that returns `DecisionDefer`.
 
 ## 1.2 Default model
 
-An empty `Agent.Model` resolves to `catalog.Default(agent.Provider)`. The
-runner uses it only when the client's API is one of that provider's catalog
-destinations. That covers Anthropic, OpenAI, Google, xAI, Mistral, and Meta.
-OpenRouter, DeepInfra, Ollama, and custom endpoints have no default and need
-`Model`. The error says so.
-
-The runner defaults to the general-purpose model, not the cheapest one. An
-agent that silently runs on a small model gives worse answers, and cost is
-visible in the turn anyway. A **small** default is still worth adding for
-examples and tests: `catalog.Small(provider) (string, bool)`, read from a new
-`"small"` field in each catalog file (for example `claude-haiku-4-5` or
-`gpt-5.4-mini`). It is one line per file, checked by the existing
-catalog-validity test. Without it, examples and live tests hardcode model
-names that go stale. Nothing selects it implicitly.
+The runner resolves an empty `Agent.Model` to `catalog.Default(provider)`
+when the client's API is one of that provider's catalog destinations. Other
+providers (OpenRouter, DeepInfra, Ollama, custom endpoints) need `Model`, and
+the error says so. The runner picks the general-purpose model, not a cheap
+one. `catalog.Small(provider) (string, bool)` reads a new optional `"small"`
+field, for examples and tests; it returns false where a catalog names none
+(Meta). Nothing selects it implicitly. The `llm` layer does not default: an
+empty `Input.Model` is an error that points to `catalog.Default`.
 
 ## 1.3 Missing API key
 
-Each provider's `New` returns an error when no key is found and the endpoint
-is the provider's public default. The error wraps a new `llm.ErrNoAPIKey` and
-names the environment variables it checked:
-`messages: no API key: set ANTHROPIC_API_KEY or Config.APIKey`. `openai/images`
-already does this. A custom endpoint may omit the key, because a proxy or a
-custom `http.Client` may supply credentials. Ollama and Gemini on Vertex need
-no key.
-
-This is an error, not a warning. "Warn and adjust" needs a sensible
-adjustment, and there is none for a missing credential. Every call would
-fail. The library also has no logger to warn through. `errors.Is(err,
-llm.ErrNoAPIKey)` lets a program that picks providers at runtime skip the
-ones that are not configured.
+Constructors keep succeeding without a key, because `Prepare` and `ModelInfo`
+work offline (tests, dry runs, cost estimates). The first `Send` fails before
+dispatch with an `*llm.Error` of category authentication, disposition
+not-dispatched, wrapping `llm.ErrNoAPIKey` and naming the environment
+variables checked. The check is skipped when a custom endpoint or a custom
+`http.Client` is set, since a proxy or transport may supply credentials.
+Ollama and Gemini on Vertex need no key. `openai/images` moves its check from
+`New` to send to match.
 
 ## 2.1 Choosing a provider at runtime
 
-Constructors keep returning concrete types (`*messages.Client`). Go advises
-returning concrete types from constructors ("return structs"). Some clients
-also implement media interfaces, such as the OpenAI images client. An
-interface return would hide those. The problem was only a nil pointer
-wrapped in a non-nil `llm.Client` interface. The documented pattern avoids
-it without a generic helper:
+Constructors keep returning concrete types: idiomatic Go, and some clients
+also implement media interfaces an `llm.Client` return would hide. The
+documented pattern avoids wrapping a nil pointer in a non-nil interface:
 
 ```go
-func newClient(name string) (llm.Client, error) {
-	var client llm.Client
-	var err error
-	switch name {
-	case "anthropic":
-		client, err = messages.New(messages.Config{})
-	case "openai":
-		client, err = responses.New(responses.Config{})
-	default:
-		return nil, fmt.Errorf("unknown provider %q", name)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+var client llm.Client
+var err error
+switch name {
+case "anthropic":
+	client, err = messages.New(messages.Config{})
+case "openai":
+	client, err = responses.New(responses.Config{})
+default:
+	return nil, fmt.Errorf("unknown provider %q", name)
 }
+if err != nil {
+	return nil, err
+}
+return client, nil
 ```
 
-`examples/providers` uses this pattern and drops `asClient`. The
-model-calls guide shows it.
-
-**No name registry.** A registry (`llm.Open("anthropic")`) would need either
-imports made only for their side effects (as `database/sql` drivers are) or
-one config type shared by all providers. The configs differ: Vertex project,
-OpenRouter site headers, Gemini's separate module. A shared config would
-reduce each provider to a key and an endpoint. The switch above is short and
-explicit, and it type-checks. A registry can be added later without breaking
-anything if hosts ask for config-driven selection.
+No name registry: provider configs differ too much to share one, and a
+registry would need side-effect imports. It can be added later if hosts ask.
 
 ## Recorded-format changes
 
-- Tool decisions allowed by default record revision `default-v1`.
-- A new warning code, `generated_id`, is recorded on steps.
-- Start facts may hold `"default"` and `auto:…` agent identities.
-
-There are no users, so there is no migration.
-
-## Tests
-
-- A turn started with `Turn{}`, no `CommandID`, and `Agent{}` completes. The
-  generated values are recorded and are the ones returned. A `Continue` with
-  the same empty agent succeeds; a changed `Instructions` still fails with
-  `ErrAgentChanged`.
-- The derived revision is stable for equal agents and changes when behavior
-  changes. A non-`Start` command with an empty turn ID fails.
-- `WarningGeneratedID` is recorded with a custom recorder, and not with a nil
-  recorder or a `*MemoryRecorder`.
-- With a nil policy, a local tool runs, an external tool waits, and the
-  decision revision is `default-v1`.
-- An empty model resolves to the catalog default. A provider without a
-  catalog default gives a clear error. `catalog.Small` exists for every
-  catalog provider and names a catalog entry.
-- Missing-key table over providers: the public endpoint returns an error that
-  matches `llm.ErrNoAPIKey`, and a custom endpoint, Ollama, and Vertex
-  succeed. Tests that build clients without a key get a test key.
-
-## Files
-
-`runner.go` (the defaults call and removing `denyToolPolicy`; kept small),
-new `defaults.go` (`NewID`, revision digest, filling), `turn.go` (docs,
-`Validate`, a command-ID setter, the warning code), `policy.go`,
-`catalog/*`, provider `New` functions and `internal/providerhttp`, the Gemini
-module, `llm` (the sentinel), examples, `docs/guides/running-turns.md`,
-`docs/guides/model-calls.md`, `docs/agent-turns.md`, `design/turn.md`, and a
-decision entry.
-
-## Risks and coordination
-
-- Outcome/approvals edits `runner.go` and `Settle`. My `runner.go` edits are
-  limited to the validation and defaults block at the top of `run` and the
-  final event in `Stream`. Their `Settle` builders can leave out `CommandID`.
-- Hooks will replace `Policy` and must keep `defaultPolicy`'s behavior.
-- A `Limits.Deadline` is part of the agent, so a derived revision changes
-  with each deadline. Set `Revision` if that matters.
+Default tool decisions record revision `default-v1`; start facts may hold an
+empty agent ID and an `auto:` revision. There is no migration.
