@@ -379,8 +379,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return // the client reconnects from its last id
 			}
 			step := got.step
-			if id := step.Settles(); id != "" {
-				settled[id] = true
+			if key := step.Settles(); key != "" {
+				settled[key] = true
 			}
 			send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
 			if step.Stop != nil && step.Stop.Terminal {

@@ -99,8 +99,8 @@ var (
 // the cursor is itself a terminal stop, Follow ends at once without yielding
 // anything, so a reader that reconnects after the end is not held open. A
 // late result of work started before a terminal stop can still be recorded
-// after it, so a reader that must see every step (accounting, a mirror)
-// keeps its cursor and reads again later. A read error, including
+// after it; a reader that must see every step (accounting, a mirror) reads
+// later results with StepsAfter from the stop's Seq. A read error, including
 // ErrCursorAhead, is yielded once. A step that does not continue the cursor
 // (another turn's step, or a gap in Seq) yields an error matching
 // ErrRecordInvalid.

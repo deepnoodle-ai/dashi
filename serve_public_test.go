@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,8 +91,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return // the client reconnects from its last id
 			}
 			step := got.step
-			if id := step.Settles(); id != "" {
-				settled[id] = true
+			if key := step.Settles(); key != "" {
+				settled[key] = true
 			}
 			send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
 			if step.Stop != nil && step.Stop.Terminal {
@@ -182,8 +183,10 @@ func (h *hub) observe(e dashi.Event) {
 	}
 }
 
-// deltaClient streams a reply as several text deltas.
-type deltaClient struct{}
+// deltaClient streams a reply as several text deltas. Before it returns, it
+// waits until the client has read them: the handler may otherwise pick the
+// settled step first and rightly drop deltas that arrive after it.
+type deltaClient struct{ read <-chan struct{} }
 
 func (deltaClient) Provider() string                       { return "test" }
 func (deltaClient) API() string                            { return "test.chat" }
@@ -200,11 +203,16 @@ func (deltaClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error)
 	})
 }
 
-func (deltaClient) Send(_ context.Context, call llm.Call) (llm.Result, error) {
+func (c deltaClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	for _, word := range []string{"one ", "two ", "three"} {
 		if call.Sink != nil {
 			call.Sink(llm.Delta{Kind: llm.DeltaText, Text: word})
 		}
+	}
+	select {
+	case <-c.read:
+	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
 	}
 	return llm.Result{
 		Message:   llm.AssistantMessage(llm.Text("one two three")),
@@ -215,7 +223,8 @@ func (deltaClient) Send(_ context.Context, call llm.Call) (llm.Result, error) {
 
 type sse struct{ id, event, data string }
 
-func readEvents(t *testing.T, resp *http.Response) []sse {
+// readEvents parses a stream until it ends, calling onEvent for each event.
+func readEvents(t *testing.T, resp *http.Response, onEvent func(sse)) []sse {
 	t.Helper()
 	var events []sse
 	var cur sse
@@ -225,6 +234,9 @@ func readEvents(t *testing.T, resp *http.Response) []sse {
 		switch {
 		case line == "":
 			events = append(events, cur)
+			if onEvent != nil {
+				onEvent(cur)
+			}
 			cur = sse{}
 		case strings.HasPrefix(line, "id: "):
 			cur.id = strings.TrimPrefix(line, "id: ")
@@ -268,6 +280,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	s, srv := newServer(t)
 	url := srv.URL + "/turns/t1/events"
 	got := make(chan []sse, 1)
+	deltasRead := make(chan struct{})
 	go func() {
 		resp, err := http.Get(url)
 		if err != nil {
@@ -275,7 +288,14 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 			return
 		}
 		defer resp.Body.Close()
-		got <- readEvents(t, resp)
+		deltas := 0
+		got <- readEvents(t, resp, func(e sse) {
+			if e.event == "delta" {
+				if deltas++; deltas == 3 {
+					close(deltasRead)
+				}
+			}
+		})
 	}()
 	select {
 	case <-s.hub.subscribed:
@@ -284,7 +304,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	}
 	runner := dashi.Runner{
 		Agent:    dashi.Agent{Model: "fixture"},
-		Client:   deltaClient{},
+		Client:   deltaClient{read: deltasRead},
 		Recorder: s.store,
 		Observer: s.hub.observe,
 	}
@@ -328,8 +348,35 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	}
 
 	// A cursor from elsewhere resets the client.
-	events = readEvents(t, get(t, url, "99"))
+	events = readEvents(t, get(t, url, "99"), nil)
 	if len(events) != 1 || events[0].event != "reset" {
 		t.Fatalf("foreign cursor got %+v; want one reset", events)
+	}
+}
+
+// The guide shows this file's handler; keep the two the same.
+func TestGuideHandlerMatchesGuide(t *testing.T) {
+	const start, end = "func (s *Server) events(", "\n}\n"
+	extract := func(path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		i := strings.Index(text, start)
+		if i < 0 {
+			t.Fatalf("%s has no events handler", path)
+		}
+		j := strings.Index(text[i:], end)
+		if j < 0 {
+			t.Fatalf("%s: events handler has no end", path)
+		}
+		return strings.Join(strings.Fields(text[i:i+j+len(end)]), " ")
+	}
+	guide := extract("docs/guides/running-turns.md")
+	test := extract("serve_public_test.go")
+	if guide != test {
+		t.Fatal("the guide's events handler differs from serve_public_test.go; update one to match the other")
 	}
 }
