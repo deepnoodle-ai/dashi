@@ -369,7 +369,7 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 	if err != nil {
 		return llm.Result{}, providerhttp.NotDispatched(p.Provider(), llm.ErrorInvalidRequest, "%w", err)
 	}
-	wire := codec{origin: httpClient.Origin(model)}
+	wire := codec{origin: httpClient.Origin(model), media: providerhttp.HasMedia(prepared.Input())}
 	result = llm.Result{Requested: llm.ModelRef{Provider: p.Provider(), Model: model}, Message: llm.Message{Role: llm.RoleAssistant}}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
@@ -394,7 +394,7 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 		var streamErr error
 		for chunk, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
 			if err != nil {
-				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), providerhttp.HasMedia(prepared.Input()))
+				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
 				break
 			}
 			emitSDKChunk(sink, chunk)
@@ -407,13 +407,16 @@ func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, ca
 	}
 	_, err = client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
-		return result, sdkError(p.Provider(), err, guard.responseBytes(), providerhttp.HasMedia(prepared.Input()))
+		return result, sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
 	}
 	return wire.decode(guard.responseBytes(), result.Requested)
 }
 
 type codec struct {
 	origin content.Origin
+	// media reports whether the request being sent carries media, so errors
+	// reported in its response body can be classified as media rejections.
+	media bool
 }
 
 func (wire codec) unsupported(format string, args ...any) error {

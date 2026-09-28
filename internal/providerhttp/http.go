@@ -200,7 +200,7 @@ func (c Client) Post(ctx context.Context, p llm.Request) (*http.Response, error)
 	}
 	rejection := ParseRejection(pe.statusCode, body)
 	rejection.HasMedia = HasMedia(request)
-	return nil, &llm.Error{Provider: c.Provider, Category: category, Reason: reason(c.Classify, rejection),
+	return nil, &llm.Error{Provider: c.Provider, Category: category, Reason: Reason(c.Classify, rejection),
 		Disposition: disposition, Status: pe.statusCode, Code: pe.code, Body: body, RetryAfter: pe.retryAfter,
 		Retryable: shouldRetry(pe.statusCode, pe.code), Cause: pe}
 }

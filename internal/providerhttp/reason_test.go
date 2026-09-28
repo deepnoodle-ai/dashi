@@ -116,7 +116,7 @@ func TestReasonAttributesOversizedMediaRequests(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reason(tt.classify, tt.r); got != tt.want {
+			if got := Reason(tt.classify, tt.r); got != tt.want {
 				t.Fatalf("reason = %q, want %q", got, tt.want)
 			}
 		})
@@ -126,14 +126,14 @@ func TestReasonAttributesOversizedMediaRequests(t *testing.T) {
 func TestClassifyKeepsExistingReason(t *testing.T) {
 	always := func(Rejection) llm.ErrorReason { return llm.ReasonMediaRejected }
 	set := &llm.Error{Reason: llm.ReasonContextWindowExceeded, Body: []byte(`{}`)}
-	if Classify(set, always); set.Reason != llm.ReasonContextWindowExceeded {
+	if Classify(set, always, true); set.Reason != llm.ReasonContextWindowExceeded {
 		t.Fatal("Classify replaced an existing reason")
 	}
 	empty := &llm.Error{}
-	if Classify(empty, always); empty.Reason != "" {
+	if Classify(empty, always, true); empty.Reason != "" {
 		t.Fatal("Classify reasoned without a body")
 	}
-	if err := Classify(errors.New("plain"), always); err.Error() != "plain" {
+	if err := Classify(errors.New("plain"), always, true); err.Error() != "plain" {
 		t.Fatal("Classify changed a non-llm error")
 	}
 }

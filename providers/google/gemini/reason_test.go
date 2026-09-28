@@ -56,9 +56,14 @@ func TestErrorReason(t *testing.T) {
 func TestSDKErrorCarriesReason(t *testing.T) {
 	tests := []struct {
 		name, body string
+		status     int
 		media      bool
 		want       llm.ErrorReason
 	}{
+		{name: "generic 413 with media", status: http.StatusRequestEntityTooLarge, media: true, want: llm.ReasonMediaRejected,
+			body: `{"error":{"code":413,"message":"Request Entity Too Large","status":"INVALID_ARGUMENT"}}`},
+		{name: "generic 413 without media", status: http.StatusRequestEntityTooLarge,
+			body: `{"error":{"code":413,"message":"Request Entity Too Large","status":"INVALID_ARGUMENT"}}`},
 		{name: "context", want: llm.ReasonContextWindowExceeded,
 			body: `{"error":{"code":400,"message":"The input token count (1250000) exceeds the maximum number of tokens allowed (1048576).","status":"INVALID_ARGUMENT"}}`},
 		{name: "media", media: true, want: llm.ReasonMediaRejected,
@@ -69,7 +74,11 @@ func TestSDKErrorCarriesReason(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusBadRequest)
+				status := tt.status
+				if status == 0 {
+					status = http.StatusBadRequest
+				}
+				w.WriteHeader(status)
 				io.WriteString(w, tt.body)
 			}))
 			defer server.Close()
@@ -86,6 +95,9 @@ func TestSDKErrorCarriesReason(t *testing.T) {
 			_, err = p.Send(context.Background(), prepared, nil)
 			var failure *llm.Error
 			if !errors.As(err, &failure) || failure.Category != llm.ErrorInvalidRequest || failure.Reason != tt.want {
+				t.Fatalf("err = %v, want invalid_request with reason %q", err, tt.want)
+			}
+			if tt.status != 0 && failure.Status != tt.status {
 				t.Fatalf("err = %v, want invalid_request with reason %q", err, tt.want)
 			}
 		})

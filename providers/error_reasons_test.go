@@ -226,8 +226,41 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 		name   string
 		client func(url string) llm.Client
 		stream string
+		media  bool
 		want   llm.ErrorReason
 	}{
+		{
+			name: "anthropic image error event with media",
+			client: func(url string) llm.Client {
+				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"}}`),
+			media:  true,
+			want:   llm.ReasonMediaRejected,
+		},
+		{
+			name: "anthropic image error event without media",
+			client: func(url string) llm.Client {
+				return newMessages(t, messages.Config{Provider: "anthropic", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"}}`),
+		},
+		{
+			name: "responses image error event with media",
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","code":"invalid_value","message":"The image data you provided does not represent a valid image.","param":"input","sequence_number":1}`),
+			media:  true,
+			want:   llm.ReasonMediaRejected,
+		},
+		{
+			name: "responses image error event without media",
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{Provider: "openai", APIKey: "k", Endpoint: url, CapabilityPolicy: llm.CapabilityAdjust})
+			},
+			stream: events(`{"type":"error","code":"invalid_value","message":"The image data you provided does not represent a valid image.","param":"input","sequence_number":1}`),
+		},
 		{
 			name: "anthropic error event",
 			client: func(url string) llm.Client {
@@ -274,7 +307,17 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 				io.WriteString(w, tt.stream)
 			})
 			p := tt.client(server.URL)
-			_, err := p.Send(context.Background(), preparedRequest(t, p, true), func(llm.Delta) {})
+			input := modelInput()
+			input.Stream = true
+			if tt.media {
+				input.Messages[0].Content = append(input.Messages[0].Content,
+					llm.Block(content.ImageBlock(content.Source{Data: []byte{1, 2}, MIMEType: "image/png"})))
+			}
+			prepared, err := p.Prepare(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.Send(context.Background(), prepared, func(llm.Delta) {})
 			var e *llm.Error
 			if !errors.As(err, &e) || e.Category != llm.ErrorProtocol || e.Reason != tt.want {
 				t.Fatalf("err = %v, want protocol error with reason %q", err, tt.want)

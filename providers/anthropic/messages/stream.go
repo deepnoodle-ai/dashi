@@ -240,7 +240,7 @@ func (wire codec) readStream(body io.ReadCloser, result llm.Result, sink llm.Sin
 				Category: llm.ErrorProtocol,
 				Body:     raw,
 				Cause:    errors.New("provider stream error"),
-			}, errorReason)
+			}, errorReason, wire.media)
 		default:
 			return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorUnsupported, "unknown stream event %q", e.Type)
 		}

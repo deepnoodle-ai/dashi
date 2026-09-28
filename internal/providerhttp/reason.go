@@ -84,21 +84,24 @@ func ParseRejection(status int, body []byte) Rejection {
 
 // Classify sets the reason on err's *llm.Error from its Body when the error
 // has no reason yet. It serves errors reported inside a stream or response
-// body, where the request's media is not consulted. It returns err.
-func Classify(err error, classify Classifier) error {
+// body; hasMedia reports whether the request carried media. It returns err.
+func Classify(err error, classify Classifier, hasMedia bool) error {
 	var e *llm.Error
-	if classify == nil || !errors.As(err, &e) || e.Reason != "" || len(e.Body) == 0 {
+	if !errors.As(err, &e) || e.Reason != "" || len(e.Body) == 0 {
 		return err
 	}
-	e.Reason = classify(ParseRejection(e.Status, e.Body))
+	r := ParseRejection(e.Status, e.Body)
+	r.HasMedia = hasMedia
+	e.Reason = Reason(classify, r)
 	return err
 }
 
-// reason classifies an HTTP rejection. A 413 on a request that carries media
-// is attributed to the media when the provider's classifier does not decide:
-// media is by far the usual way to exceed a provider's byte limit, and it is
-// the part a caller can shrink or drop.
-func reason(classify Classifier, r Rejection) llm.ErrorReason {
+// Reason classifies a rejection with the provider's classifier, which may be
+// nil, and then the provider-independent rules. A 413 on a request that
+// carries media is attributed to the media when the provider's classifier
+// does not decide: media is by far the usual way to exceed a provider's byte
+// limit, and it is the part a caller can shrink or drop.
+func Reason(classify Classifier, r Rejection) llm.ErrorReason {
 	if classify != nil {
 		if reason := classify(r); reason != "" {
 			return reason
