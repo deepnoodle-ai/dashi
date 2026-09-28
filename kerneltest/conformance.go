@@ -78,7 +78,7 @@ func testAppendsInOrder(t *testing.T, s Store) {
 }
 
 func testLoadWithoutSteps(t *testing.T, s Store) {
-	turn, err := s.Load("kerneltest-missing")
+	turn, err := s.Load(t.Context(), "kerneltest-missing")
 	if err != nil {
 		return
 	}
@@ -109,7 +109,7 @@ func testRejectsRevisionGap(t *testing.T, s Store) {
 
 func testRejectsStaleOwner(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 1)
-	s.Claim(turnID, "kerneltest-takeover")
+	claim(t, s, turnID, "kerneltest-takeover")
 	next := contextStep(turnID, 2, "from the old owner")
 	requireRejected(t, commit(t, s, next, owner), nil)
 	requireRecord(t, s, turnID, steps)
@@ -149,7 +149,7 @@ func testRejectsCommandConflict(t *testing.T, s Store) {
 func testIsolatesTurns(t *testing.T, s Store) {
 	const other = "kerneltest-other-turn"
 	steps := seed(t, s, turnID, 2)
-	s.Claim(other, owner)
+	claim(t, s, other, owner)
 	err := commit(t, s, contextStep(other, 3, "wrong turn"), owner)
 	requireRejected(t, err, kernel.ErrRevisionConflict)
 	start := startStep(other)
@@ -193,7 +193,7 @@ func testSerializesConcurrentCommits(t *testing.T, s Store) {
 // seed claims the turn and commits n steps: a start followed by context.
 func seed(t *testing.T, s Store, id string, n int) []kernel.Step {
 	t.Helper()
-	s.Claim(id, owner)
+	claim(t, s, id, owner)
 	steps := []kernel.Step{startStep(id)}
 	for seq := int64(2); seq <= int64(n); seq++ {
 		steps = append(steps, contextStep(id, seq, fmt.Sprintf("step %d", seq)))
@@ -204,6 +204,13 @@ func seed(t *testing.T, s Store, id string, n int) []kernel.Step {
 		}
 	}
 	return steps
+}
+
+func claim(t *testing.T, s Store, id, by string) {
+	t.Helper()
+	if err := s.Claim(t.Context(), id, by); err != nil {
+		t.Fatalf("claim %q for %q: %v", id, by, err)
+	}
 }
 
 func commit(t *testing.T, s Store, step kernel.Step, by string) error {
@@ -279,7 +286,7 @@ func requireRejected(t *testing.T, err error, target error) {
 
 func requireRecord(t *testing.T, s Store, id string, want []kernel.Step) {
 	t.Helper()
-	turn, err := s.Load(id)
+	turn, err := s.Load(t.Context(), id)
 	if err != nil {
 		t.Fatalf("load %q: %v", id, err)
 	}

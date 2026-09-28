@@ -12,22 +12,22 @@
 // import it from tests without pulling in a database driver.
 package kerneltest
 
-import "github.com/deepnoodle-ai/kernel"
+import (
+	"context"
 
-// Store is a recorder under test together with the two host operations that
-// Kernel's recovery contract assumes but kernel.Recorder does not declare.
-// *kernel.MemoryRecorder satisfies Store.
-//
-// Load returns the authoritative record of a turn. It is also the optional
-// method Engine.Apply uses to recognize a command retried with an old turn
-// snapshot, so a recorder that matches this signature gets that behavior.
+	"github.com/deepnoodle-ai/kernel"
+)
+
+// Store is a recorder under test with the operations Kernel's recovery
+// contract assumes: kernel.Loader, which Engine.Apply also uses when present,
+// and Claim, which kernel.Recorder does not declare because lease policy
+// belongs to the host. *kernel.MemoryRecorder satisfies Store.
 //
 // Claim makes owner the only token whose commits the turn accepts, as a lease
-// takeover would. It may be called before the turn has any steps. A host whose
-// lease operation can fail should report the failure through the *testing.T
-// passed to the constructor given to Run.
+// takeover would. It may be called before the turn has any steps. A Claim
+// error fails the test.
 type Store interface {
 	kernel.Recorder
-	Load(turnID string) (kernel.Turn, error)
-	Claim(turnID, owner string)
+	kernel.Loader
+	Claim(ctx context.Context, turnID, owner string) error
 }

@@ -390,7 +390,7 @@ func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid history was accepted")
 	}
-	saved, err := recorder.Load(first.Turn.ID)
+	saved, err := recorder.Load(context.Background(), first.Turn.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	if first.Persistence != PersistenceRejected {
 		t.Fatalf("model intent write was not rejected: %s", first.Persistence)
 	}
-	saved, err := recorder.Load("history-recovery")
+	saved, err := recorder.Load(context.Background(), "history-recovery")
 	if err != nil {
 		t.Fatal(err)
 	}

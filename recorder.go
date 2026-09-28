@@ -16,8 +16,21 @@ type CommitRequest struct {
 
 // Recorder acknowledges each fact before dependent execution. A host recorder
 // can atomically include budget reservations, accounting, and outbox writes.
+// A recorder that can read a turn back should also implement Loader.
 type Recorder interface {
 	Commit(context.Context, CommitRequest) error
+}
+
+// Loader is an optional Recorder capability that returns the authoritative
+// record of a turn. Engine.Apply uses it to recognize a command retried with
+// an old turn snapshot after a lost acknowledgement, and answers from the
+// stored record instead of applying the command again. When Load fails for a
+// command the snapshot does not contain, Apply proceeds with the caller's
+// snapshot; the commit's ExpectedSeq check still protects the record. A turn
+// with no steps may be reported as an error or as an empty turn with the
+// requested ID.
+type Loader interface {
+	Load(ctx context.Context, turnID string) (Turn, error)
 }
 
 // CommitError distinguishes a rejected write from a write whose commit status
@@ -53,13 +66,17 @@ func newMemoryRecorderForTurn(turn Turn) *MemoryRecorder {
 }
 
 // Claim changes the in-memory owner token. Production lease policy belongs to
-// the host; this method provides a deterministic recorder fixture.
-func (r *MemoryRecorder) Claim(turnID, owner string) {
+// the host; this method provides a deterministic recorder fixture. It never
+// fails; the error result matches the shape of a host lease takeover.
+func (r *MemoryRecorder) Claim(_ context.Context, turnID, owner string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.owners[turnID] = owner
+	return nil
 }
-func (r *MemoryRecorder) Load(turnID string) (Turn, error) {
+
+// Load returns a copy of the turn's committed steps.
+func (r *MemoryRecorder) Load(_ context.Context, turnID string) (Turn, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	t, ok := r.turns[turnID]

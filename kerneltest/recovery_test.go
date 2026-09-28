@@ -82,7 +82,7 @@ func testRecovery(t *testing.T, rec *kerneltest.FaultRecorder) {
 		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 
-	store.Claim("t1", "worker-1")
+	claim(t, store, "t1", "worker-1")
 	first, err := (kernel.Engine{}).Apply(
 		t.Context(),
 		kernel.Turn{ID: "t1"},
@@ -102,8 +102,8 @@ func testRecovery(t *testing.T, rec *kerneltest.FaultRecorder) {
 	requireReported(t, first, fired, fault)
 
 	// A new worker takes over from the durable record alone.
-	store.Claim("t1", "worker-2")
-	saved, err := store.Load("t1")
+	claim(t, store, "t1", "worker-2")
+	saved, err := store.Load(t.Context(), "t1")
 	if err != nil && committed {
 		t.Fatalf("load after lost acknowledgement: %v", err)
 	}
@@ -165,7 +165,7 @@ func testRecovery(t *testing.T, rec *kerneltest.FaultRecorder) {
 	if got := out.Turn.AnswerText(); got != "done" {
 		t.Fatalf("answer is %q; want done", got)
 	}
-	final, err := store.Load("t1")
+	final, err := store.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,6 +459,13 @@ func hasToolResult(messages []llm.Message) bool {
 		}
 	}
 	return false
+}
+
+func claim(t *testing.T, s kerneltest.Store, id, owner string) {
+	t.Helper()
+	if err := s.Claim(t.Context(), id, owner); err != nil {
+		t.Fatalf("claim %q for %q: %v", id, owner, err)
+	}
 }
 
 func ptr[T any](v T) *T {

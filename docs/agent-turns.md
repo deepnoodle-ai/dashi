@@ -123,10 +123,10 @@ an unknown result. With nil `Bindings.Recorder`, Kernel creates a fresh
 `MemoryRecorder` for that call; keep `Outcome.Turn` for same-process
 continuation. Bind a durable recorder for cross-process recovery, and pass the
 earlier history on `Continue`. `MemoryRecorder` and its `Claim` method are
-local fixtures, not a production lease service. `Engine.Apply` uses an
-optional recorder `Load(string)` method to recognize a command retried with
-an old turn snapshot; other hosts should reload before retrying after an
-ambiguous write.
+local fixtures, not a production lease service. A recorder that also
+implements `Loader` lets `Engine.Apply` recognize a command retried with an
+old turn snapshot and answer from the stored record; other hosts should
+reload before retrying after an ambiguous write.
 
 A recorder must preserve each step's JSON meaning, not its bytes. Storage that
 reorders keys, drops whitespace, or respells numbers and strings, such as a

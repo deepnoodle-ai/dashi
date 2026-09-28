@@ -36,9 +36,10 @@ var ErrInjected = errors.New("kerneltest: injected fault")
 // and every other commit passes through, so the same recorder can serve the
 // worker that resumes the turn.
 //
-// Load delegates to the wrapped recorder's Load(string) method, which lets
+// Load forwards to the wrapped recorder when it is a kernel.Loader, which lets
 // Engine.Apply recognize retried commands as it would without the wrapper.
-// When the wrapped recorder has no such method, Load returns an error.
+// Otherwise Load returns an error, which Apply reports when a command already
+// in the supplied turn is retried; wrap a Loader to avoid that difference.
 type FaultRecorder struct {
 	Recorder kernel.Recorder
 	Kind     kernel.StepKind
@@ -79,14 +80,15 @@ func (f *FaultRecorder) Commit(
 }
 
 // Load returns the wrapped recorder's record of the turn.
-func (f *FaultRecorder) Load(turnID string) (kernel.Turn, error) {
-	loader, ok := f.Recorder.(interface {
-		Load(string) (kernel.Turn, error)
-	})
+func (f *FaultRecorder) Load(
+	ctx context.Context,
+	turnID string,
+) (kernel.Turn, error) {
+	loader, ok := f.Recorder.(kernel.Loader)
 	if !ok {
-		return kernel.Turn{}, errors.New("kerneltest: wrapped recorder has no Load method")
+		return kernel.Turn{}, errors.New("kerneltest: wrapped recorder is not a kernel.Loader")
 	}
-	return loader.Load(turnID)
+	return loader.Load(ctx, turnID)
 }
 
 // Fired returns the step the fault was applied to, if it has fired.

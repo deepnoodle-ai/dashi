@@ -226,7 +226,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	if err != nil || first.Persistence != PersistenceRejected || client.sends != 2 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	saved, err := base.Load("limit")
+	saved, err := base.Load(context.Background(), "limit")
 	if err != nil {
 		t.Fatal(err)
 	}

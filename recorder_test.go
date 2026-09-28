@@ -11,7 +11,7 @@ import (
 
 func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 	rec := NewMemoryRecorder()
-	rec.Claim("t1", "worker-1")
+	rec.Claim(context.Background(), "t1", "worker-1")
 	start := Step{Version: 1, TurnID: "t1", Seq: 1, Kind: StepStarted, CommandID: "start", CommandDigest: "digest", Started: &StartFact{Definition: definition(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}}
 	if err := rec.Commit(context.Background(), CommitRequest{Step: start, ExpectedSeq: 0, Owner: "worker-1"}); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 			t.Fatalf("expected rejected write conflict, got %v", err)
 		}
 	}
-	saved, err := rec.Load("t1")
+	saved, err := rec.Load(context.Background(), "t1")
 	if err != nil || len(saved.Steps) != 1 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}

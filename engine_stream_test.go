@@ -109,7 +109,7 @@ func TestEngineStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 					break
 				}
 			}
-			turn, err := recorder.Load("t1")
+			turn, err := recorder.Load(context.Background(), "t1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -156,7 +156,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 			break
 		}
 	}
-	turn, err := recorder.Load("t1")
+	turn, err := recorder.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestEngineStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 			break
 		}
 	}
-	turn, err := recorder.Load("t1")
+	turn, err := recorder.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestEngineStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 			break
 		}
 	}
-	turn, err := recorder.Load("t1")
+	turn, err := recorder.Load(context.Background(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
