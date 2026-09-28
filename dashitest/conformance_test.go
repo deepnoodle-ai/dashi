@@ -56,6 +56,12 @@ var brokenStores = map[string]struct {
 		},
 		failing: "RejectsRetimedStep",
 	},
+	"skips-a-step": {
+		store: func() dashitest.Store {
+			return skipsStep{dashi.NewMemoryRecorder()}
+		},
+		failing: "ReadsAfterCursor",
+	},
 	"changes-meaning": {
 		store: func() dashitest.Store {
 			return changesMeaning{newJSONBStore()}
@@ -213,6 +219,25 @@ func (s dedupesByKind) Commit(
 		return nil
 	}
 	return s.MemoryRecorder.Commit(ctx, req)
+}
+
+// skipsStep drops the first step of every page longer than one, as a
+// reader with an off-by-one range bound would.
+type skipsStep struct {
+	*dashi.MemoryRecorder
+}
+
+func (s skipsStep) StepsAfter(
+	ctx context.Context,
+	turnID string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	steps, err := s.MemoryRecorder.StepsAfter(ctx, turnID, after, limit)
+	if len(steps) > 1 {
+		steps = steps[1:]
+	}
+	return steps, err
 }
 
 // changesMeaning alters a number inside raw JSON on load, which is a

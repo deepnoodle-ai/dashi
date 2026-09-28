@@ -48,6 +48,19 @@ import (
 //     turn's revision.
 //   - Of concurrent commits at the same revision, exactly one succeeds.
 //
+// When the store implements dashi.StepReader, Run also checks the rules
+// dashi.Follow relies on; otherwise those subtests are skipped:
+//
+//   - StepsAfter pages exactly: ascending, contiguous Seq from after+1, each
+//     step with its committed JSON meaning, the limit honored, and zero
+//     meaning the default. A cursor at the last step gives no steps.
+//   - A turn without steps gives no steps for cursor zero, and a cursor past
+//     the last step gives an error matching dashi.ErrCursorAhead.
+//   - Claims never appear as steps, and a reader paging while the owner
+//     commits sees every step once, in order.
+//   - With dashi.StepWaiter, Wait returns at once when a newer step exists,
+//     wakes on a commit, and returns ctx's error when ctx ends.
+//
 // "Rejected" means a *dashi.CommitError with dashi.PersistenceRejected,
 // after which Load must show the record unchanged. Run does not check
 // recorder behavior Dashi does not rely on, such as validating step payloads.
@@ -69,6 +82,7 @@ func Run(t *testing.T, newStore func(t *testing.T) Store) {
 		{"IsolatesTurns", testIsolatesTurns},
 		{"SerializesConcurrentCommits", testSerializesConcurrentCommits},
 	}
+	tests = append(tests, readerTests...)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.run(t, newStore(t))
