@@ -1389,12 +1389,16 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		settled.Uncertain = unsafeHosted(defs)
 		settled.Result = partial()
 		setSettlementCharge(fact, settled)
-		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+		step := Step{Kind: StepModelSettled, Model: settled}
+		if o := r.commit(step); o != nil {
 			return *o, false
 		}
 		if settled.Uncertain && r.runner.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
-			return r.stop(StopUncertain, "provider-hosted tool may have run"), false
+			return r.stop(
+				StopUncertain,
+				"provider-hosted tool may have run",
+			), false
 		}
 		return r.contextStop(), false
 	}
