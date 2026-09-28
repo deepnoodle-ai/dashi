@@ -87,3 +87,9 @@ func TestLiveReservedFinalAnswer(t *testing.T) {
 	client, modelName := liveAgentClient(t)
 	providertest.ReservedFinalAnswer(t, client, modelName)
 }
+
+// Two paid calls.
+func TestLiveSteerAfterToolBatch(t *testing.T) {
+	client, modelName := liveAgentClient(t)
+	providertest.SteerAfterToolBatch(t, client, modelName)
+}

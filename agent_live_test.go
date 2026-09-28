@@ -112,3 +112,14 @@ func TestLiveReservedFinalAnswer(t *testing.T) {
 		})
 	}
 }
+
+// Each subtest makes two paid calls: a steer sent while the tool runs must
+// follow the tool result in the second call.
+func TestLiveSteerAfterToolBatch(t *testing.T) {
+	for _, p := range liveProviders {
+		t.Run(p.name, func(t *testing.T) {
+			client, modelName := liveClient(t, p.name)
+			providertest.SteerAfterToolBatch(t, client, modelName)
+		})
+	}
+}
