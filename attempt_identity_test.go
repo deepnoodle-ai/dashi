@@ -59,7 +59,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 	}
 	client.onSend = func(a llm.Attempt) {
 		// The intent carrying this ID is durable before Send is called.
-		saved, err := rec.Load(context.Background(), "t1")
+		saved, err := rec.Load(t.Context(), "t1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 		}
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
@@ -94,7 +94,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 	def := definition()
 	rec := NewMemoryRecorder()
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	client := &attemptClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{{}, final("done")}},
@@ -115,7 +115,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		def,
 		Continue{ID: "continue"},
@@ -149,7 +149,7 @@ func TestCrashedIntentIsNeverSentUnderItsID(t *testing.T) {
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Continue{ID: "recover"},

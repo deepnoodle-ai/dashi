@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,7 +95,7 @@ func TestInteractionsURIVideoLifecycle(t *testing.T) {
 	defer server.Close()
 	p := newInteractionsJobFixture(t, server)
 	request, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:    "gemini-omni-1.1-flash",
 			Prompt:   []content.Block{content.TextBlock("a sunrise")},
@@ -109,10 +108,10 @@ func TestInteractionsURIVideoLifecycle(t *testing.T) {
 	if submitted != 0 {
 		t.Fatal("preparation sent the request")
 	}
-	if _, err := p.client.SendVideo(context.Background(), request); err == nil {
+	if _, err := p.client.SendVideo(t.Context(), request); err == nil {
 		t.Fatal("inline call accepted URI request")
 	}
-	submission, err := p.SubmitVideo(context.Background(), request)
+	submission, err := p.SubmitVideo(t.Context(), request)
 	if err != nil ||
 		submission.State != media.SubmissionAccepted ||
 		submission.Job == nil ||
@@ -124,17 +123,17 @@ func TestInteractionsURIVideoLifecycle(t *testing.T) {
 		) || submission.Validate() != nil {
 		t.Fatalf("submission: %+v, %v", submission, err)
 	}
-	first, err := p.PollVideo(context.Background(), *submission.Job)
+	first, err := p.PollVideo(t.Context(), *submission.Job)
 	if err != nil || first.State != media.JobPending {
 		t.Fatalf("pending poll: %+v, %v", first, err)
 	}
 	if _, err := p.FetchVideo(
-		context.Background(),
+		t.Context(),
 		first,
 	); err == nil || fetched != 0 {
 		t.Fatalf("fetch before ACTIVE: err=%v, fetched=%d", err, fetched)
 	}
-	second, err := p.PollVideo(context.Background(), *submission.Job)
+	second, err := p.PollVideo(t.Context(), *submission.Job)
 	if err != nil ||
 		second.State != media.JobSucceeded ||
 		len(second.Content) != 1 ||
@@ -142,7 +141,7 @@ func TestInteractionsURIVideoLifecycle(t *testing.T) {
 		second.Validate() != nil {
 		t.Fatalf("ACTIVE poll: %+v, %v", second, err)
 	}
-	result, err := p.FetchVideo(context.Background(), second)
+	result, err := p.FetchVideo(t.Context(), second)
 	if err != nil ||
 		len(result.Content) != 1 ||
 		string(result.Content[0].Video.Source.Data) != "video-bytes" ||
@@ -186,7 +185,7 @@ func TestInteractionsURIVideoFailureAndForeignURI(t *testing.T) {
 		}))
 		p := newInteractionsJobFixture(t, server)
 		request, err := p.PrepareVideo(
-			context.Background(),
+			t.Context(),
 			media.VideoInput{
 				Model:  "gemini-omni-1.1-flash",
 				Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -195,7 +194,7 @@ func TestInteractionsURIVideoFailureAndForeignURI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		submission, err := p.SubmitVideo(context.Background(), request)
+		submission, err := p.SubmitVideo(t.Context(), request)
 		if foreign {
 			if err == nil ||
 				submission.State != media.SubmissionUnknown ||
@@ -207,7 +206,7 @@ func TestInteractionsURIVideoFailureAndForeignURI(t *testing.T) {
 			if err != nil || submission.Job == nil {
 				t.Fatalf("submission: %+v, %v", submission, err)
 			}
-			poll, err := p.PollVideo(context.Background(), *submission.Job)
+			poll, err := p.PollVideo(t.Context(), *submission.Job)
 			if err != nil ||
 				poll.State != media.JobFailed ||
 				poll.Failure != "processing failed" {
@@ -228,7 +227,7 @@ func TestInteractionsURICreationTerminalFailureIsNotRejected(t *testing.T) {
 	defer server.Close()
 	p := newInteractionsJobFixture(t, server)
 	request, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "gemini-omni-1.1-flash",
 			Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -237,7 +236,7 @@ func TestInteractionsURICreationTerminalFailureIsNotRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submission, err := p.SubmitVideo(context.Background(), request)
+	submission, err := p.SubmitVideo(t.Context(), request)
 	if err == nil ||
 		submission.State != media.SubmissionUnknown ||
 		submission.Job != nil ||
@@ -275,7 +274,7 @@ func TestInteractionsURIJobDestinationBinding(t *testing.T) {
 		Origin: first.client.origin("gemini-omni-1.1-flash"),
 	}
 	if _, err := second.PollVideo(
-		context.Background(),
+		t.Context(),
 		job,
 	); err == nil || calls != 0 {
 		t.Fatalf(
@@ -286,7 +285,7 @@ func TestInteractionsURIJobDestinationBinding(t *testing.T) {
 	}
 	job.ID = "files/../clip-3"
 	if _, err := first.PollVideo(
-		context.Background(),
+		t.Context(),
 		job,
 	); err == nil || calls != 0 {
 		t.Fatalf("invalid File ID reached Files API: calls=%d, err=%v", calls, err)

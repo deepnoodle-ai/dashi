@@ -44,7 +44,7 @@ func TestLiveImageInput(t *testing.T) {
 		stream bool
 	}{{"blocking", false}, {"streaming", true}} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 			input := llm.Input{
 				Model:    modelName,
@@ -87,7 +87,7 @@ func TestLiveImageInput(t *testing.T) {
 		})
 	}
 	t.Run("remote_url", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 		defer cancel()
 		input := llm.Input{
 			Model:    modelName,
@@ -120,7 +120,7 @@ func TestLiveImageInput(t *testing.T) {
 		t.Logf("model=%s remote image answer=%q", modelName, answer)
 	})
 	t.Run("file_uri", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 		defer cancel()
 		files, err := genai.NewClient(
 			ctx,

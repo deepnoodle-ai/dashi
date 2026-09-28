@@ -39,7 +39,7 @@ func applyStructured(
 ) Outcome {
 	t.Helper()
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		structuredDefinition(),
 		Start{
@@ -77,7 +77,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("found 42")),
+				Output: new(tool.TextOutput("found 42")),
 			}, nil
 		}),
 	}
@@ -105,7 +105,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		t.Fatal("structured output shares mutable bytes")
 	}
 	again, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		structuredDefinition(),
 		Start{
@@ -198,7 +198,7 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 	if first.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
 	}
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		structuredDefinition(),
 		Continue{ID: "recover"},
@@ -246,7 +246,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 		OutputSchema: json.RawMessage(schema),
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		def,
 		start,
@@ -290,7 +290,7 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 	} {
 		client := &scriptedClient{}
 		out, err := (Engine{}).Apply(
-			context.Background(),
+			t.Context(),
 			Turn{ID: "t1"},
 			definition(),
 			Start{
@@ -346,13 +346,13 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	if first.Persistence != PersistenceRejected {
 		t.Fatalf("first=%+v", first)
 	}
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := tool.Outcome{State: tool.StateSucceeded}
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		structuredDefinition(),
 		Accept{ID: "host-result", CallID: "submission", Outcome: &result},
@@ -382,7 +382,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		t.Fatalf("sends=%d", client.sends)
 	}
 
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +410,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		},
 	}
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		def,
 		deliver,
@@ -421,7 +421,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	assertStepCount(t, base, len(saved.Steps))
 
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		def,
 		Cancel{ID: "cancel"},
@@ -432,7 +432,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	assertStepCount(t, base, len(saved.Steps))
 
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		def,
 		Continue{ID: "recover"},
@@ -457,7 +457,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 
 func assertStepCount(t *testing.T, base *MemoryRecorder, want int) {
 	t.Helper()
-	turn, err := base.Load(context.Background(), "t1")
+	turn, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}

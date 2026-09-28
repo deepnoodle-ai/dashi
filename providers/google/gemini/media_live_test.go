@@ -47,7 +47,7 @@ func TestLiveImageGeneration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
 		request, err := client.PrepareImage(ctx, input)
 		if err != nil {
@@ -67,7 +67,7 @@ func TestLiveImageGeneration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
 		request, err := client.PrepareImage(ctx, input)
 		if err != nil {
@@ -121,7 +121,7 @@ func TestLiveImageEdit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
 		request, err := client.PrepareImage(ctx, input)
 		if err != nil {
@@ -141,7 +141,7 @@ func TestLiveImageEdit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
 		request, err := client.PrepareImage(ctx, input)
 		if err != nil {

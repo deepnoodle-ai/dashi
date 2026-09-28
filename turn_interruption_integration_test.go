@@ -50,8 +50,8 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		},
 	}
 	turn := Turn{ID: "t1"}
-	for i := 0; i < 3; i++ {
-		ctx, stop := context.WithCancelCause(context.Background())
+	for i := range 3 {
+		ctx, stop := context.WithCancelCause(t.Context())
 		cancel = stop
 		var command Command = Continue{ID: "continue-" + string(rune('a'+i))}
 		if i == 0 {
@@ -88,7 +88,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		}
 	}
 	limited, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Continue{ID: "over-limit"},
@@ -116,7 +116,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 }
 
 func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	client := &interruptionClient{
 		scriptedClient: &scriptedClient{},
@@ -167,7 +167,7 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	turn := seedOpenModelIntent(t, rec, def, nil)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Continue{ID: "recover"},
@@ -206,7 +206,7 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{hosted})
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Continue{ID: "recover"},
@@ -218,7 +218,7 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 	}
 	answer := final("reconciled")
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Accept{
@@ -232,7 +232,7 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 		t.Fatalf("report=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	done, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		def,
 		Continue{ID: "finish"},
@@ -264,7 +264,7 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			def := definition()
-			ctx := context.Background()
+			ctx := t.Context()
 			if test.turnLimit {
 				def.Limits.Deadline = time.Now().Add(25 * time.Millisecond)
 			} else {
@@ -328,7 +328,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("done")),
+				Output: new(tool.TextOutput("done")),
 			}, nil
 		}),
 	}
@@ -341,7 +341,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 		Pause:    pause,
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
@@ -360,7 +360,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 	}
 	binding.Pause = nil
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Continue{ID: "resume"},
@@ -380,8 +380,8 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 
 func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 	rec := NewMemoryRecorder()
-	rec.Claim(context.Background(), "t1", "worker-a")
-	ctx, cancel := context.WithCancelCause(context.Background())
+	rec.Claim(t.Context(), "t1", "worker-a")
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	client := &interruptionClient{
 		scriptedClient: &scriptedClient{},
@@ -389,7 +389,7 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 			llm.Result, error,
 		) {
 			if index == 0 {
-				rec.Claim(context.Background(), "t1", "worker-b")
+				rec.Claim(t.Context(), "t1", "worker-b")
 				cancel(errors.New("lease lost"))
 				return llm.Result{}, ctx.Err()
 			}
@@ -407,12 +407,12 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		!errors.Is(first.WriteError, ErrRevisionConflict) {
 		t.Fatalf("stale write=%+v err=%v", first, err)
 	}
-	saved, err := rec.Load(context.Background(), "t1")
+	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil || len(saved.Steps) != 2 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		Continue{ID: "new-worker"},
@@ -457,7 +457,7 @@ func seedOpenModelIntent(
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
 		if err := rec.Commit(
-			context.Background(),
+			t.Context(),
 			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
 		); err != nil {
 			t.Fatal(err)

@@ -2,7 +2,6 @@ package providers_test
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -20,7 +19,7 @@ func TestPrepareSendsUnknownModelByDefault(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := serveFixtures(t, tc)
 			p := configured(t, tc, clientConfig{endpoint: server.URL})
-			prep, err := p.Prepare(context.Background(), modelInput())
+			prep, err := p.Prepare(t.Context(), modelInput())
 			if err != nil {
 				t.Fatalf("default policy rejected an unknown model: %v", err)
 			}
@@ -38,7 +37,7 @@ func TestPrepareSendsUnknownModelByDefault(t *testing.T) {
 				t.Fatal("unknown support alone produced a warning")
 			}
 			if _, err := p.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: prep,
 				},
@@ -83,9 +82,9 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 			{
 				name:     "temperature above Messages range",
 				provider: "anthropic",
-				settings: llm.Settings{Temperature: ptr(1.5)},
+				settings: llm.Settings{Temperature: new(1.5)},
 				field:    llm.SettingTemperature,
-				want:     llm.Settings{Temperature: ptr(1.0)},
+				want:     llm.Settings{Temperature: new(1.0)},
 			},
 			{
 				name:     "max tokens above model limit",
@@ -115,7 +114,7 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 				for _, stream := range []bool{false, true} {
 					r := modelInput()
 					r.Stream, r.Settings = stream, test.settings
-					prep, err := p.Prepare(context.Background(), r)
+					prep, err := p.Prepare(t.Context(), r)
 					if err != nil {
 						t.Fatalf("prepare out-of-range setting: %v", err)
 					}
@@ -150,7 +149,7 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 					var result llm.Result
 					if stream {
 						for event, err := range llm.Stream(
-							context.Background(),
+							t.Context(),
 							p,
 							llm.Call{
 								Request: prep,
@@ -164,7 +163,7 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 							}
 						}
 					} else {
-						result, err = p.Send(context.Background(), llm.Call{Request: prep})
+						result, err = p.Send(t.Context(), llm.Call{Request: prep})
 						if err != nil {
 							t.Fatalf("send adjusted request: %v", err)
 						}
@@ -202,7 +201,7 @@ func TestPrepareRejectsKnownMissingVisionWithFix(t *testing.T) {
 					URL: "https://example.com/image.png",
 				})
 				r.Messages[0].Content = append(r.Messages[0].Content, llm.Block(image))
-				_, err := p.Prepare(context.Background(), r)
+				_, err := p.Prepare(t.Context(), r)
 				if err == nil {
 					t.Fatal("image input reached a model known to lack vision")
 				}
@@ -241,8 +240,4 @@ func settingValue(t *testing.T, s llm.Settings, field llm.Setting) string {
 		t.Fatalf("decode settings: %v", err)
 	}
 	return string(fields[field])
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

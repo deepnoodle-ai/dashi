@@ -37,7 +37,7 @@ type WebSearchToolOptions struct {
 	// SearchContextSize trades retrieved breadth for latency and token use.
 	SearchContextSize SearchContextSize `json:"search_context_size,omitempty"`
 	// UserLocation biases local search without sharing precise coordinates.
-	UserLocation UserLocation `json:"user_location,omitempty"`
+	UserLocation UserLocation `json:"user_location,omitzero"`
 	// IncludeResults requests the hits behind the grounded answer.
 	IncludeResults bool `json:"include_results,omitempty"`
 }
@@ -55,11 +55,10 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Definition, error) {
 	if err != nil {
 		return tool.Definition{}, err
 	}
-	readOnly := true
 	return tool.Definition{
 		Name:        "web_search",
 		Kind:        tool.KindProviderHosted,
-		Annotations: tool.Annotations{ReadOnly: &readOnly},
+		Annotations: tool.Annotations{ReadOnly: new(true)},
 		Hosted: &tool.HostedSpec{
 			Provider: "meta",
 			API:      responses.API,

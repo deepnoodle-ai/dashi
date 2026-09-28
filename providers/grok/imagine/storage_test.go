@@ -1,7 +1,6 @@
 package imagine
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -55,7 +54,7 @@ func TestImageStoragePreservesEachOutputAndPublicURLFailure(t *testing.T) {
 		model.CapabilityStrict,
 	)
 	request, err := client.PrepareImageWithOptions(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "grok-imagine-image-2.0",
 			Operation: media.ImageGenerate,
@@ -77,7 +76,7 @@ func TestImageStoragePreservesEachOutputAndPublicURLFailure(t *testing.T) {
 	if len(request.Snapshot().ProviderOptions) == 0 {
 		t.Fatal("storage options were not frozen in request")
 	}
-	result, err := client.SendImage(context.Background(), request)
+	result, err := client.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +137,7 @@ func TestVideoStorageSurvivesPollAndFetch(t *testing.T) {
 		model.CapabilityStrict,
 	)
 	request, err := client.PrepareVideoWithOptions(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "grok-imagine-video-1.5",
 			Prompt: []content.Block{content.TextBlock("A ball bouncing")},
@@ -148,15 +147,15 @@ func TestVideoStorageSurvivesPollAndFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submitted, err := client.SubmitVideo(context.Background(), request)
+	submitted, err := client.SubmitVideo(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	poll, err := client.PollVideo(context.Background(), *submitted.Job)
+	poll, err := client.PollVideo(t.Context(), *submitted.Job)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.FetchVideo(context.Background(), poll)
+	result, err := client.FetchVideo(t.Context(), poll)
 	if err != nil {
 		t.Fatal(err)
 	}

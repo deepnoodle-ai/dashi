@@ -102,7 +102,9 @@ comment only repeats the identifier or the code, delete it or rewrite it.
 
 - Tagged unions: a `Kind` string type, typed constants, one pointer field per
   payload, and a `Validate` method that enforces "exactly one, matching Kind".
-- JSON tags use `snake_case` with `omitempty` on optional fields.
+- JSON tags use `snake_case`. Mark optional fields `omitempty`, except struct
+  and `time.Time` fields, which need `omitzero` because `omitempty` never omits
+  them. Decode-only wire structs need neither.
 - Use initialisms consistently: `URL`, `ID`, `URI`, `MIMEType`, `JSON`.
 - Give enum constants consistent family prefixes: `RoleUser`, `ContentBlock`,
   `StopFinished`, `DeltaText`, `KindText`, and `StateSucceeded`. Use typed

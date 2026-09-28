@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -11,7 +10,7 @@ import (
 
 func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 	rec := NewMemoryRecorder()
-	rec.Claim(context.Background(), "t1", "worker-1")
+	rec.Claim(t.Context(), "t1", "worker-1")
 	start := Step{
 		Version:       1,
 		TurnID:        "t1",
@@ -25,7 +24,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		},
 	}
 	if err := rec.Commit(
-		context.Background(),
+		t.Context(),
 		CommitRequest{Step: start, ExpectedSeq: 0, Owner: "worker-1"},
 	); err != nil {
 		t.Fatal(err)
@@ -33,7 +32,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 	retried := start
 	retried.At = time.Now().UTC()
 	if err := rec.Commit(
-		context.Background(),
+		t.Context(),
 		CommitRequest{Step: retried, ExpectedSeq: 0, Owner: "worker-1"},
 	); err != nil {
 		t.Fatalf("stable command was not idempotent: %v", err)
@@ -66,19 +65,16 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 			Owner:       "worker-1",
 		},
 	} {
-		err := rec.Commit(context.Background(), req)
-		var commitErr *CommitError
-		if !errors.As(
-			err,
-			&commitErr,
-		) || commitErr.Persistence != PersistenceRejected || (!errors.Is(
+		err := rec.Commit(t.Context(), req)
+		commitErr, ok := errors.AsType[*CommitError](err)
+		if !ok || commitErr.Persistence != PersistenceRejected || (!errors.Is(
 			err,
 			ErrRevisionConflict,
 		) && !errors.Is(err, ErrCommandConflict)) {
 			t.Fatalf("expected rejected write conflict, got %v", err)
 		}
 	}
-	saved, err := rec.Load(context.Background(), "t1")
+	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil || len(saved.Steps) != 1 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}

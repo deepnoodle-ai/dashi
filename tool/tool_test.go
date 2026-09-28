@@ -30,7 +30,7 @@ func TestFuncRejectsInvalidArgumentsBeforeExecuting(t *testing.T) {
 			calls := 0
 			fn := newSearchTool(t, &calls)
 			out, err := fn.Executor.Execute(
-				context.Background(),
+				t.Context(),
 				searchCall(test.args),
 			)
 			if err != nil ||
@@ -52,7 +52,7 @@ func TestFuncExecutesValidCallWithoutSharingArguments(t *testing.T) {
 	calls := 0
 	fn := newSearchTool(t, &calls)
 	call := searchCall(`{"query":"yes"}`)
-	out, err := fn.Executor.Execute(context.Background(), call)
+	out, err := fn.Executor.Execute(t.Context(), call)
 	if err != nil ||
 		out.State != StateSucceeded ||
 		calls != 1 ||
@@ -64,7 +64,7 @@ func TestFuncExecutesValidCallWithoutSharingArguments(t *testing.T) {
 func TestFuncDoesNotExecuteCanceledCall(t *testing.T) {
 	calls := 0
 	fn := newSearchTool(t, &calls)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	out, err := fn.Executor.Execute(ctx, searchCall(`{"query":"yes"}`))
 	if err != nil || out.State != StateNotExecuted || calls != 0 {
@@ -84,7 +84,7 @@ func TestFuncReturnsCallbackResults(t *testing.T) {
 			name: "known failure",
 			outcome: Outcome{
 				State:  StateFailed,
-				Output: ptr(TextOutput("rejected")),
+				Output: new(TextOutput("rejected")),
 			},
 			check: func(out Outcome, err error) bool {
 				return err == nil && out.State == StateFailed
@@ -94,7 +94,7 @@ func TestFuncReturnsCallbackResults(t *testing.T) {
 			name: "plain error",
 			outcome: Outcome{
 				State:  StateSucceeded,
-				Output: ptr(TextOutput("maybe")),
+				Output: new(TextOutput("maybe")),
 			},
 			err: failure,
 			check: func(out Outcome, err error) bool {
@@ -105,7 +105,7 @@ func TestFuncReturnsCallbackResults(t *testing.T) {
 			name: "fatal error",
 			outcome: Outcome{
 				State:  StateSucceeded,
-				Output: ptr(TextOutput("maybe")),
+				Output: new(TextOutput("maybe")),
 			},
 			err: Fatal(failure),
 			check: func(out Outcome, err error) bool {
@@ -149,7 +149,7 @@ func TestFuncReturnsCallbackResults(t *testing.T) {
 				Args: json.RawMessage(`{}`),
 			}
 			out, err := fn.Executor.Execute(
-				context.Background(),
+				t.Context(),
 				call,
 			)
 			if !test.check(out, err) {
@@ -169,8 +169,8 @@ func TestFatalKeepsCause(t *testing.T) {
 	if !errors.Is(err, ErrFatal) {
 		t.Fatal("fatal error does not match ErrFatal")
 	}
-	var syntax *json.SyntaxError
-	if !errors.As(err, &syntax) || syntax != cause {
+	syntax, ok := errors.AsType[*json.SyntaxError](err)
+	if !ok || syntax != cause {
 		t.Fatal("fatal error lost its cause")
 	}
 	if err.Error() != cause.Error() {
@@ -202,7 +202,7 @@ func TestOutcomeValidateMatchesPayloadsToState(t *testing.T) {
 			name: "succeeded with empty output",
 			outcome: Outcome{
 				State:  StateSucceeded,
-				Output: ptr(TextOutput("")),
+				Output: new(TextOutput("")),
 			},
 			valid: true,
 		},
@@ -245,7 +245,7 @@ func TestOutcomeValidateMatchesPayloadsToState(t *testing.T) {
 			name: "failed with wait details",
 			outcome: Outcome{
 				State:  StateFailed,
-				Output: ptr(TextOutput("no")),
+				Output: new(TextOutput("no")),
 				Wait:   &Wait{Reason: "approval"},
 			},
 		},
@@ -289,10 +289,9 @@ func newSearchTool(t *testing.T, calls *int) Tool {
 				)
 			}
 			call.Args[0] = '['
-			output := TextOutput("found")
 			return Outcome{
 				State:  StateSucceeded,
-				Output: &output,
+				Output: new(TextOutput("found")),
 			}, nil
 		},
 	)
@@ -304,8 +303,4 @@ func newSearchTool(t *testing.T, calls *int) Tool {
 
 func searchCall(args string) Call {
 	return Call{ID: "call-1", Name: "search", Args: json.RawMessage(args)}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

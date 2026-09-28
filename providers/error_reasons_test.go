@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -319,13 +318,13 @@ func TestProviderRejectionsCarryReasons(t *testing.T) {
 					})),
 				)
 			}
-			prepared, err := p.Prepare(context.Background(), input)
+			prepared, err := p.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = p.Send(context.Background(), llm.Call{Request: prepared})
-			var e *llm.Error
-			if !errors.As(err, &e) {
+			_, err = p.Send(t.Context(), llm.Call{Request: prepared})
+			e, ok := errors.AsType[*llm.Error](err)
+			if !ok {
 				t.Fatalf("err = %v, want *llm.Error", err)
 			}
 			if e.Category != tt.category || e.Reason != tt.want {
@@ -519,12 +518,12 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 					})),
 				)
 			}
-			prepared, err := p.Prepare(context.Background(), input)
+			prepared, err := p.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			_, err = p.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: prepared,
 					Sink: func(llm.Delta) {
@@ -532,11 +531,8 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 					},
 				},
 			)
-			var e *llm.Error
-			if !errors.As(
-				err,
-				&e,
-			) || e.Category != llm.ErrorProtocol || e.Reason != tt.want {
+			e, ok := errors.AsType[*llm.Error](err)
+			if !ok || e.Category != llm.ErrorProtocol || e.Reason != tt.want {
 				t.Fatalf("err = %v, want protocol error with reason %q", err, tt.want)
 			}
 		})

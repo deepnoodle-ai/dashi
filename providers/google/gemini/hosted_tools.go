@@ -72,8 +72,7 @@ func hostedDefinition(
 	}
 	if toolType == "googleSearch" || toolType == "urlContext" ||
 		toolType == "fileSearch" {
-		readOnly := true
-		definition.Annotations.ReadOnly = &readOnly
+		definition.Annotations.ReadOnly = new(true)
 	}
 	return definition
 }

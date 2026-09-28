@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -124,7 +123,7 @@ func TestDiveDestinationAdapters(t *testing.T) {
 				)
 			}
 			prepared, err := client.Prepare(
-				context.Background(),
+				t.Context(),
 				llm.Input{
 					Model:    "requested",
 					Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
@@ -137,7 +136,7 @@ func TestDiveDestinationAdapters(t *testing.T) {
 				t.Fatal("Prepare dispatched")
 			}
 			result, err := client.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: prepared,
 				},
@@ -190,7 +189,7 @@ func TestDeepInfraRejectsBinaryDocument(t *testing.T) {
 				}))),
 		},
 	}
-	if _, err := client.Prepare(context.Background(), input); err == nil {
+	if _, err := client.Prepare(t.Context(), input); err == nil {
 		t.Fatal("DeepInfra accepted a binary document")
 	}
 }

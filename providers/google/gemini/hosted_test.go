@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "test-model",
 			Messages: []llm.Message{llm.UserMessage(llm.Text("Research"))},
@@ -73,7 +72,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 		Messages: []llm.Message{llm.UserMessage(llm.Text("Find"))},
 		Tools:    []tool.Definition{definition},
 	}
-	if _, err := client.Prepare(context.Background(), input); err == nil {
+	if _, err := client.Prepare(t.Context(), input); err == nil {
 		t.Fatal("file search used v1 without evidence")
 	}
 	beta, err := New(Config{
@@ -83,7 +82,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := beta.Prepare(context.Background(), input); err != nil {
+	if _, err := beta.Prepare(t.Context(), input); err != nil {
 		t.Fatalf("prepare v1beta file search: %v", err)
 	}
 }
@@ -128,7 +127,7 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 		t.Fatal("code result lost its call pairing")
 	}
 	_, err = client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model: "test-model",
 			Messages: []llm.Message{

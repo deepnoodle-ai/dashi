@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -54,7 +53,7 @@ func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := stable.Prepare(
-		context.Background(),
+		t.Context(),
 		sampleInput(false),
 	); err == nil ||
 		!strings.Contains(err.Error(), "v1beta") {
@@ -65,7 +64,7 @@ func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
 	}
 	history := geminiToolHistory("call-1")
 	history.Tools = nil
-	if _, err := stable.Prepare(context.Background(), history); err == nil ||
+	if _, err := stable.Prepare(t.Context(), history); err == nil ||
 		!strings.Contains(err.Error(), "v1beta") {
 		t.Fatalf(
 			"v1 client function history was not rejected before dispatch: %v",
@@ -79,7 +78,7 @@ func TestClientFunctionCallingUsesV1Beta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := client.Prepare(context.Background(), sampleInput(false))
+	request, err := client.Prepare(t.Context(), sampleInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
-	prepared, err := p.Prepare(context.Background(), sampleInput(false))
+	prepared, err := p.Prepare(t.Context(), sampleInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +115,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 	) {
 		t.Fatalf("preparation sent or lost tools: %s", prepared.Body())
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +145,7 @@ func TestPrepareSendAndReplaySignedParts(t *testing.T) {
 			},
 		}),
 	)
-	preparedReplay, err := p.Prepare(context.Background(), replay)
+	preparedReplay, err := p.Prepare(t.Context(), replay)
 	if err != nil {
 		t.Fatalf("signed Gemini turn did not replay: %v", err)
 	}
@@ -179,13 +178,13 @@ func TestStreamCollectsTextSignatureAndUsage(t *testing.T) {
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
-	prepared, err := p.Prepare(context.Background(), sampleInput(true))
+	prepared, err := p.Prepare(t.Context(), sampleInput(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var deltas []llm.Delta
 	result, err := p.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: prepared,
 			Sink: func(d llm.Delta) {
@@ -234,14 +233,14 @@ func TestVertexUsesSDKRouteAndFrozenBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := p.Prepare(context.Background(), sampleInput(false))
+	prepared, err := p.Prepare(t.Context(), sampleInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sent != nil {
 		t.Fatal("Vertex preparation made a real request")
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,20 +326,18 @@ func TestSDKAPIErrorPreservesStatusAndBody(t *testing.T) {
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
-	prepared, err := p.Prepare(context.Background(), sampleInput(false))
+	prepared, err := p.Prepare(t.Context(), sampleInput(false))
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := p.Send(context.Background(), llm.Call{Request: prepared})
-	var failure *llm.Error
-	if !errors.As(
-		err,
-		&failure,
-	) || failure.Category != llm.ErrorRateLimited || failure.Status != 429 ||
-		!failure.Retryable || !bytes.Contains(
-		failure.Body,
-		[]byte("slow down"),
-	) || result.Stop.Kind != llm.StopIncomplete {
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok ||
+		failure.Category != llm.ErrorRateLimited ||
+		failure.Status != 429 ||
+		!failure.Retryable ||
+		!bytes.Contains(failure.Body, []byte("slow down")) ||
+		result.Stop.Kind != llm.StopIncomplete {
 		t.Fatalf("SDK API error was misclassified: result=%+v err=%v", result, err)
 	}
 }

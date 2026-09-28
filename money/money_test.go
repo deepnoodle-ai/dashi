@@ -213,7 +213,7 @@ func TestAmountHasOneSpelling(t *testing.T) {
 	}
 }
 
-func TestAmountJSONReadsLegacyNumbersExactly(t *testing.T) {
+func TestAmountJSONReadsBareNumbersExactly(t *testing.T) {
 	for _, tc := range []struct {
 		raw   string
 		nanos int64
@@ -227,7 +227,7 @@ func TestAmountJSONReadsLegacyNumbersExactly(t *testing.T) {
 		{`1E-7`, 100},
 		{`2.5e+2`, 250_000_000_000},
 		{`1.5e3`, 1_500_000_000_000},
-		// A float sum written before exact amounts rounds to the nano.
+		// A float sum rounds to the nano.
 		{`0.30000000000000004`, 300_000_000},
 		{`0.00014000000000000001`, 140_000},
 		// Ties round to even.

@@ -718,10 +718,8 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if !digestMatches(
-			step.Approval.ArgsDigest,
-			v.Call.Args,
-		) || v.Decision.Revision != step.Approval.PolicyRevision {
+		if step.Approval.ArgsDigest != ArgsDigest(v.Call.Args) ||
+			v.Decision.Revision != step.Approval.PolicyRevision {
 			return errors.New("stale approval")
 		}
 		if step.Approval.Approve {
@@ -1084,6 +1082,9 @@ func validateStepPayload(step Step) error {
 	case StepModelIntent, StepModelSettled, StepModelReconciled:
 		if step.Model == nil {
 			return errors.New("model payload missing")
+		}
+		if !step.Model.CapabilityPolicy.Valid() {
+			return errors.New("invalid capability policy")
 		}
 	case StepToolDecision, StepToolStarted, StepToolWaiting, StepToolSettled:
 		if step.Tool == nil {

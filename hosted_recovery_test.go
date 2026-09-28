@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"context"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/content"
@@ -45,7 +44,7 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		Origin:    origin,
 	}
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Accept{
@@ -58,7 +57,7 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		t.Fatal("incomplete hosted approval was accepted")
 	}
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Continue{ID: "resume"},
@@ -111,7 +110,7 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	canceled, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Cancel{ID: "cancel"},

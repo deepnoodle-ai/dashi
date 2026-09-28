@@ -163,7 +163,7 @@ func testRecovery(
 		}
 		result := tool.Outcome{
 			State:  tool.StateSucceeded,
-			Output: ptr(tool.TextOutput("verified by the host")),
+			Output: new(tool.TextOutput("verified by the host")),
 		}
 		out = apply(
 			t,
@@ -627,7 +627,7 @@ func (c *countingTool) Execute(
 	c.mu.Unlock()
 	return tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("worked")),
+		Output: new(tool.TextOutput("worked")),
 	}, nil
 }
 
@@ -653,8 +653,4 @@ func claim(t *testing.T, s kerneltest.Store, id, owner string) {
 	if err := s.Claim(t.Context(), id, owner); err != nil {
 		t.Fatalf("claim %q for %q: %v", id, owner, err)
 	}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

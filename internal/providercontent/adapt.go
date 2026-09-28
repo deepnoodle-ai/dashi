@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"unicode/utf8"
@@ -564,11 +565,7 @@ func toolIDRemaps(input llm.Input) map[string]string {
 			}
 		}
 	}
-	ids := make([]string, 0, len(unsupported))
-	for id := range unsupported {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
+	ids := slices.Sorted(maps.Keys(unsupported))
 	remapped := make(map[string]string, len(ids))
 	for _, id := range ids {
 		for probe := 0; ; probe++ {

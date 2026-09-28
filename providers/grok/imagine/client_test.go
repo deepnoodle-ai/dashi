@@ -1,7 +1,6 @@
 package imagine
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -46,14 +45,14 @@ func TestImageCallUsesPreparedJSONAndReturnsURL(t *testing.T) {
 		Operation: media.ImageGenerate,
 		Prompt:    []content.Block{content.TextBlock("A quiet lake")},
 	}
-	request, err := client.PrepareImage(context.Background(), input)
+	request, err := client.PrepareImage(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 0 {
 		t.Fatal("preparation made a network request")
 	}
-	result, err := client.SendImage(context.Background(), request)
+	result, err := client.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,29 +103,29 @@ func TestVideoJobSeparatesSubmitPollAndFetch(t *testing.T) {
 		Prompt:   []content.Block{content.TextBlock("A quiet lake at sunrise")},
 		Settings: media.VideoSettings{Duration: 8 * time.Second},
 	}
-	request, err := client.PrepareVideo(context.Background(), input)
+	request, err := client.PrepareVideo(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 0 {
 		t.Fatal("preparation made a network request")
 	}
-	submission, err := client.SubmitVideo(context.Background(), request)
+	submission, err := client.SubmitVideo(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if submission.State != media.SubmissionAccepted || submission.Job == nil {
 		t.Fatalf("submission = %+v", submission)
 	}
-	pending, err := client.PollVideo(context.Background(), *submission.Job)
+	pending, err := client.PollVideo(t.Context(), *submission.Job)
 	if err != nil || pending.State != media.JobPending {
 		t.Fatalf("pending poll = %+v, %v", pending, err)
 	}
-	done, err := client.PollVideo(context.Background(), *submission.Job)
+	done, err := client.PollVideo(t.Context(), *submission.Job)
 	if err != nil || done.State != media.JobSucceeded {
 		t.Fatalf("completed poll = %+v, %v", done, err)
 	}
-	result, err := client.FetchVideo(context.Background(), done)
+	result, err := client.FetchVideo(t.Context(), done)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestVideoSubmitOutcomeStaysUnknownAfterTransportFailure(t *testing.T) {
 		model.CapabilityAdjust,
 	)
 	request, err := client.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "unlisted-video-model",
 			Prompt: []content.Block{content.TextBlock("Waves")},
@@ -174,7 +173,7 @@ func TestVideoSubmitOutcomeStaysUnknownAfterTransportFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submission, err := client.SubmitVideo(context.Background(), request)
+	submission, err := client.SubmitVideo(t.Context(), request)
 	if err == nil ||
 		submission.State != media.SubmissionUnknown ||
 		submission.Job != nil {
@@ -207,7 +206,7 @@ func TestVideoSubmitHTTPOutcomes(t *testing.T) {
 				model.CapabilityStrict,
 			)
 			request, err := client.PrepareVideo(
-				context.Background(),
+				t.Context(),
 				media.VideoInput{
 					Model:  "grok-imagine-video-1.5",
 					Prompt: []content.Block{content.TextBlock("Waves")},
@@ -216,7 +215,7 @@ func TestVideoSubmitHTTPOutcomes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			submission, err := client.SubmitVideo(context.Background(), request)
+			submission, err := client.SubmitVideo(t.Context(), request)
 			if err == nil || submission.State != tc.state || submission.Job != nil {
 				t.Fatalf("submission = %+v, err = %v", submission, err)
 			}
@@ -236,7 +235,7 @@ func TestVideoSubmitWithoutUsableHandleStaysUnknown(t *testing.T) {
 		model.CapabilityStrict,
 	)
 	request, err := client.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "grok-imagine-video-1.5",
 			Prompt: []content.Block{content.TextBlock("Waves")},
@@ -245,7 +244,7 @@ func TestVideoSubmitWithoutUsableHandleStaysUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submission, err := client.SubmitVideo(context.Background(), request)
+	submission, err := client.SubmitVideo(t.Context(), request)
 	if err == nil ||
 		submission.State != media.SubmissionUnknown ||
 		submission.Job != nil {
@@ -272,7 +271,7 @@ func TestVideoPollTreatsModerationFilterAsFailedOutput(t *testing.T) {
 		Kind:   media.KindVideo,
 		Origin: client.origin(VideoAPI, "grok-imagine-video-1.5"),
 	}
-	poll, err := client.PollVideo(context.Background(), job)
+	poll, err := client.PollVideo(t.Context(), job)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +299,7 @@ func TestPreparedImageCannotCrossCredentialScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := clientA.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "unlisted-image-model",
 			Operation: media.ImageGenerate,
@@ -310,7 +309,7 @@ func TestPreparedImageCannotCrossCredentialScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := clientB.SendImage(context.Background(), request); err == nil {
+	if _, err := clientB.SendImage(t.Context(), request); err == nil {
 		t.Fatal("prepared request crossed credential scope")
 	}
 }
@@ -332,7 +331,7 @@ func TestNewCustomEndpointRequiresProviderIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := client.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "unlisted-image-model",
 			Operation: media.ImageGenerate,

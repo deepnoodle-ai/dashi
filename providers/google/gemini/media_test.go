@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -80,7 +79,7 @@ func TestMediaImagePrepareAndSend(t *testing.T) {
 		Prompt:    []content.Block{content.TextBlock("a cat")},
 		Settings:  media.ImageSettings{AspectRatio: "16:9", Resolution: "2K"},
 	}
-	request, err := p.PrepareImage(context.Background(), in)
+	request, err := p.PrepareImage(t.Context(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestMediaImagePrepareAndSend(t *testing.T) {
 		)
 	}
 	in.Prompt[0].Text.Text = "changed"
-	result, err := p.SendImage(context.Background(), request)
+	result, err := p.SendImage(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +170,7 @@ func TestMediaVeoJobLifecycle(t *testing.T) {
 	defer server.Close()
 	p := newMediaFixture(t, server)
 	request, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "veo",
 			Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -187,23 +186,23 @@ func TestMediaVeoJobLifecycle(t *testing.T) {
 	if submitted != 0 {
 		t.Fatal("preparation submitted a job")
 	}
-	submission, err := p.SubmitVideo(context.Background(), request)
+	submission, err := p.SubmitVideo(t.Context(), request)
 	if err != nil ||
 		submission.State != media.SubmissionAccepted ||
 		submission.Job == nil {
 		t.Fatalf("submission: %+v, %v", submission, err)
 	}
-	first, err := p.PollVideo(context.Background(), *submission.Job)
+	first, err := p.PollVideo(t.Context(), *submission.Job)
 	if err != nil || first.State != media.JobPending {
 		t.Fatalf("pending poll: %+v, %v", first, err)
 	}
-	second, err := p.PollVideo(context.Background(), *submission.Job)
+	second, err := p.PollVideo(t.Context(), *submission.Job)
 	if err != nil ||
 		second.State != media.JobSucceeded ||
 		len(second.Content) != 1 {
 		t.Fatalf("completed poll: %+v, %v", second, err)
 	}
-	result, err := p.FetchVideo(context.Background(), second)
+	result, err := p.FetchVideo(t.Context(), second)
 	if err != nil ||
 		string(result.Content[0].Video.Source.Data) != "video-data" ||
 		submitted != 1 || polled != 2 || fetched != 1 {
@@ -268,7 +267,7 @@ func TestMediaVeoUnknownSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "veo",
 			Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -277,12 +276,9 @@ func TestMediaVeoUnknownSubmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submission, err := p.SubmitVideo(context.Background(), request)
-	var mediaErr *media.Error
-	if submission.State != media.SubmissionUnknown || !errors.As(
-		err,
-		&mediaErr,
-	) ||
+	submission, err := p.SubmitVideo(t.Context(), request)
+	mediaErr, ok := errors.AsType[*media.Error](err)
+	if submission.State != media.SubmissionUnknown || !ok ||
 		mediaErr.Category != media.ErrorTransport {
 		t.Fatalf("transport outcome: %+v, %v", submission, err)
 	}
@@ -297,7 +293,7 @@ func TestMediaInlineEditAndInitialFrame(t *testing.T) {
 		MIMEType: "image/png",
 	})
 	edit, err := p.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:           "gemini-image",
 			Operation:       media.ImageEdit,
@@ -326,7 +322,7 @@ func TestMediaInlineEditAndInitialFrame(t *testing.T) {
 		t.Fatalf("edit did not encode reference image: %+v", imageBody)
 	}
 	video, err := p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:           "veo",
 			ReferenceFrames: []content.Block{image},
@@ -369,7 +365,7 @@ func TestMediaSubmissionHTTPOutcome(t *testing.T) {
 			defer server.Close()
 			p := newMediaFixture(t, server)
 			request, err := p.PrepareVideo(
-				context.Background(),
+				t.Context(),
 				media.VideoInput{
 					Model:  "veo",
 					Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -378,10 +374,10 @@ func TestMediaSubmissionHTTPOutcome(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			outcome, err := p.SubmitVideo(context.Background(), request)
-			var mediaErr *media.Error
+			outcome, err := p.SubmitVideo(t.Context(), request)
+			mediaErr, ok := errors.AsType[*media.Error](err)
 			if outcome.State != tc.want || outcome.Job != nil ||
-				!errors.As(err, &mediaErr) || mediaErr.Status != tc.status {
+				!ok || mediaErr.Status != tc.status {
 				t.Fatalf("status %d: outcome=%+v, error=%v", tc.status, outcome, err)
 			}
 		})
@@ -416,15 +412,15 @@ func TestMediaModelEvidenceControlsPreparation(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = p.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "gemini-image",
 			Operation: media.ImageGenerate,
 			Prompt:    []content.Block{content.TextBlock("a cat")},
 		},
 	)
-	var mediaErr *media.Error
-	if !errors.As(err, &mediaErr) || mediaErr.Category != media.ErrorUnsupported {
+	mediaErr, ok := errors.AsType[*media.Error](err)
+	if !ok || mediaErr.Category != media.ErrorUnsupported {
 		t.Fatalf("known rejection was not enforced: %v", err)
 	}
 	info.Evidence.Endpoint = server.URL + "/v1/models/other:generateContent"
@@ -450,7 +446,7 @@ func TestMediaRejectsUnsupportedAndForeignOutput(t *testing.T) {
 	defer server.Close()
 	p := newMediaFixture(t, server)
 	_, err := p.PrepareImage(
-		context.Background(),
+		t.Context(),
 		media.ImageInput{
 			Model:     "gemini-image",
 			Operation: media.ImageEdit,
@@ -474,7 +470,7 @@ func TestMediaRejectsUnsupportedAndForeignOutput(t *testing.T) {
 		t.Fatalf("expected explicit mask rejection, got %v", err)
 	}
 	_, err = p.PrepareVideo(
-		context.Background(),
+		t.Context(),
 		media.VideoInput{
 			Model:  "veo",
 			Prompt: []content.Block{content.TextBlock("a sunrise")},
@@ -498,7 +494,7 @@ func TestMediaRejectsUnsupportedAndForeignOutput(t *testing.T) {
 		Kind:   media.KindVideo,
 		Origin: p.videoOrigin("veo"),
 	}
-	_, err = p.PollVideo(context.Background(), job)
+	_, err = p.PollVideo(t.Context(), job)
 	if err == nil || !strings.Contains(err.Error(), "outside") {
 		t.Fatalf("expected foreign output URI rejection, got %v", err)
 	}

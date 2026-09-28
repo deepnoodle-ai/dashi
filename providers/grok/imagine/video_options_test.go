@@ -1,7 +1,6 @@
 package imagine
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -84,7 +83,7 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 		GenerateAudio:   &silent,
 	}
 	request, err := client.PrepareVideoWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		options,
 	)
@@ -264,7 +263,7 @@ func TestVideoEditAndExtendUseSeparateJobEndpoints(t *testing.T) {
 				Settings:  media.VideoSettings{Duration: tc.duration},
 			}
 			request, err := client.PrepareVideoWithOptions(
-				context.Background(),
+				t.Context(),
 				input,
 				VideoOptions{
 					SourceVideo: &source,
@@ -276,7 +275,7 @@ func TestVideoEditAndExtendUseSeparateJobEndpoints(t *testing.T) {
 			if len(request.Snapshot().Unverified) == 0 {
 				t.Fatal("unverified transform capability was not recorded")
 			}
-			submission, err := client.SubmitVideo(context.Background(), request)
+			submission, err := client.SubmitVideo(t.Context(), request)
 			if err != nil ||
 				submission.State != media.SubmissionAccepted ||
 				calls != 1 {
@@ -406,7 +405,7 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 		Prompt: []content.Block{content.TextBlock("Move")},
 	}
 	request, err := client.PrepareVideoWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		VideoOptions{
 			ReferenceImages: []content.Block{image},
@@ -430,7 +429,7 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 	})
 	input.Operation = media.VideoEdit
 	request, err = client.PrepareVideoWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		VideoOptions{
 			SourceVideo: &source,
@@ -451,7 +450,7 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 	bad := source.Clone()
 	bad.Video.Source.Origin.Scope = "wrong"
 	if _, err := client.PrepareVideoWithOptions(
-		context.Background(),
+		t.Context(),
 		input,
 		VideoOptions{
 			SourceVideo: &bad,

@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"testing"
@@ -112,7 +111,7 @@ func TestIteratorBreakCancelsProviderHTTPRequest(t *testing.T) {
 		},
 	)
 	request, err := client.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "requested",
 			Stream:   true,
@@ -124,7 +123,7 @@ func TestIteratorBreakCancelsProviderHTTPRequest(t *testing.T) {
 	}
 	seen := false
 	for event, err := range llm.Stream(
-		context.Background(),
+		t.Context(),
 		client,
 		llm.Call{
 			Request: request,

@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/deepnoodle-ai/kernel/content"
-	"github.com/deepnoodle-ai/kernel/internal/policyrecord"
 )
 
 // RequestSnapshot records preparation evidence without execution state. Input
@@ -56,33 +54,6 @@ type RequestSnapshot struct {
 	// support is unknown. They are recorded, not warned about: until a model
 	// is described, every call would otherwise warn.
 	Unverified []Feature `json:"unverified,omitempty"`
-}
-
-// UnmarshalJSON reads capability_policy, or maps the legacy
-// unknown_capabilities field it replaced: "allow" is adjust and "reject" is
-// strict. A record with neither field predates both and decodes as strict,
-// because the legacy zero value rejected unknown support; reading it as the
-// current default would change what the evidence says.
-func (p *RequestSnapshot) UnmarshalJSON(data []byte) error {
-	type plain RequestSnapshot
-	var raw struct {
-		plain
-		CapabilityPolicy    *CapabilityPolicy `json:"capability_policy"`
-		UnknownCapabilities *string           `json:"unknown_capabilities"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	policy, err := policyrecord.Decode(
-		raw.CapabilityPolicy,
-		raw.UnknownCapabilities,
-	)
-	if err != nil {
-		return fmt.Errorf("llm: %w", err)
-	}
-	*p = RequestSnapshot(raw.plain)
-	p.CapabilityPolicy = policy
-	return nil
 }
 
 // Request owns immutable, destination-bound intent. Each Send is a separate

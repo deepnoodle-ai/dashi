@@ -87,8 +87,8 @@ func (p *InteractionsVideoJobClient) SubmitVideo(
 	}
 	raw, err := p.client.do(ctx, request.Body())
 	if err != nil {
-		var providerErr *media.Error
-		if errors.As(err, &providerErr) && providerErr.Status >= 400 &&
+		providerErr, ok := errors.AsType[*media.Error](err)
+		if ok && providerErr.Status >= 400 &&
 			providerErr.Status < 500 &&
 			providerErr.Status != 408 &&
 			providerErr.Status != 409 &&
@@ -188,11 +188,8 @@ func (p *InteractionsVideoJobClient) PollVideo(
 	endpoint := p.fileURL(job.ID, false)
 	raw, err := p.getFile(ctx, endpoint, maxOperationBytes, false)
 	if err != nil {
-		var providerErr *media.Error
-		if errors.As(
-			err,
-			&providerErr,
-		) && providerErr.Status == http.StatusNotFound &&
+		providerErr, ok := errors.AsType[*media.Error](err)
+		if ok && providerErr.Status == http.StatusNotFound &&
 			job.ExpiresAt != nil && !time.Now().Before(*job.ExpiresAt) {
 			return media.JobPoll{Job: job.Clone(), State: media.JobExpired}, nil
 		}

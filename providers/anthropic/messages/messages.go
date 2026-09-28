@@ -183,12 +183,11 @@ func (p *Client) Prepare(
 		body["temperature"] = *t
 	}
 	if s := r.Settings.Reasoning; s != nil {
-		for i := len(r.Messages) - 1; i >= 0; i-- {
-			if r.Messages[i].Role == llm.RoleSystem ||
-				r.Messages[i].Role == llm.RoleDeveloper {
+		for _, m := range slices.Backward(r.Messages) {
+			if m.Role == llm.RoleSystem || m.Role == llm.RoleDeveloper {
 				continue
 			}
-			if r.Messages[i].Role == llm.RoleAssistant {
+			if m.Role == llm.RoleAssistant {
 				return llm.Request{}, wire.unsupported(
 					"assistant prefill with reasoning; " +
 						"end the history with a user message or remove Reasoning",

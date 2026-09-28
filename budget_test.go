@@ -86,7 +86,7 @@ func runBudgetTurn(
 		policy = AllowLocalPolicy{}
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "budget"},
 		def,
 		Start{
@@ -112,7 +112,7 @@ func budgetLookup(cost *tool.Cost) tool.Tool {
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("done")),
+				Output: new(tool.TextOutput("done")),
 				Cost:   cost,
 			}, nil
 		}),
@@ -255,7 +255,7 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 			},
 		},
 	}
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 		Policy:   AllowLocalPolicy{},
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "raise"},
 		def,
 		Start{
@@ -385,7 +385,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	}
 	raised := &Budget{MaxCost: &Money{Amount: amount("0.003"), Currency: "USD"}}
 	out, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Continue{ID: "raise", Budget: raised},
@@ -542,7 +542,7 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 		Policy: AllowLocalPolicy{},
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "tokens"},
 		def,
 		Start{
@@ -563,7 +563,7 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 		t.Fatalf("first allowance=%d", client.inputs[0].Settings.MaxTokens)
 	}
 	out, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Continue{ID: "raise", Budget: &Budget{MaxOutputTokens: 100}},
@@ -602,7 +602,7 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	def := definition()
 	def.Settings.MaxTokens = 100
 	_, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Continue{
@@ -683,7 +683,7 @@ func (c *cancelingPricedClient) Send(
 
 func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &cancelingPricedClient{
 		pricedClient: newPricedClient(),
@@ -785,7 +785,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			def.Settings.MaxTokens = 100
 			client := newPricedClient(final("unused"))
 			continued, err := (Engine{}).Apply(
-				context.Background(),
+				t.Context(),
 				out.Turn,
 				def,
 				Continue{ID: "resume"},

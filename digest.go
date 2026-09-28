@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"strings"
 
 	"github.com/deepnoodle-ai/kernel/internal/canonjson"
 )
@@ -15,9 +14,7 @@ import (
 // Kernel makes between a recorded value and a live one still agrees. See
 // package canonjson for the canonical form and its exact guarantee.
 
-// digestPrefix marks a digest of a value's canonical JSON. Digests written
-// before canonical hashing are bare hex of the json.Marshal output; see
-// digestMatches.
+// digestPrefix names the hash and the canonical encoding a digest covers.
 const digestPrefix = "v2:sha256:"
 
 // digest identifies v by the SHA-256 of its canonical JSON.
@@ -54,22 +51,4 @@ func commandDigest(c Command) (string, error) {
 // sameJSONValue reports whether a and b encode to the same JSON meaning.
 func sameJSONValue(a, b any) bool {
 	return digest(a) == digest(b)
-}
-
-// digestMatches reports whether stored, a digest taken from a turn record or
-// supplied by the application, identifies v.
-//
-// Compatibility: records written before canonical hashing hold bare hex of
-// json.Marshal output. Such a digest is checked the old way, so those turns
-// keep working, though it matches only while v's encoding is byte-identical.
-func digestMatches(stored string, v any) bool {
-	if strings.HasPrefix(stored, digestPrefix) {
-		return stored == digest(v)
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return false
-	}
-	h := sha256.Sum256(b)
-	return stored == hex.EncodeToString(h[:])
 }

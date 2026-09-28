@@ -2,7 +2,6 @@ package completions
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -48,7 +47,7 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 			client := testClient(t, server.URL)
 			input := remapCompletionsInput(stream)
 			original := completionsJSON(t, input)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +120,7 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 			if messages[4].Content != "finished needs mapping" {
 				t.Fatalf("second result text changed: %q", messages[4].Content)
 			}
-			again, err := client.Prepare(context.Background(), input)
+			again, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +154,7 @@ func TestPrepareRemapsParallelToolIDsAndSendsFrozenBody(t *testing.T) {
 			input.Messages[2].Content[1].ToolResult.CallID = "mutated"
 			changes[0].ToID = "mutated"
 			if _, err := client.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: restored,
 				},

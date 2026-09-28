@@ -123,10 +123,9 @@ func (a Amount) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON reads a decimal string exactly, as ParseAmount does. It also
 // reads a bare JSON number, including exponent forms such as 1e-7, from its
-// decimal text without passing through float64. A bare number is what records
-// written before exact amounts contain, and what some provider APIs report; it
-// originated as a binary float, so digits beyond the nano are rounded half to
-// even rather than rejected. JSON null leaves the amount unchanged.
+// decimal text without passing through float64. A bare number is what some
+// provider APIs report; it originated as a binary float, so digits beyond the
+// nano are rounded half to even rather than rejected. JSON null leaves the amount unchanged.
 func (a *Amount) UnmarshalJSON(data []byte) error {
 	text := string(data)
 	if text == "null" {

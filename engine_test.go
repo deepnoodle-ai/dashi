@@ -129,7 +129,7 @@ func start(
 ) (Outcome, error) {
 	t.Helper()
 	return (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
@@ -155,7 +155,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 		t.Fatalf("view=%+v", view)
 	}
 	again, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
@@ -168,7 +168,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 		t.Fatalf("duplicate repeated model: %+v", again.Stop)
 	}
 	stale, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
@@ -217,10 +217,10 @@ func TestExternalToolAcceptance(t *testing.T) {
 	}
 	out := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("result")),
+		Output: new(tool.TextOutput("result")),
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Accept{ID: "result-1", CallID: "call-1", Outcome: &out},
@@ -238,7 +238,7 @@ func TestExternalToolAcceptance(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -260,7 +260,7 @@ func TestExternalToolAcceptance(t *testing.T) {
 		t.Fatalf("missing paired tool result: %+v", last)
 	}
 	same, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		completed.Turn,
 		definition(),
 		Accept{ID: "result-1", CallID: "call-1", Outcome: &out},
@@ -356,7 +356,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ran")),
+				Output: new(tool.TextOutput("ran")),
 			}, nil
 		}),
 	}
@@ -367,12 +367,12 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	if got.Persistence != PersistenceRejected || runs != 0 {
 		t.Fatalf("first outcome=%+v runs=%d", got, runs)
 	}
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		Continue{ID: "recover"},
@@ -436,7 +436,7 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 			}
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ok")),
+				Output: new(tool.TextOutput("ok")),
 			}, nil
 		}),
 	}
@@ -472,7 +472,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ok")),
+				Output: new(tool.TextOutput("ok")),
 			}, nil
 		}),
 	}
@@ -490,7 +490,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		PolicyRevision: "policy-v1",
 	}
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Accept{ID: "bad", CallID: "call-1", Approval: &bad},
@@ -515,7 +515,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		PolicyRevision: "policy-v1",
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Accept{ID: "approve", CallID: "call-1", Approval: &good},
@@ -533,7 +533,7 @@ func TestApprovalBoundToCallAndPolicy(t *testing.T) {
 		t.Fatalf("accepted=%+v runs=%d", accepted, runs)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -560,7 +560,7 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
 		if err := rec.Commit(
-			context.Background(),
+			t.Context(),
 			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
 		); err != nil {
 			t.Fatal(err)
@@ -591,7 +591,7 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 	})
 	answer := final("recovered")
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Accept{
@@ -608,7 +608,7 @@ func TestAcceptedModelResultDoesNotSendAgain(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		def,
 		Continue{ID: "continue"},
@@ -630,7 +630,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
 		if err := rec.Commit(
-			context.Background(),
+			t.Context(),
 			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
 		); err != nil {
 			t.Fatal(err)
@@ -665,7 +665,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 		},
 	})
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Continue{ID: "recover"},
@@ -694,7 +694,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Continue{ID: "retry"},
@@ -706,7 +706,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	answer := final("recovered")
 	answer.Usage = &llm.Usage{InputTokens: 5}
 	settled, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Accept{
@@ -723,7 +723,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 		t.Fatalf("settled=%+v sends=%d", settled, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		settled.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -799,7 +799,7 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 		Origin:    origin,
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Accept{
@@ -816,7 +816,7 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "continue"},
@@ -835,7 +835,7 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 	rec := NewMemoryRecorder()
 	events := make(chan Event, 8)
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}},
@@ -884,7 +884,7 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("ran")),
+				Output: new(tool.TextOutput("ran")),
 			}, nil
 		}),
 	}
@@ -923,7 +923,7 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 		t.Fatalf("first stop=%+v", first.Stop)
 	}
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Continue{ID: "resume"},
@@ -985,7 +985,7 @@ func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 			case <-secondSettled:
 				return tool.Outcome{
 					State:  tool.StateSucceeded,
-					Output: ptr(tool.TextOutput("first result")),
+					Output: new(tool.TextOutput("first result")),
 				}, nil
 			case <-time.After(5 * time.Second):
 				return tool.Outcome{}, errors.New("second tool did not settle concurrently")
@@ -1001,7 +1001,7 @@ func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("second result")),
+				Output: new(tool.TextOutput("second result")),
 			}, nil
 		}),
 	}
@@ -1051,7 +1051,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
 		if err := rec.Commit(
-			context.Background(),
+			t.Context(),
 			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
 		); err != nil {
 			t.Fatal(err)
@@ -1109,10 +1109,10 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}})
 	outcome := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("verified")),
+		Output: new(tool.TextOutput("verified")),
 	}
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		turn,
 		def,
 		Accept{ID: "reconcile", CallID: "a", Outcome: &outcome},
@@ -1125,7 +1125,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
 	}
 	completed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		def,
 		Continue{ID: "continue"},
@@ -1146,7 +1146,7 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 	if got.Persistence != PersistenceRejected || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
 		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
 	}
-	saved, err := rec.Load(context.Background(), "t1")
+	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,7 +1165,7 @@ func TestChangedDefinitionAndCommandConflict(t *testing.T) {
 	changed := definition()
 	changed.Revision = "r2"
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		changed,
 		Continue{ID: "continue"},
@@ -1175,7 +1175,7 @@ func TestChangedDefinitionAndCommandConflict(t *testing.T) {
 		t.Fatalf("definition error=%v", err)
 	}
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.Turn,
 		definition(),
 		Start{
@@ -1194,7 +1194,7 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	rec := NewMemoryRecorder()
 	client := &scriptedClient{results: []llm.Result{final("first")}}
 	got, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		t0,
 		definition(),
 		Start{ID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
@@ -1288,7 +1288,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	if got.Persistence != PersistenceUnknown || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
 		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
 	}
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1300,7 +1300,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 		t.Fatalf("saved intent is not ready: view=%+v err=%v", view, err)
 	}
 	recovered, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		Continue{ID: "retry"},
@@ -1323,12 +1323,12 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	if err != nil || first.Persistence != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	saved, err := base.Load(context.Background(), "t1")
+	saved, err := base.Load(t.Context(), "t1")
 	if err != nil || saved.Steps[len(saved.Steps)-1].Kind != StepModelSettled || saved.Steps[len(saved.Steps)-1].Model.Error == "" {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		Continue{ID: "recover"},
@@ -1389,7 +1389,7 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
 	canceled, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		Cancel{ID: "cancel"},
@@ -1401,7 +1401,7 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 	answer := final("late")
 	answer.Usage = &llm.Usage{InputTokens: 7}
 	late, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		canceled.Turn,
 		definition(),
 		Accept{ID: "late", CallID: "t1:model:1", ModelResult: &answer},
@@ -1436,7 +1436,7 @@ func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
 	call := tool.Call{ID: "call-1", Name: "write", Args: []byte(`{"value":1}`)}
 	outcome := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("forged")),
+		Output: new(tool.TextOutput("forged")),
 	}
 	forged.Steps = append(
 		forged.Steps,

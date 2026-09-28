@@ -19,13 +19,13 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 	}{
 		{
 			name:        "read only",
-			annotations: tool.Annotations{ReadOnly: ptr(true)},
+			annotations: tool.Annotations{ReadOnly: new(true)},
 			wantRuns:    1,
 			wantStop:    StopCompleted,
 		},
 		{
 			name:        "idempotent",
-			annotations: tool.Annotations{Idempotent: ptr(true)},
+			annotations: tool.Annotations{Idempotent: new(true)},
 			wantRuns:    1,
 			wantStop:    StopCompleted,
 		},
@@ -33,8 +33,8 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 		{
 			name: "explicitly not safe",
 			annotations: tool.Annotations{
-				ReadOnly:   ptr(false),
-				Idempotent: ptr(false),
+				ReadOnly:   new(false),
+				Idempotent: new(false),
 			},
 			wantStop: StopUncertain,
 		},
@@ -57,12 +57,12 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 					runs++
 					return tool.Outcome{
 						State:  tool.StateSucceeded,
-						Output: ptr(tool.TextOutput("done")),
+						Output: new(tool.TextOutput("done")),
 					}, nil
 				}),
 			}
 			out, err := (Engine{}).Apply(
-				context.Background(),
+				t.Context(),
 				turn,
 				definition(),
 				Continue{ID: "resume"},
@@ -124,7 +124,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 			<-release
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("first result")),
+				Output: new(tool.TextOutput("first result")),
 			}, nil
 		}),
 	}
@@ -139,7 +139,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 			secondRuns++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("second result")),
+				Output: new(tool.TextOutput("second result")),
 			}, nil
 		}),
 	}
@@ -153,7 +153,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	finished := make(chan result, 1)
 	go func() {
 		out, err := (Engine{}).Apply(
-			context.Background(),
+			t.Context(),
 			Turn{ID: "t1"},
 			def,
 			Start{
@@ -205,7 +205,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 		t.Fatalf("second tool status=%s; want pending", secondStatus)
 	}
 	resumed, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		got.out.Turn,
 		def,
 		Continue{ID: "resume"},
@@ -227,7 +227,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "work")}}
 	rec := NewMemoryRecorder()
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	returned := make(chan struct{})
 	binding := tool.Tool{
@@ -241,7 +241,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 			defer close(returned)
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("late result")),
+				Output: new(tool.TextOutput("late result")),
 			}, nil
 		}),
 	}
@@ -264,7 +264,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 	if out.Stop.Kind != StopInterrupted || out.Stop.Reason != "lease lost" {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	saved, err := rec.Load(context.Background(), "t1")
+	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func startedLocalToolTurn(
 		step.TurnID = turn.ID
 		step.Seq = int64(len(turn.Steps) + 1)
 		if err := rec.Commit(
-			context.Background(),
+			t.Context(),
 			CommitRequest{Step: step, ExpectedSeq: step.Seq - 1},
 		); err != nil {
 			t.Fatal(err)

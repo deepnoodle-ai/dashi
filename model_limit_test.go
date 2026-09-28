@@ -37,13 +37,13 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("42")),
+				Output: new(tool.TextOutput("42")),
 			}, nil
 		}),
 	}
 	rec := NewMemoryRecorder()
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "limit"},
 		def,
 		Start{
@@ -83,7 +83,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	again, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Start{
@@ -107,7 +107,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		)
 	}
 	if _, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		out.Turn,
 		def,
 		Continue{ID: "too-late"},
@@ -134,7 +134,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	}
 	binding := answerLookup()
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "limit"},
 		def,
 		Start{
@@ -240,7 +240,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 		Policy:   AllowLocalPolicy{},
 	}
 	limited, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "limit"},
 		def,
 		start,
@@ -279,12 +279,12 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 			runs++
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("found")),
+				Output: new(tool.TextOutput("found")),
 			}, nil
 		}),
 	}
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "limit"},
 		def,
 		Start{
@@ -324,14 +324,14 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			return tool.Outcome{
 				State:  tool.StateSucceeded,
-				Output: ptr(tool.TextOutput("42")),
+				Output: new(tool.TextOutput("42")),
 			}, nil
 		}),
 	}
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
 	first, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "limit"},
 		def,
 		Start{
@@ -348,12 +348,12 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	if err != nil || first.Persistence != PersistenceRejected || client.sends != 2 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	saved, err := base.Load(context.Background(), "limit")
+	saved, err := base.Load(t.Context(), "limit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		def,
 		Continue{ID: "recover"},
@@ -379,8 +379,7 @@ func answerLookup() tool.Tool {
 			Kind:   tool.KindLocal,
 		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-			output := tool.TextOutput("42")
-			return tool.Outcome{State: tool.StateSucceeded, Output: &output}, nil
+			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("42"))}, nil
 		}),
 	}
 }

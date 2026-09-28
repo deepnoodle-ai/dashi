@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"mime/multipart"
 	"net/textproto"
 	"net/url"
@@ -56,9 +57,7 @@ func encodeImage(input media.ImageInput, prompt string,
 	if err != nil {
 		return nil, "", err
 	}
-	for key, value := range optionFields {
-		fields[key] = value
-	}
+	maps.Copy(fields, optionFields)
 	if input.Operation == media.ImageGenerate {
 		body, err := json.Marshal(fields)
 		return body, "application/json", err

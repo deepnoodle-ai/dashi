@@ -60,8 +60,7 @@ const (
 	HistoryMismatchWarn HistoryMismatch = "warn"
 	// HistoryMismatchReject rejects the Continue with ErrHistoryMismatch before
 	// any step is committed, so the turn stays resumable once the host supplies
-	// the history it started with. A turn recorded without a fingerprint has
-	// nothing to compare and continues without a warning.
+	// the history it started with.
 	HistoryMismatchReject HistoryMismatch = "reject"
 )
 
@@ -160,10 +159,8 @@ func (Engine) Apply(
 	if err != nil {
 		return Outcome{}, err
 	}
-	// Stored command digests may predate canonical hashing, so they are
-	// compared with digestMatches rather than to d.
 	if old, ok := state.commandDigests[command.commandID()]; ok {
-		if !digestMatches(old, command) {
+		if old != d {
 			return Outcome{}, ErrCommandConflict
 		}
 		if loader, ok := b.Recorder.(Loader); ok {
@@ -178,7 +175,7 @@ func (Engine) Apply(
 			if !sameDefinition(def, current.Definition) {
 				return Outcome{}, ErrDefinitionChanged
 			}
-			if !digestMatches(current.commandDigests[command.commandID()], command) {
+			if current.commandDigests[command.commandID()] != d {
 				return Outcome{}, ErrRevisionConflict
 			}
 			return outcome(saved, current, PersistenceAcknowledged), nil
@@ -202,7 +199,7 @@ func (Engine) Apply(
 				if !sameDefinition(def, current.Definition) {
 					return Outcome{}, ErrDefinitionChanged
 				}
-				if !digestMatches(old, command) {
+				if old != d {
 					return Outcome{}, ErrCommandConflict
 				}
 				return outcome(saved, current, PersistenceAcknowledged), nil
@@ -312,7 +309,7 @@ func (Engine) Apply(
 			return Outcome{}, err
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
-		mismatch := stored != "" && !historyMatches(stored, fingerprint, c.History)
+		mismatch := stored != fingerprint
 		if mismatch && b.OnHistoryMismatch == HistoryMismatchReject {
 			return Outcome{}, ErrHistoryMismatch
 		}
@@ -439,10 +436,8 @@ func (Engine) Apply(
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
 				return Outcome{}, errors.New("kernel: tool approval is not pending")
 			}
-			if !digestMatches(
-				c.Approval.ArgsDigest,
-				v.Call.Args,
-			) || v.Decision.Revision != c.Approval.PolicyRevision {
+			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) ||
+				v.Decision.Revision != c.Approval.PolicyRevision {
 				return Outcome{}, errors.New("kernel: stale tool approval")
 			}
 			if o := rt.commit(Step{
@@ -626,8 +621,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	)
 	if err != nil {
 		p := PersistenceUnknown
-		var ce *CommitError
-		if errors.As(err, &ce) {
+		if ce, ok := errors.AsType[*CommitError](err); ok {
 			p = ce.Persistence
 		}
 		o := r.current()
@@ -674,10 +668,6 @@ func cloneEvent(event Event) Event {
 		event.Delta = &delta
 	}
 	return event
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
 
 func (r *runtime) current() Outcome {
@@ -933,7 +923,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				Description: "Submit the final JSON object when all other work is finished. Its arguments must satisfy the output schema.",
 				Schema:      slices.Clone(s.OutputSchema),
 				Kind:        tool.KindLocal,
-				Annotations: tool.Annotations{ReadOnly: ptr(true), Idempotent: ptr(true)},
+				Annotations: tool.Annotations{ReadOnly: new(true), Idempotent: new(true)},
 			},
 		)
 	}
@@ -1215,8 +1205,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		settled.Failure = failureDisposition(sendErr, result)
 		settled.Uncertain = settled.Failure == llm.FailureUnknown
 		if !settled.Uncertain {
-			var failure *llm.Error
-			if errors.As(sendErr, &failure) {
+			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
 				settled.Evidence = fmt.Sprintf(
 					"client disposition %s; HTTP %d",
 					failure.Disposition,
@@ -1264,11 +1253,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 }
 
 func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
-	var failure *llm.Error
-	if errors.As(
-		err,
-		&failure,
-	) && (failure.Disposition == llm.FailureNotDispatched || failure.Disposition == llm.FailureRejected) && result.ID == "" && len(result.Message.Content) == 0 && result.Usage == nil {
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok || result.ID != "" || len(result.Message.Content) > 0 ||
+		result.Usage != nil {
+		return llm.FailureUnknown
+	}
+	if failure.Disposition == llm.FailureNotDispatched ||
+		failure.Disposition == llm.FailureRejected {
 		return failure.Disposition
 	}
 	return llm.FailureUnknown

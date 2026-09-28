@@ -111,7 +111,7 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 	def := definition()
 	def.Settings.MaxTokens = 100
 	out, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "credit"},
 		def,
 		Start{

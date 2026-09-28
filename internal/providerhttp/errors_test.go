@@ -152,8 +152,8 @@ func TestProviderErrorExplicitCodeWins(t *testing.T) {
 		"You exceeded your current quota",
 		WithErrorCode("insufficient_quota"),
 	)
-	var providerErr *ProviderError
-	if !errors.As(err, &providerErr) {
+	providerErr, ok := errors.AsType[*ProviderError](err)
+	if !ok {
 		t.Fatal("provider error identity was lost")
 	}
 	if providerErr.Code() != "insufficient_quota" || shouldRetry(

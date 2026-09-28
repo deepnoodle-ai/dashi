@@ -199,8 +199,8 @@ func (p *MediaClient) SubmitVideo(
 		false,
 	)
 	if err != nil {
-		var providerErr *media.Error
-		if errors.As(err, &providerErr) && providerErr.Status >= 400 &&
+		providerErr, ok := errors.AsType[*media.Error](err)
+		if ok && providerErr.Status >= 400 &&
 			providerErr.Status < 500 &&
 			providerErr.Status != 408 &&
 			providerErr.Status != 409 &&

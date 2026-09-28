@@ -118,7 +118,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	lastModel.Usage = &llm.Usage{InputTokens: 1}
 	client := &scriptedClient{results: []llm.Result{firstModel, lastModel}}
 	rec := newBudgetRecorder()
-	rec.Claim(context.Background(), "t1", "owner-a")
+	rec.Claim(t.Context(), "t1", "owner-a")
 	history := []llm.Message{llm.UserMessage(llm.Text("previous context"))}
 	startCommand := Start{
 		ID:      "start",
@@ -145,7 +145,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		}
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		startCommand,
@@ -160,7 +160,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			rec.balance,
 		)
 	}
-	saved, err := rec.Load(context.Background(), "t1")
+	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Admission) == 0 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
@@ -171,7 +171,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	changed := definition()
 	changed.Revision = "r2"
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		changed,
 		Continue{ID: "config-drift", History: history},
@@ -180,7 +180,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if !errors.Is(err, ErrDefinitionChanged) {
 		t.Fatalf("changed definition accepted: %v", err)
 	}
-	rec.Claim(context.Background(), "t1", "owner-b")
+	rec.Claim(t.Context(), "t1", "owner-b")
 	proof := Accept{
 		ID:     "no-dispatch",
 		CallID: "t1:model:1",
@@ -191,7 +191,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		},
 	}
 	stale, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		proof,
@@ -201,7 +201,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		t.Fatalf("stale owner: out=%+v err=%v balance=%d", stale, err, rec.balance)
 	}
 	proved, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		saved,
 		definition(),
 		proof,
@@ -218,7 +218,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	waiting, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		proved.Turn,
 		definition(),
 		Continue{ID: "retry", History: history},
@@ -233,14 +233,14 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 			rec.balance,
 		)
 	}
-	rec.Claim(context.Background(), "t1", "owner-c")
+	rec.Claim(t.Context(), "t1", "owner-c")
 	result := tool.Outcome{
 		State:  tool.StateSucceeded,
-		Output: ptr(tool.TextOutput("completed in host worker")),
+		Output: new(tool.TextOutput("completed in host worker")),
 	}
 	accept := Accept{ID: "external-result", CallID: "job", Outcome: &result}
 	stale, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		waiting.Turn,
 		definition(),
 		accept,
@@ -255,7 +255,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	accepted, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		waiting.Turn,
 		definition(),
 		accept,
@@ -272,7 +272,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	done, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		accepted.Turn,
 		definition(),
 		Continue{ID: "finish", History: history},
@@ -288,7 +288,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	duplicate, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		waiting.Turn,
 		definition(),
 		accept,

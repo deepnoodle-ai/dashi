@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -138,16 +137,13 @@ func TestSDKErrorCarriesReason(t *testing.T) {
 					})),
 				)
 			}
-			prepared, err := p.Prepare(context.Background(), input)
+			prepared, err := p.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = p.Send(context.Background(), llm.Call{Request: prepared})
-			var failure *llm.Error
-			if !errors.As(
-				err,
-				&failure,
-			) ||
+			_, err = p.Send(t.Context(), llm.Call{Request: prepared})
+			failure, ok := errors.AsType[*llm.Error](err)
+			if !ok ||
 				failure.Category != llm.ErrorInvalidRequest ||
 				failure.Reason != tt.want {
 				t.Fatalf("err = %v, want invalid_request with reason %q", err, tt.want)
@@ -169,12 +165,12 @@ func TestStreamErrorCarriesReason(t *testing.T) {
 	}))
 	defer server.Close()
 	p := newTestClient(t, server)
-	prepared, err := p.Prepare(context.Background(), sampleInput(true))
+	prepared, err := p.Prepare(t.Context(), sampleInput(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = p.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: prepared,
 			Sink: func(llm.Delta) {

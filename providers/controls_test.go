@@ -102,7 +102,7 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 						{Name: "act", Schema: json.RawMessage(`{"type":"object"}`)},
 					}
 					original := mustJSON(r)
-					prep, err := p.Prepare(context.Background(), r)
+					prep, err := p.Prepare(t.Context(), r)
 					if err != nil {
 						t.Fatalf("prepare supported controls: %v", err)
 					}
@@ -185,7 +185,7 @@ func TestPrepareControlsMatchDispatchedBytes(t *testing.T) {
 						)
 					}
 					if _, err := p.Send(
-						context.Background(),
+						t.Context(),
 						llm.Call{
 							Request: prep,
 						},
@@ -313,7 +313,7 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 									},
 								)
 							}
-							prep, err := p.Prepare(context.Background(), r)
+							prep, err := p.Prepare(t.Context(), r)
 							if test.adjusts &&
 								tc.name == "anthropic" &&
 								policy == llm.CapabilityAdjust {
@@ -325,11 +325,8 @@ func TestPrepareRejectsControlCombinationsOffline(t *testing.T) {
 								}
 								return
 							}
-							var failure *llm.Error
-							if !errors.As(
-								err,
-								&failure,
-							) ||
+							failure, ok := errors.AsType[*llm.Error](err)
+							if !ok ||
 								(failure.Category != llm.ErrorUnsupported &&
 									failure.Category != llm.ErrorInvalidRequest) ||
 								len(prep.Body()) != 0 {
@@ -367,7 +364,7 @@ func TestPrepareFitsBudgetBelowConfiguredDefault(t *testing.T) {
 			)
 			r := modelInput()
 			r.Settings.Reasoning = &llm.ReasoningSettings{BudgetTokens: 2048}
-			prep, err := p.Prepare(context.Background(), r)
+			prep, err := p.Prepare(t.Context(), r)
 			if (err == nil) != test.accepted {
 				t.Fatalf("configured default was not used to fit budget: %v", err)
 			}
@@ -477,7 +474,7 @@ func TestPrepareRecordsUnknownOutputControl(t *testing.T) {
 					policy:   llm.CapabilityStrict,
 				},
 			)
-			if _, err := strict.Prepare(context.Background(), r); err == nil {
+			if _, err := strict.Prepare(t.Context(), r); err == nil {
 				t.Fatal("unknown output control passed strict preparation")
 			}
 			allow := configured(
@@ -488,7 +485,7 @@ func TestPrepareRecordsUnknownOutputControl(t *testing.T) {
 					models:   catalog,
 				},
 			)
-			prep, err := allow.Prepare(context.Background(), r)
+			prep, err := allow.Prepare(t.Context(), r)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -538,11 +535,11 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 			firstRequest, secondRequest := modelInput(), modelInput()
 			firstRequest.Settings.MaxTokens = 2048
 			secondRequest.Model, secondRequest.Settings.MaxTokens = "fallback", 4096
-			first, err := p.Prepare(context.Background(), firstRequest)
+			first, err := p.Prepare(t.Context(), firstRequest)
 			if err != nil {
 				t.Fatal(err)
 			}
-			second, err := p.Prepare(context.Background(), secondRequest)
+			second, err := p.Prepare(t.Context(), secondRequest)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -550,7 +547,7 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 			if len(bodies) != 0 {
 				t.Fatal("preparation dispatched an attempt")
 			}
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			if _, err := p.Send(
 				ctx,
@@ -561,14 +558,14 @@ func TestRequestRemainsPerAttemptAfterDispatchFailure(t *testing.T) {
 				t.Fatal("preparation or Send invocation was mistaken for dispatch", err)
 			}
 			if _, err := p.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: first,
 				},
 			); err == nil {
 				t.Fatal("failed dispatch lost its error")
 			}
-			result, err := p.Send(context.Background(), llm.Call{Request: second})
+			result, err := p.Send(t.Context(), llm.Call{Request: second})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -610,7 +607,7 @@ func TestPrepareFitsDefaultToModelLimit(t *testing.T) {
 				CapabilityPolicy: llm.CapabilityStrict,
 			},
 		)
-		if _, err := strict.Prepare(context.Background(), modelInput()); err == nil {
+		if _, err := strict.Prepare(t.Context(), modelInput()); err == nil {
 			t.Fatal("strict policy let a default bypass the model limit")
 		}
 		p := newMessages(
@@ -621,7 +618,7 @@ func TestPrepareFitsDefaultToModelLimit(t *testing.T) {
 				Models:           models,
 			},
 		)
-		prep, err := p.Prepare(context.Background(), modelInput())
+		prep, err := p.Prepare(t.Context(), modelInput())
 		if err != nil {
 			t.Fatal(err)
 		}

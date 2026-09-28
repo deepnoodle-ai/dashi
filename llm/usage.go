@@ -5,7 +5,6 @@ package llm
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"math"
 )
@@ -169,19 +168,6 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
-	}
-	for _, field := range []string{
-		"cost",
-		"cost_estimate_unavailable",
-		"service_tier",
-		"speed",
-	} {
-		if _, present := fields[field]; present {
-			return fmt.Errorf(
-				"llm: usage field %q requires record migration",
-				field,
-			)
-		}
 	}
 	*u = Usage(raw.usageAlias)
 

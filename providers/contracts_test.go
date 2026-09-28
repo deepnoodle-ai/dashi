@@ -2,7 +2,6 @@ package providers_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -95,7 +94,7 @@ func TestRequestPinsTransportIndependentlyOfSink(t *testing.T) {
 					}
 				}
 				result, err := p.Send(
-					context.Background(),
+					t.Context(),
 					llm.Call{
 						Request: prep,
 						Sink:    sink,
@@ -124,7 +123,7 @@ func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
 		},
 	)
 	r := modelInput()
-	prep, err := p.Prepare(context.Background(), r)
+	prep, err := p.Prepare(t.Context(), r)
 	if err != nil {
 		t.Fatalf("prepare request with omitted settings: %v", err)
 	}
@@ -178,7 +177,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			if _, known := p.ModelInfo("requested"); known {
 				t.Fatal("unknown model reported as known")
 			}
-			if _, err := p.Prepare(context.Background(), modelInput()); err == nil {
+			if _, err := p.Prepare(t.Context(), modelInput()); err == nil {
 				t.Fatal("strict policy accepted unknown model")
 			}
 			info := textModel(tc, server.URL)
@@ -193,16 +192,15 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 				},
 			)
 			if _, err := strict.Prepare(
-				context.Background(),
+				t.Context(),
 				modelInput(),
 			); err != nil {
 				t.Fatal("known supported model rejected", err)
 			}
 			r := modelInput()
-			temperature := 0.5
-			r.Settings.Temperature = &temperature
+			r.Settings.Temperature = new(0.5)
 			if _, err := strict.Prepare(
-				context.Background(),
+				t.Context(),
 				r,
 			); err == nil || !strings.Contains(
 				err.Error(),
@@ -218,7 +216,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 					models:   catalog,
 				},
 			)
-			prep, err := allow.Prepare(context.Background(), r)
+			prep, err := allow.Prepare(t.Context(), r)
 			if err != nil || !slices.Equal(
 				prep.Snapshot().Unverified,
 				[]llm.Feature{
@@ -238,7 +236,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 					policy:   llm.CapabilityStrict,
 				},
 			)
-			if _, err := deny.Prepare(context.Background(), r); err == nil {
+			if _, err := deny.Prepare(t.Context(), r); err == nil {
 				t.Fatal("strict policy overrode known unsupported setting")
 			}
 			omit := configured(
@@ -249,7 +247,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 					models:   catalog,
 				},
 			)
-			prep, err = omit.Prepare(context.Background(), r)
+			prep, err = omit.Prepare(t.Context(), r)
 			if err != nil {
 				t.Fatal("known unsupported temperature was not omitted", err)
 			}
@@ -280,7 +278,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 			)
 			r.Settings.MaxTokens = 101
 			if _, err := limited.Prepare(
-				context.Background(),
+				t.Context(),
 				r,
 			); err == nil || !strings.Contains(
 				err.Error(),
@@ -296,7 +294,7 @@ func TestPrepareChecksModelKnowledgeWithoutNetwork(t *testing.T) {
 					models:   catalog,
 				},
 			)
-			prep, err = clamp.Prepare(context.Background(), r)
+			prep, err = clamp.Prepare(t.Context(), r)
 			if err != nil {
 				t.Fatal("output limit was not clamped", err)
 			}
@@ -349,7 +347,7 @@ func TestModelKnowledgeIsOwnedAndRecorded(t *testing.T) {
 			copy.Capabilities.Features[llm.FeatureText] = llm.SupportUnsupported
 			copy.Pricing.Base.Input = 200
 			copy.Pricing.Tiers[0].Rates.Input = 200
-			prep, err := p.Prepare(context.Background(), modelInput())
+			prep, err := p.Prepare(t.Context(), modelInput())
 			if err != nil {
 				t.Fatal("catalog snapshots were shared", err)
 			}
@@ -397,7 +395,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 			}
 			p := configured(t, tc, base)
 			prep := preparedRequest(t, p)
-			result, err := p.Send(context.Background(), llm.Call{Request: prep})
+			result, err := p.Send(t.Context(), llm.Call{Request: prep})
 			if err != nil {
 				t.Fatalf("collect response for replay checks: %v", err)
 			}
@@ -438,7 +436,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 								r.Messages,
 								toolReplies(llm.AssistantMessage(part))...,
 							)
-							_, err := other.Prepare(context.Background(), r)
+							_, err := other.Prepare(t.Context(), r)
 							if (err == nil) != (variant == "same" || part.ToolCall != nil) {
 								t.Fatalf("%s replay: %v", part.Kind, err)
 							}
@@ -449,7 +447,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 								len(part.Block.Text.Citations) > 0 {
 								part.Replay = nil
 								r.Messages[len(r.Messages)-1] = llm.AssistantMessage(part)
-								_, err := other.Prepare(context.Background(), r)
+								_, err := other.Prepare(t.Context(), r)
 								if (err == nil) != (variant == "same") {
 									t.Fatal("citation replay bypassed origin", err)
 								}
@@ -457,7 +455,7 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 						}
 						if variant != "same" && variant != "model" {
 							if _, err := other.Send(
-								context.Background(),
+								t.Context(),
 								llm.Call{
 									Request: prep,
 								},
@@ -495,16 +493,14 @@ func TestSendDoesNotFollowRedirects(t *testing.T) {
 			)
 			p := tc.new(server.URL)
 			_, err := p.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: preparedRequest(t, p),
 				},
 			)
-			var failure *llm.Error
-			if !errors.As(
-				err,
-				&failure,
-			) || failure.Status != 307 || failure.Retryable || calls.Load() != 1 {
+			failure, ok := errors.AsType[*llm.Error](err)
+			if !ok || failure.Status != 307 || failure.Retryable ||
+				calls.Load() != 1 {
 				t.Fatal("redirect hid a second dispatch", err, calls.Load())
 			}
 		})
@@ -523,7 +519,7 @@ func TestRequestAndReplayRejectOtherAPI(t *testing.T) {
 				t.Fatalf("construct prepared request for API mismatch check: %v", err)
 			}
 			if _, err := p.Send(
-				context.Background(),
+				t.Context(),
 				llm.Call{
 					Request: foreign,
 				},
@@ -543,7 +539,7 @@ func TestRequestAndReplayRejectOtherAPI(t *testing.T) {
 					r.Messages,
 					toolReplies(llm.AssistantMessage(part))...,
 				)
-				if _, err := p.Prepare(context.Background(), r); err == nil {
+				if _, err := p.Prepare(t.Context(), r); err == nil {
 					t.Fatal("private replay crossed API boundary")
 				}
 			}
@@ -569,16 +565,13 @@ func TestRetryHintsPreserveRateLimitAndQuotaMeaning(t *testing.T) {
 				)
 				p := tc.new(server.URL)
 				_, err := p.Send(
-					context.Background(),
+					t.Context(),
 					llm.Call{
 						Request: preparedRequest(t, p),
 					},
 				)
-				var failure *llm.Error
-				if !errors.As(
-					err,
-					&failure,
-				) ||
+				failure, ok := errors.AsType[*llm.Error](err)
+				if !ok ||
 					failure.Code != code ||
 					failure.RetryAfter != 7*time.Second ||
 					failure.Retryable != (code == "slow_down") ||

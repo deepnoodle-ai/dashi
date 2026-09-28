@@ -297,11 +297,11 @@ func contextStep(id string, seq int64, text string) kernel.Step {
 
 func requireRejected(t *testing.T, err error, target error) {
 	t.Helper()
-	var commitErr *kernel.CommitError
+	commitErr, ok := errors.AsType[*kernel.CommitError](err)
 	switch {
 	case err == nil:
 		t.Fatal("commit succeeded; want a rejected commit")
-	case !errors.As(err, &commitErr):
+	case !ok:
 		t.Fatalf("commit error %v is not a *kernel.CommitError", err)
 	case commitErr.Persistence != kernel.PersistenceRejected:
 		t.Fatalf("commit persistence is %q; want rejected", commitErr.Persistence)

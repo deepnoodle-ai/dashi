@@ -48,7 +48,7 @@ func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 							toolReplies(generated.Message)...,
 						)
 						original := mustJSON(input)
-						request, err := client.Prepare(context.Background(), input)
+						request, err := client.Prepare(t.Context(), input)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -94,7 +94,7 @@ func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 						input.Messages[1].Source.ResponseID = "mutated"
 						changes[0].Reason = "mutated"
 						if _, err := client.Send(
-							context.Background(),
+							t.Context(),
 							llm.Call{
 								Request: restored,
 							},
@@ -146,7 +146,7 @@ func TestPrepareAdaptsHistoryToAnotherModelOnSameClient(t *testing.T) {
 			input.Model = "another-model"
 			input.Messages = append(input.Messages, generated.Message)
 			input.Messages = append(input.Messages, toolReplies(generated.Message)...)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil || len(request.ContentChanges()) != 2 {
 				t.Fatalf("model change failed: %v", err)
 			}
@@ -229,7 +229,7 @@ func TestPrepareChecksFileOriginsAtEveryContentLocation(t *testing.T) {
 								llm.Block(block),
 							)
 						}
-						request, err := client.Prepare(context.Background(), input)
+						request, err := client.Prepare(t.Context(), input)
 						valid := variant == "matching" ||
 							variant == "model-independent" ||
 							variant == "different-model"
@@ -310,7 +310,7 @@ func TestPrepareRejectsUnfamiliarReplayLossAndUnsafeEdits(t *testing.T) {
 				}
 				input := modelInput()
 				input.Messages = append(input.Messages, llm.AssistantMessage(c))
-				request, err := client.Prepare(context.Background(), input)
+				request, err := client.Prepare(t.Context(), input)
 				if (err == nil) != (variant == "unchanged") {
 					t.Fatalf("unsafe replay acceptance for %s: %v", variant, err)
 				}
@@ -361,7 +361,7 @@ func TestPrepareRequiresUnambiguousCompletedToolHistory(t *testing.T) {
 					result.Content[0].ToolResult.CallID = "needs remapping"
 				}
 				input.Messages = append(input.Messages, history...)
-				_, err := client.Prepare(context.Background(), input)
+				_, err := client.Prepare(t.Context(), input)
 				valid := variant == "complete" || variant == "unsupported-id"
 				if (err == nil) != valid {
 					t.Fatalf("tool pairing accepted %s: %v", variant, err)
@@ -390,7 +390,7 @@ func TestResultProvenanceSurvivesDetachedMessageAndPartialOutput(
 				)
 				client := tc.new(server.URL)
 				result, err := client.Send(
-					context.Background(),
+					t.Context(),
 					llm.Call{
 						Request: preparedRequest(t, client, partial),
 					},
@@ -436,7 +436,7 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 					},
 				)
 				client := tc.new(server.URL)
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				if variant == "cancelled" {
 					cancel()
@@ -483,7 +483,7 @@ func TestPrepareRecordsRoleAndToolErrorRepresentations(t *testing.T) {
 				call,
 				result,
 			)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -510,7 +510,7 @@ func portableHistory(t *testing.T, tc providerCase) (llm.Client, llm.Result) {
 	})
 	client := tc.new(server.URL)
 	result, err := client.Send(
-		context.Background(),
+		t.Context(),
 		llm.Call{
 			Request: preparedRequest(t, client),
 		},

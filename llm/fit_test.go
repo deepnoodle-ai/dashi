@@ -194,12 +194,11 @@ func TestFitClampsUnderAdjustAndFailsUnderStrict(t *testing.T) {
 		ReasoningEfforts: []string{"low", "high"},
 		MaxTemperature:   1,
 	}
-	temperature := 1.5
 	r := Input{
 		Model: "m",
 		Settings: Settings{
 			MaxTokens:   8192,
-			Temperature: &temperature,
+			Temperature: new(1.5),
 			Reasoning:   &ReasoningSettings{Effort: "medium"},
 		},
 	}

@@ -1,7 +1,6 @@
 package providers_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -86,14 +85,13 @@ func TestEveryCatalogModelPreparesPlainRequest(t *testing.T) {
 
 func TestCatalogLimitsAdjustRequestsWithWarnings(t *testing.T) {
 	p := newMessages(t, messages.Config{APIKey: "k"})
-	temperature := 0.5
 	prep, err := p.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model: "claude-opus-4-7",
 			Settings: llm.Settings{
 				MaxTokens:   500_000,
-				Temperature: &temperature,
+				Temperature: new(0.5),
 			},
 			Messages: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		},
@@ -126,7 +124,7 @@ func TestCatalogLimitsFailUnderStrictPolicy(t *testing.T) {
 		},
 	)
 	_, err := p.Prepare(
-		context.Background(),
+		t.Context(),
 		llm.Input{
 			Model:    "claude-opus-4-7",
 			Settings: llm.Settings{MaxTokens: 500_000},

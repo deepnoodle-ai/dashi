@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -23,7 +22,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		Input:   []llm.Message{llm.UserMessage(llm.Text("scheduled report"))},
 	}
 	first, err := (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		Turn{ID: "t1"},
 		definition(),
 		start,
@@ -56,7 +55,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		Input:   start.Input,
 	}
 	_, err = (Engine{}).Apply(
-		context.Background(),
+		t.Context(),
 		first.Turn,
 		definition(),
 		again,
@@ -80,7 +79,7 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 	} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		out, err := (Engine{}).Apply(
-			context.Background(),
+			t.Context(),
 			Turn{ID: "t1"},
 			definition(),
 			Start{ID: "start", Origin: tc.origin, Input: []llm.Message{message}},

@@ -10,8 +10,8 @@ import (
 
 // Canonical JSON compares strings by content, so "0.50" and "0.5" differ.
 // Kernel digests Go values, and money.Amount always marshals one trimmed
-// spelling, so every spelling a store or an older record may hold decodes to
-// a value with the same digest.
+// spelling, so every spelling a store or a caller may supply decodes to a
+// value with the same digest.
 func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 	if canonjson.Equal(json.RawMessage(`"0.50"`), json.RawMessage(`"0.5"`)) {
 		t.Fatal("canonical JSON unexpectedly equates decimal strings")
@@ -43,7 +43,7 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 		if err := json.Unmarshal([]byte(text), &stored); err != nil {
 			t.Fatalf("decode %s: %v", spelling, err)
 		}
-		if digest(stored) != want || !digestMatches(want, stored) {
+		if digest(stored) != want {
 			t.Fatalf("stored amount %s changed the budget digest", spelling)
 		}
 	}
@@ -51,7 +51,7 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 
 // TestJSONBRoundTripBudgetTurn runs a capped turn through a jsonb-style
 // recorder, then retries its Start from the reloaded turn, once with the live
-// budget and once with the budget as an older record spelled it.
+// budget and once with the budget spelled as bare JSON numbers.
 func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	answer := final("done")
 	answer.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 40}
@@ -93,14 +93,14 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 		t.Fatalf("reloaded spend=%+v budget=%+v", view.Spend, view.Budget)
 	}
 
-	var legacy Budget
+	var numeric Budget
 	if err := json.Unmarshal(
 		[]byte(`{"max_cost":{"amount":0.50,"currency":"USD"}}`),
-		&legacy,
+		&numeric,
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, budget := range []*Budget{start.Budget, &legacy} {
+	for _, budget := range []*Budget{start.Budget, &numeric} {
 		retry := start
 		retry.Budget = budget
 		again, err := (Engine{}).Apply(t.Context(), turn, def, retry, bindings)

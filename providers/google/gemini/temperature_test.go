@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,9 +29,8 @@ func TestPrepareClampsTemperatureUnderAdjust(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := sampleInput(false)
-	temperature := 2.1
-	input.Settings.Temperature = &temperature
-	request, err := client.Prepare(context.Background(), input)
+	input.Settings.Temperature = new(2.1)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatalf("default policy rejected a fittable temperature: %v", err)
 	}
@@ -76,9 +74,8 @@ func TestPrepareRejectsTemperatureUnderStrict(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := sampleInput(false)
-	temperature := 2.1
-	input.Settings.Temperature = &temperature
-	_, err = client.Prepare(context.Background(), input)
+	input.Settings.Temperature = new(2.1)
+	_, err = client.Prepare(t.Context(), input)
 	if err == nil || !strings.Contains(err.Error(), "temperature") {
 		t.Fatalf("strict policy did not reject temperature above 2: %v", err)
 	}

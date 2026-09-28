@@ -1,7 +1,6 @@
 package completions
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -56,7 +55,7 @@ func TestPrepareKeepsSupportedPlainReasoningWithOmissionPolicy(t *testing.T) {
 					llm.Text("answer"),
 				),
 			)
-			request, err := client.Prepare(context.Background(), input)
+			request, err := client.Prepare(t.Context(), input)
 			if (err != nil) != tc.reject {
 				t.Fatalf("reasoning support changed: %v", err)
 			}
@@ -114,7 +113,7 @@ func TestPrepareOmitsKnownPrivateReasoningForCompletions(t *testing.T) {
 			llm.Text("answer"),
 		),
 	)
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +151,7 @@ func TestPrepareKeepsDecodedMistralThinking(t *testing.T) {
 	input := testInput(false)
 	input.ContentPolicy.UnreplayableReasoning = llm.ReasoningOmit
 	input.Messages = append(input.Messages, result.Message)
-	request, err := client.Prepare(context.Background(), input)
+	request, err := client.Prepare(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
