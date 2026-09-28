@@ -74,9 +74,10 @@ result, while results retain call facts even when no message was received.
 Preparation requires completed, unambiguous tool exchanges and preserves saved
 call IDs. Unsupported IDs are deterministically remapped for the prepared body,
 with paired call/result decisions recording original and outgoing IDs. Tool
-schemas remain raw JSON. Definite tool failures are outcomes; Go execution
-errors preserve uncertainty. See [content replay](provider-content-replay.md)
-for supported adaptations, record changes, and deferred loss policies.
+schemas remain raw JSON. A tool's Go error is a model-facing failure and only
+an unobserved result is uncertain ([decisions](decisions.md) entry 1). See
+[content replay](provider-content-replay.md) for supported adaptations, record
+changes, and deferred loss policies.
 
 ## Provenance
 

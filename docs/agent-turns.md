@@ -132,6 +132,18 @@ Only operator-origin starts may introduce system or developer role input; a
 scheduled start retains its separate origin with user-role input. The host
 authenticates that origin.
 
+A local executor's Go error is a failure the model sees. The call settles as
+`tool.StateFailed` with the error text as its content and in
+`ToolFact.Reason`, and the turn continues. Wrap an error with `tool.Fatal`
+when continuing would be wrong, such as lost credentials or an outage: the
+call settles the same way and the turn stops with `StopFailed` and reason
+`tool_fatal`. An outcome that fails `Validate` is an executor bug and stops
+with `tool_outcome_invalid`. Fix the cause, then `Continue`; the model sees
+the failure as the call's result. Uncertainty is the engine's finding, never a
+tool's: a recovered panic (reason `panic: ...`) or a recorded start without a
+result after a crash settles with no outcome and stops with `StopUncertain`.
+Reconcile it with `Accept`; nothing runs again.
+
 `Observer` receives bounded, lossy display events. Stream deltas are
 provisional and carry turn, attempt, and message IDs; the recorder's settled
 result is authoritative. `Engine.Stream` offers a backpressured iterator over
