@@ -28,15 +28,13 @@ type Hook[P, D any] struct {
     Name string // nonempty, unique within its hook point
     Func func(context.Context, P) (D, error)
 }
-// Hooks returns a Hooks value holding just h. It panics for a type pair
-// other than the four below, which no hook point accepts.
-func (h Hook[P, D]) Hooks() Hooks
-
+// One defined type per point, each with Hooks() returning a Hooks value
+// that holds just that hook.
 type (
-    ModelHook  = Hook[ModelPlan, ModelDecision]
-    SendHook   = Hook[SendPlan, SendDecision]
-    ToolHook   = Hook[ToolPlan, ToolDecision]
-    FinishHook = Hook[FinishPlan, FinishDecision]
+    ModelHook  Hook[ModelPlan, ModelDecision]
+    SendHook   Hook[SendPlan, SendDecision]
+    ToolHook   Hook[ToolPlan, ToolDecision]
+    FinishHook Hook[FinishPlan, FinishDecision]
 )
 type Hooks struct {
     BeforeModel  []ModelHook
@@ -85,7 +83,7 @@ runner := dashi.Runner{Client: client, Tools: tool.List{deploy}, Hooks: ask.Hook
 - `ModelDecision{Settings, Deliver, Stop}`;
   `SendDecision{Deny, Reason, Limit, Admission}` (a `Limit` implies `Deny`);
   `ToolDecision{Kind, Reason, Revision, Rewrite}`;
-  `FinishDecision{Deliver, AcceptEmpty, Reason}`.
+  `FinishDecision{Deliver, AcceptEmpty}`, plus `Reason` in PR 1b.
 - `ToolVerdict{Kind, Reason, Hook, Revision}` is the combined result for a
   call, recorded as `ToolFact.Verdict` and shown as `ToolView.Verdict`. An
   allow takes the name and reason of the first hook that returned `Allow`;
@@ -106,17 +104,18 @@ nothing is recorded for that hook.
 | `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `Deliver` appends; the first `Stop` ends the chain and no deliveries commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that answer is dropped |
 | `BeforeSend` | The first `Deny` stops: `StopRefused`, or `StopLimited` with `Limit`. `Admission` is kept per hook name, 16 KiB in total | `StopFailed`, reason `hook_failed` |
 | `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed` |
-| `BeforeFinish` | `Deliver` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
+| `BeforeFinish` | `Deliver` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept (PR 1b) | `StopFailed`, reason `hook_failed` |
 
 - **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.
   It does not count toward `Interruptions`, so auto-resuming hosts do not loop.
   After a `BeforeFinish` failure, `Continue` runs the finish point again on the
-  recorded answer, without another model call. The runner sets
+  recorded answer, without another model call, unless context was delivered
+  since: then the model is asked again. The runner sets
   `Stop.Terminal`; hooks never do.
 - **Rewrites.** A rewrite equal to the current arguments by JSON meaning is no
-  opinion. After 3 restarts the call is denied (`rewrite limit`, with
-  `WarningHookFailed`) and the turn continues. `Call.RequestedArgs` keeps the
-  model's arguments.
+  opinion. After 3 restarts the call is denied ("Not run: a check kept changing
+  the arguments.", with `WarningHookFailed`) and the turn continues.
+  `Call.RequestedArgs` keeps the model's arguments.
 - **Tools.** Arguments are schema-checked before `BeforeTool`. Invalid, unknown
   and `dashi_submit_output` calls skip hooks. An `OnTool` decode failure is a
   hook error.
@@ -162,10 +161,11 @@ answer; a finish hook never spends the last answer, deliberately.
   Error}` holds every non-zero or failed answer, on the next committed step of
   any kind. `Pass` counts rewrite restarts. `Verdict`: `allow`, `deny`,
   `defer`, `rewrite` (tool); `deny`, `limit`, `admit` (send); `change`, `stop`
-  (model); `deliver`, `reject`, `accept_empty` (finish); `failed` (any).
-- Each command's first step records `ActiveHooks`, the `Runner.Hooks` names per
-  point; `WithHooks` extras are left out. `WarningHooksChanged` notes a change
-  from the previous command.
+  (model); `deliver`, `accept_empty`, and `reject` in PR 1b (finish); `failed`
+  (any). Replay checks each against its point.
+- The first step of each `Start` and `Continue`, the commands that run hooks,
+  records `ActiveHooks`, the `Runner.Hooks` names per point; `WithHooks` extras
+  are left out. `WarningHooksChanged` notes a change from the previous one.
 - `ModelFact.Admission` becomes a map by hook name.
 - Warnings, buffered by the runtime, ride on the next step of any kind.
   `TurnView.Context(origin, name)` returns a live named item.

@@ -106,12 +106,12 @@ call, and child turns; hidden extra calls are not allowed.
 ## Control and limits
 
 Hooks ([hooks.md](hooks.md)) own request adjustment, tool authorization, and
-whether to continue after a candidate final answer. Each reads an immutable
-turn view and returns a decision that Dashi records; a rewrite asks every tool
-hook again. Guarding hooks fail closed and shaping hooks fail open. An observer receives isolated
-committed events and bounded, lossy previews with no control return. Queueing
-new context through `Deliver` is safe at the next step boundary; it cannot
-mutate a model call already prepared or sent.
+whether to continue after a candidate final answer. Each reads an immutable turn
+view and returns a decision that Dashi records; a rewrite asks every tool hook
+again. Guarding hooks fail closed and shaping hooks fail open. An observer
+receives isolated committed events and bounded, lossy previews with no control
+return. Queueing new context through `Deliver` is safe at the next step
+boundary; it cannot mutate a model call already prepared or sent.
 
 Limits count across starts, retries, waits, continuations, and hook-driven
 extra calls. An interruption has its own resume limit (default 10), separate

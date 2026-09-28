@@ -12,7 +12,7 @@ Session contracts remain proposed.
   revision, instructions, model, settings, output schema, and limits. It is
   plain JSON data, recorded when a turn starts, not a running object.
 - **Runner**: The value that runs turns (`dashi.Runner`): an agent plus its
-  long-lived services, such as the client, tools, recorder, policy, and
+  long-lived services, such as the client, tools, recorder, hooks, and
   observer. `Run` collects a turn's result; `Stream` yields it as it happens.
 - **Model and settings**: The selected model and controls for generation,
   such as reasoning, output tokens, and tool choice.

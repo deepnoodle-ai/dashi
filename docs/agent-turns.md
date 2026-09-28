@@ -103,14 +103,15 @@ result contract; the provider may not constrain generation.
 optional `Owner` token (`dashi.WithOwner`). A host recorder should atomically
 check revision and owner, append the step, and commit related budget,
 accounting, or outbox rows; each `BeforeSend` hook may supply non-secret
-admission JSON for that transaction, recorded under the hook's name. Return `CommitError` with `PersistenceRejected` only when
-the write certainly did not commit, and `PersistenceUnknown` (or a plain error)
-when it may have. A recorder that also implements `Loader` lets `Run` answer a
-command retried with a stale snapshot from the stored record; `Load` reports a
-missing turn as `ErrTurnNotFound`, and any other `Load` error is returned
-without committing. With a nil `Runner.Recorder`, Dashi uses a fresh
-`MemoryRecorder` per call, so keep `Outcome.Turn` for continuation in the same
-process. `MemoryRecorder` is a local fixture, not a lease service.
+admission JSON for that transaction, recorded under the hook's name. Return
+`CommitError` with `PersistenceRejected` only when the write certainly did not
+commit, and `PersistenceUnknown` (or a plain error) when it may have. A recorder
+that also implements `Loader` lets `Run` answer a command retried with a stale
+snapshot from the stored record; `Load` reports a missing turn as
+`ErrTurnNotFound`, and any other `Load` error is returned without committing.
+With a nil `Runner.Recorder`, Dashi uses a fresh `MemoryRecorder` per call, so
+keep `Outcome.Turn` for continuation in the same process. `MemoryRecorder` is a
+local fixture, not a lease service.
 
 A recorder must preserve each step's JSON meaning, not its bytes: a Postgres
 `jsonb` column is fine, because Dashi compares recorded values by canonical
@@ -134,16 +135,17 @@ most once, so a client can key durable jobs by it.
 Tools resolve before each model request, and the intent records their
 definitions. A local executor runs only after valid arguments and an allowed
 `BeforeTool` verdict; a hook's rewrite is checked against the schema and every
-hook is asked again about the new arguments. `tool.KindExternal` calls wait
-for the host's `Settle`. A deferred call needs an answer bound to its call ID
-and arguments: `Pending.Approve` and `Pending.Deny(reason)` build it, and
-`dashi.ArgsDigest` computes the digest from arguments shown earlier. The
-digest compares JSON meaning, so it survives a store that respells the
-arguments. A denial's reason becomes the call's result for the model. With no
-hook opinion, every bound local and external tool runs, recorded with the
-reason `no hook opinion`; binding a tool is the app's statement that the model
-may use it. `dashi.RequireApproval(names...)` defers the named tools. Provider-hosted approval is a separate response that never becomes
-a local call.
+hook is asked again about the new arguments. `tool.KindExternal` calls wait for
+the host's `Settle`. A deferred call needs an answer bound to its call ID and
+arguments: `Pending.Approve` and `Pending.Deny(reason)` build it, and
+`dashi.ArgsDigest` computes the digest from arguments shown earlier. The digest
+compares JSON meaning, so it survives a store that respells the arguments. A
+denial's reason becomes the call's result for the model. With no hook opinion,
+every bound local and external tool runs, recorded with the reason
+`no hook opinion`; binding a tool is the app's statement that the model may use
+it.
+`dashi.RequireApproval(names...)` defers the named tools. Provider-hosted
+approval is a separate response that never becomes a local call.
 
 Context from the user (`ContextUser`, also the meaning of an empty origin),
 the application's runtime (`ContextRuntime`), or a tool (`ContextTool`) uses

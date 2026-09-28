@@ -3,6 +3,12 @@
 **Status:** Decided, [decisions 21–26](decisions.md) · **Date:** 2026-09-28
 · **Brief:** [decision 7](decisions.md)
 
+> **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
+> `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
+> are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
+> hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
+> carry a policy revision; and a tool with no hook opinion runs.
+
 Dashi becomes the place where LLM spend is measured and limited. A **turn** is
 one run of an agent answering one input; it may make many model calls and tool
 calls, and it can stop and resume later. The application that starts a turn

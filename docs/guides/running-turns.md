@@ -68,14 +68,22 @@ on `Runner.Hooks`; any number run at each point, in order:
 | `BeforeModel` | before each model request is prepared | change settings, deliver context, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its cost at risk | deny, report a limit, record admission terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, defer, rewrite the arguments | the call is denied, with a warning |
-| `BeforeFinish` | on each final text answer | ask the model to continue, accept an empty answer | the turn stops failed |
+| `BeforeFinish` | on each final text answer (not yet on output submitted with `dashi_submit_output`) | ask the model to continue, accept an empty answer | the turn stops failed |
 
 A zero answer means no opinion. Each hook's answer is saved in the turn record
 with the step it leads to (`Step.HookResults`), and replay never calls hooks.
 A failed stop has the reason `dashi.StopReasonHookFailed`: fix the cause, then
 `Continue` resumes where the turn stopped; for `BeforeFinish` it asks the hooks
-again about the same answer, without another model call. If the run's context
-ends while a hook runs, the turn stops as it would for any ended context.
+again about the same answer, without another model call, unless you delivered
+context in between, which the model then sees. If the run's context ends while
+a hook runs, the turn stops as it would for any ended context.
+
+A tool hook that returns `dashi.Allow(reason)` leaves an audit record naming
+it; one with no opinion leaves none. When a `BeforeTool` hook fails, the model
+sees its name, so keep private details out of hook names. A hook that stops
+the turn with a cost or token limit resumes like the turn's own caps, with a
+`Continue` that raises the `Budget`; a limit the host owns, such as prepaid
+credits, uses `dashi.LimitHost`.
 
 Supply the same `Runner.Hooks` on every command for a turn: each command runs
 only the hooks it is given, and a change is recorded as a warning.

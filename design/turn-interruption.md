@@ -3,6 +3,12 @@
 **Date:** 2026-09-28 · **Status:** Decided (decisions 8–17 in
 [decisions.md](decisions.md)); one question open
 
+> **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
+> `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
+> are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
+> hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
+> carry a policy revision; and a tool with no hook opinion runs.
+
 ## The problem
 
 An application runs a Turn inside a Go context. That context ends for many

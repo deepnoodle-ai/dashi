@@ -62,10 +62,10 @@ function runs. The rules:
   tool is built.
 
 The runner checks every call's arguments against the schema before any
-`BeforeTool` hook sees it. A call that does not match is not run: it is recorded as
-`not_executed` with the reason `invalid arguments`, and the model sees
-`Invalid tool arguments: …` so it can retry. An executor called directly
-refuses such a call the same way, with an `invalid input: …` message.
+`BeforeTool` hook sees it. A call that does not match is not run: it is recorded
+as `not_executed` with the reason `invalid arguments`, and the model sees
+`Invalid tool arguments: …` so it can retry. An executor called directly refuses
+such a call the same way, with an `invalid input: …` message.
 
 ## Outcomes and errors
 

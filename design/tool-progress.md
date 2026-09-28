@@ -4,6 +4,12 @@
 [live-delivery.md](live-delivery.md), [gaps/D](gaps/D-protocols-streaming.md)
 row 13, [gaps/F](gaps/F-example-ports.md) 10.1
 
+> **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
+> `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
+> are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
+> hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
+> carry a policy revision; and a tool with no hook opinion runs.
+
 ## The problem
 
 A tool can run for minutes: a shell command, a dataset job, a sub-agent.
