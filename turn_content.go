@@ -63,33 +63,51 @@ func (t Turn) HostedUses() []llm.HostedUse {
 func settledResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
 	for _, step := range steps {
-		if (step.Kind != StepModelSettled &&
-			step.Kind != StepModelReconciled) ||
-			step.Model == nil ||
-			step.Model.Result == nil ||
-			step.Model.Error != "" ||
-			step.Model.Interrupted != InterruptNone {
-			continue
+		if result := actionableResult(step); result != nil {
+			out = append(out, result)
 		}
-		out = append(out, step.Model.Result)
 	}
 	return out
 }
 
+// actionableResult returns the step's assistant result when the step
+// settles or reconciles a call that neither failed nor was interrupted.
+func actionableResult(step Step) *llm.Result {
+	if (step.Kind != StepModelSettled &&
+		step.Kind != StepModelReconciled) ||
+		step.Model == nil ||
+		step.Model.Result == nil ||
+		step.Model.Error != "" ||
+		step.Model.Interrupted != InterruptNone {
+		return nil
+	}
+	return step.Model.Result
+}
+
 // answerText returns the text of the latest assistant answer. Messages the
 // provider paused and then continued are one answer, so their content is
-// joined with the final message's.
+// joined with the final message's. A call an urgent steer cut short ends
+// the chain: the model wrote what follows after reading the steer, so text
+// from before the cut is not part of that answer.
 func answerText(steps []Step) string {
-	results := settledResults(steps)
-	if len(results) == 0 {
-		return ""
-	}
-	first := len(results) - 1
-	for first > 0 && results[first-1].Stop.Kind == llm.StopPause {
-		first--
+	var chain []*llm.Result
+	for _, step := range steps {
+		if step.Kind == StepModelSettled && step.Model != nil &&
+			step.Model.Interrupted == InterruptSteering {
+			chain = nil
+			continue
+		}
+		result := actionableResult(step)
+		if result == nil {
+			continue
+		}
+		if n := len(chain); n > 0 && chain[n-1].Stop.Kind != llm.StopPause {
+			chain = nil
+		}
+		chain = append(chain, result)
 	}
 	var parts []llm.Content
-	for _, result := range results[first:] {
+	for _, result := range chain {
 		parts = append(parts, result.Message.Content...)
 	}
 	return joinText(parts)

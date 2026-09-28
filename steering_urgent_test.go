@@ -957,3 +957,24 @@ func TestInterruptEstimateIsCappedAtMaxTokens(t *testing.T) {
 		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
 	}
 }
+
+func TestAnswerAfterSteerOmitsTextBeforeThePause(t *testing.T) {
+	inbox := newWatchedInbox()
+	paused := final("Editing main.go")
+	paused.Stop = llm.Stop{Kind: llm.StopPause}
+	client := newUrgentClient(
+		urgentCall{result: paused},
+		cutCall(t, inbox, " and then", "stop, wrong file"),
+		urgentCall{result: final("Editing util.go instead.")},
+	)
+	out := runUrgent(t, client, inbox)
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if out.Answer != "Editing util.go instead." {
+		t.Fatalf(
+			"answer = %q; text from before the steer was joined",
+			out.Answer,
+		)
+	}
+}
