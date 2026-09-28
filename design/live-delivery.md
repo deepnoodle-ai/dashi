@@ -45,8 +45,8 @@ marker. Evicted progress sets no gap: each snapshot replaces the last and the
 settled step follows (tool-progress.md). Consumer rules: after a gap, discard
 that message's preview and ignore its later deltas until its `model_settled`
 step arrives; a gap with no such step after it (only when a commit failed and
-the run ended) means load the turn. A step whose commit ended with unknown persistence is
-only in the record. `Stream` never drops, so it never yields a gap.
+the run ended) means load the turn. A step whose commit ended with unknown
+persistence is only in the record. `Stream` never drops, so it never yields a gap.
 
 *Order.* Events from one invocation arrive in order. Each `Run` or `Stream`
 has its own delivery goroutine that keeps draining after the call returns, so
@@ -105,16 +105,17 @@ against the code:
 - `limited` by `cost` when spend includes an unknown cost.
 
 Not terminal: `waiting`, `interrupted`, `failed` (including reason
-`hook_failed` from hooks, which is not counted as an interruption), `refused`, `uncertain`, and `limited` by `provider_pauses`,
-`output_tokens`, `total_tokens`, `host`, or cost with an unpriced model or no
-raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
+`hook_failed` from hooks, which is not counted as an interruption),
+`refused`, `uncertain`, and `limited` by `provider_pauses`, `output_tokens`,
+`total_tokens`, `host`, or cost with an unpriced model or no raise yet. Invariant, tested: `terminal()` implies `Continue` is refused with
 any raise. Every input only grows (attempts, unknown cost) or is fixed at
 Start (agent limits, deadline), so a recorded `true` stays true. A recorded
 `false` stays accurate because a turn becomes non-continuable only through a
 recorded stop: only model results raise those counts, and replay rejects one
-that would make an open limited stop terminal. Cost of a field over a method: if decision 25 later lets
-`Continue` raise agent limits, old records carry a stale value; acceptable
-before release.
+that would make an open limited stop terminal; `Settle` checks this before
+saving. Cost of a field over a method: if decision 25 later lets `Continue`
+raise agent limits, old records carry a stale value; acceptable before
+release.
 
 *After a terminal stop the record accepts only late results of work that had
 already started* (`StepModelSettled`, `StepModelReconciled`,

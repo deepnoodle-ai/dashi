@@ -320,8 +320,12 @@ goroutine and must return promptly.
   drain may deliver concurrently with them. Order steps by `Seq`.
 
 ```go
-holed := map[string]bool{} // messages that lost deltas; one Observer call at a time
+// Overlapping calls may deliver concurrently, so shared state takes a lock.
+var mu sync.Mutex
+holed := map[string]bool{} // messages that lost deltas
 runner.Observer = func(e dashi.Event) {
+	mu.Lock()
+	defer mu.Unlock()
 	switch {
 	case e.Gap:
 		holed[e.MessageID] = true

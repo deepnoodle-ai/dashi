@@ -511,12 +511,16 @@ func (r Runner) apply(
 				fact.Evidence = c.ModelFailure.Evidence
 			}
 			setSettlementCharge(state.modelIntents[c.CallID], fact)
-			if o := rt.commit(Step{
+			step := Step{
 				Kind:          kind,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Model:         fact,
-			}); o != nil {
+			}
+			if err := checkLateModelStep(turn, state, step); err != nil {
+				return Outcome{}, err
+			}
+			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
 			}
 		} else if c.HostedApproval != nil {

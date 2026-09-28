@@ -1184,6 +1184,26 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 	return fmt.Errorf("%w: %s", ErrTurnEnded, s.Stop.Kind)
 }
 
+// checkLateModelStep refuses, before anything is saved, a late model result
+// that replay would reject because it makes an open limited stop terminal
+// (checkStillOpen). A host recorder need not replay what it commits, so
+// without this the step would be stored and the turn would fail replay from
+// then on. It replays only when the turn rests at an open limited stop.
+func checkLateModelStep(turn Turn, s *replayState, step Step) error {
+	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+		return nil
+	}
+	step.Version = 1
+	step.TurnID = turn.ID
+	step.Seq = int64(len(turn.Steps) + 1)
+	candidate := turn
+	candidate.Steps = append(slices.Clone(turn.Steps), step)
+	if _, err := replay(candidate); err != nil {
+		return fmt.Errorf("dashi: late model result refused: %w", err)
+	}
+	return nil
+}
+
 // checkStillOpen enforces that a turn becomes non-continuable only through
 // a recorded stop: a late model result after a limited stop that was not
 // terminal must not make it terminal, or the recorded Terminal would be

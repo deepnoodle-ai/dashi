@@ -415,6 +415,58 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	}
 }
 
+// Settle checks a late model result against replay before saving it when
+// the turn rests at an open limited stop, and skips the replay otherwise.
+func TestCheckLateModelStep(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors:  []error{errors.New("connection lost")},
+	}
+	first, err := (Runner{Agent: testAgent(), Client: client}).Run(
+		t.Context(), Turn{ID: "t1"}, limitsStart(),
+	)
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
+	}
+	bogus := Step{Kind: StepModelReconciled, Model: &ModelFact{AttemptID: "nope"}}
+	state, err := replay(first.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkLateModelStep(first.Turn, state, bogus); err != nil {
+		t.Fatalf("checked a turn that is not at a limited stop: %v", err)
+	}
+
+	turn := cloneTurn(first.Turn)
+	turn.Steps = append(turn.Steps, Step{
+		Version: 1,
+		TurnID:  turn.ID,
+		Seq:     int64(len(turn.Steps) + 1),
+		Kind:    StepStopped,
+		Stop: &Stop{
+			Kind:   StopLimited,
+			Reason: "plan",
+			Limit:  &LimitDetail{Kind: LimitHost, Code: "plan"},
+		},
+	})
+	state, err = replay(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkLateModelStep(turn, state, bogus); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("bogus step at an open limited stop: err=%v", err)
+	}
+	late := final("late")
+	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+		t.Context(),
+		turn,
+		Settle{CommandID: "late", CallID: "t1:model:1", ModelResult: &late},
+	)
+	if err != nil || out.Stop.Kind != StopLimited || out.Stop.Terminal {
+		t.Fatalf("valid late result: stop=%+v err=%v", out.Stop, err)
+	}
+}
+
 func writeTool() tool.List {
 	return tool.List{tool.Tool{Definition: tool.Definition{
 		Name:   "write",
