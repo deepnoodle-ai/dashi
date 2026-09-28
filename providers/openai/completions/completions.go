@@ -217,7 +217,7 @@ var apiLimits = llm.Capabilities{
 func (p *Client) Send(ctx context.Context, call llm.Call) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
 	wire := codec{origin: p.client.Origin(prepared.Input().Model), provider: p.Provider(),
-		costField: p.costField, costCurrency: p.costCurrency}
+		costField: p.costField, costCurrency: p.costCurrency, media: providerhttp.HasMedia(prepared.Input())}
 	result = llm.Result{Requested: llm.ModelRef{Provider: prepared.Origin().Provider, Model: prepared.Input().Model},
 		Message: llm.Message{Role: llm.RoleAssistant}}
 	defer func() {
@@ -248,6 +248,9 @@ type codec struct {
 	provider     string
 	costField    string
 	costCurrency string
+	// media reports whether the request being sent carries media, so errors
+	// reported in its stream can be classified as media rejections.
+	media bool
 }
 
 func (wire codec) unsupported(format string, args ...any) error {

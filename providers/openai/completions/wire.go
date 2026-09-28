@@ -220,6 +220,9 @@ type StreamResponse struct {
 	SystemFingerprint string         `json:"system_fingerprint"` // fp_eb9dce56a8
 	Choices           []StreamChoice `json:"choices"`
 	Usage             Usage          `json:"usage,omitempty"`
+	// Error is a failure some OpenAI-compatible servers report inside a
+	// successful stream, such as OpenRouter when an upstream disconnects.
+	Error json.RawMessage `json:"error,omitempty"`
 }
 
 type StreamChoice struct {
