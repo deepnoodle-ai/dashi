@@ -65,11 +65,20 @@ type TurnView struct {
 	// Raises preserves the authorized cap changes in order.
 	Raises []BudgetRaise
 	// Spend is rebuilt from committed model and tool facts.
-	Spend  Spend
+	Spend Spend
+	// Stop is why the last run ended. Replay and Outcome project a missing
+	// stop as Run does: uncertain for an unsettled model attempt,
+	// interrupted for work in flight, waiting for pending work. A policy's
+	// view is taken mid-run, so its Stop is empty.
 	Stop   Stop
 	Output *StructuredOutput
-	// Pending contains calls awaiting host action or settlement.
-	Pending []string
+	// Answer is the text of the latest assistant answer. A turn can finish
+	// valid tool-only work with no answer text.
+	Answer string
+	// Pending lists the work awaiting a host action or settlement: model
+	// attempts, then local calls in call order, then hosted approval
+	// requests in the order the model made them.
+	Pending []Pending
 	// Warnings includes nonfatal conditions from acknowledged steps.
 	Warnings []Warning
 	// ReadyToContinue means Continue can run without first raising a budget.
@@ -96,6 +105,7 @@ type replayState struct {
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
 	hosted                 map[string]llm.HostedApprovalRequest
+	hostedOrder            []string
 	commandDigests         map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
@@ -109,7 +119,9 @@ func Replay(t Turn) (TurnView, error) {
 	if e != nil {
 		return TurnView{}, e
 	}
-	return snapshotView(s.TurnView), nil
+	view := snapshotView(s.TurnView)
+	view.Stop = s.projectedStop()
+	return view, nil
 }
 
 func snapshotView(v TurnView) TurnView {
@@ -179,7 +191,8 @@ func replay(t Turn) (*replayState, error) {
 		}
 		s.Tools[id] = v
 	}
-	s.Pending = s.pending()
+	s.Pending = s.pendingItems()
+	s.Answer = answerText(t.Steps)
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
@@ -727,10 +740,15 @@ func (s *replayState) apply(step Step) error {
 			v.Decision.Revision != step.Approval.PolicyRevision {
 			return errors.New("stale approval")
 		}
+		// The answer becomes the call's final decision, so a denial's
+		// reason reaches the model when Continue settles the call.
+		v.Decision.Reason = step.Approval.Reason
 		if step.Approval.Approve {
 			v.Status = ToolAllowed
+			v.Decision.Kind = DecisionAllow
 		} else {
 			v.Status = ToolDenied
+			v.Decision.Kind = DecisionDeny
 		}
 		s.Tools[v.Call.ID] = v
 	case StepHostedApprovalSettled:
@@ -855,10 +873,78 @@ func (s *replayState) pending() []string {
 			out = append(out, id)
 		}
 	}
-	for id := range s.hosted {
-		out = append(out, id)
+	for _, id := range s.hostedOrder {
+		if _, ok := s.hosted[id]; ok {
+			out = append(out, id)
+		}
 	}
 	return out
+}
+
+// pendingItems describes the work a host must act on. Calls that are only
+// requested, allowed, or denied are left out: Continue alone runs them.
+func (s *replayState) pendingItems() []Pending {
+	var out []Pending
+	for _, id := range []string{s.modelIntent, s.unresolvedModel} {
+		if id != "" {
+			out = append(out, Pending{Kind: PendingModel, ID: id})
+		}
+	}
+	for _, id := range s.callOrder {
+		v := s.Tools[id]
+		kind := PendingTool
+		switch v.Status {
+		case ToolApprovalPending:
+			kind = PendingApproval
+		case ToolStarted, ToolWaiting, ToolUncertain:
+		default:
+			continue
+		}
+		out = append(out, Pending{
+			Kind: kind,
+			ID:   id,
+			Name: v.Call.Name,
+			Args: v.Call.Args,
+			Tool: &v,
+		})
+	}
+	for _, id := range s.hostedOrder {
+		a, ok := s.hosted[id]
+		if !ok {
+			continue
+		}
+		out = append(out, Pending{
+			Kind:   PendingApproval,
+			ID:     id,
+			Name:   a.Name,
+			Args:   a.Arguments,
+			Hosted: &a,
+		})
+	}
+	return out
+}
+
+// projectedStop is the stop a caller sees for a turn at rest. A record
+// without a stop step ended mid-run, so the stop is inferred as Run would
+// have recorded it.
+func (s *replayState) projectedStop() Stop {
+	switch {
+	case s.Stop.Kind != "":
+		return s.Stop
+	case s.unresolvedModel != "":
+		return Stop{
+			Kind:   StopUncertain,
+			Reason: "model attempt needs reconciliation",
+		}
+	case s.modelIntent != "" || hasStartedTool(s):
+		return Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
+	case len(s.Pending) > 0:
+		return Stop{Kind: StopWaiting}
+	case len(s.pending()) > 0:
+		// Requested or authorized calls wait only for a worker.
+		return Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
+	}
+	return Stop{}
 }
 
 func (s *replayState) recordResult(
@@ -906,6 +992,7 @@ func (s *replayState) recordResult(
 					return errors.New("repeated hosted approval ID")
 				}
 				s.hosted[a.ID] = a
+				s.hostedOrder = append(s.hostedOrder, a.ID)
 			}
 		}
 	}

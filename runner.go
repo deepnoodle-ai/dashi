@@ -93,12 +93,14 @@ const (
 
 // Stream advances a turn when iteration begins, requesting streamed model
 // output and tool progress. Events carry committed steps, model deltas, and
-// tool.Report snapshots. A fully read sequence ends with one Outcome event;
-// command validation errors appear in the error slot. Breaking the range ends
-// the context. By default, the turn records an interruption; ContextCancel on
-// the Runner makes the break a final cancel. Reload the turn by ID to inspect
-// committed facts, since no final event follows a break. A second range
-// yields ErrStreamConsumed instead of repeating work.
+// tool.Report snapshots. A fully read sequence ends with one Outcome event. A
+// rejected command yields only an error; a write the recorder did not
+// acknowledge yields the Outcome event and its *CommitError together.
+// Breaking the range ends the context. By default, the turn records an
+// interruption; ContextCancel on the Runner makes the break a final cancel.
+// Reload the turn by ID to inspect committed facts, since no final event
+// follows a break. A second range yields ErrStreamConsumed instead of
+// repeating work.
 func (r Runner) Stream(
 	ctx context.Context,
 	turn Turn,
@@ -129,17 +131,28 @@ func (r Runner) Stream(
 		if stopped {
 			return
 		}
-		if err != nil {
+		if err != nil && !recorded(err) {
 			yield(Event{}, err)
 			return
 		}
-		yield(Event{TurnID: out.Turn.ID, Outcome: &out}, nil)
+		yield(Event{TurnID: out.Turn.ID, Outcome: &out}, err)
 	}
 }
 
-// Run advances one turn from an explicit command. A Go error means command
-// validation failed before a new fact was acknowledged. Once a commit succeeds,
-// execution failures are represented in Outcome, retaining partial work.
+// Run advances one turn from an explicit command. The Outcome is always the
+// latest known state, and the error says whether the command applied:
+//
+//   - nil: every step was recorded. Execution failures, limits, and waits
+//     are results, reported in Outcome.Stop with any partial work.
+//   - ErrRevisionConflict or ErrCommandConflict (check with errors.Is, which
+//     also matches them inside a *CommitError): another worker owns or
+//     advanced the turn, or the command ID was reused. Reload the turn.
+//   - *CommitError: the run executed, but CommitError.Step was not saved,
+//     or may have been. The Outcome holds the steps this run knows were
+//     saved; see CommitError.
+//   - any other error: the command was rejected and nothing was recorded.
+//     The Outcome is the caller's turn and its view, unchanged.
+//
 // Run requests streamed model output only when the Runner has an Observer,
 // which is then the only consumer of deltas.
 func (r Runner) Run(
@@ -153,7 +166,30 @@ func (r Runner) Run(
 	return r.run(ctx, turn, command, o)
 }
 
+// run applies a command. A command rejected before any commit returns the
+// caller's turn and its view, so a loop that reassigns its Outcome keeps
+// the turn.
 func (r Runner) run(
+	ctx context.Context,
+	turn Turn,
+	command Command,
+	opts runOptions,
+) (Outcome, error) {
+	out, err := r.apply(ctx, turn, command, opts)
+	if err != nil && !recorded(err) {
+		out = restingOutcome(turn)
+	}
+	return out, err
+}
+
+// recorded reports whether err came after the run began recording.
+func recorded(err error) bool {
+	var ce *CommitError
+	return errors.As(err, &ce) && ce.Step != nil ||
+		errors.Is(err, errRecordInvalid)
+}
+
+func (r Runner) apply(
 	ctx context.Context,
 	turn Turn,
 	command Command,
@@ -224,9 +260,9 @@ func (r Runner) run(
 			if current.commandDigests[command.commandID()] != d {
 				return Outcome{}, ErrRevisionConflict
 			}
-			return outcome(saved, current, PersistenceAcknowledged), nil
+			return outcome(saved, current), nil
 		}
-		return outcome(turn, state, PersistenceAcknowledged), nil
+		return outcome(turn, state), nil
 	}
 	// A caller can retry with an old snapshot after an acknowledgement was lost.
 	// Only a turn known not to exist falls back to the caller's snapshot;
@@ -248,7 +284,7 @@ func (r Runner) run(
 				if old != d {
 					return Outcome{}, ErrCommandConflict
 				}
-				return outcome(saved, current, PersistenceAcknowledged), nil
+				return outcome(saved, current), nil
 			}
 			// The runner trusts the snapshot's recorded agent, and a zero
 			// Agent runs with it, so it must be the recorder's.
@@ -323,7 +359,7 @@ func (r Runner) run(
 				Input:              cloneMessages(c.Input),
 			},
 		}); o != nil {
-			return *o, nil
+			return rt.result(*o)
 		}
 	case Deliver:
 		if len(turn.Steps) == 0 ||
@@ -339,12 +375,12 @@ func (r Runner) run(
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
 		}); o != nil {
-			return *o, nil
+			return rt.result(*o)
 		}
-		return rt.current(), nil
+		return rt.result(rt.current())
 	case Continue:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("dashi: turn cannot continue")
+			return Outcome{}, fmt.Errorf("%w: turn has not started", ErrNotReady)
 		}
 		if c.OnHistoryMismatch != "" &&
 			c.OnHistoryMismatch != HistoryMismatchWarn &&
@@ -390,12 +426,12 @@ func (r Runner) run(
 				},
 			}
 			if o := rt.commit(step); o != nil {
-				return *o, nil
+				return rt.result(*o)
 			}
-			return rt.current(), nil
+			return rt.result(rt.current())
 		}
 		if !state.canContinueWithBudget(c.Budget) {
-			return Outcome{}, errors.New("dashi: turn cannot continue")
+			return Outcome{}, notReady(state)
 		}
 		rt.history = cloneMessages(c.History)
 		step := Step{
@@ -413,7 +449,7 @@ func (r Runner) run(
 			}
 		}
 		if o := rt.commit(step); o != nil {
-			return *o, nil
+			return rt.result(*o)
 		}
 	case Settle:
 		if len(turn.Steps) == 0 {
@@ -474,7 +510,7 @@ func (r Runner) run(
 				CommandDigest: d,
 				Model:         fact,
 			}); o != nil {
-				return *o, nil
+				return rt.result(*o)
 			}
 		} else if c.HostedApproval != nil {
 			if c.CallID != "" && c.CallID != c.HostedApproval.RequestID {
@@ -490,7 +526,7 @@ func (r Runner) run(
 				CommandDigest:  d,
 				HostedApproval: c.HostedApproval,
 			}); o != nil {
-				return *o, nil
+				return rt.result(*o)
 			}
 		} else if c.Approval != nil {
 			v, ok := state.Tools[c.Approval.CallID]
@@ -507,19 +543,7 @@ func (r Runner) run(
 				CommandDigest: d,
 				Approval:      c.Approval,
 			}); o != nil {
-				return *o, nil
-			}
-			if !c.Approval.Approve {
-				if o := rt.commit(Step{
-					Kind: StepToolSettled,
-					Tool: &ToolFact{
-						Call:    v.Call,
-						Outcome: &tool.Outcome{State: tool.StateNotExecuted},
-						Reason:  "approval denied",
-					},
-				}); o != nil {
-					return *o, nil
-				}
+				return rt.result(*o)
 			}
 		} else {
 			v, ok := state.Tools[c.CallID]
@@ -545,10 +569,10 @@ func (r Runner) run(
 				CommandDigest: d,
 				Tool:          &ToolFact{Call: v.Call, Outcome: c.Outcome},
 			}); o != nil {
-				return *o, nil
+				return rt.result(*o)
 			}
 		}
-		return rt.current(), nil
+		return rt.result(rt.current())
 	case Cancel:
 		if len(turn.Steps) == 0 ||
 			state.Stop.Kind == StopCompleted ||
@@ -562,13 +586,13 @@ func (r Runner) run(
 			CommandDigest: d,
 			Stop:          &Stop{Kind: StopCanceled, Reason: c.Reason},
 		}); o != nil {
-			return *o, nil
+			return rt.result(*o)
 		}
-		return rt.current(), nil
+		return rt.result(rt.current())
 	default:
 		return Outcome{}, errors.New("dashi: unknown command")
 	}
-	return rt.run(), nil
+	return rt.result(rt.run())
 }
 
 type runtime struct {
@@ -579,6 +603,13 @@ type runtime struct {
 	runner  Runner
 	opts    runOptions
 	emitter *emitter
+	// err is the recording failure that ended the run, if any.
+	err error
+}
+
+// result pairs an Outcome with the recording failure that ended the run.
+func (r *runtime) result(out Outcome) (Outcome, error) {
+	return out, r.err
 }
 
 func validateHistory(history []llm.Message) error {
@@ -659,10 +690,12 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
 	if _, err := json.Marshal(step); err != nil {
+		r.err = &CommitError{
+			Persistence: PersistenceRejected,
+			Step:        &step,
+			Err:         err,
+		}
 		o := r.current()
-		o.Persistence = PersistenceRejected
-		o.Unacknowledged = &step
-		o.WriteError = err
 		return &o
 	}
 	ctx := r.ctx
@@ -680,14 +713,8 @@ func (r *runtime) commit(step Step) *Outcome {
 		},
 	)
 	if err != nil {
-		p := PersistenceUnknown
-		if ce, ok := errors.AsType[*CommitError](err); ok {
-			p = ce.Persistence
-		}
+		r.err = commitError(step, err)
 		o := r.current()
-		o.Persistence = p
-		o.Unacknowledged = &step
-		o.WriteError = err
 		return &o
 	}
 	r.turn.Steps = append(r.turn.Steps, cloneStep(step))
@@ -737,47 +764,19 @@ func cloneEvent(event Event) Event {
 	return event
 }
 
+// errRecordInvalid marks a run whose own acknowledged record fails replay,
+// which is a bug in the runner or recorder rather than a turn result.
+var errRecordInvalid = errors.New("dashi: recorded steps fail replay")
+
 func (r *runtime) current() Outcome {
 	s, e := replay(r.turn)
 	if e != nil {
-		return Outcome{
-			Turn:        cloneTurn(r.turn),
-			Stop:        Stop{Kind: StopFailed, Reason: e.Error()},
-			Persistence: PersistenceAcknowledged,
+		if r.err == nil {
+			r.err = fmt.Errorf("%w: %w: %v", errRecordInvalid, ErrInvalidTurn, e)
 		}
+		return Outcome{Turn: cloneTurn(r.turn)}
 	}
-	return outcome(r.turn, s, PersistenceAcknowledged)
-}
-
-func outcome(t Turn, s *replayState, p Persistence) Outcome {
-	stop := s.Stop
-	if stop.Kind == "" {
-		if s.unresolvedModel != "" {
-			stop = Stop{
-				Kind:   StopUncertain,
-				Reason: "model attempt needs reconciliation",
-			}
-		} else if s.modelIntent != "" || hasStartedTool(s) {
-			stop = Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
-		} else if len(s.Pending) > 0 {
-			stop = Stop{Kind: StopWaiting}
-		}
-	}
-	var output *StructuredOutput
-	if s.Output != nil {
-		value := *s.Output
-		value.Value = slices.Clone(value.Value)
-		output = &value
-	}
-	return Outcome{
-		Turn:            cloneTurn(t),
-		Stop:            stop,
-		Output:          output,
-		Pending:         slices.Clone(s.Pending),
-		Warnings:        slices.Clone(s.Warnings),
-		ReadyToContinue: s.ReadyToContinue,
-		Persistence:     p,
-	}
+	return outcome(r.turn, s)
 }
 
 func hasStartedTool(s *replayState) bool {

@@ -86,7 +86,7 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 		if tc.valid && (err != nil || out.Stop.Kind != StopCompleted) {
 			t.Fatalf("origin %q rejected: out=%+v err=%v", tc.origin, out, err)
 		}
-		if !tc.valid && (err == nil && out.Persistence == PersistenceAcknowledged) {
+		if !tc.valid && err == nil {
 			t.Fatalf("origin %q accepted trusted role", tc.origin)
 		}
 	}

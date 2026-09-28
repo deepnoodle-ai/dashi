@@ -119,16 +119,13 @@ func testRecovery(
 		begin,
 		dashi.WithOwner("worker-1"),
 	)
-	if err != nil {
-		t.Fatalf("first worker: %v", err)
-	}
 	fired, ok := rec.Fired()
 	if !ok {
 		t.Fatalf("no %s step at seq %d was committed", rec.Kind, rec.Seq)
 	}
 	kind := fired.Kind
 	committed := fault == dashitest.LoseAck
-	requireReported(t, first, fired, fault)
+	requireReported(t, first, err, fired, fault)
 
 	// A new worker takes over from the durable record alone.
 	claim(t, store, "t1", "worker-2")
@@ -191,10 +188,7 @@ func testRecovery(
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("recovered stop is %+v; want completed", out.Stop)
 	}
-	if out.Persistence != dashi.PersistenceAcknowledged {
-		t.Fatalf("recovered persistence is %q", out.Persistence)
-	}
-	if got := out.Turn.AnswerText(); got != "done" {
+	if got := out.Answer; got != "done" {
 		t.Fatalf("answer is %q; want done", got)
 	}
 	final, err := store.Load(t.Context(), "t1")
@@ -264,7 +258,11 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 				Recorder: rec,
 				Policy:   dashi.AllowLocalPolicy{},
 			}
-			run(t, dashi.Turn{ID: "t1"}, startCommand(), runner)
+			// The lost acknowledgement comes back as a *CommitError.
+			_, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, startCommand())
+			if _, lost := errors.AsType[*dashi.CommitError](err); err != nil && !lost {
+				t.Fatal(err)
+			}
 			before, err := store.Load(t.Context(), "t1")
 			if err != nil {
 				t.Fatal(err)
@@ -438,6 +436,7 @@ func uncertainTool(kind dashi.StepKind, committed bool) bool {
 func requireReported(
 	t *testing.T,
 	out dashi.Outcome,
+	err error,
 	fired dashi.Step,
 	fault dashitest.Fault,
 ) {
@@ -446,24 +445,31 @@ func requireReported(
 	if fault == dashitest.Reject {
 		want = dashi.PersistenceRejected
 	}
-	if out.Persistence != want {
-		t.Fatalf("reported persistence %q; want %q", out.Persistence, want)
+	commitErr, ok := errors.AsType[*dashi.CommitError](err)
+	if !ok {
+		t.Fatalf("run error %v is not a *dashi.CommitError", err)
 	}
-	if out.Unacknowledged == nil {
-		t.Fatal("outcome does not name the unacknowledged step")
+	if commitErr.Persistence != want {
+		t.Fatalf("reported persistence %q; want %q", commitErr.Persistence, want)
 	}
-	if out.Unacknowledged.Seq != fired.Seq ||
-		out.Unacknowledged.Kind != fired.Kind {
+	if commitErr.Step == nil {
+		t.Fatal("error does not name the unacknowledged step")
+	}
+	if commitErr.Step.Seq != fired.Seq ||
+		commitErr.Step.Kind != fired.Kind {
 		t.Fatalf(
 			"unacknowledged step is %s at %d; want %s at %d",
-			out.Unacknowledged.Kind,
-			out.Unacknowledged.Seq,
+			commitErr.Step.Kind,
+			commitErr.Step.Seq,
 			fired.Kind,
 			fired.Seq,
 		)
 	}
-	if !errors.Is(out.WriteError, dashitest.ErrInjected) {
-		t.Fatalf("write error %v does not wrap the injected fault", out.WriteError)
+	if !errors.Is(err, dashitest.ErrInjected) {
+		t.Fatalf("write error %v does not wrap the injected fault", err)
+	}
+	if out.Turn.ID != fired.TurnID {
+		t.Fatalf("outcome lost the turn: %q", out.Turn.ID)
 	}
 	if out.Stop.Kind == dashi.StopCompleted {
 		t.Fatal("an unacknowledged step was reported as a completed turn")

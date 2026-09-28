@@ -71,14 +71,14 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			},
 		},
 	)
-	if err != nil || out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(out.Turn.AnswerText()),
+	if err != nil || out.Stop.Kind != dashi.StopCompleted || !strings.Contains(
+		strings.ToLower(out.Answer),
 		"indigo",
 	) {
 		t.Fatalf(
 			"outcome=%+v answer=%q err=%v",
 			out.Stop,
-			out.Turn.AnswerText(),
+			out.Answer,
 			err,
 		)
 	}
@@ -142,7 +142,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		}
 	}
 	if outcome == nil || outcome.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(outcome.Turn.AnswerText()),
+		strings.ToLower(outcome.Answer),
 		"indigo",
 	) || previews == 0 || committed < 4 {
 		t.Fatalf(
@@ -217,7 +217,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 	)
 	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_attempts" ||
 		!strings.Contains(
-			out.Turn.AnswerText(),
+			out.Answer,
 			"56",
 		) || counted.sends != 2 || runs != 1 {
 		t.Fatalf(
@@ -241,7 +241,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 				"model=%s attempts=%d answer=%q",
 				modelName,
 				view.ModelAttempts,
-				out.Turn.AnswerText(),
+				out.Answer,
 			)
 			return
 		}
@@ -281,11 +281,9 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	}
 	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
 		t.Fatalf(
-			"stop=%+v output=%+v persistence=%s write=%v",
+			"stop=%+v output=%+v",
 			out.Stop,
 			out.Output,
-			out.Persistence,
-			out.WriteError,
 		)
 	}
 	view, err := dashi.Replay(out.Turn)
@@ -339,14 +337,12 @@ func AgentTurn(
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted ||
-			!strings.Contains(strings.ToLower(out.Turn.AnswerText()), "indigo") {
+		if out.Stop.Kind != dashi.StopCompleted ||
+			!strings.Contains(strings.ToLower(out.Answer), "indigo") {
 			t.Fatalf(
-				"streamed turn: persistence=%s stop=%+v answer=%q write=%v",
-				out.Persistence,
+				"streamed turn: stop=%+v answer=%q",
 				out.Stop,
-				out.Turn.AnswerText(),
-				out.WriteError,
+				out.Answer,
 			)
 		}
 		view, err := dashi.Replay(out.Turn)
@@ -361,7 +357,7 @@ func AgentTurn(
 			"streamed turn: attempts=%d steps=%d answer=%q",
 			view.ModelAttempts,
 			len(out.Turn.Steps),
-			out.Turn.AnswerText(),
+			out.Answer,
 		)
 	})
 
@@ -419,19 +415,17 @@ func AgentTurn(
 			if err != nil {
 				t.Fatal(err)
 			}
-			if out.Persistence != dashi.PersistenceAcknowledged || out.Stop.Kind != dashi.StopCompleted ||
+			if out.Stop.Kind != dashi.StopCompleted ||
 				!strings.Contains(
-					out.Turn.AnswerText(),
+					out.Answer,
 					"56",
 				) || runs != 1 || counted.sends != 2 {
 				t.Fatalf(
-					"tool turn: persistence=%s stop=%+v answer=%q runs=%d sends=%d write=%v",
-					out.Persistence,
+					"tool turn: stop=%+v answer=%q runs=%d sends=%d",
 					out.Stop,
-					out.Turn.AnswerText(),
+					out.Answer,
 					runs,
 					counted.sends,
-					out.WriteError,
 				)
 			}
 			view, err := dashi.Replay(out.Turn)
@@ -493,7 +487,7 @@ func AgentTurn(
 				view.ModelAttempts,
 				len(out.Turn.Steps),
 				runs,
-				out.Turn.AnswerText(),
+				out.Answer,
 			)
 		},
 	)
@@ -521,11 +515,11 @@ func streamOutcome(
 	command dashi.Command,
 ) (dashi.Outcome, error) {
 	for event, err := range runner.Stream(ctx, turn, command) {
+		if event.Outcome != nil {
+			return *event.Outcome, err
+		}
 		if err != nil {
 			return dashi.Outcome{}, err
-		}
-		if event.Outcome != nil {
-			return *event.Outcome, nil
 		}
 	}
 	return dashi.Outcome{}, errors.New(

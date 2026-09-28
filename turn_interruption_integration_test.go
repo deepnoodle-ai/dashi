@@ -81,7 +81,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		}
 		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||
 			view.ReadyToContinue != out.ReadyToContinue ||
-			turn.AnswerText() != "" {
+			answerText(turn.Steps) != "" {
 			t.Fatalf("interruption %d: outcome=%+v view=%+v", i, out, view)
 		}
 	}
@@ -150,7 +150,7 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 		t.Fatalf("partial result=%+v", partial)
 	}
 	messages, err := Project(out.Turn)
-	if err != nil || len(messages) != 1 || out.Turn.AnswerText() != "" {
+	if err != nil || len(messages) != 1 || out.Answer != "" {
 		t.Fatalf(
 			"partial output reached model history: messages=%+v err=%v",
 			messages,
@@ -394,8 +394,8 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		WithOwner("worker-a"),
 	)
-	if err != nil || first.Persistence != PersistenceRejected ||
-		!errors.Is(first.WriteError, ErrRevisionConflict) {
+	if persistence(err) != PersistenceRejected ||
+		!errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("stale write=%+v err=%v", first, err)
 	}
 	saved, err := rec.Load(t.Context(), "t1")

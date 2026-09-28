@@ -83,16 +83,35 @@ type Loader interface {
 }
 
 // CommitError distinguishes a rejected write from a write whose commit status
-// must be checked by loading the turn. A plain error from Commit is treated
-// as PersistenceUnknown. Wrap ErrRevisionConflict or ErrCommandConflict in
-// Err so callers can tell why a commit was rejected.
+// must be checked by loading the turn. A recorder returns it without Step; a
+// plain error from Commit is treated as PersistenceUnknown. Wrap
+// ErrRevisionConflict or ErrCommandConflict in Err so callers can tell why a
+// commit was rejected.
+//
+// Runner.Run returns a CommitError, with Step set, whenever a step write is
+// not acknowledged. The run did execute: the Outcome returned with it holds
+// the steps this run knows were saved, and recovery treats the failure as a
+// crash after them. Check errors.Is(err, ErrRevisionConflict) first, since
+// another worker may own the turn.
 type CommitError struct {
 	// Persistence states whether this failed call could have committed a step.
 	Persistence Persistence
-	Err         error
+	// Step is the step Run tried to record. A failed model_settled step
+	// carries the call's usage, which the Outcome's spend does not include.
+	Step *Step
+	Err  error
 }
 
 func (e *CommitError) Error() string {
+	if e.Step != nil {
+		return fmt.Sprintf(
+			"dashi: %s commit of step %d (%s): %v",
+			e.Persistence,
+			e.Step.Seq,
+			e.Step.Kind,
+			e.Err,
+		)
+	}
 	return fmt.Sprintf("dashi: %s commit: %v", e.Persistence, e.Err)
 }
 

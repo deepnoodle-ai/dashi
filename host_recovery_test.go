@@ -151,7 +151,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		startCommand,
 		WithOwner("owner-a"),
 	)
-	if err != nil || first.Persistence != PersistenceUnknown || client.sends != 0 || rec.balance != 7 {
+	if persistence(err) != PersistenceUnknown || client.sends != 0 || rec.balance != 7 {
 		t.Fatalf(
 			"lost admission: out=%+v err=%v sends=%d balance=%d",
 			first,
@@ -195,7 +195,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		proof,
 		WithOwner("owner-a"),
 	)
-	if err != nil || stale.Persistence != PersistenceRejected || rec.balance != 7 {
+	if persistence(err) != PersistenceRejected || rec.balance != 7 {
 		t.Fatalf("stale owner: out=%+v err=%v balance=%d", stale, err, rec.balance)
 	}
 	proved, err := runner.Run(
@@ -241,7 +241,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		settle,
 		WithOwner("owner-b"),
 	)
-	if err != nil || stale.Persistence != PersistenceRejected || client.sends != 1 {
+	if persistence(err) != PersistenceRejected || client.sends != 1 {
 		t.Fatalf(
 			"stale external worker: out=%+v err=%v sends=%d",
 			stale,
@@ -271,7 +271,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		Continue{CommandID: "finish", History: history},
 		WithOwner("owner-c"),
 	)
-	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Turn.AnswerText() != "done" {
+	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Answer != "done" {
 		t.Fatalf(
 			"done: out=%+v err=%v sends=%d balance=%d",
 			done,

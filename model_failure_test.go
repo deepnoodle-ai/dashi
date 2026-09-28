@@ -135,7 +135,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 			},
 		},
 	)
-	if err != nil || falseProof.Persistence != PersistenceRejected {
+	if persistence(err) != PersistenceRejected {
 		t.Fatalf(
 			"partial response accepted as non-dispatch: out=%+v err=%v",
 			falseProof,

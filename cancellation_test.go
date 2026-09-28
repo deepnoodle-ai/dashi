@@ -100,8 +100,10 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		status != ToolAllowed {
 		t.Fatalf("unstarted call status=%s, want pending", status)
 	}
-	if len(out.Pending) != 2 || out.Pending[0] != "a" || out.Pending[1] != "b" {
-		t.Fatalf("pending=%v", out.Pending)
+	// Only the started call needs the host; the unstarted one needs only
+	// Continue.
+	if ids := pendingIDs(out.Pending); len(ids) != 1 || ids[0] != "a" {
+		t.Fatalf("pending=%v", ids)
 	}
 	late := tool.Outcome{
 		State:  tool.StateSucceeded,
@@ -115,7 +117,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settled.Stop.Kind != StopInterrupted || len(settled.Pending) != 1 ||
+	if settled.Stop.Kind != StopInterrupted || len(settled.Pending) != 0 ||
 		!settled.ReadyToContinue {
 		t.Fatalf("late=%+v err=%v", settled, err)
 	}
@@ -200,7 +202,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 		t.Fatal("Run waited for the parallel executors")
 	}
 	if out.Stop.Kind != StopInterrupted || thirdRuns.Load() != 0 ||
-		len(out.Pending) != 3 {
+		len(out.Pending) != 2 {
 		t.Fatalf("out=%+v third runs=%d", out, thirdRuns.Load())
 	}
 	view, err := Replay(out.Turn)
@@ -328,7 +330,7 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted || runs != 0 ||
-		client.sends != 1 || len(out.Pending) != 1 {
+		client.sends != 1 || len(out.Pending) != 0 {
 		t.Fatalf("out=%+v err=%v runs=%d sends=%d", out, err, runs, client.sends)
 	}
 	view, err := Replay(out.Turn)

@@ -142,7 +142,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Stop.Kind != StopCompleted || got.Persistence != PersistenceAcknowledged || client.sends != 1 {
+	if got.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("outcome=%+v sends=%d", got.Stop, client.sends)
 	}
 	view, err := Replay(got.Turn)
@@ -356,11 +356,8 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 		}),
 	}
 	got, err := start(t, client, tool.List{binding}, rec, denyPolicy{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Persistence != PersistenceRejected || runs != 0 {
-		t.Fatalf("first outcome=%+v runs=%d", got, runs)
+	if persistence(err) != PersistenceRejected || runs != 0 {
+		t.Fatalf("first outcome=%+v err=%v runs=%d", got, err, runs)
 	}
 	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
@@ -1173,11 +1170,12 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("should not send")}}
 	rec := NewMemoryRecorder()
 	got, err := start(t, client, nil, failIntentRecorder{rec}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Persistence != PersistenceRejected || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
-		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
+	step := unacknowledged(err)
+	if persistence(err) != PersistenceRejected ||
+		step == nil ||
+		step.Kind != StepModelIntent ||
+		client.sends != 0 {
+		t.Fatalf("outcome=%+v err=%v sends=%d", got, err, client.sends)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil {
@@ -1313,11 +1311,12 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	base := NewMemoryRecorder()
 	rec := &lostAcknowledgment{base: base}
 	got, err := start(t, client, nil, rec, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Persistence != PersistenceUnknown || got.Unacknowledged == nil || got.Unacknowledged.Kind != StepModelIntent || client.sends != 0 {
-		t.Fatalf("outcome=%+v sends=%d", got, client.sends)
+	step := unacknowledged(err)
+	if persistence(err) != PersistenceUnknown ||
+		step == nil ||
+		step.Kind != StepModelIntent ||
+		client.sends != 0 {
+		t.Fatalf("outcome=%+v err=%v sends=%d", got, err, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
@@ -1349,7 +1348,7 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
 	first, err := start(t, client, nil, rec, nil)
-	if err != nil || first.Persistence != PersistenceRejected || client.sends != 1 {
+	if persistence(err) != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -1554,42 +1553,5 @@ func TestContinueHistoryMismatchModeIsNotCommandContent(t *testing.T) {
 	again, err := runner.Run(t.Context(), out.Turn, resume)
 	if err != nil || len(again.Turn.Steps) != len(out.Turn.Steps) {
 		t.Fatalf("retry: steps=%d err=%v", len(again.Turn.Steps), err)
-	}
-}
-
-func TestOutcomeRecordingErr(t *testing.T) {
-	cause := errors.New("disk full")
-	tests := []struct {
-		name    string
-		outcome Outcome
-		wantErr bool
-	}{
-		{"acknowledged", Outcome{Persistence: PersistenceAcknowledged}, false},
-		{"no write", Outcome{}, false},
-		{
-			"unknown",
-			Outcome{Persistence: PersistenceUnknown, WriteError: cause},
-			true,
-		},
-		{
-			"rejected",
-			Outcome{Persistence: PersistenceRejected, WriteError: cause},
-			true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := test.outcome.RecordingErr()
-			if !test.wantErr {
-				if err != nil {
-					t.Fatalf("err=%v", err)
-				}
-				return
-			}
-			if !errors.Is(err, cause) ||
-				!strings.Contains(err.Error(), string(test.outcome.Persistence)) {
-				t.Fatalf("err=%v", err)
-			}
-		})
 	}
 }

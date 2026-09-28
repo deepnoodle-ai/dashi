@@ -87,7 +87,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if v.Status == ToolDenied {
 			out := tool.Outcome{
 				State:  tool.StateNotExecuted,
-				Output: new(tool.TextOutput(v.Decision.Reason)),
+				Output: new(tool.TextOutput(denialText(v.Decision.Reason))),
 			}
 			if o := r.commit(Step{
 				Kind: StepToolSettled,
@@ -264,7 +264,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if decision.Kind == DecisionDeny {
 				out := tool.Outcome{
 					State:  tool.StateNotExecuted,
-					Output: new(tool.TextOutput(decision.Reason)),
+					Output: new(tool.TextOutput(denialText(decision.Reason))),
 				}
 				if o := r.commit(Step{
 					Kind: StepToolSettled,
@@ -525,4 +525,13 @@ func boundedOutputError(err error) string {
 		message = message[:400]
 	}
 	return message
+}
+
+// denialText is the result the model sees for a denied call. An empty
+// reason would leave the model guessing why the call did not run.
+func denialText(reason string) string {
+	if reason == "" {
+		return "The call was denied."
+	}
+	return reason
 }

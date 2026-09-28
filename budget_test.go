@@ -80,18 +80,32 @@ func runBudgetTurn(
 	policy Policy,
 ) Outcome {
 	t.Helper()
+	out, err := runBudgetTurnErr(client, budget, settings, tools, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func runBudgetTurnErr(
+	client llm.Client,
+	budget *Budget,
+	settings llm.Settings,
+	tools tool.Toolset,
+	policy Policy,
+) (Outcome, error) {
 	def := testAgent()
 	def.Settings = settings
 	if policy == nil {
 		policy = AllowLocalPolicy{}
 	}
-	out, err := (Runner{
+	return (Runner{
 		Agent:  def,
 		Client: client,
 		Tools:  tools,
 		Policy: policy,
 	}).Run(
-		t.Context(),
+		context.Background(),
 		Turn{ID: "budget"},
 		Start{
 			CommandID: "start",
@@ -99,10 +113,6 @@ func runBudgetTurn(
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
 }
 
 func budgetLookup(cost *tool.Cost) tool.Tool {
@@ -814,8 +824,8 @@ func TestBudgetReportsProviderTokenOverrunOnFinalAnswer(t *testing.T) {
 		nil,
 	)
 	requireBudgetLimit(t, out, LimitOutputTokens)
-	if out.Turn.AnswerText() != "answer" {
-		t.Fatalf("answer=%q", out.Turn.AnswerText())
+	if out.Answer != "answer" {
+		t.Fatalf("answer=%q", out.Answer)
 	}
 }
 
@@ -850,20 +860,18 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	second := final("done")
 	second.Usage = &llm.Usage{OutputTokens: 2}
 	client := newPricedClient(first, second)
-	out := runBudgetTurn(
-		t,
+	out, err := runBudgetTurnErr(
 		client,
 		&Budget{MaxTotalTokens: math.MaxInt},
 		llm.Settings{MaxTokens: 100},
 		tool.List{budgetLookup(nil)},
 		nil,
 	)
-	if out.Persistence != PersistenceRejected {
-		t.Fatalf("overflowing intent persistence=%q", out.Persistence)
+	if persistence(err) != PersistenceRejected {
+		t.Fatalf("overflowing intent error=%v", err)
 	}
-	if out.Unacknowledged == nil ||
-		out.Unacknowledged.Kind != StepModelIntent {
-		t.Fatalf("overflowing intent was acknowledged: %+v", out.Unacknowledged)
+	if step := unacknowledged(err); step == nil || step.Kind != StepModelIntent {
+		t.Fatalf("overflowing intent was acknowledged: %+v", step)
 	}
 	if client.sends != 1 {
 		t.Fatalf("overflowing intent dispatched a call: sends=%d", client.sends)
