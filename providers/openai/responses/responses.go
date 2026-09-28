@@ -418,6 +418,13 @@ func (wire codec) validateOutput(
 	}
 	var raw json.RawMessage
 	for _, part := range result.Message.Content {
+		if nativeOutputActivity(part) {
+			return providerhttp.Failure(
+				wire.origin.Provider,
+				llm.ErrorProtocol,
+				"output_schema: final response contains tool or approval activity",
+			)
+		}
 		if part.Block == nil || part.Block.Text == nil {
 			continue
 		}
@@ -468,6 +475,27 @@ func (wire codec) validateOutput(
 	}
 	result.Output = slices.Clone(raw)
 	return nil
+}
+
+// Hosted activity cannot be a final structured answer, even when the same
+// response also contains valid JSON text. Malformed calls retain opaque replay;
+// other opaque items (including reasoning) are still allowed alongside text.
+func nativeOutputActivity(part llm.Content) bool {
+	switch part.Kind {
+	case llm.ContentHostedUse, llm.ContentHostedResult,
+		llm.ContentHostedApprovalRequest, llm.ContentHostedApprovalResponse:
+		return true
+	case llm.ContentOpaque:
+		if part.Opaque == nil || part.Opaque.Unit != llm.OpaqueUnitItem {
+			return false
+		}
+		kind := part.Opaque.Type
+		return strings.HasSuffix(kind, "_call") ||
+			strings.HasPrefix(kind, "mcp_") ||
+			strings.HasSuffix(kind, "_approval_request") ||
+			strings.HasSuffix(kind, "_approval_response")
+	}
+	return false
 }
 
 // codec carries call-specific provenance through encoding and decoding.

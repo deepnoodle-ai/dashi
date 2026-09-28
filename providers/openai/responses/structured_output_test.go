@@ -265,14 +265,58 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 			"text": `{"label":"ok"}`,
 		}},
 	}})
+	approval := fixtureResponse("completed", append(fixtureText(`{"label":"ok"}`), map[string]any{
+		"type":         "mcp_approval_request",
+		"id":           "approval_1",
+		"name":         "lookup",
+		"server_label": "fixture",
+		"arguments":    `{}`,
+	}))
+	hostedCall := fixtureResponse("completed", append([]any{map[string]any{
+		"type":         "mcp_call",
+		"id":           "mcp_1",
+		"name":         "lookup",
+		"server_label": "fixture",
+		"arguments":    `{}`,
+		"status":       "completed",
+	}}, fixtureText(`{"label":"ok"}`)...))
+	partialHostedCall := fixtureResponse("completed", append([]any{map[string]any{
+		"type":         "mcp_call",
+		"id":           "mcp_2",
+		"name":         "lookup",
+		"server_label": "fixture",
+		"arguments":    `{`,
+	}}, fixtureText(`{"label":"ok"}`)...))
+	hostedDiscovery := fixtureResponse("completed", append([]any{map[string]any{
+		"type":         "mcp_list_tools",
+		"id":           "list_1",
+		"server_label": "fixture",
+		"tools":        []any{},
+	}}, fixtureText(`{"label":"ok"}`)...))
+	reasoningAndOpaque := fixtureResponse("completed", append([]any{
+		map[string]any{
+			"type": "reasoning",
+			"summary": []any{map[string]any{
+				"type": "summary_text",
+				"text": "short rationale",
+			}},
+		},
+		map[string]any{"type": "future_metadata", "value": "replay me"},
+	}, fixtureText(`{"label":"ok"}`)...))
 	for _, tc := range []struct {
 		name   string
 		body   []byte
 		output string
 		stop   llm.StopKind
 		error  llm.ErrorCategory
+		cause  string
 	}{
 		{name: "valid", body: valid, output: `{"label":"ok"}`, stop: llm.StopFinished},
+		{
+			name: "reasoning and opaque replay",
+			body: reasoningAndOpaque, output: `{"label":"ok"}`,
+			stop: llm.StopFinished,
+		},
 		{name: "schema mismatch", body: invalid, stop: llm.StopIncomplete, error: llm.ErrorProtocol},
 		{name: "malformed", body: malformed, stop: llm.StopIncomplete, error: llm.ErrorProtocol},
 		{name: "multiple text parts", body: multiple, stop: llm.StopIncomplete, error: llm.ErrorProtocol},
@@ -283,6 +327,26 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 			stop: llm.StopOutputLimit,
 		},
 		{name: "unexpected tool", body: toolUse, stop: llm.StopToolUse},
+		{
+			name: "hosted approval with valid text", body: approval,
+			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
+			cause: "tool or approval activity",
+		},
+		{
+			name: "hosted call with valid text", body: hostedCall,
+			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
+			cause: "tool or approval activity",
+		},
+		{
+			name: "partial hosted call with valid text", body: partialHostedCall,
+			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
+			cause: "tool or approval activity",
+		},
+		{
+			name: "hosted discovery with valid text", body: hostedDiscovery,
+			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
+			cause: "tool or approval activity",
+		},
 		{
 			name:  "user-role text",
 			body:  userText,
@@ -330,6 +394,9 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 					failure, ok := errors.AsType[*llm.Error](err)
 					if !ok || failure.Category != tc.error {
 						t.Fatalf("failure=%+v err=%v", failure, err)
+					}
+					if tc.cause != "" && !strings.Contains(err.Error(), tc.cause) {
+						t.Fatalf("failure cause=%v, want %q", err, tc.cause)
 					}
 				}
 				if result.Stop.Kind != tc.stop || string(result.Output) != tc.output ||
