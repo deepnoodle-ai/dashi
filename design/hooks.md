@@ -187,6 +187,10 @@ prices. It is true only when all of these hold:
 - **Attempts.** One more call still leaves the reserved final-answer call
   available (or, with `NoReservedFinalAnswer`, one more call fits in
   `ModelAttempts`).
+  Replay's `ModelAttempts` counts settled calls that were not interrupted,
+  so `nextCallPossible` also counts a call in flight (a recorded
+  `model_requested` step with no settlement yet) as used. Steering's
+  mid-call check needs no flag or extra argument.
 - **Deadline** not passed, **no pause** requested, **context** live.
 - **Budget.** Every cap in `Budget` (cost, output and total tokens) holds for
   the next call's worst case: the current projection's estimated input plus
