@@ -6,8 +6,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// Event carries one committed step, provisional model delta, or tool progress
-// snapshot, from Runner.Stream or to an Observer.
+// Event carries one committed step, provisional model delta, tool progress
+// snapshot, or gap marker, from Runner.Stream or to an Observer.
 type Event struct {
 	TurnID    string
 	AttemptID string
@@ -17,29 +17,56 @@ type Event struct {
 	// Progress is the latest tool.Report snapshot of a running tool call. It
 	// is a preview, like Delta: never recorded and never replayed.
 	Progress *ToolProgress
+	// Gap marks model deltas the Observer dropped because it fell behind.
+	// Previews received before the gap are incomplete: discard in-flight
+	// previews for the turn and wait for the step that settles them. A gap
+	// with no step after it means the run ended early, as after a failed
+	// commit; load the turn from the recorder. Dropped tool progress makes
+	// no gap, since each snapshot replaces the last. Runner.Stream never
+	// drops, so it never yields a gap.
+	Gap bool
 	// Outcome is set only on the final Runner.Stream event. Observer receives
-	// steps, deltas, and progress, not this terminal event.
+	// steps, deltas, progress, and gaps, not this terminal event.
 	Outcome *Outcome
 }
 
 // Observer receives events while a run is in progress. It runs on its own
-// goroutine behind a bounded, lossy queue, so it never blocks the turn.
+// goroutine, so it never blocks the turn, and it must return promptly.
+//
+// Every step the recorder acknowledges reaches the Observer, in order.
+// Previews (model deltas and tool progress) wait in a bounded queue and are
+// dropped when it is full; dropped deltas are reported by one Event with Gap
+// set. A step whose commit failed with unknown persistence is only in the
+// record.
+//
+// Each Run or Stream call delivers on its own goroutine, which keeps
+// draining after the call returns: Run returning does not mean the Observer
+// has received every event. Events from one call arrive in order, but calls
+// that overlap, such as a Continue issued before the previous call's events
+// drain, may deliver concurrently; order steps by Seq.
+//
+// Steps are never dropped, so a blocked Observer holds its goroutine and a
+// copy of every step it has not received, tool outputs and raw model results
+// included, for each call it has fallen behind on, until it returns.
 type Observer func(Event)
 
-// observerQueue bounds the events waiting for a slow Observer.
+// observerQueue bounds the previews waiting for a slow Observer.
 const observerQueue = 64
 
-// Display events are bounded and lossy. The recorder, not Observer, is the
-// authoritative path for committed steps. A broken observer cannot block work.
-//
-// Tool progress is the lowest priority: a progress event is queued only while
-// the queue is under half full, and any other event arriving at a full queue
-// evicts the oldest queued progress event before it is dropped itself. So
-// progress never costs the Observer a step or delta that would otherwise fit.
+// emitter delivers events to an Observer without blocking the turn. Steps
+// always enter its queue. Previews count against observerQueue: tool
+// progress is queued only while fewer than half the slots hold previews,
+// and a delta arriving at a full queue evicts the oldest queued progress,
+// or else is dropped. A dropped delta makes the next event enqueued, or
+// close, first enqueue one gap marker.
 type emitter struct {
-	mu     sync.Mutex
-	ready  *sync.Cond
-	queue  []Event
+	mu       sync.Mutex
+	ready    *sync.Cond
+	queue    []Event
+	previews int
+	// gap records dropped deltas not yet reported; gapFor is their turn.
+	gap    bool
+	gapFor string
 	closed bool
 }
 
@@ -67,8 +94,8 @@ func (e *emitter) active() bool {
 	return e != nil
 }
 
-// send queues event, dropping it when the queue is full and holds no
-// progress event to evict.
+// send queues a step, which is never dropped, or a delta, which is dropped
+// when the previews fill the queue and none of them is progress to evict.
 func (e *emitter) send(event Event) {
 	if e == nil {
 		return
@@ -78,38 +105,60 @@ func (e *emitter) send(event Event) {
 	if e.closed {
 		return
 	}
-	if len(e.queue) >= observerQueue {
+	if event.Step == nil && e.previews >= observerQueue {
 		i := e.oldestProgress()
 		if i < 0 {
+			e.gap = true
+			e.gapFor = event.TurnID
 			return
 		}
 		e.queue = append(e.queue[:i], e.queue[i+1:]...)
+		e.previews--
 	}
-	e.queue = append(e.queue, event)
-	e.ready.Signal()
+	e.enqueue(event)
 }
 
-// sendProgress queues a tool progress event only while the queue is under
-// half full.
+// sendProgress queues a tool progress event only while previews fill less
+// than half the queue.
 func (e *emitter) sendProgress(event Event) {
 	if e == nil {
 		return
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.closed || len(e.queue) >= observerQueue/2 {
+	if e.closed || e.previews >= observerQueue/2 {
 		return
 	}
+	e.enqueue(event)
+}
+
+// enqueue appends event after any pending gap marker. The caller holds mu.
+func (e *emitter) enqueue(event Event) {
+	e.flushGap()
 	e.queue = append(e.queue, event)
+	if preview(event) {
+		e.previews++
+	}
 	e.ready.Signal()
 }
 
-// close lets the observer goroutine deliver what is queued and exit.
+// flushGap enqueues the pending gap marker, if any. The caller holds mu.
+func (e *emitter) flushGap() {
+	if !e.gap {
+		return
+	}
+	e.queue = append(e.queue, Event{TurnID: e.gapFor, Gap: true})
+	e.gap, e.gapFor = false, ""
+}
+
+// close reports any pending gap, then lets the observer goroutine deliver
+// what is queued and exit.
 func (e *emitter) close() {
 	if e == nil {
 		return
 	}
 	e.mu.Lock()
+	e.flushGap()
 	e.closed = true
 	e.mu.Unlock()
 	e.ready.Broadcast()
@@ -128,6 +177,9 @@ func (e *emitter) next() (Event, bool) {
 	event := e.queue[0]
 	e.queue[0] = Event{}
 	e.queue = e.queue[1:]
+	if preview(event) {
+		e.previews--
+	}
 	return event, true
 }
 
@@ -145,4 +197,9 @@ func (e *emitter) oldestProgress() int {
 		}
 	}
 	return -1
+}
+
+// preview reports whether event counts against the queue bound.
+func preview(event Event) bool {
+	return event.Step == nil && !event.Gap
 }

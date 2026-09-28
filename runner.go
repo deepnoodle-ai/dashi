@@ -30,8 +30,8 @@ type Runner struct {
 	// Policy decides model calls and tool calls. When nil, every bound local
 	// and external tool is allowed; supply a policy to deny or defer calls.
 	Policy Policy
-	// Observer receives committed steps, provisional deltas, and tool
-	// progress. When it is set, Run requests streamed model output and
+	// Observer receives every committed step, plus provisional deltas and
+	// tool progress, which it may drop (see Observer). When it is set, Run requests streamed model output and
 	// delivers tool.Report snapshots so the Observer sees work as it happens;
 	// Stream always does.
 	Observer Observer

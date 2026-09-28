@@ -229,8 +229,8 @@ streaming, yields acknowledged steps and provisional deltas in order, then one
 final `Outcome`. Breaking the range interrupts the turn by default; reload
 its record and call `Continue` when ready. Set
 `Runner.OnContextDone: ContextCancel` when a disconnect should instead end
-the turn as canceled. The iterator is backpressured; `Runner.Observer`
-remains a separate, lossy display hook. Ranging the same turn sequence again
+the turn as canceled. The iterator is backpressured and never drops
+an event; `Runner.Observer` is the separate, never-blocking hook. Ranging the same turn sequence again
 returns `dashi.ErrStreamConsumed`.
 
 ## Tool progress
@@ -255,7 +255,7 @@ does nothing when no one listens. When the consumer is slower than the tool,
 snapshots merge and the latest wins. On `Stream`, the last report before
 `Execute` returns arrives before the call's settled step. `Observer` gets
 progress at the lowest priority and may drop it: progress fills at most half
-its queue, and steps and deltas evict queued progress when the queue is full.
+its preview queue, and deltas evict queued progress when the queue is full.
 Nothing for a call follows its settled step, and no progress is delivered once
 the turn's context ends, such as after breaking a `Stream` range. A snapshot
 may wait while the runner authorizes or commits another call.
@@ -290,10 +290,39 @@ func (r *pgRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error 
 // (optionally woken by a notify) until the request context ends.
 ```
 
-`Runner.Observer` is lossy: it drops events, including steps, when its queue
-of 64 events fills; tool progress is dropped first. Use it for in-process display hints such as text deltas, never as a
-delivery channel. Treat deltas as previews that the committed model step
-supersedes.
+## Observing a run in process
+
+`Runner.Observer` sees a run without ever slowing it: it is called on its own
+goroutine and must return promptly.
+
+- **Steps are never dropped.** Every step the recorder acknowledges reaches
+  the Observer, in order within one `Run` or `Stream` call. A blocked Observer
+  holds its goroutine and a copy of every step it has not received until it
+  returns.
+- **Previews may be dropped.** Deltas and tool progress wait in a queue of 64
+  previews. Progress goes first; a dropped delta is reported by one event with
+  `Gap` set. On a gap, discard in-flight previews for `Event.TurnID` and wait
+  for the step that settles them (the `model_settled` step carries the whole
+  message). A gap with no step after it means the run ended early; load the
+  turn.
+- **Delivery runs behind the call.** `Run` can return before the Observer has
+  every event, and a `Continue` issued before the previous call's events
+  drain may deliver concurrently with them. Order steps by `Seq`.
+
+```go
+runner.Observer = func(e dashi.Event) {
+	switch {
+	case e.Gap:
+		ui.DiscardPreviews(e.TurnID)
+	case e.Step != nil:
+		ui.ApplyStep(*e.Step) // supersedes previews for its message or call
+	case e.Delta != nil:
+		ui.Preview(e.MessageID, *e.Delta) // filter e.Delta.Kind to hide reasoning
+	case e.Progress != nil:
+		ui.Progress(*e.Progress)
+	}
+}
+```
 
 ## Runtime reminders
 
