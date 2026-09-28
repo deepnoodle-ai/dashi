@@ -52,8 +52,9 @@ Messages applies its configured `DefaultMaxTokens` (1024 when unset) and an
 automatic tool choice when parallel-tool controls require one. Both appear in
 effective settings and decisions. Reasoning budgets are checked against that
 same output limit, and a budget beyond it is clamped below it. Temperature with
-thinking is omitted with a warning; other conflicting controls are rejected. Wire-name translations
-preserve canonical meaning; they are not reasoning emulation.
+thinking is omitted with a warning; other conflicting controls are rejected.
+Wire-name translations preserve canonical meaning; they are not reasoning
+emulation.
 
 Effective settings describe the controls Kernel encodes, not undisclosed server
 defaults or proof that the model honored them. Unknown numerical bounds remain
