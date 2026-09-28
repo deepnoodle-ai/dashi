@@ -16,8 +16,10 @@ import (
 )
 
 type Bindings struct {
-	Client   llm.Client
-	Tools    tool.Toolset
+	Client llm.Client
+	Tools  tool.Toolset
+	// Recorder acknowledges steps. When nil, Apply uses an in-memory recorder
+	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
 	Policy   Policy
 	Observer Observer
@@ -96,8 +98,8 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	if err := def.Validate(); err != nil {
 		return Outcome{}, err
 	}
-	if turn.ID == "" || b.Client == nil || b.Recorder == nil {
-		return Outcome{}, errors.New("kernel: turn ID, client, and recorder are required")
+	if turn.ID == "" || b.Client == nil {
+		return Outcome{}, errors.New("kernel: turn ID and client are required")
 	}
 	if b.Client.Provider() != def.Provider || b.Client.API() != def.API {
 		return Outcome{}, errors.New("kernel: client does not match accepted definition")
@@ -108,6 +110,9 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 	state, err := replay(turn)
 	if err != nil {
 		return Outcome{}, err
+	}
+	if b.Recorder == nil {
+		b.Recorder = newMemoryRecorderForTurn(turn)
 	}
 	if len(turn.Steps) > 0 && !sameDefinition(def, state.Definition) {
 		return Outcome{}, ErrDefinitionChanged
@@ -179,6 +184,14 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
 			return Outcome{}, errors.New("kernel: start requires a new turn and input")
 		}
+		if err := validateHistory(c.History); err != nil {
+			return Outcome{}, err
+		}
+		fingerprint, err := historyFingerprint(c.History)
+		if err != nil {
+			return Outcome{}, err
+		}
+		rt.history = cloneMessages(c.History)
 		if len(c.OutputSchema) > 0 {
 			if _, err := compileOutputSchema(c.OutputSchema); err != nil {
 				return Outcome{}, err
@@ -191,7 +204,18 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if origin == "" {
 			origin = StartUser
 		}
-		if o := rt.commit(Step{Kind: StepStarted, CommandID: c.ID, CommandDigest: d, Started: &StartFact{Definition: def, OutputSchema: slices.Clone(c.OutputSchema), Origin: origin, History: cloneMessages(c.History), Input: cloneMessages(c.Input)}}); o != nil {
+		if o := rt.commit(Step{
+			Kind:          StepStarted,
+			CommandID:     c.ID,
+			CommandDigest: d,
+			Started: &StartFact{
+				Definition:         def,
+				OutputSchema:       slices.Clone(c.OutputSchema),
+				Origin:             origin,
+				HistoryFingerprint: fingerprint,
+				Input:              cloneMessages(c.Input),
+			},
+		}); o != nil {
 			return *o, nil
 		}
 	case Deliver:
@@ -221,7 +245,27 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		if !state.canContinue() {
 			return Outcome{}, errors.New("kernel: turn cannot continue")
 		}
-		if o := rt.commit(Step{Kind: StepContinued, CommandID: c.ID, CommandDigest: d}); o != nil {
+		if err := validateHistory(c.History); err != nil {
+			return Outcome{}, err
+		}
+		fingerprint, err := historyFingerprint(c.History)
+		if err != nil {
+			return Outcome{}, err
+		}
+		rt.history = cloneMessages(c.History)
+		step := Step{
+			Kind:          StepContinued,
+			CommandID:     c.ID,
+			CommandDigest: d,
+		}
+		stored := turn.Steps[0].Started.HistoryFingerprint
+		if stored != "" && fingerprint != stored {
+			step.Warnings = []Warning{{
+				Code:    WarningHistoryMismatch,
+				Message: "prior history differs from turn start",
+			}}
+		}
+		if o := rt.commit(step); o != nil {
 			return *o, nil
 		}
 	case Accept:
@@ -333,9 +377,19 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 type runtime struct {
 	ctx     context.Context
 	turn    Turn
+	history []llm.Message
 	def     Definition
 	b       Bindings
 	emitter *emitter
+}
+
+func validateHistory(history []llm.Message) error {
+	for i, message := range history {
+		if err := validateMessage(message); err != nil {
+			return fmt.Errorf("kernel: history message %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 var errTurnDeadline = errors.New("kernel: turn deadline reached")
@@ -503,6 +557,7 @@ func outcome(t Turn, s *replayState, p Persistence) Outcome {
 		Stop:            stop,
 		Output:          output,
 		Pending:         slices.Clone(s.Pending),
+		Warnings:        slices.Clone(s.Warnings),
 		ReadyToContinue: s.ReadyToContinue,
 		Persistence:     p,
 	}
@@ -637,7 +692,7 @@ func hasOpenTools(s *replayState) bool {
 
 func (r *runtime) model(s *replayState) (Outcome, bool) {
 	finalAnswerOnly := r.def.Limits.ReserveFinalAnswer && s.ModelAttempts > 0 && s.ModelAttempts+1 == r.def.Limits.ModelAttempts
-	messages, err := Project(r.turn)
+	messages, err := projectWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
@@ -681,7 +736,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		if o := r.commit(Step{Kind: StepDelivered, Context: &ContextFact{Items: decision.Deliver}}); o != nil {
 			return *o, false
 		}
-		input.Messages, err = Project(r.turn)
+		input.Messages, err = projectWithHistory(r.turn, r.history)
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false
 		}

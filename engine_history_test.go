@@ -1,0 +1,301 @@
+package kernel
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/deepnoodle-ai/kernel/llm"
+)
+
+func TestEngineStartUsesHistoryWithoutRecordingIt(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("earlier conversation")),
+	}
+	input := llm.UserMessage(llm.Text("current input"))
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "history-start"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input:   []llm.Message{input},
+		},
+		Bindings{Client: client, Recorder: NewMemoryRecorder()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("turn did not complete: %+v", out.Stop)
+	}
+	if len(client.inputs) != 1 {
+		t.Fatalf("model requests = %d, want 1", len(client.inputs))
+	}
+	want := []llm.Message{history[0], input}
+	if !reflect.DeepEqual(client.inputs[0].Messages, want) {
+		t.Fatalf("model request omitted history: %#v", client.inputs[0].Messages)
+	}
+	if out.Turn.Steps[0].Started.HistoryFingerprint == "" {
+		t.Fatal("start did not record a history fingerprint")
+	}
+	encoded, err := json.Marshal(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "earlier conversation") {
+		t.Fatal("saved turn contains prior conversation")
+	}
+}
+
+func TestEngineContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("prior exchange")),
+	}
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, history)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue", History: history},
+		Bindings{Client: client, Recorder: recorder},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("continued turn did not complete: %+v", out.Stop)
+	}
+	if len(client.inputs) != 1 {
+		t.Fatalf("model requests = %d, want 1", len(client.inputs))
+	}
+	want := []llm.Message{
+		history[0],
+		llm.UserMessage(llm.Text("current input")),
+	}
+	if !reflect.DeepEqual(client.inputs[0].Messages, want) {
+		t.Fatalf("continued request omitted history: %#v", client.inputs[0].Messages)
+	}
+	encoded, err := json.Marshal(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "prior exchange") {
+		t.Fatal("saved turn contains prior conversation")
+	}
+}
+
+func TestEngineContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("original history")),
+	}
+	changed := []llm.Message{
+		llm.UserMessage(llm.Text("different history")),
+	}
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, history)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue", History: changed},
+		Bindings{Client: client, Recorder: recorder},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("history mismatch stopped the turn: %+v", out.Stop)
+	}
+	if len(out.Warnings) != 1 {
+		t.Fatalf("outcome warnings = %d, want 1", len(out.Warnings))
+	}
+	if out.Warnings[0].Code != WarningHistoryMismatch {
+		t.Fatalf("wrong warning code: %s", out.Warnings[0].Code)
+	}
+	if len(first.Turn.Steps) >= len(out.Turn.Steps) {
+		t.Fatal("continued turn did not save new steps")
+	}
+	continued := out.Turn.Steps[len(first.Turn.Steps)]
+	if continued.Kind != StepContinued {
+		t.Fatalf("first new step = %s, want continued", continued.Kind)
+	}
+	if len(continued.Warnings) != 1 {
+		t.Fatalf("continued step warnings = %d, want 1", len(continued.Warnings))
+	}
+	if len(client.inputs) != 1 {
+		t.Fatalf("model requests = %d, want 1", len(client.inputs))
+	}
+	if len(client.inputs[0].Messages) == 0 {
+		t.Fatal("model request has no messages")
+	}
+	if !reflect.DeepEqual(client.inputs[0].Messages[0], changed[0]) {
+		t.Fatal("model request did not use the supplied history")
+	}
+}
+
+func TestEngineInvalidContinueHistoryLeavesTurnUnchanged(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, nil)
+	_, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{
+			ID:      "continue",
+			History: []llm.Message{{Role: llm.RoleUser}},
+		},
+		Bindings{Client: client, Recorder: recorder},
+	)
+	if err == nil {
+		t.Fatal("invalid history was accepted")
+	}
+	saved, err := recorder.Load(first.Turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != len(first.Turn.Steps) {
+		t.Fatal("invalid history changed the saved turn")
+	}
+}
+
+func TestEngineCrashThenContinueUsesSuppliedHistory(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("history after reload")),
+	}
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "history-recovery"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input: []llm.Message{
+				llm.UserMessage(llm.Text("current input")),
+			},
+		},
+		Bindings{
+			Client:   client,
+			Recorder: failIntentRecorder{base: recorder},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Persistence != PersistenceRejected {
+		t.Fatalf("model intent write was not rejected: %s", first.Persistence)
+	}
+	saved, err := recorder.Load("history-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepStarted {
+		t.Fatalf("saved prefix after crash = %#v", saved.Steps)
+	}
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		saved,
+		definition(),
+		Continue{ID: "resume", History: history},
+		Bindings{Client: client, Recorder: recorder},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("reloaded turn did not complete: %+v", out.Stop)
+	}
+	if len(client.inputs) != 2 {
+		t.Fatalf("prepared requests = %d, want 2", len(client.inputs))
+	}
+	if !reflect.DeepEqual(client.inputs[1].Messages[0], history[0]) {
+		t.Fatal("reloaded turn omitted supplied history")
+	}
+}
+
+func TestEngineNoRecorderCanContinueReturnedTurn(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	first := startPausedHistoryTurn(t, client, nil, nil)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue"},
+		Bindings{Client: client},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("turn did not complete without recorder: %+v", out.Stop)
+	}
+	if out.Persistence != PersistenceAcknowledged {
+		t.Fatalf("turn persistence = %s", out.Persistence)
+	}
+	if len(out.Turn.Steps) <= len(first.Turn.Steps) {
+		t.Fatal("continuation did not append steps")
+	}
+}
+
+func TestEngineEmptyHistoryFormsMatchOnContinue(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("answer")}}
+	recorder := NewMemoryRecorder()
+	first := startPausedHistoryTurn(t, client, recorder, nil)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		Continue{ID: "continue", History: []llm.Message{}},
+		Bindings{Client: client, Recorder: recorder},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("continued turn did not complete: %+v", out.Stop)
+	}
+	if len(out.Warnings) != 0 {
+		t.Fatalf("empty history caused warning: %#v", out.Warnings)
+	}
+}
+
+func startPausedHistoryTurn(
+	t *testing.T,
+	client *scriptedClient,
+	recorder Recorder,
+	history []llm.Message,
+) Outcome {
+	t.Helper()
+	paused := make(chan struct{})
+	close(paused)
+	out, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "history-paused"},
+		definition(),
+		Start{
+			ID:      "start",
+			History: history,
+			Input: []llm.Message{
+				llm.UserMessage(llm.Text("current input")),
+			},
+		},
+		Bindings{Client: client, Recorder: recorder, Pause: paused},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopInterrupted {
+		t.Fatalf("start did not stop before model: %+v", out.Stop)
+	}
+	return out
+}

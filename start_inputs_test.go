@@ -1,30 +1,68 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/deepnoodle-ai/kernel/llm"
 )
 
-func TestStartPinsScheduledOriginAndHistoryAcrossContinuation(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{final("first"), final("second")}}
+func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("first")}}
 	rec := NewMemoryRecorder()
-	history := []llm.Message{llm.UserMessage(llm.Text("earlier request")), llm.AssistantMessage(llm.Text("earlier answer"))}
-	start := Start{ID: "start", Origin: StartScheduled, History: history, Input: []llm.Message{llm.UserMessage(llm.Text("scheduled report"))}}
-	first, err := (Engine{}).Apply(context.Background(), Turn{ID: "t1"}, definition(), start, Bindings{Client: client, Recorder: rec})
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("earlier request")),
+		llm.AssistantMessage(llm.Text("earlier answer")),
+	}
+	start := Start{
+		ID:      "start",
+		Origin:  StartScheduled,
+		History: history,
+		Input:   []llm.Message{llm.UserMessage(llm.Text("scheduled report"))},
+	}
+	first, err := (Engine{}).Apply(
+		context.Background(),
+		Turn{ID: "t1"},
+		definition(),
+		start,
+		Bindings{Client: client, Recorder: rec},
+	)
 	if err != nil || first.Stop.Kind != StopCompleted {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	if first.Turn.Steps[0].Started.Origin != StartScheduled || len(first.Turn.Steps[0].Started.History) != 2 {
+	started := first.Turn.Steps[0].Started
+	if started.Origin != StartScheduled || started.HistoryFingerprint == "" {
 		t.Fatalf("start fact=%+v", first.Turn.Steps[0].Started)
+	}
+	encoded, err := json.Marshal(first.Turn.Steps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"history":`)) {
+		t.Fatalf("start step saved prior history: %s", encoded)
 	}
 	history[0] = llm.UserMessage(llm.Text("changed outside turn"))
 	projected, err := Project(first.Turn)
-	if err != nil || len(projected) < 3 || projected[0].Content[0].Block.Text.Text != "earlier request" {
+	if err != nil || len(projected) != 2 ||
+		projected[0].Text() != "scheduled report" {
 		t.Fatalf("projected=%+v err=%v", projected, err)
 	}
-	if _, err := (Engine{}).Apply(context.Background(), first.Turn, definition(), Start{ID: "start", Origin: StartScheduled, History: history, Input: start.Input}, Bindings{Client: client, Recorder: rec}); err != ErrCommandConflict {
+	again := Start{
+		ID:      "start",
+		Origin:  StartScheduled,
+		History: history,
+		Input:   start.Input,
+	}
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		first.Turn,
+		definition(),
+		again,
+		Bindings{Client: client, Recorder: rec},
+	)
+	if err != ErrCommandConflict {
 		t.Fatalf("changed accepted history did not conflict: %v", err)
 	}
 }

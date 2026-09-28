@@ -1,14 +1,20 @@
 # Agent turns and recovery
 
-The root `kernel` package runs one identified turn at a time. A `Definition`
-pins reusable behavior and limits; `Bindings` supplies the model client, tool
-source, recorder, policy, and optional observer. The caller supplies a stable
-`Turn.ID` and a unique ID for each `Start`, `Deliver`, `Continue`, `Accept`, or
-`Cancel` command. Repeating the same command ID and payload acknowledges its
-recorded step without repeating an effect. When the recorder exposes `Load`,
-the outcome contains the latest turn; otherwise callers should reload it.
-Reusing an ID with different content fails. `Start` records its origin and a
-copy of prior history, which later invocations project without substitution.
+The root `kernel` package runs one identified turn at a time. A Turn is one
+piece of agent work. A `Definition` pins reusable behavior and limits;
+`Bindings` supplies the model client, tool source, policy, and optional
+recorder and observer. The caller supplies a stable `Turn.ID` and a unique ID
+for each `Start`, `Deliver`, `Continue`, `Accept`, or `Cancel` command.
+Repeating the same command ID and payload acknowledges its
+recorded step without repeating an effect. Pass the returned `Outcome.Turn` to
+the next call, or reload it from a durable recorder. When the recorder exposes
+`Load`, Kernel can refresh a stale turn snapshot on a retried command.
+Reusing an ID with different content fails. `Start` records its origin and own
+input, plus a fingerprint of `Start.History`. Pass the earlier conversation
+again in `Continue.History` on every resume, including after a crash. Kernel
+uses it for that call's model requests; the saved turn holds its own input and
+output, not those earlier messages. A mismatch warns and proceeds. If `Start`
+had no history, omit `History` on `Continue` or pass an empty slice.
 
 See [the runnable example](../examples/agent/main.go) for setup. `Engine.Apply`
 returns a Go error for a command or record rejected before a new fact is
@@ -22,7 +28,7 @@ settled assistant result; a valid tool-only turn may have no answer text.
 | `PersistenceRejected` | No new step was accepted. Fix the write or command before trying again. |
 | `PersistenceUnknown` | Reload the turn by ID before any retry. The write may have committed. |
 | `StopWaiting` | Inspect `Pending`; use `Accept` for external results or approvals. |
-| `StopInterrupted` | Reschedule the turn and call `Continue` with its saved record. |
+| `StopInterrupted` | Reschedule the turn and call `Continue` with its saved record and earlier history. |
 | `StopUncertain` | Reconcile the identified model or tool effect before advancing. |
 | `StopCompleted` | No further execution is allowed for this turn. |
 
@@ -54,8 +60,8 @@ delivered with `Deliver` for recorded context. A `ContextItem` can use
 Only `StartOperator` or `ContextItem{Origin: "operator"}` may carry an
 operator-tier recorded reminder. The host authenticates those origins.
 
-The full typed reminder is saved in the turn and rebuilt by `Project` after a
-later `Accept` or `Continue`. `BeforeModel` can also deliver one through
+The full typed reminder is saved in the turn and rebuilt for later model
+requests after `Accept` or `Continue`. `BeforeModel` can also deliver one through
 `ModelDecision.Deliver`; that delivery is recorded before the model call.
 Provider preparation renders the typed content and records the resulting role in
 `ContentChanges`. Operator-tier reminders use developer authority on
@@ -109,10 +115,14 @@ JSON derived from the prepared request for that transaction. Return `CommitError
 `PersistenceRejected` only when the write certainly did not commit. Return
 `PersistenceUnknown` for an ambiguous acknowledgement; plain errors are also
 treated as unknown. Provide a way to load the authoritative turn by ID after
-an unknown result. `MemoryRecorder` and its `Claim` method are local fixtures,
-not a production lease service. `Engine.Apply` uses an optional recorder
-`Load(string)` method to recognize a command retried with an old turn snapshot;
-other hosts should reload before retrying after an ambiguous write.
+an unknown result. With nil `Bindings.Recorder`, Kernel creates a fresh
+`MemoryRecorder` for that call; keep `Outcome.Turn` for same-process
+continuation. Bind a durable recorder for cross-process recovery, and pass the
+earlier history on `Continue`. `MemoryRecorder` and its `Claim` method are
+local fixtures, not a production lease service. `Engine.Apply` uses an
+optional recorder `Load(string)` method to recognize a command retried with
+an old turn snapshot; other hosts should reload before retrying after an
+ambiguous write.
 
 The engine records a model intent before `Send` and a tool start before a local
 executor call. It records their outcomes before acting on them. After a crash,

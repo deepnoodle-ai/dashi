@@ -109,7 +109,14 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	}
 	changed := definition()
 	changed.Revision = "r2"
-	if _, err := (Engine{}).Apply(context.Background(), saved, changed, Continue{ID: "config-drift"}, binding("owner-a")); !errors.Is(err, ErrDefinitionChanged) {
+	_, err = (Engine{}).Apply(
+		context.Background(),
+		saved,
+		changed,
+		Continue{ID: "config-drift", History: history},
+		binding("owner-a"),
+	)
+	if !errors.Is(err, ErrDefinitionChanged) {
 		t.Fatalf("changed definition accepted: %v", err)
 	}
 	rec.Claim("t1", "owner-b")
@@ -123,7 +130,13 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		client.sends != 0 {
 		t.Fatalf("no-dispatch reconciliation: out=%+v err=%v balance=%d sends=%d", proved, err, rec.balance, client.sends)
 	}
-	waiting, err := (Engine{}).Apply(context.Background(), proved.Turn, definition(), Continue{ID: "retry"}, binding("owner-b"))
+	waiting, err := (Engine{}).Apply(
+		context.Background(),
+		proved.Turn,
+		definition(),
+		Continue{ID: "retry", History: history},
+		binding("owner-b"),
+	)
 	if err != nil || waiting.Stop.Kind != StopWaiting || client.sends != 1 || rec.balance != 8 {
 		t.Fatalf("external wait: out=%+v err=%v sends=%d balance=%d", waiting, err, client.sends, rec.balance)
 	}
@@ -150,7 +163,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		context.Background(),
 		accepted.Turn,
 		definition(),
-		Continue{ID: "finish"},
+		Continue{ID: "finish", History: history},
 		binding("owner-c"),
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Turn.AnswerText() != "done" {

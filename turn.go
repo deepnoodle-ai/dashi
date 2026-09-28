@@ -173,6 +173,24 @@ type Step struct {
 	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
 	Output         *StructuredOutput           `json:"output,omitempty"`
 	Stop           *Stop                       `json:"stop,omitempty"`
+	// Warnings records nonfatal conditions observed when this step was made.
+	Warnings []Warning `json:"warnings,omitempty"`
+}
+
+// WarningCode identifies a nonfatal condition recorded during a turn.
+type WarningCode string
+
+const (
+	// WarningHistoryMismatch means Continue received different prior history
+	// from Start. The turn still runs with the history supplied to Continue.
+	WarningHistoryMismatch WarningCode = "history_mismatch"
+)
+
+// Warning is a visible, recorded reason to inspect a turn's inputs. It does
+// not prevent the turn from continuing.
+type Warning struct {
+	Code    WarningCode `json:"code"`
+	Message string      `json:"message"`
 }
 
 type OutputSource string
@@ -195,8 +213,10 @@ type StartFact struct {
 	Definition   Definition      `json:"definition"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
-	History      []llm.Message   `json:"history,omitempty"`
-	Input        []llm.Message   `json:"input"`
+	// HistoryFingerprint identifies the caller-owned prior conversation at
+	// Start. An empty value identifies an older turn without a fingerprint.
+	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
+	Input              []llm.Message `json:"input"`
 }
 
 // StartOrigin records who supplied the initial work. The host must authorize
@@ -342,6 +362,8 @@ type Outcome struct {
 	Stop    Stop
 	Output  *StructuredOutput
 	Pending []string
+	// Warnings are recorded, nonfatal conditions visible on replay.
+	Warnings []Warning
 
 	// ReadyToContinue is true when Continue can pick up the saved turn.
 	ReadyToContinue bool
@@ -366,7 +388,13 @@ type Deliver struct {
 	ID    string
 	Items []ContextItem
 }
-type Continue struct{ ID string }
+
+// Continue resumes a turn using the prior conversation supplied for this
+// call. Pass no History when Start had no prior history.
+type Continue struct {
+	ID      string
+	History []llm.Message
+}
 type Accept struct {
 	ID             string
 	CallID         string
