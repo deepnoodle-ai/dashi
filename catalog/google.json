@@ -34,6 +34,13 @@
           "output": "3.75",
           "cache_read": "0.075",
           "cache_write": "0.75"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -61,6 +68,13 @@
           "output": "3.75",
           "cache_read": "0.075",
           "cache_write": "0.75"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -88,6 +102,13 @@
           "output": "3.75",
           "cache_read": "0.075",
           "cache_write": "0.75"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -114,6 +135,13 @@
           "output": "9",
           "cache_read": "0.15",
           "cache_write": "1.5"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -140,6 +168,13 @@
           "output": "2.5",
           "cache_read": "0.03",
           "cache_write": "0.3"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -179,7 +214,14 @@
               "cache_write": "4"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
+        }
       }
     },
     {
@@ -218,7 +260,14 @@
               "cache_write": "4"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
+        }
       }
     },
     {
@@ -253,6 +302,13 @@
             "cache_read": "0.05",
             "cache_write": "0.5"
           }
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -288,6 +344,13 @@
             "cache_read": "0.1",
             "cache_write": "1"
           }
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
         }
       }
     },
@@ -326,7 +389,14 @@
               "cache_write": "2.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0.035",
+          "url_context": "0",
+          "web_search": "0"
+        }
       }
     },
     {
@@ -360,6 +430,13 @@
             "cache_read": "0.1",
             "cache_write": "1"
           }
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0.035",
+          "url_context": "0",
+          "web_search": "0"
         }
       }
     },
@@ -394,6 +471,13 @@
             "cache_read": "0.03",
             "cache_write": "0.3"
           }
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0.035",
+          "url_context": "0",
+          "web_search": "0"
         }
       }
     }

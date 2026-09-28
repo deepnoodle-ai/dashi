@@ -46,6 +46,10 @@
           "output": "50",
           "cache_read": "0.25",
           "cache_write": "12.5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -85,6 +89,10 @@
           "output": "50",
           "cache_read": "0.25",
           "cache_write": "12.5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -123,6 +131,10 @@
           "output": "50",
           "cache_read": "1",
           "cache_write": "12.5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -162,6 +174,10 @@
           "output": "50",
           "cache_read": "1",
           "cache_write": "12.5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -201,6 +217,10 @@
           "output": "20",
           "cache_read": "0.2",
           "cache_write": "5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -241,6 +261,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -281,6 +305,10 @@
           "output": "10",
           "cache_read": "0.2",
           "cache_write": "2.5"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -321,6 +349,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -360,6 +392,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -397,6 +433,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -434,6 +474,10 @@
           "output": "15",
           "cache_read": "0.3",
           "cache_write": "3.75"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -472,6 +516,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -509,6 +557,10 @@
           "output": "25",
           "cache_read": "0.5",
           "cache_write": "6.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -542,6 +594,10 @@
           "output": "15",
           "cache_read": "0.3",
           "cache_write": "3.75"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -574,6 +630,10 @@
           "output": "15",
           "cache_read": "0.3",
           "cache_write": "3.75"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -607,6 +667,10 @@
           "output": "5",
           "cache_read": "0.1",
           "cache_write": "1.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     },
@@ -639,6 +703,10 @@
           "output": "5",
           "cache_read": "0.1",
           "cache_write": "1.25"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
         }
       }
     }

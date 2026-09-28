@@ -50,7 +50,15 @@
               "cache_write": "4"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -93,7 +101,15 @@
               "cache_write": "4"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -129,7 +145,15 @@
               "cache_write": "4"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -173,7 +197,15 @@
               "cache_write": "2.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -209,7 +241,15 @@
               "cache_write": "2.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -245,7 +285,15 @@
               "cache_write": "2.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -281,7 +329,15 @@
               "cache_write": "2.5"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     },
     {
@@ -317,7 +373,15 @@
               "cache_write": "2"
             }
           }
-        ]
+        ],
+        "requests": {
+          "code_execution": "0.005",
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.005",
+          "x_search_post": "0.005",
+          "x_search_profile": "0.01"
+        }
       }
     }
   ]

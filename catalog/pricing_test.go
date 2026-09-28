@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -92,6 +93,7 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 		model    string
 		usage    llm.Usage
 		total    string
+		unpriced map[string]int
 	}{
 		{
 			// 1234×10 + 567×50 + 8901×0.25 + 234×12.5 = 45840.25
@@ -141,6 +143,36 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			},
 			total: "0.000000555",
 		},
+		{
+			// 1000×1 per million = 0.001, plus 3 searches at 0.01 and two
+			// free fetches. Code execution has no rate, so the total is a
+			// lower bound and names it.
+			provider: "anthropic",
+			model:    "claude-haiku-4-5",
+			usage: llm.Usage{
+				InputTokens: 1000,
+				Requests: map[string]int{
+					llm.MeterWebSearch:     3,
+					llm.MeterWebFetch:      2,
+					llm.MeterCodeExecution: 1,
+				},
+			},
+			total:    "0.031",
+			unpriced: map[string]int{llm.MeterCodeExecution: 1},
+		},
+		{
+			// 2 grounded prompts at 0.035 and 5 search queries at no charge,
+			// with no tokens.
+			provider: "google",
+			model:    "gemini-2.5-flash",
+			usage: llm.Usage{
+				Requests: map[string]int{
+					llm.MeterGroundedPrompt: 2,
+					llm.MeterWebSearch:      5,
+				},
+			},
+			total: "0.07",
+		},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
 			e, ok := Find(tc.provider, tc.model)
@@ -159,6 +191,13 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 					"total = %s, want %s",
 					cost.Total,
 					want,
+				)
+			}
+			if !maps.Equal(cost.UnpricedRequests, tc.unpriced) {
+				t.Fatalf(
+					"unpriced = %v, want %v",
+					cost.UnpricedRequests,
+					tc.unpriced,
 				)
 			}
 		})
