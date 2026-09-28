@@ -111,6 +111,7 @@ example sends lines starting with `!` as urgent.
      client reports `FailureNotDispatched`; a missing response proves
      nothing. Every other cut call counts as sent. The settlement never sets
      `Failure: FailureNotDispatched`, which replay rejects when interrupted.
+     A Dashi timeout reason means that timer fired first: the timeout wins.
   4. Otherwise, today's error path.
 - **U-8. Counting.** A call cut off by a steer does **not** count toward
   `ModelAttempts` (replay already skips interrupted calls; no change). It is

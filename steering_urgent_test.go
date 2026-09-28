@@ -477,6 +477,63 @@ func TestRunEndingWithSteerSettlesAsRun(t *testing.T) {
 	}
 }
 
+func TestTimeoutRacingSteerCutWins(t *testing.T) {
+	inbox := newWatchedInbox()
+	rec := NewMemoryRecorder()
+	// The client's idle timer fired, and the cut arrives before the client
+	// returns its timeout error.
+	client := newUrgentClient(urgentCall{
+		deltas: []llm.Delta{textDelta("partial")},
+		during: func(context.Context) { inbox.sendUrgent(t, "stop") },
+		block:  true,
+		err: &llm.Error{
+			Provider: "test",
+			Category: llm.ErrorTransport,
+			Reason:   llm.ReasonStreamIdleTimeout,
+		},
+	})
+	out, err := Runner{Agent: testAgent(), Client: client, Recorder: rec}.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		startInput(),
+		WithSteering(inbox),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopUncertain {
+		t.Fatalf("stop=%+v; a timeout stops the run as uncertain", out.Stop)
+	}
+	facts := settlements(out.Turn)
+	if len(facts) != 1 {
+		t.Fatalf("settlements=%d; a timeout makes no second call", len(facts))
+	}
+	fact := facts[0]
+	if fact.Interrupted != InterruptNone ||
+		fact.ErrorReason != llm.ReasonStreamIdleTimeout ||
+		fact.Failure != llm.FailureUnknown || !fact.Uncertain {
+		t.Fatalf("the timeout was settled as %+v", fact)
+	}
+	if out.ModelAttempts != 1 {
+		t.Fatalf("attempts=%d; a timeout counts as an attempt", out.ModelAttempts)
+	}
+	if steps := stepsOf(out.Turn, StepDelivered); len(steps) != 0 {
+		t.Fatalf("the steer was reported delivered: %+v", steps)
+	}
+	saved, err := rec.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := inbox.Leftovers(saved)
+	if err != nil || len(left) != 1 || !left[0].Urgent {
+		t.Fatalf(
+			"leftovers=%+v err=%v; the steer must stay with its source",
+			left,
+			err,
+		)
+	}
+}
+
 func TestReservedFinalAnswerCallIsCutAndAskedAgain(t *testing.T) {
 	inbox := newWatchedInbox()
 	agent := testAgent()

@@ -1374,10 +1374,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		sendReason == llm.ReasonStreamIdleTimeout ||
 		sendReason == llm.ReasonCallTimeout
 	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
-	if r.ctx.Err() == nil && errors.Is(context.Cause(callCtx), errSteered) &&
+	// A Dashi timeout reason proves its own timer fired before the cut, so
+	// the timeout wins and the steer stays undelivered. A result that
+	// completed as the cancel arrived also stands, and the steer waits for
+	// the next call (U-7).
+	if !timeoutWon && r.ctx.Err() == nil &&
+		errors.Is(context.Cause(callCtx), errSteered) &&
 		!completeResult(result, sendErr, r.agent) {
-		// A result that completed as the cancel arrived stands, and the
-		// steer waits for the next call (U-7).
 		return r.settleSteered(
 			s,
 			fact,
