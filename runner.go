@@ -382,12 +382,21 @@ func (r Runner) apply(
 			len(c.Items) == 0 {
 			return Outcome{}, errors.New("dashi: turn cannot receive context")
 		}
-		if o := rt.commit(Step{
+		step := Step{
 			Kind:          StepDelivered,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Context:       &ContextFact{Items: c.Items},
-		}); o != nil {
+		}
+		if state.keptFinishCandidate() && !state.roomForNormalCall() {
+			step.Warnings = []Warning{{
+				Code: WarningDeliveryDropped,
+				Message: "no model call remains before the reserved final " +
+					"answer, so Continue re-checks the kept answer and the " +
+					"model does not see this context",
+			}}
+		}
+		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
 		}
 		return rt.result(rt.current())

@@ -413,9 +413,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
-		// A candidate kept by a BeforeFinish failure is superseded by new
-		// context: Continue asks the model again instead of re-checking it.
-		if s.Stop.Kind == StopFailed && s.Stop.Reason == StopReasonHookFailed {
+		if s.deliverySupersedesCandidate() {
 			s.awaitingClassification = false
 		}
 		for _, item := range step.Context.Items {
@@ -1319,6 +1317,32 @@ func (s *replayState) trackContext(step Step) {
 			}
 		}
 	}
+}
+
+// deliverySupersedesCandidate reports whether context delivered now replaces
+// the answer a BeforeFinish failure kept: Continue then asks the model again
+// instead of re-checking the old answer. That needs room for one more normal
+// model call; otherwise the old answer is re-checked and the delivery is not
+// seen, which Deliver records as WarningDeliveryDropped.
+func (s *replayState) deliverySupersedesCandidate() bool {
+	return s.keptFinishCandidate() && s.roomForNormalCall()
+}
+
+func (s *replayState) keptFinishCandidate() bool {
+	return s.awaitingClassification &&
+		s.Stop.Kind == StopFailed &&
+		s.Stop.Reason == StopReasonHookFailed
+}
+
+// roomForNormalCall reports whether one more model call fits before the
+// reserved final-answer call, or within ModelAttempts when there is no
+// reserve.
+func (s *replayState) roomForNormalCall() bool {
+	limit := s.Agent.Limits.ModelAttempts
+	if s.Agent.Limits.NoReservedFinalAnswer {
+		return s.ModelAttempts < limit
+	}
+	return s.ModelAttempts+1 < limit
 }
 
 // hookVerdicts lists the verdicts each hook point can record.

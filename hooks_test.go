@@ -1074,6 +1074,51 @@ func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 	}
 }
 
+func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
+	fail := true
+	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		if fail {
+			return FinishDecision{}, errors.New("guard down")
+		}
+		return FinishDecision{}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 3
+	remote := &valueTool{}
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "remote"),
+		final("second"),
+	}}
+	runner := Runner{
+		Agent:  agent,
+		Client: client,
+		Tools:  tool.List{remote.binding()},
+		Hooks:  guard.Hooks(),
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+	})
+	if err != nil || out.Stop.Reason != StopReasonHookFailed {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	// The next call would be the reserved final answer, so there is no room
+	// for a normal call that could use the delivery.
+	fail = false
+	out, err = runner.Run(t.Context(), out.Turn, Deliver{
+		CommandID: "note",
+		Items:     []ContextItem{{Message: llm.UserMessage(llm.Text("more"))}},
+	})
+	if err != nil || !hasWarning(out, WarningDeliveryDropped) {
+		t.Fatalf("warnings=%+v err=%v", out.Warnings, err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "second" ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+}
+
 func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
 	fail := true
 	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {

@@ -63,14 +63,15 @@ A terminal prompt; a server uses `Hooks: dashi.RequireApproval("deploy")`:
 
 ```go
 ask := dashi.OnTool("deploy",
-    func(_ context.Context, _ dashi.ToolPlan, in deployArgs) (dashi.ToolDecision, error) {
+    func(_ context.Context, _ dashi.ToolPlan, in deployArgs,
+    ) (dashi.ToolDecision, error) {
         fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
         if yes(answers) {
             return dashi.Allow("operator approved"), nil
         }
         return dashi.Deny("The operator declined this deploy."), nil
     })
-runner := dashi.Runner{Client: client, Tools: tool.List{deploy}, Hooks: ask.Hooks()}
+runner.Hooks = ask.Hooks()
 ```
 
 **Plans and decisions.** A zero decision means *no opinion*.
