@@ -1535,6 +1535,16 @@ func validateStepPayload(step Step) error {
 		step.Context.Vetoed {
 		return errors.New("only a loop continuation records a veto")
 	}
+	if step.Context != nil && step.Context.Steering {
+		if step.Context.Vetoed {
+			return errors.New("a steer is not a veto")
+		}
+		for _, item := range step.Context.Items {
+			if item.ID == "" {
+				return errors.New("a steer requires an ID")
+			}
+		}
+	}
 	if step.ActiveHooks != nil {
 		if step.Kind != StepStarted && step.Kind != StepContinued {
 			return errors.New("active hooks require a start or continuation step")

@@ -70,6 +70,10 @@ type steerState struct {
 	seen     map[string]bool
 	recorded map[string]bool
 	inDoubt  map[string]bool
+	// warned holds the steers already warned about in this run, so a
+	// durable source that keeps returning an invalid steer is reported
+	// once, not before every model call.
+	warned map[string]bool
 }
 
 func (st *steerState) claim(id string) {
@@ -105,7 +109,7 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	for _, steer := range steers {
 		item := cloneContextItem(steer.Item)
 		if item.ID == "" {
-			r.warnSteering("steer skipped: it has no ID")
+			r.warnSteerOnce("", "steer skipped: it has no ID")
 			continue
 		}
 		r.steers.claim(item.ID)
@@ -114,7 +118,10 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 		}
 		batch[item.ID] = true
 		if err := validateContext(item); err != nil {
-			r.warnSteering(fmt.Sprintf("steer %s skipped: %v", item.ID, err))
+			r.warnSteerOnce(
+				item.ID,
+				fmt.Sprintf("steer %s skipped: %v", item.ID, err),
+			)
 			continue
 		}
 		if recorded, ok := s.contextIDs[item.ID]; ok {
@@ -122,7 +129,7 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 				again = append(again, item.ID)
 				continue
 			}
-			r.warnSteering(fmt.Sprintf(
+			r.warnSteerOnce(item.ID, fmt.Sprintf(
 				"steer %s skipped: the turn records a different item with its ID",
 				item.ID,
 			))
@@ -224,6 +231,18 @@ func (r *runtime) releaseSteers() {
 	)
 	defer cancel()
 	releaser.Release(ctx, r.turn.ID, unrecorded, inDoubt)
+}
+
+// warnSteerOnce warns about one steer, keyed by its ID, once per run.
+func (r *runtime) warnSteerOnce(id, message string) {
+	if r.steers.warned[id] {
+		return
+	}
+	if r.steers.warned == nil {
+		r.steers.warned = map[string]bool{}
+	}
+	r.steers.warned[id] = true
+	r.warnSteering(message)
 }
 
 func (r *runtime) warnSteering(message string) {

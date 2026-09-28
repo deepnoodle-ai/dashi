@@ -314,6 +314,10 @@ type ContextFact struct {
 	// the latest answer. Until a new model result arrives, that answer never
 	// reaches the host through TurnView.Answer, whatever the stop.
 	Vetoed bool `json:"vetoed,omitempty"`
+	// Steering marks items that came from a Steering source, recorded on
+	// their own step. Inbox.Leftovers uses it to tell steers from Deliver
+	// and hook items.
+	Steering bool `json:"steering,omitempty"`
 }
 
 // ModelFact records intent without persisting the potentially secret-bearing

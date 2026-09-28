@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -90,7 +91,7 @@ func TestSteerQueuedBeforeStartReachesFirstCall(t *testing.T) {
 	}
 	delivered := stepsOf(out.Turn, StepDelivered)
 	if len(delivered) != 1 || delivered[0].Items()[0].ID != id ||
-		delivered[0].Seq != 2 {
+		delivered[0].Seq != 2 || !delivered[0].Context.Steering {
 		t.Fatalf("delivered = %+v", delivered)
 	}
 	left, err := inbox.Leftovers(out.Turn)
@@ -361,7 +362,8 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	if len(stepsOf(out.Turn, StepDelivered)) != 0 {
 		t.Fatal("an invalid steer was recorded")
 	}
-	if n := len(warningsOf(out.Turn, WarningSteering)); n < 2 {
+	// Steers runs before the call and at the answer; each is warned once.
+	if n := len(warningsOf(out.Turn, WarningSteering)); n != 2 {
 		t.Fatalf("got %d steering warnings", n)
 	}
 
@@ -551,10 +553,28 @@ func TestRunReleasesUnrecordedClaims(t *testing.T) {
 
 func TestInboxConcurrentSends(t *testing.T) {
 	inbox := NewInbox()
-	client := &scriptedClient{results: []llm.Result{
-		callResult("c1", "lookup"),
-		final("done"),
-	}}
+	var mu sync.Mutex
+	var sent []string
+	send := func() {
+		id, err := inbox.SendText("x")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		sent = append(sent, id)
+		mu.Unlock()
+	}
+	// Sends also come from inside each model call and each tool call, so
+	// they interleave with the run's Steers calls.
+	client := sendingClient{
+		scriptedClient: &scriptedClient{results: []llm.Result{
+			callResult("c1", "lookup"),
+			callResult("c2", "lookup"),
+			final("done"),
+		}},
+		onSend: func(int) { send() },
+	}
 	lookup := tool.Tool{
 		Definition: tool.Definition{
 			Name:   "lookup",
@@ -562,39 +582,146 @@ func TestInboxConcurrentSends(t *testing.T) {
 			Kind:   tool.KindLocal,
 		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			send()
 			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
 		}),
 	}
+	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			for range 20 {
-				if _, err := inbox.SendText("x"); err != nil {
-					t.Error(err)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					send()
+					time.Sleep(50 * time.Microsecond)
 				}
 			}
 		})
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	// Four attempts with the last reserved: the third call's answer cannot
+	// be superseded, so the script's three results suffice.
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
+	out, err := (Runner{Agent: agent, Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
+	close(stop)
 	wg.Wait()
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	recorded := 0
+	seen := map[string]int{}
+	deliveries := 0
 	for _, step := range out.Turn.Steps {
-		recorded += len(step.Items())
+		if step.Context == nil || !step.Context.Steering {
+			continue
+		}
+		deliveries++
+		for _, item := range step.Items() {
+			seen[item.ID]++
+		}
 	}
 	left, err := inbox.Leftovers(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recorded+len(left) != 160 {
-		t.Fatalf("recorded %d and left %d of 160", recorded, len(left))
+	for _, steer := range left {
+		seen[steer.Item.ID]++
+	}
+	if deliveries < 2 {
+		t.Fatalf("steers reached the turn in %d steps; want interleaving", deliveries)
+	}
+	if len(seen) != len(sent) {
+		t.Fatalf("%d IDs recorded or left over; %d sent", len(seen), len(sent))
+	}
+	for _, id := range sent {
+		if seen[id] != 1 {
+			t.Fatalf("steer %s appears %d times", id, seen[id])
+		}
 	}
 }
 
+// TestDeliverBeforeSubmissionStartReachesModel stops a run after the model
+// submitted output but before the submission call started. A Deliver made
+// then supersedes the kept submission on Continue.
+func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{
+		submitResult("out-1", `{"answer":1}`),
+		submitResult("out-2", `{"answer":2}`),
+	}}
+	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepToolStarted}
+	agent := structuredAgent()
+	agent.Limits.ModelAttempts = 4
+	runner := Runner{Agent: agent, Client: client, Recorder: rec}
+	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput()); err == nil {
+		t.Fatal("the fault was not reported")
+	}
+	saved, err := rec.base.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.Recorder = rec.base
+	note := ContextItem{Message: llm.UserMessage(llm.Text("one more thing"))}
+	out, err := runner.Run(t.Context(), saved, Deliver{CommandID: "d", Items: []ContextItem{note}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "c"})
+	if err != nil || out.Stop.Kind != StopCompleted ||
+		string(out.Output.Value) != `{"answer":2}` || client.sends != 2 {
+		t.Fatalf("stop=%+v output=%+v sends=%d err=%v", out.Stop, out.Output, client.sends, err)
+	}
+	if hasText(client.inputs[1].Messages, "one more thing") < 0 {
+		t.Fatal("the delivered item did not reach the model")
+	}
+}
+
+// TestNudgeOfRecordedItemsCostsNoCall has a BeforeFinish hook deliver the
+// same identified item at every answer. The first delivery nudges the model
+// once; afterwards the item is recorded, so it is no nudge.
+func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
+	note := ContextItem{ID: "n1", Message: llm.UserMessage(llm.Text("cite a source"))}
+	nudge := FinishHook{Name: "nudge", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
+		return FinishDecision{Deliver: []ContextItem{note}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 5
+	out, err := (Runner{Agent: agent, Client: client, Hooks: nudge.Hooks()}).Run(
+		t.Context(), Turn{ID: "t1"}, startInput(),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "two" ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+	}
+}
+
+// TestLeftoversIgnoresOtherIdentifiedItems checks that Leftovers returns
+// only steers, not Deliver items that also carry IDs.
+func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "wait")}}
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "wait",
+		Schema: json.RawMessage(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := ContextItem{ID: "d1", Message: llm.UserMessage(llm.Text("note"))}
+	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d1", Items: []ContextItem{item}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left, err := NewInbox().Leftovers(out.Turn); err != nil || len(left) != 0 {
+		t.Fatalf("leftovers = %+v err=%v", left, err)
+	}
+}
 func TestHookCannotDeliverToolResult(t *testing.T) {
 	bad := ModelHook{Name: "bad", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		return ModelDecision{Deliver: []ContextItem{{Message: llm.Message{

@@ -88,8 +88,8 @@ unknown, it reloads the turn before reconciling.
   in doubt; `Leftovers(Turn) ([]Steer, error)` resolves that turn's in-doubt
   steers and returns its leftovers. Its doc comment says to pass a freshly
   loaded turn: a stale one makes recorded steers look unrecorded. An invalid
-  turn changes nothing. The inbox remembers the IDs a turn recorded until
-  `Leftovers` for that turn, to find the ones no model call saw.
+  turn changes nothing. The record marks steers (`ContextFact.Steering`), so
+  the inbox keeps nothing per turn beyond claimed and in-doubt steers.
 - FR-4: `ContextItem` gains `ID`: one delivery, unlike `Name`, a slot a later
   snapshot replaces. Optional for `Deliver` and hooks, required for steers.
   `Step.Items() []ContextItem` returns a step's context items.
@@ -228,7 +228,8 @@ Already true in hooks.md: an invalid hook delivery is a skipped hook.
 
 ## Recorded-format changes
 
-- `ContextItem.id`; warning code `steering`; steering's reason on hooks'
+- `ContextItem.id`; `ContextFact.steering` on steps that record steers;
+  warning code `steering`; steering's reason on hooks'
   rejected-submission settlement.
 - PR 2: a tool settlement from `allowed` to `not_executed` with reason
   `steering` (skipped batch calls).

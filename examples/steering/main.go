@@ -123,7 +123,9 @@ func run(ctx context.Context) error {
 		}
 		steers := 0
 		for _, step := range out.Turn.Steps {
-			steers += len(step.Items())
+			if step.Context != nil && step.Context.Steering {
+				steers += len(step.Items())
+			}
 		}
 		fmt.Printf("[%s, %d steer(s) delivered]\n%s\n", out.Stop.Kind, steers, out.Answer)
 		if !out.Stop.Terminal {

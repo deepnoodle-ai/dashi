@@ -228,3 +228,179 @@ func (m *steerModel) sawSteer() bool {
 	defer m.mu.Unlock()
 	return m.saw
 }
+
+// draftModel answers "draft" and, during that first call, has a person
+// send a correction through the inbox. Once a request carries the
+// correction it answers "final". Deciding from the input keeps a resent
+// request consistent.
+type draftModel struct {
+	scriptedModel
+	inbox *dashi.Inbox
+	mu    sync.Mutex
+	sent  bool
+	saw   bool
+}
+
+func (m *draftModel) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	m.mu.Lock()
+	corrected := false
+	for _, msg := range call.Request.Snapshot().Input.Messages {
+		if strings.Contains(msg.Text(), "metric") {
+			corrected = true
+		}
+	}
+	if corrected {
+		m.saw = true
+	}
+	send := !m.sent && !corrected
+	m.sent = m.sent || send
+	m.mu.Unlock()
+	if send {
+		if _, err := m.inbox.SendText("use metric units"); err != nil {
+			return llm.Result{}, err
+		}
+	}
+	text := "draft"
+	if corrected {
+		text = "final"
+	}
+	return llm.Result{
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+		Message:   llm.AssistantMessage(llm.Text(text)),
+		Stop:      llm.Stop{Kind: llm.StopFinished},
+	}, nil
+}
+
+// TestSteerSupersedingTextSurvivesEachCommitFault fails the loop
+// continuation that records a steer superseding a text answer, in each way
+// a durable store can, then resumes from the reloaded record with the same
+// inbox. The steer is recorded once, the model sees it, and nothing is left
+// over.
+func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
+	for _, fault := range []dashitest.Fault{
+		dashitest.Reject,
+		dashitest.LoseWrite,
+		dashitest.LoseAck,
+	} {
+		t.Run(string(fault), func(t *testing.T) {
+			store := dashi.NewMemoryRecorder()
+			rec := &dashitest.FaultRecorder{
+				Recorder: store,
+				Kind:     dashi.StepLoopContinued,
+				Fault:    fault,
+			}
+			inbox := dashi.NewInbox()
+			model := &draftModel{inbox: inbox}
+			runner := dashi.Runner{Agent: testAgent(), Client: model, Recorder: rec}
+			if _, err := runner.Run(
+				t.Context(),
+				dashi.Turn{ID: "t1"},
+				startCommand(),
+				dashi.WithSteering(inbox),
+			); err == nil {
+				t.Fatal("the fault was not reported")
+			}
+			saved, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := run(
+				t,
+				saved,
+				dashi.Continue{CommandID: "resume"},
+				runner,
+				dashi.WithSteering(inbox),
+			)
+			if out.Stop.Kind != dashi.StopCompleted || out.Answer != "final" {
+				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+			}
+			final, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := recordedSteers(final); len(got) != 1 {
+				t.Fatalf("steers recorded: %v", got)
+			}
+			for id, n := range recordedSteers(final) {
+				if n != 1 {
+					t.Fatalf("steer %s recorded %d times", id, n)
+				}
+			}
+			if !model.saw {
+				t.Fatal("no model call saw the steer")
+			}
+			if left, _ := inbox.Leftovers(final); len(left) != 0 {
+				t.Fatalf("leftovers = %+v", left)
+			}
+		})
+	}
+}
+
+// TestInboxContinuesAfterInDoubtDelivery fails the write that delivers a
+// steer before the first model call, with an unknown outcome, then
+// continues the same turn with the same inbox. The in-doubt steer goes to
+// that run and is recorded once.
+func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
+	for _, fault := range []dashitest.Fault{dashitest.LoseWrite, dashitest.LoseAck} {
+		t.Run(string(fault), func(t *testing.T) {
+			store := dashi.NewMemoryRecorder()
+			rec := &dashitest.FaultRecorder{
+				Recorder: store,
+				Kind:     dashi.StepDelivered,
+				Fault:    fault,
+			}
+			inbox := dashi.NewInbox()
+			if _, err := inbox.SendText("use the staging database"); err != nil {
+				t.Fatal(err)
+			}
+			model := &steerModel{}
+			runner := dashi.Runner{
+				Agent:    testAgent(),
+				Client:   model,
+				Tools:    &countingTool{},
+				Recorder: rec,
+			}
+			if _, err := runner.Run(
+				t.Context(),
+				dashi.Turn{ID: "t1"},
+				startCommand(),
+				dashi.WithSteering(inbox),
+			); err == nil {
+				t.Fatal("the fault was not reported")
+			}
+			saved, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := run(
+				t,
+				saved,
+				dashi.Continue{CommandID: "resume"},
+				runner,
+				dashi.WithSteering(inbox),
+			)
+			if out.Stop.Kind != dashi.StopCompleted {
+				t.Fatalf("stop=%+v", out.Stop)
+			}
+			final, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			steers := recordedSteers(final)
+			if len(steers) != 1 {
+				t.Fatalf("steers recorded: %v", steers)
+			}
+			for id, n := range steers {
+				if n != 1 {
+					t.Fatalf("steer %s recorded %d times", id, n)
+				}
+			}
+			if !model.sawSteer() {
+				t.Fatal("no model call saw the steer")
+			}
+			if left, _ := inbox.Leftovers(final); len(left) != 0 {
+				t.Fatalf("leftovers = %+v", left)
+			}
+		})
+	}
+}

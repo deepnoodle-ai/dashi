@@ -1041,7 +1041,10 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	// BeforeModel hooks run, so the hooks' input includes them.
 	if steers := r.waitingSteers(s); len(steers) > 0 {
 		o := r.commitSteers(
-			Step{Kind: StepDelivered, Context: &ContextFact{Items: steers}},
+			Step{
+				Kind:    StepDelivered,
+				Context: &ContextFact{Items: steers, Steering: true},
+			},
 			steers,
 		)
 		if o != nil {
@@ -1492,7 +1495,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		o := r.commitSteers(
 			Step{
 				Kind:    StepLoopContinued,
-				Context: &ContextFact{Items: finish.steers},
+				Context: &ContextFact{Items: finish.steers, Steering: true},
 			},
 			finish.steers,
 		)

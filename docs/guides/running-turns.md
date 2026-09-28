@@ -552,8 +552,9 @@ The record is the authority: each steer carries an ID, a turn records an ID at
 most once, and Dashi skips a steer it finds already recorded, so a steer
 presented twice after a crash is delivered once. A host may instead consume
 rows in the recorder transaction that saves the step, reading the IDs from
-`Step.Items()`. After a `*CommitError` whose persistence is unknown, reload the
-turn before deciding what happened to its steers.
+`Step.Items()` of a step whose `Context.Steering` is set. After a
+`*CommitError` whose persistence is unknown, reload the turn before deciding
+what happened to its steers.
 
 `Deliver` adds context to a turn that is not running. Its items may carry IDs
 too; a repeat with the same content is skipped. Context items, from steers,

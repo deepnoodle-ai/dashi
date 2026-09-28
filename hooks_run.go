@@ -446,6 +446,9 @@ func (r *runtime) finishPoint(
 		o := r.contextStop()
 		return finishResult{}, &o
 	}
+	// Items the turn already records are not new: a nudge made only of
+	// them is no nudge, and costs no model call.
+	finish.deliver = r.skipRecordedItems(finish.deliver)
 	if !finish.rejects() {
 		return finish, nil
 	}
@@ -529,7 +532,10 @@ func (r *runtime) rejectSubmission(
 		},
 	}
 	if len(items) > 0 {
-		step.Context = &ContextFact{Items: items}
+		step.Context = &ContextFact{
+			Items:    items,
+			Steering: source == sourceSteering,
+		}
 	}
 	return r.commit(step)
 }

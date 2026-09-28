@@ -22,9 +22,9 @@ import (
 type Inbox struct {
 	mu      sync.Mutex
 	entries []*inboxEntry
-	// delivered holds, per turn, the IDs of steers the turn recorded, so
-	// Leftovers can find the ones no model call saw.
-	delivered map[string]map[string]bool
+	// taken is the turn whose recorded leftovers were last returned, so an
+	// immediate second Leftovers call does not return them again.
+	taken string
 }
 
 type inboxEntry struct {
@@ -57,11 +57,6 @@ func (in *Inbox) Send(steer Steer) (string, error) {
 	defer in.mu.Unlock()
 	if in.find(item.ID) >= 0 {
 		return "", fmt.Errorf("dashi: steer ID %q is already queued", item.ID)
-	}
-	for _, ids := range in.delivered {
-		if ids[item.ID] {
-			return "", fmt.Errorf("dashi: steer ID %q was already delivered", item.ID)
-		}
 	}
 	in.entries = append(in.entries, &inboxEntry{steer: Steer{Item: item}})
 	return item.ID, nil
@@ -108,22 +103,15 @@ func (in *Inbox) Steers(_ context.Context, turnID string) ([]Steer, error) {
 	return out, nil
 }
 
-// Delivered removes steers the turn recorded. The inbox remembers their IDs
-// for that turn until Leftovers, so it can return any no model call saw.
-func (in *Inbox) Delivered(_ context.Context, turnID string, ids []string) error {
+// Delivered removes steers the turn recorded. The record keeps them, marked
+// as steers, so Leftovers can still return any no model call saw.
+func (in *Inbox) Delivered(_ context.Context, _ string, ids []string) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	for _, id := range ids {
 		if i := in.find(id); i >= 0 {
 			in.entries = slices.Delete(in.entries, i, i+1)
 		}
-		if in.delivered == nil {
-			in.delivered = map[string]map[string]bool{}
-		}
-		if in.delivered[turnID] == nil {
-			in.delivered[turnID] = map[string]bool{}
-		}
-		in.delivered[turnID][id] = true
 	}
 	return nil
 }
@@ -153,49 +141,41 @@ func (in *Inbox) Release(_ context.Context, turnID string, unrecorded, inDoubt [
 // another turn stay queued.
 //
 // Pass a freshly loaded turn: in a stale copy, recorded steers look
-// unrecorded and would be delivered twice. Call it once the turn will not
-// run again, or to abandon it. An invalid turn returns an error and changes
-// nothing.
+// unrecorded and would be delivered twice. Call it once per turn, when the
+// turn will not run again or to abandon it; a second call for the same turn
+// returns only steers queued since. An invalid turn returns an error and
+// changes nothing.
 func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 	if _, err := Replay(turn); err != nil {
 		return nil, err
 	}
-	// seen maps each recorded item ID to whether a model call followed it.
-	seen := map[string]bool{}
-	var order []string
-	items := map[string]ContextItem{}
+	// recorded holds every recorded item ID; unseen lists the steers no
+	// later model call saw, in order.
+	recorded := map[string]bool{}
+	var unseen []ContextItem
 	for _, step := range turn.Steps {
 		if step.Kind == StepModelIntent {
-			for id := range seen {
-				seen[id] = true
-			}
+			unseen = unseen[:0]
 			continue
 		}
 		for _, item := range step.Items() {
 			if item.ID == "" {
 				continue
 			}
-			seen[item.ID] = false
-			order = append(order, item.ID)
-			items[item.ID] = item
+			recorded[item.ID] = true
+			if step.Context.Steering {
+				unseen = append(unseen, item)
+			}
 		}
 	}
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	mine := in.delivered[turn.ID]
 	var out []Steer
-	for _, id := range order {
-		if seen[id] {
-			continue
+	if in.taken != turn.ID {
+		for _, item := range unseen {
+			out = append(out, Steer{Item: cloneContextItem(item)})
 		}
-		queued := in.find(id)
-		ours := mine[id] ||
-			queued >= 0 && (in.entries[queued].turn == "" ||
-				in.entries[queued].turn == turn.ID)
-		if !ours {
-			continue
-		}
-		out = append(out, Steer{Item: cloneContextItem(items[id])})
+		in.taken = turn.ID
 	}
 	kept := in.entries[:0]
 	for _, e := range in.entries {
@@ -203,13 +183,12 @@ func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 			kept = append(kept, e)
 			continue
 		}
-		if _, recorded := seen[e.steer.Item.ID]; !recorded {
+		if !recorded[e.steer.Item.ID] {
 			out = append(out, Steer{Item: cloneContextItem(e.steer.Item)})
 		}
 	}
 	clear(in.entries[len(kept):])
 	in.entries = kept
-	delete(in.delivered, turn.ID)
 	return out, nil
 }
 
