@@ -27,8 +27,9 @@ import (
 //     duplicate key resolves to its last value, so a Postgres jsonb column
 //     conforms; the engine compares recorded values by canonical JSON. Step
 //     times use microsecond precision, which timestamp columns preserve.
-//   - Load of a turn with no steps returns an error or an empty turn with the
-//     requested ID.
+//   - Load of a turn with no steps returns an error matching
+//     kernel.ErrTurnNotFound or an empty turn with the requested ID. Apply
+//     treats any other Load error as an unreadable record and stops.
 //   - A commit whose ExpectedSeq is not the turn's current revision is
 //     rejected with kernel.ErrRevisionConflict, including a different step
 //     at an occupied sequence number. A step that differs only in its time
@@ -87,13 +88,18 @@ func testAppendsInOrder(t *testing.T, s Store) {
 
 func testLoadWithoutSteps(t *testing.T, s Store) {
 	turn, err := s.Load(t.Context(), "kerneltest-missing")
-	if err != nil {
-		return
-	}
-	if turn.ID != "kerneltest-missing" || len(turn.Steps) != 0 {
+	switch {
+	case errors.Is(err, kernel.ErrTurnNotFound):
+	case err != nil:
 		t.Fatalf(
-			"load of a turn without steps returned id=%q steps=%d; "+
-				"want an error or an empty turn with the requested ID",
+			"load of a turn without steps returned %v; want "+
+				"kernel.ErrTurnNotFound, or Apply cannot start the turn",
+			err,
+		)
+	case turn.ID != "kerneltest-missing" || len(turn.Steps) != 0:
+		t.Fatalf(
+			"load of a turn without steps returned id=%q steps=%d; want "+
+				"kernel.ErrTurnNotFound or an empty turn with the requested ID",
 			turn.ID,
 			len(turn.Steps),
 		)

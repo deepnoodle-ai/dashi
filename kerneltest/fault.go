@@ -36,10 +36,10 @@ var ErrInjected = errors.New("kerneltest: injected fault")
 // and every other commit passes through, so the same recorder can serve the
 // worker that resumes the turn.
 //
-// Load forwards to the wrapped recorder when it is a kernel.Loader, which lets
-// Engine.Apply recognize retried commands as it would without the wrapper.
-// Otherwise Load returns an error, which Apply reports when a command already
-// in the supplied turn is retried; wrap a Loader to avoid that difference.
+// Load passes through to the wrapped recorder, including its errors, so
+// Engine.Apply treats the wrapper as it would the recorder. The wrapped
+// recorder should be a kernel.Loader; otherwise Load returns an error that is
+// not kernel.ErrTurnNotFound, and Apply returns it.
 type FaultRecorder struct {
 	Recorder kernel.Recorder
 	Kind     kernel.StepKind

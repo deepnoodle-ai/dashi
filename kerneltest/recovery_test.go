@@ -220,10 +220,9 @@ func testRecovery(
 }
 
 // TestStaleRetryAfterFailedLoadRepeatsNothing retries a command with an old
-// snapshot while Load fails, so Apply cannot see that the command is already
-// recorded. The recorder acknowledges the duplicate command step, and the
-// engine continues from the old snapshot, but the next step it commits
-// conflicts with the record, so no model call or tool execution repeats.
+// snapshot while Load fails. Apply cannot confirm the snapshot, so it returns
+// the read error without committing, and no model call or tool execution
+// repeats.
 func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 	tests := []struct {
 		name string
@@ -232,10 +231,6 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 		{name: "completed"},
 		{name: "after model intent", kind: kernel.StepModelIntent},
 		{name: "after tool start", kind: kernel.StepToolStarted},
-	}
-	begin := kernel.Start{
-		ID:    "start",
-		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -258,28 +253,35 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 				Recorder: rec,
 				Policy:   kernel.AllowLocalPolicy{},
 			}
-			apply(t, kernel.Turn{ID: "t1"}, begin, b)
+			apply(t, kernel.Turn{ID: "t1"}, startCommand(), b)
 			before, err := store.Load(t.Context(), "t1")
 			if err != nil {
 				t.Fatal(err)
 			}
 			sends, runs := model.calls(), work.calls()
 
-			b.Recorder = &failingLoad{MemoryRecorder: store}
-			out := apply(t, kernel.Turn{ID: "t1"}, begin, b)
-			if out.Persistence != kernel.PersistenceRejected ||
-				!errors.Is(out.WriteError, kernel.ErrRevisionConflict) {
-				t.Fatalf(
-					"stale retry reported %q (%v); want a revision conflict",
-					out.Persistence,
-					out.WriteError,
-				)
+			b.Recorder = unreadable{store}
+			_, err = (kernel.Engine{}).Apply(
+				t.Context(),
+				kernel.Turn{ID: "t1"},
+				definition(),
+				startCommand(),
+				b,
+			)
+			if !errors.Is(err, errUnreadable) {
+				t.Fatalf("stale retry returned %v; want the read error", err)
 			}
 			if model.calls() != sends {
-				t.Fatalf("stale retry called the model %d more times", model.calls()-sends)
+				t.Fatalf(
+					"stale retry called the model %d more times",
+					model.calls()-sends,
+				)
 			}
 			if work.calls() != runs {
-				t.Fatalf("stale retry ran the tool %d more times", work.calls()-runs)
+				t.Fatalf(
+					"stale retry ran the tool %d more times",
+					work.calls()-runs,
+				)
 			}
 			after, err := store.Load(t.Context(), "t1")
 			if err != nil {
@@ -296,14 +298,80 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 	}
 }
 
-// failingLoad is a recorder whose reads fail, as during a database outage
+// TestStartProceedsWhenTurnNotFound starts a new turn through each shape the
+// Loader contract allows for a turn with no steps.
+func TestStartProceedsWhenTurnNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		load func(string) (kernel.Turn, error)
+	}{
+		{
+			name: "wrapped not found",
+			load: func(string) (kernel.Turn, error) {
+				return kernel.Turn{}, fmt.Errorf(
+					"select steps: %w",
+					kernel.ErrTurnNotFound,
+				)
+			},
+		},
+		{
+			name: "empty turn",
+			load: func(id string) (kernel.Turn, error) {
+				return kernel.Turn{ID: id}, nil
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &scriptedModel{}
+			work := &countingTool{}
+			out := apply(t, kernel.Turn{ID: "t1"}, startCommand(), kernel.Bindings{
+				Client:   model,
+				Tools:    work,
+				Recorder: newTurnLoader{kernel.NewMemoryRecorder(), tc.load},
+				Policy:   kernel.AllowLocalPolicy{},
+			})
+			if out.Stop.Kind != kernel.StopCompleted {
+				t.Fatalf("new turn stopped with %+v; want completed", out.Stop)
+			}
+			if model.calls() != 2 || work.calls() != 1 {
+				t.Fatalf(
+					"new turn made %d model calls and %d tool runs; want 2 and 1",
+					model.calls(),
+					work.calls(),
+				)
+			}
+		})
+	}
+}
+
+func startCommand() kernel.Start {
+	return kernel.Start{
+		ID:    "start",
+		Input: []llm.Message{llm.UserMessage(llm.Text("do the work"))},
+	}
+}
+
+var errUnreadable = errors.New("kerneltest: read unavailable")
+
+// unreadable is a recorder whose reads fail, as during a database outage
 // that still lets the commit path through.
-type failingLoad struct {
+type unreadable struct {
 	*kernel.MemoryRecorder
 }
 
-func (failingLoad) Load(context.Context, string) (kernel.Turn, error) {
-	return kernel.Turn{}, errors.New("kerneltest: read unavailable")
+func (unreadable) Load(context.Context, string) (kernel.Turn, error) {
+	return kernel.Turn{}, errUnreadable
+}
+
+// newTurnLoader reports every turn as new through load.
+type newTurnLoader struct {
+	*kernel.MemoryRecorder
+	load func(string) (kernel.Turn, error)
+}
+
+func (l newTurnLoader) Load(_ context.Context, id string) (kernel.Turn, error) {
+	return l.load(id)
 }
 
 // resume continues the turn from its reloaded record, or retries the start
@@ -497,8 +565,7 @@ func (*scriptedModel) Prepare(
 
 func (m *scriptedModel) Send(
 	_ context.Context,
-	req llm.Request,
-	_ llm.Sink,
+	call llm.Call,
 ) (llm.Result, error) {
 	m.mu.Lock()
 	m.sends++
@@ -508,7 +575,7 @@ func (m *scriptedModel) Send(
 		Message:   llm.AssistantMessage(llm.Text("done")),
 		Stop:      llm.Stop{Kind: llm.StopFinished},
 	}
-	if !hasToolResult(req.Snapshot().Input.Messages) {
+	if !hasToolResult(call.Request.Snapshot().Input.Messages) {
 		call := tool.Call{ID: "call-1", Name: "work", Args: []byte(`{}`)}
 		result.Message = llm.AssistantMessage(llm.Content{
 			Kind:     llm.ContentToolCall,

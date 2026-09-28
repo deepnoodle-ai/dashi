@@ -169,9 +169,14 @@ func (Engine) Apply(ctx context.Context, turn Turn, def Definition, command Comm
 		return outcome(turn, state, PersistenceAcknowledged), nil
 	}
 	// A caller can retry with an old snapshot after an acknowledgement was lost.
-	// A Load failure here falls back to the caller's snapshot; see Loader.
+	// Only a turn known not to exist falls back to the caller's snapshot;
+	// acting on a snapshot the recorder could not confirm might repeat work.
 	if loader, ok := b.Recorder.(Loader); ok {
-		if saved, loadErr := loader.Load(ctx, turn.ID); loadErr == nil {
+		saved, loadErr := loader.Load(ctx, turn.ID)
+		if loadErr != nil && !errors.Is(loadErr, ErrTurnNotFound) {
+			return Outcome{}, loadErr
+		}
+		if loadErr == nil {
 			current, replayErr := replay(saved)
 			if replayErr != nil {
 				return Outcome{}, replayErr

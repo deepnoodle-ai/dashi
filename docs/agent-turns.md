@@ -7,8 +7,8 @@ recorder and observer. The caller supplies a stable `Turn.ID` and a unique ID
 for each `Start`, `Deliver`, `Continue`, `Accept`, or `Cancel` command.
 Repeating the same command ID and payload acknowledges its
 recorded step without repeating an effect. Pass the returned `Outcome.Turn` to
-the next call, or reload it from a durable recorder. When the recorder exposes
-`Load`, Kernel can refresh a stale turn snapshot on a retried command.
+the next call, or reload it from a durable recorder. When the recorder implements
+`Loader`, Kernel can refresh a stale turn snapshot on a retried command.
 Reusing an ID with different content fails. `Start` records its origin and own
 input, plus a fingerprint of `Start.History`. Pass the earlier conversation
 again in `Continue.History` on every resume, including after a crash. Kernel
@@ -126,7 +126,10 @@ earlier history on `Continue`. `MemoryRecorder` and its `Claim` method are
 local fixtures, not a production lease service. A recorder that also
 implements `Loader` lets `Engine.Apply` recognize a command retried with an
 old turn snapshot and answer from the stored record; other hosts should
-reload before retrying after an ambiguous write.
+reload before retrying after an ambiguous write. `Load` reports a turn with no
+steps as `ErrTurnNotFound` or an empty turn with the requested ID. Any other
+`Load` error is returned from `Apply` without committing, because the
+caller's snapshot may be stale.
 
 A recorder must preserve each step's JSON meaning, not its bytes. Storage that
 reorders keys, drops whitespace, or respells numbers and strings, such as a
