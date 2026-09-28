@@ -3,6 +3,7 @@ package money
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -121,6 +122,46 @@ func TestAmountJSONRoundTripsAsDecimalString(t *testing.T) {
 	}
 }
 
+// TestAmountHasOneSpelling checks that every amount encodes in one trimmed
+// form, so canonical JSON digests cannot see two spellings of one value.
+func TestAmountHasOneSpelling(t *testing.T) {
+	values := []int64{0, 1, -1, 10, 100_000_000, 500_000_000, 1_000_000_000,
+		1_000_000_001, math.MaxInt64, math.MinInt64}
+	for n := int64(7); n < math.MaxInt64/13; n = n*13 + 5 {
+		values = append(values, n, -n)
+	}
+	for _, n := range values {
+		a := AmountFromNanos(n)
+		raw, err := json.Marshal(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := a.String()
+		if string(raw) != `"`+text+`"` {
+			t.Fatalf("%d encoded %s, String %q", n, raw, text)
+		}
+		whole, frac, hasFrac := strings.Cut(strings.TrimPrefix(text, "-"), ".")
+		if (len(whole) > 1 && whole[0] == '0') ||
+			hasFrac && (frac == "" || strings.HasSuffix(frac, "0")) ||
+			text == "-0" {
+			t.Fatalf("%d has a non-canonical spelling %q", n, text)
+		}
+		var back Amount
+		if err := json.Unmarshal(raw, &back); err != nil || back != a {
+			t.Fatalf("%d did not round trip: %s, %v", n, back, err)
+		}
+	}
+	for _, spelling := range []string{`"0.50"`, `"0.500000000"`, `0.5`, `5e-1`} {
+		var a Amount
+		if err := json.Unmarshal([]byte(spelling), &a); err != nil {
+			t.Fatal(err)
+		}
+		if raw, _ := json.Marshal(a); string(raw) != `"0.5"` {
+			t.Fatalf("%s re-encoded as %s", spelling, raw)
+		}
+	}
+}
+
 func TestAmountJSONReadsLegacyNumbersExactly(t *testing.T) {
 	for _, tc := range []struct {
 		raw   string
@@ -154,6 +195,27 @@ func TestAmountJSONReadsLegacyNumbersExactly(t *testing.T) {
 		}
 		if got.Nanos() != tc.nanos {
 			t.Fatalf("decode %s = %d nanos, want %d", tc.raw, got, tc.nanos)
+		}
+	}
+}
+
+func TestAmountJSONDecodesEscapedStrings(t *testing.T) {
+	backslash := string(rune(0x5c))
+	// "0.5" is the JSON spelling of the text 0.5.
+	var got Amount
+	escaped := `"` + backslash + `u0030.5"`
+	if err := json.Unmarshal([]byte(escaped), &got); err != nil ||
+		got != MustParseAmount("0.5") {
+		t.Fatalf("decode %s = %s, %v", escaped, got, err)
+	}
+	// "A" is the text A, which is not a decimal amount.
+	for _, raw := range []string{
+		`"` + backslash + `u0041"`,
+		`"` + backslash + `x30"`,
+		`"0.5`,
+	} {
+		if err := json.Unmarshal([]byte(raw), &got); err == nil {
+			t.Fatalf("decode %s = %s, want error", raw, got)
 		}
 	}
 }

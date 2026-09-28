@@ -12,6 +12,7 @@
 package money
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -113,7 +114,9 @@ func (a Amount) String() string {
 	return sign + whole + "." + strings.TrimRight(digits, "0")
 }
 
-// MarshalJSON writes the canonical decimal string.
+// MarshalJSON writes the canonical decimal string. Each value has exactly one
+// spelling, so digests over canonical JSON agree for equal amounts; a string
+// such as "0.50" read from a store re-encodes as "0.5".
 func (a Amount) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
@@ -134,9 +137,11 @@ func (a *Amount) UnmarshalJSON(data []byte) error {
 		err    error
 	)
 	if strings.HasPrefix(text, `"`) {
+		// Decode the JSON string first: an escaped spelling such as
+		// "\u0030.5" is the same text as "0.5".
 		var s string
-		if err := jsonString(text, &s); err != nil {
-			return err
+		if err := json.Unmarshal(data, &s); err != nil {
+			return fmt.Errorf("money: decode %s: %w", text, errSyntax)
 		}
 		amount, err = parse(s, false)
 	} else {
@@ -146,17 +151,6 @@ func (a *Amount) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("money: decode %s: %w", text, err)
 	}
 	*a = amount
-	return nil
-}
-
-// jsonString unquotes a JSON string that holds decimal text. Decimal text
-// never needs escapes, so any escape is a syntax error.
-func jsonString(text string, out *string) error {
-	if len(text) < 2 || !strings.HasSuffix(text, `"`) ||
-		strings.ContainsAny(text[1:len(text)-1], `"\`) {
-		return fmt.Errorf("money: decode %s: %w", text, errSyntax)
-	}
-	*out = text[1 : len(text)-1]
 	return nil
 }
 
