@@ -21,6 +21,8 @@ other.
   file, shared safely by processes on one machine (Unix only).
 - `dashitest`: A conformance suite for host recorders and a fault-injecting
   recorder for recovery tests.
+- `feed`: Serves a turn to live readers: committed steps from the record with
+  the runner's live previews merged in place.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 
@@ -45,8 +47,8 @@ Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
 `speech` share `model` identity and evidence. Shared content, model, and money
 depend only on the standard library; `money` is a leaf so that `tool` can
 report exact charges without importing `llm`. The root agent loop depends on
-`llm` and `tool`; `filerecorder` and `dashitest` depend only on the root
-package and the standard library. Session storage remains an optional
+`llm` and `tool`; `filerecorder`, `dashitest`, and `feed` depend only on the
+root package and the standard library. Session storage remains an optional
 future adapter.
 
 The Google adapter depends on `google.golang.org/genai` and gRPC, so it is its

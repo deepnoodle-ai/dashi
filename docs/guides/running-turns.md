@@ -398,7 +398,11 @@ the terminal stop, it ends at once. A late result of work started before the
 stop can still be recorded after it; a reload, or `StepsAfter` from the
 stop's `Seq`, shows it.
 
-The handler serves committed steps:
+Live previews (token streaming and tool progress) never enter the record;
+they come from `Runner.Observer` in the runner's process. Package `feed`
+merges the two: set `Runner.Observer` to a `feed.Hub`'s `Observe`, and serve
+each connection with `feed.Follow`, which yields the record's steps with the
+hub's previews in their places. The handler:
 
 ```go
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
@@ -424,8 +428,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	flush := w.(http.Flusher).Flush
+	flush() // the browser sees the stream open before the first event
 
-	for step, err := range dashi.Follow(r.Context(), s.store, id, after) {
+	// Steps come from the record; previews from the hub, each in its place.
+	for e, err := range feed.Follow(r.Context(), s.hub, s.store, id, after) {
 		switch {
 		case errors.Is(err, dashi.ErrCursorAhead):
 			send(w, "", "reset", nil) // the client drops its state, follows from 0
@@ -433,25 +439,38 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case err != nil:
 			return // the client reconnects from its last id
-		}
-		send(w, strconv.FormatInt(step.Seq, 10), "step", project(step))
-		if step.Stop != nil && step.Stop.Terminal {
-			send(w, "", "end", nil) // the page calls EventSource.close
+		case e.Step != nil:
+			send(w, strconv.FormatInt(e.Seq, 10), "step", project(*e.Step))
+			if e.Step.Stop != nil && e.Step.Stop.Terminal {
+				send(w, "", "end", nil) // the page calls EventSource.close
+			}
+		case e.Gap:
+			send(w, "", "gap", e.MessageID) // the page discards that preview
+		default:
+			send(w, "", "preview", projectPreview(e))
 		}
 		flush()
 	}
 }
 ```
 
-Steps go out with an SSE `id`, so the browser resumes from them. At a
-terminal stop the handler sends `end`, so the page calls
+Steps go out with an SSE `id`, so the browser resumes from them; previews
+and gaps have none, since they cannot be replayed. Each preview comes after
+the step it follows (`Event.Seq`) and before the next, and one the client's
+steps have already settled is never sent, even on a reconnect. The page still
+clears a message's preview when it applies the step whose `Step.Settles`
+names it. A `gap` means the message lost deltas: the client fell behind, or
+it joined while the message was streaming. The page discards that preview
+and shows the message when its settling step arrives. Tool progress may drop
+without a gap; a page that joins while a tool runs shows its progress from
+the tool's next report.
+
+At a terminal stop the handler sends `end`, so the page calls
 `EventSource.close()`; a browser that reconnects anyway gets `204 No
 Content`, which stops `EventSource` from reconnecting. This handler runs in
-Dashi's tests (`serve_public_test.go`).
-
-Live previews (token streaming and tool progress) never enter the record;
-they come from `Runner.Observer` in the runner's process. A tested fan-out
-helper that merges them into this stream is coming.
+Dashi's tests (`serve_public_test.go`). The hub serves readers in the
+runner's process; a multi-process host relays the Observer's events, with
+`Seq` and gaps unchanged, into a hub in each web process.
 
 **Never send a `Step` to a browser as it is.** A step is the internal record:
 it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
