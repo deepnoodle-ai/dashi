@@ -58,8 +58,8 @@ func TestFuncDoesNotExecuteCanceledCall(t *testing.T) {
 	}
 }
 
-func TestFuncSeparatesKnownFailureFromUncertainty(t *testing.T) {
-	uncertain := errors.New("connection lost after dispatch")
+func TestFuncReturnsCallbackResults(t *testing.T) {
+	failure := errors.New("quota exceeded")
 	tests := []struct {
 		name    string
 		outcome Outcome
@@ -74,18 +74,28 @@ func TestFuncSeparatesKnownFailureFromUncertainty(t *testing.T) {
 			},
 		},
 		{
-			name:    "uncertain",
+			name:    "plain error",
 			outcome: Outcome{State: StateSucceeded, Output: ptr(TextOutput("maybe"))},
-			err:     uncertain,
+			err:     failure,
 			check: func(out Outcome, err error) bool {
-				return errors.Is(err, uncertain) && out.State == ""
+				return err == failure && out.State == ""
+			},
+		},
+		{
+			name:    "fatal error",
+			outcome: Outcome{State: StateSucceeded, Output: ptr(TextOutput("maybe"))},
+			err:     Fatal(failure),
+			check: func(out Outcome, err error) bool {
+				return errors.Is(err, ErrFatal) && errors.Is(err, failure)
 			},
 		},
 		{
 			name:    "invalid outcome",
 			outcome: Outcome{State: StateWaiting},
 			check: func(out Outcome, err error) bool {
-				return err != nil && out.State == ""
+				return errors.Is(err, ErrInvalidOutcome) &&
+					errors.Is(err, ErrFatal) &&
+					out.State == ""
 			},
 		},
 	}
@@ -100,9 +110,33 @@ func TestFuncSeparatesKnownFailureFromUncertainty(t *testing.T) {
 			call := Call{ID: "id", Name: "act", Args: json.RawMessage(`{}`)}
 			out, err := fn.Executor.Execute(context.Background(), call)
 			if !test.check(out, err) {
-				t.Fatalf("executor confused a known outcome with uncertainty: outcome=%+v error=%v", out, err)
+				t.Fatalf("executor changed the callback result: outcome=%+v error=%v", out, err)
 			}
 		})
+	}
+}
+
+func TestFatalKeepsCause(t *testing.T) {
+	cause := &json.SyntaxError{Offset: 3}
+	err := Fatal(cause)
+	if !errors.Is(err, ErrFatal) {
+		t.Fatal("fatal error does not match ErrFatal")
+	}
+	var syntax *json.SyntaxError
+	if !errors.As(err, &syntax) || syntax != cause {
+		t.Fatal("fatal error lost its cause")
+	}
+	if err.Error() != cause.Error() {
+		t.Fatalf("fatal error changed the message: %q", err.Error())
+	}
+	if errors.Is(cause, ErrFatal) {
+		t.Fatal("wrapping marked the original error fatal")
+	}
+}
+
+func TestFatalOfNilIsStillFatal(t *testing.T) {
+	if err := Fatal(nil); !errors.Is(err, ErrFatal) {
+		t.Fatalf("Fatal(nil) lost the fatal marker: %v", err)
 	}
 }
 

@@ -219,7 +219,7 @@ func TestLiveReservedFinalAnswer(t *testing.T) {
 					B int `json:"b"`
 				}) (tool.Outcome, error) {
 					if args.A != 7 || args.B != 8 {
-						return tool.Outcome{}, errors.New("unexpected multiplication arguments")
+						return tool.Outcome{}, tool.Fatal(errors.New("unexpected multiplication arguments"))
 					}
 					runs++
 					output := tool.TextOutput("56")
@@ -347,13 +347,13 @@ func runLiveAgentTurn(t *testing.T, provider string, client llm.Client, modelNam
 			}) (tool.Outcome, error) {
 				saved, err := recorder.Load(turnID)
 				if err != nil {
-					return tool.Outcome{}, err
+					return tool.Outcome{}, tool.Fatal(err)
 				}
 				if len(saved.Steps) == 0 || saved.Steps[len(saved.Steps)-1].Kind != kernel.StepToolStarted {
-					return tool.Outcome{}, errors.New("tool started before its step was acknowledged")
+					return tool.Outcome{}, tool.Fatal(errors.New("tool started before its step was acknowledged"))
 				}
 				if args.A != 7 || args.B != 8 {
-					return tool.Outcome{}, errors.New(provider + " supplied unexpected tool arguments")
+					return tool.Outcome{}, tool.Fatal(errors.New(provider + " supplied unexpected tool arguments"))
 				}
 				runs++
 				output := tool.TextOutput(strconv.Itoa(args.A * args.B))
