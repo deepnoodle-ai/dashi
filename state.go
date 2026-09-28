@@ -30,6 +30,10 @@ type ToolView struct {
 	Status     ToolStatus
 	Decision   ToolDecision
 	Outcome    *tool.Outcome
+	// ArgsDigest is set while Status is ToolApprovalPending. It identifies
+	// Call.Args by JSON meaning; echo it in ApprovalFact.ArgsDigest to approve
+	// or deny exactly the arguments shown.
+	ArgsDigest string
 }
 
 // TurnView is the current state reconstructed from acknowledged steps.
@@ -144,6 +148,15 @@ func replay(t Turn) (*replayState, error) {
 		}
 		s.Warnings = append(s.Warnings, step.Warnings...)
 		s.Revision = step.Seq
+	}
+	// Derive ArgsDigest from the final status, so no transition out of
+	// approval can leave a stale digest behind.
+	for id, v := range s.Tools {
+		v.ArgsDigest = ""
+		if v.Status == ToolApprovalPending {
+			v.ArgsDigest = ArgsDigest(v.Call.Args)
+		}
+		s.Tools[id] = v
 	}
 	s.Pending = s.pending()
 	if err := s.calculateSpend(); err != nil {

@@ -33,6 +33,15 @@ func digest(v any) string {
 	return digestPrefix + hex.EncodeToString(h[:])
 }
 
+// ArgsDigest returns the digest that binds an ApprovalFact to a tool call's
+// arguments. It depends only on the arguments' JSON meaning, so arguments
+// shown before a recorder stored them and the same arguments reloaded from a
+// store that reorders keys or respells numbers give the same digest. A
+// pending call's ToolView.ArgsDigest holds this value already.
+func ArgsDigest(args json.RawMessage) string {
+	return digest(args)
+}
+
 // commandDigest is digest for a command, reporting values that cannot be
 // encoded.
 func commandDigest(c Command) (string, error) {
