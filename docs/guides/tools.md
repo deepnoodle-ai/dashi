@@ -98,7 +98,9 @@ decodes that same last-key JSON meaning, while `Call.Args` stays raw. Ordinary
 surplus keys are still accepted. When the matching typed executor is bound,
 case-alias checks run before `BeforeTool` hooks and after hook rewrites. A definition
 advertised without its executor can still reach a deferred approval; the
-executor checks again before its callback runs when it is later bound.
+call cannot gain an executor later in that same run. On resume, the bound
+executor checks again before its callback runs. A Toolset lookup error stops
+the turn before the hook sees the call.
 
 The schema sent to a provider guides generation and Dashi validates returned
 arguments locally. It does not guarantee a provider will sample only declared

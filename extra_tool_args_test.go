@@ -31,6 +31,25 @@ type guardedToolset struct {
 	executed *bool
 }
 
+type changingToolset struct {
+	tool  tool.Tool
+	calls int
+	mode  string
+}
+
+func (s *changingToolset) Tools(context.Context) ([]tool.Tool, error) {
+	s.calls++
+	if s.calls == 2 {
+		switch s.mode {
+		case "error":
+			return nil, errors.New("prehook lookup failed")
+		case "missing":
+			return nil, nil
+		}
+	}
+	return []tool.Tool{s.tool}, nil
+}
+
 func (s *guardedToolset) Tools(context.Context) ([]tool.Tool, error) {
 	s.calls++
 	if s.calls > 2 && !*s.executed {
@@ -339,6 +358,59 @@ func TestRunnerReusesPrehookTypedToolBinding(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || !executed {
 		t.Fatalf("stop=%+v err=%v calls=%d executed=%v",
 			out.Stop, err, set.calls, executed)
+	}
+}
+
+func TestRunnerPrehookBindingFailureCannotExecuteLaterTool(t *testing.T) {
+	for _, tc := range []struct {
+		mode       string
+		wantHooks  int
+		wantReason string
+	}{
+		{
+			mode:       "error",
+			wantHooks:  0,
+			wantReason: "prehook lookup failed",
+		},
+		{
+			mode:       "missing",
+			wantHooks:  1,
+			wantReason: "tool binding changed or unavailable",
+		},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			runs, hooks := 0, 0
+			lookup, err := tool.Func(
+				"lookup",
+				"",
+				func(context.Context, tool.Call, extraRunnerInput) (tool.Outcome, error) {
+					runs++
+					return tool.Succeeded("found"), nil
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			set := &changingToolset{tool: lookup, mode: tc.mode}
+			client := &scriptedClient{results: []llm.Result{
+				extraCallResult(`{"query":"yes","QUERY":"evil"}`),
+				final("done"),
+			}}
+			gate := toolHook(
+				"inspect",
+				func(context.Context, ToolPlan) (ToolDecision, error) {
+					hooks++
+					return Allow("seen"), nil
+				},
+			)
+			out, err := runHooked(t, client, set, gate.Hooks())
+			if err != nil || out.Stop.Kind != StopFailed ||
+				!strings.Contains(out.Stop.Reason, tc.wantReason) ||
+				runs != 0 || hooks != tc.wantHooks || set.calls != 2 {
+				t.Fatalf("stop=%+v err=%v runs=%d hooks=%d lookups=%d",
+					out.Stop, err, runs, hooks, set.calls)
+			}
+		})
 	}
 }
 

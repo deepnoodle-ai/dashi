@@ -83,6 +83,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		state, _ := replay(r.turn)
 		v := state.Tools[id]
 		var boundExecutor tool.Executor
+		prehookBindingChecked := false
 		if v.Status == ToolSettled ||
 			v.Status == ToolWaiting ||
 			v.Status == ToolApprovalPending ||
@@ -176,19 +177,21 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				v.Definition.Kind != tool.KindExternal &&
 				v.Definition.Kind != tool.KindProviderHosted &&
 				r.runner.Tools != nil {
+				prehookBindingChecked = true
 				bound, err := r.runner.Tools.Tools(ctx)
 				if ctx.Err() != nil {
 					return r.contextStop(), true
 				}
-				if err == nil {
-					for _, candidate := range bound {
-						if candidate.Definition.Name == v.Call.Name && sameJSONValue(
-							candidate.Definition,
-							v.Definition,
-						) {
-							boundExecutor = candidate.Executor
-							break
-						}
+				if err != nil {
+					return r.failureOrContext(err), true
+				}
+				for _, candidate := range bound {
+					if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+						candidate.Definition,
+						v.Definition,
+					) {
+						boundExecutor = candidate.Executor
+						break
 					}
 				}
 				validationErr = validateBoundArguments(boundExecutor, v.Call.Args)
@@ -318,9 +321,9 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		if v.Definition.Kind == tool.KindProviderHosted {
 			return r.stop(StopFailed, "hosted tool cannot execute locally"), true
 		}
-		// A newly requested call reuses the binding checked before hooks.
-		// A resumed allowed call has no binding in this run and resolves it now.
-		if boundExecutor == nil {
+		// A requested call uses only the binding checked before hooks. A
+		// resumed allowed call resolves a binding in this new run.
+		if boundExecutor == nil && !prehookBindingChecked {
 			if r.runner.Tools == nil {
 				return r.stop(StopFailed, "tool binding unavailable"), true
 			}
