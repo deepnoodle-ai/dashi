@@ -102,6 +102,11 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 		return nil
 	}
 	e := &TurnBusyError{TurnID: t.turn.ID, Next: r.next, Origin: t.view.Origin}
+	// A worker is known to run the turn, so its calls are in progress, not
+	// uncertain: the caller waits or steers, and settles nothing.
+	if r.next == NextRunning {
+		return e
+	}
 	// A stopped worker is not a stopped effect, so an uncertain call keeps
 	// the turn busy whatever its liveness, even under Exclusive.
 	if e.CallID = uncertainCall(t); e.CallID != "" {

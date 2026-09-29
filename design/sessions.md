@@ -208,8 +208,8 @@ The first matching row applies:
 | Last turn | `Next()` | A new `Start` |
 |---|---|---|
 | None, or ended (completed, canceled, or a terminal limit) | `NextNone` | Starts |
-| Holds an unsettled uncertain call, whatever its liveness or `Exclusive` | any other | Refuses |
-| No stop recorded; live | `NextRunning` | Refuses |
+| Live, or running on this handle | `NextRunning` | Refuses, no `CallID` |
+| Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
 | No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
 | No stop recorded; liveness unknown (an expired lease included) | `NextResume` | Refuses |
 | Waiting on approvals or results | `NextAnswer` | Refuses |
@@ -230,7 +230,7 @@ type TurnBusyError struct {
     Next      Next
     Origin    StartOrigin // compaction: the session's own work
     Duplicate bool        // this Start is a retry of that turn
-    CallID    string      // the unsettled uncertain call that makes it busy
+    CallID    string      // the unsettled uncertain call; empty while running
 }
 
 func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }

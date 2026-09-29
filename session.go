@@ -92,8 +92,9 @@ type TurnBusyError struct {
 	// Duplicate means the refused Start is a retry of that turn, which has
 	// not ended yet.
 	Duplicate bool `json:"duplicate,omitempty"`
-	// CallID names the unsettled uncertain call that makes the turn busy.
-	// Settle it after checking its effect, or Cancel the turn.
+	// CallID names the unsettled uncertain call that makes the turn busy
+	// when no worker is known to run the turn. Settle it after checking its
+	// effect, or Cancel the turn. It is empty while the turn is running.
 	CallID string `json:"call_id,omitempty"`
 }
 

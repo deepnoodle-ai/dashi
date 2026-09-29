@@ -52,7 +52,8 @@ func TestSessionLastTurnRules(t *testing.T) {
 			next:  dashi.NextResume,
 			want: func(l dashi.Liveness, _ bool) expect {
 				if l == dashi.LivenessLive {
-					return expect{busy: dashi.NextRunning, callID: true}
+					// A live worker runs the call: no CallID to settle.
+					return expect{busy: dashi.NextRunning}
 				}
 				return expect{busy: dashi.NextResume, callID: true}
 			},
@@ -383,6 +384,53 @@ func TestSessionRunningOnThisHandle(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestSessionRunningCallNamesNoCall runs a call that is not idempotent and
+// sends while it runs. A handle that knows a worker runs the turn (its own,
+// or TurnLiveness says live) refuses as running, with no CallID and no
+// Settle{} or Cancel{} advice; a handle that knows of no worker names the
+// call.
+func TestSessionRunningCallNamesNoCall(t *testing.T) {
+	rec := newLiveRecorder()
+	g := newGate()
+	charge := &chargeTool{gate: g}
+	a := handle(rec, dashitest.NewClient(
+		dashitest.CallTool("call-1", "charge", `{}`),
+		dashitest.Reply("paid"),
+	))
+	a.Runner.Tools = charge.tools()
+	a.New = true
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.Send(context.Background(), "pay")
+		done <- err
+	}()
+	g.requireEntered(t, done)
+
+	running := func(name string, s *dashi.Session) {
+		_, err := s.Send(t.Context(), "again")
+		busy := requireBusy(t, err, dashi.NextRunning, false)
+		msg := busy.Error()
+		if strings.Contains(msg, "Settle{}") || strings.Contains(msg, "Cancel{}") {
+			t.Fatalf("%s: running turn advises %q", name, msg)
+		}
+	}
+	running("own handle", a)
+	rec.set(dashi.LivenessLive)
+	running("live elsewhere", handle(rec, dashitest.NewClient()))
+
+	rec.set(dashi.LivenessUnknown)
+	_, err := handle(rec, dashitest.NewClient()).Send(t.Context(), "again")
+	if busy := requireBusy(t, err, dashi.NextResume, true); busy.CallID != "call-1" {
+		t.Fatalf("unknown liveness: call = %q; want call-1", busy.CallID)
+	}
+
+	close(g.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	requireTurns(t, rec, 1)
 }
 
 // buildCompleted records a completed turn 1.
