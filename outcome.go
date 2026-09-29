@@ -24,6 +24,10 @@ type Outcome struct {
 	// Turn is the record to pass to the next Run.
 	Turn Turn
 	TurnView
+	// SessionWarnings holds the warnings of a Session command, which no
+	// turn records: WarningTurnClosed, WarningTurnUnreadable, and
+	// WarningMemoryOnly. Runner.Run leaves it empty.
+	SessionWarnings []Warning
 }
 
 // PendingKind classifies what a stopped turn waits on.
