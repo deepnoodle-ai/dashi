@@ -213,7 +213,7 @@ the record holds an ID, digest, and size, and the runner verifies resolved
 bytes before every model request. **Size:** M. **Difficulty:** High.
 **Reference:** [decision 19](decisions.md), [history storage](history-storage.md),
 and the [guide](../docs/guides/attachments.md). **Next:** Store CLI attachments
-by reference; resume after restored bytes; signed-URL results.
+by reference; signed-URL results.
 
 **Packet:** [source research](roadmap-research/16-attachment-references-research.md) · [draft PRD](roadmap-research/16-attachment-references-prd.md).
 

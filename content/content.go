@@ -448,23 +448,6 @@ func (b Block) Validate() error {
 	return fmt.Errorf("content: invalid %q block", b.Kind)
 }
 
-// Sources returns pointers to the sources that b holds: the image, document,
-// audio, or video source, or none. The pointers alias b's payload, so call
-// Clone first to change a source without changing the original.
-func (b Block) Sources() []*Source {
-	switch {
-	case b.Image != nil:
-		return []*Source{&b.Image.Source}
-	case b.Document != nil:
-		return []*Source{&b.Document.Source}
-	case b.Audio != nil:
-		return []*Source{&b.Audio.Source}
-	case b.Video != nil:
-		return []*Source{&b.Video.Source}
-	}
-	return nil
-}
-
 // Clone returns an independent value, including bytes and citation payloads.
 func (b Block) Clone() Block {
 	if b.Text != nil {

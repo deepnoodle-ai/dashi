@@ -206,7 +206,7 @@ func Generate(
 func (i Input) HasRef() bool {
 	for _, m := range i.Messages {
 		for _, c := range m.Content {
-			for _, s := range c.Sources() {
+			for _, s := range c.sources() {
 				if s.Ref != nil {
 					return true
 				}

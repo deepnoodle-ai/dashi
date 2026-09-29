@@ -5,9 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -20,7 +20,9 @@ const (
 // owns the storage and the access rules; Dashi records only the reference.
 //
 // The runner calls Resolve before every model request that holds the
-// reference, on every retry and every resume. It keeps no cache, so a
+// reference, on every retry and every resume. A failure stops the turn as
+// failed with a StopReasonContent... code and Stop.RefID. Continue calls
+// Resolve again, so a host can restore the bytes or grant access and resume. It keeps no cache, so a
 // reference the application has revoked stops the turn at the next call.
 type ContentResolver interface {
 	// Resolve returns the bytes of ref. ctx is the context of the Run or
@@ -49,16 +51,6 @@ type ContentLimits struct {
 	MaxTotalBytes int64
 }
 
-// Reasons a content reference stops a turn. The stop message names the
-// reference ID and one reason, and never includes bytes.
-const (
-	refNoResolver     = "no_resolver"
-	refUnavailable    = "unavailable"
-	refTooLarge       = "too_large"
-	refSizeMismatch   = "size_mismatch"
-	refDigestMismatch = "digest_mismatch"
-)
-
 // hydrate returns input with each content reference replaced by verified
 // bytes. Input without references is returned as is, with no copy. The
 // returned input is a copy, so the recorded, reference-bearing messages stay
@@ -72,7 +64,7 @@ func (r *runtime) hydrate(input llm.Input) (llm.Input, *Outcome) {
 	var sources []*content.Source
 	for _, m := range messages {
 		for _, c := range m.Content {
-			for _, s := range c.Sources() {
+			for _, s := range contentSources(c) {
 				if s.Ref != nil {
 					sources = append(sources, s)
 				}
@@ -110,15 +102,15 @@ func (r *runtime) checkRefSizes(sources []*content.Source) (string, string) {
 	for _, s := range sources {
 		size := s.Ref.Size
 		if maxRef >= 0 && size > maxRef {
-			return refTooLarge, s.Ref.ID
+			return StopReasonContentTooLarge, s.Ref.ID
 		}
 		total += size
 		if maxTotal >= 0 && total > maxTotal {
-			return refTooLarge, s.Ref.ID
+			return StopReasonContentTooLarge, s.Ref.ID
 		}
 	}
 	if r.runner.ContentResolver == nil {
-		return refNoResolver, sources[0].Ref.ID
+		return StopReasonContentNoResolver, sources[0].Ref.ID
 	}
 	return "", ""
 }
@@ -135,22 +127,36 @@ func limitOrDefault(limit, fallback int64) int64 {
 func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
 	data, err := r.runner.ContentResolver.Resolve(r.ctx, r.turn.ID, ref)
 	if err != nil {
-		return nil, refUnavailable
+		return nil, StopReasonContentUnavailable
 	}
 	if int64(len(data)) != ref.Size {
-		return nil, refSizeMismatch
+		return nil, StopReasonContentSizeMismatch
 	}
 	sum := sha256.Sum256(data)
 	if !bytes.Equal([]byte(hex.EncodeToString(sum[:])), []byte(ref.SHA256)) {
-		return nil, refDigestMismatch
+		return nil, StopReasonContentDigestMismatch
 	}
 	return data, ""
 }
 
 func (r *runtime) refStop(id, reason string) *Outcome {
-	o := r.stop(
-		StopFailed,
-		fmt.Sprintf("content reference %q: %s", id, reason),
-	)
+	o := r.stopWith(&Stop{Kind: StopFailed, Reason: reason, RefID: id})
 	return &o
+}
+
+// contentSources returns pointers to every source in c, including the blocks
+// of tool results and hosted results. They alias c, so the caller passes a
+// clone.
+func contentSources(c llm.Content) []*content.Source {
+	var block, result, hosted []content.Block
+	if c.Block != nil {
+		block = []content.Block{*c.Block}
+	}
+	if c.ToolResult != nil {
+		result = c.ToolResult.Output.Content
+	}
+	if c.HostedResult != nil {
+		hosted = c.HostedResult.Output
+	}
+	return contentsrc.Blocks(block, result, hosted)
 }

@@ -201,6 +201,12 @@ func imageInputSource(
 	if source.Data != nil {
 		return map[string]string{"type": "image_url", "url": source.DataURL()}, nil
 	}
+	if source.Ref != nil {
+		return nil, fmt.Errorf(
+			"imagine: content reference %q cannot be an edit image; pass the bytes",
+			source.Ref.ID,
+		)
+	}
 	return nil, errors.New("imagine: edit images require a public URL or inline bytes")
 }
 

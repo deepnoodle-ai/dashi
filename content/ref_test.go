@@ -132,17 +132,3 @@ func TestSourceCloneDetachesRef(t *testing.T) {
 		t.Fatal("clone shared the reference")
 	}
 }
-
-func TestBlockSourcesAliasThePayload(t *testing.T) {
-	block := DocumentBlock(validRefSource(), "a.png")
-
-	sources := block.Sources()
-	sources[0].Ref = nil
-
-	if block.Document.Source.Ref != nil {
-		t.Fatal("Sources did not alias the block")
-	}
-	if got := TextBlock("x").Sources(); len(got) != 0 {
-		t.Fatalf("text block sources = %d", len(got))
-	}
-}

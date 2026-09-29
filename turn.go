@@ -504,6 +504,9 @@ const (
 type Stop struct {
 	Kind   StopKind `json:"kind"`
 	Reason string   `json:"reason,omitempty"`
+	// RefID names the content reference that caused a stop with one of the
+	// StopReasonContent... codes. Otherwise it is empty.
+	RefID string `json:"ref_id,omitempty"`
 	// Limit enables callers to handle a limited stop without parsing Reason.
 	Limit *LimitDetail `json:"limit,omitempty"`
 	// Terminal means the turn has ended: no command can run it again,
@@ -550,6 +553,33 @@ const (
 	// Budget) lets the model see the rejection and answer again; with no
 	// model attempts left, Continue ends the turn limited.
 	StopReasonOutputRejected = "output_rejected"
+)
+
+// Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID
+// names the reference. The stop is not terminal. The runner asks the
+// ContentResolver again on Continue, so a host can fix the cause (restore the
+// bytes, grant access, raise ContentLimits, or set a resolver) and then
+// Continue. The stop never holds bytes or the resolver's error text.
+const (
+	// StopReasonContentNoResolver means the input holds a reference and the
+	// Runner has no ContentResolver.
+	StopReasonContentNoResolver = "content_no_resolver"
+
+	// StopReasonContentUnavailable means the ContentResolver returned an
+	// error for the reference: it is missing, or the turn may not read it.
+	StopReasonContentUnavailable = "content_unavailable"
+
+	// StopReasonContentTooLarge means the declared size of the reference, or
+	// of all references in one request, is over ContentLimits.
+	StopReasonContentTooLarge = "content_too_large"
+
+	// StopReasonContentSizeMismatch means the resolved bytes have a length
+	// other than the declared Size.
+	StopReasonContentSizeMismatch = "content_size_mismatch"
+
+	// StopReasonContentDigestMismatch means the SHA-256 of the resolved
+	// bytes differs from the declared digest.
+	StopReasonContentDigestMismatch = "content_digest_mismatch"
 )
 
 // Persistence classifies a step write the recorder did not acknowledge.

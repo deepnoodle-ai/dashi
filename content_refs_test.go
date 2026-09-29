@@ -185,15 +185,81 @@ func TestRefRecordHoldsNoBytes(t *testing.T) {
 
 func TestRefRecordSizeDoesNotGrowWithAttachment(t *testing.T) {
 	data := bytes.Repeat([]byte("x"), 5<<20)
-	ref := refFor("upl_big", data)
-	message := refMessage(ref)
+	resolver := &countingResolver{files: map[string][]byte{"upl_big": data}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
 
-	encoded, err := json.Marshal(message)
+	out := runWithRef(
+		t,
+		Runner{Client: client, ContentResolver: resolver},
+		refMessage(refFor("upl_big", data)),
+	)
+
+	encoded, err := json.Marshal(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(encoded) >= 1024 {
-		t.Fatalf("message with a 5 MiB reference encodes to %d bytes", len(encoded))
+	t.Logf("turn record with a 5 MiB reference: %d bytes", len(encoded))
+	if out.Stop.Kind != StopCompleted || len(encoded) >= 4096 {
+		t.Fatalf("stop = %+v, record = %d bytes", out.Stop, len(encoded))
+	}
+}
+
+func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
+	ref := refFor("upl_1", refBytes)
+	resolver := &countingResolver{files: map[string][]byte{}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	rec := NewMemoryRecorder()
+	runner := Runner{
+		Agent:           testAgent(),
+		Client:          client,
+		Recorder:        rec,
+		ContentResolver: resolver,
+	}
+	first, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Input: []llm.Message{refMessage(ref)}},
+	)
+	if err != nil || first.Stop.Reason != StopReasonContentUnavailable ||
+		first.Stop.Terminal {
+		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
+	}
+	// The host restores the bytes, then continues the same turn.
+	resolver.mu.Lock()
+	resolver.files["upl_1"] = refBytes
+	resolver.mu.Unlock()
+
+	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
+
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
+	}
+	if resolver.count() != 2 || client.sends != 1 {
+		t.Fatalf("resolves=%d sends=%d", resolver.count(), client.sends)
+	}
+}
+
+func TestRefInHistoryResolvesUnderTheCurrentTurnID(t *testing.T) {
+	ref := refFor("upl_1", refBytes)
+	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	runner := Runner{Agent: testAgent(), Client: client, ContentResolver: resolver}
+
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "turn-2"},
+		Start{
+			CommandID: "start",
+			History:   []llm.Message{refMessage(ref)},
+			Input:     []llm.Message{llm.UserMessage(llm.Text("and now?"))},
+		},
+	)
+
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if len(resolver.turnIDs) != 1 || resolver.turnIDs[0] != "turn-2" {
+		t.Fatalf("turn IDs = %v, want [turn-2]", resolver.turnIDs)
 	}
 }
 
@@ -295,7 +361,7 @@ func TestRefFromHookIsHydrated(t *testing.T) {
 	found := false
 	for _, m := range client.inputs[0].Messages {
 		for _, c := range m.Content {
-			for _, s := range c.Sources() {
+			for _, s := range contentSources(c) {
 				found = found || bytes.Equal(s.Data, refBytes)
 			}
 		}
@@ -322,7 +388,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 		{
 			name: "no resolver",
 			ref:  good,
-			want: `content reference "upl_1": no_resolver`,
+			want: StopReasonContentNoResolver,
 		},
 		{
 			name: "resolver error",
@@ -330,7 +396,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			resolver: &countingResolver{
 				err: errors.New("tenant may not read upl_1"),
 			},
-			want:     `content reference "upl_1": unavailable`,
+			want:     StopReasonContentUnavailable,
 			resolved: 1,
 		},
 		{
@@ -339,7 +405,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			resolver: &countingResolver{
 				files: map[string][]byte{},
 			},
-			want:     `content reference "upl_1": unavailable`,
+			want:     StopReasonContentUnavailable,
 			resolved: 1,
 		},
 		{
@@ -348,7 +414,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			resolver: &countingResolver{
 				files: map[string][]byte{"upl_1": refBytes},
 			},
-			want:     `content reference "upl_1": size_mismatch`,
+			want:     StopReasonContentSizeMismatch,
 			resolved: 1,
 		},
 		{
@@ -357,7 +423,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			resolver: &countingResolver{
 				files: map[string][]byte{"upl_1": refBytes},
 			},
-			want:     `content reference "upl_1": digest_mismatch`,
+			want:     StopReasonContentDigestMismatch,
 			resolved: 1,
 		},
 		{
@@ -367,7 +433,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 				files: map[string][]byte{"upl_1": refBytes},
 			},
 			limits: ContentLimits{MaxRefBytes: 8},
-			want:   `content reference "upl_1": too_large`,
+			want:   StopReasonContentTooLarge,
 		},
 		{
 			name: "over the request limit",
@@ -376,7 +442,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 				files: map[string][]byte{"upl_1": refBytes},
 			},
 			limits: ContentLimits{MaxTotalBytes: 8},
-			want:   `content reference "upl_1": too_large`,
+			want:   StopReasonContentTooLarge,
 		},
 	}
 	for _, tt := range tests {
@@ -393,7 +459,8 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 				refMessage(tt.ref),
 			)
 
-			if out.Stop.Kind != StopFailed || out.Stop.Reason != tt.want {
+			if out.Stop.Kind != StopFailed || out.Stop.Reason != tt.want ||
+				out.Stop.RefID != "upl_1" || out.Stop.Terminal {
 				t.Fatalf("stop = %+v, want %q", out.Stop, tt.want)
 			}
 			requireNoModelIntent(t, out, client)
@@ -532,7 +599,7 @@ func TestRefRevokedBetweenModelCallsStopsSecondCall(t *testing.T) {
 	)
 
 	if out.Stop.Kind != StopFailed ||
-		out.Stop.Reason != `content reference "upl_1": unavailable` {
+		out.Stop.Reason != StopReasonContentUnavailable {
 		t.Fatalf("stop = %+v", out.Stop)
 	}
 	if client.sends != 1 {
@@ -622,7 +689,7 @@ func TestRefInToolResultIsHydrated(t *testing.T) {
 	found := false
 	for _, m := range second.Messages {
 		for _, c := range m.Content {
-			for _, s := range c.Sources() {
+			for _, s := range contentSources(c) {
 				found = found || bytes.Equal(s.Data, refBytes)
 			}
 		}

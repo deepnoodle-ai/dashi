@@ -40,7 +40,7 @@ Before each model request, Dashi does these steps on a copy of the input:
    This step does no I/O.
 2. It calls `Resolve` with the context of the `Run` or `Stream` call. Put the
    tenant and session in that context. The resolver must check that the turn
-   can read the reference.
+   can read the reference. Check the tenant or session, not only the turn.
 3. It checks that the length and the SHA-256 of the result match the reference.
 4. It puts the bytes in the copy and prepares the request.
 
@@ -63,19 +63,33 @@ reject the request. Its normal preparation error then ends the turn.
 ### Failures
 
 A problem with a reference ends the turn as failed. No model intent is
-recorded. The stop reason names the reference and one cause:
+recorded. `Stop.Reason` holds a stable code, and `Stop.RefID` names the
+reference. A host can branch on the code:
 
-| Cause | Meaning |
+| Code | Meaning |
 | --- | --- |
-| `no_resolver` | `Runner.ContentResolver` is nil. |
-| `unavailable` | The resolver returned an error. Denied and deleted files look the same. |
-| `too_large` | The declared size is over a limit. |
-| `size_mismatch` | The resolver returned a different number of bytes. |
-| `digest_mismatch` | The bytes do not match the SHA-256. |
+| `StopReasonContentNoResolver` | `Runner.ContentResolver` is nil. |
+| `StopReasonContentUnavailable` | The resolver returned an error. Denied and deleted files look the same. |
+| `StopReasonContentTooLarge` | The declared size is over a limit. |
+| `StopReasonContentSizeMismatch` | The resolver returned a different number of bytes. |
+| `StopReasonContentDigestMismatch` | The bytes do not match the SHA-256. |
 
-The reason never contains bytes or the resolver's error text. Dashi never
-drops the block or falls back to another location. After the host restores
-the same bytes, it can start a new turn.
+The stop never contains bytes or the resolver's error text. Dashi never drops
+the block or falls back to another location.
+
+The stop is not terminal. To recover, fix the cause, then call `Run` with
+`Continue` on the same turn. Restore the bytes, grant access, raise
+`ContentLimits`, or set a resolver. `Continue` calls `Resolve` again and
+resumes the turn where it stopped. A turn that will not recover can stay
+failed.
+
+### References in earlier messages
+
+A reference in `Start.History` or in a tool result from an earlier turn is
+resolved again on every later turn. It resolves under the ID of the current
+turn, not the turn that created it. The resolver must not check access by the
+turn ID alone. Check the tenant or session that it reads from `ctx`. Each use
+also counts toward `MaxTotalBytes`.
 
 ## Files from a terminal: `content/mention`
 
@@ -102,7 +116,8 @@ for _, w := range res.Warnings {
 | `me@example.com`, `main.go:12` | No change. |
 
 A word without `@` attaches only when it names an existing image or PDF.
-Images are PNG, JPEG, GIF, and WebP. The default limits are 5 MB for an image,
+Images are PNG, JPEG, GIF, and WebP. The default limits are 3.75 MB for an image (Anthropic counts the base64
+text against a 5 MB limit),
 10 MB for a PDF, 256 KB for text, and 32 MB for one message. A skipped file
 gives a warning and never fails the message. The same file attaches once.
 

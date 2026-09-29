@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -164,25 +165,20 @@ func Block(block content.Block) Content {
 	return Content{Kind: ContentBlock, Block: &block}
 }
 
-// Sources returns pointers to every source in c: a block's source and the
-// sources in blocks of a tool result or hosted result. They alias c's payload,
-// so call Clone first to change a source without changing the original.
-func (c Content) Sources() []*content.Source {
-	var out []*content.Source
-	var blocks []content.Block
+// sources returns pointers to every source in c: a block's source and the
+// sources in blocks of a tool result or hosted result. They alias c's payload.
+func (c Content) sources() []*content.Source {
+	var block, result, hosted []content.Block
 	if c.Block != nil {
-		blocks = append(blocks, *c.Block)
+		block = []content.Block{*c.Block}
 	}
 	if c.ToolResult != nil {
-		blocks = append(blocks, c.ToolResult.Output.Content...)
+		result = c.ToolResult.Output.Content
 	}
 	if c.HostedResult != nil {
-		blocks = append(blocks, c.HostedResult.Output...)
+		hosted = c.HostedResult.Output
 	}
-	for _, b := range blocks {
-		out = append(out, b.Sources()...)
-	}
-	return out
+	return contentsrc.Blocks(block, result, hosted)
 }
 
 // Validate checks a recordable content value with exactly one matching payload.
