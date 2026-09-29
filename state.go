@@ -162,6 +162,7 @@ type replayState struct {
 	callAttempts           map[string]string
 	latestAttempt          string
 	finalAnswerOnly        bool
+	attemptCap             int
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
 	hosted                 map[string]llm.HostedApprovalRequest
@@ -479,6 +480,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.Parent = cloneCallRef(step.Started.Parent)
 		s.Agent = step.Started.Agent.resolved()
+		s.attemptCap = s.Agent.Limits.ModelAttempts
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -503,8 +505,14 @@ func (s *replayState) apply(step Step) error {
 		if err := s.calculateSpend(); err != nil {
 			return err
 		}
-		if !s.canContinueWithBudget(step.Budget) {
+		if !s.canContinueWith(step.Budget, step.ModelAttempts) {
 			return errors.New("turn cannot continue")
+		}
+		if step.ModelAttempts != 0 {
+			if step.ModelAttempts <= s.attemptCap {
+				return errors.New("model-attempt raise must exceed the cap")
+			}
+			s.attemptCap = step.ModelAttempts
 		}
 		if step.Budget != nil {
 			if step.At.IsZero() {
@@ -581,7 +589,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.FinalAnswerOnly &&
 			(s.Agent.Limits.NoReservedFinalAnswer ||
 				s.ModelAttempts == 0 ||
-				s.ModelAttempts+1 != s.Agent.Limits.ModelAttempts) {
+				s.ModelAttempts+1 != s.attemptCap) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
 		s.modelIntent = step.Model.AttemptID
@@ -1246,10 +1254,12 @@ func (s *replayState) recordResult(
 }
 
 func (s *replayState) canContinue() bool {
-	return s.canContinueWithBudget(nil)
+	return s.canContinueWith(nil, 0)
 }
 
-func (s *replayState) canContinueWithBudget(raise *Budget) bool {
+// canContinueWith reports whether Continue can run, given the raised budget
+// and model-attempt cap it carries (nil and zero when it raises nothing).
+func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	if s.Revision == 0 || s.terminal() || s.unresolvedModel != "" ||
 		len(s.hosted) > 0 {
 		return false
@@ -1280,6 +1290,10 @@ func (s *replayState) canContinueWithBudget(raise *Budget) bool {
 			budget = raise
 		}
 		switch limit.Kind {
+		case LimitModelAttempts:
+			if s.ModelAttempts >= max(s.attemptCap, attempts) {
+				return false
+			}
 		case LimitCost:
 			if s.Spend.CostUnknown > 0 {
 				return false
@@ -1336,9 +1350,6 @@ func (s *replayState) terminal() bool {
 	case StopLimited:
 	default:
 		return false
-	}
-	if s.ModelAttempts >= s.Agent.Limits.ModelAttempts {
-		return true
 	}
 	if s.Stop.Limit == nil {
 		return false
@@ -1540,7 +1551,7 @@ func (s *replayState) roomForAnyCall() bool {
 	if s.modelIntent != "" {
 		used++
 	}
-	return used < s.Agent.Limits.ModelAttempts
+	return used < s.attemptCap
 }
 
 // roomForNormalCall reports whether one more model call fits before the
@@ -1552,7 +1563,7 @@ func (s *replayState) roomForNormalCall() bool {
 	if s.modelIntent != "" {
 		used++
 	}
-	limit := s.Agent.Limits.ModelAttempts
+	limit := s.attemptCap
 	if s.Agent.Limits.NoReservedFinalAnswer {
 		return used < limit
 	}
@@ -1667,6 +1678,9 @@ func cloneContextItem(item ContextItem) ContextItem {
 func validateStepPayload(step Step) error {
 	if step.Budget != nil && step.Kind != StepContinued {
 		return errors.New("budget raise requires a continuation step")
+	}
+	if step.ModelAttempts != 0 && step.Kind != StepContinued {
+		return errors.New("model-attempt raise requires a continuation step")
 	}
 	// Warnings ride on whatever step comes next, except the two that
 	// describe their own step.

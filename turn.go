@@ -212,7 +212,9 @@ type Step struct {
 	CommandDigest string     `json:"command_digest,omitempty"`
 	Started       *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
-	Budget         *Budget                     `json:"budget,omitempty"`
+	Budget *Budget `json:"budget,omitempty"`
+	// ModelAttempts on a continuation records the raised model-attempt cap.
+	ModelAttempts  int                         `json:"model_attempts,omitempty"`
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`
 	Tool           *ToolFact                   `json:"tool,omitempty"`
@@ -640,6 +642,13 @@ type Continue struct {
 	History   []llm.Message
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget
+	// ModelAttempts raises the turn's model-attempt limit to this total. Zero
+	// keeps the current limit. It must exceed the limit now in force, which
+	// is the agent's Limits.ModelAttempts until an earlier Continue raises
+	// it. A turn that stopped at its limit continues only when this raise
+	// leaves room for another call. The raise applies to this turn from then
+	// on, and the recorded agent does not change.
+	ModelAttempts int
 	// OnHistoryMismatch controls what happens when History differs from the
 	// fingerprint recorded at Start. The default warns and proceeds.
 	//

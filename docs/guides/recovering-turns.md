@@ -95,9 +95,9 @@ should pick up ready turns with no active worker.
 A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
 **waiting on the host** ([approvals](approvals.md), results, a [budget raise](budgets.md)), or **ended**
 (`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
-completed, canceled, limited by its deadline or its interruptions, any limit
-reached after its last model attempt, or a cost cap that can no longer be
-checked. Raising a budget does not revive such a turn. After that, only
+completed, canceled, limited by its deadline or its interruptions, or a cost
+cap that can no longer be checked. Raising a budget does not revive such a
+turn. After that, only
 `Settle` reporting the result of work that had already started is accepted;
 every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
 as not executed, so no approval stays pending on an ended turn.
@@ -107,5 +107,12 @@ interruption, 3 provider pauses, one tool call at a time, a reserved final
 answer, and no deadline. Set only the fields you want to change; a negative
 `Interruptions` or `ProviderPauses` allows none. Dashi records the resolved
 numbers at `Start`, so a saved turn keeps its limits if the defaults change.
+A turn that stopped at its model-attempt limit is not ended. Call
+`Continue{ModelAttempts: n}` with `n` above the limit now in force, and the
+same turn goes on with the new limit. The record keeps the raise, and the
+agent's own `Limits` stay as they were. A `Continue` with no raise, or a raise
+that leaves no room, returns an error and changes nothing. A stop after the
+last attempt for another reason, such as a budget, needs the budget raise and
+the attempt raise together.
 Resumes after interruption do not consume `ModelAttempts`. The turn's
 `Limits.Deadline` stops it as limited; a host context deadline interrupts it.

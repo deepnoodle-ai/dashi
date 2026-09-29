@@ -134,7 +134,8 @@ request and its final-only intent are recorded before dispatch. A useful answer
 at this boundary has stop kind `limited` with reason `model_attempts`, so hosts
 can show the answer and the exhausted budget together. `NoReservedFinalAnswer`
 opts out; a one-attempt turn cannot reserve a later call. This keeps the total
-call count strict.
+call count strict. The stop is not terminal: `Continue.ModelAttempts` raises
+the limit for that turn and the same turn goes on (decision 34).
 
 The first implementation should prove: ordinary and streamed results agree;
 tool batches preserve completion evidence and call order; approval binds the

@@ -479,7 +479,14 @@ func (r Runner) apply(
 			}
 			return rt.result(rt.current())
 		}
-		if !state.canContinueWithBudget(c.Budget) {
+		if c.ModelAttempts < 0 ||
+			c.ModelAttempts != 0 && c.ModelAttempts <= state.attemptCap {
+			return Outcome{}, fmt.Errorf(
+				"dashi: model-attempt raise must exceed the current limit of %d",
+				state.attemptCap,
+			)
+		}
+		if !state.canContinueWith(c.Budget, c.ModelAttempts) {
 			return Outcome{}, notReady(state)
 		}
 		rt.history = cloneMessages(c.History)
@@ -488,6 +495,7 @@ func (r Runner) apply(
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Budget:        cloneBudget(c.Budget),
+			ModelAttempts: c.ModelAttempts,
 		}
 		if mismatch {
 			step.Warnings = []Warning{
@@ -922,7 +930,7 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 		case "model_attempts":
 			stop.Limit = &LimitDetail{
 				Kind:  LimitModelAttempts,
-				Limit: int64(r.agent.Limits.ModelAttempts),
+				Limit: int64(state.attemptCap),
 				Used:  int64(state.ModelAttempts),
 			}
 		case "interruptions":
@@ -1028,7 +1036,7 @@ func (r *runtime) run() Outcome {
 		if stop := budgetSpentStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
-		if r.agent.Limits.ModelAttempts <= s.ModelAttempts {
+		if s.attemptCap <= s.ModelAttempts {
 			return r.stop(StopLimited, "model_attempts")
 		}
 		if !r.agent.Limits.Deadline.IsZero() &&
@@ -1101,7 +1109,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	finalAnswerOnly := !r.agent.Limits.NoReservedFinalAnswer &&
 		s.ModelAttempts > 0 &&
-		s.ModelAttempts+1 == r.agent.Limits.ModelAttempts
+		s.ModelAttempts+1 == s.attemptCap
 	messages, err := projectWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
