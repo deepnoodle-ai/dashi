@@ -1,6 +1,6 @@
 # PRD: child turns and a delegate tool
 
-**Roadmap item 13 · Status: first slice approved for build (revised 2026-09-28).** Based on [source research](13-child-turns-research.md). Program deadline: demo on 2026-09-30. Ship the first slice by Tuesday night.
+**Roadmap item 13 · Status: first slice built (2026-09-28); see decisions 15 to 19 for changes made while building.** Based on [source research](13-child-turns-research.md). Program deadline: demo on 2026-09-30. Ship the first slice by Tuesday night.
 
 ## User problem
 
@@ -173,6 +173,12 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 12. **`Explore` means tools with `Annotations.ReadOnly`.** MCP tools then filter correctly (finding 7, accepted).
 13. **Host-started children stay out of `Report`; no child index; no timeout setting.** The guide states the limit. `Subagent.Agent.Limits` bounds the child (open decisions, accepted).
 14. **Cancel follows the child runner's `OnContextDone`.** The CLI sets `ContextCancel`. Library hosts keep the default.
+
+15. **`Subagent.ReadOnly` field.** `Tools` names tools, and "only read-only tools" needs its own switch, so `Subagent` has a `ReadOnly bool`. `Explore()` and `General()` are functions, not variables, because `Agent` holds maps.
+16. **A child with no recorded stop resumes.** A crash after `Start` but before any run step leaves a child whose stop is empty. The retry continues it. Only `failed`, `limited`, `refused`, `canceled`, `waiting`, `uncertain`, and `completed` children use their saved result.
+17. **A saved failed child is not run again.** After a crash between the child's end and the parent's settle, the retry returns the saved error and makes no model call.
+18. **Cancel needs no settle.** The runner never records a tool result once the parent context has ended, so under both `OnContextDone` values the `task` call stays open. Under `ContextCancel` the parent stops canceled with the call unsettled, not settled as an error.
+19. **Record and client faults stop the parent.** A load, commit, or client error from the child run returns `tool.Fatal`, because the model cannot fix it. The child stays resumable by its ID.
 
 ## Open questions
 

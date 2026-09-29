@@ -169,14 +169,16 @@ namespaced commands, and `load_skill` arguments.
 
 ### 13. Child turns and delegation
 
-**Status:** Open. A tool can start another Runner, but Dashi has no parent/child
-identity, budget roll-up, or lifecycle contract. **Size:** L.
-**Difficulty:** High. **Reference:** [functional areas](functional-areas.md) and
-[provider/budget gaps](gaps/E-providers-cost-budgets.md); no approved Dashi design.
-**Next:** Design parentage, accounting, cancellation, and recovery using one
-real application flow before adding a general orchestration API.
+**Status:** First slice built on branch `turns/child-delegation`. It adds an
+immutable parent link (`Start.Parent`, `TurnView.Parent`), `CurrentCall`,
+`Spend.Add`, and the `delegate` package: a synchronous `task` tool with a
+stable child ID, retry and resume safety, cancel that reaches the child, and a
+spend report. **Size:** L. **Difficulty:** High. **Guide:**
+[Delegating to subagents](../docs/guides/delegation.md). **Next:** Durable
+external settle, a family budget cap over a host ledger, and a child index
+wait for a host that needs them.
 
-**Packet:** [source research](roadmap-research/13-child-turns-research.md) · [draft PRD](roadmap-research/13-child-turns-prd.md).
+**Packet:** [source research](roadmap-research/13-child-turns-research.md) · [PRD](roadmap-research/13-child-turns-prd.md).
 
 ## Context and record health
 
