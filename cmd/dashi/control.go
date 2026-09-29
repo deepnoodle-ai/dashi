@@ -67,6 +67,9 @@ type Controller struct {
 	mode   Mode
 	cancel context.CancelFunc
 	quit   bool
+	// quitAction is the exit action (/quit, /exit, or Ctrl-D) that ended
+	// the run, when one did. Queued prompts then stop the quit once.
+	quitAction string
 	// dropping is the action (a slash command, or Ctrl-C) that was just
 	// warned about dropping queued prompts; repeating it goes ahead.
 	dropping string
@@ -291,13 +294,8 @@ func (c *Controller) steer(line string) {
 	if line == "" {
 		return
 	}
-	if line == "/quit" {
-		c.mu.Lock()
-		c.quit = true
-		if c.cancel != nil {
-			c.cancel()
-		}
-		c.mu.Unlock()
+	if line == "/quit" || line == "/exit" {
+		c.QuitDuringRun(line)
 		return
 	}
 	if c.duringTurnCommand(line) {
@@ -312,14 +310,25 @@ func (c *Controller) steer(line string) {
 	}
 }
 
+// QuitDuringRun handles an exit action (/quit, /exit, or Ctrl-D) while a
+// turn runs: it cancels the run, and the program quits once the run
+// settles. When prompts are then still queued, it warns instead, as the
+// same action at the prompt would, and repeating the action quits.
+func (c *Controller) QuitDuringRun(action string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.quit, c.quitAction = true, action
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
 // duringTurnCommand handles a line that names a slash command while a turn
 // runs. The line is not a steer. /help and /queue run now; the others wait
 // for the end of the turn. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
 	switch name {
-	case "/exit":
-		c.steer("/quit")
 	case "/help":
 		c.command(line)
 	case "/queue":
@@ -368,10 +377,18 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 		cancel()
 		c.mu.Lock()
 		c.mode, c.cancel = ModeIdle, nil
-		quit := c.quit
+		quit, action := c.quit, c.quitAction
+		c.quit, c.quitAction = false, ""
+		if action != "" {
+			// The warning below is the first for this action.
+			c.dropping = ""
+		}
 		c.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			c.emit(warnBlock("%s", busyText(err)))
+		}
+		if quit && action != "" && c.keepQueued(action) {
+			return
 		}
 		if quit {
 			c.ui.Quit()

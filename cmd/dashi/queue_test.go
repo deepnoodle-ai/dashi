@@ -233,3 +233,68 @@ func TestCrashInCommandThenDone(t *testing.T) {
 		t.Fatalf("call=%+v", view.Tools["c1"])
 	}
 }
+
+// /quit, /exit, and Ctrl-D during a run cancel the turn. When a prompt is
+// still queued once the run settles, the program warns instead of quitting,
+// and repeating the action quits.
+func TestQuitDuringRunKeepsQueuedPrompt(t *testing.T) {
+	for _, action := range []string{"/quit", "/exit", "Ctrl-D"} {
+		t.Run(action, func(t *testing.T) {
+			started := make(chan struct{})
+			h := newHarness(t, blockUntilDone(started))
+			quit := func() bool {
+				select {
+				case <-h.ui.quit:
+					return true
+				default:
+					return false
+				}
+			}
+			h.app.ctrl.Input("first")
+			<-started
+			h.app.ctrl.Input("/queue then this")
+			if action == "Ctrl-D" {
+				h.app.ctrl.QuitDuringRun(action)
+			} else {
+				h.app.ctrl.Input(action)
+			}
+			h.app.ctrl.Wait()
+			const lost = "1 queued message will be lost. Repeat %s to go ahead."
+			mustHave(t, h.ui.text(), fmt.Sprintf(lost, action))
+			if n := strings.Count(h.ui.text(), fmt.Sprintf(lost, action)); n != 1 {
+				t.Fatalf("warned %d times:\n%s", n, h.ui.text())
+			}
+			if quit() || h.app.ctrl.Mode() != ModeIdle {
+				t.Fatalf("quit=%v mode=%v with a queued prompt", quit(), h.app.ctrl.Mode())
+			}
+			if n := h.app.eng.Queued(); n != 1 {
+				t.Fatalf("queued=%d", n)
+			}
+			if action == "Ctrl-D" {
+				if h.app.ctrl.keepQueued(action) {
+					t.Fatal("the repeated Ctrl-D warned again")
+				}
+			} else {
+				h.input(action)
+				if !quit() {
+					t.Fatalf("the repeated %s did not quit", action)
+				}
+			}
+		})
+	}
+}
+
+// With nothing queued, /quit during a run quits once the run settles.
+func TestQuitDuringRunQuits(t *testing.T) {
+	started := make(chan struct{})
+	h := newHarness(t, blockUntilDone(started))
+	h.app.ctrl.Input("first")
+	<-started
+	h.app.ctrl.Input("/quit")
+	h.app.ctrl.Wait()
+	select {
+	case <-h.ui.quit:
+	default:
+		t.Fatalf("/quit did not quit:\n%s", h.ui.text())
+	}
+}

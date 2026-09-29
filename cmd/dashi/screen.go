@@ -317,7 +317,7 @@ func (s *screen) requestQuit() []tui.Cmd {
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	case ModeRunning:
-		s.ctrl.Input("/quit")
+		s.ctrl.QuitDuringRun("Ctrl-D")
 	case ModeApproval:
 		s.ctrl.Interrupt()
 	}
