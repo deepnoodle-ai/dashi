@@ -88,7 +88,11 @@ the last turn through the newest turn a caller's `Start` began:
 - the same key and input returns that turn's current outcome, as the first
   call returned it (ended, or stopped waiting on an answer or at a limit),
   and `*TurnBusyError{Duplicate: true}` while the turn may still be running;
-- the same key with other input fails with `ErrCommandConflict`.
+- the same key with other input fails with `ErrCommandConflict`;
+- a turn in that range that fails to load fails the `Start` with its error.
+
+Keys beginning with `queue:` or `compact:` are the session's own, and `Run`
+refuses them.
 
 Two workers that race to start the same turn collide on its ID; the loser
 reloads and applies the rules once more, so it gets the duplicate error
