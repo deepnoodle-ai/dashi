@@ -63,13 +63,19 @@ type Controller struct {
 	store *session.Store
 	dir   string
 
-	mu      sync.Mutex
-	mode    Mode
-	cancel  context.CancelFunc
-	quit    bool
-	answers chan string
-	wg      sync.WaitGroup
-	base    context.Context
+	mu     sync.Mutex
+	mode   Mode
+	cancel context.CancelFunc
+	quit   bool
+	// quitAction is the exit action (/quit, /exit, or Ctrl-D) that ended
+	// the run, when one did. Queued prompts then stop the quit once.
+	quitAction string
+	// dropping is the action (a slash command, or Ctrl-C) that was just
+	// warned about dropping queued prompts; repeating it goes ahead.
+	dropping string
+	answers  chan string
+	wg       sync.WaitGroup
+	base     context.Context
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -191,7 +197,12 @@ func (c *Controller) Open() {
 		c.emit(b)
 	}
 	last := c.eng.Last(ctx)
+	id, name := last.OpenCall()
 	switch {
+	case id != "":
+		c.notice("Turn %d stopped while %s was running (call %s), and it may "+
+			"still be running. Type /done once it has finished, or /discard "+
+			"to discard the turn.", last.N, name, id)
 	case last.LimitStopped():
 		// The limit stop block is already in the scrollback.
 	case last.Retryable():
@@ -222,7 +233,12 @@ func (c *Controller) Open() {
 }
 
 // Interrupt handles Ctrl-C. It returns true when the program should exit.
+// When prompts are queued, the first Ctrl-C at the prompt only warns that
+// quitting drops them.
 func (c *Controller) Interrupt() bool {
+	if c.Mode() == ModeIdle && c.keepQueued("Ctrl-C") {
+		return false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch c.mode {
@@ -233,8 +249,9 @@ func (c *Controller) Interrupt() bool {
 		return false
 	case ModeApproval:
 		// Quitting during a prompt cancels the run. Dashi records the turn
-		// as interrupted, and the call had not started.
-		c.quit = true
+		// as interrupted, and the call had not started. As with
+		// QuitDuringRun, queued prompts get a warning once the run settles.
+		c.quit, c.quitAction = true, "Ctrl-C"
 		if c.cancel != nil {
 			c.cancel()
 		}
@@ -259,6 +276,11 @@ func (c *Controller) Input(line string) {
 		c.steer(line)
 		return
 	}
+	c.mu.Lock()
+	if name, _, _ := strings.Cut(line, " "); name != c.dropping {
+		c.dropping = ""
+	}
+	c.mu.Unlock()
 	switch {
 	case line == "":
 		c.resume()
@@ -273,13 +295,8 @@ func (c *Controller) steer(line string) {
 	if line == "" {
 		return
 	}
-	if line == "/quit" {
-		c.mu.Lock()
-		c.quit = true
-		if c.cancel != nil {
-			c.cancel()
-		}
-		c.mu.Unlock()
+	if line == "/quit" || line == "/exit" {
+		c.QuitDuringRun(line)
 		return
 	}
 	if c.duringTurnCommand(line) {
@@ -294,22 +311,46 @@ func (c *Controller) steer(line string) {
 	}
 }
 
+// QuitDuringRun handles an exit action (/quit, /exit, or Ctrl-D) while a
+// turn runs: it cancels the run, and the program quits once the run
+// settles. When prompts are then still queued, it warns instead, as the
+// same action at the prompt would, and repeating the action quits.
+func (c *Controller) QuitDuringRun(action string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.quit, c.quitAction = true, action
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
 // duringTurnCommand handles a line that names a slash command while a turn
-// runs. The line is not a steer. /help runs now; the others wait for the end
-// of the turn. It reports whether the line was a command.
+// runs. The line is not a steer. /help and /queue run now; the others wait
+// for the end of the turn. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
-	name, _, _ := strings.Cut(line, " ")
+	name, arg, _ := strings.Cut(line, " ")
 	switch name {
-	case "/exit":
-		c.steer("/quit")
 	case "/help":
 		c.command(line)
-	case "/continue", "/new", "/model", "/sessions":
+	case "/queue":
+		c.queue(arg)
+	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
 		c.notice("%s runs when the turn ends. Press Ctrl-C to stop the turn.", name)
 	default:
 		return false
 	}
 	return true
+}
+
+// queue holds text as the next prompt.
+func (c *Controller) queue(text string) {
+	if strings.TrimSpace(text) == "" {
+		c.notice("/queue needs the text of the next prompt.")
+		return
+	}
+	if err := c.eng.Queue(strings.TrimSpace(text)); err != nil {
+		c.emit(warnBlock("The prompt was not queued: %v.", err))
+	}
 }
 
 func (c *Controller) prompt(text string) {
@@ -325,31 +366,55 @@ func (c *Controller) resume() {
 	c.startRun(c.eng.Resume)
 }
 
-// startRun runs fn in the background in the running mode. When it ends, steers
-// that missed the turn become the next prompt.
+// startRun runs fn in the background in the running mode. Steers that
+// missed the turn, and queued prompts, run as the next turns within fn.
 func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
 	c.mode, c.cancel = ModeRunning, cancel
 	c.mu.Unlock()
 	c.wg.Go(func() {
-		res, err := fn(ctx)
+		_, err := fn(ctx)
 		cancel()
 		c.mu.Lock()
 		c.mode, c.cancel = ModeIdle, nil
-		quit := c.quit
+		quit, action := c.quit, c.quitAction
+		c.quit, c.quitAction = false, ""
+		if action != "" {
+			// The warning below is the first for this action.
+			c.dropping = ""
+		}
 		c.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			c.emit(warnBlock("%v", err))
+			c.emit(warnBlock("%s", busyText(err)))
 		}
-		switch {
-		case quit:
+		if quit && action != "" && c.keepQueued(action) {
+			return
+		}
+		if quit {
 			c.ui.Quit()
-		case len(res.Leftovers) > 0 && err == nil &&
-			res.Outcome.Stop.Kind != dashi.StopInterrupted:
-			c.prompt(strings.Join(res.Leftovers, "\n"))
 		}
 	})
+}
+
+// busyText says what to do when the session refuses a prompt, or returns
+// the error's own text.
+func busyText(err error) string {
+	var busy *dashi.TurnBusyError
+	if !errors.As(err, &busy) {
+		return err.Error()
+	}
+	n := turnNumber(busy.TurnID)
+	switch {
+	case busy.CallID != "":
+		return fmt.Sprintf("The last command (call %s in turn %d) may still "+
+			"be running. Type /done once it has finished, or /discard to "+
+			"discard the turn.", busy.CallID, n)
+	case busy.Next == dashi.NextAnswer:
+		return fmt.Sprintf("Turn %d waits for an answer. Press Enter to "+
+			"continue it, or type /discard to discard it.", n)
+	}
+	return err.Error()
 }
 
 func (c *Controller) command(line string) {
@@ -357,6 +422,9 @@ func (c *Controller) command(line string) {
 	arg = strings.TrimSpace(arg)
 	switch name {
 	case "/quit", "/exit":
+		if c.keepQueued(name) {
+			return
+		}
 		c.ui.Quit()
 	case "/continue":
 		if !c.eng.Last(c.base).LimitStopped() {
@@ -368,11 +436,31 @@ func (c *Controller) command(line string) {
 			return
 		}
 		c.startRun(c.eng.ContinueLimit)
+	case "/done":
+		if id, _ := c.eng.Last(c.base).OpenCall(); id == "" {
+			c.notice("/done marks a command done after dashi stopped while it ran.")
+			return
+		}
+		c.startRun(c.eng.MarkDone)
+	case "/discard":
+		if !c.eng.Last(c.base).Open() {
+			c.notice("There is no open turn to discard.")
+			return
+		}
+		c.startRun(c.eng.Discard)
+	case "/queue":
+		c.prompt(arg)
 	case "/new":
+		if c.keepQueued(name) {
+			return
+		}
 		c.async(c.newSession)
 	case "/model":
 		c.async(func(ctx context.Context) { c.model(ctx, arg) })
 	case "/sessions":
+		if c.keepQueued(name) {
+			return
+		}
 		c.async(c.sessions)
 	case "/help":
 		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
@@ -386,8 +474,11 @@ const helpText = `Commands:
   /new           start a new session
   /sessions      list sessions for this directory
   /continue      go on after a model-call limit stop
+  /done          mark a command done that ran when dashi stopped
+  /discard       discard the open turn
   /quit          save and exit
-While a turn runs, a line is a steer. Start it with ! to cut the model call.`
+While a turn runs, a line is a steer. Start it with ! to cut the model call.
+/queue <text> holds text as the next prompt, to run when the turn ends.`
 
 // async runs fn in the command mode.
 func (c *Controller) async(fn func(context.Context)) {
@@ -396,6 +487,26 @@ func (c *Controller) async(fn func(context.Context)) {
 		defer c.setMode(ModeIdle)
 		fn(c.base)
 	})
+}
+
+// keepQueued warns, the first time, that action would drop the prompts
+// queued in this session, and reports true so the caller stops. Repeating
+// the action goes ahead.
+func (c *Controller) keepQueued(action string) bool {
+	n := c.eng.Queued()
+	c.mu.Lock()
+	warned := c.dropping == action
+	c.dropping = ""
+	if n > 0 && !warned {
+		c.dropping = action
+	}
+	c.mu.Unlock()
+	if n == 0 || warned {
+		return false
+	}
+	c.emit(warnBlock("%d queued %s will be lost. Repeat %s to go ahead.",
+		n, plural(n, "message"), action))
+	return true
 }
 
 func (c *Controller) notice(format string, args ...any) {
@@ -447,8 +558,8 @@ func (c *Controller) sessions(ctx context.Context) {
 	}
 	labels := make([]string, len(list))
 	for i, s := range list {
-		labels[i] = fmt.Sprintf("%s  %s  %d turns  %s",
-			s.Updated.Local().Format("Jan 2 15:04"), s.ID, len(s.Turns),
+		labels[i] = fmt.Sprintf("%s  %s  %s",
+			s.Updated.Local().Format("Jan 2 15:04"), s.ID,
 			orDefault(s.Title, "(no prompt)"))
 	}
 	idx, ok := c.choose(ctx, "Sessions", labels)

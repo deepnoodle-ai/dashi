@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +54,17 @@ func newStore(t *testing.T) *session.Store {
 	return st
 }
 
-// addTurn runs one turn of s and records its ID.
+// chat returns a session handle on the records of s.
+func chat(st *session.Store, s *session.Session, rec dashi.Recorder) *dashi.Session {
+	return &dashi.Session{
+		ID:     s.ID,
+		New:    !st.HasTurns(s),
+		Runner: dashi.Runner{Client: echoClient{}, Recorder: rec},
+		Agent:  dashi.Agent{Model: "fixture"},
+	}
+}
+
+// addTurn runs one turn of s and saves its metadata.
 func addTurn(
 	t *testing.T,
 	st *session.Store,
@@ -64,24 +73,10 @@ func addTurn(
 	text string,
 ) {
 	t.Helper()
-	hist, err := st.History(t.Context(), rec.(dashi.Loader), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id := s.NextTurnID()
-	runner := dashi.Runner{
-		Client:   echoClient{},
-		Recorder: rec,
-	}
-	out, err := runner.Run(t.Context(), dashi.NewTurn(id), dashi.Start{
-		Agent:   dashi.Agent{Model: "fixture"},
-		Input:   []llm.Message{llm.UserMessage(llm.Text(text))},
-		History: hist.Messages,
-	})
+	out, err := chat(st, s, rec).Send(t.Context(), text)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	s.Turns = append(s.Turns, id)
 	if err := st.Save(s); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +122,8 @@ func TestCreateListLatestByDirectory(t *testing.T) {
 	}
 }
 
-// A reopened store sees the same turns and builds the same history.
+// A reopened store finds the same turns, and a session handle on it builds
+// the same history.
 func TestReopenedStoreBuildsSameHistory(t *testing.T) {
 	st := newStore(t)
 	s, err := st.Create("/repo", "m")
@@ -140,42 +136,43 @@ func TestReopenedStoreBuildsSameHistory(t *testing.T) {
 	}
 	addTurn(t, st, s, rec, "first")
 	addTurn(t, st, s, rec, "second")
-	want, err := st.History(t.Context(), rec, s)
-	if err != nil || len(want.Messages) != 4 || len(want.Notices) != 0 {
-		t.Fatalf("history=%+v err=%v", want, err)
+	want, err := chat(st, s, rec).History(t.Context())
+	if err != nil || len(want) != 4 {
+		t.Fatalf("history=%v err=%v", want, err)
 	}
 
 	again := session.NewStore(st.Root())
 	again.DisableSync()
 	s2, err := again.Latest("/repo")
-	if err != nil || len(s2.Turns) != 2 {
+	if err != nil || s2.ID != s.ID {
 		t.Fatalf("session=%+v err=%v", s2, err)
 	}
 	rec2, err := again.Recorder(s2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := again.History(t.Context(), rec2, s2)
+	if n, err := rec2.LastTurn(t.Context(), s2.ID); n != 2 || err != nil {
+		t.Fatalf("last turn=%d err=%v", n, err)
+	}
+	got, err := chat(again, s2, rec2).History(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Messages) != len(want.Messages) {
-		t.Fatalf("got %d messages, want %d", len(got.Messages), len(want.Messages))
+	if len(got) != len(want) {
+		t.Fatalf("got %d messages, want %d", len(got), len(want))
 	}
-	for i := range got.Messages {
-		if got.Messages[i].Text() != want.Messages[i].Text() {
-			t.Fatalf("message %d: %q != %q", i,
-				got.Messages[i].Text(), want.Messages[i].Text())
+	for i := range got {
+		if got[i].Text() != want[i].Text() {
+			t.Fatalf("message %d: %q != %q", i, got[i].Text(), want[i].Text())
 		}
-	}
-	before, err := again.HistoryBefore(t.Context(), rec2, s2, 1)
-	if err != nil || len(before.Messages) != 2 {
-		t.Fatalf("before=%+v err=%v", before, err)
 	}
 }
 
-// An unreadable turn is skipped with a notice, and the rest still count.
-func TestHistorySkipsUnreadableTurn(t *testing.T) {
+// A damaged turn log does not hide the turns after it: the recorder finds
+// the last turn without reading the logs, and the history skips the damaged
+// turn with a warning. An empty log, as a rejected first write leaves, is
+// no turn.
+func TestDamagedTurnIsSkipped(t *testing.T) {
 	st := newStore(t)
 	s, err := st.Create("/repo", "m")
 	if err != nil {
@@ -187,19 +184,40 @@ func TestHistorySkipsUnreadableTurn(t *testing.T) {
 	}
 	addTurn(t, st, s, rec, "first")
 	addTurn(t, st, s, rec, "second")
-	if err := os.WriteFile(rec.Path(s.Turns[0]), []byte("not a log\n"), 0o600); err != nil {
+	if err := os.WriteFile(rec.Path(dashi.TurnID(s.ID, 1)), []byte("not a log\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h, err := st.History(t.Context(), rec, s)
+	empty := rec.Path(dashi.TurnID(s.ID, 3))
+	if err := os.MkdirAll(filepath.Dir(empty), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := rec.LastTurn(t.Context(), s.ID); n != 2 || err != nil {
+		t.Fatalf("last turn=%d err=%v", n, err)
+	}
+	h, err := chat(st, s, rec).History(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(h.Messages) != 2 || h.Messages[0].Text() != "second" {
-		t.Fatalf("messages=%v", h.Messages)
+	if len(h) != 2 || h[0].Text() != "second" {
+		t.Fatalf("messages=%v", h)
 	}
-	if len(h.Notices) != 1 || !strings.Contains(h.Notices[0], "Turn 1 skipped") {
-		t.Fatalf("notices=%v", h.Notices)
+	out, err := chat(st, s, rec).Send(t.Context(), "third")
+	if err != nil || !hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) ||
+		out.Turn.ID != dashi.TurnID(s.ID, 3) {
+		t.Fatalf("turn=%s warnings=%v err=%v", out.Turn.ID, out.SessionWarnings, err)
 	}
+}
+
+func hasWarning(ws []dashi.Warning, code dashi.WarningCode) bool {
+	for _, w := range ws {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLockExcludesSecondHolder(t *testing.T) {

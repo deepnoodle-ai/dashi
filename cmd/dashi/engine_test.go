@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -49,7 +51,7 @@ func TestPromptStreamsTextAndFooter(t *testing.T) {
 	mustHave(t, text, "The fix is done.")
 	mustHave(t, text, "[turn 1 | fixture | 1 model call | 120 tokens]")
 	s := h.app.eng.Session()
-	if len(s.Turns) != 1 || s.Title != "fix the test" {
+	if h.turns() != 1 || s.Title != "fix the test" {
 		t.Fatalf("session=%+v", s)
 	}
 	// Streamed text and the settled text are one block.
@@ -177,8 +179,8 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
-	if len(h.app.eng.Session().Turns) != 1 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 1 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 
@@ -205,9 +207,8 @@ func TestSteerReachesRunningTurn(t *testing.T) {
 		t.Fatalf("the queued line was not replaced:\n%s", h.ui.text())
 	}
 	// The recorded turn holds the steer, and the model saw it.
-	last := h.app.eng.Last(t.Context())
 	found := false
-	for _, s := range last.Turn.Steps {
+	for _, s := range h.turn(1).Steps {
 		if s.Context != nil && s.Context.Steering {
 			found = true
 		}
@@ -239,9 +240,8 @@ func TestLimitStopThenContinueSameTurn(t *testing.T) {
 	if strings.Contains(h.ui.text(), "system note") {
 		t.Fatal("/continue added a note")
 	}
-	s := h.app.eng.Session()
-	if len(s.Turns) != 1 {
-		t.Fatalf("/continue made a new turn: %v", s.Turns)
+	if n := h.turns(); n != 1 {
+		t.Fatalf("/continue made a new turn: %d turns", n)
 	}
 	last := h.app.eng.Last(t.Context())
 	if last.View.Stop.Kind != dashi.StopCompleted {
@@ -270,7 +270,7 @@ func TestNewPromptCancelsUnfinishedTurn(t *testing.T) {
 	h.input("second")
 	mustHave(t, h.ui.text(), "Turn 1 canceled.")
 	mustHave(t, h.ui.text(), "Fresh answer.")
-	if n := len(h.app.eng.Session().Turns); n != 2 {
+	if n := h.turns(); n != 2 {
 		t.Fatalf("turns=%d", n)
 	}
 }
@@ -308,7 +308,7 @@ func TestModelChangeThenResumeKeepsRecordedModel(t *testing.T) {
 	if got := h.client.inputAt(2).Model; got != "gpt-6-luna" {
 		t.Fatalf("next turn model=%s, want gpt-6-luna", got)
 	}
-	if n := len(h.app.eng.Session().Turns); n != 2 {
+	if n := h.turns(); n != 2 {
 		t.Fatalf("turns=%d", n)
 	}
 }
@@ -335,8 +335,8 @@ func TestResumeShowsScrollbackAndKeepsHistory(t *testing.T) {
 			t.Fatalf("model input lacks %q:\n%s", want, got)
 		}
 	}
-	if len(h.app.eng.Session().Turns) != 2 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 2 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 
@@ -349,7 +349,7 @@ func TestResumeSkipsUnreadableTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := h.app.eng.Session().Turns[0]
+	bad := dashi.TurnID(h.app.eng.Session().ID, 1)
 	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -537,8 +537,8 @@ func TestEnterRetriesFailedTurn(t *testing.T) {
 	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
-	if len(h.app.eng.Session().Turns) != 1 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 1 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 
@@ -561,5 +561,87 @@ func TestEnterDoesNotRetryRefusal(t *testing.T) {
 	h.input("")
 	if h.client.sends != 1 {
 		t.Fatalf("sends=%d, want 1", h.client.sends)
+	}
+}
+
+// A damaged last turn does not stop the session (FR-4): a new prompt warns
+// that the turn was left out and runs the next turn.
+func TestDamagedLastTurnIsSkipped(t *testing.T) {
+	h := newHarness(t, say("First answer."), say("Second answer."), say("Third."))
+	h.input("first question")
+	h.input("second question")
+	rec, err := h.store.Recorder(h.app.eng.Session())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := dashi.TurnID(h.app.eng.Session().ID, 2)
+	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.eng.Close()
+
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	h.app.ctrl.Open()
+	h.input("third question")
+	text := h.ui.text()
+	mustHave(t, text, "-2 was left out of the history, and the next turn starts after it")
+	mustHave(t, text, "Third.")
+	if n := turnsOf(t, h.store, h.app.eng.Session()); n != 3 {
+		t.Fatalf("turns=%d", n)
+	}
+	var sent []string
+	for _, m := range h.client.inputAt(2).Messages {
+		sent = append(sent, m.Text())
+	}
+	if got := strings.Join(sent, "|"); got != "first question|First answer.|third question" {
+		t.Fatalf("the model saw %q", got)
+	}
+}
+
+// lockDirAfterStart commits steps, and after turn_started makes the
+// session directory read-only, so the session file cannot be saved while
+// the turn log, in its own directory, still records.
+type lockDirAfterStart struct {
+	dashi.Recorder
+	root string
+}
+
+func (r *lockDirAfterStart) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if err := r.Recorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if req.Step.Kind == dashi.StepStarted {
+		id := req.Step.TurnID[:strings.LastIndex(req.Step.TurnID, "-")]
+		return os.Chmod(filepath.Join(r.root, id), 0o500)
+	}
+	return nil
+}
+
+// A session file that fails to save after the first turn started leaves
+// the turn log in place when the session closes.
+func TestFailedSessionSaveKeepsTurnLog(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs directory permissions")
+	}
+	h := newHarness(t, say("Done."))
+	h.app.eng.Close()
+	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
+		return &lockDirAfterStart{Recorder: rec, root: h.store.Root()}
+	}
+	h.build(Options{})
+	s := h.app.eng.Session()
+	dir := filepath.Join(h.store.Root(), s.ID)
+	h.input("save me")
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustHave(t, h.ui.text(), "The session file was not saved")
+	if h.store.Saved(s) {
+		t.Fatal("the session file was saved")
+	}
+	h.app.eng.Close()
+	if n := turnsOf(t, h.store, s); n != 1 {
+		t.Fatalf("turns=%d after close", n)
 	}
 }

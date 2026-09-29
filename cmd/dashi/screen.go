@@ -311,10 +311,13 @@ func (s *screen) interrupt() []tui.Cmd {
 func (s *screen) requestQuit() []tui.Cmd {
 	switch s.ctrl.Mode() {
 	case ModeIdle:
+		if s.ctrl.keepQueued("Ctrl-D") {
+			return nil
+		}
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	case ModeRunning:
-		s.ctrl.Input("/quit")
+		s.ctrl.QuitDuringRun("Ctrl-D")
 	case ModeApproval:
 		s.ctrl.Interrupt()
 	}
@@ -531,8 +534,11 @@ func blockView(b Block) tui.View {
 		return tui.Stack(views...).Gap(0)
 	case KindSteer:
 		label := "steer queued"
-		if b.State == SteerDelivered {
+		switch b.State {
+		case SteerDelivered:
 			label = "steer delivered"
+		case SteerNext:
+			label = "queued for the next turn"
 		}
 		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindStop:

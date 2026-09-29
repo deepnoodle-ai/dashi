@@ -29,8 +29,14 @@ command, the screen shows the `git diff`. At the end of a turn, a footer shows
 the model, the number of model calls, the tokens, and the cost.
 
 While a turn runs, type to send a steer. The model reads it at its next step.
-Start the line with `!` to cut the model call in progress. Press Ctrl-C to stop
-the model call or the tool. The turn stays open, and Enter continues it.
+Start the line with `!` to cut the model call in progress. A steer that
+arrives too late for the turn is not lost: it runs as the next turn. Type
+`/queue text` to hold a prompt for when the turn ends; it then runs as the
+next turn. Press Ctrl-C to stop the model call or the tool. The turn stays
+open, and Enter continues it; queued prompts wait and go ahead of your next
+prompt, and the screen says how many wait. Queued prompts live only while
+dashi runs, so `/quit`, Ctrl-C, Ctrl-D, `/new`, and `/sessions` first warn that
+they would drop them; repeat the action to go ahead.
 
 ## Commands
 
@@ -40,22 +46,30 @@ the model call or the tool. The turn stays open, and Enter continues it.
 | `/new` | Start a new session |
 | `/sessions` | List the sessions of this directory and reopen one |
 | `/continue` | Go on after a model-call limit stop (Enter does the same) |
+| `/queue text` | Hold a prompt for when the running turn ends |
+| `/done` | Mark a command done that was running when dashi stopped |
+| `/discard` | Discard the open turn |
 | `/quit` | Save and exit (Ctrl-D does the same) |
 | `/help` | Show the commands |
 
-A command typed during a turn waits until the turn ends.
+A command typed during a turn, other than `/queue` and `/help`, waits until
+the turn ends.
 
 ## Sessions
 
 Each session is a folder in `~/.dashi/sessions`. It holds one record for each
-turn. A session is saved when its first turn records, so a launch that you
-close at once leaves nothing behind.
+turn, and a `session.json` with only the title, directory, and model. The
+turns are a [`dashi.Session`](sessions.md). A session is saved when its first
+turn records, so a launch that you close at once leaves nothing behind.
 
 - `dashi -c` (or `--resume`) reopens the newest session of this directory
   that has a turn. It shows the full scrollback.
 - `dashi --resume ID` reopens one session.
 - If the last turn did not finish, the screen says so. Press Enter to
   continue it, or type a new prompt to cancel it.
+- If dashi exited while a command ran, the command may still be running:
+  a new prompt is refused until you check it. Type `/done` once it has
+  finished, or `/discard` to discard the turn; the record keeps the cancel.
 - A second `dashi` cannot open a session that is open in another terminal.
 
 `dashi -p "prompt"` runs one turn without a screen and prints only the answer
