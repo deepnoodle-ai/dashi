@@ -28,7 +28,6 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		Output: new(tool.TextOutput("result")),
 	}
 	accepted, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
@@ -41,7 +40,6 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		t.Fatalf("settle: out=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
@@ -50,13 +48,12 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		t.Fatalf("settle: stop=%+v err=%v", completed.Stop, err)
 	}
 	duplicate, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
 	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || len(duplicate.Turn.Steps) != len(completed.Turn.Steps) || client.sends != 2 {
 		t.Fatalf(

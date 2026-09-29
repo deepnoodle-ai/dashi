@@ -29,8 +29,13 @@ func (c sendingClient) Send(ctx context.Context, call llm.Call) (llm.Result, err
 }
 
 func startInput() Start {
+	return startAgent(testAgent())
+}
+
+func startAgent(agent Agent) Start {
 	return Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
 }
@@ -80,7 +85,7 @@ func TestSteerQueuedBeforeStartReachesFirstCall(t *testing.T) {
 	inbox := NewInbox()
 	id := mustSend(t, inbox, "use the staging database")
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -123,7 +128,7 @@ func TestSteerDuringToolFollowsItsResult(t *testing.T) {
 			}, nil
 		}),
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -163,7 +168,7 @@ func TestSteerSupersedesFinalText(t *testing.T) {
 		finishes++
 		return FinishDecision{}, nil
 	}}
-	out, err := (Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}).Run(
+	out, err := (Runner{Client: client, Hooks: guard.Hooks()}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "second answer" {
@@ -206,7 +211,7 @@ func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
 	}
 	// Three attempts with the last reserved: after two calls, no normal
 	// call remains, so the steer cannot supersede the answer.
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "answer" {
@@ -238,8 +243,8 @@ func TestSteerSupersedesSubmission(t *testing.T) {
 	}
 	agent := structuredAgent()
 	agent.Limits.ModelAttempts = 4
-	out, err := (Runner{Agent: agent, Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	out, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted ||
 		string(out.Output.Value) != `{"answer":2}` {
@@ -322,7 +327,7 @@ func TestSteerRecordedOnceWhenAcknowledgmentFails(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
 		}),
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -353,7 +358,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 		{Item: ContextItem{Message: llm.UserMessage(llm.Text("no id"))}},
 	}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -369,7 +374,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 
 	failing := &tableSource{failSteers: errors.New("down")}
 	client = &scriptedClient{results: []llm.Result{final("done")}}
-	out, err = (Runner{Agent: testAgent(), Client: client}).Run(
+	out, err = (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t2"}, startInput(), WithSteering(failing),
 	)
 	// The source is asked before the call and at the answer, and its
@@ -386,7 +391,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 func TestSteerWithRecordedIDButOtherContentIsSkipped(t *testing.T) {
 	source := &tableSource{rows: []Steer{textSteer("s1", "first")}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
-	runner := Runner{Agent: testAgent(), Client: client}
+	runner := Runner{Client: client}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source))
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -418,7 +423,7 @@ func TestDeliverSkipsRepeatedIDs(t *testing.T) {
 		Schema: json.RawMessage(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
 	}}
-	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	runner := Runner{Client: client, Tools: tool.List{external}}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -454,7 +459,7 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 		Schema: json.RawMessage(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
 	}}
-	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	runner := Runner{Client: client, Tools: tool.List{external}}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
 	if err != nil {
 		t.Fatal(err)
@@ -513,7 +518,6 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			pause := make(chan struct{})
 			client := &scriptedClient{results: []llm.Result{final("done")}}
 			runner := Runner{
-				Agent:    testAgent(),
 				Client:   client,
 				Recorder: pauseOnIntent{NewMemoryRecorder(), pause},
 			}
@@ -541,6 +545,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			runner.Recorder = nil
 			next, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
 				CommandID: "start",
+				Agent:     testAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("go on"))},
 				History:   history,
 			}, WithSteering(inbox))
@@ -583,7 +588,7 @@ func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
 		}),
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -608,7 +613,7 @@ func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
 		Schema: json.RawMessage(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
 	}}
-	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	runner := Runner{Client: client, Tools: tool.List{external}}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
 	if err != nil {
 		t.Fatal(err)
@@ -675,8 +680,8 @@ func TestRunReleasesUnrecordedClaims(t *testing.T) {
 	// The steer arrives during the only call allowed, so it waits.
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 1
-	out, err := (Runner{Agent: agent, Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	out, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -741,8 +746,8 @@ func TestInboxConcurrentSends(t *testing.T) {
 	// be superseded, so the script's three results suffice.
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 4
-	out, err := (Runner{Agent: agent, Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
 	close(stop)
 	wg.Wait()
@@ -791,8 +796,8 @@ func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
 	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepToolStarted}
 	agent := structuredAgent()
 	agent.Limits.ModelAttempts = 4
-	runner := Runner{Agent: agent, Client: client, Recorder: rec}
-	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput()); err == nil {
+	runner := Runner{Client: client, Recorder: rec}
+	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, startAgent(agent)); err == nil {
 		t.Fatal("the fault was not reported")
 	}
 	saved, err := rec.base.Load(t.Context(), "t1")
@@ -826,8 +831,8 @@ func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 5
-	out, err := (Runner{Agent: agent, Client: client, Hooks: nudge.Hooks()}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(),
+	out, err := (Runner{Client: client, Hooks: nudge.Hooks()}).Run(
+		t.Context(), Turn{ID: "t1"}, startAgent(agent),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "two" ||
 		client.sends != 2 {
@@ -844,7 +849,7 @@ func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 		Schema: json.RawMessage(`{"type":"object"}`),
 		Kind:   tool.KindExternal,
 	}}
-	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	runner := Runner{Client: client, Tools: tool.List{external}}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
 	if err != nil {
 		t.Fatal(err)
@@ -869,7 +874,7 @@ func TestHookCannotDeliverToolResult(t *testing.T) {
 		}}}}, nil
 	}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := (Runner{Agent: testAgent(), Client: client, Hooks: bad.Hooks()}).Run(
+	out, err := (Runner{Client: client, Hooks: bad.Hooks()}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted ||
@@ -907,8 +912,8 @@ func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("first"), final("second")}}
 			agent := testAgent()
 			agent.Limits.ModelAttempts = tc.attempts
-			runner := Runner{Agent: agent, Client: client, Hooks: interrupt.Hooks()}
-			out, err := runner.Run(ctx, Turn{ID: "t1"}, startInput())
+			runner := Runner{Client: client, Hooks: interrupt.Hooks()}
+			out, err := runner.Run(ctx, Turn{ID: "t1"}, startAgent(agent))
 			if err != nil || out.Stop.Kind != StopInterrupted {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
@@ -979,9 +984,9 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 			rec := &steerFaultRecorder{MemoryRecorder: NewMemoryRecorder(), mode: mode}
 			agent := structuredAgent()
 			agent.Limits.ModelAttempts = 4
-			runner := Runner{Agent: agent, Client: client, Recorder: rec}
+			runner := Runner{Client: client, Recorder: rec}
 			if _, err := runner.Run(
-				t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+				t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 			); err == nil {
 				t.Fatal("the fault was not reported")
 			}
@@ -1029,7 +1034,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
 		}),
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: tool.List{lookup}}).Run(
+	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -1108,7 +1113,7 @@ func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := &loseIntentAck{MemoryRecorder: NewMemoryRecorder()}
-	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	runner := Runner{Client: client, Recorder: rec}
 	if _, err := runner.Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	); err == nil {

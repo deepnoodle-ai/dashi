@@ -20,7 +20,6 @@ func startWithParent(
 	t.Helper()
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	return (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -28,6 +27,7 @@ func startWithParent(
 		Turn{ID: "child"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Parent:    parent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},

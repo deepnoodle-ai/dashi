@@ -16,15 +16,16 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Runner runs turns for one agent with the long-lived services it needs. It
-// holds configuration only, so one value can serve many turns; per-call
-// controls are RunOption values, and each turn's state lives in its Turn.
+// Runner runs turns with the long-lived services they need. It holds
+// services only, so one value can serve many turns and agents: each turn's
+// agent goes on its Start and is recorded, per-call controls are RunOption
+// values, and each turn's state lives in its Turn.
 type Runner struct {
-	// Agent may be the zero value: see Agent for the defaults. On an existing
-	// turn, a zero Agent runs with the turn's recorded agent.
-	Agent  Agent
 	Client llm.Client
-	Tools  tool.Toolset
+	// Tools implements the tools a turn may call. It is resolved before each
+	// model call, so a dynamic toolset can change between calls; the turn's
+	// Agent.Tools and Agent.NoTools select from it by name.
+	Tools tool.Toolset
 	// Recorder acknowledges steps. When nil, Run uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
@@ -236,23 +237,32 @@ func (r Runner) apply(
 	if err != nil {
 		return Outcome{}, err
 	}
-	// An agent may leave its destination, model, and revision to defaults. The
-	// filled values are pinned like explicit ones, so replay and Continue
-	// compare the same resolved agent.
-	agent, err := r.agentFor(state, len(turn.Steps) > 0)
+	// A Start's agent may leave its destination, model, and revision to
+	// defaults. The filled values are pinned like explicit ones, so a retried
+	// Start compares the same resolved agent. Other commands use the recorded
+	// agent.
+	agent, err := r.agentFor(command, state)
 	if err != nil {
 		return Outcome{}, err
 	}
+	_, isStart := command.(Start)
 	implicitRecorder := r.Recorder == nil
 	if implicitRecorder {
 		r.Recorder = newMemoryRecorderForTurn(turn)
 	}
-	if len(turn.Steps) > 0 {
+	if isStart && len(turn.Steps) > 0 {
 		if err := agentChanged(agent, state.Agent); err != nil {
 			return Outcome{}, err
 		}
 	}
-	d, err := commandDigest(command)
+	// A Start's digest covers its resolved agent, so a retry that spells out
+	// a default, such as the client's provider, is the same command.
+	digested := command
+	if c, ok := command.(Start); ok {
+		c.Agent = agent
+		digested = c
+	}
+	d, err := commandDigest(digested)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -269,8 +279,10 @@ func (r Runner) apply(
 			if replayErr != nil {
 				return Outcome{}, replayErr
 			}
-			if err := agentChanged(agent, current.Agent); err != nil {
-				return Outcome{}, err
+			if isStart {
+				if err := agentChanged(agent, current.Agent); err != nil {
+					return Outcome{}, err
+				}
 			}
 			if current.commandDigests[command.commandID()] != d {
 				return Outcome{}, ErrRevisionConflict
@@ -293,16 +305,18 @@ func (r Runner) apply(
 				return Outcome{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
-				if err := agentChanged(agent, current.Agent); err != nil {
-					return Outcome{}, err
+				if isStart {
+					if err := agentChanged(agent, current.Agent); err != nil {
+						return Outcome{}, err
+					}
 				}
 				if old != d {
 					return Outcome{}, ErrCommandConflict
 				}
 				return outcome(saved, current), nil
 			}
-			// The runner trusts the snapshot's recorded agent, and a zero
-			// Agent runs with it, so it must be the recorder's.
+			// Commands on an existing turn run with the snapshot's
+			// recorded agent, so it must be the recorder's.
 			if len(turn.Steps) > 0 && len(saved.Steps) > 0 &&
 				!sameAgent(state.Agent, current.Agent) {
 				return Outcome{}, fmt.Errorf(
@@ -376,7 +390,7 @@ func (r Runner) apply(
 		if origin == "" {
 			origin = StartUser
 		}
-		if n := r.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
+		if n := c.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
 				Code: WarningLimitAdjusted,
 				Message: fmt.Sprintf(
@@ -1055,6 +1069,42 @@ func (r *runtime) run() Outcome {
 	}
 }
 
+// selectTools keeps the tools the agent's Tools names, in the toolset's
+// order; an empty selection keeps every tool. A named tool the toolset does
+// not offer warns once per turn, on the next committed step.
+func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
+	names := r.agent.Tools
+	if len(names) == 0 {
+		return tools
+	}
+	selected := make([]tool.Tool, 0, len(names))
+	for _, t := range tools {
+		if slices.Contains(names, t.Definition.Name) {
+			selected = append(selected, t)
+		}
+	}
+	for _, name := range names {
+		if slices.ContainsFunc(tools, func(t tool.Tool) bool {
+			return t.Definition.Name == name
+		}) {
+			continue
+		}
+		w := Warning{
+			Code: WarningToolNotOffered,
+			Message: fmt.Sprintf(
+				"Agent.Tools names %q, which the runner's tools do not offer",
+				name,
+			),
+		}
+		if slices.Contains(s.Warnings, w) ||
+			slices.Contains(r.pendingWarnings, w) {
+			continue
+		}
+		r.pendingWarnings = append(r.pendingWarnings, w)
+	}
+	return selected
+}
+
 func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 	unsafe := false
 	for _, def := range s.modelDefs {
@@ -1117,11 +1167,18 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if !finalAnswerOnly && r.runner.Tools != nil {
-		tools, e := r.runner.Tools.Tools(r.toolsContext(r.ctx))
-		if e != nil {
-			return r.failureOrContext(e), false
+	if !finalAnswerOnly && !r.agent.NoTools {
+		// Without a toolset the selection still runs, so a named tool
+		// warns that it is not offered.
+		var tools []tool.Tool
+		var e error
+		if r.runner.Tools != nil {
+			tools, e = r.runner.Tools.Tools(r.toolsContext(r.ctx))
+			if e != nil {
+				return r.failureOrContext(e), false
+			}
 		}
+		tools = r.selectTools(s, tools)
 		for _, t := range tools {
 			if e = t.Definition.Validate(); e != nil {
 				return r.stop(StopFailed, e.Error()), false

@@ -50,13 +50,12 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ToolConcurrency = 3
 	runner := Runner{
-		Agent:    agent,
 		Client:   client,
 		Tools:    tool.List{work},
 		Recorder: &loseSettle{MemoryRecorder: mem, n: 2},
 	}
 	var events []Event
-	for e, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart()) {
+	for e, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart(agent)) {
 		if e.Outcome == nil && err == nil {
 			events = append(events, e)
 		}

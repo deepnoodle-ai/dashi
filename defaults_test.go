@@ -40,8 +40,11 @@ func userInput(text string) []llm.Message {
 func TestZeroConfigTurnGeneratesAndRecordsIdentity(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
-	runner := Runner{Agent: Agent{Model: "fixture"}, Client: client, Recorder: rec}
-	out, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	runner := Runner{Client: client, Recorder: rec}
+	out, err := runner.Run(t.Context(), Turn{}, Start{
+		Agent: Agent{Model: "fixture"},
+		Input: userInput("hi"),
+	})
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
@@ -70,13 +73,13 @@ func TestZeroConfigTurnGeneratesAndRecordsIdentity(t *testing.T) {
 
 func TestStreamCarriesGeneratedTurnID(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	runner := Runner{Agent: Agent{Model: "fixture"}, Client: client}
+	runner := Runner{Client: client}
 	var id string
 	var steps, finals int
 	for event, err := range runner.Stream(
 		t.Context(),
 		Turn{},
-		Start{Input: userInput("hi")},
+		Start{Agent: Agent{Model: "fixture"}, Input: userInput("hi")},
 	) {
 		if err != nil {
 			t.Fatal(err)
@@ -113,20 +116,23 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}}
 	agent := Agent{Model: "fixture", Instructions: "Be brief."}
-	runner := Runner{Agent: agent, Client: client, Tools: external, Recorder: rec}
-	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	runner := Runner{Client: client, Tools: external, Recorder: rec}
+	got, err := runner.Run(t.Context(), Turn{}, Start{Agent: agent, Input: userInput("hi")})
 	if err != nil || got.Stop.Kind != StopWaiting {
 		t.Fatalf("start stop=%+v err=%v", got.Stop, err)
 	}
 
-	// Edited instructions no longer match the record; the error names the
-	// field and the fix.
-	edited := runner
-	edited.Agent.Instructions = "Be thorough."
-	_, err = edited.Run(t.Context(), got.Turn, Deliver{Items: []ContextItem{{
-		Origin:  "user",
-		Message: llm.UserMessage(llm.Text("more")),
-	}}})
+	// A retried Start whose instructions no longer match the record fails;
+	// the error names the field and the fix. The revision is pinned so the
+	// derived one does not differ too.
+	edited := agent
+	edited.Instructions = "Be thorough."
+	edited.Revision = got.Turn.Steps[0].Started.Agent.Revision
+	_, err = runner.Run(t.Context(), got.Turn, Start{
+		CommandID: got.Turn.Steps[0].CommandID,
+		Agent:     edited,
+		Input:     userInput("hi"),
+	})
 	if !errors.Is(err, ErrAgentChanged) ||
 		!strings.Contains(err.Error(), "instructions") ||
 		strings.Contains(err.Error(), "revision") ||
@@ -134,9 +140,8 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		t.Fatalf("edited agent error = %v", err)
 	}
 
-	// A zero Agent runs with the recorded one, for any command.
-	recorded := Runner{Client: client, Tools: external, Recorder: rec}
-	delivered, err := recorded.Run(t.Context(), got.Turn, Deliver{Items: []ContextItem{{
+	// Other commands run with the recorded agent.
+	delivered, err := runner.Run(t.Context(), got.Turn, Deliver{Items: []ContextItem{{
 		Origin:  "user",
 		Message: llm.UserMessage(llm.Text("more")),
 	}}})
@@ -144,7 +149,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := recorded.Run(
+	settled, err := runner.Run(
 		t.Context(),
 		delivered.Turn,
 		Settle{CallID: "call-1", Outcome: &out},
@@ -152,10 +157,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A partly set agent takes its empty model and revision from the record.
-	partial := runner
-	partial.Agent = Agent{Instructions: "Be brief."}
-	done, err := partial.Run(t.Context(), settled.Turn, Continue{})
+	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -170,7 +172,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	}
 }
 
-func TestZeroAgentCancelsAfterPromptEdit(t *testing.T) {
+func TestCancelUsesRecordedAgentAfterPromptEdit(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 	external := tool.List{{Definition: tool.Definition{
 		Name:   "lookup",
@@ -178,11 +180,13 @@ func TestZeroAgentCancelsAfterPromptEdit(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}}
 	runner := Runner{
-		Agent:  Agent{Model: "fixture", Instructions: "v1"},
 		Client: client,
 		Tools:  external,
 	}
-	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	got, err := runner.Run(t.Context(), Turn{}, Start{
+		Agent: Agent{Model: "fixture", Instructions: "v1"},
+		Input: userInput("hi"),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +349,7 @@ func TestEmptyModelUsesCatalogDefault(t *testing.T) {
 	// A client that does not know the default model gets a clear error.
 	unknown := &catalogClient{provider: "anthropic", api: "anthropic.messages"}
 	_, err = (Runner{Client: unknown}).Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
-	if err == nil || !strings.Contains(err.Error(), "set Agent.Model") {
+	if err == nil || !strings.Contains(err.Error(), "set Start.Agent.Model") {
 		t.Fatalf("unknown default error = %v", err)
 	}
 	_, err = (Runner{Client: &scriptedClient{}}).Run(
@@ -375,11 +379,13 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}}
 	runner := Runner{
-		Agent:  Agent{Model: small, Instructions: "Be brief."},
 		Client: client,
 		Tools:  external,
 	}
-	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	got, err := runner.Run(t.Context(), Turn{}, Start{
+		Agent: Agent{Model: small, Instructions: "Be brief."},
+		Input: userInput("hi"),
+	})
 	if err != nil || got.Stop.Kind != StopWaiting {
 		t.Fatalf("start stop=%+v err=%v", got.Stop, err)
 	}
@@ -389,18 +395,18 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// An explicit different model is a change.
-	other := runner
-	other.Agent.Model = "claude-sonnet-5"
-	_, err = other.Run(t.Context(), settled.Turn, Continue{})
+	// A retried Start with a different model is a change.
+	_, err = runner.Run(t.Context(), settled.Turn, Start{
+		CommandID: got.Turn.Steps[0].CommandID,
+		Agent:     Agent{Model: "claude-sonnet-5", Instructions: "Be brief."},
+		Input:     userInput("hi"),
+	})
 	if !errors.Is(err, ErrAgentChanged) || !strings.Contains(err.Error(), "model") {
 		t.Fatalf("changed model error = %v", err)
 	}
 
-	// An empty model is the recorded one, not today's catalog default.
-	empty := runner
-	empty.Agent.Model = ""
-	done, err := empty.Run(t.Context(), settled.Turn, Continue{})
+	// Continue runs with the recorded model, not today's catalog default.
+	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -415,7 +421,7 @@ func callResultFrom(provider, model string) llm.Result {
 	return r
 }
 
-func TestZeroAgentRejectsSnapshotWithTamperedAgent(t *testing.T) {
+func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "lookup"), final("ok")},
 	}
@@ -426,20 +432,21 @@ func TestZeroAgentRejectsSnapshotWithTamperedAgent(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}}
 	runner := Runner{
-		Agent:    Agent{Model: "fixture", Instructions: "safe"},
 		Client:   client,
 		Tools:    external,
 		Recorder: rec,
 	}
-	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	got, err := runner.Run(t.Context(), Turn{}, Start{
+		Agent: Agent{Model: "fixture", Instructions: "safe"},
+		Input: userInput("hi"),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tampered := cloneTurn(got.Turn)
 	tampered.Steps[0].Started.Agent.Instructions = "EVIL"
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	zero := Runner{Client: client, Tools: external, Recorder: rec}
-	_, err = zero.Run(t.Context(), tampered, Settle{CallID: "call-1", Outcome: &out})
+	_, err = runner.Run(t.Context(), tampered, Settle{CallID: "call-1", Outcome: &out})
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("tampered snapshot error = %v, want ErrAgentChanged", err)
 	}
@@ -447,8 +454,8 @@ func TestZeroAgentRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	if err != nil || len(saved.Steps) != len(got.Turn.Steps) {
 		t.Fatalf("recorder changed: steps=%d err=%v", len(saved.Steps), err)
 	}
-	// The untampered snapshot still works with a zero Agent.
-	if _, err := zero.Run(
+	// The untampered snapshot still works.
+	if _, err := runner.Run(
 		t.Context(),
 		got.Turn,
 		Settle{CallID: "call-1", Outcome: &out},
@@ -460,11 +467,10 @@ func TestZeroAgentRejectsSnapshotWithTamperedAgent(t *testing.T) {
 func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
-		Agent:    Agent{Model: "fixture"},
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}
-	start := Start{Input: userInput("hi")}
+	start := Start{Agent: Agent{Model: "fixture"}, Input: userInput("hi")}
 	out, err := runner.Run(t.Context(), Turn{}, start)
 	if err != nil {
 		t.Fatal(err)
@@ -494,7 +500,7 @@ func TestAgentRevisionIsPinned(t *testing.T) {
 	}
 }
 
-func TestEmptyNonNilFieldsCountAsZeroAgent(t *testing.T) {
+func TestEmptyNonNilFieldsMatchRecordedAgent(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 	external := tool.List{{Definition: tool.Definition{
 		Name:   "lookup",
@@ -502,16 +508,21 @@ func TestEmptyNonNilFieldsCountAsZeroAgent(t *testing.T) {
 		Kind:   tool.KindExternal,
 	}}}
 	runner := Runner{
-		Agent:  Agent{Model: "fixture", Instructions: "v1"},
 		Client: client,
 		Tools:  external,
 	}
-	got, err := runner.Run(t.Context(), Turn{}, Start{Input: userInput("hi")})
+	start := Start{
+		CommandID: "start",
+		Agent:     Agent{Model: "fixture", Instructions: "v1"},
+		Input:     userInput("hi"),
+	}
+	got, err := runner.Run(t.Context(), Turn{}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty := Runner{Agent: Agent{OutputSchema: json.RawMessage{}}, Client: client}
-	if _, err := empty.Run(t.Context(), got.Turn, Cancel{}); err != nil {
+	// An empty non-nil schema is the same agent as a nil one.
+	start.Agent.OutputSchema = json.RawMessage{}
+	if _, err := runner.Run(t.Context(), got.Turn, start); err != nil {
 		t.Fatalf("empty non-nil schema: %v", err)
 	}
 }

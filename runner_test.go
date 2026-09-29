@@ -123,7 +123,6 @@ func start(
 ) (Outcome, error) {
 	t.Helper()
 	return (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
@@ -131,7 +130,11 @@ func start(
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
 	)
 }
 
@@ -153,13 +156,16 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 		t.Fatalf("view=%+v", view)
 	}
 	again, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		t.Context(),
 		got.Turn,
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -168,13 +174,16 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 		t.Fatalf("duplicate repeated model: %+v", again.Stop)
 	}
 	stale, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("do it"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
 	)
 	if err != nil || stale.Stop.Kind != StopCompleted || client.sends != 1 || len(stale.Turn.Steps) != len(got.Turn.Steps) {
 		t.Fatalf(
@@ -222,7 +231,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		Output: new(tool.TextOutput("result")),
 	}
 	accepted, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
@@ -238,7 +246,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
@@ -254,7 +261,6 @@ func TestExternalToolSettlement(t *testing.T) {
 		t.Fatalf("missing paired tool result: %+v", last)
 	}
 	same, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{external},
 		Recorder: rec,
@@ -361,7 +367,6 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 		t.Fatal(err)
 	}
 	resumed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -472,7 +477,6 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 		ArgsDigest: "wrong",
 	}
 	_, err = (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -495,7 +499,6 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 		ArgsDigest: digest(view.Tools["call-1"].Call.Args),
 	}
 	accepted, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -512,7 +515,6 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 		t.Fatalf("accepted=%+v runs=%d", accepted, runs)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -564,7 +566,7 @@ func TestSettledModelResultDoesNotSendAgain(t *testing.T) {
 		Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"},
 	})
 	answer := final("recovered")
-	got, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	got, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
 		Settle{
@@ -579,7 +581,7 @@ func TestSettledModelResultDoesNotSendAgain(t *testing.T) {
 	if !got.ReadyToContinue || client.sends != 0 {
 		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
 	}
-	completed, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	completed, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		got.Turn,
 		Continue{CommandID: "continue"},
@@ -634,7 +636,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 			Result:    &answer,
 		},
 	})
-	got, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	got, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
 		Continue{CommandID: "recover"},
@@ -661,7 +663,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if got.Stop.Kind != StopUncertain || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	_, err = (Runner{Agent: testAgent(), Client: client, Recorder: rec}).Run(
+	_, err = (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		got.Turn,
 		Continue{CommandID: "retry"},
@@ -672,7 +674,6 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	answer := final("recovered")
 	answer.Usage = &llm.Usage{InputTokens: 5}
 	settled, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -691,7 +692,6 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 		t.Fatalf("settled=%+v sends=%d", settled, client.sends)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), settled.Turn, Continue{CommandID: "continue"})
@@ -765,7 +765,6 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 		Origin:    origin,
 	}
 	accepted, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -784,7 +783,6 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
@@ -800,7 +798,6 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 	}
 	observed := make(chan Event, 8)
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 		Observer: func(e Event) { observed <- e },
@@ -810,7 +807,11 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 	for event, err := range runner.Stream(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("hi"))},
+		},
 	) {
 		if err != nil {
 			t.Fatal(err)
@@ -850,14 +851,17 @@ func TestRunWithObserverStreamsDeltas(t *testing.T) {
 	}
 	events := make(chan Event, 8)
 	got, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 		Observer: func(e Event) { events <- e },
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("hi"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -953,7 +957,6 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 		t.Fatalf("first stop=%+v", first.Stop)
 	}
 	second, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
@@ -1139,7 +1142,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("verified")),
 	}
-	got, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	got, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
 		Settle{CommandID: "reconcile", CallID: "a", Outcome: &outcome},
@@ -1150,7 +1153,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	if !got.ReadyToContinue || client.sends != 0 {
 		t.Fatalf("accepted=%+v sends=%d", got, client.sends)
 	}
-	completed, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	completed, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		got.Turn,
 		Continue{CommandID: "continue"},
@@ -1189,19 +1192,24 @@ func TestChangedAgentAndCommandConflict(t *testing.T) {
 	}
 	changed := testAgent()
 	changed.Revision = "r2"
-	_, err = (Runner{Agent: changed, Client: client, Recorder: rec}).Run(
-		t.Context(),
-		got.Turn,
-		Continue{CommandID: "continue"},
-	)
-	if !errors.Is(err, ErrAgentChanged) {
-		t.Fatalf("agent error=%v", err)
-	}
-	_, err = (Runner{Agent: testAgent(), Client: client, Recorder: rec}).Run(
+	_, err = (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		got.Turn,
 		Start{
 			CommandID: "start",
+			Agent:     changed,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		},
+	)
+	if !errors.Is(err, ErrAgentChanged) {
+		t.Fatalf("agent error=%v", err)
+	}
+	_, err = (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(),
+		got.Turn,
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("different"))},
 		},
 	)
@@ -1215,13 +1223,16 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	rec := NewMemoryRecorder()
 	client := &scriptedClient{results: []llm.Result{final("first")}}
 	got, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		t.Context(),
 		t0,
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1324,7 +1335,6 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 		t.Fatalf("saved intent is not ready: view=%+v err=%v", view, err)
 	}
 	recovered, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), saved, Continue{CommandID: "retry"})
@@ -1350,7 +1360,6 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
 	resumed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
@@ -1409,7 +1418,6 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
 	canceled, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
@@ -1419,7 +1427,6 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 	answer := final("late")
 	answer.Usage = &llm.Usage{InputTokens: 7}
 	late, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -1478,12 +1485,13 @@ func TestRunnerFillsAgentDestinationFromClient(t *testing.T) {
 	agent := testAgent()
 	agent.Provider = ""
 	agent.API = ""
-	runner := Runner{Agent: agent, Client: client}
+	runner := Runner{Client: client}
 	out, err := runner.Run(
 		t.Context(),
 		NewTurn("t1"),
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("hi"))},
 		},
 	)
@@ -1497,13 +1505,12 @@ func TestRunnerFillsAgentDestinationFromClient(t *testing.T) {
 
 	// An explicit destination equal to the filled one is the same agent, so
 	// retrying the start returns the recorded result.
-	explicit := runner
-	explicit.Agent = testAgent()
-	again, err := explicit.Run(
+	again, err := runner.Run(
 		t.Context(),
 		out.Turn,
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("hi"))},
 		},
 	)
@@ -1515,13 +1522,14 @@ func TestRunnerFillsAgentDestinationFromClient(t *testing.T) {
 		)
 	}
 
-	mismatched := runner
-	mismatched.Agent.Provider = "other"
-	if _, err := mismatched.Run(
+	mismatched := agent
+	mismatched.Provider = "other"
+	if _, err := runner.Run(
 		t.Context(),
 		NewTurn("t2"),
 		Start{
 			CommandID: "start",
+			Agent:     mismatched,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("hi"))},
 		},
 	); err == nil {
@@ -1535,7 +1543,7 @@ func TestContinueHistoryMismatchModeIsNotCommandContent(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("answer")}}
 	recorder := NewMemoryRecorder()
 	first := startPausedHistoryTurn(t, client, recorder, history)
-	runner := Runner{Agent: testAgent(), Client: client, Recorder: recorder}
+	runner := Runner{Client: client, Recorder: recorder}
 	resume := Continue{CommandID: "continue", History: changed}
 	out, err := runner.Run(t.Context(), first.Turn, resume)
 	if err != nil || out.Stop.Kind != StopCompleted {

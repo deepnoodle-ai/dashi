@@ -87,12 +87,12 @@ func run(ctx context.Context) error {
 		return dashi.Allow("the user approved the call"), nil
 	}}
 	runner := dashi.Runner{
-		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client: client,
 		Tools:  tool.Join(ts),
 		Hooks:  approve.Hooks(),
 	}
 	outcome, err := runner.Run(ctx, dashi.NewTurn("mcp-example"), dashi.Start{
+		Agent: dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {

@@ -35,9 +35,11 @@ out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 shows the follow-up turn (see "When a result arrives").
 
 A child inherits from the runner that runs the `task` call, at the time of the
-call: the client, recorder, hooks, and the parent's current model, unless the
-`Subagent` sets its own. `Config.Runner` overrides the client, recorder, or
-observer for the rare host that wants a child to differ.
+call: the client, recorder, and hooks. It also takes the parent turn's current
+model, which a tool reads with `dashi.CurrentTurn(ctx)`, unless the `Subagent`
+sets its own. `Config.Runner` overrides the client, recorder, or observer for
+the rare host that wants a child to differ. A parent agent that lists
+`Agent.Tools` must name the task tools in that list to use them.
 
 ## Subagents
 
@@ -47,12 +49,24 @@ tool offers two:
 - `Explore` reads and searches. It uses only tools whose `ReadOnly` annotation
   is true. A tool with no annotation is left out; mark your own tools with
   [`tool.ReadOnly()`](tools.md#read-only-and-idempotent-tools).
-- `General` can use every parent tool.
+- `General` can use every tool the parent agent may use.
 
-A `Subagent` holds a name, a description for the model, a `dashi.Agent`
-(instructions, model, and limits), and an optional list of allowed tool names.
-A child never receives the three task tools, so a child cannot start a child.
-It sees only its prompt, so the model must put every fact in the prompt.
+A `Subagent` holds a name, a description for the model, and a `dashi.Agent`
+(instructions, model, limits, and tools) that becomes the child's
+`Start.Agent`. Its `Agent.Tools` names the tools of the runner's `Tools` that
+the child may use, even ones the parent agent did not select, so a parent that
+only delegates can give a worker `write`. A subagent with no `Agent.Tools`
+draws only from the tools the parent agent may use, so the parent's
+`Agent.Tools` or `Agent.NoTools` limits it too. `ReadOnly` applies in both
+cases. When a rule restricts the child, `delegate` resolves it at child start
+into explicit names in the child's recorded `Agent.Tools` (`NoTools` if none
+are left). A resumed child uses that record, not the subagent's current config,
+and a tool a dynamic toolset adds after the child starts is not offered to it.
+A child with no rule (no named tools, a parent that may use every tool, and
+not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
+every tool, including one a toolset adds later. A child never receives the three task tools, so a child cannot start a
+child. It sees only its prompt, so the model must put every fact in the
+prompt.
 
 ## The link between parent and child
 
@@ -78,10 +92,12 @@ gets the notice. Two cases:
 - **No turn runs.** The steer waits in the inbox. Read it with
   `Inbox.Leftovers(turn)` and split the list with `delegate.IsNotice`: user
   steers keep the [steering](steering.md) rule, and notices go to a follow-up
-  turn. `delegate.FollowUp(notices)` returns the `Start` for one turn that
-  carries all waiting notices, and `delegate.FollowUpTurnID(notices)` its
-  turn ID. Set `History` on the start. The start is scheduled work and claims
-  no user authority. Interactive hosts should raise `Limits.ModelAttempts`.
+  turn. `delegate.FollowUp(agent, notices)` returns the `Start` for one turn
+  that carries all waiting notices, with the agent you pass, usually the
+  conversation's. `delegate.FollowUpTurnID(notices)` gives its turn ID. Set
+  `History` on the start. The start is scheduled
+  work and claims no user authority. Interactive hosts should raise
+  `Limits.ModelAttempts`.
 
 ## Waiting for results
 

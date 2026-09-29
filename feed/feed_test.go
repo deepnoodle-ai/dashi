@@ -72,12 +72,14 @@ func (c *streamClient) Send(ctx context.Context, call llm.Call) (llm.Result, err
 }
 
 func start() dashi.Start {
-	return dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}
+	return dashi.Start{
+		Agent: dashi.Agent{Model: "fixture"},
+		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
+	}
 }
 
 func runner(client llm.Client, rec dashi.Recorder, observer dashi.Observer) dashi.Runner {
 	return dashi.Runner{
-		Agent:    dashi.Agent{Model: "fixture"},
 		Client:   client,
 		Recorder: rec,
 		Observer: observer,

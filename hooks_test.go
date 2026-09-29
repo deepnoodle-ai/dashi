@@ -45,7 +45,6 @@ func runHooked(
 ) (Outcome, error) {
 	t.Helper()
 	return (Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tools,
 		Hooks:  hooks,
@@ -54,6 +53,7 @@ func runHooked(
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 		opts...,
@@ -365,12 +365,12 @@ func TestHookErrorAfterContextEndsIsAContextStop(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
 	}
 	out, err := (Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  stall.Hooks(),
 	}).Run(ctx, Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopInterrupted || remote.runs != 0 {
@@ -550,9 +550,10 @@ func TestHookFailedStopResumesWithoutCountingInterruption(t *testing.T) {
 		return SendDecision{}, nil
 	}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	runner := Runner{Agent: testAgent(), Client: client, Hooks: flaky.Hooks()}
+	runner := Runner{Client: client, Hooks: flaky.Hooks()}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopFailed ||
@@ -614,9 +615,10 @@ func TestBeforeFinishDeliversAcceptsEmptyAndRetries(t *testing.T) {
 			return FinishDecision{}, nil
 		}}
 		client := &scriptedClient{results: []llm.Result{final("answer")}}
-		runner := Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}
+		runner := Runner{Client: client, Hooks: guard.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil || out.Stop.Reason != StopReasonHookFailed {
@@ -654,11 +656,12 @@ func TestBeforeFinishSeesStructuredOutputOrItsError(t *testing.T) {
 	agent.OutputSchema = json.RawMessage(
 		`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`,
 	)
-	out, err := (Runner{Agent: agent, Client: client, Hooks: fixer.Hooks()}).Run(
+	out, err := (Runner{Client: client, Hooks: fixer.Hooks()}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("who?"))},
 		},
 	)
@@ -686,12 +689,12 @@ func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 		final("last"),
 	}}
 	out, err := (Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  always.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopLimited ||
@@ -710,11 +713,12 @@ func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
 	agent.Limits.ModelAttempts = 1
 	agent.Limits.NoReservedFinalAnswer = true
 	client := &scriptedClient{results: []llm.Result{final("only")}}
-	out, err := (Runner{Agent: agent, Client: client, Hooks: more.Hooks()}).Run(
+	out, err := (Runner{Client: client, Hooks: more.Hooks()}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 	)
@@ -760,11 +764,12 @@ func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 2
 	client := &scriptedClient{results: []llm.Result{final("first"), final("unused")}}
-	out, err := (Runner{Agent: agent, Client: client, Hooks: more.Hooks()}).Run(
+	out, err := (Runner{Client: client, Hooks: more.Hooks()}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 	)
@@ -899,7 +904,6 @@ func TestActiveHooksRecordedAndChangeWarned(t *testing.T) {
 	}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Hooks:  JoinHooks(pause.Hooks(), toolHook("gate", noop).Hooks()),
 	}
@@ -908,6 +912,7 @@ func TestActiveHooksRecordedAndChangeWarned(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 		WithHooks(toolHook("prompt", noop).Hooks()),
@@ -1001,7 +1006,6 @@ func TestHookCallOrder(t *testing.T) {
 				final("done"),
 			}}
 			runner := Runner{
-				Agent:  agent,
 				Client: client,
 				Tools:  tool.List{remote.binding()},
 				Hooks:  hooks,
@@ -1028,6 +1032,7 @@ func TestHookCallOrder(t *testing.T) {
 			}
 			out := run(Turn{ID: "t1"}, Start{
 				CommandID: "start",
+				Agent:     agent,
 				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 			})
 			if out.Stop.Kind != StopWaiting || len(out.Pending) != 1 {
@@ -1056,13 +1061,13 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
 	}
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  RequireApproval("remote"),
 	}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || len(out.Pending) != 1 {
@@ -1157,12 +1162,12 @@ func TestHookErrorAfterContextEndsAtEveryPoint(t *testing.T) {
 				results: []llm.Result{callResult("call-1", "remote"), final("done")},
 			}
 			out, err := (Runner{
-				Agent:  testAgent(),
 				Client: client,
 				Tools:  tool.List{remote.binding()},
 				Hooks:  build(cancel),
 			}).Run(ctx, Turn{ID: "t1"}, Start{
 				CommandID: "start",
+				Agent:     testAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 			})
 			if err != nil || out.Stop.Kind != StopInterrupted {
@@ -1184,9 +1189,10 @@ func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	client := &scriptedClient{results: []llm.Result{final("old"), final("nouveau")}}
-	runner := Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}
+	runner := Runner{Client: client, Hooks: guard.Hooks()}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Reason != StopReasonHookFailed {
@@ -1229,13 +1235,13 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 		final("second"),
 	}}
 	runner := Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  guard.Hooks(),
 	}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Reason != StopReasonHookFailed {
@@ -1274,13 +1280,13 @@ func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
 		final("last"),
 	}}
 	runner := Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  guard.Hooks(),
 	}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Reason != StopReasonHookFailed {

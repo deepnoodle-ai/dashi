@@ -505,7 +505,7 @@ func TestNextReadsRecordedStop(t *testing.T) {
 	if err != nil || out.Next() != NextAnswer {
 		t.Fatalf("waiting: stop=%+v next=%s err=%v", out.Stop, out.Next(), err)
 	}
-	canceled, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	canceled, err := (Runner{Client: client}).Run(
 		t.Context(), out.Turn, Cancel{CommandID: "cancel"},
 	)
 	if err != nil || canceled.Next() != NextNone {
@@ -527,8 +527,8 @@ func TestNextIsRunningInHookView(t *testing.T) {
 	paused := make(chan struct{})
 	close(paused)
 	client := &scriptedClient{results: []llm.Result{final("ok")}}
-	runner := Runner{Agent: testAgent(), Client: client, Hooks: hooks}
-	stopped, err := runner.Run(t.Context(), Turn{ID: "p"}, limitsStart(), WithPause(paused))
+	runner := Runner{Client: client, Hooks: hooks}
+	stopped, err := runner.Run(t.Context(), Turn{ID: "p"}, limitsStart(testAgent()), WithPause(paused))
 	if err != nil || stopped.Stop.Kind != StopInterrupted {
 		t.Fatalf("pause=%+v err=%v", stopped.Stop, err)
 	}
@@ -554,7 +554,7 @@ func TestNextSurvivesJSON(t *testing.T) {
 		interruptionModelIntent("model-1"),
 	)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	done, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	done, err := (Runner{Client: client}).Run(
 		t.Context(), crashed, Continue{CommandID: "resume"},
 	)
 	if err != nil {

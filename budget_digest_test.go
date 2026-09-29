@@ -59,12 +59,12 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	def := testAgent()
 	def.Settings.MaxTokens = 100
 	runner := Runner{
-		Agent:    def,
 		Client:   newPricedClient(answer),
 		Recorder: rec,
 	}
 	start := Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		Budget:    &Budget{MaxCost: &Money{Amount: amount("0.50"), Currency: "USD"}},
 	}

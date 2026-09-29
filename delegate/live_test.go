@@ -54,19 +54,20 @@ func TestLiveBackgroundTask(t *testing.T) {
 	t.Cleanup(func() { _ = tasks.Close(context.Background()) })
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
+	agent := dashi.Agent{
+		Model: model,
+		Instructions: "Start one explore task for the question, then " +
+			"answer from its result. Do not answer before the message " +
+			"about the task arrives.",
+		Limits: dashi.Limits{ModelAttempts: 16},
+	}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model: model,
-			Instructions: "Start one explore task for the question, then " +
-				"answer from its result. Do not answer before the message " +
-				"about the task arrives.",
-			Limits: dashi.Limits{ModelAttempts: 16},
-		},
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 		Tools:    tool.Join(tool.List{search}, tasks.Tools()),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: agent,
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"Who owns the billing service? Use a task to look it up."))},
 	}, dashi.WithSteering(inbox))
@@ -102,7 +103,7 @@ func TestLiveBackgroundTask(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		start := delegate.FollowUp(notices)
+		start := delegate.FollowUp(agent, notices)
 		start.History = history
 		out, err = runner.Run(ctx, dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
 		if err != nil {

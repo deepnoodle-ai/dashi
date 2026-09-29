@@ -276,7 +276,6 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 	gaps := 0
 	stopped := make(chan struct{}, 2)
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 		Observer: func(event Event) {
@@ -296,7 +295,7 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 	}
 	pause := make(chan struct{})
 	close(pause)
-	first, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(), WithPause(pause))
+	first, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(testAgent()), WithPause(pause))
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
 	}

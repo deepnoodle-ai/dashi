@@ -44,16 +44,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tool_progress: create client: %w", err)
 	}
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: client, Tools: tool.List{process}}
+	start := dashi.Start{
 		Agent: dashi.Agent{
 			Model: os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "You are a data assistant. Use process_dataset " +
 				"when asked to process a dataset.",
 		},
-		Client: client,
-		Tools:  tool.List{process},
-	}
-	start := dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text(
 				`Process the dataset named "events-2026" and tell me ` +

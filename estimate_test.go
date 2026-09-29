@@ -138,13 +138,13 @@ func TestNextRequestEstimateIsAnUpperBound(t *testing.T) {
 				}),
 			}
 			out, err := (Runner{
+				Client: client,
+				Tools:  tool.List{lookup},
+			}).Run(t.Context(), Turn{ID: "t1"}, Start{
 				Agent: Agent{
 					Model:    tc.model,
 					Settings: llm.Settings{MaxTokens: 100},
 				},
-				Client: client,
-				Tools:  tool.List{lookup},
-			}).Run(t.Context(), Turn{ID: "t1"}, Start{
 				Input: []llm.Message{
 					llm.UserMessage(llm.Text("question " + strings.Repeat("q", 200))),
 				},

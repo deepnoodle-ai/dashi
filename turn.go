@@ -16,19 +16,21 @@ import (
 )
 
 // Agent is reusable, serializable behavior: what to ask which model, with
-// which settings and limits. Clients, credentials, tools, and storage are
-// supplied separately on a Runner. The zero value works: the Runner fills
-// empty fields before pinning the agent at Start, and the turn records the
-// result, which TurnView.Agent shows.
+// which settings, tools, and limits. It goes on Start; clients, credentials,
+// tool implementations, and storage are supplied separately on a Runner. The
+// zero value works: the Runner fills empty fields before pinning the agent at
+// Start, and the turn records the result, which TurnView.Agent shows. Later
+// commands on the turn run with the recorded agent.
 type Agent struct {
 	// ID names the agent for the host, for example in reports. It may be
 	// empty; nothing in Dashi reads it.
 	ID string `json:"id"`
 	// Revision pins behavior so a continued turn cannot silently change it.
 	// When empty, it is derived from the agent's behavior fields as
-	// "auto:" and 16 hex digits, so it changes exactly when they do. The
-	// derivation leaves out Limits.Deadline and cannot see tools, which are
-	// not part of the agent; set Revision yourself to version those.
+	// "auto:" and 16 hex digits, so it changes exactly when they do,
+	// including the tool selection. The derivation leaves out
+	// Limits.Deadline and cannot see tool implementations, which are not
+	// part of the agent; set Revision yourself to version those.
 	Revision     string `json:"revision"`
 	Instructions string `json:"instructions,omitempty"`
 	// Provider and API default to the Runner client's.
@@ -41,7 +43,18 @@ type Agent struct {
 	// OutputSchema is the default final-result schema for turns using this
 	// agent. Start.OutputSchema may override it for one turn.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	Limits       Limits          `json:"limits"`
+	// Tools names the tools this agent may call, from those the Runner's
+	// Tools offer. Empty means every tool the runner offers. Order and
+	// duplicates do not matter: the runner records the names sorted. The
+	// runner filters by name before each model call, before BeforeModel
+	// hooks hide tools; a name the runner does not offer records
+	// WarningToolNotOffered once per turn.
+	Tools []string `json:"tools,omitempty"`
+	// NoTools offers no application tools, whatever Tools says.
+	// dashi_submit_output is still offered when the turn has an output
+	// schema.
+	NoTools bool   `json:"no_tools,omitempty"`
+	Limits  Limits `json:"limits"`
 }
 
 // Limits bounds model calls, interruptions, pauses, tool concurrency, and time
@@ -105,11 +118,15 @@ func (a Agent) Validate() error {
 	return nil
 }
 
-// resolved returns a with every zero limit replaced by its default and every
-// negative "none" count normalized to -1. Dashi records the result, so the
-// same agent always compares equal to its record. Runtime checks read -1 as
-// zero allowed, through max(count, 0).
+// resolved returns a with every zero limit replaced by its default, every
+// negative "none" count normalized to -1, and Tools sorted without
+// duplicates. Dashi records the result, so the same agent always compares
+// equal to its record, whatever order a host built its tool list in. Runtime
+// checks read -1 as zero allowed, through max(count, 0).
 func (a Agent) resolved() Agent {
+	if len(a.Tools) > 0 {
+		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
+	}
 	l := &a.Limits
 	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
@@ -279,6 +296,10 @@ const (
 	// WarningLimitAdjusted means Start raised a limit that was too low to
 	// work, so the turn runs with the raised value.
 	WarningLimitAdjusted WarningCode = "limit_adjusted"
+	// WarningToolNotOffered means Agent.Tools names a tool that the Runner's
+	// Tools did not offer for a model call. The call runs without it. Each
+	// name warns once per turn.
+	WarningToolNotOffered WarningCode = "tool_not_offered"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -618,7 +639,11 @@ type Command interface{ commandID() string }
 // Start begins a turn with caller-owned prior history and initial input.
 type Start struct {
 	CommandID string
-	Origin    StartOrigin
+	// Agent is the behavior this turn runs with. Its zero fields take
+	// defaults (see Agent), and the turn records the resolved agent, so
+	// Continue, Settle, and Cancel need none.
+	Agent  Agent
+	Origin StartOrigin
 	// Budget applies to this turn, independently of its agent.
 	Budget *Budget
 	// OutputSchema overrides the agent's default for this turn. The
@@ -709,8 +734,9 @@ func (c Cancel) commandID() string {
 }
 
 var (
-	// ErrAgentChanged reports a command run with an agent that differs from
-	// the turn's recorded one. The wrapping error names the fields.
+	// ErrAgentChanged reports a retried Start whose agent differs from the
+	// turn's recorded one, or a turn snapshot whose recorded agent differs
+	// from the recorder's. The wrapping error names the fields or the fix.
 	ErrAgentChanged = errors.New("dashi: agent changed")
 	// ErrCommandConflict reports a reused command ID with different content.
 	ErrCommandConflict = errors.New("dashi: command conflict")

@@ -109,8 +109,8 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 
 	pause := make(chan struct{})
 	close(pause)
-	paused, err := (Runner{Agent: testAgent(), Client: client}).Run(
-		t.Context(), Turn{ID: "p"}, limitsStart(), WithPause(pause),
+	paused, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "p"}, limitsStart(testAgent()), WithPause(pause),
 	)
 	if err != nil || paused.Stop.Kind != StopInterrupted || paused.Stop.Terminal {
 		t.Fatalf("interrupted stop=%+v err=%v", paused.Stop, err)
@@ -151,8 +151,8 @@ func TestDeadlineStopEndsTurn(t *testing.T) {
 	def.Limits.Deadline = time.Now().Add(-time.Minute)
 	client := &scriptedClient{results: []llm.Result{final("never")}}
 	rec := NewMemoryRecorder()
-	runner := Runner{Agent: def, Client: client, Recorder: rec}
-	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart())
+	runner := Runner{Client: client, Recorder: rec}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(def))
 	if err != nil || out.Stop.Kind != StopLimited || !out.Stop.Terminal {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
@@ -182,7 +182,7 @@ func TestCancelOnEndedTurn(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", first.Stop, err)
 	}
-	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	runner := Runner{Client: client, Recorder: rec}
 	cancel := Cancel{CommandID: "cancel", Reason: "user"}
 	canceled, err := runner.Run(t.Context(), first.Turn, cancel)
 	if err != nil || !canceled.Stop.Terminal {
@@ -231,7 +231,7 @@ func TestDeadlineStopSettlesPendingApproval(t *testing.T) {
 	}
 	approve := first.Pending[0].Approve()
 	approve.CommandID = "approve"
-	runner := Runner{Agent: testAgent(), Client: client}
+	runner := Runner{Client: client}
 	if _, err := runner.Run(t.Context(), turn, approve); !errors.Is(err, ErrTurnEnded) {
 		t.Fatalf("approval err=%v", err)
 	}
@@ -287,7 +287,7 @@ func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
 		Stop:    testStop(StopLimited, LimitDeadline),
 	})
 	late := callResult("call-1", "write")
-	out, err := (Runner{Agent: testAgent(), Client: client, Tools: writeTool()}).Run(
+	out, err := (Runner{Client: client, Tools: writeTool()}).Run(
 		t.Context(),
 		turn,
 		Settle{CommandID: "late", CallID: "t1:model:1", ModelResult: &late},
@@ -307,7 +307,7 @@ func TestHostedApprovalAfterEndIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	runner := Runner{Client: client, Recorder: rec}
 	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
 	if err != nil {
 		t.Fatal(err)
@@ -368,9 +368,9 @@ func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
 		return tool.Succeeded("done"), nil
 	})
 	runner := toolRunner(client, NewMemoryRecorder(), ok)
-	runner.Agent = def
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		Budget:    &Budget{MaxOutputTokens: 10},
 	})
@@ -425,8 +425,8 @@ func TestCheckLateModelStep(t *testing.T) {
 		results: []llm.Result{{}},
 		errors:  []error{errors.New("connection lost")},
 	}
-	first, err := (Runner{Agent: testAgent(), Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, limitsStart(),
+	first, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "t1"}, limitsStart(testAgent()),
 	)
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
@@ -460,7 +460,7 @@ func TestCheckLateModelStep(t *testing.T) {
 		t.Fatalf("bogus step at an open limited stop: err=%v", err)
 	}
 	late := final("late")
-	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		t.Context(),
 		turn,
 		Settle{CommandID: "late", CallID: "t1:model:1", ModelResult: &late},

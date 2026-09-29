@@ -100,7 +100,6 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 				}}
 				model := &steerModel{}
 				runner := dashi.Runner{
-					Agent:    testAgent(),
 					Client:   model,
 					Tools:    &countingTool{},
 					Recorder: rec,
@@ -169,7 +168,6 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 				t.Fatal(err)
 			}
 			runner := dashi.Runner{
-				Agent:    testAgent(),
 				Client:   &steerModel{},
 				Tools:    &countingTool{},
 				Recorder: rec,
@@ -298,7 +296,7 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 			}
 			inbox := dashi.NewInbox()
 			model := &draftModel{inbox: inbox}
-			runner := dashi.Runner{Agent: testAgent(), Client: model, Recorder: rec}
+			runner := dashi.Runner{Client: model, Recorder: rec}
 			if _, err := runner.Run(
 				t.Context(),
 				dashi.Turn{ID: "t1"},
@@ -362,7 +360,6 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 			}
 			model := &steerModel{}
 			runner := dashi.Runner{
-				Agent:    testAgent(),
 				Client:   model,
 				Tools:    &countingTool{},
 				Recorder: rec,

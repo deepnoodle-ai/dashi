@@ -66,13 +66,6 @@ func TestDeniedToolCallContinuesOnChatCompletions(t *testing.T) {
 		},
 	}
 	out, err := (dashi.Runner{
-		Agent: dashi.Agent{
-			ID:       "agent",
-			Revision: "r1",
-			Provider: "openai",
-			API:      completions.API,
-			Model:    "m",
-		},
 		Client: client,
 		Tools:  tool.List{remove},
 		Hooks:  deny.Hooks(),
@@ -81,7 +74,14 @@ func TestDeniedToolCallContinuesOnChatCompletions(t *testing.T) {
 		dashi.Turn{ID: "denied"},
 		dashi.Start{
 			CommandID: "start",
-			Input:     []llm.Message{llm.UserMessage(llm.Text("remove a"))},
+			Agent: dashi.Agent{
+				ID:       "agent",
+				Revision: "r1",
+				Provider: "openai",
+				API:      completions.API,
+				Model:    "m",
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text("remove a"))},
 		},
 	)
 	if err != nil {

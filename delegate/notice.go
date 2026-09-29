@@ -98,11 +98,12 @@ func FollowUpTurnID(notices []dashi.Steer) string {
 // FollowUp returns the Start for a turn that delivers notice steers when no
 // turn runs. They come from Inbox.Leftovers, filtered with IsNotice, or from
 // TaskView.Notice().Steer(). One turn carries all waiting notices. The start
-// is scheduled work: it claims no user authority. The host sets History and
-// passes FollowUpTurnID(notices) as the turn ID. The start records the
-// children it delivers, so Recover does not report them again. The list must
-// not be empty.
-func FollowUp(notices []dashi.Steer) dashi.Start {
+// is scheduled work: it claims no user authority. agent becomes Start.Agent;
+// pass the conversation's agent, since a zero agent runs with the defaults.
+// The host sets History and passes FollowUpTurnID(notices) as the turn ID.
+// The start records the children it delivers, so Recover does not report them
+// again. The list must not be empty.
+func FollowUp(agent dashi.Agent, notices []dashi.Steer) dashi.Start {
 	texts := make([]string, len(notices))
 	for i, n := range notices {
 		texts[i] = n.Item.Message.Text()
@@ -111,6 +112,7 @@ func FollowUp(notices []dashi.Steer) dashi.Start {
 	return dashi.Start{
 		CommandID: followUpPrefix + string(list),
 		Origin:    dashi.StartScheduled,
+		Agent:     agent,
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text(strings.Join(texts, "\n\n"))),
 		},

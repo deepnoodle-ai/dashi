@@ -42,7 +42,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	}
 	rec := NewMemoryRecorder()
 	out, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -51,6 +50,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		Turn{ID: "limit"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
@@ -80,7 +80,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	again, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -89,6 +88,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		out.Turn,
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
@@ -102,7 +102,6 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		)
 	}
 	if _, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -122,7 +121,6 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	}
 	binding := answerLookup()
 	out, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
@@ -131,6 +129,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 		Turn{ID: "limit"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 		},
 	)
@@ -215,10 +214,10 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	}
 	start := Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 	}
 	runner := Runner{
-		Agent:    def,
 		Client:   final,
 		Tools:    tool.List{answerLookup()},
 		Recorder: NewMemoryRecorder(),
@@ -265,7 +264,6 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: NewMemoryRecorder(),
@@ -274,6 +272,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 		Turn{ID: "limit"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
@@ -309,7 +308,6 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepStopped}
 	first, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -318,6 +316,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Turn{ID: "limit"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
@@ -329,7 +328,6 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	second, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -376,13 +374,13 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 		}),
 	}
 	runner := Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{lookup},
 		Recorder: NewMemoryRecorder(),
 	}
 	out, err := runner.Run(t.Context(), Turn{ID: "limit"}, Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
 	if err != nil || !limitedForAttempts(out.Stop) || out.Stop.Terminal {
@@ -462,13 +460,13 @@ func TestStructuredAnswerOnFinalCallCompletesAfterContinue(t *testing.T) {
 		},
 	}
 	runner := Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{answerLookup()},
 		Recorder: NewMemoryRecorder(),
 	}
 	out, err := runner.Run(t.Context(), Turn{ID: "limit"}, Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
 	})
 	if err != nil || !limitedForAttempts(out.Stop) {

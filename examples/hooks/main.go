@@ -105,15 +105,15 @@ func run(ctx context.Context) error {
 	}}
 
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "You are an ops assistant. Answer in two or three sentences.",
-		},
 		Client: client,
 		Tools:  tool.List{shell},
 		Hooks:  dashi.JoinHooks(onCall.Hooks(), guard.Hooks(), finish.Hooks()),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "You are an ops assistant. Answer in two or three sentences.",
+		},
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"Check disk usage with `df -h` on staging, then on prod-db-1.",
 		))},

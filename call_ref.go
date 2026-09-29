@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -34,6 +35,7 @@ type currentCallKey struct{}
 type callContext struct {
 	ref    CallRef
 	runner Runner
+	turn   func() *replayState
 }
 
 // CurrentCall returns the turn and tool call that the executor running under
@@ -45,20 +47,56 @@ func CurrentCall(ctx context.Context) (CallRef, bool) {
 	return c.ref, ok
 }
 
+// CurrentTurn returns the view of the turn that ctx serves, including its
+// recorded agent: Agent.Model is the model in use now. The turn is running,
+// so Stop is empty. An executor sees the turn as of its call's start, a
+// Toolset as of the model call it offers tools for, and a hook the same view
+// as its plan's Turn. When a run starts inside another, as from a hook or an
+// executor, the inner run's turn wins. CurrentTurn reports false for a
+// context the runner did not pass to an executor, a Toolset, or a hook.
+func CurrentTurn(ctx context.Context) (TurnView, bool) {
+	if v, ok := ctx.Value(currentHookTurnKey{}).(TurnView); ok {
+		return snapshotView(v), true
+	}
+	var turn func() *replayState
+	if c, ok := ctx.Value(currentCallKey{}).(callContext); ok {
+		turn = c.turn
+	} else if c, ok := ctx.Value(currentRunnerKey{}).(runnerContext); ok {
+		turn = c.turn
+	}
+	if turn == nil {
+		return TurnView{}, false
+	}
+	s := turn()
+	if s == nil {
+		return TurnView{}, false
+	}
+	return snapshotView(s.TurnView), true
+}
+
+// currentHookTurnKey carries the turn view the runner passes to a hook.
+type currentHookTurnKey struct{}
+
+// hookContext returns ctx for a hook whose plan shows turn, so code the hook
+// calls can read the turn with CurrentTurn.
+func hookContext(ctx context.Context, turn TurnView) context.Context {
+	return context.WithValue(ctx, currentHookTurnKey{}, snapshotView(turn))
+}
+
 // CurrentRunner returns a copy of the runner that runs the call CurrentCall
-// names, at call time. Its Agent is the turn's resolved agent, so Model shows
-// the model in use now. Its Hooks are the runner's followed by the hooks of
-// the current command. A tool that starts a child turn uses it to inherit the
+// names, at call time. Its Hooks are the runner's followed by the hooks of the
+// current command. A tool that starts a child turn uses it to inherit the
 // client, recorder, hooks, and cancel behavior of its parent, so the child
-// follows the host when the host changes any of them. Its Recorder is nil
-// when the host set none. A Toolset sees the same runner while the runner asks
-// it for tools. CurrentRunner reports false outside the runner.
+// follows the host when the host changes any of them; CurrentTurn gives the
+// parent's agent. Its Recorder is nil when the host set none. A Toolset sees
+// the same runner while the runner asks it for tools. CurrentRunner reports
+// false outside the runner.
 func CurrentRunner(ctx context.Context) (Runner, bool) {
 	if c, ok := ctx.Value(currentCallKey{}).(callContext); ok {
 		return c.runner, true
 	}
-	r, ok := ctx.Value(currentRunnerKey{}).(Runner)
-	return r, ok
+	c, ok := ctx.Value(currentRunnerKey{}).(runnerContext)
+	return c.runner, ok
 }
 
 // currentRunnerKey marks a context that carries the runner but no call. The
@@ -66,19 +104,62 @@ func CurrentRunner(ctx context.Context) (Runner, bool) {
 // definitions to the host's recorder.
 type currentRunnerKey struct{}
 
-// toolsContext returns ctx for a Toolset.Tools call.
-func (r *runtime) toolsContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, currentRunnerKey{}, r.callRunner())
+// runnerContext is what the runner puts in a Toolset.Tools context.
+type runnerContext struct {
+	runner Runner
+	turn   func() *replayState
 }
 
-func withCurrentCall(ctx context.Context, ref CallRef, r Runner) context.Context {
-	return context.WithValue(ctx, currentCallKey{}, callContext{ref, r})
+// toolsContext returns ctx for a Toolset.Tools call. It hides a call or hook
+// that ctx carries from an outer run, so a nested run's Toolset sees its own
+// turn and runner.
+func (r *runtime) toolsContext(ctx context.Context) context.Context {
+	ctx = without(ctx, currentHookTurnKey{})
+	ctx = without(ctx, currentCallKey{})
+	return context.WithValue(
+		ctx,
+		currentRunnerKey{},
+		runnerContext{r.callRunner(), r.turnAt()},
+	)
+}
+
+// withCurrentCall returns ctx for an executor. It hides a hook turn that ctx
+// carries from an outer run, so a nested run's executor sees its own turn.
+func (r *runtime) withCurrentCall(ctx context.Context, ref CallRef) context.Context {
+	ctx = without(ctx, currentHookTurnKey{})
+	return context.WithValue(
+		ctx,
+		currentCallKey{},
+		callContext{ref, r.callRunner(), r.turnAt()},
+	)
+}
+
+// without hides the value of key in ctx, if ctx has one.
+func without(ctx context.Context, key any) context.Context {
+	if ctx.Value(key) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, key, nil)
+}
+
+// turnAt returns a function that replays the turn as recorded now, once and
+// only when asked. Commits only append steps, so the capped slice stays
+// fixed while the run goes on.
+func (r *runtime) turnAt() func() *replayState {
+	n := len(r.turn.Steps)
+	turn := Turn{ID: r.turn.ID, Steps: r.turn.Steps[:n:n]}
+	return sync.OnceValue(func() *replayState {
+		s, err := replay(turn)
+		if err != nil {
+			return nil
+		}
+		return s
+	})
 }
 
 // callRunner returns the runner as a child turn should inherit it.
 func (r *runtime) callRunner() Runner {
 	out := r.runner
-	out.Agent = r.agent
 	out.Hooks = r.hooks
 	if r.implicitRecorder {
 		// The private per-Run recorder ends with the Run. A child must not

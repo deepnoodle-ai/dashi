@@ -14,10 +14,11 @@ Set `OPENAI_API_KEY`, then run
 ws, err := workspace.New(dir)
 // Handle err, then:
 runner := dashi.Runner{
-	Agent: agent, Client: client,
-	Tools: ws.Tools(workspace.WithAsker(ask)),
-	Hooks: ws.Policy(approve).Hooks(),
+	Client: client,
+	Tools:  ws.Tools(workspace.WithAsker(ask)),
+	Hooks:  ws.Policy(approve).Hooks(),
 }
+out, err := runner.Run(ctx, turn, dashi.Start{Agent: agent, Input: input})
 ```
 
 `New` returns an error when `dir` is not an existing directory. The

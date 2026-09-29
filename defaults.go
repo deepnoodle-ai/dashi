@@ -85,47 +85,43 @@ func agentRevision(a Agent) string {
 	return revisionPrefix + sum[:16]
 }
 
-// agentFor returns the resolved agent a command runs with. An agent that
-// encodes like Agent{} on an existing turn is the recorded agent; comparing
-// by JSON meaning treats an empty non-nil schema or slice as unset. The
-// recorded agent comes from the caller's snapshot; run checks it against a
-// Loader's record. Otherwise Provider and API
-// come from the client, and on an existing turn an empty ID, Model, or
-// Revision comes from the record. On a new turn, an empty Model is the
-// catalog default and an empty Revision is derived from the agent.
-func (r Runner) agentFor(state *replayState, existing bool) (Agent, error) {
-	agent := r.Agent
-	if existing && sameJSONValue(agent, Agent{}) {
-		agent = state.Agent
-	} else {
-		agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
-		agent.API = cmp.Or(agent.API, r.Client.API())
-		if existing {
-			recorded := state.Agent
-			agent.ID = cmp.Or(agent.ID, recorded.ID)
-			agent.Model = cmp.Or(agent.Model, recorded.Model)
-			agent.Revision = cmp.Or(agent.Revision, recorded.Revision)
+// agentFor returns the resolved agent a command runs with. A Start resolves
+// its own agent: Provider and API come from the client, an empty Model is the
+// catalog default, and an empty Revision is derived from the agent. Every
+// other command runs with the agent recorded in the caller's snapshot; run
+// checks it against a Loader's record.
+func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
+	start, ok := command.(Start)
+	if !ok {
+		agent := state.Agent
+		if agent.Provider != "" && (r.Client.Provider() != agent.Provider ||
+			r.Client.API() != agent.API) {
+			return Agent{}, errors.New("dashi: client does not match the turn's recorded provider and API")
 		}
-		if agent.Model == "" {
-			model, ok := catalog.Default(agent.Provider)
-			if ok {
-				_, ok = r.Client.ModelInfo(model)
-			}
-			if !ok {
-				return Agent{}, fmt.Errorf(
-					"dashi: agent has no model, and the catalog has no default for provider %q at this client's endpoint; set Agent.Model",
-					agent.Provider,
-				)
-			}
-			agent.Model = model
+		return agent, nil
+	}
+	agent := start.Agent
+	agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
+	agent.API = cmp.Or(agent.API, r.Client.API())
+	if agent.Model == "" {
+		model, ok := catalog.Default(agent.Provider)
+		if ok {
+			_, ok = r.Client.ModelInfo(model)
 		}
-		if err := agent.Validate(); err != nil {
-			return Agent{}, err
+		if !ok {
+			return Agent{}, fmt.Errorf(
+				"dashi: agent has no model, and the catalog has no default for provider %q at this client's endpoint; set Start.Agent.Model",
+				agent.Provider,
+			)
 		}
-		agent = agent.resolved()
-		if agent.Revision == "" {
-			agent.Revision = agentRevision(agent)
-		}
+		agent.Model = model
+	}
+	if err := agent.Validate(); err != nil {
+		return Agent{}, err
+	}
+	agent = agent.resolved()
+	if agent.Revision == "" {
+		agent.Revision = agentRevision(agent)
 	}
 	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
 		return Agent{}, errors.New("dashi: client does not match agent provider and API")
@@ -156,7 +152,7 @@ func agentChanged(agent, recorded Agent) error {
 		}
 	}
 	return fmt.Errorf(
-		"%w: %s differ from the recorded agent; run the turn with its recorded agent (TurnView.Agent, or an empty Agent), or cancel it and start a new turn",
+		"%w: %s differ from the recorded agent; retry the Start with the agent it recorded (TurnView.Agent), or start a new turn",
 		ErrAgentChanged,
 		strings.Join(fields, ", "),
 	)

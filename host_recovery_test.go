@@ -127,6 +127,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("previous context"))}
 	startCommand := Start{
 		CommandID: "start",
+		Agent:     def,
 		Origin:    StartScheduled,
 		History:   history,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("run job"))},
@@ -141,7 +142,6 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		},
 	}
 	runner := Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
@@ -170,14 +170,9 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || !view.ReadyToContinue {
 		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
 	}
-	changed := runner
+	changed := startCommand
 	changed.Agent.Revision = "r2"
-	_, err = changed.Run(
-		t.Context(),
-		saved,
-		Continue{CommandID: "config-drift", History: history},
-		WithOwner("owner-a"),
-	)
+	_, err = runner.Run(t.Context(), saved, changed, WithOwner("owner-a"))
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("changed agent accepted: %v", err)
 	}

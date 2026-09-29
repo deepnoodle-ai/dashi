@@ -92,7 +92,6 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 		cancel: cancel,
 	}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}).Run(ctx, Turn{ID: "t1"}, streamStart())

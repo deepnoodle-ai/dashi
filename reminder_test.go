@@ -55,7 +55,6 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Content: "persistent context",
 	}
 	got, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{binding},
@@ -64,6 +63,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 		Turn{ID: "r1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("go")),
 				llm.ReminderMessage(reminder),
@@ -101,14 +101,13 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		},
 	}
 	start, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
 	}).Run(
 		t.Context(),
 		Turn{ID: "r2"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || start.Stop.Kind != StopWaiting {
 		t.Fatalf("start=%+v err=%v", start.Stop, err)
@@ -134,7 +133,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		}),
 	}
 	delivered, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
@@ -155,7 +153,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		}),
 	}
 	rejected, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -169,7 +166,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
 	accepted, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
@@ -189,7 +185,6 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		t.Fatalf("accept=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 		Tools:    tool.List{external},
@@ -221,7 +216,6 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 	for _, origin := range []StartOrigin{StartUser, StartScheduled} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		got, err := (Runner{
-			Agent:    testAgent(),
 			Client:   client,
 			Recorder: NewMemoryRecorder(),
 		}).Run(
@@ -229,6 +223,7 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 			Turn{ID: "r3"},
 			Start{
 				CommandID: "start",
+				Agent:     testAgent(),
 				Origin:    origin,
 				Input:     []llm.Message{llm.ReminderMessage(r)},
 			},
@@ -243,7 +238,6 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	base := &scriptedClient{results: []llm.Result{final("done")}}
 	client := droppingReminderClient{base}
 	got, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}).Run(
@@ -251,6 +245,7 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 		Turn{ID: "r5"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("go")),
 				llm.ReminderMessage(llm.Reminder{
@@ -321,7 +316,6 @@ func TestSystemPromptStableAcrossReminders(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 5
 	got, err := (Runner{
-		Agent:    agent,
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 		Tools:    tool.List{binding},
@@ -331,6 +325,7 @@ func TestSystemPromptStableAcrossReminders(t *testing.T) {
 		Turn{ID: "r6"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	)

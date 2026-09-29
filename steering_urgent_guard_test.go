@@ -367,7 +367,6 @@ func TestPauseDeclinesUrgentCut(t *testing.T) {
 		result: callResult("c1", "lookup"),
 	})
 	out, err := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{lookupTool()},
 	}.Run(
@@ -443,7 +442,7 @@ func TestListenerClaimsAreReleased(t *testing.T) {
 		},
 		block: true,
 	})
-	out, err := Runner{Agent: testAgent(), Client: client}.Run(
+	out, err := Runner{Client: client}.Run(
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
@@ -616,9 +615,10 @@ func TestSteerWaitsForAPausedHostedCall(t *testing.T) {
 		urgentCall{result: searchFinished("Found it")},
 		urgentCall{result: final("Found it on staging")},
 	)}
-	out := runUrgent(t, client, inbox, func(r *Runner) {
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
-		r.Agent.Limits.ModelAttempts = 4
 	})
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
@@ -648,9 +648,10 @@ func TestUrgentSteerDoesNotCutAPausedHostedCall(t *testing.T) {
 		},
 		urgentCall{result: final("Found it on staging")},
 	)}
-	out := runUrgent(t, client, source, func(r *Runner) {
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
+	out := runUrgentAgent(t, client, source, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
-		r.Agent.Limits.ModelAttempts = 4
 	})
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
@@ -724,9 +725,10 @@ func TestSteerIsDeliveredAfterAPauseWithFinishedSearch(t *testing.T) {
 		},
 		urgentCall{result: final("Found it on staging")},
 	)}
-	out := runUrgent(t, client, inbox, func(r *Runner) {
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
-		r.Agent.Limits.ModelAttempts = 4
 	})
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)

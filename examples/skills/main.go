@@ -77,12 +77,12 @@ func run(ctx context.Context, dir string) error {
 		return fmt.Errorf("skills: create client: %w", err)
 	}
 	runner := dashi.Runner{
-		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client: client,
 		Tools:  tool.Join(tool.List{lookup}, bundle),
 		Hooks:  bundle.Hooks(),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {

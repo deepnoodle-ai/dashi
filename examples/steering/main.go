@@ -65,19 +65,16 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("steering: create tool: %w", err)
 	}
-	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model: os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "Answer briefly. Use slow_search once before " +
-				"answering. The user may send new messages while you work; " +
-				"follow the latest one.",
-			// Steering can cost extra model calls, so allow more than the
-			// default.
-			Limits: dashi.Limits{ModelAttempts: 12},
-		},
-		Client: client,
-		Tools:  tool.List{search},
+	agent := dashi.Agent{
+		Model: os.Getenv("ANTHROPIC_MODEL"),
+		Instructions: "Answer briefly. Use slow_search once before " +
+			"answering. The user may send new messages while you work; " +
+			"follow the latest one.",
+		// Steering can cost extra model calls, so allow more than the
+		// default.
+		Limits: dashi.Limits{ModelAttempts: 12},
 	}
+	runner := dashi.Runner{Client: client, Tools: tool.List{search}}
 
 	lines := make(chan string)
 	go func() {
@@ -111,7 +108,7 @@ func run(ctx context.Context) error {
 		out, err := runner.Run(
 			ctx,
 			dashi.Turn{},
-			dashi.Start{Input: input, History: history},
+			dashi.Start{Agent: agent, Input: input, History: history},
 			dashi.WithSteering(inbox),
 		)
 		close(done)

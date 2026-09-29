@@ -49,17 +49,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("budget: %w", err)
 	}
-	// A call's worst case counts its full output allowance, so MaxTokens
-	// keeps it small enough that the raised budget covers a few calls.
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: client, Tools: tool.List{stock}}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		// A call's worst case counts its full output allowance, so MaxTokens
+		// keeps it small enough that the raised budget covers a few calls.
 		Agent: dashi.Agent{
 			Model:    os.Getenv("ANTHROPIC_MODEL"),
 			Settings: llm.Settings{MaxTokens: 1024},
 		},
-		Client: client,
-		Tools:  tool.List{stock},
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"How many units of SKU A-100 are in stock? Use the tool.",
 		))},

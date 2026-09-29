@@ -116,7 +116,6 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 	def := testAgent()
 	def.Settings.MaxTokens = 100
 	out, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: recorder,
 		Hooks:    creditHooks(recorder),
@@ -125,6 +124,7 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 		Turn{ID: "credit"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)

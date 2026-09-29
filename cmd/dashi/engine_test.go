@@ -275,6 +275,44 @@ func TestNewPromptCancelsUnfinishedTurn(t *testing.T) {
 	}
 }
 
+// /model changes only the next new turn. A resumed turn keeps the model it
+// recorded, even after a reopen, and the next prompt uses the new model.
+func TestModelChangeThenResumeKeepsRecordedModel(t *testing.T) {
+	started := make(chan struct{})
+	h := newHarness(t, blockUntilDone(started), say("Resumed."), say("Next."))
+	h.app.ctrl.Input("first")
+	<-started
+	h.app.ctrl.Interrupt()
+	h.app.ctrl.Wait()
+	mustHave(t, h.ui.text(), "Interrupted.")
+	h.input("/model gpt-6-luna")
+	if h.app.eng.Model() != "gpt-6-luna" {
+		t.Fatalf("model=%s", h.app.eng.Model())
+	}
+	h.app.eng.Close()
+
+	// A new process resumes the session and runs the interrupted turn on.
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	h.app.ctrl.Open()
+	if h.app.eng.Model() != "gpt-6-luna" {
+		t.Fatalf("reopened model=%s", h.app.eng.Model())
+	}
+	h.input("")
+	mustHave(t, h.ui.text(), "Resumed.")
+	if got := h.client.inputAt(1).Model; got != "fixture" {
+		t.Fatalf("resumed turn model=%s, want the recorded fixture", got)
+	}
+	h.input("second")
+	mustHave(t, h.ui.text(), "Next.")
+	if got := h.client.inputAt(2).Model; got != "gpt-6-luna" {
+		t.Fatalf("next turn model=%s, want gpt-6-luna", got)
+	}
+	if n := len(h.app.eng.Session().Turns); n != 2 {
+		t.Fatalf("turns=%d", n)
+	}
+}
+
 // A reopened session shows every turn, and a follow-up sends prior history.
 func TestResumeShowsScrollbackAndKeepsHistory(t *testing.T) {
 	h := newHarness(t, say("First answer."), say("Second answer."))

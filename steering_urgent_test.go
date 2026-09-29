@@ -158,14 +158,25 @@ func runUrgent(
 	opts ...func(*Runner),
 ) Outcome {
 	t.Helper()
-	runner := Runner{Agent: testAgent(), Client: client}
+	return runUrgentAgent(t, client, source, testAgent(), opts...)
+}
+
+func runUrgentAgent(
+	t *testing.T,
+	client llm.Client,
+	source Steering,
+	agent Agent,
+	opts ...func(*Runner),
+) Outcome {
+	t.Helper()
+	runner := Runner{Client: client}
 	for _, opt := range opts {
 		opt(&runner)
 	}
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		startAgent(agent),
 		WithSteering(source),
 	)
 	if err != nil {
@@ -448,7 +459,7 @@ func TestRunEndingWithSteerSettlesAsRun(t *testing.T) {
 		block: true,
 	})
 	rec := NewMemoryRecorder()
-	out, err := Runner{Agent: testAgent(), Client: client, Recorder: rec}.Run(
+	out, err := Runner{Client: client, Recorder: rec}.Run(
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
@@ -492,7 +503,7 @@ func TestTimeoutRacingSteerCutWins(t *testing.T) {
 			Reason:   llm.ReasonStreamIdleTimeout,
 		},
 	})
-	out, err := Runner{Agent: testAgent(), Client: client, Recorder: rec}.Run(
+	out, err := Runner{Client: client, Recorder: rec}.Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		startInput(),
@@ -543,8 +554,7 @@ func TestReservedFinalAnswerCallIsCutAndAskedAgain(t *testing.T) {
 		cutCall(t, inbox, "Final answ", "answer in French"),
 		urgentCall{result: final("Réponse finale")},
 	)
-	out := runUrgent(t, client, inbox, func(r *Runner) {
-		r.Agent = agent
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{lookupTool()}
 	})
 	// An answer on the reserved call ends the turn as limited, as always.
@@ -580,11 +590,12 @@ func TestUrgentSteerUnderCostCapChargesWorstCase(t *testing.T) {
 	)
 	agent := testAgent()
 	agent.Settings.MaxTokens = 100
-	out, err := Runner{Agent: agent, Client: client}.Run(
+	out, err := Runner{Client: client}.Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Budget: &Budget{
 				MaxCost: &Money{Amount: amount("0.01"), Currency: "USD"},
 			},
@@ -620,11 +631,12 @@ func TestUrgentSteerDoesNotCutCallWhenReplacementExceedsCostCap(t *testing.T) {
 	)
 	agent := testAgent()
 	agent.Settings.MaxTokens = 100
-	out, err := Runner{Agent: agent, Client: client}.Run(
+	out, err := Runner{Client: client}.Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Budget: &Budget{
 				MaxCost: &Money{Amount: amount("0.002"), Currency: "USD"},
 			},
@@ -748,7 +760,6 @@ func TestVetoHoldsAcrossSteeringInterrupt(t *testing.T) {
 		},
 	)
 	out, err := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Hooks:  veto.Hooks(),
 	}.Run(ctx, Turn{ID: "t1"}, startInput(), WithSteering(inbox))
@@ -854,7 +865,7 @@ func TestCrashAfterSteeringCancelRecoversAsWorker(t *testing.T) {
 		urgentCall{result: final("ok")},
 	)
 	rec := &crashOnSteeredSettlement{MemoryRecorder: NewMemoryRecorder()}
-	runner := Runner{Agent: testAgent(), Client: client, Recorder: rec}
+	runner := Runner{Client: client, Recorder: rec}
 	if _, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -906,7 +917,7 @@ func TestUrgentSteerWithoutNotifierWarnsOnce(t *testing.T) {
 		},
 	}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
-	out, err := Runner{Agent: testAgent(), Client: client}.Run(
+	out, err := Runner{Client: client}.Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
 	)
 	if err != nil {
@@ -1036,7 +1047,7 @@ func TestStalledSourceStillLetsRunEnd(t *testing.T) {
 		block: true,
 	})
 	rec := NewMemoryRecorder()
-	out, err := Runner{Agent: testAgent(), Client: client, Recorder: rec}.Run(
+	out, err := Runner{Client: client, Recorder: rec}.Run(
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
@@ -1072,10 +1083,10 @@ func runCancelledMidStream(
 		block:  true,
 		late:   late,
 	})
-	out, err := Runner{Agent: def, Client: client}.Run(
+	out, err := Runner{Client: client}.Run(
 		ctx,
 		Turn{ID: "t1"},
-		startInput(),
+		startAgent(def),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1263,7 +1274,7 @@ func TestReplayedInterruptSpendIsCappedAtMaxTokens(t *testing.T) {
 		cutCall(t, inbox, strings.Repeat("x", 400), "stop"),
 		urgentCall{result: final("ok")},
 	)
-	out := runUrgent(t, client, inbox, func(r *Runner) { r.Agent = def })
+	out := runUrgentAgent(t, client, inbox, def)
 	cut := settlements(out.Turn)[0]
 	if cut.Result == nil || cut.Result.Usage == nil ||
 		cut.Result.Usage.OutputTokens != 5 {

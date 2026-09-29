@@ -127,9 +127,9 @@ with `catalog.Find` and `Entry.Bind` to adopt one. See the
 
 `llm.Input.Model` is always required; the llm layer never picks a model.
 `catalog.Default(provider)` names a provider's general-purpose model, which a
-`dashi.Runner` uses when its agent names none, and `catalog.Small(provider)`
-names an inexpensive one for examples and tests (false where the catalog
-names none, as for Meta).
+`dashi.Runner` uses when a turn's agent names none, and
+`catalog.Small(provider)` names an inexpensive one for examples and tests
+(false where the catalog names none, as for Meta).
 
 ## Clients and keys
 

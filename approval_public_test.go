@@ -141,7 +141,6 @@ func pendingApproval(
 	client := &approvalClient{}
 	store := jsonbStore{dashi.NewMemoryRecorder()}
 	runner := dashi.Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{write},
 		Recorder: store,
@@ -152,6 +151,7 @@ func pendingApproval(
 		dashi.Turn{ID: "t1"},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 		},
 	)

@@ -150,10 +150,11 @@ type Start struct {
 }
 ```
 
-The engine fills a zero `Start.Agent` field as `Runner.Agent` is filled today
+The engine fills zero `Start.Agent` fields from the client and the catalog
 (`defaults.go`, `agentFor`). Commands on an existing turn always use the
-recorded agent, so `ErrAgentChanged` applies only to a retried `Start`, whose
-digest covers the agent. The `Limits.ToolResultBytes` warning at `Start` reads
+recorded agent, so `ErrAgentChanged` applies to a retried `Start`, whose digest
+covers the agent, and to a caller's snapshot whose recorded agent differs from
+a `Loader`'s record. The `Limits.ToolResultBytes` warning at `Start` reads
 `Start.Agent`.
 
 ## Carry-forward
@@ -196,10 +197,14 @@ type Agent struct {
 
 Before each call the runner filters the resolved toolset by name, then applies
 `BeforeModel` hiding. Nothing new is recorded at start: the selection is part of
-the recorded agent, and it enters the automatic revision (today's derivation
-"cannot see tools"; `turn.go`). A named tool the toolset does not offer records
-a `tool_not_offered` warning once per turn. The final-answer reserve and
-`dashi_submit_output` are unaffected.
+the recorded agent, and it enters the automatic revision. The agent records
+the names sorted and without duplicates, so their order changes neither the
+revision nor a retry's agent check. A named tool the
+toolset does not offer records a `tool_not_offered` warning once per turn, on
+the next committed step. `NoTools` wins over `Tools`. Only selected tools are
+validated, and a call to a tool that was not selected settles as an unknown
+tool without running. The final-answer reserve and `dashi_submit_output` are
+unaffected.
 
 ## `CurrentTurn` and `delegate`
 
@@ -212,16 +217,32 @@ a `tool_not_offered` warning once per turn. The final-answer reserve and
 func CurrentTurn(ctx context.Context) (TurnView, bool)
 ```
 
-`CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
+The view is taken as the call starts, with an empty `Stop` as in a hook's view;
+a `Toolset` sees the turn as of the model call it offers tools for, and every
+hook sees its plan's `Turn`. The task tool fails the turn when `CurrentTurn`
+reports false, as it does for `CurrentCall`, rather than start a child without
+the parent's selection. `CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
 from `Subagent.Agent`, taking provider, API, and model from `CurrentTurn` when
 unset (decision 22 of item 13). `Subagent.Tools` becomes `Subagent.Agent.Tools`;
-`Subagent.ReadOnly` stays, since it filters by annotation. `Recover` and resume
-no longer set `runner.Agent`: `Continue` uses the recorded agent.
+`Subagent.ReadOnly` stays, since it filters by annotation. A subagent with no
+`Agent.Tools` draws only from the tools the parent agent may use: the parent
+turn's selection applies before the child's. A subagent whose `Agent.Tools` the
+host named draws from `Runner.Tools`, so a parent that only delegates can still
+give a worker `write`. Either way the task tools are removed and `ReadOnly`
+applies. `Recover` and resume no longer set `runner.Agent`:
+`Continue` uses the recorded agent. At child start, `delegate` resolves the
+rules above, including `ReadOnly`, into explicit names in the child's
+`Agent.Tools` (`NoTools` when none are left), so the record is the child's
+permission and a later change to the subagent cannot widen a resumed child.
+A child that nothing restricts records empty `Agent.Tools` and, like the
+parent, follows the toolset. `FollowUp(agent, notices)` takes the agent
+as a required argument, so a host cannot run a follow-up with the defaults by
+omission.
 
 ## Record changes
 
 `Agent` gains `tools` and `no_tools`. Track 2 adds `TurnView.Origin`, the
-recorded `Start.Origin`: carry-forward (track 2), the idempotency window and
+recorded `Start.Origin`: carry-forward, the idempotency window, and
 `TurnBusyError.Origin` (track 3), and queue turns (track 4) all read it. Track 5
 adds the `compaction` `StartOrigin` and a `StartFact.Compaction` fact
 ([session-input.md](session-input.md#compaction-turns)). Dashi has no users, so

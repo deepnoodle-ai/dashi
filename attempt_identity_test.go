@@ -73,13 +73,12 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 		}
 	}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -106,15 +105,15 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 			cancel(errors.New("deploying"))
 		}
 	}
-	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	first, err := (Runner{Client: client, Recorder: rec}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: def, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
 	}
-	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
 		Continue{CommandID: "continue"},
@@ -148,7 +147,7 @@ func TestCrashedIntentIsNeverSentUnderItsID(t *testing.T) {
 	client := &attemptClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 	}
-	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
 		Continue{CommandID: "recover"},

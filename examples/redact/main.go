@@ -70,15 +70,15 @@ func run(ctx context.Context) error {
 		return dashi.ResultDecision{Replace: &r}, nil
 	}}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "You are a support agent. Quote account records exactly.",
-		},
 		Client: client,
 		Tools:  tool.List{lookup},
 		Hooks:  redact.Hooks(),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "You are a support agent. Quote account records exactly.",
+		},
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Show me Ada Lovelace's full account record.")),
 		},

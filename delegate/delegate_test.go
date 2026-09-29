@@ -361,11 +361,14 @@ type harness struct {
 	cfg        delegate.Config
 	tasks      *delegate.Tasks
 	runner     dashi.Runner
+	agent      dashi.Agent
 	inbox      *dashi.Inbox
 	events     chan delegate.ChildEvent
 	taskEvents chan delegate.TaskEvent
 	observed   atomic.Int32
 	notify     atomic.Bool
+	// ran counts runs of the read and write probes.
+	ran atomic.Int32
 }
 
 // checkLeaks fails the test if a task goroutine or a gated model call is
@@ -415,10 +418,9 @@ func newHarness(
 	if store != nil {
 		recorder = store(h.rec)
 	}
-	var ran atomic.Int32
 	h.base = tool.List{
-		probe("read", yes(), &ran),
-		probe("write", nil, &ran),
+		probe("read", yes(), &h.ran),
+		probe("write", nil, &h.ran),
 	}
 	cfg.Subagents = cmpSubagents(cfg.Subagents)
 	cfg.Runner.Observer = func(dashi.Event) {
@@ -434,8 +436,8 @@ func newHarness(
 		h.taskEvents <- e
 	}
 	h.cfg = cfg
+	h.agent = agent("parent")
 	h.runner = dashi.Runner{
-		Agent:    agent("parent"),
 		Client:   h.client,
 		Recorder: recorder,
 	}
@@ -484,6 +486,7 @@ func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
 		dashi.Turn{ID: parentTurn},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     h.agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 		dashi.WithSteering(h.inbox),
@@ -771,7 +774,7 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
 	h.notify.Store(true)
-	h.runner.Agent.Limits.ToolConcurrency = 2
+	h.agent.Limits.ToolConcurrency = 2
 	out, err := h.start(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -810,9 +813,12 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	if id != delegate.FollowUpTurnID([]dashi.Steer{notices[1], notices[0]}) {
 		t.Fatal("follow-up turn ID depends on notice order")
 	}
-	start := delegate.FollowUp(notices)
+	start := delegate.FollowUp(h.agent, notices)
 	if start.Origin != dashi.StartScheduled {
 		t.Fatalf("origin=%q, want scheduled", start.Origin)
+	}
+	if start.Agent.Instructions != h.agent.Instructions {
+		t.Fatalf("agent=%+v, want the one passed", start.Agent)
 	}
 	followUp, err := h.runner.Run(t.Context(), dashi.Turn{ID: id}, start)
 	if err != nil {
@@ -879,9 +885,9 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 
 	// The host delivers the notice in a follow-up turn.
 	notices := []dashi.Steer{ended.Task.Notice().Steer()}
+	start := delegate.FollowUp(h.agent, notices)
 	followUp, err := h.runner.Run(t.Context(),
-		dashi.Turn{ID: delegate.FollowUpTurnID(notices)},
-		delegate.FollowUp(notices))
+		dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1500,9 +1506,10 @@ func toolNames(in llm.Input) []string {
 
 func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		sub  delegate.Subagent
-		want []string
+		name   string
+		sub    delegate.Subagent
+		parent []string
+		want   []string
 	}{
 		{
 			name: "all tools except the task tools",
@@ -1522,15 +1529,46 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 			name: "named tools",
 			sub: func() delegate.Subagent {
 				s := scout()
-				s.Tools = []string{"write", "task", "task_status", "task_stop"}
+				s.Agent.Tools = []string{"write", "task", "task_status", "task_stop"}
 				return s
 			}(),
 			want: []string{"write"},
+		},
+		{
+			// A child draws only from the tools the parent agent may use.
+			name:   "the parent's selection",
+			sub:    scout(),
+			parent: []string{"read", "task"},
+			want:   []string{"read"},
+		},
+		{
+			// A parent that only delegates still gives a worker the tools
+			// the host named for it.
+			name: "named tools outside the parent's selection",
+			sub: func() delegate.Subagent {
+				s := scout()
+				s.Agent.Tools = []string{"write"}
+				return s
+			}(),
+			parent: []string{"task", "task_status", "task_stop"},
+			want:   []string{"write"},
+		},
+		{
+			name: "named tools stay read-only",
+			sub: func() delegate.Subagent {
+				s := scout()
+				s.Agent.Tools = []string{"read", "write"}
+				s.ReadOnly = true
+				return s
+			}(),
+			parent: []string{"task"},
+			want:   []string{"read"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := delegate.Config{Subagents: []delegate.Subagent{tc.sub}}
 			h := newHarness(t, script("x"), cfg, nil)
+			h.agent.Tools = tc.parent
 			if _, err := h.start(t.Context()); err != nil {
 				t.Fatal(err)
 			}
@@ -1538,6 +1576,129 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 			got := toolNames(h.client.last("child"))
 			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 				t.Fatalf("child tools=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestChildRecordsItsResolvedTools checks that the child's recorded
+// Agent.Tools names exactly the tools it may use when something restricts
+// it, stays empty ("every tool") when nothing does, and that an empty set is
+// recorded as NoTools.
+func TestChildRecordsItsResolvedTools(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sub     func(*delegate.Subagent)
+		parent  []string
+		want    []string
+		noTools bool
+		offered []string
+	}{
+		{
+			// Nothing to freeze: the child may use every tool.
+			name:    "every parent tool",
+			offered: []string{"read", "write"},
+		},
+		{
+			name:    "the parent's selection",
+			parent:  []string{"read", "task"},
+			want:    []string{"read"},
+			offered: []string{"read"},
+		},
+		{
+			name:    "read-only",
+			sub:     func(s *delegate.Subagent) { s.ReadOnly = true },
+			want:    []string{"read"},
+			offered: []string{"read"},
+		},
+		{
+			// A named tool the runner lacks stays, so the child warns.
+			name: "named tools",
+			sub: func(s *delegate.Subagent) {
+				s.Agent.Tools = []string{"write", "task", "missing"}
+			},
+			parent:  []string{"task"},
+			want:    []string{"missing", "write"},
+			offered: []string{"write"},
+		},
+		{
+			name: "nothing left",
+			sub: func(s *delegate.Subagent) {
+				s.Agent.Tools = []string{"write"}
+				s.ReadOnly = true
+			},
+			noTools: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := scout()
+			if tc.sub != nil {
+				tc.sub(&sub)
+			}
+			cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+			h := newHarness(t, script("x"), cfg, nil)
+			h.agent.Tools = tc.parent
+			if _, err := h.start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			h.next(t, delegate.TaskEnded)
+			got := h.view(t, childID()).Agent
+			if strings.Join(got.Tools, ",") != strings.Join(tc.want, ",") ||
+				got.NoTools != tc.noTools {
+				t.Fatalf("recorded tools=%v no_tools=%v, want %v",
+					got.Tools, got.NoTools, tc.want)
+			}
+			offered := toolNames(h.client.last("child"))
+			if strings.Join(offered, ",") != strings.Join(tc.offered, ",") {
+				t.Fatalf("offered=%v, want %v", offered, tc.offered)
+			}
+		})
+	}
+}
+
+// TestInheritingChildFollowsADynamicToolset checks that a tool the toolset
+// adds after the child starts reaches a child that inherits every tool, and
+// not a read-only child, whose tools were resolved at its start.
+func TestInheritingChildFollowsADynamicToolset(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		readOnly bool
+		want     string
+	}{
+		{name: "inheriting", want: "read,write,late"},
+		{name: "read-only", readOnly: true, want: "read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var added atomic.Bool
+			var calls atomic.Int32
+			child := func(context.Context, llm.Input) (llm.Result, error) {
+				if calls.Add(1) == 1 {
+					added.Store(true)
+					return toolCall("r1", "read", `{}`), nil
+				}
+				return costed(text("done"), "0.25"), nil
+			}
+			sub := scout()
+			sub.ReadOnly = tc.readOnly
+			cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+			h := newHarness(t, scripted(child), cfg, nil)
+			late := probe("late", yes(), &h.ran)
+			base := h.base
+			h.base = toolsetFunc(func(ctx context.Context) ([]tool.Tool, error) {
+				all, err := base.Tools(ctx)
+				if added.Load() {
+					all = append(all, late)
+				}
+				return all, err
+			})
+			h.newTasks(t)
+			if _, err := h.start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			h.next(t, delegate.TaskEnded)
+			got := toolNames(h.client.last("child"))
+			if strings.Join(got, ",") != tc.want {
+				t.Fatalf("child tools after the add=%v, want %s", got, tc.want)
 			}
 		})
 	}
@@ -1628,7 +1789,7 @@ func TestTaskRejectsUnknownSubagent(t *testing.T) {
 func TestParallelTaskCallsGetOwnChildren(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
-	h.runner.Agent.Limits.ToolConcurrency = 2
+	h.agent.Limits.ToolConcurrency = 2
 	out, err := h.start(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -1686,6 +1847,33 @@ func TestTaskIDIsAFixedFunctionOfTheChild(t *testing.T) {
 	}
 }
 
+// Outside a runner the task tool cannot read the parent call or turn, so it
+// fails the turn instead of starting a child with guessed tools and model.
+func TestTaskToolOutsideRunnerIsFatal(t *testing.T) {
+	tasks := delegate.NewTasks(delegate.Config{})
+	list, err := tasks.Tools().Tools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task tool.Tool
+	for _, tl := range list {
+		if tl.Definition.Name == delegate.ToolName {
+			task = tl
+		}
+	}
+	_, err = task.Executor.Execute(t.Context(), tool.Call{
+		ID:   "c1",
+		Name: delegate.ToolName,
+		Args: []byte(`{"subagent":"general","prompt":"x","description":"x"}`),
+	})
+	if !errors.Is(err, tool.ErrFatal) {
+		t.Fatalf("err=%v, want a fatal error", err)
+	}
+	if n := len(tasks.List()); n != 0 {
+		t.Fatalf("started %d tasks", n)
+	}
+}
+
 func TestDefaultCatalogHasExploreAndGeneral(t *testing.T) {
 	list, err := delegate.NewTasks(delegate.Config{}).Tools().Tools(t.Context())
 	if err != nil || len(list) != 3 {
@@ -1703,7 +1891,7 @@ func TestChildInheritsParentModel(t *testing.T) {
 	sub.Agent.Provider, sub.Agent.API, sub.Agent.Model = "", "", ""
 	h := newHarness(t, script("x"),
 		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
-	h.runner.Agent.Model = "chosen-by-user"
+	h.agent.Model = "chosen-by-user"
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -1718,7 +1906,7 @@ func TestSubagentModelOverridesParent(t *testing.T) {
 	sub.Agent.Model = "cheap"
 	h := newHarness(t, script("x"),
 		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
-	h.runner.Agent.Model = "chosen-by-user"
+	h.agent.Model = "chosen-by-user"
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -2003,6 +2191,92 @@ func TestRecoverResumesWithTheRecordedAgent(t *testing.T) {
 	}
 }
 
+// TestRecoverKeepsTheToolsTheChildStartedWith checks that a child started
+// without named tools, under a parent limited to read, gets no more after the
+// host names write for its subagent and the child resumes.
+func TestRecoverKeepsTheToolsTheChildStartedWith(t *testing.T) {
+	g := newGate()
+	h := newHarness(t, scripted(gated(g, "x")), delegate.Config{}, nil)
+	h.agent.Tools = []string{"read", delegate.ToolName}
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+
+	changed := scout()
+	changed.Agent.Tools = []string{"write"}
+	h.cfg.Subagents = []delegate.Subagent{changed}
+	var calls atomic.Int32
+	h.client.handle = scripted(func(context.Context, llm.Input) (llm.Result, error) {
+		if calls.Add(1) == 1 {
+			return toolCall("w1", "write", `{}`), nil
+		}
+		return costed(text("done"), "0.25"), nil
+	})
+	h.newTasks(t)
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	got := toolNames(h.client.last("child"))
+	if strings.Join(got, ",") != "read" {
+		t.Fatalf("resumed child tools=%v, want [read]", got)
+	}
+	if n := h.ran.Load(); n != 0 {
+		t.Fatalf("a probe ran %d times; write must not run", n)
+	}
+	call := h.view(t, childID()).Tools["w1"]
+	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+		call.Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("write call=%+v, want settled without running", call)
+	}
+}
+
+// TestRecoverKeepsReadOnly checks that a child started for a read-only
+// subagent stays read-only after the host drops ReadOnly and the child
+// resumes.
+func TestRecoverKeepsReadOnly(t *testing.T) {
+	g := newGate()
+	sub := scout()
+	sub.ReadOnly = true
+	cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+	h := newHarness(t, scripted(gated(g, "x")), cfg, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+
+	h.cfg.Subagents = []delegate.Subagent{scout()}
+	var calls atomic.Int32
+	h.client.handle = scripted(func(context.Context, llm.Input) (llm.Result, error) {
+		if calls.Add(1) == 1 {
+			return toolCall("w1", "write", `{}`), nil
+		}
+		return costed(text("done"), "0.25"), nil
+	})
+	h.newTasks(t)
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	got := toolNames(h.client.last("child"))
+	if strings.Join(got, ",") != "read" {
+		t.Fatalf("resumed child tools=%v, want [read]", got)
+	}
+	if n := h.ran.Load(); n != 0 {
+		t.Fatalf("a probe ran %d times; write must not run", n)
+	}
+	call := h.view(t, childID()).Tools["w1"]
+	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+		call.Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("write call=%+v, want settled without running", call)
+	}
+}
+
 type tenantKey struct{}
 
 // TestTaskKeepsCallerContextValuesButNotCancellation checks that a child
@@ -2078,4 +2352,10 @@ func TestRecoverKeepsHostContextValues(t *testing.T) {
 		t.Fatalf("recovered child saw tenant=%v, want acme", got)
 	}
 	h.next(t, delegate.TaskEnded)
+}
+
+type toolsetFunc func(context.Context) ([]tool.Tool, error)
+
+func (f toolsetFunc) Tools(ctx context.Context) ([]tool.Tool, error) {
+	return f(ctx)
 }

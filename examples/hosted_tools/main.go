@@ -50,7 +50,6 @@ func run(ctx context.Context, prompt string) error {
 		return fmt.Errorf("hosted_tools: create client: %w", err)
 	}
 	runner := dashi.Runner{
-		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client: client,
 		// Hosted tools have no executor: Anthropic runs them inside the
 		// model call.
@@ -60,6 +59,7 @@ func run(ctx context.Context, prompt string) error {
 		},
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {

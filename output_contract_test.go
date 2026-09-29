@@ -51,7 +51,6 @@ func applyStructuredErr(
 	rec Recorder,
 ) (Outcome, error) {
 	return (Runner{
-		Agent:    structuredAgent(),
 		Client:   client,
 		Tools:    tools,
 		Recorder: rec,
@@ -60,6 +59,7 @@ func applyStructuredErr(
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     structuredAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
@@ -110,7 +110,6 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		t.Fatal("structured output shares mutable bytes")
 	}
 	again, err := (Runner{
-		Agent:    structuredAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -119,6 +118,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		out.Turn,
 		Start{
 			CommandID: "start",
+			Agent:     structuredAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
@@ -146,7 +146,6 @@ func TestStructuredTurnAfterModelHookUsesSubmissionTool(t *testing.T) {
 		},
 	}}}
 	out, err := (Runner{
-		Agent:  structuredAgent(),
 		Client: client,
 		Hooks:  hooks,
 	}).Run(
@@ -154,6 +153,7 @@ func TestStructuredTurnAfterModelHookUsesSubmissionTool(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     structuredAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
 	)
@@ -246,7 +246,6 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
 	second, err := (Runner{
-		Agent:    structuredAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
@@ -279,11 +278,11 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	}
 	start := Start{
 		CommandID:    "start",
+		Agent:        def,
 		Input:        []llm.Message{llm.UserMessage(llm.Text("status"))},
 		OutputSchema: json.RawMessage(schema),
 	}
 	out, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}).Run(t.Context(), Turn{ID: "t1"}, start)
@@ -321,7 +320,6 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 	} {
 		client := &scriptedClient{}
 		out, err := (Runner{
-			Agent:    testAgent(),
 			Client:   client,
 			Recorder: NewMemoryRecorder(),
 		}).Run(
@@ -329,6 +327,7 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 			Turn{ID: "t1"},
 			Start{
 				CommandID:    "start",
+				Agent:        testAgent(),
 				Input:        []llm.Message{llm.UserMessage(llm.Text("answer"))},
 				OutputSchema: json.RawMessage(schema),
 			},
@@ -381,7 +380,6 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	}
 	result := tool.Outcome{State: tool.StateSucceeded}
 	_, err = (Runner{
-		Agent:    structuredAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -428,9 +426,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		t.Fatalf("stop=%q", view.Stop.Kind)
 	}
 
-	def := structuredAgent()
 	runner := Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: rec,
 	}

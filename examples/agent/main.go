@@ -33,13 +33,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("agent: create client: %w", err)
 	}
+	runner := dashi.Runner{Client: client}
 	// Every Agent field may be left empty. An empty Model is the provider's
 	// catalog default; the turn and command IDs are generated.
-	runner := dashi.Runner{
-		Agent:  dashi.Agent{Model: os.Getenv("OPENAI_MODEL")},
-		Client: client,
-	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{Model: os.Getenv("OPENAI_MODEL")},
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Say hello in one sentence.")),
 		},

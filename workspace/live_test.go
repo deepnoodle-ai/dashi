@@ -61,15 +61,15 @@ func TestLiveAgentFixesFailingTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	out, err := (dashi.Runner{
+		Client: client,
+		Tools:  tools,
+		Hooks:  policy.Hooks(),
+	}).Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{
 			Model: model,
 			Instructions: "You are a coding agent. Use the tools to work in " +
 				"the workspace. Run the tests to check your work.",
 		},
-		Client: client,
-		Tools:  tools,
-		Hooks:  policy.Hooks(),
-	}).Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"The test in this Go module fails. Fix the bug in the code, not the test."))},
 	})

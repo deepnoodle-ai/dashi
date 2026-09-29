@@ -201,12 +201,12 @@ func TestAfterToolWithholdsWhenTheRunEnds(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
 	}
 	out, err := (Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{secretTool(&runs)},
 		Hooks:  slow.Hooks(),
 	}).Run(ctx, Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopInterrupted || runs != 1 {
@@ -334,9 +334,10 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		client := &scriptedClient{
 			results: []llm.Result{callResult("call-1", "lookup"), final("found")},
 		}
-		runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
+		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil || out.Stop.Kind != StopWaiting {
@@ -361,9 +362,10 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 	})
 	t.Run("hookless settle warns", func(t *testing.T) {
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
-		runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
+		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil {
@@ -379,9 +381,10 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 	})
 	t.Run("ended turn", func(t *testing.T) {
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
-		runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
+		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil {
@@ -516,12 +519,12 @@ func TestAfterToolFailOpenKeepsTheResultWhenTheRunEnds(t *testing.T) {
 				results: []llm.Result{callResult("call-1", "remote"), final("done")},
 			}
 			out, err := (Runner{
-				Agent:  testAgent(),
 				Client: client,
 				Tools:  tool.List{secretTool(&runs)},
 				Hooks:  Hooks{AfterTool: hooks},
 			}).Run(ctx, Turn{ID: "t1"}, Start{
 				CommandID: "start",
+				Agent:     testAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 			})
 			if err != nil || out.Stop.Kind != StopInterrupted ||
@@ -559,9 +562,10 @@ func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.Deadline = time.Now().Add(300 * time.Millisecond)
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
-	runner := Runner{Agent: agent, Client: client, Tools: tool.List{external}, Hooks: strictRedact.Hooks()}
+	runner := Runner{Client: client, Tools: tool.List{external}, Hooks: strictRedact.Hooks()}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopWaiting {
@@ -612,9 +616,10 @@ func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
 			}),
 		}
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
-		runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{panicky}, Hooks: watch.Hooks()}
+		runner := Runner{Client: client, Tools: tool.List{panicky}, Hooks: watch.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil || out.Stop.Kind != StopUncertain || calls != 0 {

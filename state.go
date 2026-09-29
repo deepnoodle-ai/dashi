@@ -92,6 +92,9 @@ type TurnView struct {
 	// Parent is the tool call that caused this turn, or nil for a root
 	// turn. It is fixed at Start.
 	Parent *CallRef
+	// Origin is who supplied the turn's initial work, recorded at Start: an
+	// unset Start.Origin reads as StartUser. It is empty before Start.
+	Origin StartOrigin
 	// Revision is the latest acknowledged step sequence number.
 	Revision int64
 	// ModelAttempts counts settled calls that were not interrupted.
@@ -493,6 +496,7 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		s.Parent = cloneCallRef(step.Started.Parent)
+		s.Origin = origin
 		s.Agent = step.Started.Agent.resolved()
 		s.attemptCap = s.Agent.Limits.ModelAttempts
 		if step.Started.Budget != nil {
@@ -1727,7 +1731,8 @@ func validateStepPayload(step Step) error {
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
 		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
-			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored:
+			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored,
+			WarningToolNotOffered:
 			valid = true
 		case WarningLimitAdjusted:
 			valid = step.Kind == StepStarted

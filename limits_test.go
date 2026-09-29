@@ -85,10 +85,10 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 		Stop:    llm.Stop{Kind: llm.StopPause},
 	}
 	client := &scriptedClient{results: []llm.Result{paused, final("done")}}
-	out, err := (Runner{Agent: def, Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		t.Context(),
 		Turn{ID: "pauses"},
-		limitsStart(),
+		limitsStart(def),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -111,10 +111,10 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	close(pause)
-	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	first, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "interruptions"},
-		limitsStart(),
+		limitsStart(def),
 		WithPause(pause),
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
@@ -123,7 +123,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	if first.ReadyToContinue {
 		t.Fatal("interrupted turn is ready to continue with no resumes allowed")
 	}
-	out, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
 		Continue{CommandID: "resume"},
@@ -157,10 +157,9 @@ func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 		Executor: execFunc(lookup42),
 	}
 	out, err := (Runner{
-		Agent:  def,
 		Client: client,
 		Tools:  tool.List{binding},
-	}).Run(t.Context(), Turn{ID: "no-reserve"}, limitsStart())
+	}).Run(t.Context(), Turn{ID: "no-reserve"}, limitsStart(def))
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v, want completed", out.Stop, err)
 	}
@@ -176,10 +175,10 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	close(pause)
-	first, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	first, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "recorded"},
-		limitsStart(),
+		limitsStart(def),
 		WithPause(pause),
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
@@ -208,7 +207,8 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 	}
 
 	// A record made under different defaults keeps its own numbers. The
-	// caller's zero limits now resolve differently, so they no longer match.
+	// caller's zero limits now resolve differently, so a retried Start with
+	// them no longer matches, while Continue runs with the recorded limits.
 	old := first.Turn
 	old.Steps = cloneTurn(first.Turn).Steps
 	older := *old.Steps[0].Started
@@ -224,28 +224,20 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 			view.Agent.Limits.Interruptions,
 		)
 	}
-	if _, err := (Runner{Agent: def, Client: client}).Run(
-		t.Context(),
-		old,
-		Continue{CommandID: "resume"},
-	); !errors.Is(err, ErrAgentChanged) {
+	runner := Runner{Client: client}
+	if _, err := runner.Run(t.Context(), old, limitsStart(def)); !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("zero limits matched a record with other values: %v", err)
 	}
-	pinned := def
-	pinned.Limits = view.Agent.Limits
-	out, err := (Runner{Agent: pinned, Client: client}).Run(
-		t.Context(),
-		old,
-		Continue{CommandID: "resume"},
-	)
+	out, err := runner.Run(t.Context(), old, Continue{CommandID: "resume"})
 	if err != nil || out.Stop.Kind != StopCompleted {
-		t.Fatalf("pinned continue: stop=%+v err=%v", out.Stop, err)
+		t.Fatalf("continue with recorded limits: stop=%+v err=%v", out.Stop, err)
 	}
 }
 
-func limitsStart() Start {
+func limitsStart(def Agent) Start {
 	return Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	}
 }

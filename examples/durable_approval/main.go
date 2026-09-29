@@ -56,15 +56,15 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("durable_approval: create tool: %w", err)
 	}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "You are a release manager. Use the deploy tool to deploy.",
-		},
 		Client: client,
 		Tools:  tool.List{deploy},
 		Hooks:  dashi.RequireApproval("deploy"),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "You are a release manager. Use the deploy tool to deploy.",
+		},
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},

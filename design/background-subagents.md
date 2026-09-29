@@ -110,9 +110,9 @@ call sees it. A Turn records an ID once. A steer that a run claimed but did
 not record comes back from `Leftovers`, once.
 
 **No Turn running.** `IsNotice` splits `Inbox.Leftovers`: user steers follow
-the steering rule; notices go to `FollowUp(notices)`, one Turn for all waiting
-notices, with `Origin: StartScheduled`. It claims no user authority. A notice
-that arrives during that Turn is a steer into it.
+the steering rule; notices go to `FollowUp(agent, notices)`, one Turn for all
+waiting notices, with `Origin: StartScheduled`. It claims no user authority. A
+notice that arrives during that Turn is a steer into it.
 
 **Crash or reopen.** `Recover` walks the Turns the host holds, finds the
 `task` calls, and loads each child by `ChildID`. It resumes a child with no

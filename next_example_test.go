@@ -18,12 +18,12 @@ func ExampleTurnView_Next() {
 			return tool.Succeeded("ok"), nil
 		})
 	runner := dashi.Runner{
-		Agent:  dashi.Agent{Model: "fixture"},
 		Client: &approvalClient{},
 		Tools:  tool.List{write},
 		Hooks:  dashi.RequireApproval(),
 	}
 	out, _ := runner.Run(ctx, dashi.NewTurn("t1"), dashi.Start{
+		Agent: dashi.Agent{Model: "fixture"},
 		Input: []llm.Message{llm.UserMessage(llm.Text("write it"))},
 	})
 	for {

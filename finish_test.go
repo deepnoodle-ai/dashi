@@ -18,9 +18,10 @@ func runStructured(
 	hooks Hooks,
 ) (Runner, Outcome, error) {
 	t.Helper()
-	runner := Runner{Agent: agent, Client: client, Hooks: hooks}
+	runner := Runner{Client: client, Hooks: hooks}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 	})
 	return runner, out, err
@@ -185,9 +186,10 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 		agent := testAgent()
 		agent.Limits.ModelAttempts = 2
 		client := &scriptedClient{results: []llm.Result{final("ssn 123"), final("ssn 456")}}
-		runner := Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}
+		runner := Runner{Client: client, Hooks: veto.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
 		if err != nil || out.Stop.Reason != StopReasonOutputRejected ||
@@ -217,12 +219,12 @@ func TestFinishVetoBeforeTheReserveContinuesIntoIt(t *testing.T) {
 		final("clean"),
 	}}
 	out, err := (Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  veto.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Answer != "clean" || client.sends != 3 ||
@@ -291,9 +293,10 @@ func TestFinishVetoResumesAfterABudgetRaise(t *testing.T) {
 	client := newPricedClient(final("ssn 123"), final("redacted"))
 	agent := testAgent()
 	agent.Settings = llm.Settings{MaxTokens: 100}
-	runner := Runner{Agent: agent, Client: client, Hooks: veto.Hooks()}
+	runner := Runner{Client: client, Hooks: veto.Hooks()}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Budget:    &Budget{MaxCost: &Money{Amount: amount("0.0013"), Currency: "USD"}},
 		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 	})
@@ -383,13 +386,13 @@ func TestSubmissionRejectionSurvivesCrashes(t *testing.T) {
 				rec.n = 2
 			}
 			runner := Runner{
-				Agent:    structuredAgent(),
 				Client:   client,
 				Recorder: rec,
 				Hooks:    guard.Hooks(),
 			}
 			_, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 				CommandID: "start",
+				Agent:     structuredAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 			})
 			if persistence(err) != PersistenceRejected {
@@ -485,12 +488,12 @@ func TestFinishTextRejectedOnCallBeforeReserveIsDropped(t *testing.T) {
 		final("second"),
 	}}
 	out, err := (Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{remote.binding()},
 		Hooks:  always.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	// Call 3 would be the reserved final answer, so the candidate from
@@ -575,9 +578,10 @@ func TestPauseDuringFinishKeepsTheRejection(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	client := &scriptedClient{results: []llm.Result{final("draft"), final("fixed")}}
-	runner := Runner{Agent: testAgent(), Client: client, Hooks: guard.Hooks()}
+	runner := Runner{Client: client, Hooks: guard.Hooks()}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}, WithPause(pause))
 	if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 1 ||
