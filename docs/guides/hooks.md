@@ -113,8 +113,10 @@ than once for one reply, and `BeforeSend` may be asked again for the same
 reply, when an [urgent steer](steering.md) sends the run back before the
 request is sent. Deliver a value that must reflect each call as a named
 `Snapshot` item: the model sees it after the earlier copies, which stay in
-place so the [prompt cache](prompt-caching.md) still matches. Reserve
-spending in the recorder with the model intent, not in the hook.
+place so the [prompt cache](prompt-caching.md) still matches. Every replaced
+copy also stays in the session history, so keep snapshot items small and
+change them rarely. Reserve spending in the recorder with the model intent,
+not in the hook.
 
 `BeforeFinish` vetoes an answer with a `Reason`, which the model sees as "Not
 accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the

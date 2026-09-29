@@ -16,12 +16,11 @@ wait or process restart. A `ContextItem.Snapshot` item supersedes older items
 of the same origin and context-item name: `Turn.Context` returns the latest,
 and the reminder instruction tells the model the latest of a name is current.
 The model projection keeps the older copies in place and appends the new one,
-so the prompt prefix stays cacheable ([prompt caching](prompt-cache.md),
-proposed; until built, the projection removes them). `NextCallOnly` keeps a
-recorded item until a later model call shows evidence of dispatch (a provider
-response or rejection); after an ambiguous crash the resent call carries it
-again, so it may reach the model twice rather than never. Neither rule edits
-the saved facts.
+so the prompt prefix stays cacheable ([prompt caching](prompt-cache.md)).
+`NextCallOnly` keeps a recorded item until a later model call shows evidence of
+dispatch (a provider response or rejection); after an ambiguous crash the resent
+call carries it again, so it may reach the model twice rather than never.
+Neither rule edits the saved facts.
 
 This matches Nvoken's choice to keep application context in its authoritative
 transcript. Nvoken also deduplicates unchanged named values and carries them

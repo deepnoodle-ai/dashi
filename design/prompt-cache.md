@@ -126,15 +126,21 @@ copies blocks and never marks caller content.
 `auto_cache` (a new `Destination` field), for any model whose knowledge does
 not reject `prompt_cache`; under `CapabilityStrict` only where it states
 support, as for the `MaxTokens` default. Catalog Claude models state it. Today
-that is only
-the Claude API; Claude Platform on AWS, Vertex AI, and Foundry, documented
-as accepting the automatic point, are added as each is qualified. Legacy
-Bedrock, which rejects it with a 400, never is. A nonzero `TTL` is an
+that is only the Claude API; Claude Platform on AWS, Vertex AI, and Foundry,
+documented as accepting the automatic point, are added as each is qualified.
+Legacy Bedrock, which rejects it with a 400, never is. A nonzero `TTL` is an
 explicit request: elsewhere it follows the rules for `FeaturePromptCache`
 (unverified under adjust, an error under strict), so a proxy that rejects
 the field breaks only for callers who asked. `Disable` sends no cache
 points. Default-on is this feature's decision (PRD); decision 41 holds only
 the prefix rule.
+
+`FeaturePromptCache` is one flag for both kinds of point: the block cache
+points and the top-level automatic point. Legacy Bedrock accepts only the
+block points, so a caller who states `prompt_cache` support for a Messages
+gateway in front of it gets a 400 on every call with a `TTL`. No Bedrock
+client exists yet; one must split the flag (a per-destination switch for the
+automatic point) rather than state `prompt_cache` support.
 
 ## OpenAI Responses
 
@@ -143,9 +149,11 @@ A nonempty `Key` (the caller's, or the session's where allowed) becomes
 `prompt_cache_retention` only when the sure default may fall short, which in
 practice means `"24h"` on listed models before GPT-5.6. Both fields go to
 OpenAI's endpoint, or to another Responses endpoint (such as xAI's) only when
-its ModelInfo states `prompt_cache` support. Usage already decodes
-`cached_tokens` and `cache_write_tokens` (`llm/usage.go`). Chat Completions
-and compatible endpoints get nothing in this slice.
+its ModelInfo states `prompt_cache` support; otherwise `Fit` treats the
+feature as unsupported, so a lifetime is omitted with a warning and the
+snapshot never claims it. Usage already decodes `cached_tokens` and
+`cache_write_tokens` (`llm/usage.go`). Chat Completions and compatible
+endpoints get nothing in this slice.
 
 ## Gemini
 
@@ -212,11 +220,14 @@ Decision 41 makes these rules binding for all features:
   replaced `Snapshot` item in place and appends the new one. Removal broke
   the prefix at the old item: with a per-call value such as the time, every
   cache entry ended in that item, so each call hit only the fixed point and
-  rewrote every message at 1.25x (2x for 1h). The reminder
-  instruction gains "When reminders share a name, the latest is current";
-  `Turn.Context` still returns the latest. Each session turn is projected
-  on its own, so this changes nothing across turns. See [runtime
-  reminders](runtime-reminders.md).
+  rewrote every message at 1.25x (2x for 1h). The reminder instruction
+  gains "When reminders share a name, the latest is current";
+  `Turn.Context` still returns the latest. Session history is the
+  projection of earlier turns, so every replaced copy stays in it until
+  compaction: a snapshot delivered on each call adds one message per call
+  for the life of the session. Cache reads keep each copy cheap, but the
+  context window fills; this growth is what keeps the cross-turn prefix.
+  See [runtime reminders](runtime-reminders.md).
 - **Tools:** the toolset's order, unsorted; built-in toolsets (MCP too) keep
   it stable, checked by a test. Hiding tools in a `BeforeModel` hook, or a
   changed selection, invalidates everything.
