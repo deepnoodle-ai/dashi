@@ -6,7 +6,10 @@ at a safe point: before the next model call, or, when the model has just
 answered, as a reason to ask it again. A steer never lands between a tool
 call and its result, and never stops a running tool.
 [Running turns](running-turns.md) covers the basics. To add context while
-no run is active, use [`Deliver`](#delivering-context).
+no run is active, use [`Deliver`](#delivering-context). A
+[session](sessions.md#steering-and-queued-input) does the inbox work below for
+you: `Session.Steer` reaches its running turn, and missed steers move to its
+queue.
 
 ```go
 inbox := dashi.NewInbox()

@@ -43,6 +43,11 @@ type Session struct {
 	// field here wins over the last user turn's, and Start.Agent wins over
 	// both. It does not change turns already started.
 	Agent Agent
+	// Steering reaches the turns this handle runs. Nil means the handle's
+	// own *Inbox, which Steer and SteerItem send to. A host with its own
+	// durable source sets it and sends through that source; Steer then
+	// works only when the source is an *Inbox.
+	Steering Steering
 	// Exclusive promises that this handle is the only driver of the session
 	// and that earlier drivers have exited, so a turn this handle is not
 	// running has no worker. It proves nothing about effects they started:
@@ -52,6 +57,13 @@ type Session struct {
 	// mu guards everything below. Run holds it while choosing the turn and
 	// building the command, never while a turn runs.
 	mu sync.Mutex
+	// inbox is the handle's own steering source when Steering is nil.
+	inbox *Inbox
+	// queue holds input for the next turn, in order (see Enqueue).
+	queue []*queuedItem
+	// driving is the turn a Start, Continue, or queue turn of this handle
+	// is running, which Steer reaches; empty when none runs.
+	driving string
 	// memory is the recorder used when Runner.Recorder is nil.
 	memory *MemoryRecorder
 	// warnedMemory is set once an outcome carried WarningMemoryOnly.
@@ -154,6 +166,9 @@ type SessionState struct {
 	// when this handle runs it or TurnLiveness reports it live. It is
 	// NextNone for a new session.
 	Next Next
+	// Queued counts the items waiting in this handle's queue, including
+	// those reserved for a turn that is starting.
+	Queued int
 }
 
 // Say returns a Start holding one user text message.
@@ -207,12 +222,18 @@ func (s *Session) Answer(
 // after the idempotency check and the last-turn rules: it returns the
 // earlier result of a retried command ID, refuses with *TurnBusyError while
 // the last turn is busy, and otherwise closes a stopped last turn and
-// starts. Any other command (Continue, Settle, Deliver, Cancel) goes to the
-// last turn. The session sets Start.History and Continue.History to the
+// starts. Queued user input (see Enqueue) goes ahead of the Start's Input.
+// Any other command (Continue, Settle, Deliver, Cancel) goes to the last
+// turn. The session sets Start.History and Continue.History to the
 // projected history of the turns before the target turn, replacing any the
 // caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
-// turns.
+// turns. Every turn gets the handle's steering source (see Steering).
+//
+// When a Start or Continue ends its turn with NextNone and input is
+// queued, the same call runs queue turns until the queue is empty or a
+// turn stops any other way; the result is the last turn's, with the
+// session warnings of the earlier ones.
 //
 // The outcome and error mean what Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
@@ -221,19 +242,26 @@ func (s *Session) Run(
 	c Command,
 	opts ...RunOption,
 ) (Outcome, error) {
+	if err := checkCommand(c); err != nil {
+		return Outcome{}, err
+	}
+	return (&call{s: s, opts: opts}).run(ctx, c)
+}
+
+// checkCommand refuses a nil command and a Start with a reserved key.
+func checkCommand(c Command) error {
 	switch c := c.(type) {
 	case nil:
-		return Outcome{}, errors.New("dashi: command is required")
+		return errors.New("dashi: command is required")
 	case Start:
 		if internalKey(c.CommandID) {
-			return Outcome{}, fmt.Errorf(
+			return fmt.Errorf(
 				"dashi: command ID %q uses a prefix reserved for the session's queue and compaction turns",
 				c.CommandID,
 			)
 		}
-		return s.start(ctx, c, opts)
 	}
-	return s.command(ctx, c, opts)
+	return nil
 }
 
 // Open reads the session's last turn and reports its state. It never runs
@@ -243,8 +271,12 @@ func (s *Session) Run(
 func (s *Session) Open(ctx context.Context) (SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	queued := len(s.queue)
 	if s.ID == "" {
-		return SessionState{Next: NextNone}, nil
+		return SessionState{Next: NextNone, Queued: queued}, nil
+	}
+	if err := s.settleReserved(ctx); err != nil {
+		return SessionState{}, err
 	}
 	last, err := s.findLast(ctx)
 	if err != nil {
@@ -253,8 +285,9 @@ func (s *Session) Open(ctx context.Context) (SessionState, error) {
 	if err := s.checkExists(last); err != nil {
 		return SessionState{}, err
 	}
+	queued = len(s.queue)
 	if last == 0 {
-		return SessionState{Next: NextNone}, nil
+		return SessionState{Next: NextNone, Queued: queued}, nil
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
@@ -262,98 +295,55 @@ func (s *Session) Open(ctx context.Context) (SessionState, error) {
 	}
 	view := t.view
 	return SessionState{
-		Turns: last,
-		Last:  &view,
-		Next:  s.refine(ctx, t).next,
+		Turns:  last,
+		Last:   &view,
+		Next:   s.refine(ctx, t).next,
+		Queued: queued,
 	}, nil
 }
 
-// command routes a command other than Start to the last turn.
-func (s *Session) command(
-	ctx context.Context,
-	c Command,
-	opts []RunOption,
-) (Outcome, error) {
-	s.mu.Lock()
-	n, turn, warnings, err := s.planCommand(ctx, &c)
-	r := s.runner()
-	s.mu.Unlock()
-	if err != nil {
-		return Outcome{}, err
-	}
-	out, err := r.Run(ctx, turn, c, opts...)
-	return s.finish(n, turn.ID, out, err, warnings)
+// commandPlan is a command routed to the last turn.
+type commandPlan struct {
+	n        int
+	turn     Turn
+	warnings []Warning
+	runner   Runner
+	drives   bool
 }
 
 func (s *Session) planCommand(
 	ctx context.Context,
 	c *Command,
-) (int, Turn, []Warning, error) {
+) (commandPlan, error) {
 	if s.ID == "" {
-		return 0, Turn{}, nil, ErrSessionNotFound
+		return commandPlan{}, ErrSessionNotFound
+	}
+	if err := s.settleReserved(ctx); err != nil {
+		return commandPlan{}, err
 	}
 	last, err := s.findLast(ctx)
 	if err != nil {
-		return 0, Turn{}, nil, err
+		return commandPlan{}, err
 	}
 	if err := s.checkExists(last); err != nil {
-		return 0, Turn{}, nil, err
+		return commandPlan{}, err
 	}
 	if last == 0 {
-		return 0, Turn{}, nil, fmt.Errorf("%w: %s", ErrSessionNotFound, s.ID)
+		return commandPlan{}, fmt.Errorf("%w: %s", ErrSessionNotFound, s.ID)
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
-		return 0, Turn{}, nil, err
+		return commandPlan{}, err
 	}
-	var warnings []Warning
+	p := commandPlan{n: last, turn: t.turn, runner: s.runner()}
 	if cont, ok := (*c).(Continue); ok {
-		cont.History, warnings = s.history(ctx, last-1)
+		cont.History, p.warnings = s.history(ctx, last-1)
 		*c = cont
+		p.drives = true
+		s.driving = t.turn.ID
 	}
 	s.running[t.turn.ID]++
-	return last, t.turn, warnings, nil
-}
-
-// start runs a new turn. A Start that loses a race on its turn ID, or a
-// keyed Start that finds its command ID taken, reloads and applies the
-// rules once more.
-func (s *Session) start(
-	ctx context.Context,
-	c Start,
-	opts []RunOption,
-) (Outcome, error) {
-	fresh := c.CommandID == ""
-	if fresh {
-		// A generated key cannot match an earlier turn, so the idempotency
-		// scan is skipped.
-		c.CommandID = NewID()
-	}
-	for attempt := 0; ; attempt++ {
-		s.mu.Lock()
-		p, err := s.planStart(ctx, c, fresh, opts)
-		r := s.runner()
-		s.mu.Unlock()
-		if err != nil || p.done != nil {
-			if p.done != nil {
-				return s.withMemoryWarning(*p.done), err
-			}
-			return Outcome{}, err
-		}
-		out, err := r.Run(ctx, NewTurn(p.id), p.command, opts...)
-		out, err = s.finish(p.n, p.id, out, err, p.warnings)
-		if attempt == 0 && (lostStart(err) || !fresh && takenKey(err)) {
-			continue
-		}
-		// A keyed Start that raced another worker's equal Start to the same
-		// turn gets that turn's outcome from the engine, as a retry. With
-		// no stop recorded, the turn may still be running, so plan again:
-		// the idempotency check then refuses it as a duplicate.
-		if attempt < 2 && !fresh && err == nil && out.Stop.Projected {
-			continue
-		}
-		return out, err
-	}
+	return p, nil
 }
 
 // lostStart reports whether a Start lost a race for its turn: another
@@ -388,6 +378,12 @@ type startPlan struct {
 	id       string
 	command  Start
 	warnings []Warning
+	runner   Runner
+	// reserved holds the queued items the Start carries.
+	reserved *reservation
+	// closing holds the events of the step that closed the last turn, for
+	// Stream.
+	closing []Event
 	// done is the result when no turn runs: a retried command's outcome.
 	done *Outcome
 }
@@ -397,10 +393,14 @@ func (s *Session) planStart(
 	c Start,
 	fresh bool,
 	opts []RunOption,
+	stream bool,
 ) (startPlan, error) {
 	if s.ID == "" {
 		s.ID = NewID()
 		s.created = true
+	}
+	if err := s.settleReserved(ctx); err != nil {
+		return startPlan{}, err
 	}
 	last, err := s.findLast(ctx)
 	if err != nil {
@@ -418,14 +418,15 @@ func (s *Session) planStart(
 	// This handle now makes the session, so New no longer applies to it,
 	// even while its first turn runs.
 	s.created = true
-	var warnings []Warning
+	var p startPlan
 	if last > 0 {
-		closed, err := s.closeLast(ctx, last, opts)
+		closed, events, err := s.closeLast(ctx, last, opts, stream)
+		p.closing = events
 		if err != nil {
-			return startPlan{}, err
+			return p, err
 		}
 		if closed {
-			warnings = append(warnings, Warning{
+			p.warnings = append(p.warnings, Warning{
 				Code: WarningTurnClosed,
 				Message: fmt.Sprintf(
 					"turn %s was closed: %s",
@@ -436,17 +437,19 @@ func (s *Session) planStart(
 		}
 	}
 	history, unreadable := s.history(ctx, last)
-	warnings = append(warnings, unreadable...)
+	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
 	c.Agent = s.agentFor(ctx, c.Agent, last)
-	id := TurnID(s.ID, last+1)
-	s.running[id]++
-	return startPlan{
-		n:        last + 1,
-		id:       id,
-		command:  c,
-		warnings: warnings,
-	}, nil
+	// Queued user input goes first, since the user typed it first. Other
+	// items run as a queue turn afterwards.
+	if items := s.free(fromUser); len(items) > 0 {
+		c.Input = append(itemMessages(items), c.Input...)
+		p.reserved = s.reserve(items, c.CommandID, last+1)
+	}
+	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
+	s.running[p.id]++
+	s.driving = p.id
+	return p, nil
 }
 
 // checkExists applies New: without it a session needs turns, and with it
@@ -513,22 +516,24 @@ func (s *Session) duplicate(
 
 // closeLast applies the last-turn rules to a new Start: it returns an error
 // when the turn is busy, closes a stopped turn that has not ended, and
-// reports whether it closed one.
+// reports whether it closed one. Steers the closed turn never recorded move
+// to the queue. With stream, it returns the closing run's events.
 func (s *Session) closeLast(
 	ctx context.Context,
 	last int,
 	opts []RunOption,
-) (bool, error) {
+	stream bool,
+) (bool, []Event, error) {
 	t, err := s.load(ctx, last)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	r := s.refine(ctx, t)
 	if busy := r.busy(t, s.Exclusive); busy != nil {
-		return false, busy
+		return false, nil, busy
 	}
 	if r.next == NextNone {
-		return false, nil
+		return false, nil, nil
 	}
 	id := t.turn.ID
 	var closing Command = Cancel{CommandID: "close:" + id, Reason: CloseReason}
@@ -543,38 +548,60 @@ func (s *Session) closeLast(
 		cont.History, _ = s.history(ctx, last-1)
 		closing = cont
 	}
-	out, err := s.runner().Run(ctx, t.turn, closing, opts...)
+	var out Outcome
+	var events []Event
+	if stream {
+		// The consumer gets these events after the lock is released.
+		out, events, err = collectRun(ctx, s.runner(), t.turn, closing, opts)
+	} else {
+		out, err = s.runner().Run(ctx, t.turn, closing, opts...)
+	}
 	s.store(last, out.Turn)
 	if err != nil {
-		return false, err
+		return false, events, err
 	}
 	if out.Next() != NextNone {
-		return false, &TurnBusyError{
+		return false, events, &TurnBusyError{
 			TurnID: id,
 			Next:   out.Next(),
 			Origin: out.Origin,
 		}
 	}
-	return true, nil
+	s.moveLeftovers(out.Turn)
+	return true, events, nil
 }
 
-// finish records a command's result in the cache and adds the session's
-// warnings to its outcome.
+// finish records a command's result in the cache, settles the queued items
+// it carried, moves missed steers to the queue when its turn ended, and
+// adds the session's warnings to its outcome. Clearing the running turn and
+// moving missed steers happen under one lock, so a steer is either in the
+// inbox when they move or goes to the queue itself.
 func (s *Session) finish(
+	ctx context.Context,
 	n int,
 	id string,
 	out Outcome,
 	err error,
 	warnings []Warning,
+	reserved *reservation,
 ) (Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running[id]--; s.running[id] <= 0 {
 		delete(s.running, id)
 	}
+	if s.driving == id && s.running[id] == 0 {
+		s.driving = ""
+	}
+	if reserved != nil {
+		err = s.settle(ctx, reserved, err)
+	}
 	if out.Turn.ID == id && len(out.Turn.Steps) > 0 {
 		s.store(n, out.Turn)
 		s.created = true
+	}
+	if err == nil && out.Turn.ID == id && out.Next() == NextNone {
+		s.moveLeftovers(out.Turn)
 	}
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
 	return s.withMemoryWarningLocked(out), err

@@ -52,6 +52,7 @@ func (s *Session) Stream(ctx context.Context, c Command, opts ...RunOption) iter
 func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (Outcome, error)
 func (s *Session) Answer(ctx context.Context, answers []Settle, opts ...RunOption) (Outcome, error)
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error)
+func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
 func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, error)
 func (s *Session) RunQueue(ctx context.Context, opts ...RunOption) (Outcome, bool, error)
@@ -86,7 +87,8 @@ and passes them to each run, so a leasing host gives `WithOwner` and a live UI
 `WithObserver` the one way it gives them elsewhere.
 
 **`RunQueue`** starts the next turn from queued input when the session is idle,
-and reports false when nothing was queued; `delegate.RunUntilQuiet` needs it.
+and reports false, with the last turn's outcome, when it ran nothing;
+`delegate.RunUntilQuiet` needs it.
 
 **Handle lock.** One mutex guards the cache, the inbox claims, the queue, and
 the running set. `Run` and `Stream` hold it only while choosing the turn and
@@ -293,7 +295,9 @@ usual retry arrives while its turn still runs.
    not change it.
 5. A duplicate whose turn may still be running (`NextRunning`, `NextResume`)
    returns `*TurnBusyError{Duplicate: true}` naming it. `Stream` instead follows
-   that turn with `Follow` when the recorder is a `StepReader`.
+   a `NextRunning` turn with `Follow` until its next stop, when the recorder is
+   a `StepReader` and a `Loader`; a `NextResume` turn may have lost its worker,
+   and following it could wait forever, so it refuses.
 6. Two workers racing to `S-(n+1)` with the same key: with different histories,
    the engine's command digest covers `History` and the agent, so the loser gets
    `ErrCommandConflict`; with the same, the engine takes the loser as a retry

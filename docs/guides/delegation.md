@@ -15,24 +15,24 @@ The `delegate` package provides three tools:
 | `task_stop` | Stops a running task. |
 
 A `Tasks` value owns the running children. The host makes one for each
-conversation. The wiring is short:
+conversation, usually a [session](sessions.md). The wiring is short:
 
 ```go
-inbox := dashi.NewInbox()
+s := &dashi.Session{Runner: runner}
 tasks := delegate.NewTasks(delegate.Config{
 	OnTask: func(e delegate.TaskEvent) {
 		if e.Kind == delegate.TaskEnded {
-			inbox.Send(e.Task.Notice().Steer()) // the result reaches the agent
+			s.SteerItem(ctx, e.Task.Notice().Steer()) // the result reaches the agent
 		}
 	},
 })
 defer tasks.Close(ctx)
-runner.Tools = tool.Join(runner.Tools, tasks.Tools())
-out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
+s.Runner.Tools = tool.Join(runner.Tools, tasks.Tools())
+out, err := s.Send(ctx, "Who owns billing, and who is on call for search?")
+out, err = delegate.RunUntilQuiet(ctx, s, tasks) // results that came later
 ```
 
-[`examples/delegate`](../../examples/delegate) is a complete program. It also
-shows the follow-up turn (see "When a result arrives").
+[`examples/delegate`](../../examples/delegate) is a complete program.
 
 A child inherits from the runner that runs the `task` call, at the time of the
 call: the client, recorder, and hooks. It also takes the parent turn's current
@@ -87,26 +87,33 @@ record holds the notice** (the context item `task-done:<child ID>`). A
 `task_status` read is not delivery, so the model that reads a result still
 gets the notice. Two cases:
 
-- **A turn runs.** Send the steer to the turn's `dashi.Inbox`. The next model
-  call sees it. A turn records an ID once, so a repeat cannot double.
-- **No turn runs.** The steer waits in the inbox. Read it with
-  `Inbox.Leftovers(turn)` and split the list with `delegate.IsNotice`: user
-  steers keep the [steering](steering.md) rule, and notices go to a follow-up
-  turn. `delegate.FollowUp(agent, notices)` returns the `Start` for one turn
-  that carries all waiting notices, with the agent you pass, usually the
-  conversation's. `delegate.FollowUpTurnID(notices)` gives its turn ID. Set
-  `History` on the start. The start is scheduled
-  work and claims no user authority. Interactive hosts should raise
-  `Limits.ModelAttempts`.
+- **A turn runs.** `Session.SteerItem` sends the steer to the running turn.
+  The next model call sees it. A turn records an ID once, so a repeat cannot
+  double.
+- **No turn runs.** `SteerItem` queues the notice instead, as
+  `Session.EnqueueItem` does. A notice is not user input, so it never joins
+  the user's next message: it runs as a **queue turn** of its own, with origin
+  `StartScheduled`, which claims no user authority. The queue turn's command ID
+  is `queue:` and the JSON list of the item IDs it carries, and that also
+  counts as delivery. A steer that missed its turn moves to the queue too.
+  Interactive hosts should raise `Limits.ModelAttempts`.
+
+A host that drives turns with `Runner.Run` and its own `dashi.Inbox` can still
+send the steer to the inbox; notices left over when no turn runs need a turn
+of their own, which the session's queue provides.
 
 ## Waiting for results
 
-`tasks.Wait(ctx)` blocks until a task has been reported through `OnTask`
-(it returns false) or nothing is pending (it returns true). A task is pending
-until `OnTask` returns for its end, so a notice that `OnTask` sends is in the
-inbox when `Wait` returns. Loop: read `Leftovers`; run a follow-up turn if a
-notice waits; otherwise call `Wait`; stop when `Wait` returns true and no
-notice waits. One goroutine calls `Wait`.
+`delegate.RunUntilQuiet(ctx, s, tasks)` runs the session's queue and waits
+while tasks run. It returns when no task is pending and the queue is empty,
+with the last turn's outcome, or when a turn stops with anything but
+`NextNone`, which needs the host first. The same `Send` also runs a queue turn
+by itself when a notice arrives before its turn ends.
+
+Underneath, `tasks.Wait(ctx)` blocks until a task has been reported through
+`OnTask` (it returns false) or nothing is pending (it returns true). A task is
+pending until `OnTask` returns for its end, so a notice that `OnTask` puts on
+the session is there when `Wait` returns. One goroutine calls `Wait`.
 
 Cost read while tasks run is a lower bound. It grows until each task ends.
 Read the cost of each task from its `TaskEnded` event.
@@ -115,7 +122,8 @@ Read the cost of each task from its `TaskEnded` event.
 
 `Tasks.Close(ctx)` interrupts the running children and waits for their
 records. It does not call `OnTask`. To reopen, make a new `Tasks` and call
-`Recover(ctx, runner, turns)` with the turns of the conversation:
+`Recover(ctx, runner, turns)` with the turns of the conversation, which a
+session's `s.Turns(ctx)` yields:
 
 | Child record | `Recover` |
 | --- | --- |
@@ -160,7 +168,7 @@ fmt.Println(report.Inclusive.Cost, report.Children.Cost) // maps by currency
 ```
 
 `Spend.Add` keeps `Cost` and `ToolCost` separate, and a resumed child counts
-once. A follow-up turn is an ordinary turn with its own spend.
+once. A queue turn is an ordinary turn with its own spend.
 
 ## Approvals for child tool calls
 

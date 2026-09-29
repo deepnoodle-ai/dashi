@@ -126,6 +126,74 @@ Scheduled and operator turns do not pass their agent on.
 because it could not be loaded or projected. An unreadable last turn is an
 error.
 
-Steering, queued input, streams across turns, and compaction turns come next
-([design](../../design/session-input.md)); until then, pass
-[steering](steering.md) with `WithSteering`.
+## Steering and queued input
+
+A `Start` never guesses whether a new message should steer, queue, or replace
+the running turn; the caller says which.
+
+- **`s.Steer(ctx, text)`** reaches the turn this handle runs at its next
+  model call. `Queued.TurnID` names the turn it reached. With no turn
+  running, the text goes to the queue instead and `TurnID` is empty.
+  `SteerItem` takes a whole `dashi.Steer`: an urgent one, which may cut the
+  model call in flight short, or an item of another origin, such as a
+  [task notice](delegation.md).
+- **`s.Enqueue(ctx, text)`** holds input for the next turn; `EnqueueItem`
+  takes any user-role `ContextItem`. Empty IDs are generated; a repeated ID
+  is an error.
+
+The handle owns an `*Inbox` and passes it to every turn it runs. A host with
+its own durable steering source sets `Session.Steering`; `Steer` then works
+only if that source is an `*Inbox`, and otherwise the host sends through its
+own system.
+
+**Dispatch on idle.** When a `Start` or `Continue` ends its turn with
+`NextNone` and items are queued, the same `Run` or `Stream` call starts a
+**queue turn** from every item, and repeats until the queue is empty or a turn
+stops any other way. `Run` returns the last turn's outcome, with the earlier
+turns' session warnings. When a turn stops without ending, items wait, and
+`SessionState.Queued` counts them. `s.RunQueue(ctx)` runs them on an idle
+session with no new input, and reports false when it ran nothing.
+
+A queue turn has the command ID `queue:` and the sorted item IDs, origin
+`StartUser` when any item came from the user (else `StartScheduled`), and the
+items' messages as its input. A caller's `Start` takes the queued user items
+first, ahead of its own input, since the user typed them first; other items
+run as a queue turn after it.
+
+**Nothing is lost or doubled.** An item stays queued, in its place, until the
+session knows whether the `Start` that carried it recorded its first step.
+When the result is unclear, the session loads the turn to decide, and if the
+load fails the item stays reserved until the next command settles it. A steer
+that misses its turn moves to the queue when the turn ends or a new `Start`
+closes it; while the turn can still be continued, the steer waits for its
+`Continue`.
+
+**In memory only.** The queue lives in the handle. Under a durable recorder,
+every queued item returns a `memory_only` warning in `Queued.Warnings`: a
+server that builds a handle per request loses what it queued. Steer a turn
+another process runs through your own `Session.Steering` source.
+
+## Streams and transcripts
+
+`s.Stream(ctx, command)` is `Run` with events. It yields every turn the call
+runs: the step that closes a stopped last turn, the command's own turn, and
+the queue turns after it. Each event carries its `TurnID`, and each turn ends
+with its own `Outcome` event; the last one is the result. Breaking the range
+interrupts the turn, and no queue turn starts. A retried `Start` whose turn is
+running follows that turn instead, when the recorder can read steps.
+
+```go
+for ev, err := range s.Stream(ctx, dashi.Say(text)) {
+	if err != nil {
+		return err
+	}
+	render(ev.TurnID, ev) // a turn change starts a new block
+}
+```
+
+`s.Turns(ctx)` yields every turn record in order, closed turns included, for
+a transcript; an unreadable turn yields its error and the iteration goes on. A
+turn the session closed has a canceled stop with the reason `CloseReason`.
+`s.History(ctx)` is the conversation: every message of every turn.
+`s.ProjectedHistory(ctx)` is what the next turn sends; the two differ once
+compaction turns arrive ([design](../../design/session-input.md)).
