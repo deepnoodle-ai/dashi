@@ -192,6 +192,46 @@ func TestSessionStreamBreakWriteOnly(t *testing.T) {
 	}
 }
 
+// A Stream consumer that breaks after the turn_started event leaves the
+// handle holding the turn it saw, so a recorder that cannot load turns
+// still continues it, and the next Start takes the next turn ID.
+func TestSessionStreamBreakWriteOnlyContinue(t *testing.T) {
+	mem := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		dashitest.Reply("one"),
+		dashitest.Reply("two"),
+		dashitest.Reply("three"),
+	)
+	s := handle(writeOnly{mem}, client)
+	s.New = true
+	for ev, err := range s.Stream(t.Context(), dashi.Say("hi")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+			break
+		}
+	}
+	if v := load(t, mem, "s-1"); v.Stop.Kind != dashi.StopInterrupted {
+		t.Fatalf("stop=%+v", v.Stop)
+	}
+	out, err := s.Run(t.Context(), dashi.Continue{})
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if out.Turn.ID != "s-1" || out.Next() != dashi.NextNone {
+		t.Fatalf("continue: turn=%s next=%v stop=%+v", out.Turn.ID, out.Next(), out.Stop)
+	}
+	out, err = s.Run(t.Context(), dashi.Say("again"))
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if out.Turn.ID != "s-2" {
+		t.Fatalf("start turn=%s", out.Turn.ID)
+	}
+	requireTurns(t, mem, 2)
+}
+
 // ackLost loses the acknowledgement of turn s-1's start, whose record then
 // cannot be read.
 type ackLost struct {

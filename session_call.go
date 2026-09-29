@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"slices"
 	"sync/atomic"
 )
 
@@ -21,8 +22,10 @@ import (
 // once it stops.
 //
 // Breaking the range ends the context, which records an interruption (or a
-// cancel under ContextCancel), and no further queue turn starts. A second
-// range yields ErrStreamConsumed.
+// cancel under ContextCancel), and no further queue turn starts. The
+// handle keeps the steps the turn committed, so a later Continue resumes it
+// even when the recorder cannot load turns. A second range yields
+// ErrStreamConsumed.
 func (s *Session) Stream(
 	ctx context.Context,
 	c Command,
@@ -251,10 +254,18 @@ func (cl *call) exec(
 			startedBy(&out.Turn.Steps[0], turn.ID, c)
 		return out, err
 	}
+	// A consumer that stops ends the run's context, and the rest of the
+	// run is drained unseen, so the session still learns the steps the
+	// turn committed, up to its interruption, even when the recorder cannot
+	// load them.
+	runCtx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
 	var out Outcome
 	var runErr error
 	have := false
-	for ev, err := range r.Stream(ctx, turn, c, opts...) {
+	seen := turn
+	seen.Steps = slices.Clone(turn.Steps)
+	for ev, err := range r.Stream(runCtx, turn, c, opts...) {
 		if ev.Outcome != nil {
 			out, have, runErr = *ev.Outcome, true, err
 			continue
@@ -266,18 +277,24 @@ func (cl *call) exec(
 		if ev.TurnID == "" {
 			ev.TurnID = turn.ID
 		}
-		if ev.Step != nil && startedBy(ev.Step, turn.ID, c) {
-			cl.started = true
+		if ev.Step != nil {
+			seen.Steps = append(seen.Steps, *ev.Step)
+			if startedBy(ev.Step, turn.ID, c) {
+				cl.started = true
+			}
+		}
+		if cl.stopped {
+			continue
 		}
 		if !cl.yield(ev, nil) {
 			cl.stopped = true
-			break
+			stop(errStreamStopped)
 		}
 	}
 	if !have {
-		// Nothing was recorded, or the consumer stopped the stream: the
-		// turn is as the caller passed it, or must be reloaded.
-		out = Outcome{Turn: turn}
+		// The engine yielded no outcome: the turn holds the committed
+		// steps this call saw, if any.
+		out = Outcome{Turn: seen}
 		if runErr == nil && cl.stopped {
 			runErr = errStreamStopped
 		}
