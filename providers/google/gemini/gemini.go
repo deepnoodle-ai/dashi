@@ -443,6 +443,8 @@ var apiLimits = llm.Capabilities{
 		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureParallelTools:   llm.SupportUnsupported,
 		llm.FeatureReasoningEffort: llm.SupportUnsupported,
+		// Implicit caching has no request field and cannot be turned off.
+		llm.FeaturePromptCache: llm.SupportUnsupported,
 	},
 	MaxTemperature: 2,
 }

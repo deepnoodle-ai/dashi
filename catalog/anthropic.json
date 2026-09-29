@@ -6,7 +6,8 @@
   "destinations": [
     {
       "api": "anthropic.messages",
-      "endpoint": "https://api.anthropic.com/v1/messages"
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "auto_cache": true
     }
   ],
   "models": [
@@ -27,7 +28,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -73,7 +75,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -118,7 +121,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -164,7 +168,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -210,7 +215,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -257,7 +263,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -304,7 +311,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -351,7 +359,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -397,7 +406,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -442,7 +452,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -486,7 +497,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -532,7 +544,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -576,7 +589,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -621,7 +635,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -660,7 +675,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -700,7 +716,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -739,7 +756,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000

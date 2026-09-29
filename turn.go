@@ -150,7 +150,11 @@ type ContextItem struct {
 	// Origin records who supplied the item; empty means ContextUser.
 	Origin  ContextOrigin `json:"origin"`
 	Message llm.Message   `json:"message"`
-	// Snapshot replaces an earlier item with the same name.
+	// Snapshot supersedes an earlier item with the same name: Turn.Context
+	// returns this one. Model requests keep the earlier item in place and
+	// add this one after it, so the prompt prefix and the provider's cache
+	// survive; the reminder instruction tells the model the latest is
+	// current.
 	Snapshot bool `json:"snapshot,omitempty"`
 	// NextCallOnly keeps this item until a later model call shows evidence
 	// of dispatch (a provider response or rejection), then omits it. A call

@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,6 +28,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/outputschema"
@@ -202,6 +205,7 @@ func (p *Client) Prepare(
 	if r.System != "" {
 		body["instructions"] = r.System
 	}
+	p.encodePromptCache(r, body)
 	if len(r.OutputSchema) > 0 {
 		body["text"] = map[string]any{
 			"format": map[string]any{
@@ -327,6 +331,42 @@ func (p *Client) Prepare(
 	}
 	body["input"] = input
 	return p.client.Prepare(requested, r, body, adjustments, changes)
+}
+
+// maxCacheKey is the longest prompt_cache_key OpenAI accepts.
+const maxCacheKey = 64
+
+// encodePromptCache sends the key and, when the model's default lifetime may
+// fall short of TTL, a retention. Both go to OpenAI's endpoint, or to another
+// endpoint whose ModelInfo states prompt cache support; a key is a hint and
+// is dropped silently elsewhere.
+func (p *Client) encodePromptCache(r llm.Input, body map[string]any) {
+	cache := r.Settings.PromptCache
+	info, _ := p.client.ModelInfo(r.Model)
+	if p.client.Endpoint != openAIEndpoint &&
+		info.Capabilities.Features[llm.FeaturePromptCache] != llm.SupportSupported {
+		return
+	}
+	if cache.Key != "" {
+		body["prompt_cache_key"] = wireCacheKey(cache.Key)
+	}
+	// The shortest lifetime is the default, which needs no field. Before
+	// GPT-5.6 the only other one is 24h.
+	offered := info.Capabilities.CacheTTLs
+	if cache.TTL > 0 && len(offered) > 1 &&
+		llm.CacheLifetime(cache.TTL, offered) == 24*time.Hour {
+		body["prompt_cache_retention"] = "24h"
+	}
+}
+
+// wireCacheKey returns key as given, or a deterministic hash when it is too
+// long for the API. The request snapshot's Body records the key sent.
+func wireCacheKey(key string) string {
+	if len(key) <= maxCacheKey {
+		return key
+	}
+	sum := sha256.Sum256([]byte(key))
+	return "dashi-" + hex.EncodeToString(sum[:])[:32]
 }
 
 // apiLimits states what the Responses API accepts from any model. It takes

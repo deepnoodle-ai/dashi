@@ -1,8 +1,11 @@
 package llm
 
 import (
+	"maps"
 	"math"
 	"math/big"
+	"slices"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -24,6 +27,10 @@ func EstimatedInputTokens(request Request) int {
 // call count also cannot be bounded before dispatch. It also returns false
 // when the bound overflows the nano range, so an admission check treats that
 // call as unbounded rather than cheap.
+//
+// A call that may write one-hour cache entries (see writesOneHour) includes
+// Rates.CacheWrite1h among the input rates; without that rate it has no
+// bound.
 //
 // A risk bound rounds up to the nano: Input and Output each round up, and
 // Total rounds up the exact sum of both products once, so Total never exceeds
@@ -108,16 +115,19 @@ func riskBound(request Request, pricing Pricing) (risk, bool) {
 			rates = tier.Rates
 		}
 	}
+	oneHour := writesOneHour(request)
 	inputRate := max(rates.Input, rates.CacheRead, rates.CacheWrite)
 	outputRate := rates.Output
-	for _, modality := range pricing.Modality {
-		inputRate = max(
-			inputRate,
-			modality.Input,
-			modality.CacheRead,
-			modality.CacheWrite,
-		)
-		outputRate = max(outputRate, modality.Output)
+	sets := append([]Rates{rates}, slices.Collect(maps.Values(pricing.Modality))...)
+	for _, set := range sets {
+		inputRate = max(inputRate, set.Input, set.CacheRead, set.CacheWrite)
+		outputRate = max(outputRate, set.Output)
+		if oneHour {
+			if set.CacheWrite1h == nil {
+				return risk{}, false
+			}
+			inputRate = max(inputRate, *set.CacheWrite1h)
+		}
 	}
 	return risk{
 		input:      input,
@@ -125,4 +135,22 @@ func riskBound(request Request, pricing Pricing) (risk, bool) {
 		inputRate:  inputRate,
 		outputRate: outputRate,
 	}, true
+}
+
+// writesOneHour reports whether a prepared call may write one-hour cache
+// entries: its effective lifetime is above the 5-minute default and the
+// model's known lifetimes do not show that the route sends another one, as
+// OpenAI's 24 hours or 30 minutes. With no lifetimes known it assumes one
+// hour, so a bound never falls below the charge.
+func writesOneHour(request Request) bool {
+	snapshot := request.Snapshot()
+	ttl := snapshot.Effective.PromptCache.TTL
+	if ttl <= 5*time.Minute {
+		return false
+	}
+	var offered []time.Duration
+	if info := snapshot.ModelInfo; info != nil {
+		offered = info.Capabilities.CacheTTLs
+	}
+	return len(offered) == 0 || CacheLifetime(ttl, offered) == time.Hour
 }

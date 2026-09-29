@@ -28,8 +28,10 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/providercontent"
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
@@ -179,6 +181,7 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
+	cachePoint, adjustments := p.cachePoint(&r, adjustments)
 	wire.citations = r.Settings.Citations
 	// Fit leaves MaxTokens unset only when the model rejects an output limit
 	// or, under the strict policy, when support for one is unknown.
@@ -280,6 +283,10 @@ func (p *Client) Prepare(
 		)
 	}
 	if len(defs) > 0 {
+		if cachePoint != nil && r.System == "" {
+			// Without system text the fixed cache point covers the tools.
+			defs[len(defs)-1].(map[string]any)["cache_control"] = cachePoint
+		}
 		body["tools"] = defs
 	}
 	if len(mcpServers) > 0 {
@@ -334,7 +341,13 @@ func (p *Client) Prepare(
 	}
 	var system []any
 	if r.System != "" {
-		system = append(system, map[string]any{"type": "text", "text": r.System})
+		block := map[string]any{"type": "text", "text": r.System}
+		if cachePoint != nil {
+			// The fixed cache point covers the tools and the system prompt.
+			// System text hoisted from the history comes after it.
+			block["cache_control"] = cachePoint
+		}
+		system = append(system, block)
 	}
 	var messages []any
 	for _, m := range r.Messages {
@@ -385,7 +398,63 @@ func (p *Client) Prepare(
 		body["system"] = system
 	}
 	body["messages"] = messages
+	if cachePoint != nil {
+		// The automatic cache point: Anthropic places it on the last
+		// cacheable block and moves it forward as the conversation grows.
+		body["cache_control"] = cachePoint
+	}
 	return p.client.Prepare(requested, r, body, adjustments, changes)
+}
+
+// cacheTTLs are the cache lifetimes Messages offers on every current model.
+// The shortest is the default, sent without a ttl field.
+var cacheTTLs = []time.Duration{5 * time.Minute, time.Hour}
+
+// cachePoint returns the cache_control value for both cache points, or nil
+// when the request caches nothing. PromptCache.Disable sends none. A zero
+// TTL caches by default only on a catalog destination marked AutoCache,
+// recorded as a default lifetime; it is skipped where the model rejects a
+// cache request, and under strict policy where its support is unknown. A
+// nonzero TTL is an explicit request, checked like any feature.
+func (p *Client) cachePoint(
+	r *llm.Input,
+	adjustments []llm.Adjustment,
+) (map[string]any, []llm.Adjustment) {
+	cache := &r.Settings.PromptCache
+	if cache.Disable {
+		return nil, adjustments
+	}
+	if cache.TTL == 0 {
+		if !catalog.AutoCache(API, p.client.Endpoint) {
+			return nil, adjustments
+		}
+		info, _ := p.client.ModelInfo(r.Model)
+		switch info.Capabilities.Features[llm.FeaturePromptCache] {
+		case llm.SupportUnsupported:
+			return nil, adjustments
+		case llm.SupportUnknown:
+			if p.client.Policy() == llm.CapabilityStrict {
+				return nil, adjustments
+			}
+		}
+		cache.TTL = cacheTTLs[0]
+		adjustments = append(
+			adjustments,
+			llm.Adjustment{
+				Field:     llm.SettingPromptCacheTTL,
+				Action:    llm.AdjustmentDefault,
+				Requested: json.RawMessage("null"),
+				Effective: json.RawMessage(`"5m"`),
+				Reason: "prompt caching is on by default at this destination; " +
+					"using the default lifetime 5m",
+			},
+		)
+	}
+	point := map[string]any{"type": "ephemeral"}
+	if llm.CacheLifetime(cache.TTL, cacheTTLs) == time.Hour {
+		point["ttl"] = "1h"
+	}
+	return point, adjustments
 }
 
 // limits states what the Messages API accepts from any model, so Fit can
@@ -407,6 +476,7 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		// The thinking budget must stay below max_tokens.
 		MaxReasoningBudget: max(maxTokens-1, 1),
 		MaxTemperature:     1,
+		CacheTTLs:          cacheTTLs,
 		Features: map[llm.Feature]llm.Support{
 			llm.FeatureMaxTokens: llm.SupportSupported,
 		},

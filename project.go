@@ -89,22 +89,10 @@ func projectWithHistory(
 	for _, m := range history {
 		out = append(out, m.Clone())
 	}
-	type position struct {
-		seq   int64
-		index int
-	}
-	latest := map[string]position{}
 	settledHosted := map[string]bool{}
 	for _, step := range t.Steps {
 		if step.Kind == StepHostedApprovalSettled && step.HostedApproval != nil {
 			settledHosted[step.HostedApproval.RequestID] = true
-		}
-		if step.Context != nil {
-			for index, item := range step.Context.Items {
-				if item.Snapshot {
-					latest[contextKey(item)] = position{step.Seq, index}
-				}
-			}
 		}
 	}
 	// A NextCallOnly item expires once a model call that was dispatched
@@ -131,13 +119,11 @@ func projectWithHistory(
 			if step.Context == nil {
 				continue
 			}
-			for index, item := range step.Context.Items {
-				if item.Snapshot && latest[contextKey(item)] != (position{
-					step.Seq,
-					index,
-				}) {
-					continue
-				}
+			// A replaced Snapshot item stays where it was, so the request
+			// keeps its prefix and the provider's prompt cache still
+			// matches; the reminder instruction tells the model that the
+			// latest item of a name is current.
+			for _, item := range step.Context.Items {
 				if item.NextCallOnly && lastDispatched > step.Seq {
 					continue
 				}

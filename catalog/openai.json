@@ -25,7 +25,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -35,6 +36,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -77,7 +81,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -88,6 +93,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -130,7 +138,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -141,6 +150,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -184,7 +196,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -195,6 +208,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -238,7 +254,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -249,6 +266,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -292,7 +312,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -303,6 +324,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -346,7 +370,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -357,6 +382,9 @@
           "high",
           "xhigh",
           "max"
+        ],
+        "cache_ttls": [
+          "30m"
         ]
       },
       "pricing": {
@@ -398,10 +426,14 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 400000
+        "context_window": 400000,
+        "cache_ttls": [
+          "30m"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -431,10 +463,14 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 1050000
+        "context_window": 1050000,
+        "cache_ttls": [
+          "30m"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -475,10 +511,14 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 400000
+        "context_window": 400000,
+        "cache_ttls": [
+          "30m"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -510,7 +550,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -520,7 +561,12 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -562,7 +608,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -570,7 +617,12 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -613,7 +665,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -623,7 +676,12 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -665,7 +723,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -673,7 +732,11 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -715,7 +778,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -725,7 +789,11 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -756,7 +824,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -766,7 +835,11 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -797,7 +870,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -807,7 +881,12 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -837,7 +916,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -845,7 +925,11 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -876,7 +960,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -885,7 +970,12 @@
           "low",
           "medium",
           "high"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -916,7 +1006,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -925,7 +1016,12 @@
           "low",
           "medium",
           "high"
-        ]
+        ],
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -955,13 +1051,18 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 272000,
         "context_window": 400000,
         "reasoning_efforts": [
           "high"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -974,10 +1075,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 400000
+        "context_window": 400000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1007,10 +1113,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
-        "context_window": 400000
+        "context_window": 400000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1041,10 +1152,16 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 32768,
-        "context_window": 1047576
+        "context_window": 1047576,
+        "cache_ttls": [
+          "5m",
+          "24h"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1075,10 +1192,15 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 32768,
-        "context_window": 1047576
+        "context_window": 1047576,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1108,10 +1230,15 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 32768,
-        "context_window": 1047576
+        "context_window": 1047576,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1141,10 +1268,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 16384,
-        "context_window": 128000
+        "context_window": 128000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       },
       "pricing": {
         "currency": "USD",
@@ -1173,10 +1305,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 100000,
-        "context_window": 200000
+        "context_window": 200000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -1188,10 +1325,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 100000,
-        "context_window": 200000
+        "context_window": 200000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -1203,10 +1345,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 100000,
-        "context_window": 200000
+        "context_window": 200000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -1218,10 +1365,15 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 100000,
-        "context_window": 200000
+        "context_window": 200000,
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -1234,7 +1386,8 @@
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 400000,
@@ -1243,7 +1396,11 @@
           "medium",
           "high",
           "xhigh"
-        ]
+        ],
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     },
     {
@@ -1255,8 +1412,13 @@
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
-        }
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
+        },
+        "cache_ttls": [
+          "5m"
+        ],
+        "cache_key_default": true
       }
     }
   ]

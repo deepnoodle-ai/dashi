@@ -643,11 +643,12 @@ func (s *Session) finish(
 	return s.withMemoryWarningLocked(out), err
 }
 
-// runner returns the Runner with the recorder the session uses. The
-// caller holds mu.
+// runner returns the Runner with the recorder the session uses and the
+// session ID as its fallback prompt cache key. The caller holds mu.
 func (s *Session) runner() Runner {
 	r := s.Runner
 	r.Recorder = s.recorder()
+	r.cacheKey = s.ID
 	return r
 }
 

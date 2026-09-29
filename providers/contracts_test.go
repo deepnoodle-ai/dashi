@@ -130,7 +130,9 @@ func TestRequestPreservesRequestedAndEffectiveSettings(t *testing.T) {
 	if r.Settings.MaxTokens != 0 ||
 		prep.Input().Settings.MaxTokens != 0 ||
 		prep.Effective().MaxTokens != llm.DefaultMaxTokens ||
-		len(prep.Adjustments()) != 1 {
+		len(prep.Adjustments()) != 2 ||
+		prep.Adjustments()[1].Field != llm.SettingPromptCacheTTL {
+		// The public Messages endpoint also caches by default.
 		t.Fatal("preparation lost original omission or effective default")
 	}
 	if prep.Snapshot().ModelInfo != nil || !slices.Contains(

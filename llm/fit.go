@@ -169,6 +169,9 @@ func (c Capabilities) Fit(
 		}
 		s.ParallelTools = nil
 	}
+	if err := c.fitPromptCache(&f, &s.PromptCache); err != nil {
+		return Input{}, nil, err
+	}
 	if s.Citations &&
 		c.Features[FeatureCitations] == SupportUnsupported &&
 		hasDocument(r) {
@@ -231,6 +234,8 @@ func (c Capabilities) Intersect(o Capabilities) Capabilities {
 			o.MaxTemperature,
 		),
 		Features: make(map[Feature]Support),
+		// A key default is model evidence; API limits never state it.
+		CacheKeyDefault: c.CacheKeyDefault || o.CacheKeyDefault,
 	}
 	for _, features := range []map[Feature]Support{
 		c.Features,
@@ -245,6 +250,21 @@ func (c Capabilities) Intersect(o Capabilities) Capabilities {
 			case a == SupportSupported && b == SupportSupported:
 				out.Features[f] = SupportSupported
 			}
+		}
+	}
+	switch {
+	case len(c.CacheTTLs) == 0:
+		out.CacheTTLs = slices.Clone(o.CacheTTLs)
+	case len(o.CacheTTLs) == 0:
+		out.CacheTTLs = slices.Clone(c.CacheTTLs)
+	default:
+		for _, ttl := range c.CacheTTLs {
+			if slices.Contains(o.CacheTTLs, ttl) {
+				out.CacheTTLs = append(out.CacheTTLs, ttl)
+			}
+		}
+		if len(out.CacheTTLs) == 0 {
+			out.Features[FeaturePromptCache] = SupportUnsupported
 		}
 	}
 	switch {
@@ -513,6 +533,8 @@ func unsupportedError(model string, f Feature) error {
 	case FeatureReasoningBudget:
 		fix = "use a reasoning effort, remove Reasoning, " +
 			"or use a model with reasoning budgets"
+	case FeaturePromptCache:
+		fix = "remove PromptCache.TTL; the provider's own caching still applies"
 	}
 	return fmt.Errorf(
 		"llm: model %q does not support %s; %s",

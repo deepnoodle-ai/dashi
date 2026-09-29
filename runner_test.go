@@ -1218,7 +1218,7 @@ func TestChangedAgentAndCommandConflict(t *testing.T) {
 	}
 }
 
-func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
+func TestSnapshotContextKeepsReplacedItemInPlace(t *testing.T) {
 	t0 := Turn{ID: "t1"}
 	rec := NewMemoryRecorder()
 	client := &scriptedClient{results: []llm.Result{final("first")}}
@@ -1284,11 +1284,20 @@ func TestSnapshotContextReplacesEarlierItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 2 || !strings.Contains(
-		messages[1].Content[0].Block.Text.Text,
-		"new",
-	) {
+	// The replaced item stays in place so the prompt prefix stays stable;
+	// the new one follows, and the view holds only the latest.
+	if len(messages) != 3 ||
+		messages[1].Content[0].Block.Text.Text != "old" ||
+		messages[2].Content[0].Block.Text.Text != "new" {
 		t.Fatalf("projection=%+v", messages)
+	}
+	view, err := Replay(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, ok := view.Context("operator", "catalog")
+	if !ok || item.Message.Content[0].Block.Text.Text != "new" {
+		t.Fatalf("latest context item = %+v, %v", item, ok)
 	}
 }
 

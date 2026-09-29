@@ -52,6 +52,15 @@ DASHI_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
 This makes three paid calls per provider and checks the recorded steps, replay,
 and duplicate start. Filter `-run` to one provider when needed.
 
+## Prompt caching
+
+`TestLivePromptCache` in `./providers` sends two calls with a long shared
+prefix for Claude (default and one-hour lifetimes) and an OpenAI model, and
+logs usage and the net saving against uncached input. Set `DASHI_LIVE_TEST=1`
+with the keys and models above; `OPENAI_KEY_CHECK_MODEL` (a GPT-5.6 or later
+model) adds the key check, and `DASHI_LIVE_CACHE_PAUSE=6m` measures a call
+after a pause. It has **not been run** as of 2026-09-29.
+
 ## Structured output
 
 ### Native direct-call output
