@@ -249,8 +249,9 @@ func (c *Controller) Interrupt() bool {
 		return false
 	case ModeApproval:
 		// Quitting during a prompt cancels the run. Dashi records the turn
-		// as interrupted, and the call had not started.
-		c.quit = true
+		// as interrupted, and the call had not started. As with
+		// QuitDuringRun, queued prompts get a warning once the run settles.
+		c.quit, c.quitAction = true, "Ctrl-C"
 		if c.cancel != nil {
 			c.cancel()
 		}

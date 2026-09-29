@@ -284,6 +284,41 @@ func TestQuitDuringRunKeepsQueuedPrompt(t *testing.T) {
 	}
 }
 
+// Ctrl-C during an approval prompt cancels the run but keeps a queued
+// prompt: it warns once the run settles, and a second Ctrl-C quits.
+func TestInterruptDuringApprovalKeepsQueuedPrompt(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	h := newHarness(t, callTool("c1", "write_note", `{"text":"one"}`))
+	asked := make(chan struct{})
+	h.ui.answer = func(ctx context.Context, _ ApprovalRequest) (Approval, error) {
+		close(asked)
+		<-ctx.Done()
+		return Approval{}, ctx.Err()
+	}
+	h.app.ctrl.Input("write a note")
+	<-asked
+	if err := h.app.eng.Queue("then this"); err != nil {
+		t.Fatal(err)
+	}
+	if h.app.ctrl.Interrupt() {
+		t.Fatal("Ctrl-C in approval must cancel the run first")
+	}
+	h.app.ctrl.Wait()
+	select {
+	case <-h.ui.quit:
+		t.Fatalf("quit with a queued prompt:\n%s", h.ui.text())
+	default:
+	}
+	mustHave(t, h.ui.text(), "1 queued message will be lost. Repeat Ctrl-C to go ahead.")
+	if n := h.app.eng.Queued(); n != 1 {
+		t.Fatalf("queued=%d", n)
+	}
+	if !h.app.ctrl.Interrupt() {
+		t.Fatal("the repeated Ctrl-C did not quit")
+	}
+}
+
 // With nothing queued, /quit during a run quits once the run settles.
 func TestQuitDuringRunQuits(t *testing.T) {
 	started := make(chan struct{})
