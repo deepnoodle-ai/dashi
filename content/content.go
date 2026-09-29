@@ -5,11 +5,14 @@ package content
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Kind identifies the payload carried by a Block.
@@ -31,8 +34,9 @@ const (
 	KindResource Kind = "resource"
 )
 
-// Source contains exactly one of inline bytes, a URL, a provider file ID, or
-// a provider-managed URI. It never fetches external data. Inline bytes may
+// Source contains exactly one of inline bytes, a URL, a provider file ID, a
+// provider-managed URI, or an application reference. It never fetches external
+// data. Inline bytes may
 // omit MIMEType: every model and media preparation path that sends them
 // detects it with DetectMIMEType on its own copy.
 type Source struct {
@@ -62,13 +66,71 @@ type Source struct {
 	// ExpiresAt reports a known expiration of a remote reference. Inline bytes
 	// do not expire; this does not promise remote acceptance until that instant.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Ref names bytes that the application stores. It requires MIMEType and
+	// excludes every other location, Origin, and ExpiresAt. A recorded turn
+	// keeps only the reference; the runner asks the application's
+	// ContentResolver for the bytes before each model request.
+	Ref *Ref `json:"ref,omitempty"`
+}
+
+// Ref names stored bytes by application ID and proves which bytes it names
+// with a digest and a size. It is not a URL or a path: the ID carries no
+// authority, and only the application's resolver can turn it into bytes. The
+// digest and size let Dashi verify what the resolver returns, so a changed
+// file cannot reach the model unnoticed.
+type Ref struct {
+	// ID is an opaque application identifier.
+	ID string `json:"id"`
+
+	// SHA256 is the lowercase hex digest of the bytes.
+	SHA256 string `json:"sha256"`
+
+	// Size is the byte count of the bytes. It must be positive, like inline
+	// data.
+	Size int64 `json:"size"`
+}
+
+// Validate reports whether r has an ID, a well-formed digest, and a positive
+// size.
+func (r Ref) Validate() error {
+	if r.ID == "" || !utf8.ValidString(r.ID) {
+		return errors.New("content: ref requires a valid UTF-8 ID")
+	}
+	if len(r.SHA256) != 64 || strings.ToLower(r.SHA256) != r.SHA256 {
+		return errors.New("content: ref requires a lowercase hex SHA-256")
+	}
+	if _, err := hex.DecodeString(r.SHA256); err != nil {
+		return errors.New("content: ref requires a lowercase hex SHA-256")
+	}
+	if r.Size <= 0 {
+		return errors.New("content: ref requires a positive size")
+	}
+	return nil
 }
 
 // Validate reports whether s sets exactly one location, with non-empty inline
-// data and a MIME type for a provider URI.
+// data and a MIME type for a provider URI or a reference.
 func (s Source) Validate() error {
-	if count(s.Data != nil, s.URL != "", s.ID != "", s.URI != "") != 1 {
-		return errors.New("content: source requires one of data, URL, ID, or URI")
+	if count(
+		s.Data != nil,
+		s.URL != "",
+		s.ID != "",
+		s.URI != "",
+		s.Ref != nil,
+	) != 1 {
+		return errors.New(
+			"content: source requires one of data, URL, ID, URI, or ref",
+		)
+	}
+	if s.Ref != nil {
+		if s.MIMEType == "" {
+			return errors.New("content: ref requires MIME type")
+		}
+		if s.Origin != (Origin{}) || s.ExpiresAt != nil {
+			return errors.New("content: ref excludes origin and expiry")
+		}
+		return s.Ref.Validate()
 	}
 	if s.Data != nil && len(s.Data) == 0 {
 		return errors.New("content: inline source requires data")
@@ -88,11 +150,15 @@ func (s Source) Validate() error {
 	return nil
 }
 
-// Clone detaches inline bytes and expiry while preserving the location and
-// provenance fields.
+// Clone detaches inline bytes, expiry, and the reference while preserving the
+// location and provenance fields.
 func (s Source) Clone() Source {
 	s.Data = slices.Clone(s.Data)
 	s.ExpiresAt = cloneTime(s.ExpiresAt)
+	if s.Ref != nil {
+		ref := *s.Ref
+		s.Ref = &ref
+	}
 	return s
 }
 
@@ -380,6 +446,23 @@ func (b Block) Validate() error {
 		return nil
 	}
 	return fmt.Errorf("content: invalid %q block", b.Kind)
+}
+
+// Sources returns pointers to the sources that b holds: the image, document,
+// audio, or video source, or none. The pointers alias b's payload, so call
+// Clone first to change a source without changing the original.
+func (b Block) Sources() []*Source {
+	switch {
+	case b.Image != nil:
+		return []*Source{&b.Image.Source}
+	case b.Document != nil:
+		return []*Source{&b.Document.Source}
+	case b.Audio != nil:
+		return []*Source{&b.Audio.Source}
+	case b.Video != nil:
+		return []*Source{&b.Video.Source}
+	}
+	return nil
 }
 
 // Clone returns an independent value, including bytes and citation payloads.

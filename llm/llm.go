@@ -164,6 +164,27 @@ func Block(block content.Block) Content {
 	return Content{Kind: ContentBlock, Block: &block}
 }
 
+// Sources returns pointers to every source in c: a block's source and the
+// sources in blocks of a tool result or hosted result. They alias c's payload,
+// so call Clone first to change a source without changing the original.
+func (c Content) Sources() []*content.Source {
+	var out []*content.Source
+	var blocks []content.Block
+	if c.Block != nil {
+		blocks = append(blocks, *c.Block)
+	}
+	if c.ToolResult != nil {
+		blocks = append(blocks, c.ToolResult.Output.Content...)
+	}
+	if c.HostedResult != nil {
+		blocks = append(blocks, c.HostedResult.Output...)
+	}
+	for _, b := range blocks {
+		out = append(out, b.Sources()...)
+	}
+	return out
+}
+
 // Validate checks a recordable content value with exactly one matching payload.
 // Partial provider data is valid here; Input.Validate prohibits its replay.
 func (c Content) Validate() error {

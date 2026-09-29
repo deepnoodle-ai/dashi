@@ -30,6 +30,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
   model, and starting a skill by name.
 - [Compaction](compaction.md): shortening a long history with a recorded
   summary.
+- [Attachments](attachments.md): stored files by reference, and `@file`
+  mentions for terminal front ends.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 

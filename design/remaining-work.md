@@ -206,12 +206,14 @@ record (item 14).
 
 ### 16. Turn-owned attachment references
 
-**Status:** Open. Prior history is no longer copied into each Turn, but bytes in a
-Turn's own input or tool result still enter its record. **Size:** M.
-**Difficulty:** High. **Reference:** [decision 19](decisions.md) and
-[history storage](history-storage.md). **Next:** Design an application-owned
-reference and resolver with digest, lifetime, and authorization recheck at
-Prepare; never fetch a private resource implicitly.
+**Status:** First slice ready for review, on two branches. Part B,
+`content/mention`, turns `@file` mentions and image or PDF paths into content.
+Part A adds `content.Ref`, `Runner.ContentResolver`, and `Runner.ContentLimits`:
+the record holds an ID, digest, and size, and the runner verifies resolved
+bytes before every model request. **Size:** M. **Difficulty:** High.
+**Reference:** [decision 19](decisions.md), [history storage](history-storage.md),
+and the [guide](../docs/guides/attachments.md). **Next:** Store CLI attachments
+by reference; resume after restored bytes; signed-URL results.
 
 **Packet:** [source research](roadmap-research/16-attachment-references-research.md) · [draft PRD](roadmap-research/16-attachment-references-prd.md).
 

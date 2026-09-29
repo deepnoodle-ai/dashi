@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Revised after independent review, 2026-09-28 |
+| Status | Implemented, 2026-09-28: PR 1 (Part B) and PR 2 (Part A) |
 | Roadmap | [Item 16](../remaining-work.md), size M / high difficulty, plus the CLI attachment helper |
 | Evidence | [Source review](16-attachment-references-research.md), [history storage](../history-storage.md), Dive CLI `attachments.go` |
 | Demo | Wednesday 2026-09-30. PR 1 (Part B) ships by Tuesday night. PR 2 (Part A) follows on its own branch. |
@@ -173,6 +173,8 @@ Rules:
     - The duplicate `scanWords` comment is deleted (accepted).
     - A warning prints sizes with up to two decimals, rounded up, so a file that is over the limit never prints as equal to it (accepted).
     - `design/history-storage.md` changed in PR 1 (commit 02161a1), not in PR 2. The PR 1 description says so.
+
+12. **Implementation calls (2026-09-28).** A `Ref` needs a positive `Size`, like inline data. `llm.NewRequest` rejects an input that still holds a `Ref`, so no provider can send an unresolved reference. The stop reason reads `content reference "ID": cause` and omits the resolver's error text. Mention labels are `[file: path]` and `[image: path]`. Size limits use binary units (1 MB is 1 MiB) and print as MB and KB. A skipped mention prints the text as typed, for example `@big.png`.
 
 ## Delivery
 

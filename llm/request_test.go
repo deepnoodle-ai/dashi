@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -176,5 +177,39 @@ func TestNewRequestValidatesAndOwnsContentChanges(t *testing.T) {
 				t.Fatal("content decisions share mutable storage")
 			}
 		})
+	}
+}
+
+func TestNewRequestRejectsUnresolvedContentReference(t *testing.T) {
+	ref := content.Ref{
+		ID:     "upl_1",
+		SHA256: strings.Repeat("a", 64),
+		Size:   3,
+	}
+	input := Input{
+		Model: "m",
+		Messages: []Message{UserMessage(Image(content.Source{
+			Ref:      &ref,
+			MIMEType: "image/png",
+		}))},
+	}
+	if !input.HasRef() {
+		t.Fatal("HasRef missed the reference")
+	}
+
+	_, err := NewRequest(RequestSnapshot{
+		Origin: content.Origin{
+			Provider: "p",
+			API:      "a",
+			Model:    "m",
+			Scope:    "s",
+		},
+		Input:     input,
+		Effective: input.Settings,
+		Body:      []byte(`{}`),
+	})
+
+	if err == nil {
+		t.Fatal("a request with an unresolved reference was accepted")
 	}
 }
