@@ -141,6 +141,41 @@ func TestLineModeApprovalReadsAnswerLine(t *testing.T) {
 	}
 }
 
+func TestPipedInputAnswersApprovals(t *testing.T) {
+	for _, tt := range []struct {
+		answer string
+		runs   int64
+	}{{"y", 1}, {"n", 0}} {
+		t.Run(tt.answer, func(t *testing.T) {
+			var runs atomicCounter
+			withNoteTool(t, &runs)
+			cfg := testConfig(t,
+				callTool("c1", "write_note", `{"text":"x"}`),
+				say("Noted."),
+			)
+			var out bytes.Buffer
+			ui := newLineUI(&out)
+			a, err := buildApp(t.Context(), cfg, ui)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.eng.Close()
+			ui.ctrl = a.ctrl
+			if _, err := a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+				t.Fatal(err)
+			}
+			ui.SetLive()
+			in := strings.NewReader("write a note\n" + tt.answer + "\n")
+			if err := ui.serveLines(in, true); err != nil {
+				t.Fatal(err)
+			}
+			if got := int64(runs.Load()); got != tt.runs {
+				t.Fatalf("runs=%d output:\n%s", got, out.String())
+			}
+		})
+	}
+}
+
 func safeString(b *bytes.Buffer, ui *lineUI) string {
 	ui.mu.Lock()
 	defer ui.mu.Unlock()

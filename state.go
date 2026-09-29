@@ -1289,6 +1289,15 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 		if raise != nil {
 			budget = raise
 		}
+		spent := s.ModelAttempts >= max(s.attemptCap, attempts)
+		switch limit.Kind {
+		case LimitCost, LimitOutputTokens, LimitTotalTokens:
+			// A budget raise alone cannot run pending tools when no model
+			// call is left to read their results.
+			if spent && s.Output == nil {
+				return false
+			}
+		}
 		switch limit.Kind {
 		case LimitModelAttempts:
 			if s.ModelAttempts >= max(s.attemptCap, attempts) {

@@ -85,8 +85,17 @@ func (e *Engine) SetModel(name string) {
 }
 
 // Open makes s the open session and locks it. It returns session.ErrBusy when
-// another process holds s. The previous session, if any, is released first.
+// another process holds s. Opening the session that is already open does
+// nothing. The previous session, if any, is released first.
 func (e *Engine) Open(s *session.Session) error {
+	e.mu.Lock()
+	same := e.sess != nil && e.sess.ID == s.ID
+	e.mu.Unlock()
+	if same {
+		// This process holds the lock already. The open session is
+		// current, so there is nothing to reload.
+		return nil
+	}
 	unlock, err := e.cfg.Store.Lock(s)
 	if err != nil {
 		return err
@@ -165,7 +174,12 @@ func (l *LastTurn) LimitStopped() bool {
 	if l == nil {
 		return false
 	}
-	s := l.View.Stop
+	return limitStop(l.View.Stop)
+}
+
+// limitStop reports whether s is a model-call limit stop that Continue can
+// raise.
+func limitStop(s dashi.Stop) bool {
 	return s.Kind == dashi.StopLimited && s.Limit != nil &&
 		s.Limit.Kind == dashi.LimitModelAttempts && !s.Terminal
 }
@@ -203,6 +217,7 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 	if s == nil {
 		return nil
 	}
+	diffs := e.cfg.Store.Diffs(s)
 	var out []Block
 	for i, id := range s.Turns {
 		turn, err := rec.Load(ctx, id)
@@ -210,7 +225,7 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 			out = append(out, warnBlock("Turn %d skipped: %v.", i+1, err))
 			continue
 		}
-		blocks, err := RenderTurn(i+1, s.Model, e.cfg.Dir, turn)
+		blocks, err := RenderTurn(i+1, s.Model, e.cfg.Dir, turn, diffs[id])
 		if err != nil {
 			out = append(out, warnBlock("Turn %d skipped: %v.", i+1, err))
 			continue
@@ -394,6 +409,8 @@ func (e *Engine) run(
 		if ev.Step != nil && ev.Step.Kind == dashi.StepToolSettled &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
 			if b, ok := gitDiffBlock(ctx, e.cfg.Dir, ev.Step.Seq); ok {
+				b.ID = diffID(turn.ID, ev.Step.Seq)
+				e.saveDiff(turn.ID, ev.Step.Seq, b.Lines)
 				e.cfg.Emit(b)
 			}
 		}
@@ -413,6 +430,20 @@ func (e *Engine) run(
 				Kind: KindNotice,
 				Text: fmt.Sprintf(
 					"%d queued %s kept for the next turn.", n, plural(n, "steer")),
+				Done: true,
+			})
+		}
+		return res, runErr
+	}
+	if limitStop(out.Stop) {
+		// The turn can go on, so the steers that missed it stay in the
+		// inbox for its continuation.
+		if n := e.queuedSteers(out.Turn.ID); n > 0 {
+			e.cfg.Emit(Block{
+				Kind: KindNotice,
+				Text: fmt.Sprintf(
+					"%d queued %s will reach the turn when it continues.",
+					n, plural(n, "steer")),
 				Done: true,
 			})
 		}
@@ -494,12 +525,31 @@ func gitDiffBlock(ctx context.Context, dir string, seq int64) (Block, bool) {
 		lines = append(lines[:maxDiffLines],
 			fmt.Sprintf("... %d more lines", hidden))
 	}
+	return diffBlock("", seq, lines), true
+}
+
+func diffID(turnID string, seq int64) string {
+	return fmt.Sprintf("diff:%s:%d", turnID, seq)
+}
+
+func diffBlock(turnID string, seq int64, lines []string) Block {
 	return Block{
-		ID:    fmt.Sprintf("diff:%d", seq),
+		ID:    diffID(turnID, seq),
 		Kind:  KindDiff,
 		Lines: lines,
 		Done:  true,
-	}, true
+	}
+}
+
+// saveDiff keeps a shown diff, so a reopened session shows it again.
+func (e *Engine) saveDiff(turnID string, seq int64, lines []string) {
+	s := e.Session()
+	err := e.cfg.Store.AppendDiff(s, session.Diff{
+		Turn: turnID, Seq: seq, Lines: lines,
+	})
+	if err != nil {
+		e.warn("The diff was not saved: %v.", err)
+	}
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {

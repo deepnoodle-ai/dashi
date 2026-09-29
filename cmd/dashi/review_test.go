@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -229,5 +231,72 @@ func TestNewPromptAfterLimitStopCancelsIt(t *testing.T) {
 	mustHave(t, h.ui.text(), "Fresh.")
 	if strings.Contains(h.ui.text(), "warning") {
 		t.Fatalf("warning:\n%s", h.ui.text())
+	}
+}
+
+// A steer that misses the last permitted model call stays for the same
+// turn. Enter continues that turn and delivers it.
+func TestMissedSteerKeepsLimitStoppedTurn(t *testing.T) {
+	var h *harness
+	steerLate := func(ctx context.Context, call llm.Call) (llm.Result, error) {
+		h.app.ctrl.Input("also check b.txt")
+		return say("Half done.")(ctx, call)
+	}
+	h = newHarnessLimit(t, 3,
+		callTool("c1", "list_directory", `{}`),
+		callTool("c2", "list_directory", `{}`),
+		steerLate,
+		say("All done."),
+	)
+	h.input("do a lot")
+	if !h.app.eng.Last(t.Context()).LimitStopped() {
+		t.Fatalf("the turn is not limit-stopped:\n%s", h.ui.text())
+	}
+	if n := len(h.app.eng.Session().Turns); n != 1 {
+		t.Fatalf("turns=%d, the steer became a new turn", n)
+	}
+	h.input("")
+	mustHave(t, h.ui.text(), "steer delivered: also check b.txt")
+	mustHave(t, h.ui.text(), "All done.")
+	if n := len(h.app.eng.Session().Turns); n != 1 {
+		t.Fatalf("turns=%d", n)
+	}
+}
+
+// Selecting the open session from /sessions reopens it. The process holds
+// its lock already.
+func TestSelectingTheOpenSessionReopensIt(t *testing.T) {
+	h := newHarness(t, say("First answer."))
+	h.input("hello")
+	id := h.app.eng.Session().ID
+	h.ui.resets = 0
+	h.app.ctrl.openSession(id)
+	if strings.Contains(h.ui.text(), "in use") ||
+		strings.Contains(h.ui.text(), "warning") {
+		t.Fatalf("reopening failed:\n%s", h.ui.text())
+	}
+	if h.app.eng.Session().ID != id || h.ui.resets != 1 {
+		t.Fatalf("session=%s resets=%d", h.app.eng.Session().ID, h.ui.resets)
+	}
+	mustHave(t, h.ui.text(), "First answer.")
+}
+
+// Line mode shows a settled answer that differs from the streamed text.
+func TestLineModeShowsCorrectedAnswer(t *testing.T) {
+	var out bytes.Buffer
+	u := newLineUI(&out)
+	u.Emit(Block{ID: "a", Kind: KindAssistant, Text: "The sky is red."})
+	u.Emit(Block{ID: "a", Kind: KindAssistant, Text: "The sky is blue.", Done: true})
+	got := out.String()
+	if !strings.Contains(got, "[Corrected answer]\nThe sky is blue.") {
+		t.Fatalf("output:\n%s", got)
+	}
+	// An append is still printed as a stream.
+	out.Reset()
+	u = newLineUI(&out)
+	u.Emit(Block{ID: "b", Kind: KindAssistant, Text: "Hel"})
+	u.Emit(Block{ID: "b", Kind: KindAssistant, Text: "Hello", Done: true})
+	if out.String() != "Hello" {
+		t.Fatalf("output %q", out.String())
 	}
 }

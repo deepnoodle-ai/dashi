@@ -16,7 +16,7 @@ type lineUI struct {
 	out io.Writer
 
 	mu      sync.Mutex
-	printed map[string]int
+	printed map[string]string
 	midLine bool
 	// live is true once the scrollback is shown. The user typed the lines
 	// of a live run, so the terminal has echoed them already.
@@ -29,7 +29,7 @@ type lineUI struct {
 func newLineUI(out io.Writer) *lineUI {
 	return &lineUI{
 		out:     out,
-		printed: map[string]int{},
+		printed: map[string]string{},
 		quit:    make(chan struct{}),
 	}
 }
@@ -44,14 +44,24 @@ func (u *lineUI) Emit(b Block) {
 		}
 	case KindAssistant:
 		prev := u.printed[b.ID]
-		if prev > len(b.Text) {
-			prev = 0
-		}
-		if prev == len(b.Text) {
+		switch {
+		case b.Text == prev:
 			return
+		case strings.HasPrefix(b.Text, prev):
+			fmt.Fprint(u.out, b.Text[len(prev):])
+		case !b.Done:
+			// A partial text that differs from the printed text waits for
+			// the settled text.
+			return
+		default:
+			// The settled answer is not what streamed. Show it whole.
+			if u.midLine {
+				fmt.Fprintln(u.out)
+			}
+			fmt.Fprintln(u.out, "[Corrected answer]")
+			fmt.Fprint(u.out, b.Text)
 		}
-		fmt.Fprint(u.out, b.Text[prev:])
-		u.printed[b.ID] = len(b.Text)
+		u.printed[b.ID] = b.Text
 		u.midLine = !strings.HasSuffix(b.Text, "\n")
 		return
 	case KindTool:
@@ -77,7 +87,7 @@ func (u *lineUI) SetLive() {
 func (u *lineUI) Reset() {
 	u.mu.Lock()
 	u.live = false
-	u.printed = map[string]int{}
+	u.printed = map[string]string{}
 	u.mu.Unlock()
 }
 
@@ -145,7 +155,8 @@ func (u *lineUI) Quit() {
 // serveLines reads lines from in and gives each to the controller, until in
 // ends or the UI quits. It waits for running work before it returns. With
 // sequential set, it waits for each line's work before it reads the next, so
-// a script piped into dashi does not steer its own turns.
+// a script piped into dashi does not steer its own turns. A run that waits
+// for an approval answer does not count as work: the next line is the answer.
 func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 	lines := make(chan string)
 	errc := make(chan error, 1)
@@ -167,7 +178,8 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 			}
 			u.ctrl.Input(line)
 			if sequential {
-				u.ctrl.Wait()
+				// A run that waits for approval needs the next line.
+				u.ctrl.WaitForInput()
 			}
 		case <-u.quit:
 			u.ctrl.Wait()

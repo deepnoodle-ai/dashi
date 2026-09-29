@@ -968,7 +968,9 @@ func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}
-	if s.finalAnswerOnly {
+	// The reserved final call ends at the model-call limit. After Continue
+	// raises the limit, a recorded answer completes the turn.
+	if s.finalAnswerOnly && s.attemptCap <= s.ModelAttempts {
 		return r.stop(StopLimited, "model_attempts")
 	}
 	return r.stop(StopCompleted, "")

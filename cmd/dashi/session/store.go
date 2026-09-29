@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -267,4 +268,55 @@ func (st *Store) HistoryBefore(
 // Root returns the directory that holds the sessions.
 func (st *Store) Root() string {
 	return st.root
+}
+
+// Diff is the change list shown after a shell call. The turn record does not
+// hold it, so the session keeps it beside the turns, to show again when the
+// session reopens.
+type Diff struct {
+	Turn string `json:"turn"`
+	// Seq is the sequence number of the step that settled the shell call.
+	Seq   int64    `json:"seq"`
+	Lines []string `json:"lines"`
+}
+
+// AppendDiff adds d to the diff log of s.
+func (st *Store) AppendDiff(s *Session, d Diff) error {
+	dir := filepath.Join(st.root, s.ID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "diffs.jsonl"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(append(data, '\n'))
+	return errors.Join(werr, f.Close())
+}
+
+// Diffs returns the saved diffs of s, keyed by turn ID and then by step
+// sequence number. A missing log gives an empty result, and a damaged line is
+// skipped.
+func (st *Store) Diffs(s *Session) map[string]map[int64][]string {
+	out := map[string]map[int64][]string{}
+	data, err := os.ReadFile(filepath.Join(st.root, s.ID, "diffs.jsonl"))
+	if err != nil {
+		return out
+	}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		var d Diff
+		if json.Unmarshal(line, &d) != nil || d.Turn == "" {
+			continue
+		}
+		if out[d.Turn] == nil {
+			out[d.Turn] = map[int64][]string{}
+		}
+		out[d.Turn][d.Seq] = d.Lines
+	}
+	return out
 }

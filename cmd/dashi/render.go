@@ -382,8 +382,14 @@ func costText(sp dashi.Spend) string {
 }
 
 // RenderTurn returns every block of a recorded turn, in order, ending with
-// its footer when the turn has ended.
-func RenderTurn(n int, model, dir string, turn dashi.Turn) ([]Block, error) {
+// its footer when the turn has ended. diffs holds the saved diffs of the
+// turn by step sequence number. Each one shows after its step.
+func RenderTurn(
+	n int,
+	model, dir string,
+	turn dashi.Turn,
+	diffs map[int64][]string,
+) ([]Block, error) {
 	view, err := dashi.Replay(turn)
 	if err != nil {
 		return nil, err
@@ -397,6 +403,9 @@ func RenderTurn(n int, model, dir string, turn dashi.Turn) ([]Block, error) {
 			Seq:    step.Seq,
 			Step:   &step,
 		})...)
+		if lines, ok := diffs[step.Seq]; ok {
+			out = append(out, diffBlock(turn.ID, step.Seq, lines))
+		}
 	}
 	if view.Stop.Kind != "" {
 		out = append(out, r.Footer(view))

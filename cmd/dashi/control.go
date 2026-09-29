@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
@@ -110,6 +111,28 @@ func (c *Controller) setMode(m Mode) {
 // Wait blocks until every background action ends.
 func (c *Controller) Wait() {
 	c.wg.Wait()
+}
+
+// WaitForInput blocks until every background action ends or a run waits for
+// an approval answer. Then the next input line is wanted.
+func (c *Controller) WaitForInput() {
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	tick := time.NewTicker(2 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+			if c.Mode() == ModeApproval {
+				return
+			}
+		}
+	}
 }
 
 // Approve is the ApprovalFunc the wiring uses. It marks the approval mode

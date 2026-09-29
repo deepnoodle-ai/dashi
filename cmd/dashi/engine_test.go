@@ -404,6 +404,22 @@ func TestDiffShownAfterBash(t *testing.T) {
 		!strings.Contains(text, "+new") {
 		t.Fatalf("diff block=%q", text)
 	}
+
+	// The diff shows again after a reopen.
+	h.app.eng.Close()
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	h.app.ctrl.Open()
+	found := false
+	for _, b := range h.ui.blocks() {
+		if b.Kind == KindDiff &&
+			strings.Contains(strings.Join(b.Lines, "\n"), "+new") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the reopened scrollback lacks the diff:\n%s", h.ui.text())
+	}
 }
 
 func TestDiffIsCappedAt40Lines(t *testing.T) {
