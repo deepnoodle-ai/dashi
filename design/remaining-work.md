@@ -232,9 +232,9 @@ replacement history, which every reader honors. `compaction.Compactor`
 implements `dashi.Compactor` and makes no model call; `Compact`, `Project`, and
 `Record` stay for hosts that drive the engine directly. `examples/compaction`
 runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
-[guide](../docs/guides/compaction.md), [spec](session-input.md#compaction-turns),
-[history storage](history-storage.md), and [runtime
-reminders](runtime-reminders.md). **Next:** the CLI wires the 80% check and
+[guide](../docs/guides/compaction.md),
+[spec](session-input.md#compaction-turns), [history
+storage](history-storage.md), and [runtime reminders](runtime-reminders.md). **Next:** the CLI wires the 80% check and
 `/compact` through the session (a follow-up issue; a manual compaction needs a
 session call to request one). Later: compaction inside a turn (its own note,
 needed by the CLI for long turns) and compact-and-retry on overflow.
