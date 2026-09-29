@@ -1,9 +1,10 @@
 # Roadmap status
 
-Status snapshot: 2026-09-28, through PR #68. Hooks and live delivery have
-landed; see their [design](hooks.md) and [design](live-delivery.md). Steering
-parts 1–3 have landed; see its [PRD](steering.md). This inventory covers other gaps against Dive
-and the temporary framework survey in `tmp/research/comparison/README.md`.
+Status snapshot: 2026-09-28, through PR #68. Hooks, live delivery, and
+steering parts 1–3 have landed; see their [design](hooks.md),
+[design](live-delivery.md), and [PRD](steering.md). This inventory covers other
+gaps against Dive and the temporary framework survey in
+`tmp/research/comparison/README.md`.
 The older [gap reports](gap-analysis.md) describe discovery-time code. A
 delivered first slice does not imply every provider route is qualified.
 
