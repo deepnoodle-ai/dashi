@@ -35,6 +35,9 @@ other.
 - `providers/google/gemini`: Gemini API and Vertex GenerateContent via Google's
   Go SDK. This is a separate module; add it with
   `go get github.com/deepnoodle-ai/dashi/providers/google/gemini`.
+- `mcp`: Tools from local and remote MCP servers as a `tool.Toolset`, with
+  approval for project servers. This is a separate module; add it with
+  `go get github.com/deepnoodle-ai/dashi/mcp`. See [MCP](mcp.md).
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.
 - `providers/deepinfra`, `mistral`, `openrouter`: configured Chat Completions
   destinations.
