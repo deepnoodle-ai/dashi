@@ -232,7 +232,9 @@ give a worker `write`. Either way the task tools are removed and `ReadOnly`
 applies. `Recover` and resume no longer set `runner.Agent`:
 `Continue` uses the recorded agent, and the child's recorded `Agent.Tools`,
 with the parent turn's recorded selection, picks the rule, so a later change
-to the subagent cannot widen a resumed child's tools. `FollowUp(agent, notices)` takes the agent
+to the subagent cannot widen a resumed child's tools. `ReadOnly` is recorded
+in the child Start's command ID (`<child ID>/start/read-only`) for the same
+reason. `FollowUp(agent, notices)` takes the agent
 as a required argument, so a host cannot run a follow-up with the defaults by
 omission.
 

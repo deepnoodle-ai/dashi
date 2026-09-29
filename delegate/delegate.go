@@ -64,7 +64,8 @@ type Subagent struct {
 	Agent dashi.Agent
 	// ReadOnly limits the child to tools annotated read-only. It applies
 	// with Agent.Tools. A tool without the annotation is excluded, because
-	// an unknown effect is not a safe one.
+	// an unknown effect is not a safe one. The child's record keeps the
+	// value, so a resumed child keeps the limit it started with.
 	ReadOnly bool
 }
 

@@ -430,7 +430,9 @@ func (ts *Tasks) register(
 	// Continue runs with the agent the child recorded, and its tools follow
 	// that record too, so a change to the subagent since then does not reach
 	// it. startTask does the same.
-	runner := ts.childRunner(sub, ref, parent, parentAgent, view.Agent, t)
+	runner := ts.childRunner(
+		sub, ref, parent, parentAgent, view.Agent, readOnlyAtStart(child), t,
+	)
 	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
@@ -748,7 +750,9 @@ func (ts *Tasks) startTask(
 ) (TaskView, error) {
 	t := newTask(sub, ref, args.Description)
 	agent := childAgent(sub, parentAgent)
-	runner := ts.childRunner(sub, ref, parent, parentAgent, agent, t)
+	runner := ts.childRunner(
+		sub, ref, parent, parentAgent, agent, sub.ReadOnly, t,
+	)
 	if !loads(runner.Recorder) {
 		ts.warnNoLoader()
 	}
@@ -787,7 +791,7 @@ func (ts *Tasks) startTask(
 	switch {
 	case !found:
 		start := dashi.Start{
-			CommandID: t.childID + "/start",
+			CommandID: startCommandID(t.childID, sub.ReadOnly),
 			Agent:     agent,
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
@@ -796,7 +800,7 @@ func (ts *Tasks) startTask(
 	case t.resumable(saved):
 		t.steps = slices.Clone(saved.Steps)
 		runner.Tools = childTools(
-			parent.Tools, parentAgent, view.Agent, sub.ReadOnly,
+			parent.Tools, parentAgent, view.Agent, readOnlyAtStart(saved),
 		)
 		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
 	default:
@@ -854,7 +858,8 @@ func childAgent(sub Subagent, parent dashi.Agent) dashi.Agent {
 
 // childTools returns the child's view of the parent's tools. Whether the
 // child's tools are named comes from child, the agent the child starts or
-// started with, never from the current Subagent: a child recorded with no
+// started with, and readOnly from its Start too, never from the current
+// Subagent: a child recorded with no
 // names stays inside the parent agent's selection after the host names tools
 // for the subagent.
 func childTools(
@@ -871,16 +876,36 @@ func childTools(
 	}
 }
 
+// startCommandID is the CommandID of a child's Start. It records whether the
+// subagent was read-only when the child started, so a resumed child keeps
+// that limit after the host changes the subagent (see readOnlyAtStart).
+func startCommandID(childID string, readOnly bool) string {
+	if readOnly {
+		return childID + readOnlyStartSuffix
+	}
+	return childID + "/start"
+}
+
+const readOnlyStartSuffix = "/start/read-only"
+
+// readOnlyAtStart reports whether child started as a read-only subagent,
+// from the CommandID of its Start step.
+func readOnlyAtStart(child dashi.Turn) bool {
+	return len(child.Steps) > 0 &&
+		strings.HasSuffix(child.Steps[0].CommandID, readOnlyStartSuffix)
+}
+
 // childRunner builds the runner for one child. It starts from the runner that
 // runs the task call, applies the host's overrides, and replaces the tools
-// with the child's view of them (see childTools). child is the agent the
-// child starts with or recorded.
+// with the child's view of them (see childTools). child and readOnly are the
+// agent and read-only limit the child starts with or recorded.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
 	parent dashi.Runner,
 	parentAgent dashi.Agent,
 	child dashi.Agent,
+	readOnly bool,
 	t *task,
 ) dashi.Runner {
 	over := ts.cfg.Runner
@@ -894,7 +919,7 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
-	runner.Tools = childTools(parent.Tools, parentAgent, child, sub.ReadOnly)
+	runner.Tools = childTools(parent.Tools, parentAgent, child, readOnly)
 	template := over.Observer
 	onChild := ts.cfg.OnChild
 	runner.Observer = func(e dashi.Event) {

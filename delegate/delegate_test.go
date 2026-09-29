@@ -2111,6 +2111,49 @@ func TestRecoverKeepsTheToolsTheChildStartedWith(t *testing.T) {
 	}
 }
 
+// TestRecoverKeepsReadOnly checks that a child started for a read-only
+// subagent stays read-only after the host drops ReadOnly and the child
+// resumes.
+func TestRecoverKeepsReadOnly(t *testing.T) {
+	g := newGate()
+	sub := scout()
+	sub.ReadOnly = true
+	cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+	h := newHarness(t, scripted(gated(g, "x")), cfg, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+
+	h.cfg.Subagents = []delegate.Subagent{scout()}
+	var calls atomic.Int32
+	h.client.handle = scripted(func(context.Context, llm.Input) (llm.Result, error) {
+		if calls.Add(1) == 1 {
+			return toolCall("w1", "write", `{}`), nil
+		}
+		return costed(text("done"), "0.25"), nil
+	})
+	h.newTasks(t)
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	got := toolNames(h.client.last("child"))
+	if strings.Join(got, ",") != "read" {
+		t.Fatalf("resumed child tools=%v, want [read]", got)
+	}
+	if n := h.ran.Load(); n != 0 {
+		t.Fatalf("a probe ran %d times; write must not run", n)
+	}
+	call := h.view(t, childID()).Tools["w1"]
+	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+		call.Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("write call=%+v, want settled without running", call)
+	}
+}
+
 type tenantKey struct{}
 
 // TestTaskKeepsCallerContextValuesButNotCancellation checks that a child
