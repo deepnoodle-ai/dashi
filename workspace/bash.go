@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"strings"
 	"sync"
@@ -94,10 +95,16 @@ func runShell(
 	}
 	timeout, note := cfg.DefaultTimeout, ""
 	if in.Timeout > 0 {
-		timeout = time.Duration(in.Timeout) * time.Millisecond
-		if cfg.MaxTimeout > 0 && timeout > cfg.MaxTimeout {
+		// Compare in milliseconds first. The multiplication can overflow.
+		const maxMS = int(math.MaxInt64 / int64(time.Millisecond))
+		switch {
+		case cfg.MaxTimeout > 0 && in.Timeout > int(cfg.MaxTimeout/time.Millisecond):
 			timeout = cfg.MaxTimeout
 			note = fmt.Sprintf("\n[The timeout was reduced to the maximum, %s.]", timeout)
+		case in.Timeout > maxMS:
+			timeout = time.Duration(math.MaxInt64)
+		default:
+			timeout = time.Duration(in.Timeout) * time.Millisecond
 		}
 	}
 	runCtx := ctx

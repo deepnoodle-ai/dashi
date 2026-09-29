@@ -61,7 +61,7 @@ func run(ctx context.Context, dir, task string) error {
 	// "a" allows the same kind of call again while the program runs.
 	policy := ws.Policy(
 		func(_ context.Context, r workspace.ApprovalRequest) (workspace.Approval, error) {
-			fmt.Printf("\n%s\n%s\nAllow? [y/N/a] ", r.Summary, r.Preview)
+			fmt.Printf("\n%sAllow? [y/N/a] ", describe(r))
 			line, _ := answers.ReadString('\n')
 			switch strings.ToLower(strings.TrimSpace(line)) {
 			case "y":
@@ -95,4 +95,13 @@ func run(ctx context.Context, dir, task string) error {
 	}
 	fmt.Printf("\nStop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
+}
+
+// describe renders an approval request for the terminal. A shell command
+// appears in full, with its directory, because approval is the only guard.
+func describe(r workspace.ApprovalRequest) string {
+	if r.Tool == workspace.ToolBash {
+		return fmt.Sprintf("Run in %s:\n%s\n", r.Dir, r.Command)
+	}
+	return r.Summary + "\n" + r.Preview + "\n"
 }

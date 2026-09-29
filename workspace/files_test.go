@@ -235,5 +235,39 @@ func TestGrepLimitsResults(t *testing.T) {
 	list, dir := newTestTools(t)
 	writeTestFile(t, dir, "a.txt", strings.Repeat("hit\n", 10))
 	_, text := call(t, list, ToolGrep, map[string]any{"pattern": "hit", "output_mode": "content", "head_limit": 3})
-	wantContains(t, text, "Showed 3 of 10 lines")
+	wantContains(t, text, "Showed the first 3 lines")
+}
+
+func TestGrepBoundsRetainedOutput(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.txt", strings.Repeat(strings.Repeat("x", 5000)+"\n", 1000))
+	s, err := newScope(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engines := map[string]string{"go": ""}
+	if rg, err := exec.LookPath("rg"); err == nil {
+		engines["rg"] = rg
+	}
+	for engine, rg := range engines {
+		t.Run(engine, func(t *testing.T) {
+			out, err := grep(context.Background(), s, rg, grepArgs{Pattern: "x", Mode: "content", Limit: 100000})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := out.Output.Content[0].Text.Text
+			if len(text) > grepMaxBytes+1000 {
+				t.Fatalf("result holds %d bytes, want at most %d", len(text), grepMaxBytes)
+			}
+			wantContains(t, text, "More results exist")
+		})
+	}
+}
+
+func TestLineSinkCapsLineLength(t *testing.T) {
+	k := &lineSink{limit: 5}
+	k.add(strings.Repeat("y", 10000))
+	if len(k.lines[0]) > grepMaxLine+3 {
+		t.Fatalf("line holds %d bytes", len(k.lines[0]))
+	}
 }

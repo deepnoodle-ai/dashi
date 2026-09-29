@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -17,7 +18,39 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-const defaultGrepLimit = 250
+const (
+	defaultGrepLimit = 250
+	// grepMaxBytes bounds the result text kept in memory. grepMaxLine
+	// bounds one result line.
+	grepMaxBytes = 256 << 10
+	grepMaxLine  = 2000
+)
+
+// lineSink keeps at most limit lines and grepMaxBytes of text. It records
+// that more output existed. Output past the bound is counted, not kept.
+type lineSink struct {
+	limit int
+	lines []string
+	size  int
+	full  bool
+}
+
+// add reports whether the caller should keep producing lines.
+func (k *lineSink) add(l string) bool {
+	if k.full {
+		return false
+	}
+	if len(l) > grepMaxLine {
+		l = strings.ToValidUTF8(l[:grepMaxLine], "") + "..."
+	}
+	if len(k.lines) >= k.limit || k.size+len(l) > grepMaxBytes {
+		k.full = true
+		return false
+	}
+	k.lines = append(k.lines, l)
+	k.size += len(l)
+	return true
+}
 
 type grepArgs struct {
 	Pattern    string `json:"pattern" description:"Regular expression to search for."`
@@ -74,24 +107,23 @@ func grep(
 	if err != nil {
 		return fail(fmt.Sprintf("pattern is not a valid regular expression: %v", err))
 	}
-	var lines []string
+	sink := &lineSink{limit: limit}
 	if rg != "" {
-		lines, err = ripgrep(ctx, s, rg, target, in, mode)
+		err = ripgrep(ctx, s, rg, target, in, mode, sink)
 	} else {
-		lines, err = goSearch(s, re, target, in, mode)
+		err = goSearch(s, re, target, in, mode, sink)
 	}
 	if err != nil {
 		return fail(err.Error())
 	}
-	if len(lines) == 0 {
+	if len(sink.lines) == 0 {
 		return tool.Succeeded("No matches."), nil
 	}
 	note := ""
-	if len(lines) > limit {
-		note = fmt.Sprintf("\n[Showed %d of %d lines. Narrow the search or raise head_limit.]", limit, len(lines))
-		lines = lines[:limit]
+	if sink.full {
+		note = fmt.Sprintf("\n[Showed the first %d lines. More results exist. Narrow the search or raise head_limit.]", len(sink.lines))
 	}
-	return tool.Succeeded(strings.Join(lines, "\n") + note), nil
+	return tool.Succeeded(strings.Join(sink.lines, "\n") + note), nil
 }
 
 func regexpFlags(in grepArgs) string {
@@ -110,7 +142,8 @@ func ripgrep(
 	rg, target string,
 	in grepArgs,
 	mode string,
-) ([]string, error) {
+	sink *lineSink,
+) error {
 	args := []string{"--no-heading", "--color", "never", "--sort", "path"}
 	switch mode {
 	case "content":
@@ -133,19 +166,47 @@ func ripgrep(
 	if target != s.root {
 		args = append(args, s.rel(target))
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, rg, args...)
 	cmd.Dir = s.root
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("search failed: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("search failed: %v", err)
+	}
+	r := bufio.NewReaderSize(pipe, 64<<10)
+	for {
+		// Keep the first chunk of a long line and drop the rest.
+		chunk, isPrefix, rerr := r.ReadLine()
+		if rerr != nil {
+			break
+		}
+		line := string(chunk)
+		for isPrefix {
+			_, isPrefix, _ = r.ReadLine()
+		}
+		if !sink.add(line) {
+			cancel() // enough output; stop the search
+			break
+		}
+	}
+	_, _ = io.Copy(io.Discard, pipe)
+	err = cmd.Wait()
 	var exit *exec.ExitError
 	switch {
+	case sink.full:
+		return nil
 	case errors.As(err, &exit) && exit.ExitCode() == 1:
-		return nil, nil
+		return nil
 	case err != nil:
-		return nil, fmt.Errorf("search failed: %s", strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("search failed: %s", strings.TrimSpace(stderr.String()))
 	}
-	return strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n"), nil
+	return nil
 }
 
 func goSearch(
@@ -154,9 +215,12 @@ func goSearch(
 	target string,
 	in grepArgs,
 	mode string,
-) ([]string, error) {
-	var lines []string
+	sink *lineSink,
+) error {
 	search := func(p string) {
+		if sink.full {
+			return
+		}
 		data, err := os.ReadFile(p)
 		if err != nil || bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
 			return
@@ -165,18 +229,24 @@ func goSearch(
 		if in.Glob != "" && !globMatchesPath(in.Glob, rel) {
 			return
 		}
-		lines = append(lines, searchFile(re, rel, string(data), in.Context, mode)...)
+		for _, l := range searchFile(re, rel, string(data), in.Context, mode) {
+			if !sink.add(l) {
+				return
+			}
+		}
 	}
 	info, err := os.Stat(target)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !info.IsDir() {
 		search(target)
-		return lines, nil
+		return nil
 	}
 	err = filepath.WalkDir(target, func(p string, d fs.DirEntry, err error) error {
 		switch {
+		case sink.full:
+			return filepath.SkipAll
 		case err != nil:
 			return nil
 		case d.IsDir() && p != target &&
@@ -187,7 +257,7 @@ func goSearch(
 		}
 		return nil
 	})
-	return lines, err
+	return err
 }
 
 func globMatchesPath(pattern, rel string) bool {

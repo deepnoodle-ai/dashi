@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,19 @@ func TestBashClampsTimeoutAndSaysSo(t *testing.T) {
 	out, text := call(t, list, ToolBash, map[string]any{"command": "echo hi", "timeout": 60000})
 	wantState(t, out, text, tool.StateSucceeded)
 	wantContains(t, text, "reduced to the maximum, 1s")
+}
+
+func TestBashClampsHugeTimeout(t *testing.T) {
+	list, _ := newTestTools(t, WithShell(ShellConfig{MaxTimeout: time.Second}))
+	out, text := call(t, list, ToolBash, map[string]any{"command": "echo hi", "timeout": math.MaxInt64})
+	wantState(t, out, text, tool.StateSucceeded)
+	wantContains(t, text, "reduced to the maximum, 1s")
+	// With no configured maximum the default applies; the value still must
+	// not wrap to a negative duration.
+	list, _ = newTestTools(t)
+	out, text = call(t, list, ToolBash, map[string]any{"command": "echo hi", "timeout": math.MaxInt64})
+	wantState(t, out, text, tool.StateSucceeded)
+	wantContains(t, text, "reduced to the maximum")
 }
 
 func TestBashCancelStopsCommand(t *testing.T) {
