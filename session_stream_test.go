@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -168,8 +169,29 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	entered(t, client)
 	rec.set(dashi.LivenessLive)
 	retry := handle(rec, client)
+	// Release the model call only once the retry follows the running
+	// turn: a retry planned after the turn ended would get its outcome
+	// without step events.
+	following := make(chan struct{})
+	var once sync.Once
+	seq := retry.Stream(t.Context(), start)
+	signaled := func(yield func(dashi.Event, error) bool) {
+		for ev, err := range seq {
+			if ev.Step != nil {
+				once.Do(func() { close(following) })
+			}
+			if !yield(ev, err) {
+				return
+			}
+		}
+	}
 	events := make(chan streamed, 1)
-	go func() { events <- drain(t, retry.Stream(t.Context(), start)) }()
+	go func() { events <- drain(t, signaled) }()
+	select {
+	case <-following:
+	case got := <-events:
+		t.Fatalf("the retry did not follow: errs=%v outcomes=%v", got.errs, got.outcomes)
+	}
 	close(client.gate.release)
 	awaitSend(t, done)
 	got := <-events
@@ -178,7 +200,7 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 		t.Fatalf("errs=%v outcomes=%v answer=%q", got.errs, got.outcomes, got.last.Answer)
 	}
 	steps := got.steps["s-1"]
-	if steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
+	if len(steps) == 0 || steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
 		t.Fatalf("steps=%v", steps)
 	}
 	requireTurns(t, rec, 1)
