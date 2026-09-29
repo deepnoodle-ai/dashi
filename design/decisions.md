@@ -327,3 +327,93 @@ same. A stop at this limit is no longer terminal, and a budget stop after the
 last attempt is no longer terminal either: a raise of both continues it. A
 host needs no second turn, and no synthetic input, to say "keep going".
 Dashi had no users, so there is no migration.
+
+## 2026-09-29
+
+Decisions 35–40 add sessions, roadmap item 14. The PRD is
+[14-session-continuity-prd.md](roadmap-research/14-session-continuity-prd.md);
+the tech spec is [sessions.md](sessions.md), with
+[session-engine.md](session-engine.md) and [session-input.md](session-input.md).
+
+**35. Sessions are a second layer, and Dashi keeps no session store.** Decided.
+`Runner.Run` stays the public engine. `dashi.Session` sits above it, built only
+on the public engine API, as `http.Get` sits over `Client.Do`. Turn records are
+the only truth: turn *n* of session `S` is `S-n`, an optional `SessionIndex`
+finds the last turn, and probing is the fallback. There is no session record,
+log, lease, or lock; recorder conditional appends, `S-n` collisions, and
+permanently ended turns keep the record correct. An optional `TurnLiveness` says
+whether a turn is live, and `Session.Exclusive` lets a host that is the only
+driver say that no other worker runs it. Rationale: every host rebuilt this
+layer (the CLI's session package, the delegate example's loop). Two records that
+must stay in step drift in every peer that has them, and a library session that
+owns storage gets bypassed, as our production gateway bypassed Dive's. A value
+the caller stores (a second method family) and sessions in the engine (reversing
+decision 19, every recorder storing sessions) were rejected.
+
+**36. `Agent` moves from `Runner` to `Start`, with tool selection.** Decided.
+`Runner` holds only services. Zero `Start.Agent` fields take catalog defaults;
+commands on an existing turn use the recorded agent. A session builds each new
+turn's agent field by field: `Start.Agent`, then `Session.Agent`, then the last
+user-origin turn's agent. `Limits.Deadline` never carries, and `Provider` and
+`API` carry only while they match the client. Tool implementations stay on
+`Runner.Tools`; `Agent.Tools` names the tools a turn may call (empty means all)
+and `NoTools` offers none. The runner filters by name before each call, and the
+selection enters the automatic revision. `CurrentTurn(ctx)` replaces
+`CurrentRunner(ctx).Agent`. Rationale: the agent is fixed per turn and recorded
+at `Start`, so it belongs on the command; on `Runner` it forced the CLI to build
+a runner per command. Field-by-field carry lets `/model` change one setting
+without dropping instructions and tools. Supersedes the `Runner.Agent` part of
+decision 30.
+
+**37. Session vocabulary and the handle rule.** Decided. **Conversation
+history** is every message across a session's turns, never shortened. A
+**session** is that history plus the events around it (stops, approvals, steers,
+compaction summaries, spend, warnings, closed turns), named by a session ID,
+with no record of its own. **Projected history** is what one model call sends;
+`Start.History` and `Continue.History` carry it, and it replaces "model view".
+The **session handle** is the Go value `dashi.Session`. The handle rule:
+anything that must outlast a handle goes in the turn records; `Session` fields
+are handle settings. The known exception is the in-memory queue, which warns
+`memory_only` under a durable recorder until the durable queue exists. The type
+keeps the name `Session`, after what it drives, as `*sql.DB` is; "thread" and
+"conversation" stay out of type names. Rationale: one word per thing, and a
+handle whose changes look saved but are not caught ADK-Go users (#324).
+Supersedes decision 30's reservation of "Session".
+
+**38. Ended turns always project, and freeze at their terminal stop.** Decided.
+In a turn with a terminal stop, each tool call still started, waiting, or
+uncertain projects as an error result ("result unknown; the turn ended"), and a
+pending model attempt projects nothing. Results recorded after the terminal stop
+count for audit and accounting but never change the projection. A new session
+message closes (cancels) a stopped turn unless it is busy: live, possibly live
+(liveness unknown, with no `TurnLiveness` and no `Exclusive`), or waiting on the
+host. A busy turn refuses with `TurnBusyError`, which names the recovery calls.
+Rationale: `Project` failed on such turns, so an ended turn would drop out of
+the next turn's history, user prompt included, and a late result could change
+history that later turns were built on.
+
+**39. Compaction is a turn that records the replacement history.** Decided. When
+the projected history is too long, the session runs a turn with origin
+`compaction`, a summarizer agent, and no tools, before the next turn. Its model
+call is the summary request, so spend, budgets, and recovery need nothing new.
+Its start fact records the covered turns, a digest, and the kept messages; with
+its answer they form the replacement history, which every reader honors whatever
+its configuration; a digest mismatch warns but never skips it. This is the one
+place a turn records earlier messages. Rationale: one pipeline for every model
+call (design principle 4); kept messages need not be a tail, provider compaction
+returns opaque items, and a stored replacement history cannot change when
+projection code changes. pi and Codex run compaction through
+the same admission as a prompt; Codex and Eino store the replacement. A cut was
+rejected because it is recomputed on every open.
+
+**40. Decision 19 stands, with a new rationale.** The application still passes
+the prior history on each call, and the turn record does not store it. The
+session is now the application that passes it: the projected history of earlier
+turns, while each turn records only its own part of the conversation history.
+The old rationale, that none of the compared libraries copies history into each
+run, is out of date: Eino v0.10, ADK-Go, LangGraph, OpenHands, Codex, and pi's
+harness all rebuild history from their own logs. New rationale: turn records
+that grow with the conversation would store what the session already has; a
+projected history built from immutable earlier turns and compaction turns is
+exact without being copied; and hosts that keep conversations in their own
+tables can still supply the projected history through the engine.

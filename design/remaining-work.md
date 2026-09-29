@@ -186,31 +186,53 @@ ledger, and a child index.
 
 ## Context and record health
 
-### 14. Session continuity
+### 14. Sessions
 
-**Status:** Open in the library; proven in the CLI. Each Turn receives prior
-history from the application, and Dashi owns no cross-turn Session. The `dashi`
-CLI ([PRD](cli.md), [guide](../docs/guides/cli.md)) keeps its own session
-store in `cmd/dashi/session`: turn records are the only history, and one
-`History` function builds the projected history. **Size:** L.
-**Difficulty:** High.
-**Reference:** [decision 19](decisions.md) and [history storage](history-storage.md).
-**Next:** Run the CLI with users, then decide which parts of the store (list,
-latest, lock, `History`) belong in the library. Pilot the draft PRD's optional
-history reference with a durable host before adding a library Session.
+**Status:** Designed, 2026-09-29; not built. `dashi.Session` is a handle over
+the unchanged engine: turn records are the only truth (turn IDs `S-n`), a new
+message refuses only on a busy turn (live, possibly live when neither
+`TurnLiveness` nor `Session.Exclusive` settles it, or waiting) and closes other
+stopped turns, sends are idempotent, input is steered or queued, compaction is a
+turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
+`cmd/dashi/session` store is the working prototype it replaces. **Size:** L.
+**Difficulty:** High. **Reference:**
+[PRD](roadmap-research/14-session-continuity-prd.md); tech spec
+[sessions.md](sessions.md), [session-engine.md](session-engine.md),
+[session-input.md](session-input.md). **Next:** five stacked tracks.
 
-**Packet:** [source research](roadmap-research/14-session-continuity-research.md) · [draft PRD](roadmap-research/14-session-continuity-prd.md).
+1. Stop meanings and ended turns (M): `TurnView.Next()`, ended-turn projection,
+   the crash-resume reminder.
+2. `Agent` on `Start` (L): tool selection, `CurrentTurn`, `TurnView.Origin`, one
+   runner in the CLI.
+3. Session core (L): `Session`, `S-n` IDs, `SessionIndex`, `TurnLiveness`,
+   `Exclusive`, idempotency; a keyless `chat` example on `dashitest`.
+4. Steering, the in-memory queue, and the CLI (M): dispatch on idle; port
+   `examples/delegate` to `RunUntilQuiet`; port `cmd/dashi`.
+5. Compaction turns (L): port `examples/compaction`; see item 15.
+
+Later, each with its own note: the durable queue (first), mid-turn compaction,
+fork, rewind, child sessions, deletion and retention, replacing a running turn
+across processes, and a `SessionIndex` lookup by `CommandID`. When a caller
+needs them: `KeepStopped`, `Withdraw`, and `FollowSession`.
+
+**Packet:** [source
+research](roadmap-research/14-session-continuity-research.md) ·
+[PRD](roadmap-research/14-session-continuity-prd.md).
 
 ### 15. Context compaction
 
 **Status:** Helper package done. Package `compaction` shortens a host-owned
-history with a recorded summary, a coverage digest, and a pure projection. It
-is not a Session layer, and nothing wires it into `cmd/dashi` yet. **Size:** L.
-**Difficulty:** High. **Reference:** [guide](../docs/guides/compaction.md),
-[history storage](history-storage.md), and [runtime reminders](runtime-reminders.md).
-**Next:** Wire `/compact` and the 80% check into the CLI. Later: compaction
-inside a Turn, compact-and-retry on overflow, and a Session-layer home for the
-record (item 14).
+history with a recorded summary, a coverage digest, and a pure projection.
+Nothing wires it into `cmd/dashi` yet. **Size:** L. **Difficulty:** High.
+**Reference:** [guide](../docs/guides/compaction.md), [history
+storage](history-storage.md), and [runtime reminders](runtime-reminders.md).
+**Next:** Reworked by the session design (item 14, track 5, [decision
+39](decisions.md)): compaction becomes a session turn that records the
+replacement history. The package implements `dashi.Compactor` and stops calling
+the model itself; the CLI wires `/compact` and the 80% check through the session
+instead of storing a record beside its history. Later: compaction inside a turn
+(its own note, needed by the CLI for long turns) and compact-and-retry on
+overflow.
 
 **Packet:** [source research](roadmap-research/15-context-compaction-research.md) · [draft PRD](roadmap-research/15-context-compaction-prd.md).
 
@@ -361,3 +383,34 @@ items above; hook state has a deferred design in the linked document.
   `MaxCost` fit estimate; the pre-send check still enforces the cap.
 - **Resume without a binding.** An allowed call whose tool binding has
   disappeared fails the turn rather than being skipped.
+
+## Follow-ups from the example review
+
+Small developer-experience items from the 2026-09-29 review of `examples/`,
+recorded so they are not lost. The larger items (the session, the chat and
+string start, stop meanings, approvals, and the delegation loop) are item 14.
+None is counted among the 24 items above.
+
+- **`tool.ReadOnly()` and `tool.Idempotent()` options** (in
+  [PR #86](https://github.com/deepnoodle-ai/dashi/pull/86)). The flags decide
+  resume reruns (decision 11) and subagent access, and setting them by mutation after construction is easy to forget.
+- **Hooks example durability bug** (in PR #86): its
+  `BeforeFinish` hook keeps `nudged` in a closure, so a resume in another
+  process nudges again. Read the turn record instead.
+- **`tool.MustFunc`** for static tools, so a tool needs no `if err` block. Skip
+  a handler without `tool.Call` and a `string` return: each is a second way to
+  write a tool, to save a few characters. #87
+- **Terminal prompt helper** for examples (`examples/internal/prompt`); the
+  approval examples copy about 25 lines of stdin handling. #88
+- **Example boilerplate:** drop the hand-prefixed error strings. #89
+- **Hook helpers:** a "seed context once" helper (`SeedContext`) and a "have I
+  acted in this turn?" read from the record. Smaller: `JoinHooks` could take the
+  helpers directly, `JoinHooks(onCall, guard)` for `onCall.Hooks()`. #90
+- **LLM-judge tool gate:** investigate a helper like Dive's `PromptToolGate`.
+  #91
+- **MCP example with no setup:** a runnable variant that starts its own stdio
+  server. #92
+- **`Spend.String()`**, so examples stop looping over currencies. #93
+- **Name collisions:** `dashi.Outcome` and `tool.Outcome`, and `Stop` in both
+  `llm` and `dashi`; check against the glossary. #94
+- **README order:** show the `agent` example before `basic`. #95

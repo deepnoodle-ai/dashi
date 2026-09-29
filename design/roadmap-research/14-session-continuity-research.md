@@ -1,36 +1,300 @@
-# 14. Session continuity — source research
+# 14. Sessions — comparative research
 
-**Status:** Draft research, 2026-09-28. **Roadmap:** [item 14](../remaining-work.md). **Question:** Does Dashi need a cross-turn `Session`, or only a clearer boundary to application-owned history?
+**Status:** research, 2026-09-29; replaces the 2026-09-28 draft. **Roadmap:**
+[item 14](../remaining-work.md). **Question:** How should Dashi model a session,
+a conversation of many turns, over its turn engine? **Conclusions:**
+[PRD](14-session-continuity-prd.md). **Deep studies:**
+[pi](14-session-study-pi.md), [Codex](14-session-study-codex.md).
 
 ## Dashi baseline
 
-[Decision 19](../decisions.md) is the current contract: `Start.History` and each `Continue.History` supply the earlier conversation; the Turn stores its own input and a history fingerprint, never the prior messages (`turn.go:248-256,428-461`; `runner.go:333-362`). `Continue` warns on mismatch by default or rejects before a commit with `HistoryMismatchReject` (`runner.go:389-445`). `Project(Turn)` returns this Turn's messages only; the runner prepends caller history for model requests (`project.go:10-27`). A recorder's expected sequence and owner protect one Turn, not the order of distinct Turns in a conversation (`recorder.go:178-230`). The application must persist and project history, serialize competing conversation writers, and pass the same prefix on recovery. Turn recovery already exists; item 14 is cross-turn continuity.
+[Decision 19](../decisions.md) is the current contract. `Start.History` and each
+`Continue.History` supply the earlier conversation. The turn stores its own
+input and a history fingerprint, never the prior messages (at `015b0ec`:
+`turn.go:248-256,428-461`; `runner.go:333-362`). `Continue` warns on a mismatch
+by default, or rejects before a commit with `HistoryMismatchReject`
+(`runner.go:389-445`). `Project(Turn)` returns only this turn's messages
+(`project.go:10-27`). A recorder's expected sequence and owner protect one turn,
+not the order of turns (`recorder.go:178-230`). The host persists history,
+serializes writers, and passes the same prefix on recovery. [History
+storage](../history-storage.md)'s copied-history analysis is superseded; its
+Nvoken and Mobius evidence still holds.
 
-[History storage](../history-storage.md) explicitly says its older copied-history analysis was superseded on 2026-09-28. Its Nvoken and Mobius evidence and options for immutable prefixes remain useful; its “what is stored today” and copying cost table do **not** describe current Dashi.
+Three shapes were weighed. **Approach 1**: a `Session` object over the unchanged
+engine, storing nothing of its own; turn IDs are `<session>/<n>`. **Approach
+2**: a serializable session value that the runner takes and returns, beside the
+turn records. **Approach 3**: sessions in the engine; the recorder stores
+sessions and builds history, reversing decision 19. The 2026-09-28 draft took a
+fourth, smaller direction: an optional opaque `HistoryRef` on `Start` and
+`Continue`, resolved by a host `HistoryResolver`, so a host could name an
+immutable prefix instead of passing the slice. It was considered; it eases the
+argument but leaves every host to write the session layer.
 
-## Source matrix
+The design chose Approach 1 with turn IDs `S-n`, the CLI's separator, and finds
+the last turn by doubling then binary search, about 2·log2(n) reads
+([sessions.md](../sessions.md)). The `<session>/<n>` IDs and the per-turn
+probing cost below are the evidence as gathered, not the design.
 
-“Implemented” means the checked-out project has a working capability in its own scope, not that it has Dashi's durable Turn guarantees. Paths are relative to each checkout; commit pins appear below.
+## Sources and pins
 
-| Project | Status and code location | Behavior and developer UX |
-|---|---|---|
-| **Nvoken Cloud** | **Implemented, service-owned.** `docs/guides/session-history.md:1-42`; `internal/adapters/postgres/execution_stream_messages.go:48-103`; `internal/adapters/postgres/queries/conversations.sql:180-215`. | One canonical ordered Conversation transcript; message sequence and a Turn's `through_message_sequence` identify the prefix. APIs expose pageable messages and a consistent transcript/cursor, while compaction changes only model context. Host leases/checkpoints govern execution. This is a real consumer pattern for an application-owned log; no prefix digest is evident in the cited paths. Current working tree has unrelated edits, so cited evidence is checked against HEAD where possible. |
-| **Mobius Cloud** | **Implemented, service-owned.** `internal/services/session.go:1210-1330,1503`; `internal/adapters/sqlite/session_repo.go:502-643`; `internal/agentruntime/executors/agent_session.go:80-121`; `agent_resume.go:27-85`. | A Session service durably appends sequenced transcript rows, loads context, hydrates documents and repairs legacy tool-result replay before Dive. Append uses stable message IDs for retry and an SQL version predicate; turn checkpoints and dispatcher leases handle in-flight recovery. Developer experience is a product Session API, but the amount of transcript repair and checkpoint integration shows this is application policy, not a small library wrapper. |
-| **Dive** | **Implemented, opt-in library Session.** `session/session.go:1-17,516-580,751-843,965-1039`; `session/turns.go:195-222`; `session/claims.go:44-108`; `session/file_store.go:47-78`. | Agent loads `Messages()` and saves Turn messages automatically. Memory/File stores support append, suspension, fork and non-destructive compaction; revision checks protect checkpoint writes, and optional claims fence a shared FileStore. Easy single-process setup, but provider history, Turn persistence, writer claims, and file semantics become coupled inside one Session abstraction. |
-| **pi** | **Implemented, coding-agent session.** `packages/agent/src/harness/session/session.ts:224-268,420-451`; `jsonl/storage.ts:30-125`; `packages/coding-agent/docs/sessions.md:1-54`, `session-format.md:1-5`. | Active branch supplies model history; immutable entries form a tree, with fork/clone/navigation and compaction. Storage-backed mutations queue within one session object and atomically commit entry plus branch-tip update. JSONL handles torn trailing records on open. Cross-process optimistic writer admission was not established from the inspected code; do not infer it from the in-process mutation line. Excellent user-facing branch UX, much larger scope than Dashi's Turn. |
-| **Eino** | **Partial in pinned checkout.** `adk/runner.go:42-132,160-192`; `adk/turn_loop.go:613-631,879-896,989-1019`. | `Runner.Run` accepts caller messages; `TurnLoop` acts as a long-lived push/batch loop with optional checkpoints for resume. Its per-run `Session.Values` is shared state, not verified as a durable cross-turn transcript here. Comparison notes describe a v0.10 alpha session event log, but that claim was **not verified in this pinned tree**. The checked paths do not establish a built-in history store or cross-turn CAS. |
-| **ADK-Go** | **Implemented, event-log Session.** `session/session.go:31-67,90-131`; `session/service.go:40-76`; `session/inmemory.go:197-275`; `session/database/service.go:354-478`; `runner/runner.go:496-522`. | `Session` groups user/app state and events; runner retrieves and appends events. In-memory backend locks; database append uses a transaction and rejects a stale session using microsecond `UpdateTime`. Partial events are not persisted. The timestamp check and local-session mutation before DB commit (`database/service.go:371-377`) are subtle for developers recovering from conflicts. |
-| **Microsoft Agent Framework Go** | **Implemented, JSON Session state plus HistoryProvider.** `agent/session.go:7-27,86-120`; `agent/history.go:21-47,78-151,222-273`; `examples/02-agents/agents/step06_persisted_conversation/main.go:41-80`. | `WithSession` carries agent/provider state; default in-memory history loads before and stores after a successful run, or `HistoryProvider` hooks can use external storage. JSON round-trip is straightforward. In-memory provider locks writes to a shared Session pointer (`history.go:199-219,233-267`), but no durable cross-process CAS is evidenced; a JSON bag is not an ownership protocol. Provider-managed history may bypass local history (`agent/agent.go:49-81`). |
-| **OpenHands SDK / Agent Server** | **Implemented, product conversation.** `openhands-sdk/openhands/sdk/conversation/event_store.py:35-51,188-241`; `state.py:315-351`; `openhands-agent-server/openhands/agent_server/conversation_lease.py:93-135,188-216`. | Append-only event history assigns indices under a file lock, rejects duplicate IDs or missing parents, and supports restoration. Server leases use owner generation and expiry to fence stale runtime writers; state and event views are separate. Robust for a coding-agent server, with substantial event, lease and restore machinery. |
-| **OpenHands Canvas** | **Implemented UI consumer, not a history authority.** `src/hooks/query/use-conversation-history.ts:1-95`; `src/api/conversation-service/agent-server-conversation-service.api.ts:1010-1045`. | Loads recent events in pages, then WebSocket `since` replay; local server supports forking at an event, cloud fork is rejected. Shows why a session boundary benefits users: resume and browse a coherent conversation without making the UI assemble model history. It delegates persistence to the backend. |
+Go: ADK-Go `12f7cabc`; Eino `main` `ba04fde8` and v0.10 alpha
+(`origin/alpha/10`) `58daeda8`; MAF-Go `425452c`. Other: pi `2b0a123de`;
+OpenHands SDK and agent server `d77ada7`, Canvas `47a10808d`; Claude Agent SDK
+(Python) `7f74cdf`; Codex `0462dcc062` (survey notes at `9558d830f6`); opencode
+`361a96267`. OpenAI Agents SDK, LangGraph, Pydantic AI, and Vercel AI SDK from
+public docs and issue trackers, retrieved 2026-09-29. Ours: ACP docs `128845f`
+(inject RFD `7b7c86c`), Dive `65c393f`, Nvoken `deea133a` (dirty tree; cited
+paths checked against `HEAD`), Mobius `de93a9e6f`. Issue numbers without a
+prefix belong to the project named beside them. This is source and documentation
+inspection, not runtime qualification; cross-process guarantees are claimed only
+where a lock, lease, index, or version predicate was read in code.
 
-## Lessons and tradeoffs
+## Verdict
 
-1. **Name the owner.** Nvoken and Mobius already have durable transcript, access control, retention, compaction and writer admission. A Dashi-owned store would duplicate product policy. Dive shows convenience, but its Session must also manage claims, fork, suspension and revision checks.
-2. **A Turn revision is not a conversation revision.** Dashi's `ErrRevisionConflict` protects one Turn. Two Turns can start from one history prefix and both pay for effects; the host must admit or lease a conversation before running and compare-and-append the accepted result.
-3. **Give recovery an exact prefix.** The current fingerprint catches a different `Continue.History`, but default warning permits replay against changed history. Durable hosts should reject mismatch and identify the immutable prefix they loaded. A resolver/reference could remove repeated large history arguments without taking storage ownership.
-4. **Keep the model projection separate from audit history.** Nvoken compaction, pi branches and OpenHands event views demonstrate that canonical history and model-visible context need different projections. A reference must resolve to the same model-visible messages throughout one Turn.
+Nearly every source supports **Approach 1's API shape**: two levels over an
+unchanged engine. pi's harness has `accept` and `drive`, and `prompt()` is both;
+OpenHands has `send_message` plus `run`. Both store history in the session,
+which is Approach 3's storage, and pi's holds up only because it assumes one
+writer. The other approaches show their costs:
 
-## Evidence limits and pins
+- **Approach 2** means two records kept in step. OpenAI's history log and
+  paused-run blob drift apart (py#4827, py#4775, js#701); OpenHands' event log
+  and branch head diverge after a crash (sdk#4487); Codex's rollout and its
+  SQLite page projection drift (#41566). MAF's session has no ID, so every host
+  rebuilds reopen-by-ID.
+- **Approach 3** works but is heavy. Eino v0.10 took 2,000 lines and still keeps
+  a separate interrupt checkpoint. LangGraph stores a full snapshot per step,
+  with unbounded growth. ADK-Go infers turns by scanning the log, the source of
+  many bugs. Production Nvoken ignored Dive's whole `session` package, which
+  copies history into a mutable session (`dive/dive.go:29-43`), and built its
+  own in Postgres: the strongest warning against a session that owns storage.
 
-Source pins: Dashi `015b0ec56`; Nvoken `deea133ad` (dirty working tree); Mobius `de93a9e6f`; Dive `65c393f22`; pi `2b0a123de`; Eino `ba04fde86`; ADK-Go `12f7cabca`; MAF-Go `425452cf0`; OpenHands SDK `d77ada7a0`; Canvas `47a10808d`. This is source inspection, not runtime qualification. Cross-process guarantees are described only where specific locks, leases or version predicates were verified. External v0.10 Eino alpha claims remain unverified against this checkout.
+**Decision 19's rationale needs restating.** It says no compared library copies
+history into each run, but Eino v0.10, ADK-Go, LangGraph, OpenHands, and Codex
+all rebuild it from their own durable log. Its other grounds (storage growth,
+hosts that own their history) stand.
+
+## At a glance
+
+| | Session owner | Turn noun | Store contract | New input mid-turn | Compaction record |
+|---|---|---|---|---|---|
+| ADK-Go | Session service | Implicit (invocation ID) | 5 methods, timestamp checks | Nothing stops it | Event in log |
+| Eino v0.10 | Runner config | Yes (`TurnID`) | `LoadEvents`, `AppendEvents` | Runs anyway; TurnLoop asks | `MessagesReplaced` event |
+| MAF-Go | Caller (JSON bag, no ID) | No | `HistoryProvider` | Not addressed | Flags in the bag |
+| pi harness | `Session` + `Storage` | Operation | Atomic `commit(writes)` | Refuse (`LaneBusy`) | Entry in tree |
+| OpenHands | `Conversation` | No | `FileStore`, event log | Append, then run again | `Condensation` event |
+| Claude SDK | CLI process | Query + result | `append`, `load` | Undefined | Transcript entry |
+| Codex | Live thread | Yes | `ThreadStore` trait, JSONL rollout + index | Start steers; refuse, guarded steer, queue | Full replacement history |
+| opencode | Storage | No | JSON files | Queue and join | Summary message pair |
+| OpenAI Agents | Caller | No | 4 item methods | Interleaves | Session decorator |
+| LangGraph | Checkpointer | Run | Checkpoint saver | 4 strategies (Platform) | Graph state |
+| Dive | `session.Session` | Yes | Store + claims + revisions | Refuse or supersede | Barrier event |
+| Nvoken | Conversation (optional) | Yes | Postgres | `reject` / `supersede` / `interrupt` | Advancing cut + summary |
+
+## Our own hosts
+
+- **Nvoken** owns one canonical, ordered transcript per Conversation. A turn's
+  `through_message_sequence` names its prefix, and compaction changes only the
+  model's view (`docs/guides/session-history.md:1-42`;
+  `internal/adapters/postgres/queries/conversations.sql:180-215`). The
+  Conversation is optional and does not own agent behavior
+  (`docs/guides/sessions.md:6-13`). One nonterminal turn per stream is a unique
+  index (`internal/adapters/postgres/schema.sql:2166`). Admission is idempotent
+  on a key plus a request fingerprint. History drops canceled turns' messages
+  when read, without rewriting them (`schema.sql:190-198`).
+- **Mobius** appends sequenced transcript rows with stable message IDs and an
+  SQL version predicate, and repairs legacy tool-result replay before Dive
+  (`internal/services/session.go:1210-1330`;
+  `internal/adapters/sqlite/session_repo.go:502-643`); checkpoints and leases
+  handle recovery (`internal/agentruntime/executors/agent_resume.go:27-85`).
+  That much repair is application policy, not a thin wrapper.
+
+
+
+## By design question
+
+### 1. Input while a turn is open
+
+**Most chat peers accept input while busy.** Codex's `turn/start` steers, pi's
+next design (Pico5) queues, LangGraph Platform enqueues, OpenHands appends and
+runs again (`event_service.py:745-790`; only its separate `/run` returns 409),
+and opencode queues and joins. ACP's inject RFD lists Cursor, Windsurf, Claude
+Code, Replit, and Devin too. **Refusal is the choice of our own systems** (Dive,
+Nvoken, our ACP adapter design) and of pi's current harness. Codex's embedding
+sample also refuses; its caller owns the loop. Hidden choices confuse callers:
+opencode gives every waiter the same reply, the Claude SDK defers to its CLI,
+and ADK-Go and OpenAI let runs interleave. `cmd/dashi` steers typed text into a
+running turn (`control.go:24,247-251`) and cancels a stopped open turn on new
+input (`control.go:197-211`).
+
+The best models name the policy:
+
+- **Nvoken**: `if_active` is `reject` (default,
+  `internal/services/public_turns.go:1047-1055`), `supersede` (cancel the open
+  turn and exclude its context), or `interrupt` (keep completed work, swap at a
+  safe point, otherwise record a durable request). Browsers may never supersede.
+- **LangGraph Platform**: `reject`, `enqueue` (default), `interrupt`, or
+  `rollback` (discard the open run and its input).
+- **Codex**: separate calls. `turn/start` steers silently; `start_turn_if_idle`
+  refuses; `turn/steer` takes an `expected_turn_id`; a durable queue feeds the
+  next turn. Interrupting drops undelivered steers.
+- **pi**: the harness refuses with a typed error naming the open turn; Pico5
+  defaults to queuing (`whenBusy: steer | followUp | reject`).
+- **Eino TurnLoop**: the host's callback returns `Resume` or `StartNewTurn`.
+
+LangGraph settled a closed turn's open tool calls with a fake success result
+(deepagents#5547).
+
+### 2. Where compaction lives
+
+**Everyone records compaction and keeps the full history; only the model's view
+changes.** Nobody uses a side store that must be synced. Three homes need no new
+store under Approach 1:
+
+- **(a) A reference on the next `Start`** to the record the history was built
+  from (ADK-Go, Eino, OpenAI's view callbacks).
+- **(b) A compaction record in the next turn slot**, `<session>/<n>`, holding
+  the summary and the cut (Dive's barrier event, Nvoken's cut, ACP's compaction
+  RFD, `rfds/session-compaction.mdx:37-110`). It maps one to one to ACP's
+  `compaction_update` on replay.
+- **(c) The whole replacement view** in the record, not just a summary. Codex
+  stores `replacement_history` (`core/src/session/mod.rs:4168`), Eino v0.10
+  `MessagesReplaced`, and pi copies `retainedTail` forward.
+
+Why store the view: it is often not a contiguous tail (Codex keeps recent user
+messages within a budget, drops media, and reinjects initial context,
+`core/src/compact.rs:649-720`; Dashi's `compaction` package keeps covered system
+and developer messages). Provider compaction can return opaque items (Codex
+`compact_remote_v2.rs`). A stored view is frozen against projection code
+changes, and retention can delete everything before it. pi and Codex run
+compaction as its own operation, and both also compact **inside** a turn (Codex
+`session/turn.rs:601-625`; pi per checkpoint, which fixed #6879), since one
+coding turn can overflow the window.
+
+ADK-Go honors compaction records only when compaction is enabled, so history
+depends on the reader's configuration. ADK-Go and Nvoken skip compaction after a
+failed or canceled turn and keep the previous view when a summary fails. pi's
+maintainers traced a bug cluster to having several projection functions (#6451).
+
+### 3. Steering and queued input
+
+Peers split input into two explicit modes. **Steer** is delivered into the open
+turn and expires with it (Nvoken's turn-scoped nudges,
+`queries/nudges.sql:72-81`; Codex's `turn/steer`). **Queue** becomes the next
+turn's input (pi's `followUp` and `nextRun`, MAF's carried-over injection queue,
+ACP's draft `session/inject {mode: queue|steer}`). `cmd/dashi` feeds leftover
+steers into the next turn, which is the queue mode by accident.
+
+Every peer queue **starts the next turn when the session goes idle**: Codex's
+queue extension calls `start_turn_if_idle` and polls every 10 seconds
+(`ext/queue/src/service.rs:89-92,439-460`); Pico5 starts a successor at the
+final boundary; LangGraph runs enqueued input after the current run; ACP's
+`queue` delivers on idle; OpenHands re-runs on `_rerun_requested`.
+
+Items need IDs. pi's shipping stack matched by text (#9803, #10017). Its harness
+gives each item an ID that becomes its entry ID and drains the inbox in the
+`accept` commit, so `cancelQueued` can answer `cancelled`, `already_consumed`,
+or `not_found`. Nvoken serializes cancel and drain on the row. Codex starts the
+turn, then deletes the item, and its open bugs sit in that gap (#46911, #43819).
+A steer that misses its turn needs a durable status: Nvoken settles it
+`expired`; ACP's revoke returns `already_delivered`.
+
+### 4. Storage, identity, and concurrency
+
+- **Small contracts, optional capabilities, one conformance suite.** The Claude
+  SDK requires only `append` and `load`; Eino's store has two methods; Codex's
+  `ThreadStore` defaults optional methods to `Unsupported`. ADK-Go, pi, and the
+  Claude SDK run every backend through one suite; ADK-Go's backends that skipped
+  it diverged (#679, #1329).
+- **Concurrency from the store, not locks.** Eino, MAF, pi, and opencode lock
+  within one process; Codex's file lock covers one machine; both fail on Cloud
+  Run. ADK-Go compares timestamps and fails under clock skew (#1229). Dive
+  needed a lock, then TTL claims, then revisions (`session/claims.go:50-60`;
+  `dive.go:101-112`). Nvoken's unique index and Dashi's `ErrRevisionConflict` on
+  turn *n* hold up.
+- **Liveness.** A record cannot tell a running turn from a crashed one. Codex
+  (`ThreadStatus`), Eino (`SessionBusyError{ExpiresAt}`,
+  `adk/runner.go:280-315`), and Nvoken (leases) keep a liveness signal;
+  `cmd/dashi` uses a process lock (`engine.go:87,164`).
+- **Retried sends.** Under `<session>/<n>`, a retried start after a lost
+  response finds turn *n* committed and starts *n+1*. pi's `operationId` and
+  Codex's `turn/start` do not prevent it. Pico5 checks a host `requestId` across
+  the whole conversation (`pico-v5.md:1486,2216`); Nvoken uses an admission key
+  plus a fingerprint. The usual retry arrives while the original still runs.
+  (py#4775 is a lost storage acknowledgement, which Dashi's recorder handles,
+  not a retried send.)
+- **Reopen versus create.** Dive's create-if-missing `Open`
+  (`session.go:1112-1127`) hid typos. LangGraph's `if_not_exists` makes creation
+  explicit.
+- **Listing versus probing.** Probing turns 1, 2, … breaks after retention
+  deletes turns and costs a load per turn. OpenHands failed a whole open on one
+  unreadable record (sdk#4080); `cmd/dashi` skips it. Codex, pi, and ACP also
+  offer list and delete.
+- **Turn IDs `<session>/<n>`** fit ACP (message IDs `m_<turn>_<i>` stay stable
+  across replay, `docs/rfds/v2/prompt.mdx:153-161`) and Nvoken (a column).
+  `cmd/dashi` uses `-` (`cmd/dashi/session/store.go:43-45`).
+- **Metadata.** ACP's `session/list` needs cwd, title, and update time, so an
+  adapter needs a small metadata store either way.
+
+### 5. The agent and its tools
+
+**The agent is chosen per turn** wherever turns exist: Eino builds it per turn,
+Nvoken's Conversation does not own behavior, and Codex and ACP change model or
+mode between turns. Where the agent or session sits on the runner, hosts build a
+runner per request (ADK-Go's server and approval example; Eino v0.10,
+`adk/session_test.go:622-640`); `cmd/dashi` has the same problem.
+
+**Tool selection** belongs to the agent (Claude SDK `AgentDefinition.tools`,
+OpenAI, Pydantic, opencode per message, pi `activeToolNames`);
+**implementations** stay with the runtime. OpenHands persists the agent with the
+conversation and allows adding tools on resume but not removing them. pi turns a
+missing tool into a synthetic error result, not a failed open.
+
+Carry-forward rules differ. Codex's overrides are sticky per setting, except
+`output_schema`, which applies to one turn; pi changes model and tools
+separately; OpenAI makes callers pass `last_agent` by hand.
+
+### 6. Resume, approvals, and "done"
+
+- **Open reports; it never drives.** pi's `create` returns `{harness, open[]}`.
+  Codex labels a crashed turn interrupted; only after a managed restart does it
+  start a new turn that tells the model to check what already happened.
+- **One call to approve and continue** is popular (OpenAI's `state.approve` then
+  `run`).
+- **Distinct stopped states.** OpenHands' "unmatched action" conflates approval,
+  crash, and interrupt, so its SDK reruns tools on resume.
+- **Done is not settled.** pi hosts raced for a year because `agent_end` arrived
+  before retries, compaction, and queued follow-ups finished (#5886).
+- **Approvals bound to the recorded request** (MAF; Dashi's `Pending` builders),
+  so a client cannot forge one or change its arguments.
+
+### 7. Forks, rewinds, and child sessions
+
+A fork is a new session whose first record names the parent session and cut turn
+(Dive, ACP's fork RFD, `rfds/session-fork.mdx:28-47`). Dive copies an open turn
+as closed, since its owner still owns the pending calls. Eino's
+`RollbackSession` rewinds with a recorded marker and an expected-head check;
+Codex removed its rollback, which did not undo file changes. Child sessions
+carry a parent link (Codex `parent_thread_id`, opencode `parentID`) and can be
+resumed by task ID (OpenHands), which fits delegate follow-ups as the next
+session turn.
+
+### 8. The first program and live updates
+
+Every first program takes a plain string: `thread.run("…")` (Codex),
+`session.prompt("…")` (pi), `Runner.run(agent, "…", session=)` (OpenAI),
+`client.query("…")` (Claude SDK), `runner.Query(ctx, "Hello")` (Eino). Where two
+input paths diverge, one gets skipped: MAF's streaming path once ignored the
+session (maf#3848).
+
+A silent in-memory default loses data. OpenHands lost events on Cloud Run until
+it added a warning (sdk#2915); pi wrote nothing until the first reply (#9792).
+The OpenAI SDK refuses to combine a session with provider-side state
+(`previous_response_id`, server conversations).
+
+Queued and follow-up turns start with nobody streaming them. ACP v2's prompt
+returns on insertion and streams at any time; pi's `watch()` gives a snapshot
+"with no gap and no duplicate"; Codex has no live cursor and pays in resume cost
+(#38787). ACP `session/resume` with `replayFrom: start` replays all retained
+history; OpenHands Canvas pages events, then replays over WebSocket `since`
+(`src/hooks/query/use-conversation-history.ts:1-95`).
