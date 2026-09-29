@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -361,5 +362,101 @@ func TestSlashCommands(t *testing.T) {
 	case <-h.ui.quit:
 	case <-time.After(time.Second):
 		t.Fatal("/quit did not quit")
+	}
+}
+
+type bashArgs struct {
+	Command string `json:"command" description:"Command to run."`
+}
+
+// A settled bash call is followed by the diff of the working tree.
+func TestDiffShownAfterBash(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	old := adapters
+	t.Cleanup(func() { adapters = old })
+	var dir string
+	adapters = append(slicesClone(old), func(env Env) (wiring, error) {
+		dir = env.Dir
+		bash, err := tool.Func(
+			"bash",
+			"Run a command.",
+			func(_ context.Context, _ tool.Call, in bashArgs) (tool.Outcome, error) {
+				err := os.WriteFile(
+					filepath.Join(env.Dir, "a.txt"), []byte("new\n"), 0o600,
+				)
+				return tool.Succeeded("ran " + in.Command), err
+			},
+		)
+		yes := true
+		bash.Definition.Annotations.ReadOnly = &yes
+		return wiring{Tools: tool.List{bash}}, err
+	})
+	h := newHarness(t,
+		callTool("c1", "bash", `{"command":"echo new > a.txt"}`),
+		say("Changed."),
+	)
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "T"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "-q", "-m", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	h.input("change it")
+	var diff Block
+	for _, b := range h.ui.blocks() {
+		if b.Kind == KindDiff {
+			diff = b
+		}
+	}
+	text := strings.Join(diff.Lines, "\n")
+	if !strings.Contains(text, "a.txt | 2 +-") || !strings.Contains(text, "-old") ||
+		!strings.Contains(text, "+new") {
+		t.Fatalf("diff block=%q", text)
+	}
+}
+
+func TestDiffIsCappedAt40Lines(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "T")
+	file := filepath.Join(dir, "big.txt")
+	os.WriteFile(file, []byte("x\n"), 0o600)
+	run("add", "big.txt")
+	run("commit", "-q", "-m", "init")
+	os.WriteFile(file, []byte(strings.Repeat("line\n", 200)), 0o600)
+	b, ok := gitDiffBlock(t.Context(), dir, 1)
+	if !ok || len(b.Lines) != maxDiffLines+1 ||
+		!strings.HasPrefix(b.Lines[maxDiffLines], "... ") {
+		t.Fatalf("ok=%v lines=%d", ok, len(b.Lines))
+	}
+	// A clean tree and a non-repository give no block.
+	run("checkout", "-q", "--", "big.txt")
+	if _, ok := gitDiffBlock(t.Context(), dir, 2); ok {
+		t.Fatal("diff block for a clean tree")
+	}
+	if _, ok := gitDiffBlock(t.Context(), t.TempDir(), 3); ok {
+		t.Fatal("diff block outside a repository")
 	}
 }

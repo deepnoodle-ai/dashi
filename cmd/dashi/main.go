@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 func main() {
@@ -75,7 +76,7 @@ func run(
 	if o.Plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		return runLines(ctx, cfg, o, stdin, stdout, stderr)
 	}
-	return runScreen(ctx, cfg, o, stderr)
+	return runScreen(ctx, cfg, o, stdout, stderr)
 }
 
 // runPrint runs one turn without a UI and prints the answer to stdout. Steps
@@ -180,9 +181,55 @@ func runLines(
 	return 0
 }
 
-func runScreen(ctx context.Context, cfg appConfig, o Options, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "dashi: the full screen is not built yet; use --plain.")
-	return 1
+// runScreen runs the session in the full-screen UI.
+func runScreen(
+	ctx context.Context,
+	cfg appConfig,
+	o Options,
+	stdout, stderr io.Writer,
+) int {
+	scr := newScreen(cfg.Dir)
+	a, err := buildApp(ctx, cfg, scr)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	defer a.eng.Close()
+	if a.wiring.Close != nil {
+		defer a.wiring.Close()
+	}
+	scr.bind(a)
+	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
+	if err != nil {
+		if errors.Is(err, session.ErrBusy) {
+			fmt.Fprintf(stderr, "dashi: this session is open in another dashi.\n")
+		} else {
+			fmt.Fprintf(stderr, "dashi: %v\n", err)
+		}
+		return 1
+	}
+	scr.Emit(Block{
+		Kind: KindNotice,
+		Text: fmt.Sprintf("dashi  %s  %s", a.eng.Model(), cfg.Dir),
+		Done: true,
+	})
+	if notice != "" {
+		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
+	}
+	a.ctrl.Open()
+	err = tui.Run(scr, tui.WithBracketedPaste(true))
+	// Stop work that is still running, so the turn records an interruption.
+	a.ctrl.Interrupt()
+	a.ctrl.Wait()
+	scr.drain()
+	scr.dumpTranscript(stdout)
+	id := a.eng.Session().ID
+	fmt.Fprintf(stdout, "\nSession %s saved. Resume with: dashi --resume %s\n", id, id)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // isTerminal reports whether f is a terminal. A variable so tests can change

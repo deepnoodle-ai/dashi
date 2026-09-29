@@ -1,0 +1,269 @@
+package main
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/wonton/tui"
+)
+
+// screenHarness runs an app on a screen without a terminal. One goroutine
+// plays the Wonton loop: it runs the events the screen posts, one at a time,
+// under mu.
+type screenHarness struct {
+	*harness
+	scr *screen
+	mu  sync.Mutex
+}
+
+func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarness {
+	t.Helper()
+	store := newHarness(t).store // fresh store and temp dir
+	dir := t.TempDir()
+	scr := newScreen(dir)
+	client := &fakeClient{script: script}
+	h := &harness{t: t, dir: dir, store: store, client: client, limit: attempts}
+	a, err := buildApp(t.Context(), appConfig{
+		Dir:           dir,
+		Model:         "fixture",
+		Client:        client,
+		Store:         store,
+		ModelAttempts: attempts,
+	}, scr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scr.bind(a)
+	if _, err := a.openSession(store, dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.eng.Close)
+	h.app = a
+	sh := &screenHarness{harness: h, scr: scr}
+	events := make(chan tui.Event, 1000)
+	scr.send = func(e tui.Event) { events <- e }
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for e := range events {
+			sh.mu.Lock()
+			scr.HandleEvent(e)
+			sh.mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		close(events)
+		<-done
+	})
+	return sh
+}
+
+func (h *screenHarness) key(e tui.KeyEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scr.HandleEvent(e)
+}
+
+func (h *screenHarness) submit(text string) {
+	h.mu.Lock()
+	h.scr.submit(text)
+	h.mu.Unlock()
+}
+
+// render draws the screen at 80 by 30 and returns its text.
+func (h *screenHarness) render() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scr.drain()
+	view := h.scr.View()
+	return tui.SprintScreen(view, tui.WithWidth(80), tui.WithHeight(30)).Text()
+}
+
+// check runs cond under the loop lock.
+func (h *screenHarness) check(cond func() bool) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return cond()
+}
+
+func (h *screenHarness) waitFor(cond func() bool) {
+	h.t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !h.check(cond) {
+		if time.Now().After(deadline) {
+			h.t.Fatalf("timeout; screen:\n%s", h.render())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestScreenShowsTurnAsItStreams(t *testing.T) {
+	h := newScreenHarness(t, 0,
+		callTool("c1", "list_directory", `{}`),
+		say("The fix is done."),
+	)
+	h.submit("fix the test")
+	h.app.ctrl.Wait()
+	got := h.render()
+	for _, want := range []string{
+		"fix the test",
+		"list_directory",
+		"ok",
+		"The fix is done.",
+		"[turn 1 | fixture | 2 model calls",
+		"fixture ·",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestScreenApprovalPromptAndKeys(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	h := newScreenHarness(t, 0,
+		callTool("c1", "write_note", `{"text":"one"}`),
+		say("Noted."),
+		callTool("c2", "write_note", `{"text":"two"}`),
+		say("Refused."),
+	)
+	h.submit("write a note")
+	h.waitFor(func() bool { return h.scr.approval != nil })
+	shown := h.render()
+	for _, want := range []string{"write_note", "allow once", "always", "deny"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("missing %q in:\n%s", want, shown)
+		}
+	}
+	if h.app.ctrl.Mode() != ModeApproval {
+		t.Fatalf("mode=%v", h.app.ctrl.Mode())
+	}
+	// Other keys do nothing. y allows once.
+	h.key(tui.KeyEvent{Rune: 'x'})
+	if !h.check(func() bool { return h.scr.approval != nil }) {
+		t.Fatal("a stray key answered the prompt")
+	}
+	h.key(tui.KeyEvent{Rune: 'y'})
+	h.app.ctrl.Wait()
+	if runs.Load() != 1 {
+		t.Fatalf("runs=%d", runs.Load())
+	}
+
+	h.submit("again")
+	h.waitFor(func() bool { return h.scr.approval != nil })
+	h.key(tui.KeyEvent{Rune: 'n'})
+	h.app.ctrl.Wait()
+	if runs.Load() != 1 {
+		t.Fatalf("a denied call ran: runs=%d", runs.Load())
+	}
+	if !strings.Contains(h.render(), "denied") {
+		t.Fatalf("no denied line:\n%s", h.render())
+	}
+}
+
+func TestScreenCtrlCByMode(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	started := make(chan struct{})
+	h := newScreenHarness(t, 0, blockUntilDone(started), say("Then this."))
+	h.submit("first")
+	<-started
+	// Running: Ctrl-C cancels the turn and does not quit.
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	h.app.ctrl.Wait()
+	if h.check(func() bool { return h.scr.quitting }) {
+		t.Fatal("Ctrl-C while running quit the program")
+	}
+	if !strings.Contains(h.render(), "Interrupted.") {
+		t.Fatalf("no interrupt line:\n%s", h.render())
+	}
+	// Idle: Ctrl-C quits.
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	if !h.check(func() bool { return h.scr.quitting }) {
+		t.Fatal("Ctrl-C at idle did not quit")
+	}
+}
+
+func TestScreenQuitDuringApprovalCancelsTheRun(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	h := newScreenHarness(t, 0, callTool("c1", "write_note", `{"text":"one"}`))
+	h.submit("write")
+	h.waitFor(func() bool { return h.scr.approval != nil })
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	h.app.ctrl.Wait()
+	h.waitFor(func() bool { return h.scr.quitting })
+	if runs.Load() != 0 || h.check(func() bool { return h.scr.approval != nil }) {
+		t.Fatalf("runs=%d", runs.Load())
+	}
+	last := h.app.eng.Last(t.Context())
+	if !last.Unfinished() {
+		t.Fatalf("stop=%+v", last.View.Stop)
+	}
+}
+
+func TestScreenSteerWhileRunning(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	first := func(ctx context.Context, call llm.Call) (llm.Result, error) {
+		close(started)
+		<-release
+		return callTool("c1", "list_directory", `{}`)(ctx, call)
+	}
+	h := newScreenHarness(t, 0, first, say("Done."))
+	h.submit("start")
+	<-started
+	h.submit("!use plan B")
+	if !strings.Contains(h.render(), "steer queued: use plan B") {
+		t.Fatalf("no queued steer:\n%s", h.render())
+	}
+	close(release)
+	h.app.ctrl.Wait()
+	got := h.render()
+	if !strings.Contains(got, "steer delivered: use plan B") ||
+		strings.Contains(got, "steer queued") {
+		t.Fatalf("steer not delivered:\n%s", got)
+	}
+}
+
+func TestScreenPickerChoosesModel(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	h.submit("/model")
+	h.waitFor(func() bool { return h.scr.picker != nil })
+	if !strings.Contains(h.render(), "Model") {
+		t.Fatalf("no picker:\n%s", h.render())
+	}
+	h.key(tui.KeyEvent{Key: tui.KeyArrowDown})
+	var want string
+	h.check(func() bool { want = h.scr.picker.options[1]; return true })
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.app.ctrl.Wait()
+	if h.app.eng.Model() != want {
+		t.Fatalf("model=%s, want %s", h.app.eng.Model(), want)
+	}
+	// Esc cancels and keeps the model.
+	h.submit("/model")
+	h.waitFor(func() bool { return h.scr.picker != nil })
+	h.key(tui.KeyEvent{Key: tui.KeyEscape})
+	h.app.ctrl.Wait()
+	if h.app.eng.Model() != want {
+		t.Fatalf("model changed to %s", h.app.eng.Model())
+	}
+}
+
+func TestScreenResetClearsTranscript(t *testing.T) {
+	h := newScreenHarness(t, 0, say("Hi."))
+	h.submit("hello")
+	h.app.ctrl.Wait()
+	h.submit("/new")
+	h.app.ctrl.Wait()
+	got := h.render()
+	if strings.Contains(got, "Hi.") || !strings.Contains(got, "New session") {
+		t.Fatalf("transcript not reset:\n%s", got)
+	}
+}
