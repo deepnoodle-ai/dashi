@@ -284,7 +284,7 @@ func (ts *Tasks) get(id string) (TaskView, bool) {
 	if !ok {
 		return TaskView{}, false
 	}
-	return ts.viewLocked(t), true
+	return ts.viewLocked(t, nil), true
 }
 
 func (ts *Tasks) unknown(id string) error {
@@ -315,7 +315,7 @@ func (ts *Tasks) awaitOne(
 			ts.mu.Unlock()
 			return TaskView{}, ts.unknown(id)
 		}
-		v, ch := ts.viewLocked(t), ts.changed
+		v, ch := ts.viewLocked(t, nil), ts.changed
 		ts.mu.Unlock()
 		if !v.Running() || wait == 0 {
 			return v, nil
@@ -330,8 +330,8 @@ func (ts *Tasks) awaitOne(
 	}
 }
 
-// awaitAny returns every task after the next running task ends, or after
-// the wait is over. With no running task, or no wait, it returns at once.
+// awaitAny returns every task after the running turn of a task ends, or
+// after the wait is over. With no running task, or no wait, it returns at once.
 func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
@@ -341,19 +341,19 @@ func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
 		if running == nil {
 			running = map[string]bool{}
 			for id, t := range ts.tasks {
-				if t.state == TaskRunning {
+				if t.state() == TaskRunning {
 					running[id] = true
 				}
 			}
 		}
 		ended := false
 		for id := range running {
-			ended = ended || ts.tasks[id].state != TaskRunning
+			ended = ended || ts.tasks[id].state() != TaskRunning
 		}
 		ch := ts.changed
 		views := make([]TaskView, 0, len(ts.order))
 		for _, id := range ts.order {
-			views = append(views, ts.viewLocked(ts.tasks[id]))
+			views = append(views, ts.viewLocked(ts.tasks[id], nil))
 		}
 		ts.mu.Unlock()
 		if wait == 0 || len(running) == 0 || ended {

@@ -242,7 +242,14 @@ func TestCompactRemovesRemindersFromSummarizerInput(t *testing.T) {
 		Tier:    llm.ReminderContextual,
 		Content: "SECRET-REMINDER",
 	})
+	mail := llm.ReminderMessage(llm.Reminder{
+		Name:    "task-ended",
+		Tier:    llm.ReminderContextual,
+		From:    "task t_k3f2 (explore)",
+		Content: "AGENT-MAIL",
+	})
 	history[0].Content = append(history[0].Content, reminder.Content...)
+	history[0].Content = append(history[0].Content, mail.Content...)
 	rest := append([]llm.Message{reminder}, history[1:]...)
 	history = append(history[:1:1], rest...)
 	for i := 1; i < len(starts); i++ {
@@ -256,6 +263,10 @@ func TestCompactRemovesRemindersFromSummarizerInput(t *testing.T) {
 	data, _ := json.Marshal(s.input)
 	if strings.Contains(string(data), "SECRET-REMINDER") {
 		t.Fatal("reminder reached the summarizer")
+	}
+	// Agent mail is conversation that nobody supplies again, so it stays.
+	if !strings.Contains(string(data), "AGENT-MAIL") {
+		t.Fatal("agent mail did not reach the summarizer")
 	}
 	if len(s.input) == 0 {
 		t.Fatal("summarizer got no messages")

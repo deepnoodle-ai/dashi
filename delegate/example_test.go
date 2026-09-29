@@ -34,7 +34,7 @@ func ExampleRunUntilQuiet() {
 		Runner: dashi.Runner{Client: child},
 		OnTask: func(e delegate.TaskEvent) {
 			if e.Kind == delegate.TaskEnded {
-				s.EnqueueItem(ctx, e.Task.Notice().Steer().Item)
+				s.EnqueueItem(ctx, e.Task.Notice().Item())
 			}
 		},
 	})

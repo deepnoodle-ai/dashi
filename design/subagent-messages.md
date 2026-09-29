@@ -45,20 +45,32 @@ parent Session ──task_send──▶ Tasks ─────SteerItem/Start─�
   (`queue:["msg:…"]`).
 - **Views.** `TaskView.ChildID` becomes `SessionID`; `TurnID` names the
   current or last child turn, and `Turns` counts them. `State` is the last
-  turn's state, `running` while a turn runs. `Spend` sums every child turn.
+  turn's state, `running` while a turn runs. `Spend`, `ModelCalls`, and
+  `ToolCalls` sum every child turn; `Answer` and `Reason` are the `TurnID`
+  turn's. A `TaskEnded` view names the turn that ended.
 - **Spend by starting call.** A child turn's starting call is its `Parent`
   (the `task` or `task_send` call), or, for a queue turn, the call named by
   the first message ID in its key. `Report(parent)` counts each child turn,
   of the tasks the parent turn's calls name, whose starting call is in that
   parent turn: child turn 2, started from parent turn 7, counts in turn 7.
+  Track 2 finds child sessions through `task` calls only; track 3 adds the
+  sessions that `task_send` calls name, and the queue-turn rule, since only
+  its steers make child queue turns.
 - **Stop.** `Tasks.Stop` cancels the running turn only; a stopped child
   takes follow-ups. `Recover` never resumes a canceled turn. The doc
   comments of `Stop`, `Recover`, and `Report` change with track 2.
 - **Notices** are per child turn: ID `task-done:<child turn ID>`. `OnTask`
   gets `TaskStarted` for each child turn and `TaskEnded` for each end.
+  `Notice.Item()` is the `task-ended` reminder, from `task t_k3f2 (explore)`
+  (`taskSender` strips what `From` forbids and cuts it to 64 bytes), cut to
+  fit the 64 KiB reminder limit. Compaction keeps reminders with a `From` in
+  the summarizer's input, since nobody supplies agent mail again; the
+  transcript writes each as an item with its sender and content. It still
+  drops the others.
 - **`MaxTaskTurns`** (default 10; negative means none) bounds the turns of one
-  child session. `task_send` past it is a tool error: "task t_k3f2 has run 10
-  turns; start a new task".
+  child session. `Tasks` checks it wherever it starts a child turn.
+  `task_send` past it is a tool error: "task t_k3f2 has run 10 turns; start
+  a new task".
 
 ## Agent messages
 
@@ -106,14 +118,14 @@ that turn ends, then starts the next one. Further messages steer into it.
 | Waiting, uncertain | Tool error; not sent | Same |
 
 Without `Config.Session`, `OnTask` gets `TaskMessage` and `TaskEnded` events,
-and the host calls the same two methods. `Config.Session` needs the handle's
-own inbox; with a host `Session.Steering`, route from `OnTask`. A message is
-pending until delivered, so `Tasks.Wait` and `RunUntilQuiet` wake on it.
-Mail is never held for a recipient that cannot read it. A steer accepted
+and the host calls the same two methods. A `Config.Session` that refuses a steer
+(a host `Session.Steering`, or a compaction turn) gets the item on its queue. A
+message is pending until delivered, so `Tasks.Wait` and `RunUntilQuiet` wake on
+it. Mail is never held for a recipient that cannot read it. A steer accepted
 while a child ran, whose turn then stops `waiting` or `uncertain` before it
 reads the steer, is **undeliverable**: a final outcome, not pending mail. The
-notice for that turn says "your message was not read", and the parent may
-send it again once the child can take it.
+notice for that turn says "your message was not read", and the parent may send
+it again once the child can take it.
 
 **Parent wakes.** A child turn's first message that finds the parent idle
 starts a parent queue turn. Its later messages steer into a running parent

@@ -25,15 +25,19 @@ import (
 // model delegated to protect.
 const defaultMaxAnswer = 16 << 10
 
+// defaultMaxTaskTurns bounds the turns of one child session when
+// Config.MaxTaskTurns is zero.
+const defaultMaxTaskTurns = 10
+
 // stopTimeout bounds the write that records a stop after Stop or Close.
 const stopTimeout = 30 * time.Second
 
-// TaskState is "running" or the child's dashi.StopKind: completed, failed,
-// limited, refused, canceled, interrupted, waiting, or uncertain. No other
-// names exist.
+// TaskState is "running" or the dashi.StopKind of a child turn: completed,
+// failed, limited, refused, canceled, interrupted, waiting, or uncertain. No
+// other names exist.
 type TaskState string
 
-// TaskRunning is the state of a task whose child is working.
+// TaskRunning is the state of a task whose child turn is working.
 const TaskRunning TaskState = "running"
 
 // TaskEventKind says what happened to a task.
@@ -41,9 +45,9 @@ type TaskEventKind string
 
 // Task event kinds.
 const (
-	// TaskStarted means the task started, or resumed after Recover.
+	// TaskStarted means a child turn started, or resumed after Recover.
 	TaskStarted TaskEventKind = "started"
-	// TaskEnded means the task reached a state other than running and
+	// TaskEnded means a child turn reached a state other than running and
 	// Close did not cause it.
 	TaskEnded TaskEventKind = "ended"
 )
@@ -54,38 +58,47 @@ type TaskEvent struct {
 	Task TaskView
 }
 
-// TaskView is a copy of the state of one task.
+// TaskView is a copy of the state of one task. A task runs in a child
+// session, one turn at a time.
 type TaskView struct {
 	// ID is what the model and the user call the task, such as "t_k3f2".
 	ID string
-	// ChildID is the turn ID of the child.
-	ChildID     string
+	// SessionID is the ID of the child session (ChildID of the task call).
+	SessionID string
+	// TurnID names the child turn that runs now, or the last one. In a
+	// TaskEnded event it is the turn that ended.
+	TurnID string
+	// Turns counts the child turns so far.
+	Turns       int
 	Subagent    string
 	Description string
 	// Parent is the tool call of the parent turn that started the task.
 	Parent dashi.CallRef
-	State  TaskState
-	// ModelCalls and ToolCalls count the child's work so far.
+	// State is the state of the turn TurnID names.
+	State TaskState
+	// ModelCalls and ToolCalls count the child's work so far, over every
+	// turn.
 	ModelCalls int
 	ToolCalls  int
-	// Spend is the child's spend. It is live for a running task.
+	// Spend is the spend of every child turn. It is live for a running turn.
 	Spend dashi.Spend
-	// Answer is the child's answer, cut at Config.MaxAnswer. It is empty
-	// unless the task completed.
+	// Answer is the answer of the turn TurnID names, cut at
+	// Config.MaxAnswer. It is empty unless that turn completed.
 	Answer string
-	// Reason says why a task that did not complete stopped.
+	// Reason says why that turn stopped, when it did not complete.
 	Reason string
 }
 
-// Running reports whether the task is still working.
+// Running reports whether a turn of the task is working.
 func (v TaskView) Running() bool {
 	return v.State == TaskRunning
 }
 
-// TaskID returns the ID of the task for a child turn. It is a fixed function
-// of the child ID, so it is the same after a reopen and needs no counter.
-func TaskID(childID string) string {
-	sum := sha256.Sum256([]byte(childID))
+// TaskID returns the ID of the task for a child session. It is a fixed
+// function of the session ID, so it is the same after a reopen and needs no
+// counter.
+func TaskID(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
 	enc := base32.StdEncoding.WithPadding(base32.NoPadding).
 		EncodeToString(sum[:])
 	return "t_" + strings.ToLower(enc[:6])
@@ -95,7 +108,7 @@ func TaskID(childID string) string {
 var (
 	// ErrUnknownTask means Tasks holds no task with that ID.
 	ErrUnknownTask = errors.New("delegate: unknown task")
-	// ErrTaskEnded means the task is no longer running.
+	// ErrTaskEnded means no turn of the task is running.
 	ErrTaskEnded = errors.New("delegate: task already ended")
 )
 
@@ -112,35 +125,57 @@ type Tasks struct {
 	tasks   map[string]*task
 	order   []string
 	closed  bool
-	changed chan struct{} // closed and replaced when a task ends or reports
+	changed chan struct{} // closed and replaced when a turn ends or reports
 	reports int           // reports finished
 	waited  int           // reports that Wait has returned for
 	wg      sync.WaitGroup
 }
 
-// task is the mutable record of one child. Tasks.mu guards every field
-// except the immutable ones in the first block.
+// task is the mutable record of one child session. Tasks.mu guards every
+// field except the immutable ones in the first block.
 type task struct {
-	id, childID string
-	parent      dashi.CallRef
-	sub         Subagent
-	description string
+	id, sessionID string
+	parent        dashi.CallRef
+	sub           Subagent
+	description   string
+	session       *dashi.Session
 
+	// turns holds one entry per child turn, in order.
+	turns []*childTurn
+	// cancel and done belong to the goroutine that drives the session.
+	// cancel is nil while none runs; done closes when it exits.
 	cancel   context.CancelFunc
-	state    TaskState
-	stopping bool
-	// notified is set when a report starts, reported when it is done. An
-	// ended task counts as pending until reported.
-	notified bool
-	reported bool
-	steps    []dashi.Step // observed while running
-	final    *dashi.TurnView
-	answer   string
-	reason   string
 	done     chan struct{}
+	stopping bool
 	// started closes when the child's record holds its first step, or when
-	// the run ends without one.
+	// the first run ends without one.
 	started chan struct{}
+}
+
+// childTurn is one turn of a child session.
+type childTurn struct {
+	id    string
+	state TaskState
+	steps []dashi.Step // observed while running
+	final *dashi.TurnView
+	// answer and reason are cut and ready for the model.
+	answer, reason string
+	// notified is set when a report starts, reported when it is done. An
+	// ended turn counts as pending until reported.
+	notified, reported bool
+}
+
+// view returns the turn's view: final, or replayed from the observed steps.
+func (c *childTurn) view() dashi.TurnView {
+	if c.final != nil {
+		return *c.final
+	}
+	if len(c.steps) > 0 {
+		if v, err := dashi.Replay(dashi.Turn{ID: c.id, Steps: c.steps}); err == nil {
+			return v
+		}
+	}
+	return dashi.TurnView{}
 }
 
 // NewTasks returns an empty Tasks. A Recorder in cfg.Runner that does not
@@ -186,16 +221,17 @@ func (ts *Tasks) List() []TaskView {
 	defer ts.mu.Unlock()
 	out := make([]TaskView, 0, len(ts.order))
 	for _, id := range ts.order {
-		out = append(out, ts.viewLocked(ts.tasks[id]))
+		out = append(out, ts.viewLocked(ts.tasks[id], nil))
 	}
 	return out
 }
 
-// Stop ends a running task and records the child as canceled. A canceled
-// child is final: Recover does not resume it. Stop returns after the child
-// has stopped, or with the error of ctx if that ends first (the child keeps
-// stopping). It returns ErrUnknownTask or ErrTaskEnded when there is nothing
-// to stop.
+// Stop cancels the running turn of a task and records that turn as
+// canceled. Recover never resumes a canceled turn. The task itself stays:
+// its child session keeps its history and may run later turns. Stop returns
+// after the turn has stopped, or with the error of ctx if that ends first
+// (the turn keeps stopping). It returns ErrUnknownTask, or ErrTaskEnded when
+// no turn runs.
 func (ts *Tasks) Stop(ctx context.Context, id string) error {
 	return ts.stop(ctx, id)
 }
@@ -207,9 +243,9 @@ func (ts *Tasks) stop(ctx context.Context, id string) error {
 		ts.mu.Unlock()
 		return fmt.Errorf("%w %q", ErrUnknownTask, id)
 	}
-	if t.state != TaskRunning {
+	if state := t.state(); t.cancel == nil || state != TaskRunning {
 		ts.mu.Unlock()
-		return fmt.Errorf("%w: %s", ErrTaskEnded, t.state)
+		return fmt.Errorf("%w: %s", ErrTaskEnded, state)
 	}
 	t.stopping = true
 	cancel, done := t.cancel, t.done
@@ -224,12 +260,12 @@ func (ts *Tasks) stop(ctx context.Context, id string) error {
 }
 
 // Wait blocks until there may be something to deliver or nothing is left to
-// wait for. A task counts as pending from its start until OnTask has
+// wait for. A child turn counts as pending from its start until OnTask has
 // returned for its end, so a host that sends the notice from OnTask sees it
 // in its inbox by the time Wait says there is nothing pending.
 //
-// Wait returns false as soon as one more task has been reported since the
-// last return. It returns true when no task is pending. A host loop reads
+// Wait returns false as soon as one more turn has been reported since the
+// last return. It returns true when no turn is pending. A host loop reads
 // its inbox after every return. It stops when Wait returns true and the
 // inbox holds nothing to deliver. Wait serves one caller at a time. It
 // returns the error of ctx if that ends first.
@@ -255,39 +291,45 @@ func (ts *Tasks) Wait(ctx context.Context) (idle bool, err error) {
 	}
 }
 
-// pendingLocked counts the tasks that are running or whose end OnTask has
-// not yet reported. A task that Close interrupted is not pending.
+// pendingLocked counts the child turns that are running or whose end
+// OnTask has not yet reported. A turn that Close interrupted is not pending.
 func (ts *Tasks) pendingLocked() int {
 	n := 0
 	for _, t := range ts.tasks {
-		if !t.reported {
-			n++
+		for _, c := range t.turns {
+			if !c.reported {
+				n++
+			}
 		}
 	}
 	return n
 }
 
-// reportedLocked marks a task as reported. count says whether the report
-// is news to Wait.
-func (ts *Tasks) reportedLocked(t *task, count bool) {
-	t.notified, t.reported = true, true
+// reportedLocked marks a turn as reported. count says whether the report is
+// news to Wait.
+func (ts *Tasks) reportedLocked(c *childTurn, count bool) {
+	c.notified, c.reported = true, true
 	if count {
 		ts.reports++
 	}
+	ts.changedLocked()
+}
+
+func (ts *Tasks) changedLocked() {
 	close(ts.changed)
 	ts.changed = make(chan struct{})
 }
 
-// Close interrupts every running child and waits for each to record that. An
-// interrupted child stays resumable, so the next Recover continues it. Close
-// does not call OnTask for these children. After Close, the tool refuses new
-// tasks. If ctx ends first, Close returns its error and the children keep
-// stopping.
+// Close interrupts every running child turn and waits for each to record
+// that. An interrupted turn stays resumable, so the next Recover continues
+// it. Close does not call OnTask for these turns. After Close, the tool
+// refuses new tasks. If ctx ends first, Close returns its error and the
+// children keep stopping.
 func (ts *Tasks) Close(ctx context.Context) error {
 	ts.mu.Lock()
 	ts.closed = true
 	for _, t := range ts.tasks {
-		if t.state == TaskRunning && t.cancel != nil {
+		if t.cancel != nil {
 			t.cancel()
 		}
 	}
@@ -306,15 +348,18 @@ func (ts *Tasks) Close(ctx context.Context) error {
 }
 
 // Recover rebuilds the tasks of a reopened conversation from the turns the
-// host holds for it. It finds each turn's task calls, loads the children by
-// ChildID, and adds them to the list. It resumes a child that has no
-// recorded stop or stopped interrupted. For a child that already ended, it
-// calls OnTask with TaskEnded unless the record holds the notice (see
-// NoticeID and FollowUp) or an earlier call already reported the child. The
-// runner is the one the host uses for the conversation. It needs a recorder
-// that implements dashi.Loader and returns an error that says so if it does
-// not. It skips a child whose subagent the catalog no longer holds and
-// returns an error for it after the rest.
+// host holds for it. It finds each turn's task calls, loads each child
+// session (ChildID) turn by turn, and adds the tasks to the list. It
+// resumes a last child turn that has no recorded stop or stopped
+// interrupted; it never resumes a canceled one. For each child turn that
+// already ended, it calls OnTask with TaskEnded, and delivers the notice to
+// Config.Session, unless the record holds that turn's notice (see NoticeID)
+// or an earlier call already reported the turn. So each ended turn is
+// reported once. It restores every task and reports the ended turns before
+// it resumes any turn. The runner is the one the host uses for the
+// conversation. It needs a recorder that implements dashi.Loader and
+// returns an error that says so if it does not. It skips a child whose subagent the catalog
+// no longer holds and returns an error for it after the rest.
 func (ts *Tasks) Recover(
 	ctx context.Context,
 	r dashi.Runner,
@@ -329,6 +374,9 @@ func (ts *Tasks) Recover(
 	}
 	delivered := deliveredNotices(turns)
 	var errs []error
+	var adopted, resumed []*task
+	// Restore every task before any turn runs, so a resumed turn that ends
+	// early finds each delivered turn marked and never reports it again.
 	for _, turn := range turns {
 		view, err := dashi.Replay(turn)
 		if err != nil {
@@ -341,10 +389,25 @@ func (ts *Tasks) Recover(
 				continue
 			}
 			ref := dashi.CallRef{TurnID: turn.ID, CallID: callID}
-			if err := ts.adopt(ctx, r, loader, ref, call.Args, delivered); err != nil {
+			t, resume, err := ts.adopt(ctx, r, loader, ref, call.Args, delivered)
+			if err != nil {
 				errs = append(errs, err)
 			}
+			if t != nil && !slices.Contains(adopted, t) {
+				adopted = append(adopted, t)
+			}
+			if resume {
+				resumed = append(resumed, t)
+			}
 		}
+	}
+	// Report the ended turns nobody has heard of, whether the task is new
+	// here or known in this process. Then resume the unfinished turns.
+	for _, t := range adopted {
+		ts.notifyEnded(t, delivered)
+	}
+	for _, t := range resumed {
+		ts.resume(ctx, t)
 	}
 	return errors.Join(errs...)
 }
@@ -356,53 +419,38 @@ func (ts *Tasks) adopt(
 	ref dashi.CallRef,
 	rawArgs []byte,
 	delivered map[string]bool,
-) error {
-	childID := ChildID(ref.TurnID, ref.CallID)
-	child, err := loader.Load(ctx, childID)
-	if errors.Is(err, dashi.ErrTurnNotFound) {
-		return nil
-	}
+) (*task, bool, error) {
+	sessionID := ChildID(ref.TurnID, ref.CallID)
+	rec, err := loadRecord(ctx, loader, sessionID)
 	if err != nil {
-		return fmt.Errorf("delegate: load child %s: %w", childID, err)
+		return nil, false, fmt.Errorf(
+			"delegate: load child session %s: %w", sessionID, err,
+		)
 	}
-	view, err := dashi.Replay(child)
-	if err != nil {
-		return fmt.Errorf("delegate: replay child %s: %w", childID, err)
+	if len(rec.turns) == 0 {
+		return nil, false, nil
 	}
 	args, _ := parseTaskArgs(rawArgs)
 	sub, ok := ts.find(args.Subagent)
 	if !ok {
-		return fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"delegate: task %s uses subagent %q, which the catalog lacks",
-			TaskID(childID), args.Subagent,
+			TaskID(sessionID), args.Subagent,
 		)
 	}
-	t, added, err := ts.register(ctx, sub, ref, args.Description, parent, child, view)
-	if err != nil {
-		return err
-	}
-	if !added {
-		// Known in this process: report an end that nobody has heard of.
-		ts.notifyEnded(t, delivered)
-		return nil
-	}
-	if !t.resumable(child) {
-		ts.notifyEnded(t, delivered)
-	}
-	return nil
+	return ts.register(sub, ref, args.Description, parent, rec, delivered)
 }
 
-// register adds the task for a child that already has a record. For a
-// resumable child it also starts the goroutine. It reports whether the task
-// is new. An ended child is registered as ended.
+// register adds the task for a child session that already has turns. It
+// reports whether the last turn is unfinished and needs resume. It returns
+// the task that already holds the ID when there is one.
 func (ts *Tasks) register(
-	ctx context.Context,
 	sub Subagent,
 	ref dashi.CallRef,
 	description string,
 	parent dashi.Runner,
-	child dashi.Turn,
-	view dashi.TurnView,
+	rec record,
+	delivered map[string]bool,
 ) (*task, bool, error) {
 	t := newTask(sub, ref, description)
 	ts.mu.Lock()
@@ -414,32 +462,100 @@ func (ts *Tasks) register(
 		return nil, false, errors.New("delegate: tasks are closed")
 	}
 	ts.addLocked(t)
-	if !t.resumable(child) {
-		v := view
-		t.final = &v
-		t.state, t.answer, t.reason = endState(ts, mustStop(child), v)
-		t.setEnded()
-		return t, true, nil
-	}
-	t.steps = slices.Clone(child.Steps)
 	// Continue runs with the agent the child recorded, whose Tools name the
 	// tools it may use, so a change to the subagent since then does not reach
 	// it. startTask does the same.
-	runner := ts.childRunner(sub, ref, parent, t)
-	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
-	return t, true, nil
+	t.session = childSession(t, ts.childRunner(sub, ref, parent), false)
+	return t, ts.restoreLocked(t, rec, delivered), nil
+}
+
+// resume continues the unfinished last turn of a restored task. When Close
+// came first, the turn stays interrupted for the next Recover.
+func (ts *Tasks) resume(ctx context.Context, t *task) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.closed {
+		c := t.last()
+		c.state = TaskState(dashi.StopInterrupted)
+		c.notified, c.reported = true, true
+		t.setStarted()
+		ts.changedLocked()
+		return
+	}
+	ts.launchLocked(ctx, t, dashi.Continue{})
+}
+
+// record is what the recorder holds for one child session: its turns, in
+// order, and their views.
+type record struct {
+	turns []dashi.Turn
+	views []dashi.TurnView
+}
+
+// loadRecord loads the turns of a child session from turn 1 until one is
+// missing.
+func loadRecord(
+	ctx context.Context,
+	loader dashi.Loader,
+	sessionID string,
+) (record, error) {
+	var rec record
+	for n := 1; ; n++ {
+		turn, err := loader.Load(ctx, dashi.TurnID(sessionID, n))
+		if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
+			return rec, nil
+		}
+		if err != nil {
+			return record{}, err
+		}
+		view, err := dashi.Replay(turn)
+		if err != nil {
+			return record{}, fmt.Errorf("replay %s: %w", turn.ID, err)
+		}
+		rec.turns = append(rec.turns, turn)
+		rec.views = append(rec.views, view)
+	}
+}
+
+// restoreLocked fills the task's turns from its record and marks the ended
+// turns whose notice delivered holds as reported. It reports whether the
+// last turn is unfinished: no recorded stop, or an interruption. That turn
+// stays running for the caller to resume.
+func (ts *Tasks) restoreLocked(
+	t *task,
+	rec record,
+	delivered map[string]bool,
+) bool {
+	resume := false
+	for i, turn := range rec.turns {
+		c := &childTurn{id: turn.ID}
+		stop, stopped := recordedStop(turn)
+		if i == len(rec.turns)-1 && (!stopped || stop.Kind == dashi.StopInterrupted) {
+			c.state, c.steps, resume = TaskRunning, slices.Clone(turn.Steps), true
+		} else {
+			v := rec.views[i]
+			c.final = &v
+			c.state, c.answer, c.reason = endState(ts, stop, v)
+			if delivered[c.id] {
+				ts.reportedLocked(c, false)
+			}
+		}
+		t.turns = append(t.turns, c)
+	}
+	if !resume {
+		t.setStarted()
+	}
+	return resume
 }
 
 func newTask(sub Subagent, ref dashi.CallRef, description string) *task {
-	childID := ChildID(ref.TurnID, ref.CallID)
+	sessionID := ChildID(ref.TurnID, ref.CallID)
 	return &task{
-		id:          TaskID(childID),
-		childID:     childID,
+		id:          TaskID(sessionID),
+		sessionID:   sessionID,
 		parent:      ref,
 		sub:         sub,
 		description: description,
-		state:       TaskRunning,
-		done:        make(chan struct{}),
 		started:     make(chan struct{}),
 	}
 }
@@ -452,19 +568,33 @@ func (t *task) setStarted() {
 	}
 }
 
-func (t *task) setEnded() {
-	select {
-	case <-t.done:
-	default:
-		close(t.done)
+// last returns the task's last turn, or nil before its first.
+func (t *task) last() *childTurn {
+	if len(t.turns) == 0 {
+		return nil
 	}
+	return t.turns[len(t.turns)-1]
 }
 
-// resumable reports whether the record shows an unfinished child: no
-// recorded stop, or an interruption.
-func (t *task) resumable(child dashi.Turn) bool {
-	stop, ok := recordedStop(child)
-	return !ok || stop.Kind == dashi.StopInterrupted
+// state is the state of the last turn: running before the first.
+func (t *task) state() TaskState {
+	if c := t.last(); c != nil {
+		return c.state
+	}
+	return TaskRunning
+}
+
+// turn returns the task's turn with id, adding it as running when the task
+// has none.
+func (t *task) turn(id string) *childTurn {
+	for _, c := range slices.Backward(t.turns) {
+		if c.id == id {
+			return c
+		}
+	}
+	c := &childTurn{id: id, state: TaskRunning}
+	t.turns = append(t.turns, c)
+	return c
 }
 
 // recordedStop returns the latest stop the record holds. Replay projects a
@@ -479,13 +609,13 @@ func recordedStop(t dashi.Turn) (dashi.Stop, bool) {
 }
 
 // existingLocked returns the task already holding t's ID. It is an error
-// when that task belongs to another child.
+// when that task belongs to another child session.
 func (ts *Tasks) existingLocked(t *task) (*task, error) {
 	old, ok := ts.tasks[t.id]
 	if !ok {
 		return nil, nil
 	}
-	if old.childID != t.childID {
+	if old.sessionID != t.sessionID {
 		return nil, fmt.Errorf(
 			"delegate: task ID %s is already used by another child; "+
 				"try the task again", t.id,
@@ -499,49 +629,131 @@ func (ts *Tasks) addLocked(t *task) {
 	ts.order = append(ts.order, t.id)
 }
 
-// launchLocked runs the child in a goroutine that Tasks owns. The caller
-// holds ts.mu and has checked that ts is not closed. The child keeps the
-// values of base but not its cancellation or deadline, so canceling the
-// parent turn does not stop the task.
+// maxTaskTurns returns the turn bound of one child session; 0 means none.
+func (ts *Tasks) maxTaskTurns() int {
+	switch n := ts.cfg.MaxTaskTurns; {
+	case n < 0:
+		return 0
+	case n == 0:
+		return defaultMaxTaskTurns
+	default:
+		return n
+	}
+}
+
+// checkTurnsLocked refuses a next turn once the child session has run
+// Config.MaxTaskTurns turns.
+func (ts *Tasks) checkTurnsLocked(t *task) error {
+	if limit := ts.maxTaskTurns(); limit > 0 && len(t.turns) >= limit {
+		return fmt.Errorf(
+			"delegate: task %s has run %d turns; start a new task",
+			t.id, len(t.turns),
+		)
+	}
+	return nil
+}
+
+// startTurnLocked starts the next turn of a child session that runs none,
+// unless checkTurnsLocked refuses it. The caller holds ts.mu and has checked
+// that ts is not closed.
+func (ts *Tasks) startTurnLocked(
+	ctx context.Context,
+	t *task,
+	start dashi.Start,
+) error {
+	if err := ts.checkTurnsLocked(t); err != nil {
+		return err
+	}
+	t.turns = append(t.turns, &childTurn{
+		id:    dashi.TurnID(t.sessionID, len(t.turns)+1),
+		state: TaskRunning,
+	})
+	ts.launchLocked(ctx, t, start)
+	return nil
+}
+
+// launchLocked drives the child session in a goroutine that Tasks owns. The
+// caller holds ts.mu, has checked that ts is not closed, and has made the
+// turn that cmd runs the task's last. The child keeps the values of base but
+// not its cancellation or deadline, so canceling the parent turn does not
+// stop the task.
 func (ts *Tasks) launchLocked(
 	base context.Context,
 	t *task,
-	runner dashi.Runner,
-	turn dashi.Turn,
 	cmd dashi.Command,
 ) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(base))
-	t.cancel = cancel
+	t.cancel, t.done = cancel, make(chan struct{})
 	ts.wg.Add(1)
-	go ts.run(ctx, t, runner, turn, cmd)
+	go ts.run(ctx, t, cmd)
 }
 
-func (ts *Tasks) run(
-	ctx context.Context,
-	t *task,
-	runner dashi.Runner,
-	turn dashi.Turn,
-	cmd dashi.Command,
-) {
+// run ranges over the child session's Stream. Each turn's Outcome event ends
+// that turn; the goroutine exits when the call returns.
+func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	defer ts.wg.Done()
-	if started := ts.view(t); ts.cfg.OnTask != nil {
-		ts.cfg.OnTask(TaskEvent{Kind: TaskStarted, Task: started})
-	}
-	out, err := runner.Run(ctx, turn, cmd)
 	ts.mu.Lock()
-	stopping := t.stopping
+	current := t.last().id
+	started := ts.viewLocked(t, nil)
 	ts.mu.Unlock()
-	if stopping {
-		out, err = ts.recordCancel(runner, t, out, err)
+	ts.onTask(TaskStarted, started)
+	var runErr error
+	for ev, err := range t.session.Stream(ctx, cmd) {
+		switch {
+		case ev.Outcome != nil:
+			out := *ev.Outcome
+			id := cmp.Or(out.Turn.ID, current)
+			if ts.isStopping(t) {
+				out, err = ts.recordCancel(t, id, out, err)
+			}
+			ts.endTurn(t, id, out, err)
+		case err != nil:
+			runErr = err
+		case ev.Step != nil:
+			if ev.Step.Kind == dashi.StepStarted && ev.TurnID != current {
+				// A later turn of the same call, such as a queue turn.
+				current = ev.TurnID
+				ts.mu.Lock()
+				v := ts.viewLocked(t, t.turn(current))
+				ts.mu.Unlock()
+				ts.onTask(TaskStarted, v)
+			}
+			ts.observe(t, *ev.Step)
+		}
 	}
-	ts.finish(t, out, err)
+	ts.mu.Lock()
+	unended := t.turn(current).state == TaskRunning
+	ts.mu.Unlock()
+	if unended {
+		// The session failed before the turn recorded an outcome.
+		out, err := dashi.Outcome{}, cmp.Or(runErr, errNoOutcome)
+		if ts.isStopping(t) {
+			out, err = ts.recordCancel(t, current, out, err)
+		}
+		ts.endTurn(t, current, out, err)
+	}
+	ts.mu.Lock()
+	t.setStarted()
+	t.cancel()
+	t.cancel, t.stopping = nil, false
+	close(t.done)
+	ts.mu.Unlock()
 }
 
-// recordCancel records the stop that Stop asked for. A child that already
-// ended for another reason keeps that reason.
+// errNoOutcome marks a run that ended without an outcome or an error.
+var errNoOutcome = errors.New("the child session ended without an outcome")
+
+func (ts *Tasks) isStopping(t *task) bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return t.stopping
+}
+
+// recordCancel records the stop that Stop asked for on turn id. A turn that
+// already ended for another reason keeps that reason.
 func (ts *Tasks) recordCancel(
-	runner dashi.Runner,
 	t *task,
+	id string,
 	out dashi.Outcome,
 	runErr error,
 ) (dashi.Outcome, error) {
@@ -551,23 +763,12 @@ func (ts *Tasks) recordCancel(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 	defer cancel()
-	turn := out.Turn
-	if runErr != nil || len(turn.Steps) == 0 {
-		loader, ok := runner.Recorder.(dashi.Loader)
-		if !ok {
-			return dashi.Outcome{}, errCanceled
-		}
-		loaded, err := loader.Load(ctx, t.childID)
-		if err != nil {
-			return dashi.Outcome{}, errCanceled
-		}
-		turn = loaded
-	}
-	canceled, err := runner.Run(ctx, turn, dashi.Cancel{
-		CommandID: t.childID + "/cancel",
+	// The session sends Cancel to its last turn, which is id.
+	canceled, err := t.session.Run(ctx, dashi.Cancel{
+		CommandID: id + "/cancel",
 		Reason:    "stopped on request",
 	})
-	if err != nil {
+	if err != nil || canceled.Turn.ID != id {
 		return dashi.Outcome{}, errCanceled
 	}
 	return canceled, nil
@@ -576,38 +777,37 @@ func (ts *Tasks) recordCancel(
 // errCanceled marks a stop that the record does not show.
 var errCanceled = errors.New("stopped on request")
 
-func (ts *Tasks) finish(t *task, out dashi.Outcome, err error) {
+// endTurn records the end of turn id and reports it, unless Close caused it.
+func (ts *Tasks) endTurn(t *task, id string, out dashi.Outcome, err error) {
 	ts.mu.Lock()
+	c := t.turn(id)
 	switch {
 	case errors.Is(err, errCanceled):
-		t.state, t.reason = TaskState(dashi.StopCanceled), err.Error()
+		c.state, c.reason = TaskState(dashi.StopCanceled), err.Error()
 	case err != nil && ts.closed:
-		t.state = TaskState(dashi.StopInterrupted)
+		c.state = TaskState(dashi.StopInterrupted)
 	case err != nil:
-		t.state = TaskState(dashi.StopFailed)
-		t.reason = "the child could not run: " + err.Error()
+		c.state = TaskState(dashi.StopFailed)
+		c.reason = "the child could not run: " + err.Error()
 	default:
 		view := out.TurnView
-		t.final = &view
-		t.state, t.answer, t.reason = endState(ts, out.Stop, view)
+		c.final = &view
+		c.state, c.answer, c.reason = endState(ts, out.Stop, view)
 	}
-	t.setEnded()
 	t.setStarted()
-	interrupted := t.state == TaskState(dashi.StopInterrupted)
+	interrupted := c.state == TaskState(dashi.StopInterrupted)
 	if interrupted {
 		// Close is not an end: nothing will be reported.
-		t.notified, t.reported = true, true
+		c.notified, c.reported = true, true
 	}
-	close(ts.changed)
-	ts.changed = make(chan struct{})
-	t.cancel()
+	ts.changedLocked()
 	ts.mu.Unlock()
 	if !interrupted {
 		ts.notifyEnded(t, nil)
 	}
 }
 
-// endState maps the child's stop to the task state, answer, and reason.
+// endState maps a child turn's stop to its state, answer, and reason.
 func endState(
 	ts *Tasks,
 	stop dashi.Stop,
@@ -627,78 +827,115 @@ func endState(
 	return state, ts.capAnswer(text), ""
 }
 
-// notifyEnded calls OnTask once for an ended task, unless delivered holds
-// its child. The task stays pending until OnTask has returned.
+// notifyEnded reports each ended turn of the task that nobody was told of:
+// it delivers the turn's notice to Config.Session and calls OnTask, once
+// per turn, in order. A turn whose notice delivered holds counts as
+// reported. A turn stays pending until OnTask has returned.
 func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
-	ts.mu.Lock()
-	if t.notified || t.state == TaskRunning {
+	for {
+		ts.mu.Lock()
+		i := slices.IndexFunc(t.turns, func(c *childTurn) bool {
+			return !c.notified && c.state != TaskRunning
+		})
+		if i < 0 {
+			ts.mu.Unlock()
+			return
+		}
+		c := t.turns[i]
+		if delivered[c.id] {
+			ts.reportedLocked(c, false)
+			ts.mu.Unlock()
+			continue
+		}
+		c.notified = true
+		v := ts.viewLocked(t, c)
 		ts.mu.Unlock()
+		ts.toParent(v.Notice().Steer())
+		ts.onTask(TaskEnded, v)
+		ts.mu.Lock()
+		ts.reportedLocked(c, true)
+		ts.mu.Unlock()
+	}
+}
+
+// toParent puts a steer on Config.Session, when set: SteerItem reaches a
+// running turn and queues the item when none runs. A session that refuses
+// steers (while compacting, or with a host steering source) gets the item
+// on its queue instead. Any other error is logged as it is.
+func (ts *Tasks) toParent(steer dashi.Steer) {
+	s := ts.cfg.Session
+	if s == nil {
 		return
 	}
-	if delivered[t.childID] {
-		ts.reportedLocked(t, false)
-		ts.mu.Unlock()
-		return
+	ctx := context.Background()
+	_, err := s.SteerItem(ctx, steer)
+	if err != nil && refusesSteers(s, err) {
+		_, err = s.EnqueueItem(ctx, steer.Item)
 	}
-	t.notified = true
-	v := ts.viewLocked(t)
-	ts.mu.Unlock()
+	if err != nil {
+		slog.Warn("delegate: could not deliver a notice to the parent session",
+			"item", steer.Item.ID, "error", err)
+	}
+}
+
+// refusesSteers reports whether err is the session refusing any steer, not
+// this one: a compaction turn runs, or the host supplies the steering source.
+func refusesSteers(s *dashi.Session, err error) bool {
+	var busy *dashi.TurnBusyError
+	if errors.As(err, &busy) && busy.Origin == dashi.StartCompaction {
+		return true
+	}
+	_, inbox := s.Steering.(*dashi.Inbox)
+	return s.Steering != nil && !inbox
+}
+
+func (ts *Tasks) onTask(kind TaskEventKind, v TaskView) {
 	if ts.cfg.OnTask != nil {
-		ts.cfg.OnTask(TaskEvent{Kind: TaskEnded, Task: v})
+		ts.cfg.OnTask(TaskEvent{Kind: kind, Task: v})
 	}
-	ts.mu.Lock()
-	ts.reportedLocked(t, true)
-	ts.mu.Unlock()
 }
 
-func (ts *Tasks) view(t *task) TaskView {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	return ts.viewLocked(t)
-}
-
-func (ts *Tasks) viewLocked(t *task) TaskView {
+// viewLocked returns the view of a task at turn c, or at its last turn when
+// c is nil. Counts and spend cover every turn.
+func (ts *Tasks) viewLocked(t *task, c *childTurn) TaskView {
 	v := TaskView{
 		ID:          t.id,
-		ChildID:     t.childID,
+		SessionID:   t.sessionID,
+		Turns:       len(t.turns),
 		Subagent:    t.sub.Name,
 		Description: t.description,
 		Parent:      t.parent,
-		State:       t.state,
-		Answer:      t.answer,
-		Reason:      t.reason,
+		State:       TaskRunning,
 	}
-	var tv dashi.TurnView
-	switch {
-	case t.final != nil:
-		tv = *t.final
-	case len(t.steps) > 0:
-		if r, err := dashi.Replay(dashi.Turn{ID: t.childID, Steps: t.steps}); err == nil {
-			tv = r
-		}
+	if c == nil {
+		c = t.last()
 	}
-	v.ModelCalls = tv.ModelAttempts
-	v.ToolCalls = len(tv.Tools)
-	v.Spend = tv.Spend.Clone()
+	if c != nil {
+		v.TurnID, v.State, v.Answer, v.Reason = c.id, c.state, c.answer, c.reason
+	}
+	for _, c := range t.turns {
+		tv := c.view()
+		v.ModelCalls += tv.ModelAttempts
+		v.ToolCalls += len(tv.Tools)
+		v.Spend = v.Spend.Add(tv.Spend)
+	}
 	return v
 }
 
-// observe records a step of a running child so a status read can show live
-// counts and cost.
-func (ts *Tasks) observe(t *task, e dashi.Event) {
-	if e.Step == nil {
-		return
-	}
+// observe records a step of a running child turn so a status read can show
+// live counts and cost.
+func (ts *Tasks) observe(t *task, step dashi.Step) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	t.setStarted()
-	if t.final != nil {
+	c := t.turn(step.TurnID)
+	if c.final != nil {
 		return
 	}
-	if n := len(t.steps); n > 0 && t.steps[n-1].Seq >= e.Step.Seq {
+	if n := len(c.steps); n > 0 && c.steps[n-1].Seq >= step.Seq {
 		return
 	}
-	t.steps = append(t.steps, *e.Step)
+	c.steps = append(c.steps, step)
 }
 
 func (ts *Tasks) find(name string) (Subagent, bool) {
@@ -724,15 +961,24 @@ func (ts *Tasks) capAnswer(text string) string {
 	if limit < 0 || len(text) <= limit {
 		return text
 	}
-	cut := text[:limit]
-	for !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
+	cut := cutUTF8(text, limit)
 	return fmt.Sprintf("%s\n[answer cut at %d bytes]", cut, len(cut))
 }
 
-// startTask starts the child for one task call, or returns the task that
-// already holds it.
+// cutUTF8 returns at most n bytes of s, cut on a character boundary.
+func cutUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := s[:n]
+	for !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut
+}
+
+// startTask starts the child session for one task call, or returns the task
+// that already holds it.
 func (ts *Tasks) startTask(
 	ctx context.Context,
 	sub Subagent,
@@ -742,28 +988,18 @@ func (ts *Tasks) startTask(
 	parentAgent dashi.Agent,
 ) (TaskView, error) {
 	t := newTask(sub, ref, args.Description)
-	runner := ts.childRunner(sub, ref, parent, t)
-	if !loads(runner.Recorder) {
+	runner := ts.childRunner(sub, ref, parent)
+	// A retry after a crash finds a child session the record already holds.
+	var rec record
+	if loader, ok := runner.Recorder.(dashi.Loader); !ok {
 		ts.warnNoLoader()
-	}
-	// A retry after a crash finds a child the record already holds.
-	var saved dashi.Turn
-	var view dashi.TurnView
-	found := false
-	if loader, ok := runner.Recorder.(dashi.Loader); ok {
-		turn, err := loader.Load(ctx, t.childID)
-		switch {
-		case errors.Is(err, dashi.ErrTurnNotFound):
-		case err != nil:
+	} else {
+		var err error
+		if rec, err = loadRecord(ctx, loader, t.sessionID); err != nil {
 			return TaskView{}, fmt.Errorf("delegate: load child: %w", err)
-		default:
-			view, err = dashi.Replay(turn)
-			if err != nil {
-				return TaskView{}, fmt.Errorf("delegate: replay child: %w", err)
-			}
-			saved, found = turn, true
 		}
 	}
+	found := len(rec.turns) > 0
 	var agent dashi.Agent
 	if !found {
 		var err error
@@ -778,36 +1014,34 @@ func (ts *Tasks) startTask(
 		if err != nil {
 			return TaskView{}, err
 		}
-		return ts.viewLocked(old), nil
+		return ts.viewLocked(old, nil), nil
 	}
 	if ts.closed {
 		ts.mu.Unlock()
 		return TaskView{}, errors.New("delegate: tasks are closed")
 	}
-	ts.addLocked(t)
+	t.session = childSession(t, runner, !found)
 	endedBefore := false
 	switch {
 	case !found:
 		start := dashi.Start{
-			CommandID: t.childID + "/start",
+			CommandID: t.sessionID + "/start",
 			Agent:     agent,
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
 		}
-		ts.launchLocked(ctx, t, runner, dashi.Turn{ID: t.childID}, start)
-	case t.resumable(saved):
-		t.steps = slices.Clone(saved.Steps)
-		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
+		if err := ts.startTurnLocked(ctx, t, start); err != nil {
+			ts.mu.Unlock()
+			return TaskView{}, err
+		}
+	case ts.restoreLocked(t, rec, nil):
+		ts.launchLocked(ctx, t, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
 		// result does not depend on whether the host called Recover first.
-		v := view
-		t.final = &v
-		t.state, t.answer, t.reason = endState(ts, mustStop(saved), v)
-		t.setEnded()
-		t.setStarted()
 		endedBefore = true
 	}
+	ts.addLocked(t)
 	ts.mu.Unlock()
 	if endedBefore {
 		ts.notifyEnded(t, nil)
@@ -821,21 +1055,17 @@ func (ts *Tasks) startTask(
 	}
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if t.state != TaskRunning && len(t.steps) == 0 && t.final == nil {
+	if first := t.turns[0]; first.state != TaskRunning &&
+		len(first.steps) == 0 && first.final == nil {
 		// The run failed before it recorded the child.
-		if !t.notified {
-			ts.reportedLocked(t, false)
+		if !first.notified {
+			ts.reportedLocked(first, false)
 		}
 		return TaskView{}, tool.Fatal(fmt.Errorf(
-			"delegate: start subagent: %s", cmp.Or(t.reason, string(t.state)),
+			"delegate: start subagent: %s", cmp.Or(first.reason, string(first.state)),
 		))
 	}
-	return ts.viewLocked(t), nil
-}
-
-func mustStop(t dashi.Turn) dashi.Stop {
-	s, _ := recordedStop(t)
-	return s
+	return ts.viewLocked(t, nil), nil
 }
 
 // childAgent returns the child's Start.Agent. A Subagent that sets no model
@@ -914,15 +1144,25 @@ func isTaskTool(name string) bool {
 	return name == ToolName || name == StatusToolName || name == StopToolName
 }
 
-// childRunner builds the runner for one child. It starts from the runner that
-// runs the task call, applies the host's overrides, and replaces the tools
-// with the parent's less the task tools. The child's recorded Agent.Tools
-// selects from them.
+// childSession returns the handle that drives a task's child session. Tasks
+// is its only driver, so it is Exclusive. create sets New, for turn 1.
+func childSession(t *task, runner dashi.Runner, create bool) *dashi.Session {
+	return &dashi.Session{
+		ID:        t.sessionID,
+		New:       create,
+		Runner:    runner,
+		Exclusive: true,
+	}
+}
+
+// childRunner builds the runner for one child session. It starts from the
+// runner that runs the task call, applies the host's overrides, and replaces
+// the tools with the parent's less the task tools. The child's recorded
+// Agent.Tools selects from them.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
 	parent dashi.Runner,
-	t *task,
 ) dashi.Runner {
 	over := ts.cfg.Runner
 	runner := parent
@@ -938,13 +1178,15 @@ func (ts *Tasks) childRunner(
 	runner.Tools = withoutTaskTools{parent.Tools}
 	template := over.Observer
 	onChild := ts.cfg.OnChild
-	runner.Observer = func(e dashi.Event) {
-		ts.observe(t, e)
-		if onChild != nil {
-			onChild(ChildEvent{Parent: ref, Subagent: sub.Name, Event: e})
-		}
-		if template != nil {
-			template(e)
+	runner.Observer = nil
+	if onChild != nil || template != nil {
+		runner.Observer = func(e dashi.Event) {
+			if onChild != nil {
+				onChild(ChildEvent{Parent: ref, Subagent: sub.Name, Event: e})
+			}
+			if template != nil {
+				template(e)
+			}
 		}
 	}
 	return runner

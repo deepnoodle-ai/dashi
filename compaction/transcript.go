@@ -17,7 +17,9 @@ const minItemBytes = 1024
 // renderTranscript writes messages as plain text for the summarizer. Tool
 // calls and results become labeled text, so the summarizer request needs no
 // tool definitions and no provider-specific replay data. Reasoning and opaque
-// provider content stay out. Media becomes a short marker.
+// provider content stay out. Media becomes a short marker. A reminder with a
+// sender (From) is agent mail and becomes its own item; other reminders stay
+// out.
 func renderTranscript(messages []llm.Message) []string {
 	var items []string
 	for _, m := range messages {
@@ -66,6 +68,13 @@ func renderTranscript(messages []llm.Message) []string {
 				flush()
 				items = append(items, "[provider tool result]\n"+
 					blocksText(c.HostedResult.Output))
+			case c.Reminder != nil && c.Reminder.From != "":
+				flush()
+				items = append(items, fmt.Sprintf(
+					"[message from %s]\n%s",
+					c.Reminder.From,
+					c.Reminder.Content,
+				))
 			}
 		}
 		flush()

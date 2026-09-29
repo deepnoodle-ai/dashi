@@ -76,6 +76,39 @@ func TestCompactorStartIsASummaryRequest(t *testing.T) {
 	}
 }
 
+// Agent mail is a reminder with a sender. Nobody supplies it again, so the
+// summary request carries it; a host reminder stays out.
+func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
+	history := exchange(0, 100)
+	history = append(history,
+		llm.ReminderMessage(llm.Reminder{
+			Name:    "git-status",
+			Tier:    llm.ReminderContextual,
+			Content: "SECRET-REMINDER",
+		}),
+		llm.ReminderMessage(llm.Reminder{
+			Name:    "task-ended",
+			Tier:    llm.ReminderContextual,
+			From:    "task t_k3f2 (explore)",
+			Content: "Priya owns the billing service.",
+		}),
+	)
+	history = append(history, exchange(1, 100)...)
+	c := &Compactor{Policy: policyWith(100_000), TailFraction: -1}
+	s, err := c.Start(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := s.Input[0].Text()
+	want := "[message from task t_k3f2 (explore)]\nPriya owns the billing service."
+	if !strings.Contains(request, want) {
+		t.Fatalf("request lacks the agent mail:\n%s", request)
+	}
+	if strings.Contains(request, "SECRET-REMINDER") {
+		t.Fatal("a host reminder reached the summary request")
+	}
+}
+
 func TestCompactorNeeded(t *testing.T) {
 	c := New(policyWith(1_000))
 	history, _ := session(2, 10)
