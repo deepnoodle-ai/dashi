@@ -2,7 +2,7 @@
 
 | Field | Content |
 | --- | --- |
-| Status | Draft, 2026-09-28 |
+| Status | Revised after review, 2026-09-28 |
 | Author | CLI track lead |
 | Roadmap | Consumer of [item 14](remaining-work.md); see Decision 1 |
 | Reviewers | Curtis (sign-off pending) |
@@ -11,38 +11,33 @@
 ## Problem
 
 Dashi has no CLI. Dive has an experimental CLI, but it runs on the old
-library. A developer cannot try Dashi as a coding agent. A developer also
-cannot see how Dashi's turns, hooks, steering, and recorder work together in
-one real program.
+library. A developer cannot try Dashi as a coding agent, and cannot see turns,
+hooks, steering, and the recorder work together in one real program.
 
-Three things are hard for a developer today.
+A developer needs three things from a coding agent.
 
-- **Trust.** The developer must see every tool call and approve risky ones.
-- **Inspection.** The developer must see why a turn stopped and what it cost.
-- **Continuity.** The developer must close the terminal and pick the work up
-  later, with the same history.
+- **Trust.** See every tool call. Approve risky ones.
+- **Inspection.** See why a turn stopped and what it cost.
+- **Continuity.** Close the terminal and pick the work up later.
 
-If we do nothing, the demo has no product to show. Dashi's features stay
-visible only in examples.
+Without this work, the demo has no product. Dashi's features stay in examples.
 
 ## Goals and metrics
 
-Primary metric: the seven-step demo scenario in `PROGRAM.md` runs end to end
-in a scratch Git repository, with stand-in tools, before Wednesday.
+Primary metric: demo steps 1 to 4, 6, and 7 run end to end in a scratch Git
+repository with the real coding tools. Step 5 (MCP) passes when the `mcp`
+track wires in. The CLI PR does not wait for it.
 
 Secondary metrics:
 
 - Every event kind has a rendering test (text, tool call, progress, approval,
   each stop kind, usage).
-- Reopening a session shows the full scrollback and a follow-up uses prior
+- A reopened session shows full scrollback, and a follow-up uses prior
   history. A test proves it.
 - One live run against `gpt-6-luna` is recorded in the PR.
 
-Guardrails:
-
-- The library module gains no CLI dependency.
-- The CLI never loses a committed step, even on a crash.
-- A zero-value setup works: `OPENAI_API_KEY` set, no settings file.
+Guardrails: the library module gains no CLI dependency. The CLI never loses a
+committed step. A zero-value setup works: `OPENAI_API_KEY` set, no settings.
 
 ## Users
 
@@ -61,11 +56,14 @@ dashi  gpt-6-luna  ~/git/scratch                     (new session)
 I will read the test first.
   read_file  parse_test.go                              ok  0.0s
   grep       "func Parse"                               ok  0.1s
-  read_file  parse.go                                   ok  0.0s
 The test expects "1,2" to give two items. Parse drops the last one.
 
-  run_shell  go test ./...            [allow once / always / deny]
-> _
+  edit_file  parse.go                        allow once / always / deny?
+  --- parse.go
+  +++ parse.go
+  @@ -12 +12 @@
+  -	for i := 0; i < len(parts)-1; i++ {
+  +	for i := 0; i < len(parts); i++ {
 [turn 1 | 4 model calls | 3,210 tokens | $0.012]
 ```
 
@@ -76,234 +74,241 @@ Commands typed at the prompt:
 | a line of text | Starts a turn. While a turn runs, the line is a steer. |
 | `!` then text | An urgent steer. It cuts the model call in flight. |
 | `/model` | Opens a picker of catalog models. |
-| `/model gpt-6-luna` | Switches the model for the next turn. |
+| `/model gpt-6-luna` | Sets the model for the next turn. |
 | `/new` | Starts a new session. |
 | `/sessions` | Lists sessions for this directory. Pick one to reopen. |
-| `/continue` | Continues after a limit stop or an interrupted turn. |
+| `/continue` | After a model-call limit stop, keeps going. |
 | `/quit` | Saves and exits. Ctrl-D does the same. |
 
-Command-line flags:
+Flags: `--resume` or `-c` reopens the last session for this directory.
+`--resume ID` reopens session `ID`. `-p "prompt"` runs one turn without a UI
+and prints the answer. `--model NAME` sets the model.
 
-| Flag | Result |
-| --- | --- |
-| `--resume`, `-c` | Reopens the last session for this directory. |
-| `--resume ID` | Reopens session `ID`. |
-| `-p "prompt"` | Runs one turn without a UI. Prints the answer to stdout. |
-| `--model NAME` | Sets the model. |
-
-Model choice order: flag, then `DASHI_MODEL`, then settings file, then
-`gpt-6-luna`. The settings file is `~/.dashi/settings.json`, overridden by
+Model choice order: flag, `DASHI_MODEL`, settings file, then `gpt-6-luna`. The
+settings file is `~/.dashi/settings.json`, overridden by
 `.dashi/settings.json` in the repository.
 
-Ctrl-C once cancels the running model call and returns to the prompt. The turn
-stays resumable. Ctrl-C at an idle prompt exits.
+**Input modes.** The prompt is always in one of three modes.
+
+| Mode | Typed text | Ctrl-C |
+| --- | --- | --- |
+| Idle | A command or a new prompt | Exits |
+| Turn running | A steer | Cancels the model call or the running tool; the turn stays resumable |
+| Approval pending | An answer: `y` once, `a` always, `n` deny | Same as quitting (see Approval) |
+
+A hung `go test` stops on Ctrl-C: the tool kills its process group and the
+turn records the interruption.
 
 ## Main flows
 
 **Turn.** The CLI calls `Runner.Stream` and draws each event as it arrives.
-Assistant text streams into the scrollback. Each tool call shows one line with
-its name, main argument, state, and time. The line updates from tool progress.
-A settled turn prints a footer with calls, tokens, and cost from `out.Spend`.
+Assistant text streams into the scrollback. Each tool call shows one line
+with name, main argument, state, and time, updated from tool progress. The
+`bash` line shows its last output lines. A settled turn prints a footer with
+calls, tokens, and cost from `out.Spend`. After a `bash` call settles, the CLI
+runs `git diff --stat` and shows the diff, capped at 40 lines.
 
-**Approval.** A `BeforeTool` hook asks the user for each call that policy does
-not allow. The prompt shows the tool name and arguments. Answers: allow once,
-allow always (this tool, this session), deny. A denial goes to the model as
-the reason "The user declined this call."
+**Approval.** The CLI passes `workspace.NewPolicy(approve).Hooks()` as the
+runner's hooks. `approve` is the CLI's `workspace.ApprovalFunc`. It blocks
+the hook while a modal prompt shows the tool, its summary, and `Preview` (a
+diff for file edits) or the exact command for `bash`. Answers map to
+`workspace.Approval`: `y` allows once, `a` sets `Remember`, `n` denies with
+the reason "The user declined this call." Remembered rules last as long as the
+process, so a reopened session asks again. The `ask_user` tool uses the same
+modal through the CLI's `workspace.AskFunc`.
 
-**Steering.** The prompt stays live while a turn runs. Each line goes to a
-`dashi.Inbox` passed with `WithSteering`. The screen marks it "steer queued",
-then "steer delivered" when the record holds it. A steer that misses its turn
-becomes the next turn's input (`Inbox.Leftovers`).
+*Quit during a prompt.* Exit cancels the run context. `approve` returns the
+context error, the hook stops, and Dashi records the turn as interrupted
+(the default `ContextInterrupt`). The call had not started, so no effect is
+lost. On reopen the screen says "Turn 3 was interrupted." An empty Enter
+continues it with `dashi.Continue`; the same call is asked again. A test
+proves this path. If Dashi records a failure instead, the fix goes in the
+library in this PR.
+
+**Steering.** Each line typed during a turn goes to a `dashi.Inbox` passed
+with `WithSteering`. The screen marks it "steer queued", then "steer
+delivered" when the record holds it. A steer that misses its turn becomes the
+next turn's input (`Inbox.Leftovers`).
 
 **Limit stop.** The CLI sets `Limits.ModelAttempts` to 40. At the limit, the
-screen says: "Stopped after 40 model calls. Type /continue to go on." A turn
-that hits this limit is terminal in Dashi, so `/continue` starts a new turn
-with the input "Continue the previous task." History carries over.
+screen says: "Stopped after 40 model calls. Type /continue to go on."
+`/continue` starts a new turn with prior history. Its input is a system note
+in the scrollback, "Continuing after the model-call limit.", not a user line.
+Dashi ends a turn that used its last attempt, so this is a new turn.
 
-**Resume.** On start with `-c`, the CLI loads the session, replays every turn
-into the scrollback, and waits at the prompt. If the last turn did not end
-(the process died), the screen says so and offers `/continue`. A new prompt
-first cancels the unfinished turn, then starts the new one.
+**Resume.** `dashi -c` loads the session, replays every turn into the
+scrollback, and waits at the prompt. If the last turn did not end, the
+screen says so. A new prompt at that point cancels the unfinished turn and
+shows "Turn 3 canceled." before the new turn starts.
 
-## Public seams
+## Tools and wiring
 
-The CLI is an application, not a library. Its seams serve the other tracks.
-
-**Feature registration.** Other tracks add tools with one call each.
-
-```go
-// cmd/dashi/feature.go
-type Feature struct {
-	Name         string
-	Tools        tool.Toolset  // may be nil
-	Hooks        dashi.Hooks   // extra hooks, may be zero
-	Instructions string        // appended to the system prompt
-	Policy       Policy        // approval policy, may be nil
-	Close        func() error  // called at exit, may be nil
-}
-
-type Env struct {
-	Workdir  string
-	Settings Settings
-}
-
-// features.go lists constructors. Wiring a track is one line:
-var features = []func(Env) (Feature, error){
-	standIn, // read_file, list_files
-	// codetools.Feature, mcp.Feature, skills.Feature, ...
-}
-```
-
-**Approval policy.** The CLI supplies the prompt. A feature supplies rules.
+The `codetools` track (package `workspace`) merges first. The CLI uses it
+directly:
 
 ```go
-type Verdict int // Ask (zero), Allow, Deny
-
-type Policy func(dashi.ToolPlan) Verdict
+tools, err := workspace.Tools(dir, workspace.WithAsker(ui.ask))
+hooks := workspace.NewPolicy(ui.approve).Hooks()
 ```
 
-The zero verdict is `Ask`. The default policy allows tools annotated
-read-only and asks for all others. When several policies answer, the most
-restrictive answer wins (`Deny`, then `Ask`, then `Allow`).
+Library packages export plain `tool.Toolset` or `tool.List` and
+`dashi.Hooks`. They know nothing about the CLI. `cmd/dashi/wire.go` holds
+one short adapter for each track. It returns tools, hooks, and an optional
+close function. The CLI joins the results with `tool.Join` and
+`dashi.JoinHooks`. Wiring the `mcp` or `skills` track is one added adapter.
 
-**Session store.** The store owns one directory per session.
+```go
+// cmd/dashi/wire.go
+type wiring struct {
+	Tools        tool.Toolset
+	Hooks        dashi.Hooks
+	Instructions string       // appended to the system prompt
+	Close        func() error // may be nil
+}
+var adapters = []func(Env) (wiring, error){workspaceWiring /*, mcpWiring */}
+```
+
+Until `workspace` merges, a fallback adapter registers two stand-in tools,
+`read_file` and `list_directory`, with the same names. It is removed when the
+merge lands. The CLI owns no approval policy.
+
+**Session store.** One directory per session under `~/.dashi/sessions`.
 
 ```go
 // cmd/dashi/session
 type Session struct {
-	ID      string
-	Dir     string   // repository path
-	Title   string   // first prompt, shortened
-	Model   string
-	Turns   []string // turn IDs, in order
-	Allowed []string // tools approved with "allow always"
+	ID    string
+	Dir   string   // repository path
+	Title string   // first prompt, shortened
+	Model string
+	Turns []string // turn IDs, in order
 	Created, Updated time.Time
 }
-
-type Store struct{ Root string } // default ~/.dashi/sessions
-
 func (s *Store) Create(dir, model string) (*Session, error)
 func (s *Store) Save(*Session) error
 func (s *Store) Latest(dir string) (*Session, error)
-func (s *Store) List(dir string) ([]Session, error)
-func (s *Store) Recorder() dashi.Recorder // a filerecorder
-func (s *Store) History(ctx context.Context, sess *Session) ([]llm.Message, error)
+func (s *Store) List(dir string) ([]Session, error) // this directory only
+func (s *Store) Recorder() dashi.Recorder           // a filerecorder
+func (s *Store) History(ctx context.Context, sess *Session) (History, error)
+
+type History struct {
+	Messages []llm.Message
+	Notices  []string // turns skipped, with the reason
+}
 ```
 
-`History` joins `dashi.Project(turn)` for each turn in order. The CLI keeps no
-second copy of messages, so the record is the only source of truth. Turn IDs
-are `<session ID>-<n>`. A `session.json` file holds the fields above. Turn
-records live in `filerecorder` files beside it.
+`History` is the only place that builds model history. It joins
+`dashi.Project(turn)` in order. A turn that cannot be read or projected is
+skipped and named in `Notices`, and the session goes on. The screen shows each
+notice as a warning. The `compaction` track later hands the CLI a summary
+record. It applies inside `History`, over the projected messages, so that
+wiring is one change. Turn IDs are `<session ID>-<n>`. A `session.json` file
+holds the fields above. Turn records live in `filerecorder` files beside it.
 
 ## Requirements
 
-Screen
-
 - FR-1: Assistant text appears as it streams.
 - FR-2: Each tool call shows name, main argument, state, and duration.
-- FR-3: Each stop kind (completed, waiting, limited, refused, canceled,
-  interrupted, failed, uncertain) shows its reason in plain words.
+- FR-3: Each stop kind shows its reason in plain words.
 - FR-4: The footer shows model, calls, tokens, and cost for each turn.
-- FR-5: The renderer works without a UI. `-p` and non-terminal output use the
-  same event-to-text code.
-
-Session
-
-- FR-6: The store saves each session and lists them by directory.
+- FR-5: The screen, line mode, and `-p` use one event-to-text renderer.
+- FR-6: The store saves sessions and lists them by directory.
 - FR-7: `-c` and `--resume` reopen a session with full scrollback.
-- FR-8: A follow-up prompt sends the joined history of all earlier turns.
-- FR-9: `/new` starts a session. The old one stays listed.
-- FR-10: A second `dashi` process on one session shows a notice and exits.
-  The store locks the session directory to enforce this.
-
-Control
-
-- FR-11: Lines typed during a turn go to the inbox as steers.
-- FR-12: A `!` prefix sends an urgent steer.
-- FR-13: Approval asks allow once, allow always, or deny, and blocks the call
-  until the user answers.
+- FR-8: A follow-up sends the history built by `History`.
+- FR-9: An unreadable turn gives a warning, is skipped, and does not stop
+  the session. A test covers it.
+- FR-10: A second `dashi` on one session shows a notice and exits. The store
+  locks the session directory.
+- FR-11: Lines typed during a turn are steers. `!` makes one urgent.
+- FR-12: Approval blocks the call until the user answers. The prompt shows
+  the diff or command.
+- FR-13: Quit during approval leaves the turn interrupted and continuable.
 - FR-14: `Limits.ModelAttempts` is 40. The limit stop offers `/continue`.
-- FR-15: `/model` with no argument opens a picker. With an argument, it sets
-  the model. An unknown name gives a warning and keeps the old model.
-- FR-16: Ctrl-C cancels the model call in flight and keeps the turn resumable.
-
-Extension
-
-- FR-17: `Feature` and `Policy` exist as shown. The stand-in tools use them.
+- FR-15: `/model` with no argument opens a picker. An unknown name gives a
+  warning and keeps the old model.
+- FR-16: Ctrl-C behaves as the input-mode table says.
 
 ## First slice (ships Tuesday night)
 
-Tests: a fake client drives each screen line, each approval answer, a steer
-found in the recorded turn, a reopened store with the same history, and `-p`
-printing only the answer.
+Demo step coverage:
 
-In scope: everything above, with two read-only stand-in tools (`read_file`,
-`list_files`) and one stand-in `run_shell` tool that always asks. The tools
-are enough to run the demo path and to test the loop. The `codetools` track
-replaces them.
+| Step | Covered by | Completes in |
+| --- | --- | --- |
+| 1 Launch | CLI | this PR |
+| 2 Ask for a fix | CLI loop | this PR |
+| 3 Read, search, edit | `workspace` tools | `codetools` PR |
+| 4 Approve shell, see result and diff | `workspace` policy, CLI diff | this PR |
+| 5 MCP tool | `mcp` adapter | `mcp` PR |
+| 6 Steering | CLI inbox | this PR |
+| 7 Exit, reopen, follow up | session store | this PR |
 
-Tuesday order of work: session store and renderer (with tests), then the
-`Runner.Stream` loop and `-p`, then the Wonton screen, approval, and steering,
-then `/model`, `/sessions`, and resume. If the Wonton screen slips, `-p` and a
-line-mode renderer still run the loop. The same event-to-text code serves both.
+Tests: a fake client drives each screen line, each approval answer, quit
+during approval then continue, a steer found in the recorded turn, a reopened
+store with the same history, a skipped bad turn, and `-p` printing only the
+answer.
+
+Order of work: store, `History`, and renderer with tests; then the
+`Runner.Stream` loop and `-p`; then the Wonton screen, approval, and
+steering; then `/model`, `/sessions`, and resume. If the screen slips, line
+mode and `-p` still run the loop.
 
 ## Later
 
-- Wire in `codetools`, `mcp`, `skills`, and delegation through `Feature`.
-- Persist "allow always" across sessions in `.dashi/settings.local.json`.
-- Show the diff and test result after a shell call (needs `codetools`).
-- Compaction of long sessions (needs the compaction track).
-- Attachments and image paste.
+- Wire in `mcp`, `skills`, delegation, compaction, and attachments.
+- Persist remembered approvals in a settings file.
 - Session search, rename, and delete.
+- A library command that raises limits on a limited turn.
 
 ## Non-goals
 
-- A library `Session` type. The CLI proves the need first (roadmap item 14).
-- A sandbox for shell commands. Approval is the only gate in this slice.
-- Multiple providers in the picker beyond the catalog's own list.
+- A library `Session` type. The CLI proves the need first (item 14).
+- A shell sandbox. Approval is the only gate.
 - Themes, key remapping, and IDE integration.
 - Two writers on one session.
+- Listing sessions from other directories.
 
 ## Risks and dependencies
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Wonton screen takes longer than planned | Demo has no UI | Keep a line-mode renderer on the same event code |
-| A terminal-limit turn cannot continue in Dashi | `/continue` starts a new turn, so the record shows two turns | Show them as one task in scrollback; record as a library gap |
-| Live `gpt-6-luna` behavior differs from fake clients | Demo surprise | Run the live check on Tuesday, not Wednesday |
-| Codetools merges late | Stand-ins stay in the demo | Stand-ins cover the scenario by design |
-| Steering can cost extra model calls | Cost and limit surprise | Show calls in the footer; set 40 attempts |
-
-Assumptions: Wonton `tui` gives streaming scrollback (Dive's screen shows it
-does). `gpt-6-luna` supports tool use and streaming in Dashi's OpenAI route.
+| `workspace` merges late | Stand-ins stay in the demo | Fallback adapter covers steps 1, 2, and 7 |
+| Wonton screen takes longer | Demo has no UI | Line mode on the same renderer |
+| A limited turn cannot continue | `/continue` makes a second turn | System note hides the seam; library gap recorded |
+| Quit during approval records a failure | Turn not continuable | Test first; fix the library in this PR |
+| Live `gpt-6-luna` differs from fakes | Demo surprise | Live check on Tuesday |
+| Steering costs extra calls | Limit surprise | Footer shows calls; limit is 40 |
 
 ## Decisions
 
-1. **Write a new PRD, not a revision of the item 14 draft.** That draft covers
-   a library `HistoryRef` for hosts that own a log. The CLI owns its history
-   through turn records, so it needs no ref. The CLI is a consumer and a test
-   of that draft's premise.
-2. **Turn records are the only history store.** `History` joins
-   `dashi.Project` over turns. This avoids a second copy that can drift. It
-   also uses the recorder's crash safety.
-3. **Model attempt limit is 40.** Coding tasks read many files. Eight stops
-   too early. Forty bounds cost and runaway loops.
-4. **`/continue` starts a new turn at the limit.** Dashi ends a turn that used
-   its last attempt. Raising a limit on an ended turn is a library change. We
-   do not make it for the demo.
-5. **Plain Enter during a turn is a steer; `!` is urgent.** This matches
-   `examples/steering` and needs no new key model.
-6. **"Allow always" lasts for the session.** It is stored in `session.json`.
-   Persisting it across sessions is a policy choice for later.
-7. **Default policy asks for anything not read-only.** The safe default fits
-   "a terminal coding agent they can trust". Features may tighten it.
-8. **One renderer serves the screen, line mode, and `-p`.** This makes each
-   event kind testable without a terminal.
-9. **A session is bound to a directory.** `-c` picks the latest session for
-   the current directory. Sessions from other directories stay in `/sessions`
-   behind a flag, `--all`.
+1. **New PRD, not a revision of the item 14 draft.** That draft is a library
+   `HistoryRef` for hosts with their own log. The CLI owns history through
+   turn records and needs no ref.
+2. **Turn records are the only history store**, built in one function
+   (`History`). No second copy can drift, and compaction wires in there.
+3. **Model-attempt limit is 40.** Coding reads many files. Eight stops early.
+4. **Use `workspace` directly.** The coordinator directed it. Stand-ins are a
+   fallback only.
+5. **Review 1 accepted.** The PRD now maps each demo step to a tool and a
+   track. Steps 3 and 5 finish in other PRs.
+6. **Review 2 accepted.** Libraries export plain tools and hooks. The CLI
+   has a small adapter. `Verdict` and `Feature` are gone. Approval is the
+   `workspace` policy with a CLI `ApprovalFunc` that shows `Preview`.
+7. **Review 3 accepted in part.** Approval stays inline (the coordinator
+   chose it). The PRD defines three input modes, Ctrl-C, and the quit path.
+   `Defer` is not used in the CLI.
+8. **Review 4 accepted.** `/continue` means only "after the limit stop". Its
+   synthetic input is a system note. Cancel of an unfinished turn is shown.
+   Interrupted turns continue with an empty Enter after `dashi -c`.
+9. **Review 5 accepted.** A bad turn is skipped with a notice.
+10. **Review 6 accepted by delegation.** The CLI stores no approval rules.
+    The `workspace` policy remembers a shell approval for the exact command
+    only, and only while the process lives.
+11. **Plain Enter during a turn is a steer; `!` is urgent.** It matches
+    `examples/steering`.
+12. **`/sessions` lists this directory only.** The `--all` flag is cut.
+13. **Record the raise-limit gap now**; fix it after the demo. The
+    `/continue` workaround is temporary.
 
 ## Open questions
 
-None block the first slice. Later: should the library offer a command that
-raises limits on a limited turn, so `/continue` stays one turn?
+None block the first slice.
