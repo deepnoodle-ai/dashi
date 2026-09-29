@@ -58,8 +58,12 @@ func (u *lineUI) Emit(b Block) {
 			if u.midLine {
 				fmt.Fprintln(u.out)
 			}
-			fmt.Fprintln(u.out, "[Corrected answer]")
-			fmt.Fprint(u.out, b.Text)
+			if b.Text == "" {
+				fmt.Fprintln(u.out, "[Corrected: the model gave no answer text]")
+			} else {
+				fmt.Fprintln(u.out, "[Corrected answer]")
+				fmt.Fprint(u.out, b.Text)
+			}
 		}
 		u.printed[b.ID] = b.Text
 		u.midLine = !strings.HasSuffix(b.Text, "\n")
@@ -173,6 +177,10 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 		select {
 		case line, ok := <-lines:
 			if !ok {
+				// No more input can come. A run that waits for an
+				// approval answer gets a cancel, not an endless wait.
+				u.ctrl.WaitForInput()
+				u.ctrl.CancelUnanswered()
 				u.ctrl.Wait()
 				return <-errc
 			}

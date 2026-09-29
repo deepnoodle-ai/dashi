@@ -258,3 +258,48 @@ func TestTranscriptReplacesByID(t *testing.T) {
 		t.Fatalf("blocks=%+v", tr.Blocks)
 	}
 }
+
+func TestSettledToolOnlyMessageClearsStreamedText(t *testing.T) {
+	r := NewRenderer(1, "m", "/repo")
+	live := onlyBlock(t, r.Event(dashi.Event{
+		MessageID: "m1",
+		Delta:     &llm.Delta{Kind: llm.DeltaText, Text: "Let me look."},
+	}))
+	var tr Transcript
+	tr.Apply(live)
+	done := onlyBlock(t, r.Event(stepEvent(dashi.Step{
+		Kind: dashi.StepModelSettled,
+		Model: &dashi.ModelFact{
+			MessageID: "m1",
+			Result:    &llm.Result{Message: llm.AssistantMessage()},
+		},
+	})))
+	if done.ID != live.ID || done.Text != "" || !done.Done {
+		t.Fatalf("done=%+v", done)
+	}
+	tr.Apply(done)
+	if len(tr.Blocks) != 1 || tr.Blocks[0].Text != "" {
+		t.Fatalf("live text stays: %+v", tr.Blocks)
+	}
+	// Replay has no text and no block.
+	replay := NewRenderer(1, "m", "/repo")
+	if got := replay.Event(stepEvent(dashi.Step{
+		Kind: dashi.StepModelSettled,
+		Model: &dashi.ModelFact{
+			MessageID: "m1",
+			Result:    &llm.Result{Message: llm.AssistantMessage()},
+		},
+	})); len(got) != 0 {
+		t.Fatalf("replay blocks=%+v", got)
+	}
+}
+
+func TestLineModeMarksEmptySettledCorrection(t *testing.T) {
+	var out strings.Builder
+	ui := newLineUI(&out)
+	ui.Emit(Block{ID: "a", Kind: KindAssistant, Text: "Let me look."})
+	ui.Emit(Block{ID: "a", Kind: KindAssistant, Done: true})
+	if !strings.Contains(out.String(), "[Corrected: the model gave no answer text]") {
+		t.Fatalf("output=%q", out.String())
+	}
+}

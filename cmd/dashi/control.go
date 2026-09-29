@@ -135,6 +135,21 @@ func (c *Controller) WaitForInput() {
 	}
 }
 
+// CancelUnanswered cancels the run when it waits for an approval answer that
+// no input can supply. It is for the end of piped input. An answer that is
+// already queued, or is being read, keeps the run alive.
+func (c *Controller) CancelUnanswered() {
+	for range 3 {
+		if c.Mode() != ModeApproval || len(c.answers) > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c.Mode() == ModeApproval {
+		c.Interrupt()
+	}
+}
+
 // Approve is the ApprovalFunc the wiring uses. It marks the approval mode
 // while the user decides.
 func (c *Controller) Approve(

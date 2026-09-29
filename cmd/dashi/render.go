@@ -221,10 +221,16 @@ func (r *Renderer) modelSettled(s dashi.Step) []Block {
 		return nil
 	}
 	text := m.Result.Message.Text()
-	if text == "" {
-		return nil
-	}
 	id := messageKey(m.MessageID, m.AttemptID)
+	if text == "" {
+		// A tool-only message has no text. If text streamed before it
+		// settled, an empty settled block replaces that provisional text.
+		if r.text[id] == "" {
+			return nil
+		}
+		delete(r.text, id)
+		return []Block{{ID: id, Kind: KindAssistant, Done: true}}
+	}
 	r.text[id] = text
 	return []Block{{ID: id, Kind: KindAssistant, Text: text, Done: true}}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 )
@@ -173,6 +174,42 @@ func TestPipedInputAnswersApprovals(t *testing.T) {
 				t.Fatalf("runs=%d output:\n%s", got, out.String())
 			}
 		})
+	}
+}
+
+func TestPipedEOFDuringApprovalCancelsRun(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	cfg := testConfig(t,
+		callTool("c1", "write_note", `{"text":"x"}`),
+		say("Noted."),
+	)
+	var out bytes.Buffer
+	ui := newLineUI(&out)
+	a, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.eng.Close()
+	ui.ctrl = a.ctrl
+	if _, err := a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	ui.SetLive()
+	done := make(chan error, 1)
+	go func() {
+		done <- ui.serveLines(strings.NewReader("write a note\n"), true)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serveLines hangs at EOF during an approval")
+	}
+	if runs.Load() != 0 {
+		t.Fatalf("the tool ran without approval; output:\n%s", out.String())
 	}
 }
 
