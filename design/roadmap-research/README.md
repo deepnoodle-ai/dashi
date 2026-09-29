@@ -34,7 +34,7 @@ No paid live probes were run for this packet.
 | 10 | [Tolerance of extra tool arguments](../remaining-work.md#10-tolerance-of-extra-tool-arguments) | [Research](10-extra-tool-args-research.md) | [Implemented PRD](10-extra-tool-args-prd.md) |
 | 11 | [Tool-result size and projection](../remaining-work.md#11-tool-result-size-and-projection) | [Research](11-tool-result-projection-research.md) | [Draft PRD](11-tool-result-projection-prd.md) |
 | 12 | [Skills](../remaining-work.md#12-skills) | [Research](12-skills-research.md) | [First-slice PRD](12-skills-prd.md) |
-| 13 | [Child turns and delegation](../remaining-work.md#13-child-turns-and-delegation) | [Research](13-child-turns-research.md) | [Draft PRD](13-child-turns-prd.md) |
+| 13 | [Child turns and delegation](../remaining-work.md#13-child-turns-and-delegation) | [Research](13-child-turns-research.md) | [First-slice PRD](13-child-turns-prd.md) |
 | 14 | [Session continuity](../remaining-work.md#14-session-continuity) | [Research](14-session-continuity-research.md) | [Draft PRD](14-session-continuity-prd.md) |
 | 15 | [Context compaction](../remaining-work.md#15-context-compaction) | [Research](15-context-compaction-research.md) | [Draft PRD](15-context-compaction-prd.md) |
 | 16 | [Turn-owned attachment references](../remaining-work.md#16-turn-owned-attachment-references) | [Research](16-attachment-references-research.md) | [Draft PRD](16-attachment-references-prd.md) |

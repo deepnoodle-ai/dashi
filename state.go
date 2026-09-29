@@ -89,6 +89,9 @@ type TurnView struct {
 	Agent Agent
 	// OutputSchema is the schema pinned at Start for this turn.
 	OutputSchema json.RawMessage
+	// Parent is the tool call that caused this turn, or nil for a root
+	// turn. It is fixed at Start.
+	Parent *CallRef
 	// Revision is the latest acknowledged step sequence number.
 	Revision int64
 	// ModelAttempts counts settled calls that were not interrupted.
@@ -469,6 +472,12 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("operator reminder requires operator start origin")
 			}
 		}
+		if step.Started.Parent != nil {
+			if err := step.Started.Parent.Validate(); err != nil {
+				return err
+			}
+		}
+		s.Parent = cloneCallRef(step.Started.Parent)
 		s.Agent = step.Started.Agent.resolved()
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {

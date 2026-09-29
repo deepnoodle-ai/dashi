@@ -178,7 +178,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				v.Definition.Kind != tool.KindProviderHosted &&
 				r.runner.Tools != nil {
 				prehookBindingChecked = true
-				bound, err := r.runner.Tools.Tools(ctx)
+				bound, err := r.runner.Tools.Tools(r.toolsContext(ctx))
 				if ctx.Err() != nil {
 					return r.contextStop(), true
 				}
@@ -357,7 +357,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if r.runner.Tools == nil {
 				return r.stop(StopFailed, "tool binding unavailable"), true
 			}
-			bound, err := r.runner.Tools.Tools(ctx)
+			bound, err := r.runner.Tools.Tools(r.toolsContext(ctx))
 			if err != nil {
 				return r.failureOrContext(err), true
 			}
@@ -417,8 +417,13 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		running++
 		call := v.Call.Clone()
 		slot := progress.open(call)
+		callCtx := withCurrentCall(
+			ctx,
+			CallRef{TurnID: r.turn.ID, CallID: call.ID},
+			r.callRunner(),
+		)
 		go func() {
-			results <- execute(ctx, boundExecutor, call, slot)
+			results <- execute(callCtx, boundExecutor, call, slot)
 		}()
 	}
 	for running > 0 {

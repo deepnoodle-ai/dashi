@@ -243,7 +243,8 @@ func (r Runner) apply(
 	if err != nil {
 		return Outcome{}, err
 	}
-	if r.Recorder == nil {
+	implicitRecorder := r.Recorder == nil
+	if implicitRecorder {
 		r.Recorder = newMemoryRecorderForTurn(turn)
 	}
 	if len(turn.Steps) > 0 {
@@ -327,15 +328,16 @@ func (r Runner) apply(
 		defer cancel()
 	}
 	rt := runtime{
-		ctx:         runCtx,
-		turn:        cloneTurn(turn),
-		agent:       agent,
-		runner:      r,
-		opts:        opts,
-		emitter:     newEmitter(r.Observer),
-		hooks:       hooks,
-		activeHooks: r.Hooks.active(),
-		lastHooks:   state.activeHooks,
+		ctx:              runCtx,
+		turn:             cloneTurn(turn),
+		agent:            agent,
+		runner:           r,
+		opts:             opts,
+		implicitRecorder: implicitRecorder,
+		emitter:          newEmitter(r.Observer),
+		hooks:            hooks,
+		activeHooks:      r.Hooks.active(),
+		lastHooks:        state.activeHooks,
 	}
 	defer rt.emitter.close()
 	defer rt.endSteering()
@@ -346,6 +348,11 @@ func (r Runner) apply(
 		}
 		if c.Budget != nil {
 			if err := c.Budget.Validate(); err != nil {
+				return Outcome{}, err
+			}
+		}
+		if c.Parent != nil {
+			if err := c.Parent.Validate(); err != nil {
 				return Outcome{}, err
 			}
 		}
@@ -391,6 +398,7 @@ func (r Runner) apply(
 				Origin:             origin,
 				HistoryFingerprint: fingerprint,
 				Input:              cloneMessages(c.Input),
+				Parent:             cloneCallRef(c.Parent),
 			},
 		}); o != nil {
 			return rt.result(*o)
@@ -647,8 +655,11 @@ type runtime struct {
 	history []llm.Message
 	agent   Agent
 	runner  Runner
-	opts    runOptions
-	emitter *emitter
+	// implicitRecorder is true when the runner had no Recorder and Run made a
+	// private one.
+	implicitRecorder bool
+	opts             runOptions
+	emitter          *emitter
 	// err is the recording failure that ended the run, if any.
 	err error
 	// hooks are the Runner's hooks followed by this call's WithHooks.
@@ -1097,7 +1108,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	defs := []tool.Definition{}
 	if !finalAnswerOnly && r.runner.Tools != nil {
-		tools, e := r.runner.Tools.Tools(r.ctx)
+		tools, e := r.runner.Tools.Tools(r.toolsContext(r.ctx))
 		if e != nil {
 			return r.failureOrContext(e), false
 		}

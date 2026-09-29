@@ -32,6 +32,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
   summary.
 - [Attachments](attachments.md): stored files by reference, and `@file`
   mentions for terminal front ends.
+- [Delegating to subagents](delegation.md): the `task` tool, child turns,
+  parent links, retries, cancel, and spend roll-up.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 

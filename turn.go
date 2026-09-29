@@ -316,6 +316,9 @@ type StartFact struct {
 	// Start.
 	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
 	Input              []llm.Message `json:"input"`
+	// Parent is the tool call that caused this turn, when another turn's
+	// tool started it. It never changes after Start.
+	Parent *CallRef `json:"parent,omitempty"`
 }
 
 // StartOrigin records who supplied the initial work. The host must authorize
@@ -614,6 +617,11 @@ type Start struct {
 	// History is caller-owned prior conversation and is not stored in the turn.
 	History []llm.Message
 	Input   []llm.Message
+	// Parent links this turn to the tool call of another turn that started
+	// it. Dashi records it and shows it in TurnView.Parent; a second Start
+	// with a different Parent is a command conflict. Dashi does not check
+	// that the call exists.
+	Parent *CallRef `json:"Parent,omitempty"`
 }
 
 // Deliver adds context to a turn between runs. To reach a turn while it
