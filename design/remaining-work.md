@@ -1,12 +1,20 @@
 # Roadmap status
 
-Status snapshot: 2026-09-28, through PR #68. Hooks, live delivery, and
-steering parts 1–3 have landed; see their [design](hooks.md),
-[design](live-delivery.md), and [PRD](steering.md). This inventory covers other
+Implementation snapshot: 2026-09-28, `main` at `efcec37` (through PR #70).
+Hooks, live delivery, and steering parts 1–3 have landed; see their
+[design](hooks.md), [design](live-delivery.md), and [PRD](steering.md).
+This inventory covers other
 gaps against Dive and the temporary framework survey in
 `tmp/research/comparison/README.md`.
 The older [gap reports](gap-analysis.md) describe discovery-time code. A
 delivered first slice does not imply every provider route is qualified.
+
+Of the 24 items below, **2 are resolved** (9, 10), **6 have a merged first
+slice with work remaining** (1, 4, 8, 12, 20, 22), and **16 remain open**
+(2, 3, 5–7, 11, 13–19, 21, 23, 24). Thus 22 still have some work, including
+qualification and measurement as well as implementation. The separate hooks
+and steering follow-ups at the end are outside this count. At this snapshot,
+no roadmap-item implementation PR is open.
 
 **Size** estimates implementation scope: S = focused change, M = package or
 adapter, L = several packages or a new layer. **Difficulty** estimates design
@@ -17,8 +25,9 @@ not an approved design unless stated. Items are grouped for reading, not ranked.
 
 ### 1. Native structured output for model calls
 
-**Status:** [PR #64](https://github.com/deepnoodle-ai/dashi/pull/64) added
-strict-schema output to direct OpenAI Responses calls; turns still use
+**Status:** First slice merged in
+[PR #64](https://github.com/deepnoodle-ai/dashi/pull/64). It added strict-schema
+output to direct OpenAI Responses calls; turns still use
 `dashi_submit_output`. Live provider acceptance is unverified. **Size:** M.
 **Difficulty:** Medium. **Reference:** [structured output](structured-output.md)
 describes the turn contract; [provider gaps](gaps/E-providers-cost-budgets.md)
@@ -29,11 +38,11 @@ provider routes without changing the turn's recorded output fact.
 
 ### 2. Generation controls and provider options
 
-**Status:** `llm.Settings` covers tokens, temperature, reasoning, tool choice,
-parallel tools, and citations; stop sequences, `top_p`, seed, service tier, and
+**Status:** Open. `llm.Settings` covers tokens, temperature, reasoning, tool
+choice, parallel tools, and citations; stop sequences, `top_p`, seed, service tier, and
 typed provider options are absent. **Size:** L. **Difficulty:** High.
 **Reference:** [provider gaps](gaps/E-providers-cost-budgets.md) and
-[model controls](model-controls.md); no dedicated proposal for these fields.
+[model controls](model-controls.md); a draft PRD is linked below.
 **Next:** Choose portable fields versus route-specific options, then implement
 and record their effective values in prepared requests.
 
@@ -41,19 +50,20 @@ and record their effective values in prepared requests.
 
 ### 3. Prompt-cache controls
 
-**Status:** Dashi measures and prices cache usage but cannot request
+**Status:** Open. Dashi measures and prices cache usage but cannot request
 breakpoints, TTL, or cache keys. **Size:** M. **Difficulty:** High.
 **Reference:** [provider gaps](gaps/E-providers-cost-budgets.md) and
-[model catalog](model-catalog.md); no cache-control design. **Next:** Design
-provider-specific cache placement and 5-minute versus 1-hour accounting
+[model catalog](model-catalog.md); no approved cache-control design.
+**Next:** Design provider-specific cache placement and 5-minute versus 1-hour accounting
 together; test that later-turn reminders do not defeat the reusable prefix.
 
 **Packet:** [source research](roadmap-research/03-prompt-cache-research.md) · [draft PRD](roadmap-research/03-prompt-cache-prd.md).
 
 ### 4. Provider dialect conformance
 
-**Status:** [PR #60](https://github.com/deepnoodle-ai/dashi/pull/60) added a
-Chat Completions wire corpus and cross-route replay checks. All-pairs replay
+**Status:** First slice merged in
+[PR #60](https://github.com/deepnoodle-ai/dashi/pull/60). It added a Chat
+Completions wire corpus and cross-route replay checks. All-pairs replay
 and other compatible dialects remain incomplete. **Size:** M.
 **Difficulty:** Medium. **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md)
 and [provider content replay](provider-content-replay.md). **Next:** Extend
@@ -64,11 +74,11 @@ separate from live qualification.
 
 ### 5. Live provider qualification
 
-**Status:** Selected Anthropic, OpenAI, and Gemini routes passed dated live
+**Status:** Open. Selected Anthropic, OpenAI, and Gemini routes passed dated live
 checks; many hosted routes, Vertex, and the Gemini error probes remain
 unqualified. **Size:** M. **Difficulty:** High because external services vary.
 **Reference:** [live-test record](../docs/dev/live-tests.md) and
-[hosted-tool plan](2026-09-27-resources-and-hosted-tools.md). **Next:** Maintain
+[hosted-tool plan](2026-09-27-resources-and-hosted-tools.md). **Next:** Build
 an exact route/model/feature matrix and run the missing paid probes when keys
 are available; label fixture-only support separately.
 
@@ -78,18 +88,20 @@ are available; label fixture-only support separately.
 
 ### 6. Local MCP client
 
-**Status:** Provider-hosted MCP works without authentication; Dashi cannot
+**Status:** Open. Provider-hosted MCP works without authentication; Dashi cannot
 connect to a local or app-managed MCP server and expose its tools. **Size:** M.
 **Difficulty:** High. **Reference:** [example-port gaps](gaps/F-example-ports.md)
-and Dive's `experimental/mcp`; no Dashi design. **Next:** Specify discovery,
-name stability, credential scope, tool results, and transport ownership around
+and Dive's `experimental/mcp`; no approved Dashi design.
+**Next:** Specify discovery, name stability, credential scope, tool results,
+and transport ownership around
 the existing `tool.Toolset` boundary. Use `BeforeTool` hooks for approval.
 
 **Packet:** [source research](roadmap-research/06-local-mcp-research.md) · [draft PRD](roadmap-research/06-local-mcp-prd.md).
 
 ### 7. Authenticated provider-hosted MCP
 
-**Status:** Disabled because exact request snapshots could persist credentials.
+**Status:** Open. Authentication is disabled because exact request snapshots
+could persist credentials.
 **Size:** M. **Difficulty:** High. **Reference:** [resource and hosted-tool
 plan](2026-09-27-resources-and-hosted-tools.md), especially its credential
 boundary. **Next:** Separate exact in-memory dispatch bytes from a redacted,
@@ -99,8 +111,9 @@ verifiable recordable snapshot before adding auth headers or OAuth flows.
 
 ### 8. Speech transport
 
-**Status:** [PR #63](https://github.com/deepnoodle-ai/dashi/pull/63) added
-prepared batch transcription and synthesis for two named OpenAI models.
+**Status:** First slice merged in
+[PR #63](https://github.com/deepnoodle-ai/dashi/pull/63). It added prepared
+batch transcription and synthesis for two named OpenAI models.
 Streaming, other providers, and paid live qualification remain open. **Size:** M.
 **Difficulty:** Medium. **Reference:** [media and speech proposal](media-and-speech-proposal.md)
 and [batch guide](../docs/guides/batch-speech.md). **Next:** Run the opt-in
@@ -129,8 +142,8 @@ and [recorded-value decision 27](decisions.md).
 
 ### 11. Tool-result size and projection
 
-**Status:** A tool can return an unbounded result that is sent on later model
-calls. **Size:** M. **Difficulty:** High. **Reference:** [adjacent-library
+**Status:** Open. A tool can return an unbounded result that is sent on later
+model calls. **Size:** M. **Difficulty:** High. **Reference:** [adjacent-library
 findings](gaps/C-adjacent-libraries.md) and [design pitfalls](design-pitfalls.md);
 no approved design. **Next:** Define a recorded, visible truncation or
 reference rule that preserves the original result for audit.
@@ -139,8 +152,9 @@ reference rule that preserves the original result for audit.
 
 ### 12. Skills
 
-**Status:** [PR #59](https://github.com/deepnoodle-ai/dashi/pull/59) added an
-optional in-memory skill catalog and loader, outside the turn core. **Size:** M.
+**Status:** First slice merged in
+[PR #59](https://github.com/deepnoodle-ai/dashi/pull/59). It added an optional
+in-memory skill catalog and loader, outside the turn core. **Size:** M.
 **Difficulty:** Medium. **Reference:** [example-port gaps](gaps/F-example-ports.md),
 Dive's skill guide, and [functional areas](functional-areas.md). **Next:**
 Qualify with an application consumer before expanding the package.
@@ -149,10 +163,10 @@ Qualify with an application consumer before expanding the package.
 
 ### 13. Child turns and delegation
 
-**Status:** A tool can start another Runner, but Dashi has no parent/child
+**Status:** Open. A tool can start another Runner, but Dashi has no parent/child
 identity, budget roll-up, or lifecycle contract. **Size:** L.
 **Difficulty:** High. **Reference:** [functional areas](functional-areas.md) and
-[provider/budget gaps](gaps/E-providers-cost-budgets.md); no Dashi proposal.
+[provider/budget gaps](gaps/E-providers-cost-budgets.md); no approved Dashi design.
 **Next:** Design parentage, accounting, cancellation, and recovery using one
 real application flow before adding a general orchestration API.
 
@@ -162,27 +176,29 @@ real application flow before adding a general orchestration API.
 
 ### 14. Session continuity
 
-**Status:** Each Turn receives prior history from the application; Dashi owns
+**Status:** Open. Each Turn receives prior history from the application; Dashi owns
 no cross-turn Session. This is an explicit open question, not missing Turn
 persistence. **Size:** L. **Difficulty:** High. **Reference:** [decision 19](decisions.md)
-and [history storage](history-storage.md). **Next:** Decide whether an optional
-Session layer earns its storage and concurrency rules against real consumers.
+and [history storage](history-storage.md). **Next:** Pilot the draft PRD's
+optional history reference with a durable host before considering a Session
+store.
 
 **Packet:** [source research](roadmap-research/14-session-continuity-research.md) · [draft PRD](roadmap-research/14-session-continuity-prd.md).
 
 ### 15. Context compaction
 
-**Status:** No built-in compaction or overflow-recovery policy. **Size:** L.
+**Status:** Open. No built-in compaction or overflow-recovery policy. **Size:** L.
 **Difficulty:** High. **Reference:** [history storage](history-storage.md),
 [runtime reminders](runtime-reminders.md), and Dive's compaction package; no
-Dashi proposal. **Next:** First settle Session ownership, then define a
-versioned summary with coverage, provenance, and replay behavior.
+Dashi implementation. **Next:** Settle the history ownership boundary in item
+14, then define a versioned summary with coverage, provenance, and replay
+behavior.
 
 **Packet:** [source research](roadmap-research/15-context-compaction-research.md) · [draft PRD](roadmap-research/15-context-compaction-prd.md).
 
 ### 16. Turn-owned attachment references
 
-**Status:** Prior history is no longer copied into each Turn, but bytes in a
+**Status:** Open. Prior history is no longer copied into each Turn, but bytes in a
 Turn's own input or tool result still enter its record. **Size:** M.
 **Difficulty:** High. **Reference:** [decision 19](decisions.md) and
 [history storage](history-storage.md). **Next:** Design an application-owned
@@ -193,18 +209,19 @@ Prepare; never fetch a private resource implicitly.
 
 ### 17. Incremental projection
 
-**Status:** `Project` and replay rebuild state from the first step; there is no
-cached projection for long turns. **Size:** M. **Difficulty:** Medium.
+**Status:** Open, measurement gated. `Project` and replay rebuild state from
+the first step; there is no cached projection for long turns. **Size:** M.
+**Difficulty:** Medium.
 **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md) and
-[design principles](design-principles.md); no implementation design.
-**Next:** Measure long tool-heavy turns, then cache within one run without
-making the cache authoritative.
+[design principles](design-principles.md); a gated draft PRD is linked below.
+**Next:** Measure long tool-heavy turns; add a private in-run cache only if
+projection is a material local cost.
 
 **Packet:** [source research](roadmap-research/17-incremental-projection-research.md) · [draft PRD](roadmap-research/17-incremental-projection-prd.md).
 
 ### 18. Inspecting newer record versions
 
-**Status:** An unknown step kind prevents `Replay` and `Project` on that Turn.
+**Status:** Open. An unknown step kind prevents `Replay` and `Project` on that Turn.
 **Size:** M. **Difficulty:** High. **Reference:** [Turn record](turn.md),
 [protocol gaps](gaps/D-protocols-streaming.md), and [adjacent-library
 findings](gaps/C-adjacent-libraries.md); no approved design. **Next:** Separate
@@ -217,20 +234,22 @@ semantics while retaining the facts.
 
 ### 19. Durable retries after proven rejection
 
-**Status:** Typed failure disposition and retry hints exist; a proven 429
+**Status:** Open. Typed failure disposition and retry hints exist; a proven 429
 rejection stops the run. A generic 503 remains dispatch-uncertain even when
 retryable. **Size:** M. **Difficulty:** High. **Reference:**
 [adjacent-library findings](gaps/C-adjacent-libraries.md), [provider gaps](gaps/E-providers-cost-budgets.md),
-and [interruption design](turn-interruption.md); no retry PRD. **Next:** Design
-a recorded retry wait that counts attempts and rechecks budget and hooks.
+and [interruption design](turn-interruption.md); a draft PRD is linked below.
+**Next:** Design a recorded retry wait that counts attempts and rechecks budget
+and hooks.
 Uncertain dispatch must still require reconciliation.
 
 **Packet:** [source research](roadmap-research/19-durable-retries-research.md) · [draft PRD](roadmap-research/19-durable-retries-prd.md).
 
 ### 20. Connection and idle-stream timeouts
 
-**Status:** [PR #61](https://github.com/deepnoodle-ai/dashi/pull/61) added
-opt-in response-start, stream-idle, and total-call timeouts for supported HTTP
+**Status:** First slice merged in
+[PR #61](https://github.com/deepnoodle-ai/dashi/pull/61). It added opt-in
+response-start, stream-idle, and total-call timeouts for supported HTTP
 model clients. Gemini and media clients remain outside this slice. **Size:** M.
 **Difficulty:** Medium.
 **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md) and
@@ -241,7 +260,7 @@ only with their own timeout and interruption semantics.
 
 ### 21. Hosted tools under a cost cap
 
-**Status:** A call declaring unbounded provider-hosted work stops before
+**Status:** Open. A call declaring unbounded provider-hosted work stops before
 dispatch under `MaxCost`; reporting its settled partial cost works. **Size:** M.
 **Difficulty:** High. **Reference:** [hosted-tool pricing](hosted-tool-pricing.md)
 and [finding 11.2](gaps/F-example-ports.md). **Next:** Qualify a provider-enforced
@@ -252,8 +271,9 @@ hard cap. Other routes may remain excluded.
 
 ### 22. Remaining provider price gaps
 
-**Status:** [PR #58](https://github.com/deepnoodle-ai/dashi/pull/58) made the
-provider example label partial/unknown estimates accurately. OpenAI hosted
+**Status:** First slice merged in
+[PR #58](https://github.com/deepnoodle-ai/dashi/pull/58). It made the provider
+example label partial/unknown estimates accurately. OpenAI hosted
 image-generation image tokens remain unpriced; other models and tiers need
 ongoing evidence checks. **Size:** S per route. **Difficulty:** Medium.
 **Reference:** [example-port follow-ups](gaps/F-example-ports.md),
@@ -267,27 +287,30 @@ qualified; otherwise preserve partial cost.
 
 ### 23. ACP adapter
 
-**Status:** Dashi has no ACP server or client adapter. **Size:** L.
+**Status:** Open. Dashi has no ACP server or client adapter. **Size:** L.
 **Difficulty:** High. **Reference:** [protocol gaps](gaps/D-protocols-streaming.md)
-and [Dive ACP research](https://github.com/deepnoodle-ai/dive/blob/65c393f221f1/docs/acpresearch/README.md); no Dashi proposal.
-**Next:** Use committed-step `Follow` for live delivery, then design separate
-v1 and v2 projections from the same Turn facts; qualify reconnect and approval
-semantics with a real client.
+and [Dive ACP research](https://github.com/deepnoodle-ai/dive/blob/65c393f221f1/docs/acpresearch/README.md);
+a v1-first draft PRD is linked below.
+**Next:** Build on committed-step `Follow` and the local MCP client in item 6;
+qualify v1 reconnect and approval behavior with a real editor client. Treat v2
+as a later, separate projection.
 
 **Packet:** [source research](roadmap-research/23-acp-adapter-research.md) · [draft PRD](roadmap-research/23-acp-adapter-prd.md).
 
 ### 24. A2A and OpenTelemetry adapters
 
-**Status:** Dive ships optional modules; Dashi has neither. **Size:** M each.
+**Status:** Open. Dive ships optional modules; Dashi has neither. **Size:** M each.
 **Difficulty:** Medium. **Reference:** [example-port gaps](gaps/F-example-ports.md),
-Dive's `a2a` and `otel` modules; no Dashi proposal. **Next:** Choose a real host
-for each adapter and preserve the Turn record as the source of execution facts.
+Dive's `a2a` and `otel` modules; no approved Dashi design. **Next:** Pilot OTel
+with a real host, then qualify A2A with its own host; preserve the Turn record
+as the source of execution facts.
 
 **Packet:** [source research](roadmap-research/24-a2a-otel-adapters-research.md) · [draft PRD](roadmap-research/24-a2a-otel-adapters-prd.md).
 
 ## Follow-ups from hooks and steering
 
-Small known gaps, recorded so they are not lost; none has a design yet.
+Small known gaps, recorded so they are not lost. None is counted among the 24
+items above; hook state has a deferred design in the linked document.
 
 - **Hook state (hooks part 2c).** Deferred from decision 31; see
   [AfterTool hooks](hooks-after-tool.md).
@@ -300,7 +323,8 @@ Small known gaps, recorded so they are not lost; none has a design yet.
 - **Urgent steer during `BeforeSend`** of a paused continuation cancels the
   call before sending, and hooks run again: wasted work only.
 - **Non-text tool results** (images, cited text) stop the turn on Chat
-  Completions and Gemini; send a text placeholder instead.
+  Completions and Gemini; send a text placeholder instead. PR #65 addressed
+  error-flagged text results, not this case.
 - **Flaky live test.** `TestLiveUrgentSteerCutsStream` once failed on OpenAI
   with no cut; cause unknown.
 - **Steer skips in a parallel batch** omit running tools' output from the
