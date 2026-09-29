@@ -41,7 +41,7 @@ Old ordinary records already contain ContextItem Origin and Name. Updated projec
 
 Updated compactors that retain messages through Clone or JSON preserve identity. A compactor that reconstructs only text loses identity and receives a new delivery. A summary mentioning context never counts as its retained message. If a replacement retains B but drops the later A, a configured A appends again.
 
-Keep `historyFingerprintDomain` and fingerprintMessage's explicit field list unchanged. Context metadata is descriptive and adds no model-visible content. Excluding it preserves history and compaction digests for old records. Metadata receives independent validation. Changes to model-visible values still change digests. Older readers ignore unknown JSON fields, retain established model content, and continue their old per-turn delivery behavior.
+Keep `historyFingerprintDomain` and fingerprintMessage's explicit field list unchanged. Context metadata is descriptive and adds no model-visible content. Excluding it preserves history and compaction digests for old records. Standalone `compaction.Record` digests also exclude Context. Its token estimates exclude Context because providers do not send it. Both keep all established Message fields. Metadata receives independent validation. Changes to model-visible values still change digests. Older readers ignore unknown JSON fields, retain established model content, and continue their old per-turn delivery behavior.
 
 ## Alternatives and tradeoffs
 

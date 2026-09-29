@@ -1,8 +1,6 @@
 package skill
 
 import (
-	"context"
-
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -23,11 +21,11 @@ func (b *Bundle) Reminder() llm.Reminder {
 	}
 }
 
-// Hooks returns the hooks that give the catalog to the model. Join them with
-// the host's other hooks. Before each model call, the hook delivers the
-// catalog as a runtime snapshot unless the turn already holds it. The item ID
-// carries the digest, so a changed bundle supersedes the old catalog and
-// the record shows which catalog the model saw. An empty bundle returns no hooks.
+// Hooks returns hooks that deliver the catalog as a runtime snapshot unless
+// its latest visible value is unchanged. Session turns share that presence
+// rule with SeedContext. A changed catalog appends, and compaction that drops
+// it causes a new delivery. The item ID carries the catalog digest for audit.
+// An empty bundle returns no hooks.
 func (b *Bundle) Hooks() dashi.Hooks {
 	if b == nil || b.catalog == "" {
 		return dashi.Hooks{}
@@ -39,24 +37,7 @@ func (b *Bundle) Hooks() dashi.Hooks {
 		Snapshot: true,
 		Message:  llm.ReminderMessage(b.Reminder()),
 	}
-	return dashi.Hooks{
-		BeforeModel: []dashi.ModelHook{{
-			Name: "skills-catalog",
-			Func: func(
-				_ context.Context,
-				plan dashi.ModelPlan,
-			) (dashi.ModelDecision, error) {
-				current, ok := plan.Turn.Context(
-					dashi.ContextRuntime,
-					catalogName,
-				)
-				if ok && current.ID == item.ID {
-					return dashi.ModelDecision{}, nil
-				}
-				return dashi.ModelDecision{
-					Deliver: []dashi.ContextItem{item},
-				}, nil
-			},
-		}},
-	}
+	hook := dashi.SeedContext(item)
+	hook.Name = "skills-catalog"
+	return hook.Hooks()
 }

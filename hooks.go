@@ -430,28 +430,51 @@ type FinishDecision struct {
 }
 
 // SeedContext returns a BeforeModel hook, named after item, that delivers
-// item before a model call whenever the turn does not hold it yet: once per
-// turn, for context such as who is on call. It reads the turn record with
-// TurnView.Context, so a turn resumed in another process does not deliver
-// it again. It panics if item has no Name, and it clears NextCallOnly, which
-// would expire the item after each call and deliver it again.
+// item unless the latest visible message with its Origin and Name has the
+// same value. It reads the proposed model input, so unchanged context is not
+// repeated across Session turns or reopened handles. Changed values append
+// without replacing earlier messages. Compaction that removes the item causes
+// it to be delivered again. Summary text does not establish its presence.
 //
-// In a Session, each turn delivers the item again, and the history keeps
-// the copies from earlier turns, so keep a seed small. The fresh copy is
-// what keeps the item in context after compaction drops old history.
+// It panics if item has no Name and clears NextCallOnly. Empty Origin means
+// ContextUser. Delivery IDs do not affect value comparison. If a configured
+// ID already occurs in this turn, a fresh derived ID identifies the delivery.
 func SeedContext(item ContextItem) ModelHook {
 	if item.Name == "" {
 		panic("dashi: SeedContext item has no name")
 	}
 	item = cloneContextItem(item)
 	item.NextCallOnly = false
+	origin := item.Origin
+	if origin == "" {
+		origin = ContextUser
+	}
 	return ModelHook{
 		Name: item.Name,
 		Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-			if _, ok := p.Turn.Context(item.Origin, item.Name); ok {
-				return ModelDecision{}, nil
+			for i := len(p.Input.Messages) - 1; i >= 0; i-- {
+				message := p.Input.Messages[i]
+				if message.Context == nil || message.Context.Origin != string(origin) ||
+					message.Context.Name != item.Name {
+					continue
+				}
+				message.Context = nil
+				configured := item.Message
+				configured.Context = nil
+				if sameJSONValue(message, configured) {
+					return ModelDecision{}, nil
+				}
+				break
 			}
-			return ModelDecision{Deliver: []ContextItem{cloneContextItem(item)}}, nil
+			delivery := cloneContextItem(item)
+			if delivery.ID != "" && p.Turn.usedContextIDs[delivery.ID] {
+				base := fmt.Sprintf("%s:%s:%d", delivery.ID, p.Turn.ID, p.Turn.Revision)
+				delivery.ID = base
+				for suffix := 1; p.Turn.usedContextIDs[delivery.ID]; suffix++ {
+					delivery.ID = fmt.Sprintf("%s:%d", base, suffix)
+				}
+			}
+			return ModelDecision{Deliver: []ContextItem{delivery}}, nil
 		},
 	}
 }

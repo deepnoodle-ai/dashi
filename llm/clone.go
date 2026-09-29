@@ -48,7 +48,7 @@ func (c Content) Clone() Content {
 	return c
 }
 
-// Clone returns independently owned content and descriptive provenance.
+// Clone returns independently owned content, provenance, and context identity.
 func (m Message) Clone() Message {
 	parts := make([]Content, len(m.Content))
 	for i, c := range m.Content {
@@ -58,6 +58,10 @@ func (m Message) Clone() Message {
 	if m.Source != nil {
 		v := *m.Source
 		m.Source = &v
+	}
+	if m.Context != nil {
+		v := *m.Context
+		m.Context = &v
 	}
 	return m
 }

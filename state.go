@@ -140,6 +140,8 @@ type TurnView struct {
 	// live holds the latest named context item per origin and name that the
 	// next model call would still see; see Context.
 	live map[string]ContextItem
+	// usedContextIDs includes all recorded delivery IDs, including expired items.
+	usedContextIDs map[string]bool
 	// acted holds the hooks, by point and name, with a recorded answer; see
 	// HookActed.
 	acted map[hookKey]bool
@@ -256,6 +258,7 @@ func snapshotView(v TurnView) TurnView {
 		}
 	}
 	out.acted = maps.Clone(v.acted)
+	out.usedContextIDs = maps.Clone(v.usedContextIDs)
 	return out
 }
 
@@ -1614,6 +1617,10 @@ func (s *replayState) trackIDs(step Step) error {
 			s.contextIDs = map[string]ContextItem{}
 		}
 		s.contextIDs[item.ID] = item
+		if s.usedContextIDs == nil {
+			s.usedContextIDs = map[string]bool{}
+		}
+		s.usedContextIDs[item.ID] = true
 	}
 	return nil
 }
@@ -1898,6 +1905,15 @@ func validateStepPayload(step Step) error {
 }
 
 func validateMessage(m llm.Message) error {
+	if identity := m.Context; identity != nil {
+		if identity.Origin == "" || identity.Name == "" {
+			return errors.New("message context requires origin and name")
+		}
+		m.Context = nil
+		return validateContext(ContextItem{
+			Origin: ContextOrigin(identity.Origin), Name: identity.Name, Message: m,
+		})
+	}
 	switch m.Role {
 	case llm.RoleUser, llm.RoleAssistant, llm.RoleSystem, llm.RoleDeveloper:
 	default:

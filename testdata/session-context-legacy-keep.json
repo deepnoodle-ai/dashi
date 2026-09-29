@@ -1,0 +1,14 @@
+{
+  "through": 0,
+  "digest": "",
+  "keep": [
+    {
+      "role": "user",
+      "content": [
+        {"kind": "block", "block": {"kind": "text", "text": {"text": "A"}}}
+      ]
+    }
+  ],
+  "summary_at": 0,
+  "frame": ""
+}

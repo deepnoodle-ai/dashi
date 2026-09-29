@@ -304,6 +304,18 @@ type Message struct {
 	// Source describes generated output independently of its Result. It is nil
 	// for caller-authored messages and does not authorize private replay.
 	Source *MessageSource `json:"source,omitempty"`
+
+	// Context preserves context slot identity through history and compaction.
+	// Providers must not send this descriptive metadata to the model.
+	Context *MessageContext `json:"context,omitempty"`
+}
+
+// MessageContext identifies a named context slot in projected conversation
+// history. It adds no authority or provider-visible content. A nil Context on
+// Message means that the slot identity is unknown.
+type MessageContext struct {
+	Origin string `json:"origin"`
+	Name   string `json:"name"`
 }
 
 // MessageSource preserves response provenance when a message leaves its Result.
@@ -506,6 +518,9 @@ func (r Input) Validate() error {
 		}
 	}
 	for _, m := range r.Messages {
+		if m.Context != nil && (m.Context.Origin == "" || m.Context.Name == "") {
+			return errors.New("llm: message context requires origin and name")
+		}
 		switch m.Role {
 		case RoleUser, RoleAssistant, RoleSystem, RoleDeveloper:
 		default:

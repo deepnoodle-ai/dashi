@@ -19,8 +19,11 @@ runner.Tools = tool.Join(tool.List{existing}, bundle)
 runner.Hooks = dashi.JoinHooks(runner.Hooks, bundle)
 ```
 
-`bundle.Hooks()` gives the catalog to the model before each model call, once
-per turn. The model calls `load_skill` to read the full text of a skill.
+`bundle.Hooks()` uses [`SeedContext`](hooks.md#delivering-context-and-vetoing-answers)
+to keep one unchanged catalog visible across turns. Changed catalogs append.
+Compaction that drops the catalog causes another delivery. A kept catalog
+prevents delivery across reopened handles. The model calls `load_skill` to
+read the full text of a skill.
 [`examples/skills`](../../examples/skills) is a complete program.
 
 ## Files

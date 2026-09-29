@@ -127,7 +127,16 @@ func projectWithHistory(
 				if item.NextCallOnly && lastDispatched > step.Seq {
 					continue
 				}
-				out = append(out, item.Message.Clone())
+				message := item.Message.Clone()
+				message.Context = nil
+				if item.Name != "" {
+					origin := item.Origin
+					if origin == "" {
+						origin = ContextUser
+					}
+					message.Context = &llm.MessageContext{Origin: string(origin), Name: item.Name}
+				}
+				out = append(out, message)
 			}
 		case StepModelSettled, StepModelReconciled:
 			if step.Model.Interrupted == InterruptSteering {
