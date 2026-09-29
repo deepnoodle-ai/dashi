@@ -64,15 +64,15 @@ again, and the tool finds the child by its ID:
 | Completed | Returns the saved answer. No model call runs. |
 | Failed, limited, refused, or canceled | Returns the saved error. The child does not run again. |
 
-The tool learns the recorder only when it runs. Without a `Loader`, it logs
-one warning at its first call, and a crash can then lead to a second, billable
-child. If `Config.Runner.Recorder` is set and is not a `Loader`, `New` warns
-at once and does not mark `task` idempotent. Use a `Loader` recorder.
+Without a `Loader` recorder, `task` still runs the child on the first call.
+This includes a nil host recorder. `task` is not marked idempotent. When the
+parent resumes, the runner reports the `task` call as uncertain. No second
+child starts. The host must then reconcile the call with `Settle`.
 
-The parent runner must have a `Recorder` that the host keeps between runs, or
-`Config.Runner.Recorder` must be set. When a runner has no recorder, `Run` uses
-a private one that ends with the run, so a resume could not find the child. In
-that case `task` fails the parent turn and starts no child.
+The tool learns the recorder only when it runs. Without a `Loader`, it logs
+one warning at its first call. If `Config.Runner.Recorder` is set and is not a
+`Loader`, `New` warns at once. Use a `Loader` recorder that the host keeps
+between runs, so that a crash resumes the same child.
 
 ## Structured output
 

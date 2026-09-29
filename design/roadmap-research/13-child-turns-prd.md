@@ -91,7 +91,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 **Delegate.** The model calls `task{subagent, prompt, description}`. The executor reads `CurrentCall`. It computes `ChildID`. It loads that turn. If the turn does not exist, it starts one with `Start.Parent`. If the turn exists and has not finished, it continues it. If the turn finished, it returns the saved answer. Then it returns the child's answer as the tool result.
 
-**Retry after a crash.** The `task` tool is marked idempotent, so the runner runs it again. The ID rule finds the same child. The child model calls that already settled do not run again.
+**Retry after a crash.** With a recorder that loads turns, the `task` tool is marked idempotent, so the runner runs it again. The ID rule finds the same child. The child model calls that already settled do not run again.
 
 **Cancel and interrupt.** The child runs under the tool's context. When the parent context ends under `ContextCancel`, the child records `StopCanceled`, and the tool settles the call as an error that says "canceled". Under `ContextInterrupt` (the default), the child records an interrupt and the tool does not settle the call. The parent call stays open and the parent stops as interrupted. On resume, the runner runs `task` again and the same child continues.
 
@@ -115,7 +115,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 - FR-11a: If the child stops `waiting` for a deferred approval, the tool settles the call as an error that says: "subagent needs approval that was deferred; this host cannot answer it inline". The child stays resumable by its ID.
 - FR-12: Parent calls to `task` can run in parallel. Each has its own child ID.
 - FR-13: Zero `Config` works: `Explore` (only tools with `Annotations.ReadOnly` set, so MCP tools filter correctly) and `General` (all tools). `Subagent.Agent.Limits` bounds the child's work; no new timeout setting exists.
-- FR-15: The tool needs a recorder that implements `dashi.Loader`. If the recorder is not one, the tool still works. It logs one warning and documents the weaker guarantee: after a crash a host can start a second child. See decision 21.
+- FR-15: The tool needs a recorder that implements `dashi.Loader`. If the recorder is not one, or the host recorder is nil, the tool still runs the child on the first call. It logs one warning and is not marked idempotent. On a resumed parent the call is reported uncertain, and no second child starts. See decisions 21 and 25.
 - FR-16: The child inherits Client, Recorder, Hooks, and `OnContextDone` from the runner that runs the call, and the model from the parent's resolved agent when the `Subagent` sets none. `Config.Runner` overrides Client, Recorder, `OnContextDone`, and Observer.
 - FR-14: `Spend.Add` keeps `Cost`, `ToolCost`, `Estimated`, `CostUnknown`, `CostPartial`, and `UnpricedRequests` separate. `Report` never writes child cost into `ToolCost`.
 
@@ -156,7 +156,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 | --- | --- | --- |
 | Two turn records are not one transaction | A crash can leave a parent call open and a child finished | Child ID is stable. The tool is idempotent. The tests cover each crash point. |
 | Idempotent mark hides a real repeat | A child tool with side effects can run twice after a crash | The child's own record stops repeated model calls. Non-idempotent child tools follow the runner's existing recovery rule. Document it in the guide. |
-| Idempotent re-run without a `Loader` | Second paid child | FR-15 withholds the idempotent mark and warns. |
+| Re-run without a `Loader` | Second paid child | FR-15 withholds the idempotent mark and warns. The resumed call is uncertain, so no second child starts. |
 | Child cancel reports success too early | User thinks work stopped | Report `canceled` only when the child record shows a stop. |
 | Answer cap hides needed detail | Parent lacks facts | Default 16 KiB. The tool marks a cut. The host can raise the cap. |
 
@@ -164,7 +164,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 1. **Ship the synchronous `task` tool first, not the external-settle flow.** The CLI needs a blocking tool by Wednesday. The link and ID rule serve both paths.
 2. **Child ID is derived from `(parent turn ID, call ID)`.** The host stores nothing. A host that wants its own ID can call `Start` itself.
-3. **Mark `task` idempotent (see decision 21 for the recorder rule).** The re-run resumes the same child. Without a `Loader` the tool warns once (review finding 2, accepted). Dashi warns and adjusts; it does not fail.
+3. **Mark `task` idempotent (see decision 21 for the recorder rule).** The re-run resumes the same child. Without a `Loader` (or with a nil host recorder) the tool runs the child once, is not marked idempotent, and warns once (review finding 2, accepted). A resumed parent reports the call uncertain, and no second child starts. Dashi warns and adjusts; it does not fail.
 4. **An interrupted child does not settle the call.** The parent call stays open, the parent stops interrupted, and resume continues the same child. Only `failed`, `limited`, `refused`, and `canceled` children settle an error (finding 1, accepted).
 5. **One type, `CallRef`, and `CurrentCall(ctx)`.** "Origin" already means who supplied content, so it is not reused (finding 4, accepted). `Start.Parent` is a `*CallRef`.
 6. **The user-facing word is "subagent".** The type is `delegate.Subagent`. It wraps a `dashi.Agent`, so `Agent` keeps one meaning and each subagent gets its own model and limits at no cost (finding 3, accepted; per-agent model leaves "out of scope").
@@ -196,5 +196,5 @@ None block the first slice. Later: whether a child index belongs in `Recorder`, 
 ## Deliverables
 
 Core fields and `CurrentCall`; `delegate` package; tests listed above; `examples/delegate`; `docs/guides/delegation.md`; update `design/remaining-work.md` and the packet index.
-25. **A host recorder is required (review 4, accepted).** A runner with no `Recorder` uses a private per-run recorder. A child saved there is lost when the run ends, so a resume would start and bill a second child. `CurrentRunner` returns a nil `Recorder` in that case, and `task` fails the parent turn before it starts a child. A `Config.Runner.Recorder` is still enough.
+25. **A nil host recorder is handled like a recorder that is not a `Loader` (review 4, superseded).** A runner with no `Recorder` uses a private per-run recorder. A child saved there is lost when the run ends. `CurrentRunner` returns a nil `Recorder` in that case. `task` runs the child on the first call and is not marked idempotent. On a resumed parent the call is reported uncertain, and no second child starts. A `Config.Runner.Recorder` that loads turns still makes the tool idempotent.
 26. **Structured child output is returned (review 4, accepted).** When a completed child has a structured output, `task` returns its value as JSON text instead of the answer text.

@@ -110,8 +110,9 @@ type Config struct {
 	// OnContextDone, or Observer here only to make children differ from the
 	// parent; a nonzero field replaces the inherited value. Hooks are always
 	// inherited, so the host's approval prompt covers child tool calls. Agent
-	// and Tools are ignored. A Recorder should implement dashi.Loader:
-	// without it a crash can lead to a second child (see New).
+	// and Tools are ignored. A Recorder should implement dashi.Loader.
+	// Without one, the child still runs, but a resumed parent reports the
+	// task call as uncertain and starts no second child (see New).
 	Runner dashi.Runner
 	// MaxAnswer caps the bytes of the child's answer that reach the parent.
 	// Zero means 16 KiB; a negative value means no cap.
