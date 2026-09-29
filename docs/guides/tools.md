@@ -51,6 +51,8 @@ The runner applies the selection before each model call, before any
 `BeforeModel` hook. A name the runner does not offer is skipped, and the turn
 records a `tool_not_offered` warning once per name. The selection is part of
 the agent, so the turn records it and it changes the derived `auto:` revision.
+The turn records the names sorted and without duplicates, so the order of the
+list does not matter.
 
 ## Defining tools
 

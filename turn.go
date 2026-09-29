@@ -44,9 +44,10 @@ type Agent struct {
 	// agent. Start.OutputSchema may override it for one turn.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	// Tools names the tools this agent may call, from those the Runner's
-	// Tools offer. Empty means every tool the runner offers. The runner
-	// filters by name before each model call, before BeforeModel hooks
-	// hide tools; a name the runner does not offer records
+	// Tools offer. Empty means every tool the runner offers. Order and
+	// duplicates do not matter: the runner records the names sorted. The
+	// runner filters by name before each model call, before BeforeModel
+	// hooks hide tools; a name the runner does not offer records
 	// WarningToolNotOffered once per turn.
 	Tools []string `json:"tools,omitempty"`
 	// NoTools offers no application tools, whatever Tools says.
@@ -117,11 +118,15 @@ func (a Agent) Validate() error {
 	return nil
 }
 
-// resolved returns a with every zero limit replaced by its default and every
-// negative "none" count normalized to -1. Dashi records the result, so the
-// same agent always compares equal to its record. Runtime checks read -1 as
-// zero allowed, through max(count, 0).
+// resolved returns a with every zero limit replaced by its default, every
+// negative "none" count normalized to -1, and Tools sorted without
+// duplicates. Dashi records the result, so the same agent always compares
+// equal to its record, whatever order a host built its tool list in. Runtime
+// checks read -1 as zero allowed, through max(count, 0).
 func (a Agent) resolved() Agent {
+	if len(a.Tools) > 0 {
+		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
+	}
 	l := &a.Limits
 	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)

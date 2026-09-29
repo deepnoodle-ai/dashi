@@ -197,7 +197,9 @@ type Agent struct {
 
 Before each call the runner filters the resolved toolset by name, then applies
 `BeforeModel` hiding. Nothing new is recorded at start: the selection is part of
-the recorded agent, and it enters the automatic revision. A named tool the
+the recorded agent, and it enters the automatic revision. The agent records
+the names sorted and without duplicates, so their order changes neither the
+revision nor a retry's agent check. A named tool the
 toolset does not offer records a `tool_not_offered` warning once per turn, on
 the next committed step. `NoTools` wins over `Tools`. Only selected tools are
 validated, and a call to a tool that was not selected settles as an unknown

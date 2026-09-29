@@ -136,6 +136,82 @@ func TestToolSelectionChangesAutomaticRevision(t *testing.T) {
 	}
 }
 
+// The order of Agent.Tools does not change the agent: a host that builds the
+// list from a map can retry its Start.
+func TestToolSelectionOrderDoesNotChangeRevision(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	runner := Runner{Client: client, Tools: selectionTools(t, map[string]int{})}
+	start := func(tools ...string) Start {
+		agent := testAgent()
+		agent.Tools = tools
+		return Start{CommandID: "start", Agent: agent, Input: userInput("go")}
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, start("b", "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.Agent.Tools; !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("recorded tools=%v, want sorted", got)
+	}
+	again, err := runner.Run(t.Context(), out.Turn, start("a", "b", "a"))
+	if err != nil {
+		t.Fatalf("retry with [a b a]: %v", err)
+	}
+	if again.Agent.Revision != out.Agent.Revision {
+		t.Fatalf("revision %s, then %s", out.Agent.Revision, again.Agent.Revision)
+	}
+	if len(again.Turn.Steps) != len(out.Turn.Steps) {
+		t.Fatal("the retry ran the turn again")
+	}
+}
+
+// ErrAgentChanged tells the caller to retry with TurnView.Agent. A retry that
+// passes the recorded agent back exactly succeeds, from a snapshot and
+// through a Loader.
+func TestRetryWithRecordedAgentSucceeds(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
+	agent := Agent{Model: "fixture", Tools: []string{"b", "a"}}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     userInput("go"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := agent
+	changed.Instructions = "different"
+	if _, err := runner.Run(t.Context(), out.Turn, Start{
+		CommandID: "start",
+		Agent:     changed,
+		Input:     userInput("go"),
+	}); !errors.Is(err, ErrAgentChanged) {
+		t.Fatalf("err=%v, want ErrAgentChanged", err)
+	}
+	view, err := Replay(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, turn := range map[string]Turn{
+		"snapshot": out.Turn,
+		"loader":   {ID: "t1"},
+	} {
+		again, err := runner.Run(t.Context(), turn, Start{
+			CommandID: "start",
+			Agent:     view.Agent,
+			Input:     userInput("go"),
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if again.Stop.Kind != StopCompleted || again.Answer != "done" {
+			t.Fatalf("%s: stop=%+v answer=%q", name, again.Stop, again.Answer)
+		}
+	}
+}
+
 // Commands on an existing turn run with the recorded agent: a runner that
 // never saw the agent settles, continues, and cancels the turn.
 func TestCommandsOnExistingTurnUseRecordedAgent(t *testing.T) {
