@@ -300,8 +300,9 @@ func (s *Session) planCommand(
 	return last, t.turn, warnings, nil
 }
 
-// start runs a new turn. A Start that loses a race on its turn ID reloads
-// and applies the rules once more.
+// start runs a new turn. A Start that loses a race on its turn ID, or a
+// keyed Start that finds its command ID taken, reloads and applies the
+// rules once more.
 func (s *Session) start(
 	ctx context.Context,
 	c Start,
@@ -326,7 +327,7 @@ func (s *Session) start(
 		}
 		out, err := r.Run(ctx, NewTurn(p.id), p.command, opts...)
 		out, err = s.finish(p.n, p.id, out, err, p.warnings)
-		if attempt == 0 && lostStart(err) {
+		if attempt == 0 && (lostStart(err) || !fresh && takenKey(err)) {
 			continue
 		}
 		// A keyed Start that raced another worker's equal Start to the same
@@ -351,6 +352,19 @@ func lostStart(err error) bool {
 	return errors.As(err, &ce) && ce.Step != nil &&
 		ce.Step.Kind == StepStarted &&
 		errors.Is(ce.Err, ErrRevisionConflict)
+}
+
+// takenKey reports whether a keyed Start found its command ID on the turn
+// it chose before its turn_started step committed. The idempotency check,
+// run again, tells a true retry, whose history or agent may differ, from a
+// conflict, so the Start never runs as a new turn.
+func takenKey(err error) bool {
+	if !errors.Is(err, ErrCommandConflict) {
+		return false
+	}
+	var ce *CommitError
+	return !errors.As(err, &ce) || ce.Step == nil ||
+		ce.Step.Kind == StepStarted
 }
 
 // startPlan is a chosen new turn, or the answer that replaces running one.
