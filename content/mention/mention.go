@@ -304,11 +304,10 @@ func knownExtension(name string) (string, bool) {
 }
 
 // wireSize is the size a file adds to the provider request. Providers send
-// images and PDFs as base64 text, which is four bytes for every three.
+// images, PDFs, and (in the largest case, OpenAI) text documents as base64
+// text, which is four bytes for every three. Count every kind that way.
 func wireSize(kind fileKind, size int64) int64 {
-	if kind == kindImage || kind == kindPDF {
-		size = (size + 2) / 3 * 4
-	}
+	size = (size + 2) / 3 * 4
 	return size + attachmentOverhead
 }
 

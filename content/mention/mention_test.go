@@ -349,6 +349,28 @@ func TestExpandTotalLimitCountsBase64Size(t *testing.T) {
 	}
 }
 
+func TestExpandTotalLimitCountsTextAsBase64(t *testing.T) {
+	root := t.TempDir()
+	body := []byte(strings.Repeat("a", 250<<10))
+	var input []string
+	for i := 0; i < 110; i++ {
+		name := fmt.Sprintf("doc%d.txt", i)
+		write(t, filepath.Join(root, name), body)
+		input = append(input, "@"+name)
+	}
+
+	// 110 files total about 26.8 MiB raw, under the 32 MiB limit, but about
+	// 35.7 MiB as base64. Only 96 fit.
+	res := Expand(strings.Join(input, " "), Options{Root: root})
+
+	if len(res.Blocks) != 96 || len(res.Warnings) != 14 {
+		t.Fatalf("blocks = %d, warnings = %d", len(res.Blocks), len(res.Warnings))
+	}
+	if !strings.Contains(res.Warnings[0], "limit for one message") {
+		t.Fatalf("warning = %q", res.Warnings[0])
+	}
+}
+
 func TestExpandLineReferenceAttachesFile(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "main.go"), []byte("package main"))
