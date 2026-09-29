@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -26,7 +28,10 @@ import (
 )
 
 const (
-	defaultMaxImageBytes = 5 << 20
+	// defaultMaxImageBytes is 5 MiB x 3/4. Anthropic applies its 5 MiB image
+	// limit to the base64 text, and base64 adds one third to the file size. An
+	// image that passes this limit is thus accepted by every main provider.
+	defaultMaxImageBytes = 5 << 20 * 3 / 4
 	defaultMaxFileBytes  = 10 << 20
 	defaultMaxTextBytes  = 256 << 10
 	defaultMaxTotalBytes = 32 << 20
@@ -36,9 +41,9 @@ const (
 	sniffBytes = 512
 
 	// trailingPunctuation ends a sentence or a bracket, not a path.
-	trailingPunctuation = "?!,.:;)]}"
+	trailingPunctuation = "?!,.:;)]}`\"'"
 
-	openingBrackets = "([{<"
+	openingBrackets = "([{<`"
 )
 
 // Options sets the base directory and the size limits. A zero value uses the
@@ -47,8 +52,10 @@ type Options struct {
 	// Root is the base for relative paths. Zero means the current directory.
 	Root string
 
-	// MaxImageBytes limits one image. Zero means 5 MB, the lowest image limit
-	// among the main providers, so no provider rejects the whole message.
+	// MaxImageBytes limits the file size of one image. Zero means 3.75 MB.
+	// Anthropic applies its 5 MB image limit to the base64 text, which is one
+	// third larger than the file. Thus an image within the default limit is
+	// accepted by every main provider.
 	MaxImageBytes int64
 
 	// MaxFileBytes limits one PDF. Zero means 10 MB.
@@ -160,7 +167,7 @@ func (e *expander) expand(input string) Result {
 	var out strings.Builder
 	last := 0
 	for _, w := range scanWords(input) {
-		label, ok := e.attach(input, w)
+		label, ok := e.attach(input, &w)
 		if !ok {
 			continue
 		}
@@ -175,7 +182,7 @@ func (e *expander) expand(input string) Result {
 
 // attach handles one word. It returns the replacement label when the word is
 // an attached mention. A bare path returns false: its text stays.
-func (e *expander) attach(input string, w word) (string, bool) {
+func (e *expander) attach(input string, w *word) (string, bool) {
 	typed := input[w.start:w.pathEnd]
 	if w.path == "" {
 		return "", false
@@ -183,17 +190,25 @@ func (e *expander) attach(input string, w word) (string, bool) {
 	if _, known := knownExtension(w.path); !w.mention && !known {
 		return "", false
 	}
-	full, err := e.resolve(w.path)
-	if err != nil {
-		if w.mention {
-			e.warn(typed, "the path is not valid.")
+	full, info, err := e.lookup(w.path)
+	if err != nil && w.mention {
+		// A line reference such as "main.go:42" names the file "main.go".
+		if m := lineSuffix.FindString(w.path); m != "" {
+			if f, i, err2 := e.lookup(w.path[:len(w.path)-len(m)]); err2 == nil {
+				full, info, err = f, i, nil
+				w.path = w.path[:len(w.path)-len(m)]
+				w.pathEnd -= len(m)
+				typed = input[w.start:w.pathEnd]
+			}
 		}
-		return "", false
 	}
-	info, err := os.Stat(full)
 	if err != nil {
 		if w.mention {
-			e.warn(typed, "no such file.")
+			if os.IsNotExist(err) {
+				e.warn(typed, "no such file.")
+			} else {
+				e.warn(typed, "the path is not valid.")
+			}
 		}
 		return "", false
 	}
@@ -239,6 +254,19 @@ func (e *expander) attach(input string, w word) (string, bool) {
 		Size:     size,
 	})
 	return label, w.mention
+}
+
+// lineSuffix matches a line reference at the end of a path: ":42" or ":42-50".
+var lineSuffix = regexp.MustCompile(`:\d+(-\d+)?$`)
+
+// lookup resolves a path and reads its file information.
+func (e *expander) lookup(path string) (string, os.FileInfo, error) {
+	full, err := e.resolve(path)
+	if err != nil {
+		return "", nil, err
+	}
+	info, err := os.Stat(full)
+	return full, info, err
 }
 
 // classify decides how a file is sent. It looks at the extension first, then
@@ -392,20 +420,22 @@ func sizeText(n int64) string {
 	case n >= 1<<20 && n%(1<<20) == 0:
 		return fmt.Sprintf("%d MB", n>>20)
 	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", math.Ceil(float64(n)/(1<<20)*10)/10)
+		return roundUp(n, 1<<20) + " MB"
 	case n >= 1<<10 && n%(1<<10) == 0:
 		return fmt.Sprintf("%d KB", n>>10)
 	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KB", math.Ceil(float64(n)/(1<<10)*10)/10)
+		return roundUp(n, 1<<10) + " KB"
 	}
 	return fmt.Sprintf("%d bytes", n)
 }
 
-// scanWords splits input into words on unescaped whitespace. A word that
-// starts with a quote, or with "@" and a quote, ends at the closing quote.
-// Elsewhere a quote is an ordinary character, so an apostrophe in prose
-// cannot swallow the words after it. A word is a mention only when "@" comes
-// first, after optional opening brackets.
+// roundUp divides n by unit, rounds up to two decimals, and drops trailing
+// zeros.
+func roundUp(n, unit int64) string {
+	v := math.Ceil(float64(n)/float64(unit)*100) / 100
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
 // scanWords splits input into words on unescaped whitespace. A word that
 // starts with a quote, or with "@" and a quote, ends at the closing quote.
 // Elsewhere a quote is an ordinary character, so an apostrophe in prose
@@ -431,7 +461,11 @@ func scanWord(input string, start int) word {
 	for p < len(input) && strings.IndexByte(openingBrackets, input[p]) >= 0 {
 		p++
 	}
-	// Opening brackets are prose, so the word starts after them.
+	// Opening brackets are prose, so the word starts after them. A quote
+	// directly before "@" is prose too.
+	if p+1 < len(input) && (input[p] == '"' || input[p] == '\'') && input[p+1] == '@' {
+		p++
+	}
 	w := word{start: p}
 	if p < len(input) && input[p] == '@' {
 		w.mention = true

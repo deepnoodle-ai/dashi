@@ -3,6 +3,7 @@ package mention_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content/mention"
@@ -53,9 +54,8 @@ func prepareInput(t *testing.T, model string) llm.Input {
 
 func TestExpandOutputPreparesForOpenAI(t *testing.T) {
 	client, err := responses.New(responses.Config{
-		Provider:         "openai",
-		APIKey:           "test",
-		CapabilityPolicy: llm.CapabilityAdjust,
+		Provider: "openai",
+		APIKey:   "test",
 	})
 	if err != nil {
 		t.Fatalf("create client: %v", err)
@@ -66,16 +66,13 @@ func TestExpandOutputPreparesForOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if len(req.Body()) == 0 {
-		t.Fatal("prepared request has no body")
-	}
+	assertAttached(t, req.Body())
 }
 
 func TestExpandOutputPreparesForAnthropic(t *testing.T) {
 	client, err := messages.New(messages.Config{
-		Provider:         "anthropic",
-		APIKey:           "test",
-		CapabilityPolicy: llm.CapabilityAdjust,
+		Provider: "anthropic",
+		APIKey:   "test",
 	})
 	if err != nil {
 		t.Fatalf("create client: %v", err)
@@ -89,7 +86,23 @@ func TestExpandOutputPreparesForAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if len(req.Body()) == 0 {
-		t.Fatal("prepared request has no body")
+	assertAttached(t, req.Body())
+}
+
+// assertAttached checks that the request body holds the text document, the
+// image, and the PDF. The default capability policy fails on a block that the
+// model cannot take, so a dropped block cannot pass this test.
+func assertAttached(t *testing.T, body []byte) {
+	t.Helper()
+	text := string(body)
+	// OpenAI sends the text file as base64 ("package a\n"); Anthropic sends it
+	// as plain text.
+	if !strings.Contains(text, "package a") && !strings.Contains(text, "cGFja2FnZSBhCg==") {
+		t.Error("request body has no text document")
+	}
+	for _, want := range []string{"image/png", "application/pdf"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("request body has no %q", want)
+		}
 	}
 }

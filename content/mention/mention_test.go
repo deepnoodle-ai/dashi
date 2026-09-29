@@ -302,15 +302,50 @@ func TestExpandNegativeLimitTurnsLimitOff(t *testing.T) {
 	}
 }
 
-func TestExpandDefaultImageLimitIsFiveMB(t *testing.T) {
+func TestExpandDefaultImageLimitCountsBase64Size(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "big.png"), append(pngBytes, make([]byte, 6<<20)...))
+	limit := 5 << 20 * 3 / 4
+	write(t, filepath.Join(root, "ok.png"), append(pngBytes, make([]byte, limit-len(pngBytes))...))
+	write(t, filepath.Join(root, "big.png"), append(pngBytes, make([]byte, limit-len(pngBytes)+1)...))
 
-	res := Expand("@big.png", Options{Root: root})
+	res := Expand("@ok.png @big.png", Options{Root: root})
 
-	want := "Skipped @big.png: 6.1 MB is over the 5 MB image limit."
-	if len(res.Warnings) != 1 || res.Warnings[0] != want {
-		t.Fatalf("warnings = %q", res.Warnings)
+	if len(res.Blocks) != 1 {
+		t.Fatalf("blocks = %d, want 1", len(res.Blocks))
+	}
+	if got := len(res.Blocks[0].Image.Source.Data) * 4 / 3; got > 5<<20 {
+		t.Fatalf("base64 size = %d, over 5 MiB", got)
+	}
+	want := "Skipped @big.png: 3.75 MB is over the 3.75 MB image limit."
+	if len(res.Warnings) != 1 || !strings.HasPrefix(res.Warnings[0], "Skipped @big.png:") {
+		t.Fatalf("warnings = %q, want prefix of %q", res.Warnings, want)
+	}
+}
+
+func TestExpandLineReferenceAttachesFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "main.go"), []byte("package main"))
+
+	for _, in := range []string{"see @main.go:42 now", "see @main.go:42-50 now"} {
+		res := Expand(in, Options{Root: root})
+		if len(res.Blocks) != 1 || len(res.Warnings) != 0 {
+			t.Fatalf("%q: blocks = %d, warnings = %q", in, len(res.Blocks), res.Warnings)
+		}
+		if !strings.HasPrefix(res.Text, "see [file: main.go]:4") {
+			t.Fatalf("%q: text = %q", in, res.Text)
+		}
+	}
+}
+
+func TestExpandMentionInBackticksOrQuotesAttaches(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), []byte("package a"))
+
+	for _, in := range []string{"see `@a.go`", `see "@a.go"`, "see (`@a.go`)."} {
+		res := Expand(in, Options{Root: root})
+		if len(res.Blocks) != 1 || len(res.Warnings) != 0 {
+			t.Fatalf("%q: blocks = %d, warnings = %q", in, len(res.Blocks), res.Warnings)
+		}
 	}
 }
 

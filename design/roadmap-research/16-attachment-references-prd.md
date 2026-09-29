@@ -90,7 +90,7 @@ A new package, `content/mention`. It uses only the standard library and `content
 ```go
 type Options struct {
     Root          string // base for relative paths; zero means the current directory
-    MaxImageBytes int64  // per image; zero means 5 MB (Decision 4)
+    MaxImageBytes int64  // per image; zero means 3.75 MB (Decision 4)
     MaxFileBytes  int64  // per PDF; zero means 10 MiB
     MaxTextBytes  int64  // per text file; zero means 256 KiB
     MaxTotalBytes int64  // all files in one message; zero means 32 MiB
@@ -158,13 +158,21 @@ Rules:
 1. **The CLI stores attachments inline, not by ref.** Reason: a ref needs a resolver, an attachment store, and a file that cannot change. The CLI has none of these. It reads the file at send time and the bytes enter the session file, capped by `MaxTotalBytes`. A later change can move them to a content-addressed store and use `Ref`.
 2. **`Runner.ContentResolver` is a Runner field and receives the run context and Turn ID.** Reason: the host sets the context on every `Run` call, so a shared Runner cannot resolve under the wrong tenant unless the host passes the wrong context. The opaque ID carries no authority. The name avoids `Content`, which already means blocks (review 7, accepted).
 3. **The resolver returns bytes only.** Reason: Dashi can verify bytes. It cannot verify a signed URL or a provider file ID. This replaces the text in `history-storage.md` that allowed a signed URL or file ID, a `content_unavailable` reason, and a substitution policy. PR 2 updates that document so the design has one answer (review 6, accepted).
-4. **The image default is 5 MB.** Reason: Anthropic rejects an image above 5 MB. That is the lowest limit among the main providers (OpenAI and Google accept more). An image over the limit gets a warning and is not sent, so the provider never fails the whole message. Dashi does not resize (review 4, accepted).
+4. **The image default is 3.75 MB of file size.** Reason: Anthropic rejects an image above 5 MB, and it counts the base64 text, which is one third larger than the file. The default is thus 5 MB x 3/4. A file that passes is accepted by every main provider (OpenAI and Google accept more). An image over the limit gets a warning and is not sent, so the provider never fails the whole message. Dashi does not resize. A host can set `MaxImageBytes` higher for a provider that has a higher limit (review 4, accepted; implementation review 1, accepted).
 5. **A ref failure is a terminal failed stop.** Reason: this matches every other failure before a model request. Resume after the host restores the same bytes is later work. The size limit checks the declared `Size` before any I/O; the digest check catches a wrong `Size`. The host must bound its own read.
 6. **Text files become document blocks.** Reason: the Anthropic and OpenAI providers both accept `text/plain` documents, and the record keeps the path as a title.
 7. **Skipped mentions warn; they do not fail.** Reason: the user may have typed `@` on purpose in prose. Zero-value rules say warn and adjust.
 8. **User attachments have no workspace boundary, and `mention` does not use the `workspace` package.** Reason: the user picks the file and can already read it, so a boundary protects nothing (review 1, accepted). The model's tools keep their boundary in `workspace`. This removes the duplicate path check and any signature dependency on the codetools track (review 2, accepted). Symbolic links need no special handling for the same reason. Dive's string-prefix check is not copied.
 9. **Delivery splits in two PRs. Both stay in scope.** PR 1 is Part B and ships Tuesday night. PR 2 is Part A, on a second branch cut from the PR 1 branch after PR 1 opens. Reason: Part A changes the request path that every Turn runs. It gets its own review and the tests in US-6 and US-7 (review 3, accepted in part: no deferral, separate PR).
 10. **Review 5 is accepted.** The stories above add the missing parsing, limit, and `Prepare` tests.
+
+11. **Implementation review of PR 1 (2026-09-28).**
+    - The provider tests use the default capability policy and check that the text document, the image, and the PDF are in each request body (accepted).
+    - `@main.go:42` and `@main.go:42-50` attach `main.go`. The line reference stays in the text (accepted).
+    - A mention in backticks or quotes attaches, for example `` `@a.go` `` (accepted).
+    - The duplicate `scanWords` comment is deleted (accepted).
+    - A warning prints sizes with up to two decimals, rounded up, so a file that is over the limit never prints as equal to it (accepted).
+    - `design/history-storage.md` changed in PR 1 (commit 02161a1), not in PR 2. The PR 1 description says so.
 
 ## Delivery
 
