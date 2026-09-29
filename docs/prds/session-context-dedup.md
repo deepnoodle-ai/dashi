@@ -1,6 +1,6 @@
 # Keep repeated session context to one current copy
 
-Status: Approved  
+Status: Shipped in #117\
 PRD PR: #114  Implementation PR: #117  Updated: 2026-09-29
 
 ## Problem
