@@ -166,7 +166,8 @@ func Block(block content.Block) Content {
 }
 
 // sources returns pointers to every source in c: a block's source and the
-// sources in blocks of a tool result or hosted result. They alias c's payload.
+// sources in blocks of a tool result, hosted-use output, or hosted result. They
+// alias c's payload.
 func (c Content) sources() []*content.Source {
 	var block, result, hosted []content.Block
 	if c.Block != nil {
