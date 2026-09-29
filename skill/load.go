@@ -376,12 +376,17 @@ func parseFields(front []byte) (frontmatter, []string) {
 		fm       frontmatter
 		problems []string
 	)
-	text := func(key string) string {
+	text := func(key string, allowList bool) string {
 		v, ok := values[key]
 		if !ok {
 			return ""
 		}
-		s, ok := scalarText(v)
+		var s string
+		if _, isList := v.([]any); isList && !allowList {
+			ok = false
+		} else {
+			s, ok = scalarText(v)
+		}
 		if !ok {
 			problems = append(problems, fmt.Sprintf(
 				"frontmatter field %q ignored: expected text", key,
@@ -403,9 +408,9 @@ func parseFields(front []byte) (frontmatter, []string) {
 		}
 		return &b
 	}
-	fm.Name = text("name")
-	fm.Description = text("description")
-	fm.ArgumentHint = text("argument-hint")
+	fm.Name = text("name", false)
+	fm.Description = text("description", false)
+	fm.ArgumentHint = text("argument-hint", true)
 	if b := flag("disable-model-invocation"); b != nil {
 		fm.DisableModelInvocation = *b
 	}

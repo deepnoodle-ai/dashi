@@ -369,3 +369,22 @@ func TestLoadDirsIgnoresWrongTypeFieldAndNamesIt(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDirsListDescriptionWarnsAndArgumentHintList(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"listed/SKILL.md": "---\ndescription: [a, b]\nargument-hint: [x, y]\n---\nBody",
+	})
+	set, warns := skill.LoadDirs(root)
+	got, ok := info(set, "listed")
+	if !ok {
+		t.Fatalf("skill not loaded; warnings = %+v", warns)
+	}
+	if got.Description != "" || got.ArgumentHint != "[x, y]" {
+		t.Fatalf("info = %+v", got)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0].Path, "listed") ||
+		!strings.Contains(warns[0].Message, `"description"`) {
+		t.Fatalf("warnings = %+v", warns)
+	}
+}
