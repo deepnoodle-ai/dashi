@@ -525,7 +525,8 @@ type Stop struct {
 	// After a terminal stop the record accepts only late results of work
 	// that had already started, and other commands give ErrTurnEnded. A
 	// live reader that stops at a terminal stop can miss those results; a
-	// reload shows them.
+	// reload shows them. Project ignores them: an ended turn's projection
+	// is fixed at its terminal stop.
 	Terminal bool `json:"terminal,omitempty"`
 }
 

@@ -11,7 +11,14 @@ import (
 
 // Project returns this turn's own model messages without modifying the record.
 // It excludes prior conversation history, which the application owns. Unsettled
-// client calls and model intents cannot be projected into a new request.
+// client calls and model intents cannot be projected into a new request, so
+// Project fails on a turn that has them, unless the turn has ended.
+//
+// An ended turn (Stop.Terminal) always projects, and only up to its terminal
+// stop: results recorded after it count in Spend but never change the
+// projection. Each tool call still started, waiting, or uncertain there
+// projects as an error result, and a model attempt with no recorded result
+// projects nothing.
 func Project(t Turn) ([]llm.Message, error) {
 	return projectWithHistory(t, nil)
 }
@@ -59,16 +66,30 @@ func projectWithHistory(
 	if err != nil {
 		return nil, err
 	}
-	if state.modelIntent != "" || state.unresolvedModel != "" {
-		return nil, errors.New("dashi: model intent needs reconciliation")
-	}
-	for _, id := range state.callOrder {
-		if state.Tools[id].Status != ToolSettled {
-			return nil, errors.New("dashi: client tool call is unresolved")
+	ended := state.Stop.Terminal
+	if ended {
+		// Nothing but late results follows a terminal stop, so the last stop
+		// is the terminal one.
+		end := len(t.Steps)
+		for t.Steps[end-1].Kind != StepStopped {
+			end--
 		}
-	}
-	if len(state.hosted) > 0 {
-		return nil, errors.New("dashi: hosted approval is unresolved")
+		t.Steps = t.Steps[:end]
+		if state, err = replay(t); err != nil {
+			return nil, err
+		}
+	} else {
+		if state.modelIntent != "" || state.unresolvedModel != "" {
+			return nil, errors.New("dashi: model intent needs reconciliation")
+		}
+		for _, id := range state.callOrder {
+			if state.Tools[id].Status != ToolSettled {
+				return nil, errors.New("dashi: client tool call is unresolved")
+			}
+		}
+		if len(state.hosted) > 0 {
+			return nil, errors.New("dashi: hosted approval is unresolved")
+		}
 	}
 	out := make([]llm.Message, 0, len(history)+len(t.Steps))
 	for _, m := range history {
@@ -96,12 +117,24 @@ func projectWithHistory(
 	// follows it. A request settled without dispatch, or not settled at all,
 	// showed the model nothing.
 	lastDispatched := lastDispatchedIntent(t)
+	// stopped tracks whether a stop follows the latest Start or Continue. A
+	// Continue without one resumes after a crash.
+	stopped := false
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepStarted:
 			for _, m := range step.Started.Input {
 				out = append(out, m.Clone())
 			}
+		case StepStopped:
+			stopped = true
+		case StepContinued:
+			// The reminder is for the next model call only; an ended turn
+			// makes none.
+			if !stopped && !ended && lastDispatched <= step.Seq {
+				out = append(out, crashResumeReminder())
+			}
+			stopped = false
 		case StepDelivered, StepLoopContinued, StepToolSettled:
 			// A turned-down submission's items follow its result, which is
 			// projected with the model message that made the call.
@@ -154,7 +187,7 @@ func projectWithHistory(
 						continue
 					}
 					v, ok := state.Tools[part.ToolCall.ID]
-					if !ok || v.Status != ToolSettled {
+					if !ok || v.Status != ToolSettled && !ended {
 						continue
 					}
 				}
@@ -173,10 +206,16 @@ func projectWithHistory(
 				if !ok {
 					continue
 				}
-				if v.Outcome == nil {
+				var result llm.ToolResult
+				switch {
+				case v.Status != ToolSettled:
+					// Only an ended turn projects an unsettled call.
+					result = endedToolResult(v.Call.ID)
+				case v.Outcome == nil:
 					continue
+				default:
+					result = v.Result()
 				}
-				result := v.Result()
 				out = append(
 					out,
 					llm.Message{
@@ -208,6 +247,35 @@ func projectWithHistory(
 	}
 	return out, nil
 }
+
+// endedToolResult is what the model sees for a call still started, waiting,
+// or uncertain when its turn ended. Its effect is unknown, so it is an
+// error, never a made-up success.
+func endedToolResult(callID string) llm.ToolResult {
+	return llm.ToolResult{
+		CallID:  callID,
+		Output:  tool.TextOutput(endedToolText),
+		IsError: true,
+	}
+}
+
+const endedToolText = "Result unknown; the turn ended."
+
+// crashResumeReminder follows a Continue that resumed a turn with no
+// recorded stop, whose worker stopped mid-turn. The runner reruns only
+// read-only or idempotent calls and marks the rest uncertain; the reminder
+// covers the model's side. Like steeringReminder it is projected, never
+// recorded, and a later dispatched call drops it.
+func crashResumeReminder() llm.Message {
+	return llm.ReminderMessage(llm.Reminder{
+		Name:    "worker-restarted",
+		Tier:    llm.ReminderContextual,
+		Content: crashResumeText,
+	})
+}
+
+const crashResumeText = "The previous worker stopped in the middle of " +
+	"this turn. Check the current state before you repeat any action."
 
 // steeredPartial projects a call an urgent steer cut short: its partial
 // text as one assistant message, then a reminder that the user interrupted

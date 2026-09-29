@@ -108,7 +108,8 @@ type TurnView struct {
 	// Stop is why the last run ended. Replay and Outcome project a missing
 	// stop as Run does: uncertain for an unsettled model attempt,
 	// interrupted for work in flight, waiting for pending work. A hook's
-	// view is taken mid-run, so its Stop is empty.
+	// view is taken mid-run, so its Stop is empty. Next reads the recorded
+	// stop and says what to do about it.
 	Stop   Stop
 	Output *StructuredOutput
 	// Answer is the text of the latest assistant message. On a completed
@@ -131,6 +132,9 @@ type TurnView struct {
 	// live holds the latest named context item per origin and name that the
 	// next model call would still see; see Context.
 	live map[string]ContextItem
+	// stopRecorded means a stop step follows the latest Start or Continue,
+	// so Stop is recorded rather than projected; see Next.
+	stopRecorded bool
 }
 
 // Context returns the latest context item with this origin and name that the
@@ -221,6 +225,7 @@ func snapshotView(v TurnView) TurnView {
 			out.Tools[id] = copied
 		}
 	}
+	out.stopRecorded = v.stopRecorded
 	if len(v.live) > 0 {
 		out.live = make(map[string]ContextItem, len(v.live))
 		for k, item := range v.live {
@@ -311,6 +316,7 @@ func replay(t Turn) (*replayState, error) {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
 	s.ReadyToContinue = s.canContinue()
+	s.stopRecorded = s.Stop.Kind != ""
 	return s, nil
 }
 
