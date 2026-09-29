@@ -163,9 +163,11 @@ In a session, the agent for a new turn is merged **field by field**:
 `Start.Agent`, then `Session.Agent`, then the agent recorded by the last
 **user-origin** turn, then the engine's defaults. A zero field falls through to
 the next source. The merge recurses into `Settings` and `Limits`; a nil pointer,
-empty string or slice, zero number, or false falls through. To turn a setting
-off, use its negative or `No…` form (zero-value rule). Compaction and scheduled
-turns never pass on their agent: carrying starts from the last user-origin turn.
+empty string, slice, or map, zero number, or false falls through. To turn a
+setting off, use its negative or `No…` form (zero-value rule). `Tools` and
+`NoTools` are one selection: a source that sets either replaces both, since
+`NoTools` has no negative form. Compaction, scheduled, and operator turns never
+pass on their agent: carrying starts from the last user-origin turn.
 
 | Field | Carries forward? |
 |---|---|

@@ -14,6 +14,143 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
+// TestSessionIdempotency retries a keyed Start while its turn runs, after
+// it ends, after queue and compaction turns, and with other input.
+func TestSessionIdempotency(t *testing.T) {
+	keyed := func(key, text string) dashi.Start {
+		start := dashi.Say(text)
+		start.CommandID = key
+		return start
+	}
+	t.Run("while running", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		g := newGate()
+		a := handle(rec, gatedClient{dashitest.NewClient(dashitest.Reply("ok")), g})
+		a.New = true
+		done := make(chan error, 1)
+		go func() {
+			_, err := a.Run(context.Background(), keyed("k", "hello"))
+			done <- err
+		}()
+		g.requireEntered(t, done)
+		// Another worker's handle cannot know the turn is live.
+		b := handle(rec, dashitest.NewClient())
+		_, err := b.Run(t.Context(), keyed("k", "hello"))
+		busy := requireBusy(t, err, dashi.NextResume, false)
+		if !busy.Duplicate || busy.TurnID != dashi.TurnID("s", 1) {
+			t.Fatalf("busy = %+v; want a duplicate of turn 1", busy)
+		}
+		// The handle running it does.
+		_, err = a.Run(t.Context(), keyed("k", "hello"))
+		if busy := requireBusy(t, err, dashi.NextRunning, false); !busy.Duplicate {
+			t.Fatalf("busy = %+v; want a duplicate", busy)
+		}
+		close(g.release)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("after it ended", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"))
+		a := handle(rec, client)
+		a.New = true
+		first, err := a.Run(t.Context(), keyed("k", "hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := handle(rec, client)
+		b.New = true // a retry of the first Start is not ErrSessionExists
+		out, err := b.Run(t.Context(), keyed("k", "hello"))
+		if err != nil || out.Turn.ID != first.Turn.ID || out.Answer != "first" {
+			t.Fatalf("retry: %v, turn %s %q", err, out.Turn.ID, out.Answer)
+		}
+		if n := len(client.Inputs()); n != 1 {
+			t.Fatalf("model calls = %d; want 1", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("after queue and compaction turns", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(
+			dashitest.Reply("first"),
+			dashitest.Reply("queued"),
+			dashitest.Reply("summary"),
+			dashitest.Reply("other"),
+			dashitest.Reply("again"),
+		)
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Run(t.Context(), keyed("k", "hello")); err != nil {
+			t.Fatal(err)
+		}
+		// No queue or compactor exists yet, so the turns are made directly,
+		// with the keys and origins those would record.
+		queue := keyed(`queue:["n1"]`, "a notice")
+		queue.Origin = dashi.StartScheduled
+		compact := keyed("compact:1", "summarize")
+		compact.Origin = dashi.StartOperator
+		for _, c := range []dashi.Start{queue, compact} {
+			if _, err := s.Run(t.Context(), c); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err := handle(rec, client).Run(t.Context(), keyed("k", "hello"))
+		if err != nil || out.Turn.ID != dashi.TurnID("s", 1) {
+			t.Fatalf("retry: %v, turn %s", err, out.Turn.ID)
+		}
+		requireTurns(t, rec, 3)
+		// A newer caller turn ends the window: the old key starts anew.
+		if _, err := s.Run(t.Context(), keyed("k2", "other")); err != nil {
+			t.Fatal(err)
+		}
+		out, err = s.Run(t.Context(), keyed("k", "hello"))
+		if err != nil || out.Turn.ID != dashi.TurnID("s", 5) {
+			t.Fatalf("outside the window: %v, turn %s", err, out.Turn.ID)
+		}
+	})
+	t.Run("different input", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		s := handle(rec, dashitest.NewClient(dashitest.Reply("first")))
+		s.New = true
+		if _, err := s.Run(t.Context(), keyed("k", "hello")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.Run(t.Context(), keyed("k", "goodbye"))
+		if !errors.Is(err, dashi.ErrCommandConflict) {
+			t.Fatalf("err = %v; want ErrCommandConflict", err)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("racing workers", func(t *testing.T) {
+		// Worker b chooses turn 1 before worker a commits it, with the same
+		// key and a different agent, so the engine's digests differ. b
+		// loses at commit, reloads, and finds a's turn as its retry.
+		rec := dashi.NewMemoryRecorder()
+		a := handle(rec, dashitest.NewClient(dashitest.Reply("from a")))
+		a.New = true
+		bClient := dashitest.NewClient(dashitest.Reply("from b"))
+		race := &raceRecorder{MemoryRecorder: rec}
+		race.before = func() {
+			if _, err := a.Run(context.Background(), keyed("k", "hello")); err != nil {
+				t.Error(err)
+			}
+		}
+		b := handle(race, bClient)
+		b.New = true
+		b.Agent.Instructions = "Be brief."
+		out, err := b.Run(t.Context(), keyed("k", "hello"))
+		if err != nil || out.Turn.ID != dashi.TurnID("s", 1) || out.Answer != "from a" {
+			t.Fatalf("b: %v, turn %s %q", err, out.Turn.ID, out.Answer)
+		}
+		if n := len(bClient.Inputs()); n != 0 {
+			t.Fatalf("b made %d model calls", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+}
+
 // TestSessionOpenAndCreate covers New, ErrSessionNotFound, and
 // ErrSessionExists, and that Open runs nothing.
 func TestSessionOpenAndCreate(t *testing.T) {
@@ -138,6 +275,91 @@ func TestSessionUnreadableTurn(t *testing.T) {
 	}
 }
 
+// TestSessionCarryForward merges each new turn's agent field by field from
+// Start.Agent, Session.Agent, and the last user turn.
+func TestSessionCarryForward(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		dashitest.Reply("one"),
+		dashitest.Reply("two"),
+		dashitest.Reply("three"),
+		dashitest.Reply("four"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	s.Agent = dashi.Agent{
+		Model:        dashitest.Model,
+		Instructions: "Be brief.",
+		Tools:        []string{"lookup"},
+		Limits: dashi.Limits{
+			ModelAttempts: 3,
+			Deadline:      time.Now().Add(time.Hour),
+		},
+	}
+	first, err := s.Send(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A later handle sets one field; the rest carries from turn 1.
+	next := handle(rec, client)
+	next.Agent = dashi.Agent{Settings: llm.Settings{MaxTokens: 100}}
+	out, err := next.Send(t.Context(), "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.Agent
+	switch {
+	case got.Instructions != "Be brief.",
+		got.Model != dashitest.Model,
+		got.Settings.MaxTokens != 100,
+		got.Limits.ModelAttempts != 3,
+		len(got.Tools) != 1:
+		t.Fatalf("carried agent = %+v", got)
+	case !got.Limits.Deadline.IsZero():
+		t.Fatal("the deadline carried forward")
+	case got.Revision == first.Agent.Revision:
+		t.Fatal("the derived revision carried forward")
+	}
+	// A scheduled turn's agent never carries.
+	scheduled := dashi.Say("three")
+	scheduled.Origin = dashi.StartScheduled
+	scheduled.Agent = dashi.Agent{Instructions: "Summarize.", NoTools: true}
+	if _, err := next.Run(t.Context(), scheduled); err != nil {
+		t.Fatal(err)
+	}
+	out, err = handle(rec, client).Send(t.Context(), "four")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Agent.Instructions != "Be brief." || out.Agent.NoTools ||
+		out.Agent.Settings.MaxTokens != 100 {
+		t.Fatalf("agent after a scheduled turn = %+v", out.Agent)
+	}
+}
+
+// TestSessionAnswer records each answer, then continues, in one call.
+func TestSessionAnswer(t *testing.T) {
+	client := dashitest.NewClient(
+		dashitest.CallTool("call-1", "charge", `{}`),
+		dashitest.Reply("I did not charge the card."),
+	)
+	s := handle(nil, client)
+	s.New = true
+	s.Runner.Tools = (&chargeTool{}).tools()
+	s.Runner.Hooks = dashi.RequireApproval("charge")
+	out, err := s.Send(t.Context(), "pay")
+	if err != nil || out.Next() != dashi.NextAnswer {
+		t.Fatalf("send: %v, next %s", err, out.Next())
+	}
+	out, err = s.Answer(t.Context(), out.Pending[0].Deny("the user said no"))
+	if err != nil || out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
+	}
+	if got := texts(client.Inputs()[1].Messages); !strings.Contains(got, "the user said no") {
+		t.Fatalf("the model did not see the denial: %q", got)
+	}
+}
+
 // texts joins the text of each message, in order.
 func texts(messages []llm.Message) string {
 	var parts []string
@@ -157,6 +379,22 @@ func texts(messages []llm.Message) string {
 		}
 	}
 	return strings.Join(parts, "|")
+}
+
+// raceRecorder runs before once, ahead of the first turn_started commit,
+// so another worker commits the same turn first.
+type raceRecorder struct {
+	*dashi.MemoryRecorder
+	before func()
+	done   bool
+}
+
+func (r *raceRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if req.Step.Kind == dashi.StepStarted && !r.done {
+		r.done = true
+		r.before()
+	}
+	return r.MemoryRecorder.Commit(ctx, req)
 }
 
 // brokenLoader fails to load one turn.

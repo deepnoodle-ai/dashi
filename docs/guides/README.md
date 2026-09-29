@@ -7,6 +7,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
 
 - [Running turns](running-turns.md): running an agent turn, reading the
   result, prior conversation, structured output, and streaming.
+- [Sessions](sessions.md): conversations of many turns, idempotent sends,
+  busy turns, and carrying the agent forward.
 - [Packages](packages.md): the foundation packages, dependency direction, and
   media and speech client status.
 - [Model calls](model-calls.md): preparing, sending, and streaming one model

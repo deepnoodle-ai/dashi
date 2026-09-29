@@ -3,6 +3,8 @@
 This guide is the starting point for running an agent turn and consuming its
 results. The focused guides cover the rest:
 
+- [Sessions](sessions.md): a conversation of many turns, with the history,
+  agent, and open turns handled for you.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final
   answers.
 - [Approving tool calls](approvals.md): asking a person inline, or deferring
@@ -101,7 +103,9 @@ application so a worker can supply them after a crash. If the history on
 `Outcome.Warnings` and `Replay(turn).Warnings`. If `Start` had no history,
 omit `History` on `Continue` (or pass an empty slice).
 
-For example, reuse the same `prior` messages on both commands:
+A [session](sessions.md) does this for you: it builds the history from the
+earlier turns' records. For example, without one, reuse the same `prior`
+messages on both commands:
 
 ```go
 start := dashi.Start{

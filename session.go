@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -22,8 +23,9 @@ import (
 //	out, err := s.Send(ctx, "What's the weather in Tokyo?")
 //	out, err = s.Send(ctx, "And in Fahrenheit?")
 //
-// Each new turn gets the projected history of the turns before it. A
-// Session must not be copied after first use.
+// Each new turn gets the projected history of the turns before it, and its
+// agent carries forward from the last user turn field by field. A Session
+// must not be copied after first use.
 type Session struct {
 	// ID names the session. Empty means a new session with a generated ID
 	// (NewID), readable from ID after the first Start.
@@ -37,8 +39,9 @@ type Session struct {
 	// recorder that the handle keeps across calls, and the first outcome
 	// warns WarningMemoryOnly.
 	Runner Runner
-	// Agent fills the zero fields of each new turn's Start.Agent, field by
-	// field. It does not change turns already started.
+	// Agent overrides fields of the carried agent for new turns: a nonzero
+	// field here wins over the last user turn's, and Start.Agent wins over
+	// both. It does not change turns already started.
 	Agent Agent
 	// Exclusive promises that this handle is the only driver of the session
 	// and that earlier drivers have exited, so a turn this handle is not
@@ -167,13 +170,37 @@ func (s *Session) Send(
 	return s.Run(ctx, Say(text), opts...)
 }
 
+// Answer records each answer with Settle, then runs one Continue, so a
+// host answers a waiting turn in one call; the record keeps a step per
+// answer. It stops at the first Settle error. The Continue's command ID
+// derives from the answers', so a retried Answer is recognized.
+func (s *Session) Answer(
+	ctx context.Context,
+	answers ...Settle,
+) (Outcome, error) {
+	ids := make([]string, 0, len(answers))
+	for _, answer := range answers {
+		answer = withCommandID(answer).(Settle)
+		if out, err := s.Run(ctx, answer); err != nil {
+			return out, err
+		}
+		ids = append(ids, answer.CommandID)
+	}
+	next := Continue{}
+	if len(ids) > 0 {
+		next.CommandID = "answer:" + strings.Join(ids, ",")
+	}
+	return s.Run(ctx, next)
+}
+
 // Run applies one command to the session. A Start opens the next turn,
-// after the last-turn rules: it refuses with *TurnBusyError while the last
-// turn is busy, and otherwise closes a stopped last turn and starts. Any
-// other command (Continue, Settle, Deliver, Cancel) goes to the last turn.
-// The session sets Start.History and Continue.History to the projected
-// history of the turns before the target turn, replacing any the caller
-// set, and fills a Start's agent from Session.Agent.
+// after the idempotency check and the last-turn rules: it returns the
+// earlier result of a retried command ID, refuses with *TurnBusyError while
+// the last turn is busy, and otherwise closes a stopped last turn and
+// starts. Any other command (Continue, Settle, Deliver, Cancel) goes to the
+// last turn. The session sets Start.History and Continue.History to the
+// projected history of the turns before the target turn, replacing any the
+// caller set, and gives a Start the carried agent.
 //
 // The outcome and error mean what Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
@@ -277,15 +304,21 @@ func (s *Session) start(
 	c Start,
 	opts []RunOption,
 ) (Outcome, error) {
-	if c.CommandID == "" {
+	fresh := c.CommandID == ""
+	if fresh {
+		// A generated key cannot match an earlier turn, so the idempotency
+		// scan is skipped.
 		c.CommandID = NewID()
 	}
 	for attempt := 0; ; attempt++ {
 		s.mu.Lock()
-		p, err := s.planStart(ctx, c, opts)
+		p, err := s.planStart(ctx, c, fresh, opts)
 		r := s.runner()
 		s.mu.Unlock()
-		if err != nil {
+		if err != nil || p.done != nil {
+			if p.done != nil {
+				return s.withMemoryWarning(*p.done), err
+			}
 			return Outcome{}, err
 		}
 		out, err := r.Run(ctx, NewTurn(p.id), p.command, opts...)
@@ -310,17 +343,20 @@ func lostStart(err error) bool {
 		errors.Is(ce.Err, ErrRevisionConflict)
 }
 
-// startPlan is a chosen new turn.
+// startPlan is a chosen new turn, or the answer that replaces running one.
 type startPlan struct {
 	n        int
 	id       string
 	command  Start
 	warnings []Warning
+	// done is the result when no turn runs: a retried command's outcome.
+	done *Outcome
 }
 
 func (s *Session) planStart(
 	ctx context.Context,
 	c Start,
+	fresh bool,
 	opts []RunOption,
 ) (startPlan, error) {
 	if s.ID == "" {
@@ -330,6 +366,12 @@ func (s *Session) planStart(
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return startPlan{}, err
+	}
+	if !fresh {
+		out, err := s.duplicate(ctx, c, last)
+		if out != nil || err != nil {
+			return startPlan{done: out}, err
+		}
 	}
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, err
@@ -357,7 +399,7 @@ func (s *Session) planStart(
 	history, unreadable := s.history(ctx, last)
 	warnings = append(warnings, unreadable...)
 	c.History = history
-	c.Agent = mergeAgent(c.Agent, s.Agent)
+	c.Agent = s.agentFor(ctx, c.Agent, last)
 	id := TurnID(s.ID, last+1)
 	s.running[id]++
 	return startPlan{
@@ -381,6 +423,50 @@ func (s *Session) checkExists(last int) error {
 	}
 	s.created = last > 0
 	return nil
+}
+
+// duplicate applies the idempotency check. It scans back from the last
+// turn through the newest turn a caller's Start began; queue and
+// compaction turns never end the window, since they run after the caller's
+// turn. A match with the same input returns the turn's outcome once it has
+// ended, and a busy error before; a match with other input conflicts.
+func (s *Session) duplicate(
+	ctx context.Context,
+	c Start,
+	last int,
+) (*Outcome, error) {
+	for n := last; n >= 1; n-- {
+		t, err := s.load(ctx, n)
+		if err != nil {
+			continue
+		}
+		start := t.turn.Steps[0]
+		if start.CommandID == c.CommandID {
+			if !sameInputTail(start.Started.Input, c.Input) {
+				return nil, fmt.Errorf(
+					"%w: command %s started turn %s with other input",
+					ErrCommandConflict,
+					c.CommandID,
+					t.turn.ID,
+				)
+			}
+			r := s.refine(ctx, t)
+			if r.next != NextNone {
+				return nil, &TurnBusyError{
+					TurnID:    t.turn.ID,
+					Next:      r.next,
+					Origin:    t.view.Origin,
+					Duplicate: true,
+				}
+			}
+			return &Outcome{Turn: cloneTurn(t.turn), TurnView: t.view}, nil
+		}
+		if !strings.HasPrefix(start.CommandID, "queue:") &&
+			!strings.HasPrefix(start.CommandID, "compact:") {
+			return nil, nil
+		}
+	}
+	return nil, nil
 }
 
 // closeLast applies the last-turn rules to a new Start: it returns an error
@@ -472,6 +558,12 @@ func (s *Session) recorder() Recorder {
 	return s.memory
 }
 
+func (s *Session) withMemoryWarning(out Outcome) Outcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withMemoryWarningLocked(out)
+}
+
 func (s *Session) withMemoryWarningLocked(out Outcome) Outcome {
 	if s.Runner.Recorder == nil && !s.warnedMemory {
 		s.warnedMemory = true
@@ -482,4 +574,13 @@ func (s *Session) withMemoryWarningLocked(out Outcome) Outcome {
 		})
 	}
 	return out
+}
+
+// sameInputTail reports whether recorded ends with input by JSON meaning.
+// Queued user items the session put ahead of a caller's input come first.
+func sameInputTail(recorded, input []llm.Message) bool {
+	if len(input) > len(recorded) {
+		return false
+	}
+	return sameJSONValue(recorded[len(recorded)-len(input):], input)
 }
