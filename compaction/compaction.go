@@ -4,13 +4,14 @@
 // Start.History. When the history nears the model's context window, the host
 // calls Compact. Compact asks a model for a summary of the older messages
 // and returns a Record. The host stores the Record next to its history. Project
-// then gives the model view: one summary message, then the recent messages.
+// then gives the projected history: one summary message, then the recent
+// messages.
 //
 // The package changes no history and holds no state. It does not depend on
 // Turn or Runner internals. It never covers the current request, so it runs
 // between Turns and not inside one. The summary is derived history. It has
 // user authority and never operator authority. System and developer messages
-// in the covered part stay in the model view with their own role.
+// in the covered part stay in the projected history with their own role.
 //
 // The default summarizer adapts the continuation prompt from Dive's
 // compaction package.
@@ -68,8 +69,9 @@ var (
 )
 
 // Record states that Summary replaces history[:Covers.Messages]. It holds
-// everything a host must store to rebuild the same model view after a restart.
-// Each Record covers from message 0, so a host stores only the newest one.
+// everything a host must store to rebuild the same projected history after a
+// restart. Each Record covers from message 0, so a host stores only the
+// newest one.
 type Record struct {
 	// Version is the format of this Record.
 	Version int `json:"version"`
@@ -245,7 +247,7 @@ func Compact(
 	}, nil
 }
 
-// Project returns the model view of history: the system and developer
+// Project returns the projected history: the system and developer
 // messages of the covered part, unchanged and in order, then a summary
 // message, then history[rec.Covers.Messages:]. It is pure, so the same inputs give equal
 // messages, also after a JSON round trip of the Record. A nil Record returns

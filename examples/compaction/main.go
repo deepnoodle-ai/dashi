@@ -48,7 +48,8 @@ func run(ctx context.Context) error {
 	var last llm.Usage
 
 	ask := func(prompt string) (string, error) {
-		// Project gives the model view: the summary, then the newer messages.
+		// Project gives the projected history: the summary, then the newer
+		// messages.
 		// A record that no longer matches the history yields the raw history.
 		view, err := compaction.Project(history, record)
 		switch {

@@ -65,10 +65,10 @@ type Limits struct {
 	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
 	// It must not be negative.
 	ToolConcurrency int `json:"tool_concurrency"`
-	// ToolResultBytes limits the text of one tool result in the model view.
-	// Zero means 64 KiB. A negative value turns the limit off. A value below
-	// 1 KiB is raised to 1 KiB, with a warning at Start. Dashi keeps the
-	// full result in the record; see ToolFact.Shortened.
+	// ToolResultBytes limits the text of one tool result in the projected
+	// history. Zero means 64 KiB. A negative value turns the limit off. A
+	// value below 1 KiB is raised to 1 KiB, with a warning at Start. Dashi
+	// keeps the full result in the record; see ToolFact.Shortened.
 	ToolResultBytes int `json:"tool_result_bytes"`
 	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
 	// the last allowed model attempt, after earlier attempts, asks for an
