@@ -97,7 +97,7 @@ func run(ctx context.Context, provider, model, prompt string) error {
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("providers: %s: %w", provider, err)
+		return fmt.Errorf("providers: generate with %s: %w", provider, err)
 	}
 	fmt.Println(result.Message.Text())
 	fmt.Printf("\nServed by: %s %s\n", result.Served.Provider, result.Served.Model)
@@ -107,9 +107,8 @@ func run(ctx context.Context, provider, model, prompt string) error {
 
 // newClient is the only provider-specific code. Each constructor reads its
 // key from the environment when Config leaves it empty; a missing key is
-// reported by the first call. Assigning each constructor's result to an
-// llm.Client variable, and returning it only when err is nil, keeps a nil
-// client pointer out of the interface.
+// reported by the first call. Returning client only when err is nil keeps a
+// nil client pointer out of the interface.
 func newClient(provider string) (llm.Client, error) {
 	var client llm.Client
 	var err error
@@ -139,8 +138,10 @@ func newClient(provider string) (llm.Client, error) {
 	return client, nil
 }
 
-// cost prefers a provider-reported charge, such as OpenRouter's. A catalog
-// estimate requires a matching served model and the unmodified catalog sheet.
+// cost prefers a provider-reported charge, such as OpenRouter's. Otherwise
+// it estimates from the catalog's list prices, but only when that price sheet
+// provably applies to this call; any doubt prints "unknown" with the reason.
+// docs/guides/model-calls.md explains the checks.
 func cost(client llm.Client, model string, result llm.Result) string {
 	if c := result.Cost; c != nil {
 		return formatCost(*c)
@@ -165,6 +166,9 @@ func cost(client llm.Client, model string, result llm.Result) string {
 	return formatCost(c)
 }
 
+// catalogPriceQualified reports whether the client's price sheet for model is
+// the unmodified built-in catalog sheet for this API and endpoint, and whether
+// the provider served that model or a snapshot the catalog entry covers.
 func catalogPriceQualified(
 	client llm.Client,
 	model string,
@@ -194,9 +198,9 @@ func catalogPriceQualified(
 		entry.Serves(result.Served.Model)
 }
 
-// All clients this example constructs use their public default tier. An
-// explicit tier must be one whose name identifies that default for its
-// provider; an unfamiliar value cannot use the default price sheet.
+// defaultServiceTier reports whether tier is the provider's default tier,
+// the only one catalog price sheets describe. An unfamiliar value does not
+// qualify.
 func defaultServiceTier(provider, tier string) bool {
 	switch provider {
 	case "anthropic":

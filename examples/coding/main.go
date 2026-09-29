@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -37,41 +36,54 @@ func main() {
 	}
 }
 
+// run sets no timeout, because the turn waits for a person to answer.
 func run(ctx context.Context, dir, task string) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
-
-	answers := bufio.NewReader(os.Stdin)
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
 	ws, err := workspace.New(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("coding: open workspace: %w", err)
 	}
+	// WithAsker adds the ask_user tool, so the model can ask you a question.
 	tools := ws.Tools(workspace.WithAsker(
-		func(_ context.Context, q workspace.Question) (workspace.Answer, error) {
+		func(ctx context.Context, q workspace.Question) (workspace.Answer, error) {
 			fmt.Printf("\n? %s\n", q.Prompt)
 			for _, c := range q.Choices {
 				fmt.Printf("  - %s: %s\n", c.Label, c.Description)
 			}
 			fmt.Print("> ")
-			line, _ := answers.ReadString('\n')
+			line, err := readLine(ctx, lines)
+			if err != nil {
+				return workspace.Answer{}, err
+			}
 			return workspace.Answer{Text: strings.TrimSpace(line)}, nil
 		},
 	))
 	// Reads run without a prompt. Writes and shell commands ask. Answering
 	// "a" allows the same kind of call again while the program runs.
-	policy := ws.Policy(
-		func(_ context.Context, r workspace.ApprovalRequest) (workspace.Approval, error) {
-			fmt.Printf("\n%sAllow? [y/N/a] ", describe(r))
-			line, _ := answers.ReadString('\n')
-			switch strings.ToLower(strings.TrimSpace(line)) {
-			case "y":
-				return workspace.Approval{Allow: true}, nil
-			case "a":
-				return workspace.Approval{Allow: true, Remember: true}, nil
-			}
-			return workspace.Approval{}, nil
-		},
-	)
+	policy := ws.Policy(func(
+		ctx context.Context,
+		r workspace.ApprovalRequest,
+	) (workspace.Approval, error) {
+		fmt.Printf("\n%sAllow? [y/N/a] ", describe(r))
+		line, err := readLine(ctx, lines)
+		if err != nil {
+			return workspace.Approval{}, err
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "y":
+			return workspace.Approval{Allow: true}, nil
+		case "a":
+			return workspace.Approval{Allow: true, Remember: true}, nil
+		}
+		return workspace.Approval{}, nil
+	})
 	client, err := responses.New(responses.Config{})
 	if err != nil {
 		return fmt.Errorf("coding: create client: %w", err)
@@ -91,7 +103,7 @@ func run(ctx context.Context, dir, task string) error {
 		Input: []llm.Message{llm.UserMessage(llm.Text(task))},
 	})
 	if err != nil {
-		return fmt.Errorf("coding: %w", err)
+		return fmt.Errorf("coding: run: %w", err)
 	}
 	fmt.Printf("\nStop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
@@ -107,4 +119,14 @@ func describe(r workspace.ApprovalRequest) string {
 		return fmt.Sprintf("Run in %s:\n%s\n", r.Dir, r.Command)
 	}
 	return r.Summary + "\n" + r.Preview + "\n"
+}
+
+// readLine returns the next line, "" at end of input, or ctx's error on Ctrl-C.
+func readLine(ctx context.Context, lines <-chan string) (string, error) {
+	select {
+	case line := <-lines:
+		return line, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }

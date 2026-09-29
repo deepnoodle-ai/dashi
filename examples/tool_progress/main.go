@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -20,8 +19,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// ProcessInput is the argument schema for process_dataset.
-type ProcessInput struct {
+type processArgs struct {
 	Dataset string `json:"dataset" description:"Name of the dataset to process"`
 }
 
@@ -40,7 +38,7 @@ func run(ctx context.Context) error {
 
 	process, err := newProcessTool()
 	if err != nil {
-		return fmt.Errorf("tool_progress: %w", err)
+		return fmt.Errorf("tool_progress: create tool: %w", err)
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -64,17 +62,24 @@ func run(ctx context.Context) error {
 		},
 	}
 
-	fmt.Println("Asking the agent to process a dataset...")
+	// Stream runs the turn like Run, yielding committed steps, model text
+	// deltas, and tool progress as they happen, then the Outcome.
 	for event, err := range runner.Stream(ctx, dashi.Turn{}, start) {
 		if err != nil {
-			return fmt.Errorf("tool_progress: %w", err)
+			return fmt.Errorf("tool_progress: run: %w", err)
 		}
 		switch {
 		case event.Progress != nil:
 			// Each snapshot replaces the last, so overwrite one line.
-			fmt.Printf("\r  %s", status(event.Progress))
+			p := event.Progress
+			fmt.Printf(
+				"\r  %s: %3.0f%% %s",
+				p.Name,
+				100*p.Done/p.Total,
+				p.Message,
+			)
 		case event.Step != nil && event.Step.Kind == dashi.StepToolSettled:
-			fmt.Printf("\r%-76s\r", "")
+			fmt.Println()
 		case event.Outcome != nil:
 			out := event.Outcome
 			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
@@ -83,68 +88,31 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// status renders a snapshot, showing a percentage only when the tool knows
-// its total, and reading the structured detail the tool put in Data.
-func status(p *dashi.ToolProgress) string {
-	var detail struct {
-		Bytes     int   `json:"bytes_processed"`
-		ElapsedMS int64 `json:"elapsed_ms"`
-	}
-	_ = json.Unmarshal(p.Data, &detail)
-	line := fmt.Sprintf(
-		"%s: %s, %d bytes, %d ms",
-		p.Name,
-		p.Message,
-		detail.Bytes,
-		detail.ElapsedMS,
-	)
-	if p.Total > 0 {
-		line = fmt.Sprintf("%3.0f%% %s", 100*p.Done/p.Total, line)
-	}
-	return line
-}
-
 // newProcessTool simulates a job that processes records one by one and
-// reports a snapshot after each: a status line, counts for a progress bar,
-// and structured detail for a custom display.
+// reports a snapshot after each. Total is known here; a tool that cannot
+// know it leaves Total zero and reports only Message.
 func newProcessTool() (tool.Tool, error) {
 	return tool.Func(
 		"process_dataset",
 		"Processes the named dataset record by record.",
-		func(
-			ctx context.Context,
-			call tool.Call,
-			in ProcessInput,
-		) (tool.Outcome, error) {
+		func(ctx context.Context, _ tool.Call, in processArgs) (tool.Outcome, error) {
 			const total = 40
-			began := time.Now()
-			bytes := 0
 			for i := 1; i <= total; i++ {
 				select {
 				case <-time.After(50 * time.Millisecond):
 				case <-ctx.Done():
 					return tool.Outcome{}, ctx.Err()
 				}
-				bytes += 1024 + i*13
-				data, err := json.Marshal(map[string]any{
-					"bytes_processed": bytes,
-					"elapsed_ms":      time.Since(began).Milliseconds(),
-				})
-				if err != nil {
-					return tool.Outcome{}, err
-				}
 				tool.Report(ctx, tool.Progress{
 					Message: fmt.Sprintf("processed %d/%d records", i, total),
 					Done:    float64(i),
 					Total:   float64(total),
-					Data:    data,
 				})
 			}
 			return tool.Succeeded(fmt.Sprintf(
-				"Processed %d records from %q (%d bytes).",
+				"Processed %d records from %q.",
 				total,
 				in.Dataset,
-				bytes,
 			)), nil
 		},
 	)

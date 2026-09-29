@@ -20,14 +20,13 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// WeatherInput is the model-facing argument schema for get_weather. Fields
+// weatherArgs is the model-facing argument schema for get_weather. Fields
 // without omitempty are required, and the description tag reaches the model.
-type WeatherInput struct {
+type weatherArgs struct {
 	City string `json:"city" description:"City name, such as Tokyo"`
 }
 
-// ConvertInput is the argument schema for celsius_to_fahrenheit.
-type ConvertInput struct {
+type convertArgs struct {
 	Celsius float64 `json:"celsius" description:"Temperature in Celsius"`
 }
 
@@ -46,7 +45,7 @@ func run(ctx context.Context) error {
 
 	tools, err := newTools()
 	if err != nil {
-		return fmt.Errorf("tools: %w", err)
+		return fmt.Errorf("tools: create tools: %w", err)
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -61,26 +60,24 @@ func run(ctx context.Context) error {
 		Client: client,
 		Tools:  tools,
 	}
-	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
-			llm.UserMessage(llm.Text(
-				"What's the weather in Tokyo, in Fahrenheit?",
-			)),
+			llm.UserMessage(llm.Text("What's the weather in Tokyo, in Fahrenheit?")),
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("tools: run start: %w", err)
+		return fmt.Errorf("tools: run: %w", err)
 	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
-	usage := outcome.Spend.Usage
+	// Spend totals every model call in the turn.
 	fmt.Printf(
 		"Model calls: %d; tokens: %d in, %d out\n",
-		outcome.ModelAttempts,
-		usage.InputTokens,
-		usage.OutputTokens,
+		out.ModelAttempts,
+		out.Spend.Usage.TotalInputTokens(),
+		out.Spend.Usage.OutputTokens,
 	)
-	for currency, amount := range outcome.Spend.Cost {
+	for currency, amount := range out.Spend.Cost {
 		fmt.Printf("Cost: %s %s\n", amount, currency)
 	}
 	return nil
@@ -88,18 +85,13 @@ func run(ctx context.Context) error {
 
 // newTools builds the typed tools. tool.Func generates each input schema from
 // its Go type and validates the model's arguments before the function runs.
-//
-// Runner.Tools takes a tool.Toolset so the available tools can change between
-// model calls; tool.List is a fixed one.
+// Runner.Tools takes a tool.Toolset, so the available tools can change
+// between model calls; tool.List is a fixed one.
 func newTools() (tool.List, error) {
 	weather, err := tool.Func(
 		"get_weather",
 		"Get the current weather for a city, in Celsius.",
-		func(
-			ctx context.Context,
-			call tool.Call,
-			in WeatherInput,
-		) (tool.Outcome, error) {
+		func(_ context.Context, _ tool.Call, in weatherArgs) (tool.Outcome, error) {
 			fmt.Printf("-> get_weather(%q)\n", in.City)
 			if strings.TrimSpace(in.City) == "" {
 				// A plain error is returned to the model as a failed call.
@@ -114,11 +106,7 @@ func newTools() (tool.List, error) {
 	convert, err := tool.Func(
 		"celsius_to_fahrenheit",
 		"Convert a temperature from Celsius to Fahrenheit.",
-		func(
-			ctx context.Context,
-			call tool.Call,
-			in ConvertInput,
-		) (tool.Outcome, error) {
+		func(_ context.Context, _ tool.Call, in convertArgs) (tool.Outcome, error) {
 			fmt.Printf("-> celsius_to_fahrenheit(%g)\n", in.Celsius)
 			f := in.Celsius*9/5 + 32
 			return tool.Succeeded(fmt.Sprintf("%.1f°F", f)), nil

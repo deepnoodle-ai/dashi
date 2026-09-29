@@ -1,19 +1,22 @@
-// Command skills loads skills from a folder and gives them to an agent. Set
-// ANTHROPIC_API_KEY before running; ANTHROPIC_MODEL optionally overrides the
-// default model. Run it from this directory, or pass a skills folder and a
-// commands folder as arguments.
-//
-// The skill files here are project text, not operator text. The host gives
-// the catalog to the model as contextual runtime context (bundle.Hooks) and
-// keeps every tool decision in its own code.
+// Command skills loads skills and slash commands from folders and gives them
+// to an agent. It expands the command "/summarize INC-42" into the prompt,
+// and the model can load the incident-review skill to answer it. Skill text
+// reaches the model as context, never as a grant: the host decides which
+// tools the agent has. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model. Run it from the repository root, or point -dir
+// at this directory.
 package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -23,42 +26,55 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-type lookupInput struct {
+type lookupArgs struct {
 	Incident string `json:"incident" description:"Incident ID, such as INC-42"`
 }
 
 func main() {
 	log.SetFlags(0)
+	dir := flag.String(
+		"dir",
+		"examples/skills",
+		"directory holding the skills and commands folders",
+	)
+	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := run(ctx); err != nil {
+	if err := run(ctx, *dir); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, dir string) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	dirs := []string{"skills", "commands"}
-	if len(os.Args) > 1 {
-		dirs = os.Args[1:]
-	}
-	set, warnings := skill.LoadDirs(dirs...)
+	// A bad skill file is a warning, not an error: the others still load.
+	set, warnings := skill.LoadDirs(
+		filepath.Join(dir, "skills"),
+		filepath.Join(dir, "commands"),
+	)
 	for _, w := range warnings {
-		log.Printf("skill: %s: %s", w.Path, w.Message)
+		log.Printf("skills: %s: %s", w.Path, w.Message)
 	}
+	// A person typed "/summarize INC-42": the expanded command is the prompt.
+	prompt, ok := set.Expand("summarize", "INC-42")
+	if !ok {
+		return errors.New("skills: no summarize command; check -dir")
+	}
+	// The bundle is both a toolset, holding the tool that loads a skill, and
+	// the source of hooks that show the model the skill catalog.
 	bundle, err := set.Bundle(skill.Options{})
 	if err != nil {
-		return err
+		return fmt.Errorf("skills: bundle: %w", err)
 	}
 	lookup, err := lookupTool()
 	if err != nil {
-		return err
+		return fmt.Errorf("skills: create tool: %w", err)
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return err
+		return fmt.Errorf("skills: create client: %w", err)
 	}
 	runner := dashi.Runner{
 		Agent:  dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
@@ -66,19 +82,13 @@ func run(ctx context.Context) error {
 		Tools:  tool.Join(tool.List{lookup}, bundle),
 		Hooks:  bundle.Hooks(),
 	}
-
-	// A person typed "/summarize INC-42": the expanded text is the prompt.
-	prompt, ok := set.Expand("summarize", "INC-42")
-	if !ok {
-		prompt = "Use incident-review to summarize INC-42."
-	}
-	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("skills: run: %w", err)
 	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }
 
@@ -86,11 +96,7 @@ func lookupTool() (tool.Tool, error) {
 	return tool.Func(
 		"incident_lookup",
 		"Look up a fictional incident.",
-		func(
-			_ context.Context,
-			_ tool.Call,
-			in lookupInput,
-		) (tool.Outcome, error) {
+		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
 			if in.Incident != "INC-42" {
 				return tool.Failed("incident not found"), nil
 			}

@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"regexp"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -27,23 +29,33 @@ var apiKey = regexp.MustCompile(`sk-[A-Za-z0-9]+`)
 
 func main() {
 	log.SetFlags(0)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("redact: create client: %w", err)
 	}
 	lookup, err := tool.Func(
 		"lookup_customer",
 		"Returns a customer's account record.",
 		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
-			record := fmt.Sprintf(
+			return tool.Succeeded(fmt.Sprintf(
 				"name: %s\nplan: enterprise\napi_key: sk-live4f9a2c81\nstatus: active",
 				in.Customer,
-			)
-			return tool.Succeeded(record), nil
+			)), nil
 		},
 	)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("redact: create tool: %w", err)
 	}
 	// Returning a replacement every time is fine: one that changes nothing
 	// counts as no opinion and is not recorded.
@@ -66,17 +78,19 @@ func main() {
 		Tools:  tool.List{lookup},
 		Hooks:  redact.Hooks(),
 	}
-	out, err := runner.Run(context.Background(), dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Show me Ada Lovelace's full account record.")),
 		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("redact: run: %w", err)
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	// Result is what the model saw; Outcome is what the tool returned.
 	for _, v := range out.Tools {
 		fmt.Printf("\nThe model saw: %q\n", v.Result().Output.Content[0].Text.Text)
 		fmt.Printf("The record kept: %q\n", v.Outcome.Output.Content[0].Text.Text)
 	}
+	return nil
 }
