@@ -9,8 +9,8 @@ The comparative reviews inspected Dashi at `015b0ec`; their source paths and
 line references belong to that revision unless a review states a later commit.
 Item 20 was rechecked at `018af90`. Hooks and committed-step `Follow`
 landed afterward, on `main` at `108cb52`. The roadmap records later merged
-slices through PR #66. Use `git show 015b0ec:<path>` for historical
-source citations such as `policy.go`.
+slices and follow-ups through PR #70. Use `git show 015b0ec:<path>` for
+historical source citations such as `policy.go`.
 
 The reviews inspect Dashi, Dive, Nvoken Cloud, Mobius Cloud, pi, Eino, Google
 ADK Go, Microsoft Agent Framework Go, OpenHands Software Agent SDK, and
