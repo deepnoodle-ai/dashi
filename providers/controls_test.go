@@ -632,7 +632,14 @@ func TestPrepareFitsDefaultToModelLimit(t *testing.T) {
 				if got := prep.Effective().MaxTokens; got != 2048 {
 					t.Fatalf("default max tokens = %d, want 2048", got)
 				}
-				adjustments := prep.Adjustments()
+				// The public Messages endpoint also records its default cache
+				// lifetime; only the output limit matters here.
+				adjustments := slices.DeleteFunc(
+					prep.Adjustments(),
+					func(a llm.Adjustment) bool {
+						return a.Field == llm.SettingPromptCacheTTL
+					},
+				)
 				if len(adjustments) != 1 ||
 					adjustments[0].Action != llm.AdjustmentDefault {
 					t.Fatalf("fitted default recorded as %+v", adjustments)

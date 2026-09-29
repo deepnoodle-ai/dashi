@@ -26,8 +26,8 @@ func (b *Bundle) Reminder() llm.Reminder {
 // Hooks returns the hooks that give the catalog to the model. Join them with
 // the host's other hooks. Before each model call, the hook delivers the
 // catalog as a runtime snapshot unless the turn already holds it. The item ID
-// carries the digest, so a changed bundle replaces the old catalog and the
-// record shows which catalog the model saw. An empty bundle returns no hooks.
+// carries the digest, so a changed bundle supersedes the old catalog and
+// the record shows which catalog the model saw. An empty bundle returns no hooks.
 func (b *Bundle) Hooks() dashi.Hooks {
 	if b == nil || b.catalog == "" {
 		return dashi.Hooks{}

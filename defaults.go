@@ -75,12 +75,14 @@ func withCommandID(c Command) Command {
 const revisionPrefix = "auto:"
 
 // agentRevision derives a revision from a resolved agent's behavior. ID,
-// Revision, and Limits.Deadline are left out: the first two name the agent
-// rather than describe it, and a deadline is a per-turn time that would make
-// every revision unique.
+// Revision, Limits.Deadline, and Settings.PromptCache.Key are left out: the
+// first two name the agent rather than describe it, a deadline is a per-turn
+// time that would make every revision unique, and a cache key usually names
+// a conversation.
 func agentRevision(a Agent) string {
 	a.ID, a.Revision = "", ""
 	a.Limits.Deadline = time.Time{}
+	a.Settings.PromptCache.Key = ""
 	sum := strings.TrimPrefix(digest(a), digestPrefix)
 	return revisionPrefix + sum[:16]
 }

@@ -74,6 +74,11 @@ const (
 	FeatureCitations Feature = "citations"
 	// FeatureStructuredOutput describes native JSON Schema response formatting.
 	FeatureStructuredOutput Feature = "structured_output"
+	// FeaturePromptCache describes support for requesting a prompt cache:
+	// cache points on Anthropic, a lifetime elsewhere. It is requested when
+	// Settings.PromptCache.TTL is set. APIs that cannot request a lifetime
+	// declare it unsupported, and Fit omits the TTL with a warning.
+	FeaturePromptCache Feature = "prompt_cache"
 )
 
 // HostedToolFeature scopes model evidence to a provider's wire tool type.
@@ -124,6 +129,16 @@ type Capabilities struct {
 	// MaxTemperature is a known upper bound on sampling temperature; zero
 	// adds no constraint.
 	MaxTemperature float64 `json:"max_temperature,omitempty"`
+
+	// CacheTTLs lists the prompt cache lifetimes the route offers, shortest
+	// first. The shortest is the route's default, which needs no request
+	// field. Empty means unknown and adds no constraint.
+	CacheTTLs Durations `json:"cache_ttls,omitempty"`
+
+	// CacheKeyDefault allows a session to send its ID as the prompt cache
+	// key when the agent sets none. It is set where a key per conversation
+	// improves cache routing without separating shared prefixes.
+	CacheKeyDefault bool `json:"cache_key_default,omitempty"`
 }
 
 // Check validates requested features and known limits without changing the
@@ -189,6 +204,7 @@ type ModelInfo struct {
 func (m ModelInfo) Clone() ModelInfo {
 	m.Capabilities.Features = maps.Clone(m.Capabilities.Features)
 	m.Capabilities.ReasoningEfforts = slices.Clone(m.Capabilities.ReasoningEfforts)
+	m.Capabilities.CacheTTLs = slices.Clone(m.Capabilities.CacheTTLs)
 	if m.Pricing != nil {
 		p := m.Pricing.Clone()
 		m.Pricing = &p
@@ -219,6 +235,13 @@ func (m ModelInfo) Validate() error {
 		!(c.MaxTemperature >= 0) || math.IsInf(c.MaxTemperature, 0) {
 		return errors.New("llm: invalid capability limits")
 	}
+	for i, ttl := range c.CacheTTLs {
+		if ttl <= 0 || (i > 0 && ttl <= c.CacheTTLs[i-1]) {
+			return errors.New(
+				"llm: cache ttls must be positive and increasing",
+			)
+		}
+	}
 	if m.Pricing != nil {
 		if err := m.Pricing.Validate(); err != nil {
 			return err
@@ -233,7 +256,7 @@ func knownFeature(f Feature) bool {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
 		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming,
-		FeatureCitations, FeatureStructuredOutput:
+		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache:
 		return true
 	}
 	return strings.HasPrefix(string(f), "hosted_tool:") &&
@@ -289,6 +312,9 @@ func requestedFeatures(r Input) []Feature {
 	// Citations change the request only when it carries a document.
 	if r.Settings.Citations && hasDocument(r) {
 		add(FeatureCitations)
+	}
+	if r.Settings.PromptCache.TTL > 0 {
+		add(FeaturePromptCache)
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.Effort != "" {

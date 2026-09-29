@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,6 +28,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/outputschema"
@@ -188,7 +191,11 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
-	r, adjustments, err := p.client.Fit(r, apiLimits, nil)
+	limits := apiLimits
+	if !p.sendsCacheLifetime(r.Model) {
+		limits = uncachedLimits
+	}
+	r, adjustments, err := p.client.Fit(r, limits, nil)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -202,6 +209,7 @@ func (p *Client) Prepare(
 	if r.System != "" {
 		body["instructions"] = r.System
 	}
+	p.encodePromptCache(r, body)
 	if len(r.OutputSchema) > 0 {
 		body["text"] = map[string]any{
 			"format": map[string]any{
@@ -329,6 +337,63 @@ func (p *Client) Prepare(
 	return p.client.Prepare(requested, r, body, adjustments, changes)
 }
 
+// maxCacheKey is the longest prompt_cache_key OpenAI accepts.
+const maxCacheKey = 64
+
+// encodePromptCache sends the key and, when the model's default lifetime may
+// fall short of TTL, a retention. Both go to OpenAI's endpoint, or to another
+// endpoint whose ModelInfo states prompt cache support; a key is a hint and
+// is dropped silently elsewhere.
+func (p *Client) encodePromptCache(r llm.Input, body map[string]any) {
+	if !p.sendsPromptCache(r.Model) {
+		return
+	}
+	cache := r.Settings.PromptCache
+	info, _ := p.client.ModelInfo(r.Model)
+	if cache.Key != "" {
+		body["prompt_cache_key"] = wireCacheKey(cache.Key)
+	}
+	// The shortest lifetime is the default, which needs no field. Before
+	// GPT-5.6 the only other one is 24h.
+	offered := info.Capabilities.CacheTTLs
+	if cache.TTL > 0 && len(offered) > 1 &&
+		llm.CacheLifetime(cache.TTL, offered) == 24*time.Hour {
+		body["prompt_cache_retention"] = "24h"
+	}
+}
+
+// sendsPromptCache reports whether cache fields go to this model: always on
+// OpenAI's endpoint, elsewhere only when its ModelInfo states support.
+func (p *Client) sendsPromptCache(model string) bool {
+	if p.client.Endpoint == openAIEndpoint {
+		return true
+	}
+	info, _ := p.client.ModelInfo(model)
+	return info.Capabilities.Features[llm.FeaturePromptCache] == llm.SupportSupported
+}
+
+// sendsCacheLifetime reports whether a lifetime can reach this model: it
+// gets cache fields and its ModelInfo lists the lifetimes to choose from.
+// Without them the encoder sends no retention, so Fit must not report a
+// requested lifetime as met.
+func (p *Client) sendsCacheLifetime(model string) bool {
+	if !p.sendsPromptCache(model) {
+		return false
+	}
+	info, _ := p.client.ModelInfo(model)
+	return len(info.Capabilities.CacheTTLs) > 0
+}
+
+// wireCacheKey returns key as given, or a deterministic hash when it is too
+// long for the API. The request snapshot's Body records the key sent.
+func wireCacheKey(key string) string {
+	if len(key) <= maxCacheKey {
+		return key
+	}
+	sum := sha256.Sum256([]byte(key))
+	return "dashi-" + hex.EncodeToString(sum[:])[:32]
+}
+
 // apiLimits states what the Responses API accepts from any model. It takes
 // effort levels, not token budgets, and an output limit for every model.
 var apiLimits = llm.Capabilities{
@@ -348,6 +413,15 @@ var apiLimits = llm.Capabilities{
 	},
 	MaxTemperature: 2,
 }
+
+// uncachedLimits are apiLimits for a model that gets no cache lifetime, so
+// a lifetime is omitted with a warning, as on Chat Completions.
+var uncachedLimits = func() llm.Capabilities {
+	limits := apiLimits
+	limits.Features = maps.Clone(apiLimits.Features)
+	limits.Features[llm.FeaturePromptCache] = llm.SupportUnsupported
+	return limits
+}()
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.

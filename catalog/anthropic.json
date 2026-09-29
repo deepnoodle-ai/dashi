@@ -6,7 +6,8 @@
   "destinations": [
     {
       "api": "anthropic.messages",
-      "endpoint": "https://api.anthropic.com/v1/messages"
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "auto_cache": true
     }
   ],
   "models": [
@@ -27,7 +28,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -47,7 +49,8 @@
           "input": "10",
           "output": "50",
           "cache_read": "0.25",
-          "cache_write": "12.5"
+          "cache_write": "12.5",
+          "cache_write_1h": "20"
         },
         "requests": {
           "web_fetch": "0",
@@ -72,7 +75,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -92,7 +96,8 @@
           "input": "10",
           "output": "50",
           "cache_read": "0.25",
-          "cache_write": "12.5"
+          "cache_write": "12.5",
+          "cache_write_1h": "20"
         },
         "requests": {
           "web_fetch": "0",
@@ -116,7 +121,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -136,7 +142,8 @@
           "input": "10",
           "output": "50",
           "cache_read": "1",
-          "cache_write": "12.5"
+          "cache_write": "12.5",
+          "cache_write_1h": "20"
         },
         "requests": {
           "web_fetch": "0",
@@ -161,7 +168,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -181,7 +189,8 @@
           "input": "10",
           "output": "50",
           "cache_read": "1",
-          "cache_write": "12.5"
+          "cache_write": "12.5",
+          "cache_write_1h": "20"
         },
         "requests": {
           "web_fetch": "0",
@@ -206,7 +215,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -226,7 +236,8 @@
           "input": "4",
           "output": "20",
           "cache_read": "0.2",
-          "cache_write": "5"
+          "cache_write": "5",
+          "cache_write_1h": "8"
         },
         "requests": {
           "web_fetch": "0",
@@ -252,7 +263,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -272,7 +284,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -298,7 +311,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -318,7 +332,8 @@
           "input": "2",
           "output": "10",
           "cache_read": "0.2",
-          "cache_write": "2.5"
+          "cache_write": "2.5",
+          "cache_write_1h": "4"
         },
         "requests": {
           "web_fetch": "0",
@@ -344,7 +359,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -364,7 +380,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -389,7 +406,8 @@
           "temperature": "unsupported",
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -409,7 +427,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -433,7 +452,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -452,7 +472,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -476,7 +497,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -495,7 +517,8 @@
           "input": "3",
           "output": "15",
           "cache_read": "0.3",
-          "cache_write": "3.75"
+          "cache_write": "3.75",
+          "cache_write_1h": "6"
         },
         "requests": {
           "web_fetch": "0",
@@ -521,7 +544,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -539,7 +563,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -564,7 +589,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -582,7 +608,8 @@
           "input": "5",
           "output": "25",
           "cache_read": "0.5",
-          "cache_write": "6.25"
+          "cache_write": "6.25",
+          "cache_write_1h": "10"
         },
         "requests": {
           "web_fetch": "0",
@@ -608,7 +635,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -621,7 +649,8 @@
           "input": "3",
           "output": "15",
           "cache_read": "0.3",
-          "cache_write": "3.75"
+          "cache_write": "3.75",
+          "cache_write_1h": "6"
         },
         "requests": {
           "web_fetch": "0",
@@ -646,7 +675,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -659,7 +689,8 @@
           "input": "3",
           "output": "15",
           "cache_read": "0.3",
-          "cache_write": "3.75"
+          "cache_write": "3.75",
+          "cache_write_1h": "6"
         },
         "requests": {
           "web_fetch": "0",
@@ -685,7 +716,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -698,7 +730,8 @@
           "input": "1",
           "output": "5",
           "cache_read": "0.1",
-          "cache_write": "1.25"
+          "cache_write": "1.25",
+          "cache_write_1h": "2"
         },
         "requests": {
           "web_fetch": "0",
@@ -723,7 +756,8 @@
           "tool_choice": "supported",
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -736,7 +770,8 @@
           "input": "1",
           "output": "5",
           "cache_read": "0.1",
-          "cache_write": "1.25"
+          "cache_write": "1.25",
+          "cache_write_1h": "2"
         },
         "requests": {
           "web_fetch": "0",

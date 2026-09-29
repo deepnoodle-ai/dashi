@@ -192,12 +192,11 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	if err != nil || completed.Stop.Kind != StopCompleted {
 		t.Fatalf("continue=%+v err=%v", completed, err)
 	}
+	// A replaced snapshot stays in place, ahead of its replacement, so the
+	// prompt prefix is stable (design/prompt-cache.md).
 	projected, err := Project(completed.Turn)
-	if err != nil || hasReminderContent(projected, "old") ||
-		!hasReminderContent(projected, "new") || hasReminderContent(
-		client.inputs[1].Messages,
-		"old",
-	) || !hasReminderContent(client.inputs[1].Messages, "new") {
+	if err != nil || !reminderBefore(projected, "old", "new") ||
+		!reminderBefore(client.inputs[1].Messages, "old", "new") {
 		t.Fatalf(
 			"projected=%+v model=%+v err=%v",
 			projected,
@@ -364,4 +363,19 @@ func hasReminderContent(messages []llm.Message, content string) bool {
 		}
 	}
 	return false
+}
+
+// reminderBefore reports whether reminder content first appears before
+// content second.
+func reminderBefore(messages []llm.Message, first, second string) bool {
+	at := func(text string) int {
+		for i, m := range messages {
+			if hasReminderContent([]llm.Message{m}, text) {
+				return i
+			}
+		}
+		return -1
+	}
+	i, j := at(first), at(second)
+	return i >= 0 && j > i
 }

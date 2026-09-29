@@ -180,10 +180,9 @@ func TestSmallModelIsCurrentEntry(t *testing.T) {
 	}
 }
 
-func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
-	// Dashi's Messages client sends no cache_control, so every write it can
-	// cause is a 5-minute write at 1.25x input. Adding TTL control must add a
-	// 1-hour usage bucket and rate; see design/model-catalog.md.
+func TestAnthropicCacheWriteRates(t *testing.T) {
+	// Anthropic bills 5-minute writes at 1.25x input and one-hour writes at
+	// 2x input; see design/model-catalog.md.
 	for _, e := range Entries("anthropic") {
 		if e.Pricing == nil {
 			t.Fatalf("%s has no price", e.Model)
@@ -195,6 +194,14 @@ func TestAnthropicCacheWritesUseFiveMinuteRate(t *testing.T) {
 				"%s cache write %s is not 1.25x input %s",
 				e.Model,
 				base.CacheWrite,
+				base.Input,
+			)
+		}
+		if base.CacheWrite1h == nil || *base.CacheWrite1h != base.Input*2 {
+			t.Fatalf(
+				"%s one-hour cache write %v is not 2x input %s",
+				e.Model,
+				base.CacheWrite1h,
 				base.Input,
 			)
 		}

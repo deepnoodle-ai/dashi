@@ -13,6 +13,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
   media and speech client status.
 - [Model calls](model-calls.md): preparing, sending, and streaming one model
   call, with validation, replay, tools, and cost.
+- [Prompt caching](prompt-caching.md): caching by default, cache lifetimes and
+  keys, one-hour write pricing, and keeping the prefix stable.
 - [Tools](tools.md): defining typed tools, returning outcomes, reporting
   progress, and adding provider-hosted tools.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final

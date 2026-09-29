@@ -50,9 +50,14 @@ const (
 // Destination is a public API and endpoint a catalog file documents.
 // Endpoint may contain "{model}", which a client replaces with the escaped
 // model ID, as Gemini's GenerateContent URL does.
+//
+// AutoCache marks a destination documented and qualified as accepting
+// Anthropic's automatic cache point, where the Messages client caches by
+// default. See design/prompt-cache.md.
 type Destination struct {
-	API      string `json:"api"`
-	Endpoint string `json:"endpoint"`
+	API       string `json:"api"`
+	Endpoint  string `json:"endpoint"`
+	AutoCache bool   `json:"auto_cache,omitempty"`
 }
 
 // Entry is everything the catalog knows about one exact model ID at one
@@ -239,6 +244,20 @@ func Lookup(api, endpoint, model string) (llm.ModelInfo, bool) {
 		}
 	}
 	return llm.ModelInfo{}, false
+}
+
+// AutoCache reports whether a catalog destination with this API and
+// endpoint is marked AutoCache. An endpoint the catalog does not document,
+// such as a proxy, is never marked.
+func AutoCache(api, endpoint string) bool {
+	for _, p := range load() {
+		for _, d := range p.destinations {
+			if d.API == api && d.Endpoint == endpoint {
+				return d.AutoCache
+			}
+		}
+	}
+	return false
 }
 
 func (d Destination) resolve(model string) string {

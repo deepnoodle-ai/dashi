@@ -39,16 +39,19 @@ type Settings struct {
 }
 ```
 
-`SettingPromptCache` names it in adjustments. `Settings.Validate` rejects a
-negative `TTL` and `Disable` with a nonzero `TTL` ("prompt_cache: disable and
-ttl are both set; remove one"). `Disable` with a `Key` is valid: OpenAI still
-uses the key for accounting.
+Adjustments name the lifetime as `SettingPromptCacheTTL`
+(`"prompt_cache.ttl"`): the recorded settings treat each `prompt_cache` field
+as its own setting, so a lifetime can be omitted while a key stays.
+`Input.Validate` rejects a negative `TTL` and `Disable` with a nonzero `TTL`
+("prompt_cache: disable and ttl are both set; remove one"). `Disable` with a
+`Key` is valid: OpenAI still uses the key for accounting.
 
 **Wire key.** The key as given, so OpenAI's per-key accounting shows the
 host's label. A key over the API's 64 characters is sent as `"dashi-" +
-hex(sha256(Key))[:32]` (38 characters, deterministic across processes),
-recorded as an adjustment. A host that must keep a raw ID off the wire or out of
-records passes its own hash.
+hex(sha256(Key))[:32]` (38 characters, deterministic across processes).
+`Effective` keeps the caller's key and `Body` records the hash; no adjustment
+is recorded, since a key is never warned about. A host that must keep a raw ID
+off the wire or out of records passes its own hash.
 
 **Where callers set it.** Direct calls set `Input.Settings.PromptCache`. Agents
 set `Agent.Settings.PromptCache`, which reaches `Start.Agent`,
@@ -56,9 +59,11 @@ set `Agent.Settings.PromptCache`, which reaches `Start.Agent`,
 revision (`defaults.go`) leaves `PromptCache.Key` out, as it does
 `Limits.Deadline`. Children of `delegate` keep their agent's key.
 
-**Session key.** A session records its ID as the turn's fallback key; `Fit`
-uses it when `Key` is empty and the model's catalog entry sets
-`cache_key_default`, recording a `default` adjustment. That flag is on for
+**Session key.** A session hands its ID to the Runner as a fallback key. When
+the agent sets no `Key` and the model's knowledge sets `cache_key_default`
+(`Capabilities.CacheKeyDefault`), the Runner puts the ID in the call's input
+settings before hooks run, so the model intent records it as requested; the
+recorded agent keeps no key. That flag is on for
 OpenAI Responses before GPT-5.6, where the key improves routing. On 5.6 a
 key may isolate caches, so a key per session would make each session pay
 1.25x to write the shared tools-and-system prefix; the flag stays off there
@@ -67,7 +72,8 @@ until the live key check (Rollout) shows two keys sharing a prefix.
 ## Lifetimes
 
 Each model entry in the catalog gains `cache_ttls`, the lifetimes its route
-offers, as `llm.Capabilities.CacheTTLs []time.Duration` (JSON: `["5m","1h"]`).
+offers, shortest first, as `llm.Capabilities.CacheTTLs` of type
+`llm.Durations`, a `[]time.Duration` that JSON writes as `["5m","1h"]`.
 Anthropic's `limits()` states `[5m, 1h]` for the API, since every current model
 takes both. Resolution runs in `Fit`, with the other settings:
 
@@ -117,24 +123,37 @@ minimum length Anthropic caches nothing and returns no error. The codec
 copies blocks and never marks caller content.
 
 **When caching is on.** Zero value: on catalog destinations marked
-`auto_cache` (a new `Destination` field), for any model. Today that is only
-the Claude API; Claude Platform on AWS, Vertex AI, and Foundry, documented
-as accepting the automatic point, are added as each is qualified. Legacy
-Bedrock, which rejects it with a 400, never is. A nonzero `TTL` is an
+`auto_cache` (a new `Destination` field), for any model whose knowledge does
+not reject `prompt_cache`; under `CapabilityStrict` only where it states
+support, as for the `MaxTokens` default. Catalog Claude models state it. Today
+that is only the Claude API; Claude Platform on AWS, Vertex AI, and Foundry,
+documented as accepting the automatic point, are added as each is qualified.
+Legacy Bedrock, which rejects it with a 400, never is. A nonzero `TTL` is an
 explicit request: elsewhere it follows the rules for `FeaturePromptCache`
 (unverified under adjust, an error under strict), so a proxy that rejects
 the field breaks only for callers who asked. `Disable` sends no cache
 points. Default-on is this feature's decision (PRD); decision 41 holds only
 the prefix rule.
 
+`FeaturePromptCache` is one flag for both kinds of point: the block cache
+points and the top-level automatic point. Legacy Bedrock accepts only the
+block points, so a caller who states `prompt_cache` support for a Messages
+gateway in front of it gets a 400 on every call with a `TTL`. No Bedrock
+client exists yet; one must split the flag (a per-destination switch for the
+automatic point) rather than state `prompt_cache` support.
+
 ## OpenAI Responses
 
 A nonempty `Key` (the caller's, or the session's where allowed) becomes
 `prompt_cache_key` (the wire key) on every model. A lifetime becomes
 `prompt_cache_retention` only when the sure default may fall short, which in
-practice means `"24h"` on listed models before GPT-5.6. Usage already
-decodes `cached_tokens` and `cache_write_tokens` (`llm/usage.go`). Chat
-Completions and compatible endpoints get nothing in this slice.
+practice means `"24h"` on listed models before GPT-5.6. Both fields go to
+OpenAI's endpoint, or to another Responses endpoint (such as xAI's) only when
+its ModelInfo states `prompt_cache` support; otherwise `Fit` treats the
+feature as unsupported, so a lifetime is omitted with a warning and the
+snapshot never claims it. Usage already decodes `cached_tokens` and
+`cache_write_tokens` (`llm/usage.go`). Chat Completions and compatible
+endpoints get nothing in this slice.
 
 ## Gemini
 
@@ -145,9 +164,12 @@ warning.
 ## What the request snapshot records
 
 `Body` holds the exact cache points, wire key, and retention. `Effective`
-holds the resolved `PromptCache` (TTL and key). `Adjustments` holds any
-default, clamp, omit, or hashed key; `Unverified` holds `prompt_cache` when
-sent without evidence. A recorded default marks a call cached by default.
+holds the resolved `PromptCache`: `TTL` is the minimum met (30m stays 30m
+though Anthropic sends 1h), clamped, or omitted, and `Key` is the caller's.
+`Adjustments` holds any lifetime default, clamp, or omit; `Unverified` holds
+`prompt_cache` when a lifetime is requested without evidence. A recorded
+default marks a call cached by default. Chat Completions and Gemini declare
+`prompt_cache` unsupported, so their `Fit` omits a lifetime.
 
 ## Usage, pricing, and budgets
 
@@ -177,9 +199,11 @@ type Rates struct {
 - The catalog states `cache_write_1h` at 2x input on every Anthropic sheet,
   pinned by a test; `model-catalog.md`'s pricing paragraph is updated.
 - The worst-case bound (`llm/risk.go`) adds `CacheWrite1h` to the maximum
-  input rate when the effective TTL is 1h; a nil rate makes the bound unknown,
-  so a `MaxCost` turn stops as it does for an unpriced model. The 5m default
-  needs no change: the bound already uses the highest of the input rates.
+  input rate when the call may write one-hour entries: an effective TTL above
+  5m, unless the model's known lifetimes show the route sends another one
+  (OpenAI's 24h or 30m). A nil rate makes the bound unknown, so a `MaxCost`
+  turn stops as it does for an unpriced model. The 5m default needs no
+  change: the bound already uses the highest of the input rates.
 
 ## Keeping the prefix stable
 
@@ -196,11 +220,14 @@ Decision 41 makes these rules binding for all features:
   replaced `Snapshot` item in place and appends the new one. Removal broke
   the prefix at the old item: with a per-call value such as the time, every
   cache entry ended in that item, so each call hit only the fixed point and
-  rewrote every message at 1.25x (2x for 1h). The reminder
-  instruction gains "When reminders share a name, the latest is current";
-  `Turn.Context` still returns the latest. Each session turn is projected
-  on its own, so this changes nothing across turns. See [runtime
-  reminders](runtime-reminders.md).
+  rewrote every message at 1.25x (2x for 1h). The reminder instruction
+  gains "When reminders share a name, the latest is current";
+  `Turn.Context` still returns the latest. Session history is the
+  projection of earlier turns, so every replaced copy stays in it until
+  compaction: a snapshot delivered on each call adds one message per call
+  for the life of the session. Cache reads keep each copy cheap, but the
+  context window fills; this growth is what keeps the cross-turn prefix.
+  See [runtime reminders](runtime-reminders.md).
 - **Tools:** the toolset's order, unsorted; built-in toolsets (MCP too) keep
   it stable, checked by a test. Hiding tools in a `BeforeModel` hook, or a
   changed selection, invalidates everything.
@@ -244,7 +271,8 @@ could use one, but it also drops the tools, so we accept its miss.
 Two stacked PRs, no migration (pre-release; records gain optional fields):
 
 1. **Accounting (S):** `CacheCreation1hInputTokens`, `CacheWrite1h`,
-   catalog rates, estimate and risk bound, Anthropic decoding. Fixtures:
+   catalog rates, estimate, Anthropic decoding (the risk bound moved to PR 2,
+   since it reads the effective TTL). Fixtures:
    mixed 5m/1h usage, a sheet without the rate, streaming frames.
 2. **Requests (M):** the setting, catalog fields, `Fit`, both codecs, the
    session key, append-only snapshots, and guides. Fixtures: each TTL row

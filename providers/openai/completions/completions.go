@@ -275,6 +275,8 @@ var apiLimits = llm.Capabilities{
 		llm.FeatureCitations:       llm.SupportUnsupported,
 		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureReasoningBudget: llm.SupportUnsupported,
+		// No cache lifetime is sent; the service's own caching applies.
+		llm.FeaturePromptCache: llm.SupportUnsupported,
 	},
 	MaxTemperature: 2,
 }

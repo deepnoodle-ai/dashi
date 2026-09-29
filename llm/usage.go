@@ -60,6 +60,10 @@ type Usage struct {
 
 	// CacheReadInputTokens counts input read from the prompt cache.
 	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
+	// CacheCreation1hInputTokens is the part of CacheCreationInputTokens
+	// written with a one-hour lifetime; the rest used the default lifetime.
+	// It is a subset, not an additional bucket.
+	CacheCreation1hInputTokens int `json:"cache_creation_1h_input_tokens,omitempty"`
 	// ToolUseInputTokens is the subset of InputTokens attributable to results
 	// from provider-managed tool executions that were supplied back to the
 	// model. It is not additive, just as ReasoningTokens is not additive.
@@ -114,12 +118,18 @@ func (u Usage) Validate() error {
 		u.OutputTokens,
 		u.CacheCreationInputTokens,
 		u.CacheReadInputTokens,
+		u.CacheCreation1hInputTokens,
 		u.ToolUseInputTokens,
 		u.ReasoningTokens,
 	} {
 		if count < 0 {
 			return errors.New("llm: usage counters cannot be negative")
 		}
+	}
+	if u.CacheCreation1hInputTokens > u.CacheCreationInputTokens {
+		return errors.New(
+			"llm: one-hour cache writes cannot exceed all cache writes",
+		)
 	}
 	for _, count := range u.Requests {
 		if count < 0 {
@@ -240,6 +250,7 @@ func (u *Usage) Copy() *Usage {
 		OutputTokens:                            u.OutputTokens,
 		CacheCreationInputTokens:                u.CacheCreationInputTokens,
 		CacheReadInputTokens:                    u.CacheReadInputTokens,
+		CacheCreation1hInputTokens:              u.CacheCreation1hInputTokens,
 		ToolUseInputTokens:                      u.ToolUseInputTokens,
 		ReasoningTokens:                         u.ReasoningTokens,
 		InputModalityTokenDetailsIncomplete:     u.InputModalityTokenDetailsIncomplete,
@@ -275,6 +286,10 @@ func (u *Usage) Absorb(other *Usage) {
 	u.CacheReadInputTokens = max(
 		u.CacheReadInputTokens,
 		other.CacheReadInputTokens,
+	)
+	u.CacheCreation1hInputTokens = max(
+		u.CacheCreation1hInputTokens,
+		other.CacheCreation1hInputTokens,
 	)
 	u.ToolUseInputTokens = max(
 		u.ToolUseInputTokens,
@@ -347,6 +362,10 @@ func (u *Usage) Add(other *Usage) error {
 			other.CacheCreationInputTokens,
 		},
 		{&next.CacheReadInputTokens, other.CacheReadInputTokens},
+		{
+			&next.CacheCreation1hInputTokens,
+			other.CacheCreation1hInputTokens,
+		},
 		{&next.ToolUseInputTokens, other.ToolUseInputTokens},
 		{&next.ReasoningTokens, other.ReasoningTokens},
 	} {

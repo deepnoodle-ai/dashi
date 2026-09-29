@@ -24,6 +24,9 @@ const (
 	SettingParallelTools Setting = "parallel_tools"
 	// SettingCitations identifies the document citations setting.
 	SettingCitations Setting = "citations"
+	// SettingPromptCacheTTL identifies the prompt cache lifetime,
+	// PromptCache.TTL. Its values are duration strings such as "1h".
+	SettingPromptCacheTTL Setting = "prompt_cache.ttl"
 )
 
 // AdjustmentAction names an authorized preparation behavior. Defaults fill
@@ -100,7 +103,8 @@ func (a Adjustment) Validate() error {
 		SettingReasoning,
 		SettingToolChoice,
 		SettingParallelTools,
-		SettingCitations:
+		SettingCitations,
+		SettingPromptCacheTTL:
 	default:
 		return fmt.Errorf("llm: invalid adjustment field %q", a.Field)
 	}
@@ -188,6 +192,15 @@ func validateAdjustments(
 		raw, _ := json.Marshal(s)
 		var fields map[Setting]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)
+		// Prompt cache fields are decided one by one, so each is a setting.
+		if cache, ok := fields["prompt_cache"]; ok {
+			delete(fields, "prompt_cache")
+			var parts map[string]json.RawMessage
+			_ = json.Unmarshal(cache, &parts)
+			for name, value := range parts {
+				fields[Setting("prompt_cache."+name)] = value
+			}
+		}
 		return fields
 	}
 	before, after := values(requested), values(effective)

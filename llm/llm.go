@@ -408,6 +408,11 @@ type Settings struct {
 	// a document; under CapabilityStrict that is an error. Cited answers arrive
 	// as several text blocks, one per cited passage.
 	Citations bool `json:"citations,omitempty"`
+
+	// PromptCache asks the provider to reuse the start of the request. The
+	// zero value caches where Dashi places cache points, with the
+	// provider's default lifetime; see PromptCache.
+	PromptCache PromptCache `json:"prompt_cache,omitzero"`
 }
 
 // Input specifies a model call before preparation binds it to a destination.
@@ -466,6 +471,9 @@ func (r Input) Validate() error {
 				0,
 			) || *t < 0) {
 		return errors.New("llm: invalid temperature")
+	}
+	if err := r.Settings.PromptCache.validate(); err != nil {
+		return err
 	}
 	if s := r.Settings.Reasoning; s != nil && !validReasoning(s) {
 		return errors.New("llm: choose reasoning effort or token budget")
