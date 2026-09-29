@@ -112,7 +112,9 @@ type Tasks struct {
 	tasks   map[string]*task
 	order   []string
 	closed  bool
-	changed chan struct{} // closed and replaced when a task ends
+	changed chan struct{} // closed and replaced when a task ends or reports
+	reports int           // reports finished
+	waited  int           // reports that Wait has returned for
 	wg      sync.WaitGroup
 }
 
@@ -127,7 +129,10 @@ type task struct {
 	cancel   context.CancelFunc
 	state    TaskState
 	stopping bool
+	// notified is set when a report starts, reported when it is done. An
+	// ended task counts as pending until reported.
 	notified bool
+	reported bool
 	steps    []dashi.Step // observed while running
 	final    *dashi.TurnView
 	answer   string
@@ -188,10 +193,11 @@ func (ts *Tasks) List() []TaskView {
 
 // Stop ends a running task and records the child as canceled. A canceled
 // child is final: Recover does not resume it. Stop returns after the child
-// has stopped. It returns ErrUnknownTask or ErrTaskEnded when there is
-// nothing to stop.
-func (ts *Tasks) Stop(id string) error {
-	return ts.stop(context.Background(), id)
+// has stopped, or with the error of ctx if that ends first (the child keeps
+// stopping). It returns ErrUnknownTask or ErrTaskEnded when there is nothing
+// to stop.
+func (ts *Tasks) Stop(ctx context.Context, id string) error {
+	return ts.stop(ctx, id)
 }
 
 func (ts *Tasks) stop(ctx context.Context, id string) error {
@@ -215,6 +221,61 @@ func (ts *Tasks) stop(ctx context.Context, id string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Wait blocks until there may be something to deliver or nothing is left to
+// wait for. A task counts as pending from its start until OnTask has
+// returned for its end, so a host that sends the notice from OnTask sees it
+// in its inbox by the time Wait says there is nothing pending.
+//
+// Wait returns false as soon as one more task has been reported since the
+// last return. It returns true when no task is pending. A host loop reads
+// its inbox after every return. It stops when Wait returns true and the
+// inbox holds nothing to deliver. Wait serves one caller at a time. It
+// returns the error of ctx if that ends first.
+func (ts *Tasks) Wait(ctx context.Context) (idle bool, err error) {
+	for {
+		ts.mu.Lock()
+		if ts.reports > ts.waited {
+			ts.waited = ts.reports
+			ts.mu.Unlock()
+			return false, nil
+		}
+		if ts.pendingLocked() == 0 {
+			ts.mu.Unlock()
+			return true, nil
+		}
+		ch := ts.changed
+		ts.mu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+}
+
+// pendingLocked counts the tasks that are running or whose end OnTask has
+// not yet reported. A task that Close interrupted is not pending.
+func (ts *Tasks) pendingLocked() int {
+	n := 0
+	for _, t := range ts.tasks {
+		if !t.reported {
+			n++
+		}
+	}
+	return n
+}
+
+// reportedLocked marks a task as reported. count says whether the report
+// is news to Wait.
+func (ts *Tasks) reportedLocked(t *task, count bool) {
+	t.notified, t.reported = true, true
+	if count {
+		ts.reports++
+	}
+	close(ts.changed)
+	ts.changed = make(chan struct{})
 }
 
 // Close interrupts every running child and waits for each to record that. An
@@ -316,9 +377,6 @@ func (ts *Tasks) adopt(
 			TaskID(childID), args.Subagent,
 		)
 	}
-	// Continue with the agent the child recorded, so a model change since
-	// then cannot make the record and the runner disagree.
-	parent.Agent = view.Agent
 	t, added, err := ts.register(sub, ref, args.Description, parent, child, view)
 	if err != nil {
 		return err
@@ -364,6 +422,10 @@ func (ts *Tasks) register(
 	}
 	t.steps = slices.Clone(child.Steps)
 	runner := ts.childRunner(sub, ref, parent, t)
+	// Continue with the agent the child recorded, so a change to the
+	// subagent since then cannot make the record and the runner disagree.
+	// startTask does the same.
+	runner.Agent = view.Agent
 	ts.launchLocked(t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
@@ -528,9 +590,13 @@ func (ts *Tasks) finish(t *task, out dashi.Outcome, err error) {
 	}
 	t.setEnded()
 	t.setStarted()
+	interrupted := t.state == TaskState(dashi.StopInterrupted)
+	if interrupted {
+		// Close is not an end: nothing will be reported.
+		t.notified, t.reported = true, true
+	}
 	close(ts.changed)
 	ts.changed = make(chan struct{})
-	interrupted := t.state == TaskState(dashi.StopInterrupted)
 	t.cancel()
 	ts.mu.Unlock()
 	if !interrupted {
@@ -559,18 +625,27 @@ func endState(
 }
 
 // notifyEnded calls OnTask once for an ended task, unless delivered holds
-// its child.
+// its child. The task stays pending until OnTask has returned.
 func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 	ts.mu.Lock()
-	skip := t.notified || t.state == TaskRunning || delivered[t.childID]
-	if !skip {
-		t.notified = true
+	if t.notified || t.state == TaskRunning {
+		ts.mu.Unlock()
+		return
 	}
+	if delivered[t.childID] {
+		ts.reportedLocked(t, false)
+		ts.mu.Unlock()
+		return
+	}
+	t.notified = true
 	v := ts.viewLocked(t)
 	ts.mu.Unlock()
-	if !skip && ts.cfg.OnTask != nil {
+	if ts.cfg.OnTask != nil {
 		ts.cfg.OnTask(TaskEvent{Kind: TaskEnded, Task: v})
 	}
+	ts.mu.Lock()
+	ts.reportedLocked(t, true)
+	ts.mu.Unlock()
 }
 
 func (ts *Tasks) view(t *task) TaskView {
@@ -698,6 +773,7 @@ func (ts *Tasks) startTask(
 		return TaskView{}, errors.New("delegate: tasks are closed")
 	}
 	ts.addLocked(t)
+	endedBefore := false
 	switch {
 	case !found:
 		start := dashi.Start{
@@ -711,15 +787,19 @@ func (ts *Tasks) startTask(
 		runner.Agent = view.Agent
 		ts.launchLocked(t, runner, saved, dashi.Continue{})
 	default:
-		// The child ended before the crash. Recover reports the end.
+		// The child ended before the crash. Report the end here, so the
+		// result does not depend on whether the host called Recover first.
 		v := view
 		t.final = &v
 		t.state, t.answer, t.reason = endState(ts, mustStop(saved), v)
-		t.notified = true
 		t.setEnded()
 		t.setStarted()
+		endedBefore = true
 	}
 	ts.mu.Unlock()
+	if endedBefore {
+		ts.notifyEnded(t, nil)
+	}
 	// The call settles only once the record holds the child, so a crash
 	// after the call cannot lose a child the model was told about.
 	select {
@@ -731,7 +811,9 @@ func (ts *Tasks) startTask(
 	defer ts.mu.Unlock()
 	if t.state != TaskRunning && len(t.steps) == 0 && t.final == nil {
 		// The run failed before it recorded the child.
-		t.notified = true
+		if !t.notified {
+			ts.reportedLocked(t, false)
+		}
 		return TaskView{}, tool.Fatal(fmt.Errorf(
 			"delegate: start subagent: %s", cmp.Or(t.reason, string(t.state)),
 		))

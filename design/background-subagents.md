@@ -64,7 +64,8 @@ tool error, and the model retries.
 func NewTasks(cfg Config) *Tasks            // one per conversation
 func (t *Tasks) Tools() tool.Toolset        // task, task_status, task_stop
 func (t *Tasks) List() []TaskView
-func (t *Tasks) Stop(id string) error       // ErrUnknownTask, ErrTaskEnded
+func (t *Tasks) Stop(ctx context.Context, id string) error // ErrUnknownTask, ErrTaskEnded
+func (t *Tasks) Wait(ctx context.Context) (idle bool, err error)
 func (t *Tasks) Close(ctx context.Context) error
 func (t *Tasks) Recover(ctx context.Context, r dashi.Runner, turns []dashi.Turn) error
 
@@ -212,3 +213,20 @@ check after each test.
     ended tasks (changed in implementation).
 17. **`Recover` reports an ended child once per process.** It skips the child
     if the record holds the notice, or if `OnTask` already reported it.
+18. **Reopen order does not matter** (implementation review). A `task` call
+    that reruns and finds an ended child reports the end itself, as `Recover`
+    would. The result says the task has ended. `Recover` after that skips the
+    child. A rerun may repeat a notice that a follow-up Turn already
+    carried, because `startTask` does not see the other Turns. That costs a
+    repeat (see 5). A host still calls `Recover` on reopen: a settled `task`
+    call is not run again, so only `Recover` finds those children.
+19. **`Tasks.Wait(ctx)` is the one idle call.** A task is pending until
+    `OnTask` returns for its end, so the gap between "ended" and "notice in
+    the inbox" is closed. Wait returns false after each report and true when
+    nothing is pending. The host reads its inbox after each return.
+20. **`Stop` takes a context**, like `Close`.
+21. **`Recover` resumes with the recorded agent**, as the rerun path does.
+22. **Cost after a turn (finding 5): accepted, as a guide note.** A total read
+    while tasks run is a lower bound. Hosts read `OnTask` for each task.
+23. **Host wiring size (finding 6): accepted.** `Wait` shortens the loop. No
+    further helper.

@@ -82,6 +82,18 @@ gets the notice. Two cases:
   turn ID. Set `History` on the start. The start is scheduled work and claims
   no user authority. Interactive hosts should raise `Limits.ModelAttempts`.
 
+## Waiting for results
+
+`tasks.Wait(ctx)` blocks until a task has been reported through `OnTask`
+(it returns false) or nothing is pending (it returns true). A task is pending
+until `OnTask` returns for its end, so a notice that `OnTask` sends is in the
+inbox when `Wait` returns. Loop: read `Leftovers`; run a follow-up turn if a
+notice waits; otherwise call `Wait`; stop when `Wait` returns true and no
+notice waits. One goroutine calls `Wait`.
+
+Cost read while tasks run is a lower bound. It grows until each task ends.
+Read the cost of each task from its `TaskEnded` event.
+
 ## Crash, quit, and reopen
 
 `Tasks.Close(ctx)` interrupts the running children and waits for their
@@ -100,6 +112,9 @@ and `filerecorder` do). Without one it returns an error, and the tool logs a
 warning: tasks then run but do not survive a restart, and a resumed parent
 reports the `task` call as uncertain.
 
+Call `Recover` on reopen. The order against resuming the parent does not
+matter: a rerun `task` call that finds an ended child reports it too, once.
+
 The `task` call returns only after the record holds the child. A parent that
 crashes inside the call finds the same child when the runner runs the call
 again, so a rerun starts no second child.
@@ -107,7 +122,7 @@ again, so a rerun starts no second child.
 ## Stop and cancel
 
 Ctrl-C on a running turn leaves tasks running. Stop one with the `task_stop`
-tool or `Tasks.Stop(id)`. The child records `canceled`, and `Recover` does not
+tool or `Tasks.Stop(ctx, id)`. The child records `canceled`, and `Recover` does not
 resume it. The states of a task are `running` and the Dashi stop words:
 `completed`, `failed`, `limited`, `refused`, `canceled`, `interrupted`,
 `waiting`, and `uncertain`. `Tasks.List()` returns a `TaskView` for each task

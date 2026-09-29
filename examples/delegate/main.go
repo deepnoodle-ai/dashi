@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -52,7 +53,6 @@ func run(ctx context.Context) error {
 	// The whole wiring: a Tasks value, its tools, and one OnTask callback
 	// that sends each finished result to the agent.
 	inbox := dashi.NewInbox()
-	wake := make(chan struct{}, 1)
 	tasks := delegate.NewTasks(delegate.Config{
 		OnChild: printChild,
 		OnTask: func(e delegate.TaskEvent) {
@@ -61,10 +61,6 @@ func run(ctx context.Context) error {
 			}
 			fmt.Printf("<< task %s %s\n", e.Task.ID, e.Task.State)
 			_, _ = inbox.Send(e.Task.Notice().Steer())
-			select {
-			case wake <- struct{}{}:
-			default:
-			}
 		},
 	})
 	defer tasks.Close(context.Background())
@@ -113,13 +109,19 @@ func run(ctx context.Context) error {
 			}
 		}
 		if len(notices) == 0 {
-			if !running(tasks) {
-				break
+			// Wait covers the gap between a task ending and its notice
+			// reaching the inbox, so a true answer means nothing is left.
+			idle, err := tasks.Wait(ctx)
+			if err != nil {
+				return err
 			}
-			select {
-			case <-wake:
-			case <-ctx.Done():
-				return ctx.Err()
+			if idle {
+				if left, err = inbox.Leftovers(out.Turn); err != nil {
+					return err
+				}
+				if !slices.ContainsFunc(left, delegate.IsNotice) {
+					break
+				}
 			}
 			continue
 		}
@@ -141,15 +143,6 @@ func run(ctx context.Context) error {
 	fmt.Println(out.Answer)
 	fmt.Printf("subagents cost %s\n", formatCost(taskSpend(tasks)))
 	return nil
-}
-
-func running(tasks *delegate.Tasks) bool {
-	for _, v := range tasks.List() {
-		if v.Running() {
-			return true
-		}
-	}
-	return false
 }
 
 func taskSpend(tasks *delegate.Tasks) dashi.Spend {

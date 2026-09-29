@@ -194,6 +194,13 @@ func (ts *Tasks) execStart(
 		}
 		return tool.Outcome{}, err
 	}
+	if !v.Running() {
+		return tool.Succeeded(fmt.Sprintf(
+			"Task %s (%s): %s. It has already ended (%s). A message that "+
+				"starts with \"[task %s\" carries the result. Do not poll.",
+			v.ID, v.Subagent, v.Description, v.State, v.ID,
+		)), nil
+	}
 	return tool.Succeeded(fmt.Sprintf(
 		"Started task %s (%s): %s. It runs in the background. A message "+
 			"that starts with \"[task %s\" arrives when it ends. Keep "+

@@ -1059,10 +1059,10 @@ func TestStopCancelsTheChildForGood(t *testing.T) {
 	if err != nil || got != "Task "+taskID()+" already canceled." {
 		t.Fatalf("second stop=%q err=%v", got, err)
 	}
-	if err := h.tasks.Stop("t_nope"); !errors.Is(err, delegate.ErrUnknownTask) {
+	if err := h.tasks.Stop(t.Context(), "t_nope"); !errors.Is(err, delegate.ErrUnknownTask) {
 		t.Fatalf("Stop unknown=%v", err)
 	}
-	if err := h.tasks.Stop(taskID()); !errors.Is(err, delegate.ErrTaskEnded) {
+	if err := h.tasks.Stop(t.Context(), taskID()); !errors.Is(err, delegate.ErrTaskEnded) {
 		t.Fatalf("Stop ended=%v", err)
 	}
 	// A reopened host does not resume a canceled child.
@@ -1086,7 +1086,7 @@ func TestStopWithHostAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.waitStarted(t)
-	if err := h.tasks.Stop(taskID()); err != nil {
+	if err := h.tasks.Stop(t.Context(), taskID()); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.tasks.List()[0].State; got != "canceled" {
@@ -1845,5 +1845,160 @@ func TestUnrecordedNoticeComesBackOnceFromLeftovers(t *testing.T) {
 	again, err := h.inbox.Leftovers(turn)
 	if err != nil || len(again) != 0 {
 		t.Fatalf("second Leftovers=%+v err=%v", again, err)
+	}
+}
+
+// A child that ended before the parent crashed inside the task call must
+// reach OnTask whether the host resumes the parent or calls Recover first.
+func TestEndedChildIsReportedInEitherReopenOrder(t *testing.T) {
+	for _, recoverFirst := range []bool{false, true} {
+		name := "resume then recover"
+		if recoverFirst {
+			name = "recover then resume"
+		}
+		t.Run(name, func(t *testing.T) {
+			var h *harness
+			var crash *crashRecorder
+			h = newHarness(t, script("the answer"), delegate.Config{},
+				func(m *dashi.MemoryRecorder) dashi.Recorder {
+					crash = &crashRecorder{Recorder: m,
+						trigger: func(r dashi.CommitRequest) bool {
+							if r.Step.Kind != dashi.StepToolSettled ||
+								strings.HasPrefix(r.Step.TurnID, "child-") {
+								return false
+							}
+							// Crash only after the child has ended.
+							h.waitStop(t, childID(), dashi.StopCompleted)
+							return true
+						}}
+					return crash
+				})
+			if _, err := h.start(t.Context()); err == nil {
+				t.Fatal("the crash did not stop the run")
+			}
+			h.next(t, delegate.TaskEnded) // the first process reports it
+			crash.trigger = nil
+			crash.dead.Store(false)
+			h.newTasks(t)
+			if recoverFirst {
+				if err := h.recoverTasks(t); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := h.resume(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(toolResult(t, out.TurnView), "already ended") {
+				t.Fatalf("task result=%q", toolResult(t, out.TurnView))
+			}
+			if !recoverFirst {
+				if err := h.recoverTasks(t); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ended := h.next(t, delegate.TaskEnded)
+			if ended.Task.Answer != "the answer" {
+				t.Fatalf("ended=%+v", ended.Task)
+			}
+			h.none(t, delegate.TaskEnded)
+			if got := h.client.sends("child"); got != 1 {
+				t.Fatalf("child model calls=%d, want 1", got)
+			}
+		})
+	}
+}
+
+// Wait must not say "idle" between a task ending and its notice reaching the
+// host, even when OnTask is slow.
+func TestWaitCoversTheGapBeforeTheNotice(t *testing.T) {
+	g := newGate()
+	release := make(chan struct{})
+	h := newHarness(t, scripted(gated(g, "late")), delegate.Config{}, nil)
+	h.cfg.OnTask = func(e delegate.TaskEvent) {
+		if e.Kind == delegate.TaskEnded {
+			<-release
+			_, _ = h.inbox.Send(e.Task.Notice().Steer())
+		}
+	}
+	h.newTasks(t)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	g.open()
+	h.waitStop(t, childID(), dashi.StopCompleted)
+	// The child ended. OnTask has not returned. Nothing is idle yet.
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	if idle, err := h.tasks.Wait(ctx); err == nil {
+		t.Fatalf("Wait returned idle=%v before the notice was sent", idle)
+	}
+	close(release)
+	idle, err := h.tasks.Wait(t.Context())
+	if err != nil || idle {
+		t.Fatalf("Wait idle=%v err=%v, want a report", idle, err)
+	}
+	turn, err := h.rec.Load(t.Context(), parentTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := h.inbox.Leftovers(turn)
+	if err != nil || len(left) != 1 {
+		t.Fatalf("leftovers=%d err=%v, want the notice", len(left), err)
+	}
+	if idle, err = h.tasks.Wait(t.Context()); err != nil || !idle {
+		t.Fatalf("second Wait idle=%v err=%v, want idle", idle, err)
+	}
+}
+
+func TestStopReturnsWhenContextEnds(t *testing.T) {
+	g := newGate()
+	h := newHarness(t, scripted(func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		// A child that ignores cancellation until the test ends.
+		g.started <- struct{}{}
+		<-g.release
+		return text("late"), nil
+	}), delegate.Config{}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if err := h.tasks.Stop(ctx, taskID()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop=%v, want the context error", err)
+	}
+	g.open()
+}
+
+// Recover continues a child with the agent its record holds, even when the
+// catalog changed since.
+func TestRecoverResumesWithTheRecordedAgent(t *testing.T) {
+	g := newGate()
+	h := newHarness(t, scripted(gated(g, "x")), delegate.Config{}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+
+	changed := scout()
+	changed.Agent = agent("changed")
+	h.cfg.Subagents = []delegate.Subagent{changed}
+	g2 := newGate()
+	g2.open()
+	h.client.handle = scripted(gated(g2, "done"))
+	h.newTasks(t)
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	if got := h.client.sends("changed"); got != 0 {
+		t.Fatalf("resumed child used the changed agent %d times", got)
+	}
+	if got := h.client.sends("child"); got == 0 {
+		t.Fatal("resumed child did not run with the recorded agent")
 	}
 }
