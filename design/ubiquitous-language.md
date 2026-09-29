@@ -46,8 +46,9 @@ Session contracts remain proposed; see the
 - **Turn outcome**: The returned turn, its **stop** (why execution paused or
   ended), and recording status.
 - **Next action**: What the host does next with a turn, read from its recorded
-  stop (`TurnView.Next`): nothing, resume, answer, continue, raise a budget or
-  the model-attempt limit, or resolve a cause first.
+  stop (`TurnView.Next`): nothing, running (a hook's view), resume, answer,
+  continue, raise a budget or the model-attempt limit, or resolve a cause
+  first.
 - **Ended turn**: A turn whose stop is terminal; no command can run it again
   (`ErrTurnEnded`). A session **closes** a stopped turn that has not ended by
   canceling it when a new message arrives, and refuses while the turn is

@@ -9,12 +9,15 @@ const (
 	// ended for good (Stop.Terminal), or it has not started.
 	NextNone Next = "none"
 	// NextRunning means no stop is recorded and the turn is known to be
-	// live. TurnView cannot know liveness and never returns it; a caller
-	// that tracks workers can refine NextResume to it.
+	// live: the view is one a hook got during a run. A caller that tracks
+	// workers can also refine NextResume to it.
 	NextRunning Next = "running"
 	// NextResume means no stop follows the latest Start or Continue, and
-	// the turn is not known to be live: its worker may have crashed.
-	// Continue resumes it once the worker is known to be gone.
+	// the turn is not known to be live: its worker may have crashed. Once
+	// the worker is known to be gone, Continue resumes it if
+	// ReadyToContinue is true. Otherwise Continue gives ErrNotReady: first
+	// settle each Pending item (for example, reconcile a model attempt
+	// whose result is unknown), or Cancel the turn.
 	NextResume Next = "resume"
 	// NextAnswer means the turn waits for approvals or tool results; see
 	// TurnView.Pending. Settle each one, then Continue.
@@ -35,19 +38,22 @@ const (
 	NextResolve Next = "resolve"
 )
 
-// Next maps the turn's recorded stop to the host's next action. It reads
-// the stop the record holds, not the projected Stop: a turn with no stop
-// after its latest Start or Continue gives NextResume. A refusal never
-// gives NextContinue, so a host is never told to ask the model again after
-// it refused.
+// Next maps the turn's recorded stop to the host's next action. A stop
+// that Replay or Outcome projected (Stop.Projected) was never recorded, so
+// it gives NextResume. A hook's view during a run has no stop and gives
+// NextRunning. A refusal never gives NextContinue, so a host is never told
+// to ask the model again after it refused. Next reads only the view's
+// fields, so a view decoded from JSON gives the same answer.
 func (v TurnView) Next() Next {
-	if v.Revision == 0 {
-		return NextNone
-	}
-	if !v.stopRecorded {
-		return NextResume
-	}
 	stop := v.Stop
+	switch {
+	case v.Revision == 0:
+		return NextNone
+	case stop.Projected:
+		return NextResume
+	case stop.Kind == "":
+		return NextRunning
+	}
 	switch {
 	case stop.Terminal, stop.Kind == StopCompleted, stop.Kind == StopCanceled:
 		return NextNone

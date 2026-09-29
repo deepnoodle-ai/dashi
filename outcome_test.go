@@ -632,11 +632,11 @@ func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
 	if len(s.Pending) != 0 {
 		t.Fatalf("requested call listed as host work: %v", s.Pending)
 	}
-	if stop := s.projectedStop(); stop.Kind != StopInterrupted {
+	if stop := s.projectedStop(); stop.Kind != StopInterrupted || !stop.Projected {
 		t.Fatalf("stop=%+v", stop)
 	}
 	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolSettled}
-	if stop := s.projectedStop(); stop.Kind != "" {
+	if stop := s.projectedStop(); stop.Kind != "" || !stop.Projected {
 		t.Fatalf("settled turn without a stop step projected %+v", stop)
 	}
 }

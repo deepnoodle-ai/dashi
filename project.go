@@ -68,13 +68,7 @@ func projectWithHistory(
 	}
 	ended := state.Stop.Terminal
 	if ended {
-		// Nothing but late results follows a terminal stop, so the last stop
-		// is the terminal one.
-		end := len(t.Steps)
-		for t.Steps[end-1].Kind != StepStopped {
-			end--
-		}
-		t.Steps = t.Steps[:end]
+		t.Steps = t.Steps[:endedLength(t.Steps, state.Stop)]
 		if state, err = replay(t); err != nil {
 			return nil, err
 		}
@@ -117,24 +111,20 @@ func projectWithHistory(
 	// follows it. A request settled without dispatch, or not settled at all,
 	// showed the model nothing.
 	lastDispatched := lastDispatchedIntent(t)
-	// stopped tracks whether a stop follows the latest Start or Continue. A
-	// Continue without one resumes after a crash.
-	stopped := false
+	resumed := lastCrashResume(t.Steps)
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepStarted:
 			for _, m := range step.Started.Input {
 				out = append(out, m.Clone())
 			}
-		case StepStopped:
-			stopped = true
 		case StepContinued:
-			// The reminder is for the next model call only; an ended turn
-			// makes none.
-			if !stopped && !ended && lastDispatched <= step.Seq {
+			// The reminder is for the next dispatched model call only, and
+			// one is enough however many crashes came before that call. An
+			// ended turn makes none.
+			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
 				out = append(out, crashResumeReminder())
 			}
-			stopped = false
 		case StepDelivered, StepLoopContinued, StepToolSettled:
 			// A turned-down submission's items follow its result, which is
 			// projected with the model message that made the call.
@@ -246,6 +236,40 @@ func projectWithHistory(
 		}
 	}
 	return out, nil
+}
+
+// endedLength is how many steps an ended turn's history and answer read:
+// all of them, up to its terminal stop. Nothing but late results follows a
+// terminal stop, so the last stop is the terminal one.
+func endedLength(steps []Step, stop Stop) int {
+	end := len(steps)
+	if !stop.Terminal {
+		return end
+	}
+	for end > 0 && steps[end-1].Kind != StepStopped {
+		end--
+	}
+	return end
+}
+
+// lastCrashResume returns the sequence number of the latest Continue that
+// resumed a turn with no recorded stop since the Start or Continue before
+// it, whose worker stopped mid-turn; or 0 when there is none.
+func lastCrashResume(steps []Step) int64 {
+	var last int64
+	stopped := false
+	for _, step := range steps {
+		switch step.Kind {
+		case StepStopped:
+			stopped = true
+		case StepContinued:
+			if !stopped {
+				last = step.Seq
+			}
+			stopped = false
+		}
+	}
+	return last
 }
 
 // endedToolResult is what the model sees for a call still started, waiting,

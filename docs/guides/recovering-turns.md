@@ -36,7 +36,8 @@ with the earlier conversation on any worker. `Continue` also recovers a crash
 that happened before the stop was written; such a turn's `Next()` is
 `NextResume`, and the next model call gets a reminder that the previous worker
 stopped mid-turn, so the model checks the current state before repeating any
-action. Close the channel passed with
+action. Repeated crashes before that call still add one reminder. Close the
+channel passed with
 `dashi.WithPause` for a graceful stop before the next model or tool call. Work
 already running finishes.
 

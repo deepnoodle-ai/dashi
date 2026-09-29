@@ -106,16 +106,18 @@ type TurnView struct {
 	// Spend is rebuilt from committed model and tool facts.
 	Spend Spend
 	// Stop is why the last run ended. Replay and Outcome project a missing
-	// stop as Run does: uncertain for an unsettled model attempt,
-	// interrupted for work in flight, waiting for pending work. A hook's
-	// view is taken mid-run, so its Stop is empty. Next reads the recorded
-	// stop and says what to do about it.
+	// stop as Run does, and mark it Projected: uncertain for an unsettled
+	// model attempt, interrupted for work in flight, waiting for pending
+	// work. A hook's
+	// view is taken mid-run, so its Stop is empty. Next says what to do
+	// about the stop.
 	Stop   Stop
 	Output *StructuredOutput
 	// Answer is the text of the latest assistant message. On a completed
 	// turn it is the final answer, and valid tool-only work can leave it
 	// empty; on a waiting turn it is text the model wrote alongside its
-	// tool calls.
+	// tool calls. On an ended turn (Stop.Terminal) it is fixed at the
+	// terminal stop, as Project is: a late model result does not change it.
 	Answer string
 	// Pending lists the work awaiting a host action or settlement: model
 	// attempts, then local calls in call order, then hosted approval
@@ -132,9 +134,6 @@ type TurnView struct {
 	// live holds the latest named context item per origin and name that the
 	// next model call would still see; see Context.
 	live map[string]ContextItem
-	// stopRecorded means a stop step follows the latest Start or Continue,
-	// so Stop is recorded rather than projected; see Next.
-	stopRecorded bool
 }
 
 // Context returns the latest context item with this origin and name that the
@@ -225,7 +224,6 @@ func snapshotView(v TurnView) TurnView {
 			out.Tools[id] = copied
 		}
 	}
-	out.stopRecorded = v.stopRecorded
 	if len(v.live) > 0 {
 		out.live = make(map[string]ContextItem, len(v.live))
 		for k, item := range v.live {
@@ -316,7 +314,17 @@ func replay(t Turn) (*replayState, error) {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
 	s.ReadyToContinue = s.canContinue()
-	s.stopRecorded = s.Stop.Kind != ""
+	if end := endedLength(t.Steps, s.Stop); end < len(t.Steps) {
+		// Late results after the terminal stop count in Spend, but the
+		// answer is fixed there, as Project's history is.
+		prefix := t
+		prefix.Steps = t.Steps[:end]
+		ended, err := replay(prefix)
+		if err != nil {
+			return nil, err
+		}
+		s.Answer = ended.Answer
+	}
 	return s, nil
 }
 
@@ -1044,6 +1052,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
+		if step.Stop.Projected {
+			return errors.New("a recorded stop cannot be projected")
+		}
 		if step.Stop.Limit != nil {
 			if step.Stop.Kind != StopLimited {
 				return errors.New("limit detail requires limited stop")
@@ -1176,25 +1187,34 @@ func (s *replayState) pendingItems() []Pending {
 
 // projectedStop is the stop a caller sees for a turn at rest. A record
 // without a stop step ended mid-run, so the stop is inferred as Run would
-// have recorded it.
+// have recorded it and marked Projected.
 func (s *replayState) projectedStop() Stop {
 	switch {
 	case s.Stop.Kind != "":
 		return s.Stop
 	case s.unresolvedModel != "":
 		return Stop{
-			Kind:   StopUncertain,
-			Reason: "model attempt needs reconciliation",
+			Kind:      StopUncertain,
+			Reason:    "model attempt needs reconciliation",
+			Projected: true,
 		}
 	case s.modelIntent != "" || hasStartedTool(s):
-		return Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
+		return Stop{
+			Kind:      StopInterrupted,
+			Reason:    "worker stopped before result",
+			Projected: true,
+		}
 	case len(s.Pending) > 0:
-		return Stop{Kind: StopWaiting}
+		return Stop{Kind: StopWaiting, Projected: true}
 	case len(s.pending()) > 0:
 		// Requested or authorized calls wait only for a worker.
-		return Stop{Kind: StopInterrupted, Reason: "worker stopped before result"}
+		return Stop{
+			Kind:      StopInterrupted,
+			Reason:    "worker stopped before result",
+			Projected: true,
+		}
 	}
-	return Stop{}
+	return Stop{Projected: true}
 }
 
 func (s *replayState) recordResult(

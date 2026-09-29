@@ -1,6 +1,8 @@
 package dashi
 
 import (
+	"context"
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -305,8 +307,9 @@ func rowView(row nextRow) TurnView {
 	}
 	s.Stop.Terminal = s.Stop.Kind != "" && s.terminal()
 	s.ReadyToContinue = s.canContinue()
-	s.stopRecorded = s.Stop.Kind != ""
-	return s.TurnView
+	view := s.TurnView
+	view.Stop = s.projectedStop()
+	return view
 }
 
 func TestNextCoversEveryStop(t *testing.T) {
@@ -507,5 +510,71 @@ func TestNextReadsRecordedStop(t *testing.T) {
 	)
 	if err != nil || canceled.Next() != NextNone {
 		t.Fatalf("canceled: stop=%+v next=%s err=%v", canceled.Stop, canceled.Next(), err)
+	}
+}
+
+// A hook's view of a live run gives NextRunning, on Start and on a Continue
+// after a recorded stop.
+func TestNextIsRunningInHookView(t *testing.T) {
+	var seen []Next
+	hooks := ModelHook{
+		Name: "watch",
+		Func: func(_ context.Context, plan ModelPlan) (ModelDecision, error) {
+			seen = append(seen, plan.Turn.Next())
+			return ModelDecision{}, nil
+		},
+	}.Hooks()
+	paused := make(chan struct{})
+	close(paused)
+	client := &scriptedClient{results: []llm.Result{final("ok")}}
+	runner := Runner{Agent: testAgent(), Client: client, Hooks: hooks}
+	stopped, err := runner.Run(t.Context(), Turn{ID: "p"}, limitsStart(), WithPause(paused))
+	if err != nil || stopped.Stop.Kind != StopInterrupted {
+		t.Fatalf("pause=%+v err=%v", stopped.Stop, err)
+	}
+	out, err := runner.Run(t.Context(), stopped.Turn, Continue{})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("continue=%+v err=%v", out.Stop, err)
+	}
+	if len(seen) == 0 {
+		t.Fatal("hook never ran")
+	}
+	for i, next := range seen {
+		if next != NextRunning {
+			t.Fatalf("hook call %d saw %s, want running", i, next)
+		}
+	}
+}
+
+// Next reads only exported fields, so a view sent as JSON, for example to a
+// UI, gives the same answer on the other side.
+func TestNextSurvivesJSON(t *testing.T) {
+	crashed := interruptionRecord(
+		interruptionStart(testAgent()),
+		interruptionModelIntent("model-1"),
+	)
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	done, err := (Runner{Agent: testAgent(), Client: client}).Run(
+		t.Context(), crashed, Continue{CommandID: "resume"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, turn := range map[string]Turn{"crashed": crashed, "completed": done.Turn} {
+		view, err := Replay(turn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded TurnView
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.Next() != view.Next() {
+			t.Fatalf("%s: Next %s became %s", name, view.Next(), decoded.Next())
+		}
 	}
 }

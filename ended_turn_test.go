@@ -3,6 +3,8 @@ package dashi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -179,4 +181,93 @@ func countReminders(messages []llm.Message) int {
 		}
 	}
 	return n
+}
+
+// A late model result after a cancel counts in Spend, but Answer, like
+// Project, stays fixed at the terminal stop.
+func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors:  []error{errors.New("connection lost")},
+	}
+	first, err := start(t, client, writeTool(), NewMemoryRecorder(), Hooks{})
+	if err != nil || first.Stop.Kind != StopUncertain {
+		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
+	}
+	runner := Runner{Agent: testAgent(), Client: client}
+	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "close"})
+	if err != nil || !canceled.Stop.Terminal {
+		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
+	}
+	before, err := Project(canceled.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	late := final("late")
+	late.Usage = &llm.Usage{InputTokens: 5, OutputTokens: 2}
+	out, err := runner.Run(t.Context(), canceled.Turn, Settle{
+		CommandID:   "late",
+		CallID:      "t1:model:1",
+		ModelResult: &late,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Spend.Usage.OutputTokens != 2 {
+		t.Fatalf("late result not counted: spend=%+v", out.Spend.Usage)
+	}
+	if out.Answer != "" || out.Next() != NextNone {
+		t.Fatalf("answer=%q next=%s", out.Answer, out.Next())
+	}
+	view, err := Replay(out.Turn)
+	if err != nil || view.Answer != "" {
+		t.Fatalf("replayed answer=%q err=%v", view.Answer, err)
+	}
+	after, err := Project(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := json.Marshal(before)
+	b, _ := json.Marshal(after)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("late result changed the projection:\n%s\n%s", a, b)
+	}
+}
+
+// A second crash before any model call reaches the provider does not add a
+// second reminder: the next request carries one.
+func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
+	crashed := interruptionRecord(
+		interruptionStart(testAgent()),
+		interruptionModelIntent("model-1"),
+	)
+	// The first resume records its Continue, then its worker crashes
+	// before the model call: keep the record only up to that Continue.
+	client := &scriptedClient{results: []llm.Result{final("unused")}}
+	runner := Runner{Agent: testAgent(), Client: client}
+	first, err := runner.Run(t.Context(), crashed, Continue{CommandID: "resume-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := slices.IndexFunc(first.Turn.Steps, func(s Step) bool {
+		return s.Kind == StepContinued
+	})
+	if cut < 0 {
+		t.Fatal("no continuation step recorded")
+	}
+	crashedAgain := cloneTurn(first.Turn)
+	crashedAgain.Steps = crashedAgain.Steps[:cut+1]
+	if view, err := Replay(crashedAgain); err != nil || view.Next() != NextResume {
+		t.Fatalf("second crash: next=%s err=%v", view.Next(), err)
+	}
+
+	client = &scriptedClient{results: []llm.Result{final("done")}}
+	runner.Client = client
+	out, err := runner.Run(t.Context(), crashedAgain, Continue{CommandID: "resume-2"})
+	if err != nil || out.Stop.Kind != StopCompleted || len(client.inputs) != 1 {
+		t.Fatalf("resume=%+v err=%v inputs=%d", out.Stop, err, len(client.inputs))
+	}
+	if n := countReminders(client.inputs[0].Messages); n != 1 {
+		t.Fatalf("request saw %d restart reminders, want 1", n)
+	}
 }
