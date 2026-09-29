@@ -108,6 +108,17 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.04584025",
 		},
 		{
+			// 1000×10 + 2000×12.5 + 1000×20 (one-hour writes at 2x) = 55000
+			provider: "anthropic",
+			model:    "claude-fable-5-1",
+			usage: llm.Usage{
+				InputTokens:                1000,
+				CacheCreationInputTokens:   3000,
+				CacheCreation1hInputTokens: 1000,
+			},
+			total: "0.055",
+		},
+		{
 			// 1001×0.75 + 333×3.75 + 7×0.075 = 2000.025
 			provider: "google",
 			model:    "gemini-3.8-flash",

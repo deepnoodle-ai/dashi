@@ -119,12 +119,12 @@ at the tier's rate. Gemini's per-modality input prices become complete
 mode and OpenAI flex and priority prices are omitted because Dashi's clients do
 not request them.
 
-**Anthropic cache writes use the 5-minute rate (1.25x input).** The pricing
-proposal warned that this misprices mixed 5-minute and 1-hour writes. Dashi's
-Messages client sends no `cache_control`, so every cache write it can cause is
-a 5-minute write and the rate is exact. When Dashi adds cache TTL control, it
-must add a 1-hour usage bucket and rate together; tests pin the 1.25x rule so
-that change cannot land silently.
+**Anthropic cache writes have two rates.** `cache_write` is the 5-minute
+rate (1.25x input) and the optional `cache_write_1h` is the one-hour rate (2x
+input). `Usage.CacheCreation1hInputTokens` reports the one-hour part of the
+writes, and `Pricing.Estimate` prices it at the one-hour rate. A sheet without
+`cache_write_1h` leaves one-hour writes unpriced, never free. Tests pin both
+rates on every Anthropic sheet ([prompt caching](prompt-cache.md)).
 
 The regional multiplier is not modeled. Evidence already names the endpoint,
 and a Vertex endpoint names its location, so a regional price is simply a

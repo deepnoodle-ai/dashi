@@ -19,7 +19,8 @@ import (
 
 // Rates prices disjoint token buckets per million tokens, so a price of
 // "$3 / MTok" is money.MustParseAmount("3"). Every value is literal: zero
-// means free, never inherited from another rate.
+// means free, never inherited from another rate. CacheWrite1h is the one
+// optional rate: nil means unknown.
 type Rates struct {
 	// Input prices uncached input not classified as a cache write.
 	Input money.Amount `json:"input"`
@@ -27,8 +28,14 @@ type Rates struct {
 	Output money.Amount `json:"output"`
 	// CacheRead prices input served from the prompt cache.
 	CacheRead money.Amount `json:"cache_read"`
-	// CacheWrite prices input written to the prompt cache.
+	// CacheWrite prices input written to the prompt cache with the default
+	// lifetime.
 	CacheWrite money.Amount `json:"cache_write"`
+	// CacheWrite1h prices cache writes with a one-hour lifetime
+	// (Usage.CacheCreation1hInputTokens). Nil means unknown, never free:
+	// usage with one-hour writes then has no estimate, and a call that may
+	// write them has no worst-case bound.
+	CacheWrite1h *money.Amount `json:"cache_write_1h,omitempty"`
 }
 
 // UnmarshalJSON requires all four literal rates. An absent rate must not
@@ -80,7 +87,19 @@ func (r Rates) validate() error {
 			return errors.New("llm: pricing requires nonnegative rates")
 		}
 	}
+	if r.CacheWrite1h != nil && *r.CacheWrite1h < 0 {
+		return errors.New("llm: pricing requires nonnegative rates")
+	}
 	return nil
+}
+
+// clone returns rates that share no one-hour rate with r.
+func (r Rates) clone() Rates {
+	if r.CacheWrite1h != nil {
+		rate := *r.CacheWrite1h
+		r.CacheWrite1h = &rate
+	}
+	return r
 }
 
 // PriceTier replaces all base rates when total input reaches MinInputTokens.
@@ -193,8 +212,18 @@ func (p Pricing) Validate() error {
 // Clone returns a sheet whose tier slice and modality map are independently
 // owned, so a prepared model snapshot cannot change with caller mutations.
 func (p Pricing) Clone() Pricing {
+	p.Base = p.Base.clone()
 	p.Tiers = append([]PriceTier(nil), p.Tiers...)
-	p.Modality = maps.Clone(p.Modality)
+	for i := range p.Tiers {
+		p.Tiers[i].Rates = p.Tiers[i].Rates.clone()
+	}
+	if p.Modality != nil {
+		modality := make(map[string]Rates, len(p.Modality))
+		for name, rates := range p.Modality {
+			modality[name] = rates.clone()
+		}
+		p.Modality = modality
+	}
 	p.Requests = maps.Clone(p.Requests)
 	return p
 }
@@ -229,6 +258,11 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // call. The result is unavailable when token detail cannot support a faithful
 // estimate, or when the amount would overflow; nil usage never means known
 // zero usage.
+//
+// One-hour cache writes (Usage.CacheCreation1hInputTokens) are priced at the
+// selected rates' CacheWrite1h and the rest of the writes at CacheWrite; both
+// parts are in Cost.CacheWrite. With one-hour writes and no CacheWrite1h rate
+// there is no estimate.
 //
 // Hosted requests whose meter key the sheet does not price do not make the
 // whole estimate unavailable. The estimate then prices everything else and
@@ -265,6 +299,16 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			tokens.CacheCreationInputTokens,
 			rates.CacheWrite,
 		)
+	}
+	if long := u.CacheCreation1hInputTokens; long > 0 {
+		// Only the aggregate reports one-hour writes, so they are priced at
+		// the selected rates and must come from the unattributed writes.
+		if rates.CacheWrite1h == nil ||
+			long > unattributed.CacheCreationInputTokens {
+			return Cost{}, false
+		}
+		unattributed.CacheCreationInputTokens -= long
+		cacheWrite.add(long, *rates.CacheWrite1h)
 	}
 	applyRates(unattributed, rates)
 	for _, modality := range slices.Sorted(maps.Keys(u.ModalityTokens)) {

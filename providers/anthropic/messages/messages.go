@@ -722,12 +722,15 @@ func decodeUsage(
 		return nil, "", nil, nil
 	}
 	var v struct {
-		InputTokens              int             `json:"input_tokens"`
-		OutputTokens             int             `json:"output_tokens"`
-		CacheCreationInputTokens int             `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int             `json:"cache_read_input_tokens"`
-		ServiceTier              string          `json:"service_tier"`
-		ServerToolUse            json.RawMessage `json:"server_tool_use"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		CacheCreation            struct {
+			OneHour int `json:"ephemeral_1h_input_tokens"`
+		} `json:"cache_creation"`
+		ServiceTier   string          `json:"service_tier"`
+		ServerToolUse json.RawMessage `json:"server_tool_use"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, "", nil, err
@@ -737,6 +740,8 @@ func decodeUsage(
 		OutputTokens:             v.OutputTokens,
 		CacheCreationInputTokens: v.CacheCreationInputTokens,
 		CacheReadInputTokens:     v.CacheReadInputTokens,
+		// The one-hour writes are part of cache_creation_input_tokens.
+		CacheCreation1hInputTokens: v.CacheCreation.OneHour,
 	}
 	var reported map[string]bool
 	if len(v.ServerToolUse) > 0 && string(v.ServerToolUse) != "null" {
