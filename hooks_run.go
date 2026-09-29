@@ -914,7 +914,9 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	}
 	if short {
 		current = limited
-		fact.Shortened = &facts
+		if facts.Limit > 0 {
+			fact.Shortened = &facts
+		}
 	}
 	if !sameJSONValue(current, base) {
 		current.CallID = fact.Call.ID

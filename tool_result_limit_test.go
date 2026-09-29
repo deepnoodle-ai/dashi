@@ -570,3 +570,89 @@ func TestShortenResultKeepsLargeMediaWithoutCopyingDiscardedText(t *testing.T) {
 		t.Fatalf("view = %+v", view.Output.Content)
 	}
 }
+
+func runBlocks(t *testing.T, blocks []content.Block) Outcome {
+	t.Helper()
+	agent := testAgent()
+	agent.Limits.ToolResultBytes = 2048
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+	}
+	exec := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		return tool.Outcome{
+			State:  tool.StateSucceeded,
+			Output: &tool.Output{Content: blocks},
+		}, nil
+	})
+	out, err := (Runner{
+		Agent:  agent,
+		Client: client,
+		Tools: tool.List{tool.Tool{
+			Definition: tool.Definition{
+				Name:   "remote",
+				Schema: []byte(`{"type":"object"}`),
+				Kind:   tool.KindLocal,
+			},
+			Executor: exec,
+		}},
+	}).Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+	})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	return out
+}
+
+func TestSeparatorOnlyShorteningSettlesAndReplays(t *testing.T) {
+	for name, text := range map[string]string{"empty": "", "tiny": "x"} {
+		var blocks []content.Block
+		for range 5000 {
+			blocks = append(blocks, content.TextBlock(text))
+		}
+		out := runBlocks(t, blocks)
+		view, err := Replay(cloneTurn(out.Turn))
+		if err != nil {
+			t.Fatalf("%s: replay: %v", name, err)
+		}
+		got := view.Tools["call-1"].Result()
+		if n := encodedTextBytes(got); n > 2048 {
+			t.Fatalf("%s: encoded %d bytes", name, n)
+		}
+		if name == "empty" && view.Tools["call-1"].Shortened() != nil {
+			t.Fatal("empty blocks omit no text, so there is no shortened record")
+		}
+		if name == "tiny" && view.Tools["call-1"].Shortened() == nil {
+			t.Fatal("omitted text needs a shortened record")
+		}
+		if toolResultText(t, out.Turn, "call-1") != modelText(got) {
+			t.Fatalf("%s: Project differs", name)
+		}
+	}
+}
+
+func TestShortenResultKeepsTextAndMediaOrder(t *testing.T) {
+	image := content.ImageBlock(content.Source{Data: []byte("img")})
+	r := llm.ToolResult{CallID: "c", Output: tool.Output{Content: []content.Block{
+		content.TextBlock("before-" + strings.Repeat("a", 3000)),
+		image,
+		content.TextBlock(strings.Repeat("b", 3000) + "-after"),
+	}}}
+	view, facts, ok := shortenResult(r, 2048)
+	if !ok || facts.Limit != 2048 || facts.OriginalBytes <= facts.ShownBytes {
+		t.Fatalf("ok=%v facts=%+v", ok, facts)
+	}
+	c := view.Output.Content
+	if len(c) != 3 || c[0].Text == nil || c[1].Kind != content.KindImage ||
+		c[2].Text == nil {
+		t.Fatalf("order = %+v", c)
+	}
+	if !strings.HasPrefix(c[0].Text.Text, "before-") ||
+		!strings.HasSuffix(c[2].Text.Text, "-after") {
+		t.Fatal("head and tail moved across the image")
+	}
+	if n := encodedTextBytes(view); n > 2048 {
+		t.Fatalf("encoded %d bytes", n)
+	}
+}

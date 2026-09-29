@@ -143,8 +143,10 @@ When a result is over the limit, the model sees the first half and the last
 half of the allowed text. A marker between them gives the original size and the
 omitted size. It asks for a smaller part and does not tell the model to run the
 call again. The cuts fall on rune boundaries, so the text stays valid UTF-8.
-The kept text becomes one text block, so providers add no separators between
-blocks. Images and other non-text blocks stay in place and do not count.
+Kept text stays in the block where it was, so text and images keep their
+order. The limit also counts the separators that providers add between text
+blocks, and Dashi drops empty text blocks. Images and other non-text blocks
+stay in place and do not count.
 
 The turn record keeps the full result in `ToolView.Outcome`. `ToolView.Result()`
 returns the model view, and `ToolView.Shortened()` returns the sizes and the

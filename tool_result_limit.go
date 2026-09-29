@@ -88,25 +88,31 @@ func shortenResult(
 	if len(all)+providerSeparators(blocks) <= limit {
 		return r, Shortened{}, false
 	}
-	if len(all) <= limit {
-		// Only the separators that providers add between text blocks push
-		// the request over the limit. One merged block has none.
-		view, _ := layoutResult(r, all, len(all), len(all), "")
-		return view, Shortened{
-			OriginalBytes: len(all),
-			ShownBytes:    len(all),
-			Limit:         limit,
-		}, true
+	// Empty text blocks carry nothing, but providers still join them. Drop
+	// them first. If that is enough, no text is omitted, so the view has no
+	// Shortened record (the zero Limit tells the caller).
+	nonEmpty := 0
+	for _, b := range r.Output.Content {
+		if b.Text != nil && b.Text.Text != "" {
+			nonEmpty++
+		}
+	}
+	if len(all)+providerSeparators(nonEmpty) <= limit {
+		view, _ := layoutResult(r, 0, 0, "")
+		return view, Shortened{}, true
 	}
 	// The marker's numbers are at most as long as these, so this budget is
-	// safe. Invalid bytes become three-byte U+FFFD, so the kept text can
-	// grow after the cut. Shrink the budget until the view fits.
-	budget := limit - len(toolResultMarker(len(all), len(all)))
+	// safe. Separators count against it. Invalid bytes become three-byte
+	// U+FFFD, so the kept text can grow after the cut. Shrink the budget
+	// until the view fits. At least one byte is always omitted.
+	budget := limit - len(toolResultMarker(len(all), len(all))) -
+		providerSeparators(nonEmpty)
+	budget = min(budget, len(all)-1)
 	for {
 		headEnd, tailStart := cutOffsets(all, budget)
 		shown := headEnd + len(all) - tailStart
 		marker := toolResultMarker(len(all), len(all)-shown)
-		view, size := layoutResult(r, all, headEnd, tailStart, marker)
+		view, size := layoutResult(r, headEnd, tailStart, marker)
 		if size <= limit || budget <= 0 {
 			return view, Shortened{
 				OriginalBytes: len(all),
@@ -144,37 +150,53 @@ func cutOffsets(s string, budget int) (int, int) {
 	return headEnd, tailStart
 }
 
-// layoutResult builds the shortened view from the text blocks of r, whose
-// text joined is all. The kept head, the marker, and the kept tail become one
-// text block at the place of the first text block, so providers add no
-// separators. Invalid bytes in kept text become U+FFFD, and the merged block
-// has no citations, since their character ranges no longer match. Non-text
-// blocks stay in order and are copied. It also returns the view's text size.
+// layoutResult builds the shortened view from the text blocks of r, which
+// are one sequence of text. It keeps the text before headEnd and from
+// tailStart on, in the blocks where it was, and puts the marker at headEnd.
+// Text blocks left empty are dropped. Non-text blocks stay in order and are
+// copied. A text block that changes loses its citations, since their
+// character ranges no longer match, and invalid bytes in kept text become
+// U+FFFD. It also returns the size the view has for providers: its text plus
+// the separators they add between text blocks.
 func layoutResult(
 	r llm.ToolResult,
-	all string,
 	headEnd, tailStart int,
 	marker string,
 ) (llm.ToolResult, int) {
-	kept := strings.ToValidUTF8(
-		all[:headEnd]+marker+all[max(tailStart, headEnd):],
-		"\uFFFD",
-	)
+	tailStart = max(tailStart, headEnd)
 	out := r
 	// Copy nothing else: only the blocks kept are cloned below.
 	out.Output.Content = make([]content.Block, 0, len(r.Output.Content))
 	// No provider sends Display to the model, so the view drops it.
 	out.Output.Display = ""
-	placed := false
+	offset, size, texts := 0, 0, 0
+	placed := marker == ""
 	for _, b := range r.Output.Content {
 		if b.Text == nil {
 			out.Output.Content = append(out.Output.Content, b.Clone())
 			continue
 		}
-		if !placed && kept != "" {
-			out.Output.Content = append(out.Output.Content, content.TextBlock(kept))
+		t := b.Text.Text
+		n := len(t)
+		h := min(max(headEnd-offset, 0), n)
+		tl := min(max(tailStart-offset, h), n)
+		offset += n
+		piece := t[:h]
+		if !placed && headEnd <= offset {
+			piece += marker
+			placed = true
 		}
-		placed = true
+		piece = strings.ToValidUTF8(piece+t[tl:], "\uFFFD")
+		if piece == "" {
+			continue
+		}
+		if piece == t {
+			out.Output.Content = append(out.Output.Content, b.Clone())
+		} else {
+			out.Output.Content = append(out.Output.Content, content.TextBlock(piece))
+		}
+		size += len(piece)
+		texts++
 	}
-	return out, len(kept)
+	return out, size + providerSeparators(texts)
 }

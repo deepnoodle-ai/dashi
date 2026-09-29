@@ -111,7 +111,7 @@ does for other limits. A resumed turn keeps its limit if the default changes.
 The limit counts the text bytes of all text blocks of one result, errors
 included, plus up to 2 bytes for each gap between text blocks, because
 providers join blocks with `\n` or `\n\n`. The view, marker included, holds at
-most `ToolResultBytes` bytes of text. A shortened view has one text block.
+most `ToolResultBytes` bytes of text. Kept text stays in its original block, so text and non-text blocks keep their order. Empty text blocks are dropped. If that alone brings the result under the limit, no text is omitted and no shortened record is written.
 
 - **Under the limit:** the view equals the original. Nothing is recorded.
 - **Over the limit:** the view keeps the first half and the last half of the
