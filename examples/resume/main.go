@@ -115,7 +115,7 @@ func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 	if err != nil {
 		return dashi.Runner{}, fmt.Errorf("resume: create client: %w", err)
 	}
-	sendEmail, err := tool.Func(
+	sendEmail := tool.MustFunc(
 		"send_email",
 		"Sends an email. Delivery is confirmed later by the mail service.",
 		func(_ context.Context, call tool.Call, in emailArgs) (tool.Outcome, error) {
@@ -127,9 +127,6 @@ func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 		},
 		tool.WithStrictArguments(),
 	)
-	if err != nil {
-		return dashi.Runner{}, fmt.Errorf("resume: create tool: %w", err)
-	}
 	return dashi.Runner{
 		Client:   client,
 		Tools:    tool.List{sendEmail},

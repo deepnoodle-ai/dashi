@@ -116,6 +116,22 @@ func Func[T any](
 	return Tool{Definition: d, Executor: executor}, nil
 }
 
+// MustFunc is like Func but panics when the tool cannot be built, for a
+// tool defined once at startup whose argument type is fixed. Like
+// regexp.MustCompile, the panic reports a programming error found on first
+// use.
+func MustFunc[T any](
+	name, description string,
+	fn func(context.Context, Call, T) (Outcome, error),
+	options ...FuncOption,
+) Tool {
+	t, err := Func(name, description, fn, options...)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
 // ValidateArguments applies the same schema and Go field-name policy used by
 // Execute. The runner calls it before BeforeTool and after argument rewrites.
 func (e typedExecutor[T]) ValidateArguments(args json.RawMessage) error {

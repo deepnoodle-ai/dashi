@@ -42,7 +42,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("budget: create client: %w", err)
 	}
-	stock, err := tool.Func("check_stock", "Returns units in stock for a SKU.",
+	stock := tool.MustFunc("check_stock", "Returns units in stock for a SKU.",
 		func(_ context.Context, _ tool.Call, in stockArgs) (tool.Outcome, error) {
 			return tool.Succeeded("42 units"), nil
 		})
@@ -62,9 +62,6 @@ func run(ctx context.Context) error {
 		))},
 		Budget: &dashi.Budget{MaxCost: usd("0.001")},
 	})
-	if err != nil {
-		return fmt.Errorf("budget: start: %w", err)
-	}
 	report(out)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Terminal {
 		return nil

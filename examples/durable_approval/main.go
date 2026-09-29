@@ -42,7 +42,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("durable_approval: create client: %w", err)
 	}
-	deploy, err := tool.Func(
+	deploy := tool.MustFunc(
 		"deploy",
 		"Deploys a version of the application to an environment.",
 		func(_ context.Context, _ tool.Call, in deployArgs) (tool.Outcome, error) {
@@ -52,9 +52,6 @@ func run(ctx context.Context) error {
 		},
 		tool.WithStrictArguments(),
 	)
-	if err != nil {
-		return fmt.Errorf("durable_approval: create tool: %w", err)
-	}
 	runner := dashi.Runner{
 		Client: client,
 		Tools:  tool.List{deploy},

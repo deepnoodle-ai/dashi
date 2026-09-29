@@ -400,9 +400,9 @@ None is counted among the 24 items above.
 - **Hooks example durability bug** (done in PR #86): its
   `BeforeFinish` hook keeps `nudged` in a closure, so a resume in another
   process nudges again. Read the turn record instead.
-- **`tool.MustFunc`** for static tools, so a tool needs no `if err` block. Skip
-  a handler without `tool.Call` and a `string` return: each is a second way to
-  write a tool, to save a few characters. #87
+- **`tool.MustFunc`** (done, #87) for static tools, so a tool needs no `if err`
+  block. Skip a handler without `tool.Call` and a `string` return: each is a
+  second way to write a tool, to save a few characters.
 - **Terminal prompt helper** for examples (`examples/internal/prompt`); the
   approval examples copy about 25 lines of stdin handling. #88
 - **Example boilerplate:** drop the hand-prefixed error strings. #89

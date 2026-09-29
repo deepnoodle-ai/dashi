@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("bigresult: create client: %w", err)
 	}
-	fetch, err := tool.Func(
+	fetch := tool.MustFunc(
 		"fetch_log",
 		"Returns the log of a service.",
 		func(_ context.Context, _ tool.Call, in logArgs) (tool.Outcome, error) {
@@ -53,9 +53,6 @@ func run(ctx context.Context) error {
 			return tool.Succeeded(b.String()), nil
 		},
 	)
-	if err != nil {
-		return fmt.Errorf("bigresult: create tool: %w", err)
-	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{fetch}}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{

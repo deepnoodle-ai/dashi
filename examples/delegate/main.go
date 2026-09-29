@@ -43,10 +43,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("delegate: create client: %w", err)
 	}
-	search, err := newSearchTool()
-	if err != nil {
-		return fmt.Errorf("delegate: create tool: %w", err)
-	}
+	search := newSearchTool()
 
 	// The whole wiring: a session, a Tasks value with its tools, and one
 	// OnTask callback that puts each finished result on the session.
@@ -116,8 +113,8 @@ func printChild(e delegate.ChildEvent) {
 
 // newSearchTool returns a read-only tool over canned notes. The read-only
 // annotation is what lets the explore subagent use it.
-func newSearchTool() (tool.Tool, error) {
-	search, err := tool.Func(
+func newSearchTool() tool.Tool {
+	return tool.MustFunc(
 		"search_notes",
 		"Searches the team notes and returns matching lines.",
 		func(_ context.Context, _ tool.Call, _ searchArgs) (tool.Outcome, error) {
@@ -127,8 +124,4 @@ func newSearchTool() (tool.Tool, error) {
 		},
 		tool.ReadOnly(),
 	)
-	if err != nil {
-		return tool.Tool{}, err
-	}
-	return search, nil
 }

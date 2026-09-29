@@ -44,7 +44,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("redact: create client: %w", err)
 	}
-	lookup, err := tool.Func(
+	lookup := tool.MustFunc(
 		"lookup_customer",
 		"Returns a customer's account record.",
 		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
@@ -54,9 +54,6 @@ func run(ctx context.Context) error {
 			)), nil
 		},
 	)
-	if err != nil {
-		return fmt.Errorf("redact: create tool: %w", err)
-	}
 	// Returning a replacement every time is fine: one that changes nothing
 	// counts as no opinion and is not recorded.
 	redact := dashi.ResultHook{Name: "redact", Func: func(

@@ -43,7 +43,7 @@ func run(ctx context.Context) error {
 	defer cancel()
 
 	// A slow tool, so the readers see the turn in progress.
-	weather, err := tool.Func(
+	weather := tool.MustFunc(
 		"check_weather",
 		"Returns the current weather for a city.",
 		func(ctx context.Context, _ tool.Call, in cityArgs) (tool.Outcome, error) {
@@ -55,9 +55,6 @@ func run(ctx context.Context) error {
 			return tool.Succeeded(in.City + ": 18°C and clear"), nil
 		},
 	)
-	if err != nil {
-		return fmt.Errorf("live_follow: create tool: %w", err)
-	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return fmt.Errorf("live_follow: create client: %w", err)

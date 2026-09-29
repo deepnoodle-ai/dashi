@@ -48,7 +48,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("steering: create client: %w", err)
 	}
-	search, err := tool.Func(
+	search := tool.MustFunc(
 		"slow_search",
 		"Looks up a topic. Takes a few seconds.",
 		func(ctx context.Context, _ tool.Call, in searchArgs) (tool.Outcome, error) {
@@ -62,9 +62,6 @@ func run(ctx context.Context) error {
 				"knowledge; this demo search returns no data."), nil
 		},
 	)
-	if err != nil {
-		return fmt.Errorf("steering: create tool: %w", err)
-	}
 	agent := dashi.Agent{
 		Model: os.Getenv("ANTHROPIC_MODEL"),
 		Instructions: "Answer briefly. Use slow_search once before " +

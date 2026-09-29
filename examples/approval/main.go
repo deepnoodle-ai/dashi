@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("approval: create client: %w", err)
 	}
-	deploy, err := tool.Func(
+	deploy := tool.MustFunc(
 		"deploy",
 		"Deploys a version of the application to an environment.",
 		func(_ context.Context, _ tool.Call, in deployArgs) (tool.Outcome, error) {
@@ -51,9 +51,6 @@ func run(ctx context.Context) error {
 		},
 		tool.WithStrictArguments(),
 	)
-	if err != nil {
-		return fmt.Errorf("approval: create tool: %w", err)
-	}
 	// OnTool decodes the call's arguments into the tool's own type. A
 	// denial's reason is what the model sees as the call's result.
 	lines := make(chan string)

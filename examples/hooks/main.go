@@ -43,7 +43,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("hooks: create client: %w", err)
 	}
 	// A fake shell: it only reports a canned result.
-	shell, err := tool.Func("run_shell", "Runs a shell command on the ops host.",
+	shell := tool.MustFunc("run_shell", "Runs a shell command on the ops host.",
 		func(_ context.Context, _ tool.Call, in shellArgs) (tool.Outcome, error) {
 			fmt.Printf("   run_shell: %s\n", in.Command)
 			return tool.Succeeded("Filesystem  Use%\n/dev/sda1   91%"), nil
@@ -118,9 +118,6 @@ func run(ctx context.Context) error {
 			"Check disk usage with `df -h` on staging, then on prod-db-1.",
 		))},
 	})
-	if err != nil {
-		return fmt.Errorf("hooks: %w", err)
-	}
 	fmt.Printf("\nStop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }

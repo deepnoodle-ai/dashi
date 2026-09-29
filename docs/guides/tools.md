@@ -10,7 +10,7 @@ Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, then run
 `go run ./examples/tools` or `go run ./examples/hosted_tools`.
 
 ```go
-weather, err := tool.Func(
+weather := tool.MustFunc(
     "get_weather",
     "Get the current weather for a city.",
     func(
@@ -21,7 +21,6 @@ weather, err := tool.Func(
         return tool.Succeeded("18°C, partly cloudy"), nil
     },
 )
-// Handle err, then:
 search, err := messages.NewWebSearchTool(messages.WebSearchToolOptions{})
 // Handle err, then:
 runner.Tools = tool.List{weather, search}
@@ -58,7 +57,8 @@ list does not matter.
 
 `tool.Func` generates the tool's input schema from its argument type `T` once,
 when the tool is built, and validates every call against it before your
-function runs. The rules:
+function runs. `tool.MustFunc` is the same but panics instead of returning an
+error, for a tool built once at startup, as the examples do. The rules:
 
 - `T` must be a struct or a pointer to one, other than `time.Time`;
   `tool.Func` returns an error otherwise, including for maps and `any`.
@@ -110,7 +110,7 @@ whose exact argument names matter, including a side-effecting tool whose
 approval display lists only declared fields:
 
 ```go
-deploy, err := tool.Func("deploy", "Deploy a version", deployFn,
+deploy := tool.MustFunc("deploy", "Deploy a version", deployFn,
     tool.WithStrictArguments())
 ```
 
@@ -144,7 +144,7 @@ for one where a repeat has the same effect as one call. They set
 nil, meaning unknown.
 
 ```go
-search, err := tool.Func("search_notes", "Searches the notes.", searchFn,
+search := tool.MustFunc("search_notes", "Searches the notes.", searchFn,
     tool.ReadOnly())
 ```
 

@@ -36,10 +36,7 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	process, err := newProcessTool()
-	if err != nil {
-		return fmt.Errorf("tool_progress: create tool: %w", err)
-	}
+	process := newProcessTool()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return fmt.Errorf("tool_progress: create client: %w", err)
@@ -88,8 +85,8 @@ func run(ctx context.Context) error {
 // newProcessTool simulates a job that processes records one by one and
 // reports a snapshot after each. Total is known here; a tool that cannot
 // know it leaves Total zero and reports only Message.
-func newProcessTool() (tool.Tool, error) {
-	return tool.Func(
+func newProcessTool() tool.Tool {
+	return tool.MustFunc(
 		"process_dataset",
 		"Processes the named dataset record by record.",
 		func(ctx context.Context, _ tool.Call, in processArgs) (tool.Outcome, error) {

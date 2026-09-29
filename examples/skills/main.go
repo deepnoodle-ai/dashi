@@ -68,10 +68,7 @@ func run(ctx context.Context, dir string) error {
 	if err != nil {
 		return fmt.Errorf("skills: bundle: %w", err)
 	}
-	lookup, err := lookupTool()
-	if err != nil {
-		return fmt.Errorf("skills: create tool: %w", err)
-	}
+	lookup := lookupTool()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return fmt.Errorf("skills: create client: %w", err)
@@ -92,8 +89,8 @@ func run(ctx context.Context, dir string) error {
 	return nil
 }
 
-func lookupTool() (tool.Tool, error) {
-	return tool.Func(
+func lookupTool() tool.Tool {
+	return tool.MustFunc(
 		"incident_lookup",
 		"Look up a fictional incident.",
 		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
