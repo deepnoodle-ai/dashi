@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/examples/internal/prompt"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 	"github.com/deepnoodle-ai/dashi/workspace"
@@ -38,14 +38,7 @@ func main() {
 
 // run sets no timeout, because the turn waits for a person to answer.
 func run(ctx context.Context, dir, task string) error {
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
+	stdin := prompt.Stdin()
 	ws, err := workspace.New(dir)
 	if err != nil {
 		return fmt.Errorf("coding: open workspace: %w", err)
@@ -57,12 +50,11 @@ func run(ctx context.Context, dir, task string) error {
 			for _, c := range q.Choices {
 				fmt.Printf("  - %s: %s\n", c.Label, c.Description)
 			}
-			fmt.Print("> ")
-			line, err := readLine(ctx, lines)
+			line, err := stdin.Ask(ctx, "> ")
 			if err != nil {
 				return workspace.Answer{}, err
 			}
-			return workspace.Answer{Text: strings.TrimSpace(line)}, nil
+			return workspace.Answer{Text: line}, nil
 		},
 	))
 	// Reads run without a prompt. Writes and shell commands ask. Answering
@@ -71,12 +63,11 @@ func run(ctx context.Context, dir, task string) error {
 		ctx context.Context,
 		r workspace.ApprovalRequest,
 	) (workspace.Approval, error) {
-		fmt.Printf("\n%sAllow? [y/N/a] ", describe(r))
-		line, err := readLine(ctx, lines)
+		line, err := stdin.Ask(ctx, "\n"+describe(r)+"Allow? [y/N/a] ")
 		if err != nil {
 			return workspace.Approval{}, err
 		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
+		switch strings.ToLower(line) {
 		case "y":
 			return workspace.Approval{Allow: true}, nil
 		case "a":
@@ -119,14 +110,4 @@ func describe(r workspace.ApprovalRequest) string {
 		return fmt.Sprintf("Run in %s:\n%s\n", r.Dir, r.Command)
 	}
 	return r.Summary + "\n" + r.Preview + "\n"
-}
-
-// readLine returns the next line, "" at end of input, or ctx's error on Ctrl-C.
-func readLine(ctx context.Context, lines <-chan string) (string, error) {
-	select {
-	case line := <-lines:
-		return line, nil
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
 }

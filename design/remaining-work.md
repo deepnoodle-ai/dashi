@@ -403,8 +403,9 @@ None is counted among the 24 items above.
 - **`tool.MustFunc`** (done, #87) for static tools, so a tool needs no `if err`
   block. Skip a handler without `tool.Call` and a `string` return: each is a
   second way to write a tool, to save a few characters.
-- **Terminal prompt helper** for examples (`examples/internal/prompt`); the
-  approval examples copy about 25 lines of stdin handling. #88
+- **Terminal prompt helper** (done, #88) for examples
+  (`examples/internal/prompt`); the approval examples copy about 25 lines of
+  stdin handling.
 - **Example boilerplate:** drop the hand-prefixed error strings. #89
 - **Hook helpers:** a "seed context once" helper (`SeedContext`) and a "have I
   acted in this turn?" read from the record. Smaller: `JoinHooks` could take the

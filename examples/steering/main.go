@@ -13,7 +13,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/examples/internal/prompt"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -73,14 +73,7 @@ func run(ctx context.Context) error {
 	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{search}}
 
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
+	lines := prompt.Stdin().Lines()
 
 	inbox := dashi.NewInbox()
 	var history, input []llm.Message
