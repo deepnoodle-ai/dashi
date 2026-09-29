@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -195,6 +196,8 @@ type harness struct {
 	ui     *recorderUI
 	app    *app
 	limit  int
+	// recorder, when set, wraps the recorder of the next build.
+	recorder func(*session.Recorder) dashi.Recorder
 	// notes counts runs of the write_note tool.
 	notes atomic.Int32
 }
@@ -232,6 +235,7 @@ func (h *harness) build(o Options) {
 		Store:  h.store,
 
 		ModelAttempts: h.limit,
+		recorder:      h.recorder,
 	}, h.ui)
 	if err != nil {
 		h.t.Fatal(err)
@@ -241,6 +245,40 @@ func (h *harness) build(o Options) {
 	}
 	h.t.Cleanup(a.eng.Close)
 	h.app = a
+}
+
+// turns returns the number of turns of the open session.
+func (h *harness) turns() int {
+	return h.app.eng.Turns(h.t.Context())
+}
+
+// turn loads turn n of the open session from its record.
+func (h *harness) turn(n int) dashi.Turn {
+	h.t.Helper()
+	s := h.app.eng.Session()
+	rec, err := h.store.Recorder(s)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	turn, err := rec.Load(h.t.Context(), dashi.TurnID(s.ID, n))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return turn
+}
+
+// turnsOf returns the number of turns a stored session has.
+func turnsOf(t *testing.T, st *session.Store, s *session.Session) int {
+	t.Helper()
+	rec, err := st.Recorder(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := rec.LastTurn(t.Context(), s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func (h *harness) input(line string) {

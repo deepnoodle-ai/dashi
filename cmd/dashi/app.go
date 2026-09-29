@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
@@ -19,6 +20,9 @@ type appConfig struct {
 	Store  *session.Store
 	// ModelAttempts overrides the per-turn model-call limit; zero means 40.
 	ModelAttempts int
+
+	// recorder wraps each session's recorder; tests use it.
+	recorder func(*session.Recorder) dashi.Recorder
 }
 
 // app is the engine and controller wired to one UI.
@@ -52,6 +56,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Wiring:        w,
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { ui.Emit(printable(b)) },
+		recorder:      cfg.recorder,
 	})
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
 	return &app{eng: eng, ctrl: ctrl, wiring: w}, nil

@@ -15,7 +15,6 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
-	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // ErrNotFound reports that no session matches the request.
@@ -24,24 +23,18 @@ var ErrNotFound = errors.New("session: not found")
 // ErrBusy reports that another process holds the session.
 var ErrBusy = errors.New("session: in use by another dashi process")
 
-// Session is the saved state of one conversation.
+// Session is the metadata of one conversation. Its turns are the records
+// of the dashi.Session with the same ID.
 type Session struct {
 	ID string `json:"id"`
 	// Dir is the repository path the session belongs to.
 	Dir string `json:"dir"`
 	// Title is the first prompt, shortened.
 	Title string `json:"title"`
-	Model string `json:"model"`
-	// Turns lists turn IDs in order. Each ID is the session ID, a dash, and
-	// the turn's number.
-	Turns   []string  `json:"turns"`
+	// Model is the model the next new turn uses.
+	Model   string    `json:"model"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
-}
-
-// NextTurnID returns the ID the next turn of s gets.
-func (s *Session) NextTurnID() string {
-	return fmt.Sprintf("%s-%d", s.ID, len(s.Turns)+1)
 }
 
 // Store keeps sessions under one root directory, one subdirectory each.
@@ -155,7 +148,7 @@ func (st *Store) List(dir string) ([]Session, error) {
 			continue
 		}
 		s, err := st.Load(e.Name())
-		if err != nil || s.Dir != dir || len(s.Turns) == 0 {
+		if err != nil || s.Dir != dir || !st.HasTurns(s) {
 			continue
 		}
 		out = append(out, *s)
@@ -180,14 +173,91 @@ func (st *Store) Latest(dir string) (*Session, error) {
 	return &all[0], nil
 }
 
+// Saved reports whether s has a session file: its first turn has started.
+func (st *Store) Saved(s *Session) bool {
+	_, err := os.Stat(filepath.Join(st.root, s.ID, "session.json"))
+	return err == nil
+}
+
+// HasTurns reports whether the record holds turn 1 of s.
+func (st *Store) HasTurns(s *Session) bool {
+	rec, err := st.Recorder(s)
+	if err != nil {
+		return false
+	}
+	ok, err := rec.exists(dashi.TurnID(s.ID, 1))
+	return err == nil && ok
+}
+
 // Recorder returns the turn recorder of s. The turn logs live in the
 // session's own directory.
-func (st *Store) Recorder(s *Session) (*filerecorder.Recorder, error) {
-	return filerecorder.New(filerecorder.Config{
+func (st *Store) Recorder(s *Session) (*Recorder, error) {
+	rec, err := filerecorder.New(filerecorder.Config{
 		Dir:         filepath.Join(st.root, s.ID, "turns"),
 		DisableSync: !st.sync,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &Recorder{Recorder: rec}, nil
 }
+
+// Recorder is a filerecorder that also finds a session's last turn by which
+// turn logs exist (dashi.SessionIndex), without reading them. A dashi.Session
+// otherwise probes by reading steps, and a damaged log would then hide every
+// turn after it; this way the session skips that turn with a warning.
+type Recorder struct {
+	*filerecorder.Recorder
+}
+
+// LastTurn returns the highest n for which turn n of the session has a log
+// with content. It doubles the distance until a log is missing, then
+// searches between, so it stats about 2·log2(n) files.
+func (r *Recorder) LastTurn(_ context.Context, sessionID string) (int, error) {
+	has := func(n int) (bool, error) {
+		return r.exists(dashi.TurnID(sessionID, n))
+	}
+	lo, hi := 0, 0
+	for step := 1; hi == 0; step *= 2 {
+		ok, err := has(step)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			lo = step
+		} else {
+			hi = step
+		}
+	}
+	for hi-lo > 1 {
+		mid := lo + (hi-lo)/2
+		ok, err := has(mid)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return lo, nil
+}
+
+// exists reports whether a turn's log has content. A rejected first write
+// can leave an empty file, which is no turn.
+func (r *Recorder) exists(turnID string) (bool, error) {
+	info, err := os.Stat(r.Path(turnID))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return info.Size() > 0, nil
+}
+
+var _ dashi.SessionIndex = (*Recorder)(nil)
 
 // Lock claims s for this process until the returned function runs. It
 // returns ErrBusy when another process holds it.
@@ -210,59 +280,6 @@ func (st *Store) Lock(s *Session) (unlock func(), err error) {
 	}
 	// Closing the file releases the flock.
 	return func() { f.Close() }, nil
-}
-
-// History is the model-visible conversation built from turn records.
-type History struct {
-	Messages []llm.Message
-	// Notices names each turn left out, with the reason.
-	Notices []string
-}
-
-// History returns the messages of every turn of s.
-func (st *Store) History(
-	ctx context.Context,
-	rec dashi.Loader,
-	s *Session,
-) (History, error) {
-	return st.HistoryBefore(ctx, rec, s, len(s.Turns))
-}
-
-// HistoryBefore returns the messages of the first n turns of s. It is the
-// only place that builds model history. A turn that cannot be loaded or
-// projected is skipped and named in Notices, and the rest still count. Only
-// a canceled context stops it.
-//
-// A compaction summary, when the CLI has one, applies here over the
-// projected messages.
-func (st *Store) HistoryBefore(
-	ctx context.Context,
-	rec dashi.Loader,
-	s *Session,
-	n int,
-) (History, error) {
-	var h History
-	for i, id := range s.Turns[:min(n, len(s.Turns))] {
-		if err := ctx.Err(); err != nil {
-			return History{}, err
-		}
-		turn, err := rec.Load(ctx, id)
-		if err != nil {
-			h.Notices = append(h.Notices, fmt.Sprintf(
-				"Turn %d skipped: %v.", i+1, err,
-			))
-			continue
-		}
-		msgs, err := dashi.Project(turn)
-		if err != nil {
-			h.Notices = append(h.Notices, fmt.Sprintf(
-				"Turn %d skipped: %v.", i+1, err,
-			))
-			continue
-		}
-		h.Messages = append(h.Messages, msgs...)
-	}
-	return h, nil
 }
 
 // Root returns the directory that holds the sessions.

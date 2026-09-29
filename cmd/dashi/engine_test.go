@@ -49,7 +49,7 @@ func TestPromptStreamsTextAndFooter(t *testing.T) {
 	mustHave(t, text, "The fix is done.")
 	mustHave(t, text, "[turn 1 | fixture | 1 model call | 120 tokens]")
 	s := h.app.eng.Session()
-	if len(s.Turns) != 1 || s.Title != "fix the test" {
+	if h.turns() != 1 || s.Title != "fix the test" {
 		t.Fatalf("session=%+v", s)
 	}
 	// Streamed text and the settled text are one block.
@@ -177,8 +177,8 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
-	if len(h.app.eng.Session().Turns) != 1 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 1 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 
@@ -205,9 +205,8 @@ func TestSteerReachesRunningTurn(t *testing.T) {
 		t.Fatalf("the queued line was not replaced:\n%s", h.ui.text())
 	}
 	// The recorded turn holds the steer, and the model saw it.
-	last := h.app.eng.Last(t.Context())
 	found := false
-	for _, s := range last.Turn.Steps {
+	for _, s := range h.turn(1).Steps {
 		if s.Context != nil && s.Context.Steering {
 			found = true
 		}
@@ -239,9 +238,8 @@ func TestLimitStopThenContinueSameTurn(t *testing.T) {
 	if strings.Contains(h.ui.text(), "system note") {
 		t.Fatal("/continue added a note")
 	}
-	s := h.app.eng.Session()
-	if len(s.Turns) != 1 {
-		t.Fatalf("/continue made a new turn: %v", s.Turns)
+	if n := h.turns(); n != 1 {
+		t.Fatalf("/continue made a new turn: %d turns", n)
 	}
 	last := h.app.eng.Last(t.Context())
 	if last.View.Stop.Kind != dashi.StopCompleted {
@@ -270,7 +268,7 @@ func TestNewPromptCancelsUnfinishedTurn(t *testing.T) {
 	h.input("second")
 	mustHave(t, h.ui.text(), "Turn 1 canceled.")
 	mustHave(t, h.ui.text(), "Fresh answer.")
-	if n := len(h.app.eng.Session().Turns); n != 2 {
+	if n := h.turns(); n != 2 {
 		t.Fatalf("turns=%d", n)
 	}
 }
@@ -308,7 +306,7 @@ func TestModelChangeThenResumeKeepsRecordedModel(t *testing.T) {
 	if got := h.client.inputAt(2).Model; got != "gpt-6-luna" {
 		t.Fatalf("next turn model=%s, want gpt-6-luna", got)
 	}
-	if n := len(h.app.eng.Session().Turns); n != 2 {
+	if n := h.turns(); n != 2 {
 		t.Fatalf("turns=%d", n)
 	}
 }
@@ -335,8 +333,8 @@ func TestResumeShowsScrollbackAndKeepsHistory(t *testing.T) {
 			t.Fatalf("model input lacks %q:\n%s", want, got)
 		}
 	}
-	if len(h.app.eng.Session().Turns) != 2 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 2 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 
@@ -349,7 +347,7 @@ func TestResumeSkipsUnreadableTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := h.app.eng.Session().Turns[0]
+	bad := dashi.TurnID(h.app.eng.Session().ID, 1)
 	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -537,8 +535,8 @@ func TestEnterRetriesFailedTurn(t *testing.T) {
 	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
-	if len(h.app.eng.Session().Turns) != 1 {
-		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	if h.turns() != 1 {
+		t.Fatalf("turns=%d", h.turns())
 	}
 }
 

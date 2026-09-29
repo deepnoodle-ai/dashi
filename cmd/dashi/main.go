@@ -183,7 +183,7 @@ func runLines(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	if s := a.eng.Session(); len(s.Turns) > 0 {
+	if s := a.eng.Session(); a.eng.Saved() {
 		fmt.Fprintf(stdout, "Session %s saved. Resume with: dashi --resume %s\n",
 			s.ID, s.ID)
 	}
@@ -232,7 +232,7 @@ func runScreen(
 	a.ctrl.Wait()
 	scr.drain()
 	scr.dumpTranscript(stdout)
-	if s := a.eng.Session(); len(s.Turns) > 0 {
+	if s := a.eng.Session(); a.eng.Saved() {
 		fmt.Fprintf(stdout, "\nSession %s saved. Resume with: dashi --resume %s\n",
 			s.ID, s.ID)
 	}

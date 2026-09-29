@@ -49,7 +49,7 @@ func TestResumeSkipsEmptySessions(t *testing.T) {
 		t.Fatalf("code=%d %s", code, errOut.String())
 	}
 	latest, err := h.store.Latest(h.dir)
-	if err != nil || latest.ID != work || len(latest.Turns) != 2 {
+	if err != nil || latest.ID != work || turnsOf(t, h.store, latest) != 2 {
 		t.Fatalf("latest=%+v err=%v", latest, err)
 	}
 
@@ -83,7 +83,7 @@ func TestEnterAfterLimitStopContinues(t *testing.T) {
 	if strings.Contains(h.ui.text(), "warning") {
 		t.Fatalf("a warning was shown:\n%s", h.ui.text())
 	}
-	if n := len(h.app.eng.Session().Turns); n != 1 {
+	if n := h.turns(); n != 1 {
 		t.Fatalf("turns=%d", n)
 	}
 
@@ -252,13 +252,13 @@ func TestMissedSteerKeepsLimitStoppedTurn(t *testing.T) {
 	if !h.app.eng.Last(t.Context()).LimitStopped() {
 		t.Fatalf("the turn is not limit-stopped:\n%s", h.ui.text())
 	}
-	if n := len(h.app.eng.Session().Turns); n != 1 {
+	if n := h.turns(); n != 1 {
 		t.Fatalf("turns=%d, the steer became a new turn", n)
 	}
 	h.input("")
 	mustHave(t, h.ui.text(), "steer delivered: also check b.txt")
 	mustHave(t, h.ui.text(), "All done.")
-	if n := len(h.app.eng.Session().Turns); n != 1 {
+	if n := h.turns(); n != 1 {
 		t.Fatalf("turns=%d", n)
 	}
 }

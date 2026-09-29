@@ -42,6 +42,8 @@ const (
 const (
 	SteerQueued    = "queued"
 	SteerDelivered = "delivered"
+	// SteerNext is input that waits for the next turn.
+	SteerNext = "next"
 )
 
 // Block is one item of the transcript. A block with an ID that the transcript
@@ -457,8 +459,11 @@ func FormatBlock(b Block) string {
 	case KindDiff:
 		return strings.Join(b.Lines, "\n")
 	case KindSteer:
-		if b.State == SteerDelivered {
+		switch b.State {
+		case SteerDelivered:
 			return "  steer delivered: " + b.Text
+		case SteerNext:
+			return "  queued for the next turn: " + b.Text
 		}
 		return "  steer queued: " + b.Text
 	case KindWarning:

@@ -191,7 +191,12 @@ func (c *Controller) Open() {
 		c.emit(b)
 	}
 	last := c.eng.Last(ctx)
+	id, name := last.OpenCall()
 	switch {
+	case id != "":
+		c.notice("Turn %d stopped while %s was running (call %s), and it may "+
+			"still be running. Type /done once it has finished, or /discard "+
+			"to discard the turn.", last.N, name, id)
 	case last.LimitStopped():
 		// The limit stop block is already in the scrollback.
 	case last.Retryable():
@@ -295,21 +300,34 @@ func (c *Controller) steer(line string) {
 }
 
 // duringTurnCommand handles a line that names a slash command while a turn
-// runs. The line is not a steer. /help runs now; the others wait for the end
-// of the turn. It reports whether the line was a command.
+// runs. The line is not a steer. /help and /queue run now; the others wait
+// for the end of the turn. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
-	name, _, _ := strings.Cut(line, " ")
+	name, arg, _ := strings.Cut(line, " ")
 	switch name {
 	case "/exit":
 		c.steer("/quit")
 	case "/help":
 		c.command(line)
-	case "/continue", "/new", "/model", "/sessions":
+	case "/queue":
+		c.queue(arg)
+	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
 		c.notice("%s runs when the turn ends. Press Ctrl-C to stop the turn.", name)
 	default:
 		return false
 	}
 	return true
+}
+
+// queue holds text as the next prompt.
+func (c *Controller) queue(text string) {
+	if strings.TrimSpace(text) == "" {
+		c.notice("/queue needs the text of the next prompt.")
+		return
+	}
+	if err := c.eng.Queue(strings.TrimSpace(text)); err != nil {
+		c.emit(warnBlock("The prompt was not queued: %v.", err))
+	}
 }
 
 func (c *Controller) prompt(text string) {
@@ -325,31 +343,47 @@ func (c *Controller) resume() {
 	c.startRun(c.eng.Resume)
 }
 
-// startRun runs fn in the background in the running mode. When it ends, steers
-// that missed the turn become the next prompt.
+// startRun runs fn in the background in the running mode. Steers that
+// missed the turn, and queued prompts, run as the next turns within fn.
 func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
 	c.mode, c.cancel = ModeRunning, cancel
 	c.mu.Unlock()
 	c.wg.Go(func() {
-		res, err := fn(ctx)
+		_, err := fn(ctx)
 		cancel()
 		c.mu.Lock()
 		c.mode, c.cancel = ModeIdle, nil
 		quit := c.quit
 		c.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			c.emit(warnBlock("%v", err))
+			c.emit(warnBlock("%s", busyText(err)))
 		}
-		switch {
-		case quit:
+		if quit {
 			c.ui.Quit()
-		case len(res.Leftovers) > 0 && err == nil &&
-			res.Outcome.Stop.Kind != dashi.StopInterrupted:
-			c.prompt(strings.Join(res.Leftovers, "\n"))
 		}
 	})
+}
+
+// busyText says what to do when the session refuses a prompt, or returns
+// the error's own text.
+func busyText(err error) string {
+	var busy *dashi.TurnBusyError
+	if !errors.As(err, &busy) {
+		return err.Error()
+	}
+	n := turnNumber(busy.TurnID)
+	switch {
+	case busy.CallID != "":
+		return fmt.Sprintf("The last command (call %s in turn %d) may still "+
+			"be running. Type /done once it has finished, or /discard to "+
+			"discard the turn.", busy.CallID, n)
+	case busy.Next == dashi.NextAnswer:
+		return fmt.Sprintf("Turn %d waits for an answer. Press Enter to "+
+			"continue it, or type /discard to discard it.", n)
+	}
+	return err.Error()
 }
 
 func (c *Controller) command(line string) {
@@ -368,6 +402,20 @@ func (c *Controller) command(line string) {
 			return
 		}
 		c.startRun(c.eng.ContinueLimit)
+	case "/done":
+		if id, _ := c.eng.Last(c.base).OpenCall(); id == "" {
+			c.notice("/done marks a command done after dashi stopped while it ran.")
+			return
+		}
+		c.startRun(c.eng.MarkDone)
+	case "/discard":
+		if !c.eng.Last(c.base).Open() {
+			c.notice("There is no open turn to discard.")
+			return
+		}
+		c.startRun(c.eng.Discard)
+	case "/queue":
+		c.prompt(arg)
 	case "/new":
 		c.async(c.newSession)
 	case "/model":
@@ -386,8 +434,11 @@ const helpText = `Commands:
   /new           start a new session
   /sessions      list sessions for this directory
   /continue      go on after a model-call limit stop
+  /done          mark a command done that ran when dashi stopped
+  /discard       discard the open turn
   /quit          save and exit
-While a turn runs, a line is a steer. Start it with ! to cut the model call.`
+While a turn runs, a line is a steer. Start it with ! to cut the model call.
+/queue <text> holds text as the next prompt, to run when the turn ends.`
 
 // async runs fn in the command mode.
 func (c *Controller) async(fn func(context.Context)) {
@@ -447,8 +498,8 @@ func (c *Controller) sessions(ctx context.Context) {
 	}
 	labels := make([]string, len(list))
 	for i, s := range list {
-		labels[i] = fmt.Sprintf("%s  %s  %d turns  %s",
-			s.Updated.Local().Format("Jan 2 15:04"), s.ID, len(s.Turns),
+		labels[i] = fmt.Sprintf("%s  %s  %s",
+			s.Updated.Local().Format("Jan 2 15:04"), s.ID,
 			orDefault(s.Title, "(no prompt)"))
 	}
 	idx, ok := c.choose(ctx, "Sessions", labels)

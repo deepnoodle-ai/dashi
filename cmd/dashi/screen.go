@@ -531,8 +531,11 @@ func blockView(b Block) tui.View {
 		return tui.Stack(views...).Gap(0)
 	case KindSteer:
 		label := "steer queued"
-		if b.State == SteerDelivered {
+		switch b.State {
+		case SteerDelivered:
 			label = "steer delivered"
+		case SteerNext:
+			label = "queued for the next turn"
 		}
 		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindStop:
