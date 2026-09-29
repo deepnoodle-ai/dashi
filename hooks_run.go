@@ -895,13 +895,19 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	}
 	base := modelToolResult(fact.Call.ID, fact.Outcome)
 	current := base
-	if len(r.hooks.AfterTool) > 0 {
+	hooked := len(r.hooks.AfterTool) > 0
+	if hooked {
 		current = r.afterToolHooks(ctx, fact, base)
 	}
-	if limited, facts, ok := shortenResult(
+	limited, facts, short := shortenResult(
 		current,
 		r.agent.Limits.ToolResultBytes,
-	); ok {
+	)
+	if !hooked && !short {
+		// Nothing can differ from base, so skip the copy and the compare.
+		return
+	}
+	if short {
 		current = limited
 		fact.Shortened = &facts
 	}

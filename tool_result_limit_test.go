@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -281,26 +282,108 @@ func TestLimitAfterHooksOrdering(t *testing.T) {
 	}
 }
 
-func TestReplayIgnoresACurrentLimitChange(t *testing.T) {
-	text := strings.Repeat("a", 5000)
+func TestContinueKeepsTheRecordedViewAndDoesNotRunTheToolAgain(t *testing.T) {
+	text := "HEAD" + strings.Repeat("a", 5000) + "TAIL"
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 2048
-	_, out := runBig(t, agent, text, tool.StateSucceeded, Hooks{})
+	agent.Limits.ModelAttempts = 5
+	runs := 0
+	first := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), {}},
+		errors: []error{
+			nil,
+			&llm.Error{
+				Provider:    "test",
+				Category:    llm.ErrorRateLimited,
+				Status:      429,
+				Disposition: llm.FailureRejected,
+			},
+		},
+	}
+	tools := tool.List{bigTool(text, tool.StateSucceeded, &runs)}
+	out, err := (Runner{Agent: agent, Client: first, Tools: tools}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
+	)
+	if err != nil || out.Stop.Kind != StopFailed || runs != 1 {
+		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
+	}
 	want := modelText(out.Tools["call-1"].Result())
-	// Replay reads the record; no runner or limit is involved.
-	view, err := Replay(out.Turn)
+	if out.Tools["call-1"].Shortened() == nil {
+		t.Fatal("the first run did not shorten the result")
+	}
+	// A runner with another limit cannot continue the turn.
+	other := agent
+	other.Limits.ToolResultBytes = 4096
+	_, err = (Runner{
+		Agent:  other,
+		Client: &scriptedClient{results: []llm.Result{final("done")}},
+		Tools:  tools,
+	}).Run(t.Context(), out.Turn, Continue{CommandID: "bad"})
+	if !errors.Is(err, ErrAgentChanged) {
+		t.Fatalf("a changed limit was accepted: %v", err)
+	}
+	// A fresh runner without an agent uses the recorded one.
+	second := &scriptedClient{results: []llm.Result{final("done")}}
+	out, err = (Runner{Client: second, Tools: tools}).Run(
+		t.Context(),
+		out.Turn,
+		Continue{CommandID: "resume"},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted || runs != 1 {
+		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
+	}
+	sent := second.inputs[0].Messages
+	res := sent[len(sent)-1].Content[0].ToolResult
+	if got := modelText(*res); got != want {
+		t.Fatal("the next request did not hold the recorded view")
+	}
+}
+
+func TestReplayReadsTheRecordedViewNotTheRecordedLimit(t *testing.T) {
+	agent := testAgent()
+	agent.Limits.ToolResultBytes = 2048
+	_, out := runBig(t, agent, strings.Repeat("a", 5000), tool.StateSucceeded, Hooks{})
+	want := modelText(out.Tools["call-1"].Result())
+	turn := cloneTurn(out.Turn)
+	started := *turn.Steps[0].Started
+	started.Agent.Limits.ToolResultBytes = 1 << 20
+	turn.Steps[0].Started = &started
+	view, err := Replay(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := modelText(view.Tools["call-1"].Result()); got != want {
-		t.Fatal("replay recomputed the view")
+	got := view.Tools["call-1"]
+	if modelText(got.Result()) != want || got.Shortened() == nil ||
+		got.Shortened().Limit != 2048 {
+		t.Fatalf("replay recomputed: %+v", got.Shortened())
 	}
-	if view.Tools["call-1"].Shortened() == nil ||
-		view.Tools["call-1"].Shortened().Limit != 2048 {
-		t.Fatalf("shortened = %+v", view.Tools["call-1"].Shortened())
+	if toolResultText(t, turn, "call-1") != want {
+		t.Fatal("Project recomputed the view")
 	}
-	if got := toolResultText(t, out.Turn, "call-1"); got != want {
-		t.Fatal("Project differs from the recorded view")
+}
+
+func TestShortenedViewDropsDisplay(t *testing.T) {
+	r := textResult(strings.Repeat("a", 5000))
+	r.Output.Display = strings.Repeat("d", 5000)
+	view, _, ok := shortenResult(r, 2048)
+	if !ok || view.Output.Display != "" {
+		t.Fatalf("ok=%v display=%d", ok, len(view.Output.Display))
+	}
+	small, _, ok := shortenResult(textResult("x"), 2048)
+	if ok || small.Output.Display != "" {
+		t.Fatal("a small result changed")
+	}
+}
+
+func TestMarkerTellsTheModelNotToClaimAboutOmittedText(t *testing.T) {
+	view, _, _ := shortenResult(textResult(strings.Repeat("a", 5000)), 2048)
+	if !strings.Contains(modelText(view), "make no claims about it") {
+		t.Fatalf("marker = %q", modelText(view))
 	}
 }
 

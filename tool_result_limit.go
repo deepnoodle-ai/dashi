@@ -46,10 +46,11 @@ func resolveToolResultBytes(n int) int {
 // change state.
 func toolResultMarker(original, omitted int) string {
 	return fmt.Sprintf(
-		"[Tool output shortened: %d bytes, %d omitted. To see omitted text, "+
-			"ask for a smaller part: a path, a pattern, or a line range. "+
-			"Do not repeat a command that changes state only to see its "+
-			"output.]",
+		"[Tool output shortened: %d bytes, %d omitted. "+
+			"The omitted middle was not shown to you: make no claims about it. "+
+			"To see omitted text, ask for a smaller part: a path, a "+
+			"pattern, or a line range. Do not repeat a command that "+
+			"changes state only to see its output.]",
 		original,
 		omitted,
 	)
@@ -126,6 +127,8 @@ func layoutResult(
 	out := r
 	out.Output = r.Output.Clone()
 	out.Output.Content = nil
+	// No provider sends Display to the model, so the view drops it.
+	out.Output.Display = ""
 	size := 0
 	markerPlaced := false
 	offset := 0

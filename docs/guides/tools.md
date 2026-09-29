@@ -149,7 +149,7 @@ The turn record keeps the full result in `ToolView.Outcome`. `ToolView.Result()`
 returns the model view, and `ToolView.Shortened()` returns the sizes and the
 limit, as recorded when the call settled. Replay, `dashi.Project`, and
 recovery read the recorded view. They never compute it again, so a new limit
-changes only later calls. `Observer` and `Stream` events carry the full result,
+applies only to new turns. `Observer` and `Stream` events carry the full result,
 so a live reader can show all of it to a person
 ([example](../../examples/bigresult/main.go)).
 
