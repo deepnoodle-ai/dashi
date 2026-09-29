@@ -427,9 +427,10 @@ func (ts *Tasks) register(
 		return t, true, nil
 	}
 	t.steps = slices.Clone(child.Steps)
-	// Continue runs with the agent the child recorded, so a change to the
-	// subagent since then does not reach it. startTask does the same.
-	runner := ts.childRunner(sub, ref, parent, parentAgent, t)
+	// Continue runs with the agent the child recorded, and its tools follow
+	// that record too, so a change to the subagent since then does not reach
+	// it. startTask does the same.
+	runner := ts.childRunner(sub, ref, parent, parentAgent, view.Agent, t)
 	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
@@ -746,7 +747,8 @@ func (ts *Tasks) startTask(
 	parentAgent dashi.Agent,
 ) (TaskView, error) {
 	t := newTask(sub, ref, args.Description)
-	runner := ts.childRunner(sub, ref, parent, parentAgent, t)
+	agent := childAgent(sub, parentAgent)
+	runner := ts.childRunner(sub, ref, parent, parentAgent, agent, t)
 	if !loads(runner.Recorder) {
 		ts.warnNoLoader()
 	}
@@ -786,13 +788,16 @@ func (ts *Tasks) startTask(
 	case !found:
 		start := dashi.Start{
 			CommandID: t.childID + "/start",
-			Agent:     childAgent(sub, parentAgent),
+			Agent:     agent,
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
 		}
 		ts.launchLocked(ctx, t, runner, dashi.Turn{ID: t.childID}, start)
 	case t.resumable(saved):
 		t.steps = slices.Clone(saved.Steps)
+		runner.Tools = childTools(
+			parent.Tools, parentAgent, view.Agent, sub.ReadOnly,
+		)
 		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
@@ -847,14 +852,35 @@ func childAgent(sub Subagent, parent dashi.Agent) dashi.Agent {
 	return agent
 }
 
+// childTools returns the child's view of the parent's tools. Whether the
+// child's tools are named comes from child, the agent the child starts or
+// started with, never from the current Subagent: a child recorded with no
+// names stays inside the parent agent's selection after the host names tools
+// for the subagent.
+func childTools(
+	parent tool.Toolset,
+	parentAgent dashi.Agent,
+	child dashi.Agent,
+	readOnly bool,
+) filtered {
+	return filtered{
+		parent:      parent,
+		parentAgent: parentAgent,
+		explicit:    len(child.Tools) > 0,
+		readOnly:    readOnly,
+	}
+}
+
 // childRunner builds the runner for one child. It starts from the runner that
 // runs the task call, applies the host's overrides, and replaces the tools
-// with the child's view of them (see filtered).
+// with the child's view of them (see childTools). child is the agent the
+// child starts with or recorded.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
 	parent dashi.Runner,
 	parentAgent dashi.Agent,
+	child dashi.Agent,
 	t *task,
 ) dashi.Runner {
 	over := ts.cfg.Runner
@@ -868,12 +894,7 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
-	runner.Tools = filtered{
-		parent:      parent.Tools,
-		parentAgent: parentAgent,
-		explicit:    len(sub.Agent.Tools) > 0,
-		readOnly:    sub.ReadOnly,
-	}
+	runner.Tools = childTools(parent.Tools, parentAgent, child, sub.ReadOnly)
 	template := over.Observer
 	onChild := ts.cfg.OnChild
 	runner.Observer = func(e dashi.Event) {

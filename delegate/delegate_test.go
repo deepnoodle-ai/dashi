@@ -367,6 +367,8 @@ type harness struct {
 	taskEvents chan delegate.TaskEvent
 	observed   atomic.Int32
 	notify     atomic.Bool
+	// ran counts runs of the read and write probes.
+	ran atomic.Int32
 }
 
 // checkLeaks fails the test if a task goroutine or a gated model call is
@@ -416,10 +418,9 @@ func newHarness(
 	if store != nil {
 		recorder = store(h.rec)
 	}
-	var ran atomic.Int32
 	h.base = tool.List{
-		probe("read", yes(), &ran),
-		probe("write", nil, &ran),
+		probe("read", yes(), &h.ran),
+		probe("write", nil, &h.ran),
 	}
 	cfg.Subagents = cmpSubagents(cfg.Subagents)
 	cfg.Runner.Observer = func(dashi.Event) {
@@ -2064,6 +2065,49 @@ func TestRecoverResumesWithTheRecordedAgent(t *testing.T) {
 	}
 	if got := h.client.sends("child"); got == 0 {
 		t.Fatal("resumed child did not run with the recorded agent")
+	}
+}
+
+// TestRecoverKeepsTheToolsTheChildStartedWith checks that a child started
+// without named tools, under a parent limited to read, gets no more after the
+// host names write for its subagent and the child resumes.
+func TestRecoverKeepsTheToolsTheChildStartedWith(t *testing.T) {
+	g := newGate()
+	h := newHarness(t, scripted(gated(g, "x")), delegate.Config{}, nil)
+	h.agent.Tools = []string{"read", delegate.ToolName}
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+
+	changed := scout()
+	changed.Agent.Tools = []string{"write"}
+	h.cfg.Subagents = []delegate.Subagent{changed}
+	var calls atomic.Int32
+	h.client.handle = scripted(func(context.Context, llm.Input) (llm.Result, error) {
+		if calls.Add(1) == 1 {
+			return toolCall("w1", "write", `{}`), nil
+		}
+		return costed(text("done"), "0.25"), nil
+	})
+	h.newTasks(t)
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	got := toolNames(h.client.last("child"))
+	if strings.Join(got, ",") != "read" {
+		t.Fatalf("resumed child tools=%v, want [read]", got)
+	}
+	if n := h.ran.Load(); n != 0 {
+		t.Fatalf("a probe ran %d times; write must not run", n)
+	}
+	call := h.view(t, childID()).Tools["w1"]
+	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+		call.Outcome.State != tool.StateNotExecuted {
+		t.Fatalf("write call=%+v, want settled without running", call)
 	}
 }
 
