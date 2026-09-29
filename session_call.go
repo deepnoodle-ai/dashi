@@ -9,8 +9,8 @@ import (
 )
 
 // Stream is Run with events. It yields the events of every turn the call
-// runs, in order: the step that closes a stopped last turn, the command's
-// own turn, and the queue turns that follow it. Each event carries its
+// runs, in order: the step that closes a stopped last turn, a compaction
+// turn, the command's own turn, and the queue turns that follow it. Each event carries its
 // TurnID, and each turn ends with its own Outcome event, with the session's
 // warnings; the last Outcome event is the call's result. An error the
 // session returns before any turn runs, such as *TurnBusyError, is yielded
@@ -93,6 +93,9 @@ type call struct {
 	// step: the engine reports a step only once it committed, so the
 	// queued items the Start carried were delivered.
 	started bool
+	// warnings holds session warnings of a compaction turn for the outcome
+	// of the turn it ran before.
+	warnings []Warning
 }
 
 func (cl *call) run(ctx context.Context, c Command) (Outcome, error) {
@@ -149,9 +152,10 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 		// scan is skipped.
 		c.CommandID = NewID()
 	}
-	for attempt := 0; ; attempt++ {
+	compacted := false
+	for attempt := 0; ; {
 		s.mu.Lock()
-		p, err := s.planStart(ctx, c, fresh, cl.opts, cl.yield != nil)
+		p, err := s.planStart(ctx, c, fresh, cl.opts, cl.yield != nil, compacted)
 		s.mu.Unlock()
 		if !cl.forward(p.closing) {
 			if err == nil && p.done == nil {
@@ -174,9 +178,19 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 			}
 			return Outcome{}, cl.fail(err)
 		}
+		if p.compact {
+			// The compaction turn runs first; then the Start is planned
+			// again, after it.
+			if err := cl.compact(ctx, p); err != nil {
+				return Outcome{}, err
+			}
+			compacted = true
+			continue
+		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
-		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved, cl.started)
+		out, err = s.finish(ctx, p.n, p.id, out, err, cl.takeWarnings(p.warnings), p.reserved, cl.started)
 		if attempt == 0 && (lostStart(err) || !fresh && takenKey(err)) {
+			attempt++
 			continue
 		}
 		// A keyed Start that raced another worker's equal Start to the same
@@ -184,6 +198,7 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 		// no stop recorded, the turn may still be running, so plan again:
 		// the idempotency check then refuses it as a duplicate.
 		if attempt < 2 && !fresh && err == nil && out.Stop.Projected {
+			attempt++
 			continue
 		}
 		cl.report(out, err)
@@ -211,9 +226,10 @@ func (cl *call) command(ctx context.Context, c Command) (Outcome, error) {
 // the race for its turn ID tries once more.
 func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 	s := cl.s
-	for attempt := 0; ; attempt++ {
+	compacted := false
+	for attempt := 0; ; {
 		s.mu.Lock()
-		p, ok, err := s.planQueue(ctx)
+		p, ok, err := s.planQueue(ctx, compacted)
 		s.mu.Unlock()
 		if errors.Is(err, errReserved) {
 			// The queue waits; each outcome warns WarningQueueBlocked.
@@ -225,9 +241,17 @@ func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 		if !ok {
 			return Outcome{}, false, nil
 		}
+		if p.compact {
+			if err := cl.compact(ctx, p); err != nil {
+				return Outcome{}, false, err
+			}
+			compacted = true
+			continue
+		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
-		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved, cl.started)
+		out, err = s.finish(ctx, p.n, p.id, out, err, cl.takeWarnings(p.warnings), p.reserved, cl.started)
 		if attempt == 0 && lostStart(err) {
+			attempt++
 			continue
 		}
 		cl.report(out, err)
@@ -236,7 +260,8 @@ func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 }
 
 // exec runs one command on the engine, with the handle's steering source
-// ahead of the caller's options, so an explicit WithSteering still wins.
+// ahead of the caller's options, so an explicit WithSteering still wins,
+// except on a compaction turn, which gets no steering.
 // For Stream it forwards the events, tagged with the turn ID; the Outcome
 // event waits for report, after the session adds its warnings.
 func (cl *call) exec(
@@ -249,6 +274,9 @@ func (cl *call) exec(
 	source := cl.s.steering()
 	cl.s.mu.Unlock()
 	opts := append([]RunOption{WithSteering(source)}, cl.opts...)
+	if isCompaction(turn, c) {
+		opts = append(opts, WithSteering(nil))
+	}
 	cl.started = false
 	if cl.yield == nil {
 		out, err := r.Run(ctx, turn, c, opts...)
@@ -310,6 +338,14 @@ func startedBy(step *Step, turnID string, c Command) bool {
 	start, ok := c.(Start)
 	return ok && step.Kind == StepStarted && step.TurnID == turnID &&
 		step.CommandID == start.CommandID
+}
+
+// takeWarnings returns the call's pending compaction warnings, then
+// warnings, and clears them.
+func (cl *call) takeWarnings(warnings []Warning) []Warning {
+	out := append(cl.warnings, warnings...)
+	cl.warnings = nil
+	return out
 }
 
 // report yields a turn's Outcome event, or the error alone when nothing

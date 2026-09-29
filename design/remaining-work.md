@@ -211,7 +211,8 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
    `Exclusive`, idempotency; a keyless `chat` example on `dashitest`.
 4. Steering, the in-memory queue, and the CLI (M): dispatch on idle; port
    `examples/delegate` to `RunUntilQuiet`; port `cmd/dashi`.
-5. Compaction turns (L): port `examples/compaction`; see item 15.
+5. Compaction turns (L): port `examples/compaction`; see item 15. Built on
+   `feat/compaction-turns`.
 
 Later, each with its own note: the durable queue (first), mid-turn compaction,
 fork, rewind, child sessions, deletion and retention, replacing a running turn
@@ -224,18 +225,19 @@ research](roadmap-research/14-session-continuity-research.md) ·
 
 ### 15. Context compaction
 
-**Status:** Helper package done. Package `compaction` shortens a host-owned
-history with a recorded summary, a coverage digest, and a pure projection.
-Nothing wires it into `cmd/dashi` yet. **Size:** L. **Difficulty:** High.
-**Reference:** [guide](../docs/guides/compaction.md), [history
-storage](history-storage.md), and [runtime reminders](runtime-reminders.md).
-**Next:** Reworked by the session design (item 14, track 5, [decision
-39](decisions.md)): compaction becomes a session turn that records the
-replacement history. The package implements `dashi.Compactor` and stops calling
-the model itself; the CLI wires `/compact` and the 80% check through the session
-instead of storing a record beside its history. Later: compaction inside a turn
-(its own note, needed by the CLI for long turns) and compact-and-retry on
-overflow.
+**Status:** Compaction turns built (item 14, track 5, [decision
+39](decisions.md)). `Session.Compactor` runs a compaction turn before a new
+turn when the last call used 80% of the window; the turn records the
+replacement history, which every reader honors. `compaction.Compactor`
+implements `dashi.Compactor` and makes no model call; `Compact`, `Project`, and
+`Record` stay for hosts that drive the engine directly. `examples/compaction`
+runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
+[guide](../docs/guides/compaction.md), [spec](session-input.md#compaction-turns),
+[history storage](history-storage.md), and [runtime
+reminders](runtime-reminders.md). **Next:** the CLI wires the 80% check and
+`/compact` through the session (a follow-up issue; a manual compaction needs a
+session call to request one). Later: compaction inside a turn (its own note,
+needed by the CLI for long turns) and compact-and-retry on overflow.
 
 **Packet:** [source research](roadmap-research/15-context-compaction-research.md) · [draft PRD](roadmap-research/15-context-compaction-prd.md).
 

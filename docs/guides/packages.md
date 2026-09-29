@@ -25,8 +25,9 @@ other.
   recorder for recovery tests.
 - `feed`: Serves a turn to live readers: committed steps from the record with
   the runner's live previews merged in place.
-- `compaction`: Shortens a host-owned history with a recorded summary, and
-  rebuilds the projected history from the record.
+- `compaction`: Shortens a long history with a summary: a `Compactor` for a
+  session's compaction turns, and `Compact` and `Project` for a host-owned
+  history.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 

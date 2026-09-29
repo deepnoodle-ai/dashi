@@ -109,25 +109,15 @@ func (s *turnSummarizer) Summarize(
 	if s.client == nil {
 		return Summary{}, errors.New("compaction: client is required")
 	}
-	maxTokens := s.cfg.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultSummaryTokens
-	}
-	prompt := s.cfg.Prompt
-	if prompt == "" {
-		prompt = DefaultPrompt
-	}
-	window := s.window()
-	// A small window cannot hold the default output allowance. Give the
-	// output at most a quarter of the window, so the input has room.
-	maxTokens = min(maxTokens, window/4)
-	budget := int(float64(window-maxTokens)*inputMargin) * bytesPerToken
-	items, err := fitTranscript(renderTranscript(messages), budget)
+	request, maxTokens, err := summaryRequest(
+		messages,
+		s.cfg.Prompt,
+		s.window(),
+		s.cfg.MaxTokens,
+	)
 	if err != nil {
 		return Summary{}, err
 	}
-	request := "<conversation>\n" + strings.Join(items, "\n\n") +
-		"\n</conversation>\n\n" + prompt
 	runner := dashi.Runner{Client: s.client}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{
@@ -135,7 +125,7 @@ func (s *turnSummarizer) Summarize(
 			Settings: llm.Settings{MaxTokens: maxTokens},
 			NoTools:  true,
 		},
-		Input: []llm.Message{llm.UserMessage(llm.Text(request))},
+		Input: []llm.Message{request},
 	})
 	if err != nil {
 		return Summary{}, fmt.Errorf("compaction: summarizer: %w", err)
@@ -159,6 +149,34 @@ func (s *turnSummarizer) Summarize(
 		Usage: out.Spend.Usage,
 		Cost:  out.Spend.Cost,
 	}, nil
+}
+
+// summaryRequest builds the one user message a summary call sends: the
+// messages as a text transcript, shortened to fit window, then the prompt
+// (DefaultPrompt when empty). It returns the output allowance with it:
+// maxTokens, or defaultSummaryTokens when zero, and at most a quarter of
+// the window, so the input has room.
+func summaryRequest(
+	messages []llm.Message,
+	prompt string,
+	window int,
+	maxTokens int,
+) (llm.Message, int, error) {
+	if maxTokens <= 0 {
+		maxTokens = defaultSummaryTokens
+	}
+	if prompt == "" {
+		prompt = DefaultPrompt
+	}
+	maxTokens = min(maxTokens, window/4)
+	budget := int(float64(window-maxTokens)*inputMargin) * bytesPerToken
+	items, err := fitTranscript(renderTranscript(messages), budget)
+	if err != nil {
+		return llm.Message{}, 0, err
+	}
+	request := "<conversation>\n" + strings.Join(items, "\n\n") +
+		"\n</conversation>\n\n" + prompt
+	return llm.UserMessage(llm.Text(request)), maxTokens, nil
 }
 
 // window returns the summarizer model's context window, or the default when

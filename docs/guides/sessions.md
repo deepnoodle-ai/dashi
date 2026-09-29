@@ -199,9 +199,10 @@ for ev, err := range s.Stream(ctx, dashi.Say(text)) {
 }
 ```
 
-`s.Turns(ctx)` yields every turn record in order, closed turns included, for
-a transcript; an unreadable turn yields its error and the iteration goes on. A
-turn the session closed has a canceled stop with the reason `CloseReason`.
-`s.History(ctx)` is the conversation: every message of every turn.
-`s.ProjectedHistory(ctx)` is what the next turn sends; the two differ once
-compaction turns arrive ([design](../../design/session-input.md)).
+`s.Turns(ctx)` yields every turn record in order, closed and compaction
+turns included, for a transcript; an unreadable turn yields its error and the
+iteration goes on. A turn the session closed has a canceled stop with the
+reason `CloseReason`. `s.History(ctx)` is the conversation: every message of
+every turn but compaction turns. `s.ProjectedHistory(ctx)` is what the next
+turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
+see [Compaction](compaction.md)).

@@ -48,6 +48,11 @@ type Session struct {
 	// durable source sets it and sends through that source; Steer then
 	// works only when the source is an *Inbox.
 	Steering Steering
+	// Compactor, when set, runs a compaction turn before a new turn when
+	// the projected history has grown past its threshold. Package
+	// compaction implements it. Every handle honors compaction turns
+	// already recorded, with or without one.
+	Compactor Compactor
 	// Exclusive promises that this handle is the only driver of the session
 	// and that earlier drivers have exited, so a turn this handle is not
 	// running has no worker. It proves nothing about effects they started:
@@ -66,6 +71,9 @@ type Session struct {
 	// driving is the turn a Start, Continue, or queue turn of this handle
 	// is running, which Steer reaches; empty when none runs.
 	driving string
+	// compacting is the compaction turn this handle is running, which
+	// Steer refuses; empty when none runs.
+	compacting string
 	// memory is the recorder used when Runner.Recorder is nil.
 	memory *MemoryRecorder
 	// warnedMemory is set once an outcome carried WarningMemoryOnly.
@@ -130,6 +138,12 @@ func (e *TurnBusyError) Error() string {
 				"after checking its effect, or Cancel{} the turn to accept "+
 				"the risk",
 			e.CallID,
+			e.TurnID,
+		)
+	case e.Next == NextRunning && e.Origin == StartCompaction:
+		return fmt.Sprintf(
+			"dashi: turn %s is compacting the history; enqueue the input, "+
+				"or wait and send again",
 			e.TurnID,
 		)
 	case e.Next == NextRunning:
@@ -237,7 +251,10 @@ func (s *Session) Answer(
 // When a Start or Continue ends its turn with NextNone and input is
 // queued, the same call runs queue turns until the queue is empty or a
 // turn stops any other way; the result is the last turn's, with the
-// session warnings of the earlier ones.
+// session warnings of the earlier ones. With a Compactor, a compaction
+// turn may run first, before a Start or a queue turn: the next turn's
+// outcome carries its session warnings, and WarningCompactionFailed when
+// it fails.
 //
 // The outcome and error mean what Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
@@ -339,10 +356,14 @@ func (s *Session) planCommand(
 	}
 	p := commandPlan{n: last, turn: t.turn, runner: s.runner()}
 	if cont, ok := (*c).(Continue); ok {
-		cont.History, p.warnings = s.history(ctx, last-1)
+		cont.History, p.warnings = s.historyFor(ctx, last, t)
 		*c = cont
 		p.drives = true
-		s.driving = t.turn.ID
+		if t.view.Origin == StartCompaction {
+			s.compacting = t.turn.ID
+		} else {
+			s.driving = t.turn.ID
+		}
 	}
 	s.running[t.turn.ID]++
 	return p, nil
@@ -386,6 +407,8 @@ type startPlan struct {
 	// closing holds the events of the step that closed the last turn, for
 	// Stream.
 	closing []Event
+	// compact marks a compaction turn, which runs before the planned turn.
+	compact bool
 	// done is the result when no turn runs: a retried command's outcome.
 	done *Outcome
 }
@@ -396,6 +419,7 @@ func (s *Session) planStart(
 	fresh bool,
 	opts []RunOption,
 	stream bool,
+	compacted bool,
 ) (startPlan, error) {
 	if s.ID == "" {
 		s.ID = NewID()
@@ -437,18 +461,18 @@ func (s *Session) planStart(
 				return p, err
 			}
 			if closed {
-				p.warnings = append(p.warnings, Warning{
-					Code: WarningTurnClosed,
-					Message: fmt.Sprintf(
-						"turn %s was closed: %s",
-						TurnID(s.ID, last),
-						CloseReason,
-					),
-				})
+				p.warnings = append(p.warnings, closedWarning(t))
 			}
 		}
 	}
 	history, unreadable := s.history(ctx, upTo)
+	if upTo == last && !compacted {
+		cp, warnings := s.planCompaction(ctx, last, history)
+		if cp != nil {
+			return *cp, nil
+		}
+		p.warnings = append(p.warnings, warnings...)
+	}
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
 	c.Agent = s.agentFor(ctx, c.Agent, last)
@@ -462,6 +486,22 @@ func (s *Session) planStart(
 	s.running[p.id]++
 	s.driving = p.id
 	return p, nil
+}
+
+// closedWarning is the warning for a last turn a new turn closed: a
+// WarningCompactionFailed for a compaction turn, else a WarningTurnClosed.
+func closedWarning(t *sessionTurn) Warning {
+	if t.view.Origin == StartCompaction {
+		return compactionFailed(fmt.Sprintf(
+			"compaction turn %s stopped %s and was closed",
+			t.turn.ID,
+			t.view.Stop.Kind,
+		))
+	}
+	return Warning{
+		Code:    WarningTurnClosed,
+		Message: fmt.Sprintf("turn %s was closed: %s", t.turn.ID, CloseReason),
+	}
 }
 
 // checkExists applies New: without it a session needs turns, and with it
@@ -577,7 +617,7 @@ func (s *Session) closeLast(
 		if l := t.view.Stop.Limit; l != nil && l.Kind == LimitModelAttempts {
 			cont.ModelAttempts = int(l.Limit) + 1
 		}
-		cont.History, _ = s.history(ctx, last-1)
+		cont.History, _ = s.historyFor(ctx, last, t)
 		closing = cont
 	}
 	var out Outcome
@@ -628,6 +668,9 @@ func (s *Session) finish(
 	if s.driving == id && s.running[id] == 0 {
 		s.driving = ""
 	}
+	if s.compacting == id {
+		s.compacting = ""
+	}
 	if reserved != nil {
 		err = s.settle(ctx, reserved, started, err)
 	}
@@ -635,7 +678,8 @@ func (s *Session) finish(
 		s.store(n, out.Turn)
 		s.created = true
 	}
-	if err == nil && out.Turn.ID == id && out.Next() == NextNone {
+	if err == nil && out.Turn.ID == id && out.Next() == NextNone &&
+		out.Origin != StartCompaction {
 		s.moveLeftovers(out.Turn)
 	}
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
