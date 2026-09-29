@@ -75,11 +75,17 @@ func (st *Store) Create(dir, model string) (*Session, error) {
 	return s, nil
 }
 
-// Discard removes the directory of a session that was never saved. A saved
-// session stays.
+// Discard removes the directory of a session that holds no turn record,
+// as a launch that ran no turn leaves it. A session with a turn log stays,
+// even when its session file was never saved, so a failed save cannot
+// delete recorded history.
 func (st *Store) Discard(s *Session) {
 	dir := filepath.Join(st.root, s.ID)
-	if _, err := os.Stat(filepath.Join(dir, "session.json")); err == nil {
+	if st.Saved(s) {
+		return
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "turns"))
+	if len(entries) > 0 || err != nil && !os.IsNotExist(err) {
 		return
 	}
 	os.RemoveAll(dir)

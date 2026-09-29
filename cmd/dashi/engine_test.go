@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -594,5 +596,52 @@ func TestDamagedLastTurnIsSkipped(t *testing.T) {
 	}
 	if got := strings.Join(sent, "|"); got != "first question|First answer.|third question" {
 		t.Fatalf("the model saw %q", got)
+	}
+}
+
+// lockDirAfterStart commits steps, and after turn_started makes the
+// session directory read-only, so the session file cannot be saved while
+// the turn log, in its own directory, still records.
+type lockDirAfterStart struct {
+	dashi.Recorder
+	root string
+}
+
+func (r *lockDirAfterStart) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if err := r.Recorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if req.Step.Kind == dashi.StepStarted {
+		id := req.Step.TurnID[:strings.LastIndex(req.Step.TurnID, "-")]
+		return os.Chmod(filepath.Join(r.root, id), 0o500)
+	}
+	return nil
+}
+
+// A session file that fails to save after the first turn started leaves
+// the turn log in place when the session closes.
+func TestFailedSessionSaveKeepsTurnLog(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs directory permissions")
+	}
+	h := newHarness(t, say("Done."))
+	h.app.eng.Close()
+	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
+		return &lockDirAfterStart{Recorder: rec, root: h.store.Root()}
+	}
+	h.build(Options{})
+	s := h.app.eng.Session()
+	dir := filepath.Join(h.store.Root(), s.ID)
+	h.input("save me")
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustHave(t, h.ui.text(), "The session file was not saved")
+	if h.store.Saved(s) {
+		t.Fatal("the session file was saved")
+	}
+	h.app.eng.Close()
+	if n := turnsOf(t, h.store, s); n != 1 {
+		t.Fatalf("turns=%d after close", n)
 	}
 }
