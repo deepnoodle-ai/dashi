@@ -78,7 +78,7 @@ func (e *Engine) SetModel(name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.model = name
-	if e.sess != nil {
+	if e.sess != nil && len(e.sess.Turns) > 0 {
 		e.sess.Model = name
 		_ = e.cfg.Store.Save(e.sess)
 	}
@@ -98,9 +98,7 @@ func (e *Engine) Open(s *session.Session) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.unlock != nil {
-		e.unlock()
-	}
+	e.release()
 	e.sess, e.rec, e.unlock = s, rec, unlock
 	if s.Model != "" && e.model == "" {
 		e.model = s.Model
@@ -112,10 +110,20 @@ func (e *Engine) Open(s *session.Session) error {
 func (e *Engine) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.unlock != nil {
-		e.unlock()
-		e.unlock = nil
+	e.release()
+}
+
+// release unlocks the open session. A session with no turn is removed, so
+// launching dashi and quitting leaves nothing behind. The caller holds e.mu.
+func (e *Engine) release() {
+	if e.unlock == nil {
+		return
 	}
+	if e.sess != nil && len(e.sess.Turns) == 0 {
+		e.cfg.Store.Discard(e.sess)
+	}
+	e.unlock()
+	e.unlock = nil
 }
 
 // LastTurn is the newest turn of the open session.
@@ -126,10 +134,30 @@ type LastTurn struct {
 	View dashi.TurnView
 }
 
-// Unfinished reports whether the turn can still run: it did not complete,
-// and was not canceled or ended for good.
-func (l *LastTurn) Unfinished() bool {
+// Open reports whether the turn has not ended for good. A new prompt cancels
+// an open turn.
+func (l *LastTurn) Open() bool {
 	return l != nil && !l.View.Stop.Terminal
+}
+
+// CanGoOn reports whether Enter can run the turn on: it stopped at the
+// model-call limit, or it is open and the library says Continue can run.
+func (l *LastTurn) CanGoOn() bool {
+	return l.LimitStopped() || l.Open() && l.View.ReadyToContinue
+}
+
+// StopText says in words why the turn stopped.
+func (l *LastTurn) StopText() string {
+	s := l.View.Stop
+	switch {
+	case l.LimitStopped():
+		return "stopped at the model-call limit"
+	case s.Kind == "" || s.Kind == dashi.StopInterrupted:
+		return "was interrupted"
+	case s.Reason != "":
+		return fmt.Sprintf("stopped (%s: %s)", s.Kind, s.Reason)
+	}
+	return fmt.Sprintf("stopped (%s)", s.Kind)
 }
 
 // LimitStopped reports whether the turn stopped at its model-call limit.
@@ -182,7 +210,7 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 			out = append(out, warnBlock("Turn %d skipped: %v.", i+1, err))
 			continue
 		}
-		blocks, err := RenderTurn(i+1, s.Model, turn)
+		blocks, err := RenderTurn(i+1, s.Model, e.cfg.Dir, turn)
 		if err != nil {
 			out = append(out, warnBlock("Turn %d skipped: %v.", i+1, err))
 			continue
@@ -203,7 +231,7 @@ type Result struct {
 // Prompt starts a new turn with text. If the last turn did not end, it is
 // canceled first, and the screen says so.
 func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
-	if last := e.Last(ctx); last.Unfinished() {
+	if last := e.Last(ctx); last.Open() {
 		if err := e.cancel(ctx, last); err != nil {
 			return Result{}, err
 		}
@@ -221,11 +249,15 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 	}, agent)
 }
 
-// Resume runs an unfinished turn on, after a quit or a Ctrl-C.
+// Resume runs the last turn on, after a quit, a Ctrl-C, or the model-call
+// limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
 	last := e.Last(ctx)
-	if !last.Unfinished() {
-		return Result{}, errors.New("there is no unfinished turn")
+	if last.LimitStopped() {
+		return e.ContinueLimit(ctx)
+	}
+	if !last.CanGoOn() {
+		return Result{}, errors.New("there is no turn to continue")
 	}
 	hist, err := e.history(ctx, last.N-1)
 	if err != nil {
@@ -333,7 +365,7 @@ func (e *Engine) run(
 	cmd dashi.Command,
 	agent dashi.Agent,
 ) (Result, error) {
-	r := NewRenderer(n, e.Model())
+	r := NewRenderer(n, turnModel(turn, e.Model()), e.cfg.Dir)
 	var (
 		out      dashi.Outcome
 		have     bool
@@ -373,12 +405,45 @@ func (e *Engine) run(
 		e.cfg.Emit(r.Footer(out.TurnView))
 	}
 	res := Result{Outcome: out}
+	if out.Stop.Kind == dashi.StopInterrupted || runErr != nil {
+		// Steers that missed the turn stay in the inbox. The next run of
+		// this turn, or the next turn, delivers them.
+		if n := e.queuedSteers(out.Turn.ID); n > 0 {
+			e.cfg.Emit(Block{
+				Kind: KindNotice,
+				Text: fmt.Sprintf(
+					"%d queued %s kept for the next turn.", n, plural(n, "steer")),
+				Done: true,
+			})
+		}
+		return res, runErr
+	}
 	if left, err := e.Inbox.Leftovers(out.Turn); err == nil {
 		for _, s := range left {
 			res.Leftovers = append(res.Leftovers, s.Item.Message.Text())
 		}
 	}
 	return res, runErr
+}
+
+// queuedSteers counts the steers that no run has recorded.
+func (e *Engine) queuedSteers(turnID string) int {
+	steers, err := e.Inbox.Steers(context.Background(), turnID)
+	if err != nil {
+		return 0
+	}
+	return len(steers)
+}
+
+// turnModel returns the model the turn recorded when it started, or
+// fallback for a turn with no start step yet.
+func turnModel(turn dashi.Turn, fallback string) string {
+	for _, s := range turn.Steps {
+		if s.Started != nil && s.Started.Agent.Model != "" {
+			return s.Started.Agent.Model
+		}
+	}
+	return fallback
 }
 
 // record adds a new turn to the session as soon as its first step is saved,

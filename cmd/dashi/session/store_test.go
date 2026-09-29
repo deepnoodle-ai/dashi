@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,18 +95,19 @@ func TestCreateListLatestByDirectory(t *testing.T) {
 		tick++
 		return base.Add(time.Duration(tick) * time.Minute)
 	})
-	a, err := st.Create("/repo/a", "m")
-	if err != nil {
-		t.Fatal(err)
+	create := func(dir string) *session.Session {
+		s, err := st.Create(dir, "m")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec, err := st.Recorder(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		addTurn(t, st, s, rec, "hello")
+		return s
 	}
-	b, err := st.Create("/repo/b", "m")
-	if err != nil {
-		t.Fatal(err)
-	}
-	a2, err := st.Create("/repo/a", "m")
-	if err != nil {
-		t.Fatal(err)
-	}
+	a, b, a2 := create("/repo/a"), create("/repo/b"), create("/repo/a")
 	list, err := st.List("/repo/a")
 	if err != nil || len(list) != 2 {
 		t.Fatalf("list=%v err=%v", list, err)
@@ -219,4 +221,55 @@ func TestLockExcludesSecondHolder(t *testing.T) {
 		t.Fatalf("lock after unlock: %v", err)
 	}
 	unlock2()
+}
+
+// A session with no turn is neither saved nor listed, so a launch that ends
+// at once cannot hide the session with real work.
+func TestEmptySessionsAreNotListed(t *testing.T) {
+	st := newStore(t)
+	work, err := st.Create("/repo", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := st.Recorder(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addTurn(t, st, work, rec, "real work")
+	empty, err := st.Create("/repo", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(empty); err != nil { // even an old empty file
+		t.Fatal(err)
+	}
+	latest, err := st.Latest("/repo")
+	if err != nil || latest.ID != work.ID {
+		t.Fatalf("latest=%v err=%v", latest, err)
+	}
+	list, _ := st.List("/repo")
+	if len(list) != 1 {
+		t.Fatalf("list=%v", list)
+	}
+}
+
+// Discard removes an unsaved session directory and keeps a saved one.
+func TestDiscard(t *testing.T) {
+	st := newStore(t)
+	s, _ := st.Create("/repo", "m")
+	unlock, err := st.Lock(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	st.Discard(s)
+	if _, err := os.Stat(filepath.Join(st.Root(), s.ID)); !os.IsNotExist(err) {
+		t.Fatalf("dir kept: %v", err)
+	}
+	rec, _ := st.Recorder(s)
+	addTurn(t, st, s, rec, "x")
+	st.Discard(s)
+	if _, err := st.Load(s.ID); err != nil {
+		t.Fatalf("saved session lost: %v", err)
+	}
 }

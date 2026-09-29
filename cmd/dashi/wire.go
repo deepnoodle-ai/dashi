@@ -1,12 +1,11 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/tool"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 // wiring is what one library feature adds to the runner. A feature package
@@ -32,51 +31,47 @@ type Env struct {
 	Ask AskFunc
 }
 
-// adapters lists the features that plug into the runner. Until the coding
-// tools package merges, a stand-in supplies the workspace tools.
+// adapters lists the features that plug into the runner. To wire a feature,
+// add one adapter here.
 var adapters = []func(Env) (wiring, error){
-	standInWiring,
+	workspaceWiring,
 }
 
-// ApprovalRequest describes a call that needs approval. The fields match the
-// coding tools package, so the adapter for that package converts field by
-// field.
-type ApprovalRequest struct {
-	// Tool is the tool name.
-	Tool string
-	// Summary is one line, such as "edit main.go".
-	Summary string
-	// Preview is a unified diff for file edits, or empty.
-	Preview string
-	// Dir is the working directory, for shell commands.
-	Dir string
-	// Command is the exact command text, for shell commands.
-	Command string
-	// Args holds the exact arguments of the call.
-	Args json.RawMessage
+// The approval and question types come from the coding tools package, so a
+// host has one set of types for every feature that asks the user.
+type (
+	// ApprovalRequest describes a call that needs approval. Its text fields
+	// hold what the model controls; show only Printable().
+	ApprovalRequest = workspace.ApprovalRequest
+	// Approval is the user's answer to an ApprovalRequest.
+	Approval = workspace.Approval
+	// ApprovalFunc asks the user whether a call may run. It must honor ctx.
+	ApprovalFunc = workspace.ApprovalFunc
+	// Question is what the model asks the user.
+	Question = workspace.Question
+	// AskFunc asks the user a question in the model's name.
+	AskFunc = workspace.AskFunc
+)
+
+// declinedReason is what the model reads when the user declines a call.
+const declinedReason = "The user declined this call. Do not retry the same " +
+	"call. Ask the user what to do, or try a different approach."
+
+// workspaceWiring adds the coding tools and their approval policy.
+func workspaceWiring(env Env) (wiring, error) {
+	ws, err := workspace.New(env.Dir)
+	if err != nil {
+		return wiring{}, err
+	}
+	var opts []workspace.Option
+	if env.Ask != nil {
+		opts = append(opts, workspace.WithAsker(env.Ask))
+	}
+	return wiring{
+		Tools: ws.Tools(opts...),
+		Hooks: ws.Policy(env.Approve).Hooks(),
+	}, nil
 }
-
-// Approval is the user's answer to an ApprovalRequest.
-type Approval struct {
-	Allow bool
-	// Remember lets later matching calls run without a prompt, for the life
-	// of the process.
-	Remember bool
-	// Reason tells the model why the call was declined.
-	Reason string
-}
-
-// ApprovalFunc asks the user whether a call may run. It must honor ctx.
-type ApprovalFunc func(ctx context.Context, r ApprovalRequest) (Approval, error)
-
-// Question is what the model asks the user.
-type Question struct {
-	Prompt  string
-	Choices []string
-}
-
-// AskFunc asks the user a question and returns the answer text.
-type AskFunc func(ctx context.Context, q Question) (string, error)
 
 // buildWiring runs every adapter and joins the results. Close releases every
 // feature, in reverse order.

@@ -25,7 +25,7 @@ func onlyBlock(t *testing.T, blocks []Block) Block {
 }
 
 func TestRenderTextDeltasGrowOneBlock(t *testing.T) {
-	r := NewRenderer(1, "m")
+	r := NewRenderer(1, "m", "/repo")
 	ev := func(text string) dashi.Event {
 		return dashi.Event{
 			MessageID: "m1",
@@ -75,7 +75,7 @@ func toolStep(kind dashi.StepKind, at time.Time, out *tl.Outcome) dashi.Step {
 }
 
 func TestRenderToolLifecycle(t *testing.T) {
-	r := NewRenderer(1, "m")
+	r := NewRenderer(1, "m", "/repo")
 	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	running := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolStarted, t0, nil))))
 	if running.State != StateRunning || running.Name != "bash" ||
@@ -110,7 +110,7 @@ func TestRenderToolLifecycle(t *testing.T) {
 }
 
 func TestRenderDeniedTool(t *testing.T) {
-	r := NewRenderer(1, "m")
+	r := NewRenderer(1, "m", "/repo")
 	decision := toolStep(dashi.StepToolDecision, time.Time{}, nil)
 	decision.Tool.Verdict = dashi.ToolVerdict{
 		Kind:   dashi.DecisionDeny,
@@ -139,7 +139,7 @@ func TestRenderStopKinds(t *testing.T) {
 				Kind:  dashi.StopLimited,
 				Limit: &dashi.LimitDetail{Kind: dashi.LimitModelAttempts, Used: 40},
 			},
-			"Stopped after 40 model calls. Type /continue to go on.",
+			"Stopped after 40 model calls. Press Enter or type /continue to go on.",
 		},
 		{
 			"other limit",
@@ -171,7 +171,7 @@ func TestRenderStopKinds(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRenderer(3, "m")
+			r := NewRenderer(3, "m", "/repo")
 			stop := tt.stop
 			b := onlyBlock(t, r.Event(stepEvent(dashi.Step{
 				Kind: dashi.StepStopped,
@@ -183,7 +183,7 @@ func TestRenderStopKinds(t *testing.T) {
 		})
 	}
 	// A completed turn adds no stop line.
-	r := NewRenderer(1, "m")
+	r := NewRenderer(1, "m", "/repo")
 	if got := r.Event(stepEvent(dashi.Step{
 		Kind: dashi.StepStopped,
 		Stop: &dashi.Stop{Kind: dashi.StopCompleted},
@@ -193,7 +193,7 @@ func TestRenderStopKinds(t *testing.T) {
 }
 
 func TestRenderSteerAndWarning(t *testing.T) {
-	r := NewRenderer(1, "m")
+	r := NewRenderer(1, "m", "/repo")
 	got := r.Event(stepEvent(dashi.Step{
 		Kind: dashi.StepDelivered,
 		Context: &dashi.ContextFact{
@@ -243,7 +243,7 @@ func TestMainArgPicksPathThenCommand(t *testing.T) {
 		{`not json`, ""},
 	}
 	for _, tt := range tests {
-		if got := mainArg("x", json.RawMessage(tt.args)); got != tt.want {
+		if got := mainArg(json.RawMessage(tt.args), "/repo"); got != tt.want {
 			t.Errorf("mainArg(%s)=%q, want %q", tt.args, got, tt.want)
 		}
 	}

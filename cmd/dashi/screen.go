@@ -451,7 +451,7 @@ func shortDir(dir string) string {
 func askView(q Question) tui.View {
 	views := []tui.View{tui.Text(" %s", q.Prompt).Bold()}
 	for i, c := range q.Choices {
-		views = append(views, tui.Text("   %d. %s", i+1, c))
+		views = append(views, tui.Text("   %d. %s", i+1, c.Label))
 	}
 	return tui.Stack(views...).Gap(0)
 }
@@ -568,7 +568,7 @@ func toolView(b Block) tui.View {
 	head := tui.Group(
 		icon,
 		tui.Text(" %s", b.Name).Bold(),
-		tui.Text("  %s", truncate(b.Arg, 70)).Hint(),
+		tui.Text("  %s", fitArg(b.Arg, 70)).Hint(),
 		tui.Spacer(),
 		state,
 	)

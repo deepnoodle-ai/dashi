@@ -202,7 +202,7 @@ func TestScreenQuitDuringApprovalCancelsTheRun(t *testing.T) {
 		t.Fatalf("runs=%d", runs.Load())
 	}
 	last := h.app.eng.Last(t.Context())
-	if !last.Unfinished() {
+	if !last.CanGoOn() {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
 }

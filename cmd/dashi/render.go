@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 // BlockKind names what a Block shows.
@@ -72,6 +74,8 @@ type Renderer struct {
 	Turn int
 	// Model is the model name shown in the footer.
 	Model string
+	// Dir is the workspace directory. Paths inside it show relative to it.
+	Dir string
 
 	calls map[string]*callState
 	text  map[string]string
@@ -84,11 +88,13 @@ type callState struct {
 	denied  string
 }
 
-// NewRenderer returns a renderer for turn number n.
-func NewRenderer(n int, model string) *Renderer {
+// NewRenderer returns a renderer for turn number n. The model is what the
+// footer shows when the turn does not record its own.
+func NewRenderer(n int, model, dir string) *Renderer {
 	return &Renderer{
 		Turn:  n,
 		Model: model,
+		Dir:   dir,
 		calls: map[string]*callState{},
 		text:  map[string]string{},
 	}
@@ -138,7 +144,12 @@ func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
 		r.calls[p.CallID] = c
 	}
 	b := r.toolBlock(p.CallID, c, StateRunning)
-	if p.Message != "" {
+	var shell workspace.ShellProgress
+	switch {
+	case len(p.Data) > 0 && json.Unmarshal(p.Data, &shell) == nil &&
+		len(shell.Lines) > 0:
+		b.Lines = shell.Lines[max(len(shell.Lines)-3, 0):]
+	case p.Message != "":
 		b.Lines = tailLines(p.Message, 3)
 	}
 	return []Block{b}
@@ -158,6 +169,9 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	var out []Block
 	switch s.Kind {
 	case dashi.StepStarted:
+		if m := s.Started.Agent.Model; m != "" {
+			r.Model = m
+		}
 		out = append(out, Block{
 			ID:   "u:" + s.TurnID,
 			Kind: KindUser,
@@ -223,7 +237,7 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 		r.calls[call.ID] = c
 	}
 	c.name = call.Name
-	c.arg = mainArg(call.Name, call.Args)
+	c.arg = mainArg(call.Args, r.Dir)
 	return c
 }
 
@@ -304,7 +318,7 @@ func (r *Renderer) stopped(s dashi.Step) []Block {
 func limitText(st *dashi.Stop) string {
 	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelAttempts {
 		return fmt.Sprintf(
-			"Stopped after %d model calls. Type /continue to go on.",
+			"Stopped after %d model calls. Press Enter or type /continue to go on.",
 			st.Limit.Used,
 		)
 	}
@@ -369,12 +383,12 @@ func costText(sp dashi.Spend) string {
 
 // RenderTurn returns every block of a recorded turn, in order, ending with
 // its footer when the turn has ended.
-func RenderTurn(n int, model string, turn dashi.Turn) ([]Block, error) {
+func RenderTurn(n int, model, dir string, turn dashi.Turn) ([]Block, error) {
 	view, err := dashi.Replay(turn)
 	if err != nil {
 		return nil, err
 	}
-	r := NewRenderer(n, model)
+	r := NewRenderer(n, model, dir)
 	var out []Block
 	for i := range turn.Steps {
 		step := turn.Steps[i]
@@ -445,9 +459,8 @@ const toolLineWidth = 58
 func formatTool(b Block) string {
 	left := "  " + b.Name
 	if b.Arg != "" {
-		left += "  " + b.Arg
+		left += "  " + fitArg(b.Arg, toolLineWidth-len(left)-2)
 	}
-	left = truncate(left, toolLineWidth)
 	right := b.State
 	if b.State == StateOK || b.State == StateFailed {
 		right += fmt.Sprintf("  %.1fs", b.Elapsed.Seconds())
@@ -463,8 +476,9 @@ func formatTool(b Block) string {
 }
 
 // mainArg picks the argument to show next to a tool name: the path, command,
-// pattern, or other first string that names what the call works on.
-func mainArg(name string, raw json.RawMessage) string {
+// pattern, or other first string that names what the call works on. A path
+// inside dir shows relative to dir.
+func mainArg(raw json.RawMessage, dir string) string {
 	var args map[string]any
 	if json.Unmarshal(raw, &args) != nil {
 		return ""
@@ -473,6 +487,9 @@ func mainArg(name string, raw json.RawMessage) string {
 		"path", "file_path", "command", "pattern", "query", "url", "dir", "name",
 	} {
 		if s, ok := args[key].(string); ok && s != "" {
+			if key == "path" || key == "file_path" || key == "dir" {
+				s = relPath(dir, s)
+			}
 			return firstLine(s)
 		}
 	}
@@ -487,6 +504,48 @@ func mainArg(name string, raw json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// relPath shows p relative to dir when p is inside dir.
+func relPath(dir, p string) string {
+	if dir == "" || !filepath.IsAbs(p) {
+		return p
+	}
+	rel, err := filepath.Rel(dir, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return p
+	}
+	return rel
+}
+
+// fitArg shortens arg to width. A path (no spaces) loses its left end, so the
+// file name stays; anything else loses its right end.
+func fitArg(arg string, width int) string {
+	r := []rune(arg)
+	if width < 8 || len(r) <= width {
+		return arg
+	}
+	if !strings.ContainsAny(arg, " \t") {
+		return "..." + string(r[len(r)-(width-3):])
+	}
+	return string(r[:width-3]) + "..."
+}
+
+// printable makes every text field of b safe to show in a terminal. Text that
+// the model controls could otherwise carry escape sequences or carriage
+// returns that rewrite the screen. Every UI receives blocks through this.
+func printable(b Block) Block {
+	b.Text = workspace.PrintableText(b.Text)
+	b.Name = workspace.PrintableText(b.Name)
+	b.Arg = workspace.PrintableText(b.Arg)
+	if b.Lines != nil {
+		lines := make([]string, len(b.Lines))
+		for i, l := range b.Lines {
+			lines[i] = workspace.PrintableText(l)
+		}
+		b.Lines = lines
+	}
+	return b
 }
 
 func firstLine(s string) string {

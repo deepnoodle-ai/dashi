@@ -20,7 +20,7 @@ type noteArgs struct {
 }
 
 // withNoteTool adds a write_note tool that needs approval, on top of the
-// stand-in tools, for the duration of the test.
+// coding tools, for the duration of the test.
 func withNoteTool(t *testing.T, runs *atomicCounter) {
 	t.Helper()
 	old := adapters
@@ -158,7 +158,7 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 		t.Fatal("the call ran without approval")
 	}
 	last := h.app.eng.Last(t.Context())
-	if !last.Unfinished() || last.View.Stop.Kind != dashi.StopInterrupted {
+	if !last.CanGoOn() || last.View.Stop.Kind != dashi.StopInterrupted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
 	h.app.eng.Close()
@@ -174,7 +174,7 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 	}
 	mustHave(t, h.ui.text(), "Noted.")
 	last = h.app.eng.Last(t.Context())
-	if last.Unfinished() || last.View.Stop.Kind != dashi.StopCompleted {
+	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("stop=%+v", last.View.Stop)
 	}
 	if len(h.app.eng.Session().Turns) != 1 {
@@ -230,7 +230,7 @@ func TestLimitStopThenContinueSameTurn(t *testing.T) {
 		say("All done."),
 	)
 	h.input("do a lot")
-	mustHave(t, h.ui.text(), "Stopped after 3 model calls. Type /continue to go on.")
+	mustHave(t, h.ui.text(), "Stopped after 3 model calls. Press Enter or type /continue to go on.")
 	if !h.app.eng.Last(t.Context()).LimitStopped() {
 		t.Fatal("the turn is not limit-stopped")
 	}
@@ -356,7 +356,7 @@ func TestSlashCommands(t *testing.T) {
 	h.input("/bogus")
 	mustHave(t, h.ui.text(), "Unknown command /bogus.")
 	h.input("/sessions")
-	mustHave(t, h.ui.text(), first)
+	mustHave(t, h.ui.text(), "There are no sessions for this directory.")
 	h.input("/quit")
 	select {
 	case <-h.ui.quit:
@@ -365,38 +365,16 @@ func TestSlashCommands(t *testing.T) {
 	}
 }
 
-type bashArgs struct {
-	Command string `json:"command" description:"Command to run."`
-}
-
 // A settled bash call is followed by the diff of the working tree.
 func TestDiffShownAfterBash(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
-	old := adapters
-	t.Cleanup(func() { adapters = old })
-	var dir string
-	adapters = append(slicesClone(old), func(env Env) (wiring, error) {
-		dir = env.Dir
-		bash, err := tool.Func(
-			"bash",
-			"Run a command.",
-			func(_ context.Context, _ tool.Call, in bashArgs) (tool.Outcome, error) {
-				err := os.WriteFile(
-					filepath.Join(env.Dir, "a.txt"), []byte("new\n"), 0o600,
-				)
-				return tool.Succeeded("ran " + in.Command), err
-			},
-		)
-		yes := true
-		bash.Definition.Annotations.ReadOnly = &yes
-		return wiring{Tools: tool.List{bash}}, err
-	})
 	h := newHarness(t,
 		callTool("c1", "bash", `{"command":"echo new > a.txt"}`),
 		say("Changed."),
 	)
+	dir := h.dir
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"config", "user.email", "t@example.com"},

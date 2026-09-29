@@ -10,6 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 // Mode is what the prompt is doing now. It decides what typed text and Ctrl-C
@@ -95,6 +96,11 @@ func (c *Controller) Mode() Mode {
 	return c.mode
 }
 
+// emit shows b on the UI. Every block goes through printable first.
+func (c *Controller) emit(b Block) {
+	c.ui.Emit(printable(b))
+}
+
 func (c *Controller) setMode(m Mode) {
 	c.mu.Lock()
 	c.mode = m
@@ -114,13 +120,23 @@ func (c *Controller) Approve(
 ) (Approval, error) {
 	c.setMode(ModeApproval)
 	defer c.setMode(ModeRunning)
-	return c.ui.Approve(ctx, r)
+	// The request text is the model's. The UI gets the printable form only.
+	return c.ui.Approve(ctx, r.Printable())
 }
 
 // Ask is the AskFunc the wiring uses.
 func (c *Controller) Ask(ctx context.Context, q Question) (string, error) {
 	c.setMode(ModeApproval)
 	defer c.setMode(ModeRunning)
+	q.Prompt = workspace.PrintableText(q.Prompt)
+	choices := make([]workspace.Choice, len(q.Choices))
+	for i, ch := range q.Choices {
+		choices[i] = workspace.Choice{
+			Label:       workspace.PrintableText(ch.Label),
+			Description: workspace.PrintableText(ch.Description),
+		}
+	}
+	q.Choices = choices
 	return c.ui.Ask(ctx, q)
 }
 
@@ -134,18 +150,26 @@ func (c *Controller) Answers() <-chan string {
 func (c *Controller) Open() {
 	ctx := c.base
 	for _, b := range c.eng.Scrollback(ctx) {
-		c.ui.Emit(b)
+		c.emit(b)
 	}
 	last := c.eng.Last(ctx)
 	switch {
 	case last.LimitStopped():
 		// The limit stop block is already in the scrollback.
-	case last.Unfinished():
-		c.ui.Emit(Block{
+	case last.CanGoOn():
+		c.emit(Block{
 			Kind: KindNotice,
 			Text: fmt.Sprintf(
-				"Turn %d was interrupted. Press Enter to continue it, "+
-					"or type a new prompt to cancel it.", last.N),
+				"Turn %d %s. Press Enter to continue it, "+
+					"or type a new prompt to cancel it.", last.N, last.StopText()),
+			Done: true,
+		})
+	case last.Open():
+		c.emit(Block{
+			Kind: KindNotice,
+			Text: fmt.Sprintf(
+				"Turn %d %s and cannot continue. "+
+					"Type a new prompt to cancel it.", last.N, last.StopText()),
 			Done: true,
 		})
 	}
@@ -212,13 +236,34 @@ func (c *Controller) steer(line string) {
 		c.mu.Unlock()
 		return
 	}
+	if c.duringTurnCommand(line) {
+		return
+	}
 	urgent := false
 	if text, ok := strings.CutPrefix(line, "!"); ok {
 		line, urgent = strings.TrimSpace(text), true
 	}
 	if err := c.eng.Steer(line, urgent); err != nil {
-		c.ui.Emit(warnBlock("The steer was not sent: %v.", err))
+		c.emit(warnBlock("The steer was not sent: %v.", err))
 	}
+}
+
+// duringTurnCommand handles a line that names a slash command while a turn
+// runs. The line is not a steer. /help runs now; the others wait for the end
+// of the turn. It reports whether the line was a command.
+func (c *Controller) duringTurnCommand(line string) bool {
+	name, _, _ := strings.Cut(line, " ")
+	switch name {
+	case "/exit":
+		c.steer("/quit")
+	case "/help":
+		c.command(line)
+	case "/continue", "/new", "/model", "/sessions":
+		c.notice("%s runs when the turn ends. Press Ctrl-C to stop the turn.", name)
+	default:
+		return false
+	}
+	return true
 }
 
 func (c *Controller) prompt(text string) {
@@ -228,7 +273,7 @@ func (c *Controller) prompt(text string) {
 }
 
 func (c *Controller) resume() {
-	if !c.eng.Last(c.base).Unfinished() {
+	if !c.eng.Last(c.base).CanGoOn() {
 		return
 	}
 	c.startRun(c.eng.Resume)
@@ -249,7 +294,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 		quit := c.quit
 		c.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			c.ui.Emit(warnBlock("%v", err))
+			c.emit(warnBlock("%v", err))
 		}
 		switch {
 		case quit:
@@ -269,7 +314,7 @@ func (c *Controller) command(line string) {
 		c.ui.Quit()
 	case "/continue":
 		if !c.eng.Last(c.base).LimitStopped() {
-			c.ui.Emit(Block{
+			c.emit(Block{
 				Kind: KindNotice,
 				Text: "/continue works after a model-call limit stop.",
 				Done: true,
@@ -284,9 +329,9 @@ func (c *Controller) command(line string) {
 	case "/sessions":
 		c.async(c.sessions)
 	case "/help":
-		c.ui.Emit(Block{Kind: KindNotice, Text: helpText, Done: true})
+		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
 	default:
-		c.ui.Emit(warnBlock("Unknown command %s. Type /help.", name))
+		c.emit(warnBlock("Unknown command %s. Type /help.", name))
 	}
 }
 
@@ -308,17 +353,17 @@ func (c *Controller) async(fn func(context.Context)) {
 }
 
 func (c *Controller) notice(format string, args ...any) {
-	c.ui.Emit(Block{Kind: KindNotice, Text: fmt.Sprintf(format, args...), Done: true})
+	c.emit(Block{Kind: KindNotice, Text: fmt.Sprintf(format, args...), Done: true})
 }
 
 func (c *Controller) newSession(ctx context.Context) {
 	s, err := c.store.Create(c.dir, c.eng.Model())
 	if err != nil {
-		c.ui.Emit(warnBlock("A new session was not created: %v.", err))
+		c.emit(warnBlock("A new session was not created: %v.", err))
 		return
 	}
 	if err := c.eng.Open(s); err != nil {
-		c.ui.Emit(warnBlock("%v.", err))
+		c.emit(warnBlock("%v.", err))
 		return
 	}
 	c.ui.Reset()
@@ -335,7 +380,7 @@ func (c *Controller) model(ctx context.Context, name string) {
 		name = models[idx]
 	}
 	if !knownModel(name) {
-		c.ui.Emit(warnBlock(
+		c.emit(warnBlock(
 			"Model %q is not in the catalog. Keeping %s.", name, c.eng.Model(),
 		))
 		return
@@ -347,7 +392,7 @@ func (c *Controller) model(ctx context.Context, name string) {
 func (c *Controller) sessions(ctx context.Context) {
 	list, err := c.store.List(c.dir)
 	if err != nil {
-		c.ui.Emit(warnBlock("Sessions cannot be listed: %v.", err))
+		c.emit(warnBlock("Sessions cannot be listed: %v.", err))
 		return
 	}
 	if len(list) == 0 {
@@ -371,11 +416,11 @@ func (c *Controller) sessions(ctx context.Context) {
 func (c *Controller) openSession(id string) {
 	s, err := c.store.Load(id)
 	if err != nil {
-		c.ui.Emit(warnBlock("%v.", err))
+		c.emit(warnBlock("%v.", err))
 		return
 	}
 	if err := c.eng.Open(s); err != nil {
-		c.ui.Emit(warnBlock("%v.", err))
+		c.emit(warnBlock("%v.", err))
 		return
 	}
 	if s.Model != "" {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 // appConfig holds what buildApp needs.
@@ -35,8 +36,9 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Approve: func(ctx context.Context, r ApprovalRequest) (Approval, error) {
 			return ctrl.Approve(ctx, r)
 		},
-		Ask: func(ctx context.Context, q Question) (string, error) {
-			return ctrl.Ask(ctx, q)
+		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
+			text, err := ctrl.Ask(ctx, q)
+			return workspace.Answer{Text: text}, err
 		},
 	})
 	if err != nil {
@@ -49,7 +51,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Store:         cfg.Store,
 		Wiring:        w,
 		ModelAttempts: cfg.ModelAttempts,
-		Emit:          ui.Emit,
+		Emit:          func(b Block) { ui.Emit(printable(b)) },
 	})
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
 	return &app{eng: eng, ctrl: ctrl, wiring: w}, nil

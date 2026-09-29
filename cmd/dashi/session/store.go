@@ -63,7 +63,9 @@ func (st *Store) DisableSync() {
 	st.sync = false
 }
 
-// Create makes a new empty session for dir and saves it.
+// Create makes a new empty session for dir. It does not touch the disk: the
+// session is saved when its first turn records, so a launch that runs no
+// turn leaves nothing behind.
 func (st *Store) Create(dir, model string) (*Session, error) {
 	var b [3]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -77,10 +79,17 @@ func (st *Store) Create(dir, model string) (*Session, error) {
 		Created: now,
 		Updated: now,
 	}
-	if err := st.Save(s); err != nil {
-		return nil, err
-	}
 	return s, nil
+}
+
+// Discard removes the directory of a session that was never saved. A saved
+// session stays.
+func (st *Store) Discard(s *Session) {
+	dir := filepath.Join(st.root, s.ID)
+	if _, err := os.Stat(filepath.Join(dir, "session.json")); err == nil {
+		return
+	}
+	os.RemoveAll(dir)
 }
 
 // Save writes s to disk and sets its Updated time. It replaces the file
@@ -128,8 +137,9 @@ func (st *Store) Load(id string) (*Session, error) {
 	return &s, nil
 }
 
-// List returns the sessions of dir, newest first. A session file that cannot
-// be read is left out, so one bad file does not hide the others.
+// List returns the sessions of dir that have at least one turn, newest first.
+// A session file that cannot be read is left out, so one bad file does not
+// hide the others.
 func (st *Store) List(dir string) ([]Session, error) {
 	entries, err := os.ReadDir(st.root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -144,7 +154,7 @@ func (st *Store) List(dir string) ([]Session, error) {
 			continue
 		}
 		s, err := st.Load(e.Name())
-		if err != nil || s.Dir != dir {
+		if err != nil || s.Dir != dir || len(s.Turns) == 0 {
 			continue
 		}
 		out = append(out, *s)
@@ -155,7 +165,9 @@ func (st *Store) List(dir string) ([]Session, error) {
 	return out, nil
 }
 
-// Latest returns the most recently updated session of dir.
+// Latest returns the most recently updated session of dir that has a turn.
+// It counts a session made by a print run (-p) like any other, so a follow-up
+// can build on it.
 func (st *Store) Latest(dir string) (*Session, error) {
 	all, err := st.List(dir)
 	if err != nil {

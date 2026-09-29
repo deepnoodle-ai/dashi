@@ -126,7 +126,7 @@ func (u *lineUI) Ask(ctx context.Context, q Question) (string, error) {
 	u.mu.Lock()
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
 	for i, c := range q.Choices {
-		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c)
+		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c.Label)
 	}
 	fmt.Fprint(u.out, "> ")
 	u.mu.Unlock()

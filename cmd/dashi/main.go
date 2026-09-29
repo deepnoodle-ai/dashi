@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -115,7 +116,13 @@ func runPrint(
 // gives the exit code 1 and its reason on stderr.
 func printAnswer(out dashi.Outcome, stdout, stderr io.Writer) int {
 	if out.Answer != "" {
-		fmt.Fprintln(stdout, out.Answer)
+		answer := out.Answer
+		if f, ok := stdout.(*os.File); ok && isTerminal(f) {
+			// The answer is the model's text. On a terminal it must not carry
+			// escape sequences.
+			answer = workspace.PrintableText(answer)
+		}
+		fmt.Fprintln(stdout, answer)
 	}
 	if out.Stop.Kind != dashi.StopCompleted {
 		fmt.Fprintf(stderr, "dashi: the turn stopped: %s", out.Stop.Kind)
@@ -176,8 +183,10 @@ func runLines(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Session %s saved. Resume with: dashi --resume %s\n",
-		a.eng.Session().ID, a.eng.Session().ID)
+	if s := a.eng.Session(); len(s.Turns) > 0 {
+		fmt.Fprintf(stdout, "Session %s saved. Resume with: dashi --resume %s\n",
+			s.ID, s.ID)
+	}
 	return 0
 }
 
@@ -223,8 +232,10 @@ func runScreen(
 	a.ctrl.Wait()
 	scr.drain()
 	scr.dumpTranscript(stdout)
-	id := a.eng.Session().ID
-	fmt.Fprintf(stdout, "\nSession %s saved. Resume with: dashi --resume %s\n", id, id)
+	if s := a.eng.Session(); len(s.Turns) > 0 {
+		fmt.Fprintf(stdout, "\nSession %s saved. Resume with: dashi --resume %s\n",
+			s.ID, s.ID)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
