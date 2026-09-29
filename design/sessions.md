@@ -278,7 +278,8 @@ usual retry arrives while its turn still runs.
 2. Scan from the newest turn started by a caller's `Start` through the last
    turn. Queue and compaction turns (`queue:` and `compact:` keys) never start
    the window, whatever their origin, so it covers those that ran after the
-   caller's turn.
+   caller's turn. A turn in the window that fails to load fails the check with
+   its error, since a missed key would run the command again.
 3. A turn matches when its recorded command ID equals the key. It is a duplicate
    when its input matches too: for a caller's `Start`, the recorded
    `StartFact.Input` ends with the retry's `Input` by JSON meaning (queued user

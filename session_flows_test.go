@@ -111,6 +111,31 @@ func TestSessionIdempotency(t *testing.T) {
 			t.Fatalf("outside the window: %v, turn %s", err, out.Turn.ID)
 		}
 	})
+	t.Run("unreadable turn in the window", func(t *testing.T) {
+		// The key's turn cannot be read behind a queue turn, so the
+		// retry fails rather than start the message again.
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"), dashitest.Reply("queued"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Run(t.Context(), keyed("k", "hello")); err != nil {
+			t.Fatal(err)
+		}
+		queue := keyed(`queue:["n1"]`, "a notice")
+		queue.Origin = dashi.StartScheduled
+		if _, err := s.Run(t.Context(), queue); err != nil {
+			t.Fatal(err)
+		}
+		broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
+		_, err := handle(broken, client).Run(t.Context(), keyed("k", "hello"))
+		if err == nil {
+			t.Fatal("retry succeeded; want the load error")
+		}
+		if n := len(client.Inputs()); n != 2 {
+			t.Fatalf("model calls = %d; want 2", n)
+		}
+		requireTurns(t, rec, 2)
+	})
 	t.Run("different input", func(t *testing.T) {
 		rec := dashi.NewMemoryRecorder()
 		s := handle(rec, dashitest.NewClient(dashitest.Reply("first")))

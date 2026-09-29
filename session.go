@@ -471,7 +471,9 @@ func (s *Session) duplicate(
 	for n := last; n >= 1; n-- {
 		t, err := s.load(ctx, n)
 		if err != nil {
-			continue
+			// The window cannot be checked, and a missed key would run
+			// the command again.
+			return nil, err
 		}
 		start := t.turn.Steps[0]
 		if start.CommandID == c.CommandID {
