@@ -781,9 +781,8 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	}
 	g1.open()
 	g2.open()
-	var notices []delegate.Notice
 	for range 2 {
-		notices = append(notices, h.next(t, delegate.TaskEnded).Task.Notice())
+		h.next(t, delegate.TaskEnded)
 	}
 	// The user also typed a line while no turn ran.
 	if _, err := h.inbox.SendText("also fix the docs"); err != nil {
@@ -793,9 +792,11 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var user []dashi.Steer
+	var user, notices []dashi.Steer
 	for _, s := range left {
-		if !delegate.IsNotice(s) {
+		if delegate.IsNotice(s) {
+			notices = append(notices, s)
+		} else {
 			user = append(user, s)
 		}
 	}
@@ -806,7 +807,7 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 
 	// Either order of the notices names the same follow-up turn.
 	id := delegate.FollowUpTurnID(notices)
-	if id != delegate.FollowUpTurnID([]delegate.Notice{notices[1], notices[0]}) {
+	if id != delegate.FollowUpTurnID([]dashi.Steer{notices[1], notices[0]}) {
 		t.Fatal("follow-up turn ID depends on notice order")
 	}
 	start := delegate.FollowUp(notices)
@@ -877,10 +878,10 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 	h.none(t, delegate.TaskEnded)
 
 	// The host delivers the notice in a follow-up turn.
-	notice := ended.Task.Notice()
+	notices := []dashi.Steer{ended.Task.Notice().Steer()}
 	followUp, err := h.runner.Run(t.Context(),
-		dashi.Turn{ID: delegate.FollowUpTurnID([]delegate.Notice{notice})},
-		delegate.FollowUp([]delegate.Notice{notice}))
+		dashi.Turn{ID: delegate.FollowUpTurnID(notices)},
+		delegate.FollowUp(notices))
 	if err != nil {
 		t.Fatal(err)
 	}

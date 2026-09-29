@@ -1,9 +1,10 @@
-// Command delegate runs one agent turn in which the model hands a search to
-// an "explore" subagent through the task tool. It prints the subagent's
-// steps as they happen, indented under the task call, and then the answer and
-// the spend split between parent and child. Set ANTHROPIC_API_KEY before
-// running it; ANTHROPIC_MODEL optionally overrides the catalog's default
-// model.
+// Command delegate runs an agent that hands searches to "explore" subagents
+// in the background. The task tool returns at once, so the agent keeps
+// working while the subagents search. The host prints each subagent's steps
+// as they happen, sends every finished result to the agent, and starts a
+// follow-up turn for results that arrive after the turn ended. Set
+// OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
+// default model.
 package main
 
 import (
@@ -17,7 +18,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -36,10 +37,10 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	client, err := messages.New(messages.Config{})
+	client, err := responses.New(responses.Config{})
 	if err != nil {
 		return fmt.Errorf("delegate: create client: %w", err)
 	}
@@ -47,45 +48,116 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("delegate: %w", err)
 	}
-	tools := tool.Join(tool.List{search}, delegate.New(delegate.Config{
-		// Children inherit the client, recorder, hooks, cancel behavior,
-		// and model of the runner below. OnChild draws their steps.
+
+	// The whole wiring: a Tasks value, its tools, and one OnTask callback
+	// that sends each finished result to the agent.
+	inbox := dashi.NewInbox()
+	wake := make(chan struct{}, 1)
+	tasks := delegate.NewTasks(delegate.Config{
 		OnChild: printChild,
-	}))
+		OnTask: func(e delegate.TaskEvent) {
+			if e.Kind != delegate.TaskEnded {
+				return
+			}
+			fmt.Printf("<< task %s %s\n", e.Task.ID, e.Task.State)
+			_, _ = inbox.Send(e.Task.Notice().Steer())
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		},
+	})
+	defer tasks.Close(context.Background())
 
 	recorder := dashi.NewMemoryRecorder()
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
-			Model: os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "Answer questions about the team notes. " +
-				"Use the task tool with the explore subagent to search.",
+			Model: os.Getenv("OPENAI_MODEL"),
+			Instructions: "Answer questions about the team notes. Start one " +
+				"task with the explore subagent for each separate question, " +
+				"all in one step. Do not wait for them: a message arrives " +
+				"when each one ends.",
+			Limits: dashi.Limits{ModelAttempts: 16},
 		},
 		Client:   client,
 		Recorder: recorder,
-		Tools:    tools,
+		Tools:    tool.Join(tool.List{search}, tasks.Tools()),
 	}
 	out, err := runner.Run(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{
-			llm.UserMessage(llm.Text("Who owns the billing service?")),
-		}},
+		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
+			"Who owns the billing service, and who is on call for search?",
+		))}},
+		dashi.WithSteering(inbox),
 	)
 	if err != nil {
 		return fmt.Errorf("delegate: run: %w", err)
 	}
-	fmt.Println(out.Answer)
-
-	report, err := delegate.Report(ctx, recorder, out.TurnView)
+	history, err := dashi.Project(out.Turn)
 	if err != nil {
-		return fmt.Errorf("delegate: report: %w", err)
+		return err
 	}
-	fmt.Printf(
-		"total %s (child agents %s)\n",
-		formatCost(report.Inclusive),
-		formatCost(report.Children),
-	)
+
+	// Results that ended after the turn wait in the inbox. Each round starts
+	// one follow-up turn that carries all of them.
+	for {
+		left, err := inbox.Leftovers(out.Turn)
+		if err != nil {
+			return err
+		}
+		var notices []dashi.Steer
+		for _, s := range left {
+			if delegate.IsNotice(s) {
+				notices = append(notices, s)
+			}
+		}
+		if len(notices) == 0 {
+			if !running(tasks) {
+				break
+			}
+			select {
+			case <-wake:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			continue
+		}
+		start := delegate.FollowUp(notices)
+		start.History = history
+		out, err = runner.Run(
+			ctx,
+			dashi.Turn{ID: delegate.FollowUpTurnID(notices)},
+			start,
+			dashi.WithSteering(inbox),
+		)
+		if err != nil {
+			return fmt.Errorf("delegate: follow-up: %w", err)
+		}
+		if history, err = dashi.Project(out.Turn); err != nil {
+			return err
+		}
+	}
+	fmt.Println(out.Answer)
+	fmt.Printf("subagents cost %s\n", formatCost(taskSpend(tasks)))
 	return nil
+}
+
+func running(tasks *delegate.Tasks) bool {
+	for _, v := range tasks.List() {
+		if v.Running() {
+			return true
+		}
+	}
+	return false
+}
+
+func taskSpend(tasks *delegate.Tasks) dashi.Spend {
+	var total dashi.Spend
+	for _, v := range tasks.List() {
+		total = total.Add(v.Spend)
+	}
+	return total
 }
 
 // printChild draws each committed child tool call under the task call.
@@ -96,7 +168,7 @@ func printChild(e delegate.ChildEvent) {
 	}
 	switch step.Kind {
 	case dashi.StepStarted:
-		fmt.Printf("  > %s\n", e.Subagent)
+		fmt.Printf("  > %s starts\n", e.Subagent)
 	case dashi.StepToolStarted:
 		fmt.Printf("      %s %s\n", step.Tool.Call.Name, step.Tool.Call.Args)
 	case dashi.StepStopped:

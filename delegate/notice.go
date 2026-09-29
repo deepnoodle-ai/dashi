@@ -74,37 +74,40 @@ func IsNotice(s dashi.Steer) bool {
 		strings.HasPrefix(s.Item.ID, noticePrefix)
 }
 
-// noticeChildIDs returns the sorted, distinct child IDs of ns.
-func noticeChildIDs(ns []Notice) []string {
-	ids := make([]string, len(ns))
-	for i, n := range ns {
-		ids[i] = n.Task.ChildID
+// noticeChildIDs returns the sorted, distinct child IDs of notice steers.
+func noticeChildIDs(notices []dashi.Steer) []string {
+	ids := make([]string, len(notices))
+	for i, n := range notices {
+		ids[i] = strings.TrimPrefix(n.Item.ID, noticePrefix)
 	}
 	slices.Sort(ids)
 	return slices.Compact(ids)
 }
 
-// FollowUpTurnID returns the turn ID for a follow-up turn that delivers ns.
-// It depends only on the set of children, so a retry finds the same turn.
-func FollowUpTurnID(ns []Notice) string {
-	list, _ := json.Marshal(noticeChildIDs(ns))
+// FollowUpTurnID returns the turn ID for a follow-up turn that delivers the
+// notice steers. It depends only on the set of children, so a retry finds
+// the same turn.
+func FollowUpTurnID(notices []dashi.Steer) string {
+	list, _ := json.Marshal(noticeChildIDs(notices))
 	sum := sha256.Sum256(list)
 	enc := base32.StdEncoding.WithPadding(base32.NoPadding).
 		EncodeToString(sum[:])
 	return "followup-" + strings.ToLower(enc[:16])
 }
 
-// FollowUp returns the Start for a turn that delivers notices when no turn
-// runs. One turn carries all waiting notices. The start is scheduled work: it
-// claims no user authority. The host sets History and passes
-// FollowUpTurnID(ns) as the turn ID. The start records the children it
-// delivers, so Recover does not report them again. ns must not be empty.
-func FollowUp(ns []Notice) dashi.Start {
-	texts := make([]string, len(ns))
-	for i, n := range ns {
-		texts[i] = n.Text()
+// FollowUp returns the Start for a turn that delivers notice steers when no
+// turn runs. They come from Inbox.Leftovers, filtered with IsNotice, or from
+// TaskView.Notice().Steer(). One turn carries all waiting notices. The start
+// is scheduled work: it claims no user authority. The host sets History and
+// passes FollowUpTurnID(notices) as the turn ID. The start records the
+// children it delivers, so Recover does not report them again. The list must
+// not be empty.
+func FollowUp(notices []dashi.Steer) dashi.Start {
+	texts := make([]string, len(notices))
+	for i, n := range notices {
+		texts[i] = n.Item.Message.Text()
 	}
-	list, _ := json.Marshal(noticeChildIDs(ns))
+	list, _ := json.Marshal(noticeChildIDs(notices))
 	return dashi.Start{
 		CommandID: followUpPrefix + string(list),
 		Origin:    dashi.StartScheduled,
