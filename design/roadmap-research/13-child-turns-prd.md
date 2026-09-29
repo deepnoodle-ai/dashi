@@ -15,7 +15,7 @@ Without this work, every host writes its own parent link, its own child ID rule,
 
 1. A parent turn can call one ready-made tool, `task`. The tool runs a child turn and returns the child's answer. It needs no host code beyond one line.
 2. The record links each child to its parent turn and tool call. The link cannot change.
-3. A retry after a crash never starts a second child.
+3. A retry after a crash never starts a second child. With a `Loader` recorder it continues the same child. Without one, the resumed call is uncertain.
 4. The spend report shows parent, child, and inclusive totals. It never mixes child model cost into tool cost.
 5. Cancel reaches a running child.
 
