@@ -80,6 +80,11 @@ results to keep the result instead. `FailOpen` also works on `BeforeFinish`,
 where an error then counts as no opinion. Pass the same hooks to a `Settle` that
 reports a tool result, since it runs `AfterTool`.
 
+The result limit (`Limits.ToolResultBytes`) runs after the `AfterTool` chain.
+A hook sees the full text, and the limit shortens what the hooks leave. A hook
+cannot bring back text that the limit removed. `ToolView.Shortened()` counts
+bytes after the hooks ran. See [tools](tools.md#large-results).
+
 ## Hook sets
 
 Supply the same `Runner.Hooks` on every command for a turn: each command runs

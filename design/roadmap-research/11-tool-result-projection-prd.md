@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft 2, 2026-09-28. Revised after independent review. |
+| Status | Implemented on branch `tools/result-bounds`, 2026-09-28. PR pending. |
 | Roadmap | [Item 11](../remaining-work.md), "bound tool results". Size M, difficulty high. |
 | Research | [Findings](11-tool-result-projection-research.md), [adjacent libraries](../gaps/C-adjacent-libraries.md), [after-tool hooks](../hooks-after-tool.md) |
 | Ship target | First slice by Tuesday night, 2026-09-29, for the Wednesday demo |
@@ -208,6 +208,7 @@ tool prints 2 MB.
 | Accept review 5: a limit below 1 KiB is raised with a warning at `Start`. | Zero-value rule: warn and adjust. The marker needs room. |
 | Review 6: reject event changes. Hosts read `ToolView.Shortened()`. | Smaller API. Add event fields when the CLI needs them. |
 | Accept review 7: the guide explains parallel calls. | The limit is per result, so eight calls send eight times as much. |
+| Implementation: `Shortened.ShownBytes` counts kept original text, not the marker. The marker fits inside the limit. A new `WarningLimitAdjusted` (Start steps only) reports a raised limit. | The PRD left both open. Replay rejects a `Shortened` record with no `Result`, no limit, or sizes that do not shrink. |
 | Record no digest and no version. | The view holds the exact bytes. `Outcome` holds the original. |
 | Keep the full result in the record. | The record grows as it does today. |
 | No per-tool limit and no typed error for non-text blocks. | One knob is enough for the demo. |

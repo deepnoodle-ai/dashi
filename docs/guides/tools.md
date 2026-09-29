@@ -131,6 +131,33 @@ Completions have no flag, so the result text is preceded by `Tool failed:` and
 the prepared request records an `encode_tool_error` content change, not a
 warning.
 
+## Large results
+
+A tool can return more text than the model needs. By default, Dashi limits the
+text of each tool result in the model view to 64 KiB. This includes error
+results. Set `Agent.Limits.ToolResultBytes` for another limit. A negative value
+turns the limit off. A value below 1 KiB becomes 1 KiB, and `Start` records a
+`WarningLimitAdjusted`.
+
+When a result is over the limit, the model sees the first half and the last
+half of the allowed text. A marker between them gives the original size and the
+omitted size. It asks for a smaller part and does not tell the model to run the
+call again. The cuts fall on rune boundaries, so the text stays valid UTF-8.
+Images and other non-text blocks stay in place and do not count.
+
+The turn record keeps the full result in `ToolView.Outcome`. `ToolView.Result()`
+returns the model view, and `ToolView.Shortened()` returns the sizes and the
+limit, as recorded when the call settled. Replay, `dashi.Project`, and
+recovery read the recorded view. They never compute it again, so a new limit
+changes only later calls. `Observer` and `Stream` events carry the full result,
+so a live reader can show all of it to a person
+([example](../../examples/bigresult/main.go)).
+
+The limit applies to each result. Parallel calls add up: eight results of
+64 KiB send 512 KiB. Set a lower limit when `ToolConcurrency` is high.
+Shortening is not redaction. Secrets in the kept text stay in the view, and the
+full result stays in the record.
+
 ## Tool progress
 
 A long-running tool can report a status snapshot with `tool.Report`. Each
