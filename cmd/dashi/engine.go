@@ -146,13 +146,16 @@ type LastTurn struct {
 // Open reports whether the turn has not ended for good. A new prompt cancels
 // an open turn.
 func (l *LastTurn) Open() bool {
-	return l != nil && !l.View.Stop.Terminal
+	return l != nil && l.View.Next() != dashi.NextNone
 }
 
-// CanGoOn reports whether Enter can run the turn on: it stopped at the
-// model-call limit, or it is open and the library says Continue can run.
+// CanGoOn reports whether Enter can run the turn on: Continue can run now,
+// possibly with a raised model-call limit. A turn with no recorded stop was
+// left by a worker that crashed, since the session lock rules out a live one.
 func (l *LastTurn) CanGoOn() bool {
-	return l.LimitStopped() || l.Open() && l.View.ReadyToContinue
+	return l != nil && (l.View.Next() == dashi.NextContinue ||
+		l.LimitStopped() ||
+		l.View.Next() == dashi.NextResume && l.View.ReadyToContinue)
 }
 
 // StopText says in words why the turn stopped.
@@ -171,17 +174,7 @@ func (l *LastTurn) StopText() string {
 
 // LimitStopped reports whether the turn stopped at its model-call limit.
 func (l *LastTurn) LimitStopped() bool {
-	if l == nil {
-		return false
-	}
-	return limitStop(l.View.Stop)
-}
-
-// limitStop reports whether s is a model-call limit stop that Continue can
-// raise.
-func limitStop(s dashi.Stop) bool {
-	return s.Kind == dashi.StopLimited && s.Limit != nil &&
-		s.Limit.Kind == dashi.LimitModelAttempts && !s.Terminal
+	return l != nil && l.View.Next() == dashi.NextRaiseAttempts
 }
 
 // Last loads the newest turn of the session. It returns nil when the
@@ -435,7 +428,7 @@ func (e *Engine) run(
 		}
 		return res, runErr
 	}
-	if limitStop(out.Stop) {
+	if out.Next() == dashi.NextRaiseAttempts {
 		// The turn can go on, so the steers that missed it stay in the
 		// inbox for its continuation.
 		if n := e.queuedSteers(out.Turn.ID); n > 0 {
