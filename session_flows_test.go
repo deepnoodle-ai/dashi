@@ -92,17 +92,15 @@ func TestSessionIdempotency(t *testing.T) {
 		queue.Origin = dashi.StartScheduled
 		compact := keyed("compact:1", "summarize")
 		compact.Origin = dashi.StartOperator
-		for _, c := range []dashi.Start{queue, compact} {
-			if _, err := s.Run(t.Context(), c); err != nil {
-				t.Fatal(err)
-			}
-		}
+		ownTurn(t, rec, client, 2, queue)
+		ownTurn(t, rec, client, 3, compact)
 		out, err := handle(rec, client).Run(t.Context(), keyed("k", "hello"))
 		if err != nil || out.Turn.ID != dashi.TurnID("s", 1) {
 			t.Fatalf("retry: %v, turn %s", err, out.Turn.ID)
 		}
 		requireTurns(t, rec, 3)
 		// A newer caller turn ends the window: the old key starts anew.
+		s = handle(rec, client)
 		if _, err := s.Run(t.Context(), keyed("k2", "other")); err != nil {
 			t.Fatal(err)
 		}
@@ -123,9 +121,7 @@ func TestSessionIdempotency(t *testing.T) {
 		}
 		queue := keyed(`queue:["n1"]`, "a notice")
 		queue.Origin = dashi.StartScheduled
-		if _, err := s.Run(t.Context(), queue); err != nil {
-			t.Fatal(err)
-		}
+		ownTurn(t, rec, client, 2, queue)
 		broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
 		_, err := handle(broken, client).Run(t.Context(), keyed("k", "hello"))
 		if err == nil {
@@ -135,6 +131,23 @@ func TestSessionIdempotency(t *testing.T) {
 			t.Fatalf("model calls = %d; want 2", n)
 		}
 		requireTurns(t, rec, 2)
+	})
+	t.Run("reserved key", func(t *testing.T) {
+		// Queue and compaction keys mark the session's own turns, which
+		// the window looks past, so a caller cannot use them.
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient()
+		s := handle(rec, client)
+		s.New = true
+		for _, key := range []string{"compact:refresh", `queue:["n1"]`} {
+			if _, err := s.Run(t.Context(), keyed(key, "hello")); err == nil ||
+				!strings.Contains(err.Error(), "reserved") {
+				t.Fatalf("%s: err = %v; want the reserved-prefix error", key, err)
+			}
+		}
+		if _, err := rec.Load(t.Context(), dashi.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
+			t.Fatalf("turn 1: %v; want none", err)
+		}
 	})
 	t.Run("different input", func(t *testing.T) {
 		rec := dashi.NewMemoryRecorder()
@@ -253,6 +266,17 @@ func TestSessionIdempotency(t *testing.T) {
 		}
 		requireTurns(t, rec, 1)
 	})
+}
+
+// ownTurn runs c as turn n of session "s" through the Runner, as the
+// session's queue or compactor would, since Run refuses their keys.
+func ownTurn(t *testing.T, rec dashi.Recorder, client llm.Client, n int, c dashi.Start) {
+	t.Helper()
+	c.Agent.Model = dashitest.Model
+	r := dashi.Runner{Client: client, Recorder: rec}
+	if _, err := r.Run(t.Context(), dashi.NewTurn(dashi.TurnID("s", n)), c); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // heldLoad holds the first Load of one turn until the test proceeds, so a

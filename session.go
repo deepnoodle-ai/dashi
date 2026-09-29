@@ -210,7 +210,9 @@ func (s *Session) Answer(
 // starts. Any other command (Continue, Settle, Deliver, Cancel) goes to the
 // last turn. The session sets Start.History and Continue.History to the
 // projected history of the turns before the target turn, replacing any the
-// caller set, and gives a Start the carried agent.
+// caller set, and gives a Start the carried agent. A Start's command ID
+// must not begin with "queue:" or "compact:", which mark the session's own
+// turns.
 //
 // The outcome and error mean what Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
@@ -223,6 +225,12 @@ func (s *Session) Run(
 	case nil:
 		return Outcome{}, errors.New("dashi: command is required")
 	case Start:
+		if internalKey(c.CommandID) {
+			return Outcome{}, fmt.Errorf(
+				"dashi: command ID %q uses a prefix reserved for the session's queue and compaction turns",
+				c.CommandID,
+			)
+		}
 		return s.start(ctx, c, opts)
 	}
 	return s.command(ctx, c, opts)
@@ -496,8 +504,7 @@ func (s *Session) duplicate(
 			}
 			return &Outcome{Turn: cloneTurn(t.turn), TurnView: t.view}, nil
 		}
-		if !strings.HasPrefix(start.CommandID, "queue:") &&
-			!strings.HasPrefix(start.CommandID, "compact:") {
+		if !internalKey(start.CommandID) {
 			return nil, nil
 		}
 	}
@@ -618,4 +625,11 @@ func sameInputTail(recorded, input []llm.Message) bool {
 		return false
 	}
 	return sameJSONValue(recorded[len(recorded)-len(input):], input)
+}
+
+// internalKey reports whether a Start's command ID marks one of the
+// session's own turns, a queue or compaction turn. Run refuses these keys
+// from callers, so the idempotency window can trust them.
+func internalKey(id string) bool {
+	return strings.HasPrefix(id, "queue:") || strings.HasPrefix(id, "compact:")
 }
