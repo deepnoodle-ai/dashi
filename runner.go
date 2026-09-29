@@ -1167,10 +1167,16 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if !finalAnswerOnly && !r.agent.NoTools && r.runner.Tools != nil {
-		tools, e := r.runner.Tools.Tools(r.toolsContext(r.ctx))
-		if e != nil {
-			return r.failureOrContext(e), false
+	if !finalAnswerOnly && !r.agent.NoTools {
+		// Without a toolset the selection still runs, so a named tool
+		// warns that it is not offered.
+		var tools []tool.Tool
+		var e error
+		if r.runner.Tools != nil {
+			tools, e = r.runner.Tools.Tools(r.toolsContext(r.ctx))
+			if e != nil {
+				return r.failureOrContext(e), false
+			}
 		}
 		tools = r.selectTools(s, tools)
 		for _, t := range tools {

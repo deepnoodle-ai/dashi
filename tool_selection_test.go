@@ -111,6 +111,54 @@ func TestMissingSelectedToolWarnsOncePerTurn(t *testing.T) {
 
 // The tool_not_offered warning is recorded, so a turn that is interrupted and
 // continued does not repeat it.
+// A named tool warns even when the runner has no toolset, and the warning
+// is in the record.
+func TestMissingSelectedToolWarnsWithoutToolset(t *testing.T) {
+	rec := NewMemoryRecorder()
+	agent := testAgent()
+	agent.Tools = []string{"lookup"}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	_, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(), Turn{ID: "t1"}, Start{Agent: agent, Input: userInput("go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(client.inputs[0].Tools); n != 0 {
+		t.Fatalf("offered %d tools, want none", n)
+	}
+	turn, err := rec.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := Replay(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var warned []Warning
+	for _, w := range view.Warnings {
+		if w.Code == WarningToolNotOffered {
+			warned = append(warned, w)
+		}
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0].Message, `"lookup"`) {
+		t.Fatalf("recorded warnings=%+v, want one tool_not_offered", warned)
+	}
+
+	// NoTools turns the selection off, so it does not warn.
+	agent.NoTools = true
+	client = &scriptedClient{results: []llm.Result{final("done")}}
+	out, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{}, Start{Agent: agent, Input: userInput("go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range out.Warnings {
+		if w.Code == WarningToolNotOffered {
+			t.Fatalf("NoTools warned: %+v", w)
+		}
+	}
+}
+
 func TestMissingSelectedToolWarnsOnceAcrossContinue(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
