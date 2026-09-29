@@ -444,9 +444,14 @@ func verify(history []llm.Message, rec *Record) error {
 }
 
 // digestOf hashes messages by their JSON meaning, so a store that reorders
-// keys or respells numbers gives the same digest.
+// keys or respells numbers gives the same digest. Descriptive context identity
+// adds no model-visible content and does not change old coverage digests.
 func digestOf(messages []llm.Message) (string, error) {
-	b, err := canonjson.Marshal(messages)
+	values := slices.Clone(messages)
+	for i := range values {
+		values[i].Context = nil
+	}
+	b, err := canonjson.Marshal(values)
 	if err != nil {
 		return "", fmt.Errorf("compaction: encode history: %w", err)
 	}
@@ -456,6 +461,7 @@ func digestOf(messages []llm.Message) (string, error) {
 
 // estimate returns a rough token count for one message.
 func estimate(m llm.Message) int {
+	m.Context = nil
 	b, _ := json.Marshal(m)
 	return len(b)/bytesPerToken + 1
 }

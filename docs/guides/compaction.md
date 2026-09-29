@@ -134,6 +134,16 @@ store only the newest one.
 | `ErrCoverageMismatch` | The Record does not match the history. | Warn. Use the raw history. |
 | Any other error | The summarizer failed. The history and Record are unchanged. | Warn. Run the Turn with the old view. |
 
+## Persistent context
+
+Keep `llm.Message.Context` when retaining messages. `Message.Clone` and JSON
+storage preserve this slot identity. `SeedContext` and skill catalogs avoid
+another delivery while their latest unchanged value remains visible. If
+compaction removes it, they deliver it again. A summary mentioning the value
+does not establish presence. Reconstructing retained messages from text alone
+loses identity. Old compaction records without identity keep their messages
+and receive one new identified delivery.
+
 ## What it costs, and what it loses
 
 A summary can leave out a detail that the agent needs later. The raw history

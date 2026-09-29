@@ -99,16 +99,26 @@ tool not marked read-only, see
 
 ## Delivering context and vetoing answers
 
-`BeforeModel` runs before every model call in the turn, so a hook that
-delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. `dashi.SeedContext(item)` is that hook for a
-fixed item, such as who is on call: it delivers the item once per turn. In a
-`Session`, each turn delivers it again and the history keeps the earlier
-copies, so keep a seed small; the fresh copy keeps it in context after
-compaction drops old history. To act once per turn in any hook, ask
-`p.Turn.HookActed(point, name)`, which reports whether the named hook has
-answered this turn. Both read the turn record, not a variable in the hook, so
-they hold when another process resumes the turn. `BeforeModel` may run more
+`BeforeModel` runs before every model call. `dashi.SeedContext(item)` delivers
+a named item only when its latest visible value differs from the configured
+value, or the slot is absent from `p.Input.Messages`. Origin and Name identify
+the slot. Empty Origin means user context. Delivery IDs do not affect the
+comparison. This rule holds across `Session` turns and reopened handles.
+Changed values append after earlier messages to preserve the prompt prefix.
+Restoring A after B appends A again, even if an older A remains visible.
+
+Projection preserves each named item's identity in `llm.Message.Context`.
+This metadata adds no authority or model-visible content. Matching ordinary
+user text cannot suppress a seed. Retained compaction messages keep their
+identity, so they prevent repeated delivery. Dropped items return before the
+next request. Summary text does not count as retained context. Old compaction
+messages without identity remain in place and receive one new identified copy.
+`SeedContext` requires Name and clears NextCallOnly.
+
+For context limited to the current turn, inspect `p.Turn.Context(origin, name)`.
+To act once per turn in any hook, ask `p.Turn.HookActed(point, name)`. It reads
+recorded hook answers and holds when another process resumes the turn.
+`BeforeModel` may run more
 than once for one reply, and `BeforeSend` may be asked again for the same
 reply, when an [urgent steer](steering.md) sends the run back before the
 request is sent. Deliver a value that must reflect each call as a named
