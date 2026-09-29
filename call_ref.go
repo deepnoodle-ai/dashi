@@ -66,5 +66,10 @@ func (r *runtime) callRunner() Runner {
 	out := r.runner
 	out.Agent = r.agent
 	out.Hooks = r.hooks
+	if r.implicitRecorder {
+		// The private per-Run recorder ends with the Run. A child must not
+		// inherit it, so the tool sees that the host set no recorder.
+		out.Recorder = nil
+	}
 	return out
 }

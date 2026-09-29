@@ -317,6 +317,13 @@ func (t *taskTools) Execute(
 	parent, _ := dashi.CurrentRunner(ctx)
 	id := ChildID(ref.TurnID, ref.CallID)
 	runner := t.childRunner(sub, ref, parent)
+	if runner.Recorder == nil {
+		return tool.Outcome{}, tool.Fatal(errors.New(
+			"delegate: the task tool needs a Recorder that the host keeps " +
+				"between runs; set Runner.Recorder on the parent runner " +
+				"or Config.Runner.Recorder",
+		))
+	}
 	if _, ok := runner.Recorder.(dashi.Loader); !ok {
 		t.warnNoLoader()
 	}
@@ -438,6 +445,9 @@ func (t *taskTools) answer(
 	switch stop := out.Stop; stop.Kind {
 	case dashi.StopCompleted:
 		text := out.Answer
+		if out.Output != nil && len(out.Output.Value) > 0 {
+			text = string(out.Output.Value)
+		}
 		if strings.TrimSpace(text) == "" {
 			text = "The subagent finished without a written answer."
 		}

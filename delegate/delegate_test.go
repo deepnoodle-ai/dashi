@@ -1182,3 +1182,41 @@ func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 		t.Fatalf("child turns started=%d, want 1", got)
 	}
 }
+
+// Without a host recorder, the child record would end with the parent Run.
+// The task fails before it starts a child.
+func TestTaskWithoutHostRecorderFailsBeforeChild(t *testing.T) {
+	h := newHarness(t, script("x"), delegate.Config{}, nil)
+	h.runner.Recorder = nil
+	out, err := h.start(t.Context())
+	if err == nil && out.Stop.Kind == dashi.StopCompleted {
+		t.Fatal("the parent completed without a host recorder")
+	}
+	if got := h.client.sends("child"); got != 0 {
+		t.Fatalf("child model calls=%d, want 0", got)
+	}
+}
+
+// A child with an output schema returns its structured value.
+func TestTaskReturnsStructuredChildOutput(t *testing.T) {
+	sub := scout()
+	sub.Agent.OutputSchema = json.RawMessage(
+		`{"type":"object","properties":{"n":{"type":"integer"}},` +
+			`"required":["n"],"additionalProperties":false}`)
+	handle := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if role(in) != "child" {
+			return script("")(ctx, in)
+		}
+		return costed(
+			toolCall("s1", dashi.SubmitOutputTool, `{"n":7}`), "0.25"), nil
+	}
+	h := newHarness(t, handle,
+		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
+	out, err := h.start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := toolResult(t, out.TurnView); got != `{"n":7}` {
+		t.Fatalf("task result=%q", got)
+	}
+}

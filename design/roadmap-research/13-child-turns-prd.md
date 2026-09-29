@@ -196,3 +196,5 @@ None block the first slice. Later: whether a child index belongs in `Recorder`, 
 ## Deliverables
 
 Core fields and `CurrentCall`; `delegate` package; tests listed above; `examples/delegate`; `docs/guides/delegation.md`; update `design/remaining-work.md` and the packet index.
+25. **A host recorder is required (review 4, accepted).** A runner with no `Recorder` uses a private per-run recorder. A child saved there is lost when the run ends, so a resume would start and bill a second child. `CurrentRunner` returns a nil `Recorder` in that case, and `task` fails the parent turn before it starts a child. A `Config.Runner.Recorder` is still enough.
+26. **Structured child output is returned (review 4, accepted).** When a completed child has a structured output, `task` returns its value as JSON text instead of the answer text.

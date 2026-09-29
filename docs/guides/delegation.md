@@ -69,6 +69,16 @@ one warning at its first call, and a crash can then lead to a second, billable
 child. If `Config.Runner.Recorder` is set and is not a `Loader`, `New` warns
 at once and does not mark `task` idempotent. Use a `Loader` recorder.
 
+The parent runner must have a `Recorder` that the host keeps between runs, or
+`Config.Runner.Recorder` must be set. When a runner has no recorder, `Run` uses
+a private one that ends with the run, so a resume could not find the child. In
+that case `task` fails the parent turn and starts no child.
+
+## Structured output
+
+If a subagent's agent has an `OutputSchema`, `task` returns the child's
+structured value as JSON text.
+
 A child tool with side effects can still run twice after a crash, under the
 runner's usual rule for a tool that has started and has no result.
 
