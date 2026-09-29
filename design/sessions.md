@@ -85,8 +85,9 @@ and reports false when nothing was queued; `delegate.RunUntilQuiet` needs it.
 
 **Handle lock.** One mutex guards the cache, the inbox claims, the queue, and
 the running set. `Run` and `Stream` hold it only while choosing the turn and
-building the command, not while the turn runs. A second `Start` on the same
-handle while a turn runs sees that turn as live and is refused.
+building the command, which includes closing the last turn, not while the turn
+runs. A second `Start` on the same handle while a turn runs sees that turn as
+live and is refused.
 
 ## Storage and turn IDs
 
@@ -108,11 +109,14 @@ type SessionIndex interface {
 ```
 
 **Probing.** Without `SessionIndex`, the session finds the last turn by doubling
-*n* (1, 2, 4, …) until a turn is missing, then binary-searching. A probe reads
-one step with `StepsAfter(id, 0, 1)` on a `StepReader`, or calls `Load`, where
-`ErrTurnNotFound` or an empty turn means missing. A 1,000-turn session takes
-about 20 reads. A recorder that is neither cannot reopen a session; the handle
-then knows only the turns it ran.
+the distance *d* (1, 2, 4, …) past the last turn it knows exists (0 at first)
+until a turn is missing, then binary-searching. A probe reads one step with
+`StepsAfter(id, 0, 1)` on a `StepReader`, or calls `Load`, where
+`ErrTurnNotFound` or an empty turn means missing; a step of another turn is an
+error, and the search stops at 2^30. A 1,000-turn session takes about 20 reads
+from a fresh handle, and a handle that already knows its last turn takes one. A
+recorder that is neither cannot reopen a session; the handle then knows only
+the turns it ran.
 
 Probing needs turns numbered from 1 without gaps. The session never skips a
 number: a `Start` always targets `last+1`. A host that deletes turns (later)
@@ -139,9 +143,11 @@ No session lease or lock. Three engine rules keep the record correct:
 - A new turn starts only after the last one has ended, and ending is permanent:
   a later command on it gets `ErrTurnEnded`.
 
-On `ErrRevisionConflict` from a `Start`, the session reloads the last turn and
-applies the idempotency check and the last-turn rules once more, then returns
-the error if it still loses.
+On `ErrRevisionConflict` or `ErrCommandConflict` from a `Start`, before its
+`turn_started` step committed, the session reloads the last turn and applies
+the idempotency check and the last-turn rules once more, then returns the error
+if it still loses. A conflict on a later step means the turn started and
+another worker took it over, so it is returned as is.
 
 These rules do not say whether a turn is **live**, meaning a worker drives it
 now. A turn with no stop recorded after its latest `Start` or `Continue` is
@@ -202,8 +208,8 @@ The first matching row applies:
 | Last turn | `Next()` | A new `Start` |
 |---|---|---|
 | None, or ended (completed, canceled, or a terminal limit) | `NextNone` | Starts |
-| Holds an unsettled uncertain call, whatever its liveness or `Exclusive` | any other | Refuses |
-| No stop recorded; live | `NextRunning` | Refuses |
+| Live, or running on this handle | `NextRunning` | Refuses, no `CallID` |
+| Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
 | No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
 | No stop recorded; liveness unknown (an expired lease included) | `NextResume` | Refuses |
 | Waiting on approvals or results | `NextAnswer` | Refuses |
@@ -224,7 +230,7 @@ type TurnBusyError struct {
     Next      Next
     Origin    StartOrigin // compaction: the session's own work
     Duplicate bool        // this Start is a retry of that turn
-    CallID    string      // the unsettled uncertain call that makes it busy
+    CallID    string      // the unsettled uncertain call; empty while running
 }
 
 func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
@@ -243,7 +249,10 @@ closers idempotent, and the new turn's outcome warns `turn_closed`. The engine
 refuses `Cancel` once structured output is recorded (`runner.go`), so the
 session closes such a turn, whatever its `Next`, with `Continue{CommandID:
 "close:" + turnID}`, which completes it without a model call
-(`stopAfterAnswer`). Steers the closed turn never recorded move to the queue
+(`stopAfterAnswer`). At a model-call limit, the reserved final answer, that
+`Continue` raises `ModelAttempts` by one, or it would stop limited again. A
+close that leaves the turn open refuses with `*TurnBusyError`. Steers the
+closed turn never recorded move to the queue
 ([session-input.md](session-input.md)). Closing relies on track 1: ended turns
 project and freeze.
 
@@ -299,9 +308,11 @@ type SessionState struct {
 
 An ID with no turns is `ErrSessionNotFound`, unless `New` is set. With `New`, a
 session that already has turns fails with `ErrSessionExists`, except for an
-idempotent retry of the first `Start`, which the check above finds first. An
-empty ID is always new. Creating is explicit, so a mistyped ID fails rather than
-start an empty session, as Dive's `Store.Open` did.
+idempotent retry of the first `Start`, which the check above finds first. `New`
+stops applying once the handle starts turn 1 or finds turns without `New`, so
+the handle that creates a session keeps using it. An empty ID is always new.
+Creating is explicit, so a mistyped ID fails rather than start an empty
+session, as Dive's `Store.Open` did.
 
 With no `Runner.Recorder`, the handle creates one `MemoryRecorder`, as the
 zero-value rule requires, and the first outcome carries a `memory_only` warning.
@@ -333,9 +344,14 @@ return theirs in `Queued.Warnings`.
 
 `dashitest` gains checks for any recorder that implements `SessionIndex` (it
 agrees with the turns committed, including after a race on `S-n`) and a probing
-check (a session of 1, 2, 3, 64, and 1,000 turns is found with at most
-`2·log2(n)+2` reads). `filerecorder` and `MemoryRecorder` run both. Backends
-that skipped a shared suite have diverged elsewhere (ADK-Go #679, #1329).
+check (a session of 1, 2, and 3 turns is found with at most `2·log2(n)+2` reads,
+plus one to load the last turn, through `StepReader` and through `Loader` alone,
+and session IDs with dashes find their own turns beside IDs that share a
+prefix). The read bound is a property of the search, so a root test checks it
+at 64 and 1,000 turns on `MemoryRecorder`. Both are part of `dashitest.Run`, so
+`filerecorder` and `MemoryRecorder` run both; neither implements `SessionIndex`,
+so they pass by probing, and a test store checks the index. Backends that
+skipped a shared suite have diverged elsewhere (ADK-Go #679, #1329).
 
 A lost-worker check expires the old claim during a model call, then during a
 non-idempotent tool call: a new message refuses, takeover never reruns the tool,

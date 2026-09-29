@@ -300,6 +300,19 @@ const (
 	// Tools did not offer for a model call. The call runs without it. Each
 	// name warns once per turn.
 	WarningToolNotOffered WarningCode = "tool_not_offered"
+
+	// The warnings below are a Session's own. No turn records them; they
+	// arrive on Outcome.SessionWarnings.
+
+	// WarningTurnClosed means a new Start closed the session's last turn,
+	// which had stopped without ending, with Cancel and CloseReason.
+	WarningTurnClosed WarningCode = "turn_closed"
+	// WarningTurnUnreadable means a turn failed to load or project and was
+	// left out of the history sent to the model.
+	WarningTurnUnreadable WarningCode = "turn_unreadable"
+	// WarningMemoryOnly means the session is recorded only in the handle's
+	// in-memory recorder and ends with the handle.
+	WarningMemoryOnly WarningCode = "memory_only"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does

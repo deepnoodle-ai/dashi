@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,12 @@ import (
 func TestMemoryRecorderConforms(t *testing.T) {
 	dashitest.Run(t, func(*testing.T) dashitest.Store {
 		return dashi.NewMemoryRecorder()
+	})
+}
+
+func TestIndexedStoreConforms(t *testing.T) {
+	dashitest.Run(t, func(*testing.T) dashitest.Store {
+		return newIndexedStore(false)
 	})
 }
 
@@ -81,6 +88,21 @@ var brokenStores = map[string]struct {
 			return neverAhead{dashi.NewMemoryRecorder()}
 		},
 		failing: "ReadsAfterCursor",
+	},
+	"index-matches-prefix": {
+		store: func() dashitest.Store {
+			return newIndexedStore(true)
+		},
+		failing: "SessionIndexAgrees",
+	},
+	"loads-by-prefix": {
+		store: func() dashitest.Store {
+			return &loadsByPrefix{
+				MemoryRecorder: dashi.NewMemoryRecorder(),
+				turns:          map[string]bool{},
+			}
+		},
+		failing: "SessionProbing",
 	},
 	"changes-meaning": {
 		store: func() dashitest.Store {
@@ -211,6 +233,92 @@ func writeJSONB(buf *bytes.Buffer, value any) {
 		}
 		buf.Truncate(buf.Len() - 1) // Encode appends a newline.
 	}
+}
+
+// indexedStore implements dashi.SessionIndex as a host table would: it
+// parses each started turn's ID from the right. With prefix set, it counts
+// every turn whose ID starts with the session ID instead, so a session
+// whose ID extends another's inflates its count.
+type indexedStore struct {
+	*dashi.MemoryRecorder
+	prefix bool
+	mu     sync.Mutex
+	turns  map[string]bool
+}
+
+func newIndexedStore(prefix bool) *indexedStore {
+	return &indexedStore{
+		MemoryRecorder: dashi.NewMemoryRecorder(),
+		prefix:         prefix,
+		turns:          map[string]bool{},
+	}
+}
+
+func (s *indexedStore) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if err := s.MemoryRecorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	if req.Step.Kind == dashi.StepStarted {
+		s.mu.Lock()
+		s.turns[req.Step.TurnID] = true
+		s.mu.Unlock()
+	}
+	return nil
+}
+
+func (s *indexedStore) LastTurn(_ context.Context, session string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	last := 0
+	for id := range s.turns {
+		if s.prefix {
+			if strings.HasPrefix(id, session+"-") {
+				last++
+			}
+			continue
+		}
+		i := strings.LastIndex(id, "-")
+		n, err := strconv.Atoi(id[i+1:])
+		if i < 0 || err != nil || id[:i] != session {
+			continue
+		}
+		last = max(last, n)
+	}
+	return last, nil
+}
+
+// loadsByPrefix loads the highest turn whose ID starts with the one asked
+// for, as `WHERE turn_id LIKE $1 || '%' ORDER BY turn_id DESC LIMIT 1`
+// would, so "x-1" loads "x-10".
+type loadsByPrefix struct {
+	*dashi.MemoryRecorder
+	mu    sync.Mutex
+	turns map[string]bool
+}
+
+func (s *loadsByPrefix) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if err := s.MemoryRecorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.turns[req.Step.TurnID] = true
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *loadsByPrefix) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	s.mu.Lock()
+	match := ""
+	for tid := range s.turns {
+		if strings.HasPrefix(tid, id) && tid > match {
+			match = tid
+		}
+	}
+	s.mu.Unlock()
+	if match == "" {
+		match = id
+	}
+	return s.MemoryRecorder.Load(ctx, match)
 }
 
 // ignoresClaim accepts every owner, so it has no lease fence.
