@@ -172,10 +172,12 @@ func (s *Session) Send(
 
 // Answer records each answer with Settle, then runs one Continue, so a
 // host answers a waiting turn in one call; the record keeps a step per
-// answer. It stops at the first Settle error. The Continue's command ID
-// derives from the answers', so a retried Answer is recognized. Each run
-// gets opts, as Run's would: WithOwner for a leasing host, WithObserver for
-// a live view of the Continue.
+// answer. It stops at the first Settle error. A Settle without a command
+// ID gets "settle:" and its CallID, as Pending's builders derive theirs
+// from the call, and the Continue's command ID derives from the answers',
+// so a retried Answer is recognized. Each run gets opts, as Run's would:
+// WithOwner for a leasing host, WithObserver for a live view of the
+// Continue.
 func (s *Session) Answer(
 	ctx context.Context,
 	answers []Settle,
@@ -183,6 +185,11 @@ func (s *Session) Answer(
 ) (Outcome, error) {
 	ids := make([]string, 0, len(answers))
 	for _, answer := range answers {
+		if answer.CommandID == "" && answer.CallID != "" {
+			// Call IDs are unique within a turn, and command IDs are
+			// scoped to their turn.
+			answer.CommandID = "settle:" + answer.CallID
+		}
 		answer = withCommandID(answer).(Settle)
 		if out, err := s.Run(ctx, answer, opts...); err != nil {
 			return out, err

@@ -460,6 +460,54 @@ func TestSessionAnswer(t *testing.T) {
 	}
 }
 
+// TestSessionAnswerRetry retries Answer after its Settle and Continue
+// committed but the caller lost the result. The retry returns the recorded
+// outcome and records and runs nothing more, for the Pending builders'
+// answers and for a Settle without a command ID.
+func TestSessionAnswerRetry(t *testing.T) {
+	for _, name := range []string{"builder", "no command ID"} {
+		t.Run(name, func(t *testing.T) {
+			rec := dashi.NewMemoryRecorder()
+			client := dashitest.NewClient(
+				dashitest.CallTool("call-1", "charge", `{}`),
+				dashitest.Reply("I did not charge the card."),
+			)
+			s := handle(rec, client)
+			s.New = true
+			s.Runner.Tools = (&chargeTool{}).tools()
+			s.Runner.Hooks = dashi.RequireApproval("charge")
+			out, err := s.Send(t.Context(), "pay")
+			if err != nil || out.Next() != dashi.NextAnswer {
+				t.Fatalf("send: %v, next %s", err, out.Next())
+			}
+			deny := out.Pending[0].Deny("no")
+			if name == "no command ID" {
+				deny.CommandID = ""
+			}
+			first, err := s.Answer(t.Context(), []dashi.Settle{deny})
+			if err != nil || first.Stop.Kind != dashi.StopCompleted {
+				t.Fatalf("answer: %v, stop %+v", err, first.Stop)
+			}
+			steps := len(first.Turn.Steps)
+			// Another worker's handle retries, as a client whose
+			// connection dropped would.
+			again, err := handle(rec, client).Answer(t.Context(), []dashi.Settle{deny})
+			if err != nil || again.Turn.ID != first.Turn.ID ||
+				again.Stop.Kind != dashi.StopCompleted ||
+				again.Answer != first.Answer {
+				t.Fatalf("retry: %v, turn %s stop %+v", err, again.Turn.ID, again.Stop)
+			}
+			saved, err := rec.Load(t.Context(), first.Turn.ID)
+			if err != nil || len(saved.Steps) != steps {
+				t.Fatalf("steps = %d (%v); want %d", len(saved.Steps), err, steps)
+			}
+			if n := len(client.Inputs()); n != 2 {
+				t.Fatalf("model calls = %d; want 2", n)
+			}
+		})
+	}
+}
+
 // TestSessionAnswerOptions passes Answer's options to the runs it makes: a
 // leasing worker's WithOwner reaches the recorder on the Settle and on the
 // Continue.
