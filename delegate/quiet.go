@@ -13,9 +13,10 @@ import (
 // that turn needs the host first; its queued items wait
 // (dashi.SessionState.Queued counts them).
 //
-// The host's Config.OnTask puts each ended task's notice on the session:
-// SteerItem(ctx, e.Task.Notice().Steer()) reaches a running turn, and
-// EnqueueItem(ctx, e.Task.Notice().Steer().Item) waits for the next one.
+// Each ended child turn's notice must reach the session: Tasks puts it
+// there when Config.Session is s, or the host's Config.OnTask does, with
+// SteerItem(ctx, e.Task.Notice().Steer()), which reaches a running turn, or
+// EnqueueItem(ctx, e.Task.Notice().Item()), which waits for the next one.
 // Either way a notice that arrives while no turn runs starts a queue turn.
 // One Tasks serves one session.
 func RunUntilQuiet(

@@ -358,13 +358,15 @@ func splitsExchange(tail []llm.Message) bool {
 
 // withoutReminders copies messages and removes reminder content. The host
 // supplies reminders again on each Turn, so a summary must not keep them. A
-// message left with no content is dropped.
+// reminder with a sender (From) is agent mail, such as a subagent's answer,
+// which nobody supplies again, so it stays. A message left with no content
+// is dropped.
 func withoutReminders(messages []llm.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(messages))
 	for _, m := range messages {
 		kept := make([]llm.Content, 0, len(m.Content))
 		for _, c := range m.Content {
-			if c.Kind != llm.ContentReminder {
+			if c.Kind != llm.ContentReminder || c.Reminder != nil && c.Reminder.From != "" {
 				kept = append(kept, c)
 			}
 		}

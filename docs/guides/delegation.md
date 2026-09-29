@@ -19,13 +19,7 @@ conversation, usually a [session](sessions.md). The wiring is short:
 
 ```go
 s := &dashi.Session{Runner: runner}
-tasks := delegate.NewTasks(delegate.Config{
-	OnTask: func(e delegate.TaskEvent) {
-		if e.Kind == delegate.TaskEnded {
-			s.SteerItem(ctx, e.Task.Notice().Steer()) // the result reaches the agent
-		}
-	},
-})
+tasks := delegate.NewTasks(delegate.Config{Session: s}) // results reach s
 defer tasks.Close(ctx)
 s.Runner.Tools = tool.Join(runner.Tools, tasks.Tools())
 out, err := s.Send(ctx, "Who owns billing, and who is on call for search?")
@@ -70,20 +64,25 @@ prompt.
 
 ## The link between parent and child
 
-Each child has its own record. `dashi.Start.Parent` names the parent turn and
-tool call, and `TurnView.Parent` shows it. The child's turn ID comes from
-`delegate.ChildID(parentTurnID, callID)`. The task ID (`delegate.TaskID`) is
-a fixed function of the child ID, so it is the same after a reopen.
+Each task runs in a child session, a `dashi.Session` that `Tasks` drives. Its
+ID comes from `delegate.ChildID(parentTurnID, callID)`, and its turns are
+`<child>-1`, `<child>-2`, and so on, each with its own record. A child turn's
+`dashi.Start.Parent` names the parent turn and tool call that started it, and
+`TurnView.Parent` shows it. The task ID (`delegate.TaskID`) is a fixed
+function of the session ID, so it is the same after a reopen.
 
 ## When a result arrives
 
-A finished task calls `Config.OnTask` once with `TaskEnded`. The host decides
-what to do. `TaskView.Notice()` gives the message: `Text()` for display and
-`Steer()` for delivery. The steer has origin `ContextTool`, so it is never
+Each child turn that ends calls `Config.OnTask` once with `TaskEnded`. With
+`Config.Session` set, `Tasks` first puts the turn's notice on that session
+itself; without it, the host decides what to do. `TaskView.Notice()` gives
+the message: `Text()` for display, and `Item()` and `Steer()` for delivery.
+The item is a `task-ended` reminder from the task
+(`from="task t_k3f2 (explore)"`) with origin `ContextAgent`, so it is never
 user or operator text.
 
 There is one delivery rule: **a result is delivered when the conversation's
-record holds the notice** (the context item `task-done:<child ID>`). A
+record holds the notice** (the context item `task-done:<child turn ID>`). A
 `task_status` read is not delivery, so the model that reads a result still
 gets the notice. Two cases:
 
@@ -110,10 +109,11 @@ with the last turn's outcome, or when a turn stops with anything but
 `NextNone`, which needs the host first. The same `Send` also runs a queue turn
 by itself when a notice arrives before its turn ends.
 
-Underneath, `tasks.Wait(ctx)` blocks until a task has been reported through
-`OnTask` (it returns false) or nothing is pending (it returns true). A task is
-pending until `OnTask` returns for its end, so a notice that `OnTask` puts on
-the session is there when `Wait` returns. One goroutine calls `Wait`.
+Underneath, `tasks.Wait(ctx)` blocks until a child turn has been reported
+through `OnTask` (it returns false) or nothing is pending (it returns true). A
+turn is pending until `OnTask` returns for its end, so a notice that `Tasks`
+or `OnTask` puts on the session is there when `Wait` returns. One goroutine
+calls `Wait`.
 
 Cost read while tasks run is a lower bound. It grows until each task ends.
 Read the cost of each task from its `TaskEnded` event.
@@ -125,10 +125,10 @@ records. It does not call `OnTask`. To reopen, make a new `Tasks` and call
 `Recover(ctx, runner, turns)` with the turns of the conversation, which a
 session's `s.Turns(ctx)` yields:
 
-| Child record | `Recover` |
+| Child turn record | `Recover` |
 | --- | --- |
-| No stop, or interrupted | Resumes the same child. Settled model calls do not run again. `OnTask` gets `TaskStarted`. |
-| Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once. |
+| Last turn, no stop or interrupted | Resumes that turn. Settled model calls do not run again. `OnTask` gets `TaskStarted`. |
+| Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once for each such turn. |
 | Ended, and the record holds the notice | Nothing. |
 | Canceled | Not resumed. |
 
@@ -147,8 +147,9 @@ again, so a rerun starts no second child.
 ## Stop and cancel
 
 Ctrl-C on a running turn leaves tasks running. Stop one with the `task_stop`
-tool or `Tasks.Stop(ctx, id)`. The child records `canceled`, and `Recover` does not
-resume it. The states of a task are `running` and the Dashi stop words:
+tool or `Tasks.Stop(ctx, id)`. The running child turn records `canceled`, and
+`Recover` does not resume it; the child session keeps its history. The states
+of a task, those of its last turn, are `running` and the Dashi stop words:
 `completed`, `failed`, `limited`, `refused`, `canceled`, `interrupted`,
 `waiting`, and `uncertain`. `Tasks.List()` returns a `TaskView` for each task
 with state, tool calls, cost, and the answer.
@@ -160,15 +161,17 @@ A child keeps its own `Limits` and `Budget`. A parent `Budget` does not cap a
 child, and the end of the parent turn does not stop it.
 
 Each turn's `Spend` covers its own model calls. `delegate.Report` adds the
-children of a parent turn:
+child turns that a parent turn's calls started:
 
 ```go
 report, err := delegate.Report(ctx, recorder, out.TurnView)
 fmt.Println(report.Inclusive.Cost, report.Children.Cost) // maps by currency
 ```
 
-`Spend.Add` keeps `Cost` and `ToolCost` separate, and a resumed child counts
-once. A queue turn is an ordinary turn with its own spend.
+`Spend.Add` keeps `Cost` and `ToolCost` separate, and a resumed child turn
+counts once. A child turn counts under the parent turn whose call started it
+(its `Parent`). `TaskView.Spend` sums every turn of the task. A queue turn is
+an ordinary turn with its own spend.
 
 ## Approvals for child tool calls
 

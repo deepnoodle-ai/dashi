@@ -1,9 +1,9 @@
 // Command delegate runs an agent that hands searches to "explore" subagents
 // in the background. The task tool returns at once, so the agent keeps
 // working while the subagents search. The host prints each subagent's steps
-// as they happen and puts every finished result on the session: a result
-// reaches the running turn, or, when no turn runs, starts a queue turn.
-// RunUntilQuiet runs those turns until every task has ended. Set
+// as they happen. Tasks puts every finished result on the session itself: a
+// result reaches the running turn, or, when no turn runs, starts a queue
+// turn. RunUntilQuiet runs those turns until every task has ended. Set
 // OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
 // catalog's default model.
 package main
@@ -45,8 +45,8 @@ func run(ctx context.Context) error {
 	}
 	search := newSearchTool()
 
-	// The whole wiring: a session, a Tasks value with its tools, and one
-	// OnTask callback that puts each finished result on the session.
+	// The whole wiring: a session, and a Tasks value that delivers to it,
+	// with its tools.
 	s := &dashi.Session{
 		Agent: dashi.Agent{
 			Model: os.Getenv("OPENAI_MODEL"),
@@ -58,13 +58,8 @@ func run(ctx context.Context) error {
 		},
 	}
 	tasks := delegate.NewTasks(delegate.Config{
+		Session: s,
 		OnChild: printChild,
-		OnTask: func(e delegate.TaskEvent) {
-			if e.Kind == delegate.TaskEnded {
-				fmt.Printf("<< task %s %s\n", e.Task.ID, e.Task.State)
-				_, _ = s.SteerItem(ctx, e.Task.Notice().Steer())
-			}
-		},
 	})
 	defer tasks.Close(context.Background())
 	s.Runner = dashi.Runner{
