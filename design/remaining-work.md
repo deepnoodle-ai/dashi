@@ -181,7 +181,7 @@ namespaced commands, and `load_skill` arguments.
 wiring (`/tasks`, follow-up rule, approval prompt that names the subagent,
 `-p` waiting); then the third slice, messages between a parent and its tasks
 ([PRD](roadmap-research/13-subagent-messages-prd.md),
-[spec](subagent-messages.md), decisions 41–43): each task becomes a child
+[spec](subagent-messages.md), decisions 42–44): each task becomes a child
 session, `task_send` and `message_parent` steer or queue, and mail is
 delivered once from the sender's record, in four tracks. Later: durable
 external settle, a family budget cap over a host ledger, and a child index.

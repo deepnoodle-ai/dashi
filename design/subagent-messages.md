@@ -2,20 +2,20 @@
 
 **Status:** Proposed, 2026-09-29. **Workflow:** spec, then review, then build.
 **PRD:** [subagent messages](roadmap-research/13-subagent-messages-prd.md).
-**Decisions:** [41 to 43](decisions.md). **Extends:**
+**Decisions:** [42 to 44](decisions.md). **Extends:**
 [background subagents](background-subagents.md),
 [session input](session-input.md). Terms are in the
 [glossary](ubiquitous-language.md).
 
 ## Shape
 
-A task becomes a **child session** that `delegate.Tasks` drives. Mail in both
-directions is a context item put on the recipient's session with the calls
-that exist: `SteerItem` for a steer, `EnqueueItem` for a queued message.
-Nothing new carries mail; the session's inbox, queue, and dispatch do.
+A task becomes a **child session** that `delegate.Tasks` drives. Mail is a
+context item put on the recipient's session with calls that exist:
+`SteerItem` into a running turn; to the parent otherwise `EnqueueItem`; to
+an idle child, a `Start` of its next turn. Nothing new carries mail.
 
 ```text
-parent Session ──task_send──▶ Tasks ──SteerItem/EnqueueItem──▶ child Session
+parent Session ──task_send──▶ Tasks ─────SteerItem/Start─────▶ child Session
       ▲                         │                                  │
       └──SteerItem/EnqueueItem──┘◀──message_parent, turn ends──────┘
 ```
@@ -26,24 +26,34 @@ parent Session ──task_send──▶ Tasks ──SteerItem/EnqueueItem──�
   are `TurnID(child, n)`: `<child>-1`, `<child>-2`. `TaskID` hashes the
   session ID, so it is unchanged in form and stable across reopen.
 - **The handle.** Per task, `Tasks` holds `dashi.Session{ID: child, Runner:
-  childRunner, Exclusive: true, Unattended: true}`. Turn 1 is
-  `Start{Parent: &ref, Agent: childAgent, Input: prompt}` with `New`.
-  `Exclusive` holds because one `Tasks` is the only driver of its children.
-- **`Session.Unattended`** (new, package `dashi`): nobody answers this
-  session's stops. The queue then also runs after a stop whose next action is
-  not `NextNone`, closing that turn (`turn_closed`), unless the turn is busy
-  or interrupted. A child with a waiting approval or an uncertain call keeps
-  its mail queued until that clears; an interrupted child is resumed by
-  `Recover`. Without the field, a limited or failed child could never take a
-  follow-up, since the parent model cannot raise its limit.
+  childRunner, Exclusive: true}`. Turn 1 is `Start{Parent: &ref, Agent:
+  childAgent, Input: prompt}` with `New`. `Exclusive` holds because one
+  `Tasks` is the only driver of its children. No new `Session` field.
+- **Later turns.** A message to an idle or ended child starts its next turn
+  with `Start{CommandID: m.ID, Origin: StartScheduled, Parent: &<sending
+  call>, Input: [m's reminder]}`. A `Start` already closes a stopped turn
+  (`closeLast`), so a completed, failed, limited, or canceled child takes it.
+  `closeLast` refuses a busy turn (`waiting`, or an `uncertain` call), so
+  `task_send` to such a child is a tool error that says why, before any
+  send. `Recover` resumes an `interrupted` child. The command ID puts the
+  message ID in the child's record.
 - **Running.** A goroutine that `Tasks` owns ranges over `child.Stream`. Each
   turn's `Outcome` event ends that turn: `Tasks` updates the view and sends
   its notice. The goroutine exits when the call returns. A message to a child
-  with no goroutine starts one that runs `child.RunQueue`.
+  with no goroutine starts one with the `Start` above. Steers that miss a
+  turn stay in the child session's queue and run as the queue turn after it
+  (`queue:["msg:…"]`).
 - **Views.** `TaskView.ChildID` becomes `SessionID`; `TurnID` names the
   current or last child turn, and `Turns` counts them. `State` is the last
-  turn's state, `running` while a turn runs. `Spend` and `Report` sum every
-  child turn (`child.Turns`).
+  turn's state, `running` while a turn runs. `Spend` sums every child turn.
+- **Spend by starting call.** A child turn's starting call is its `Parent`
+  (the `task` or `task_send` call), or, for a queue turn, the call named by
+  the first message ID in its key. `Report(parent)` counts each child turn,
+  of the tasks the parent turn's calls name, whose starting call is in that
+  parent turn: child turn 2, started from parent turn 7, counts in turn 7.
+- **Stop.** `Tasks.Stop` cancels the running turn only; a stopped child
+  takes follow-ups. `Recover` never resumes a canceled turn. The doc
+  comments of `Stop`, `Recover`, and `Report` change with track 2.
 - **Notices** are per child turn: ID `task-done:<child turn ID>`. `OnTask`
   gets `TaskStarted` for each child turn and `TaskEnded` for each end.
 - **`MaxTaskTurns`** (default 10; negative means none) bounds the turns of one
@@ -77,27 +87,36 @@ const TaskMessage TaskEventKind = "message" // TaskEvent.Message is set
 type Config struct {
     // existing fields
     Session      *dashi.Session // Tasks delivers to it; nil: route from OnTask
-    MaxMessages  int            // per child turn; zero = 8, negative = none
+    MaxMessages  int            // per sending turn and recipient; zero = 8
     MaxTaskTurns int            // per task; zero = 10, negative = none
 }
 ```
 
-**Routing.** `Tasks.deliver(to, m)` calls `SteerItem(m.Steer())` for a steer
-and `EnqueueItem(m.Item())` for a queued message, on the child session or on
-`Config.Session`. `SteerItem` already queues when no turn runs, and a steer
-that misses its turn moves to the queue, so no mail is lost.
+**Routing.** `Tasks.deliver(to, m)` first checks the recipient's delivered
+IDs (see "Delivery once"). To the parent, it calls `SteerItem(m.Steer())` or
+`EnqueueItem(m.Item())` on `Config.Session`, as notices do. To a child, it
+calls `SteerItem` on a running turn, and otherwise starts the next turn with
+the `Start` above; a queue message to a running child waits in `Tasks` until
+that turn ends, then starts the next one. Further messages steer into it.
 
 | Recipient | `steer` | `queue` |
 | --- | --- | --- |
 | Running | Before its next model call, or at a candidate answer | After the turn ends, as the next turn |
-| Idle or ended | Starts a turn (queue turn, `StartScheduled`) | Same |
-| Waiting, uncertain | Held until it clears | Same |
+| Idle or ended | Starts a turn (`StartScheduled`) | Same |
+| Waiting, uncertain | Tool error; not sent | Same |
 
 Without `Config.Session`, `OnTask` gets `TaskMessage` and `TaskEnded` events,
 and the host calls the same two methods. `Config.Session` needs the handle's
-own inbox; with a host `Session.Steering`, route from `OnTask`. Pending
-accounting is as today: a message is pending until delivered, so
-`Tasks.Wait` and `RunUntilQuiet` wake on it.
+own inbox; with a host `Session.Steering`, route from `OnTask`. A message is
+pending until delivered, so `Tasks.Wait` and `RunUntilQuiet` wake on it.
+Mail is never held for a recipient that cannot read it; a steer left in a
+child that then stops `waiting` or `uncertain` is not pending, and the
+notice says "your message was not read".
+
+**Parent wakes.** A child turn's first message that finds the parent idle
+starts a parent queue turn. Its later messages steer into a running parent
+turn, or wait in `Tasks` and join its notice at the end. So a task starts at
+most `MaxTaskTurns` parent turns by message, plus one notice per turn.
 
 ## Tools (tracks 3 and 4)
 
@@ -112,9 +131,9 @@ accounting is as today: a message is pending until delivered, so
 Other `task_send` results: queued behind a running turn ("It starts a new turn
 with it after its current turn ends"), an ended child ("It starts turn 2 with
 it and keeps its memory. A message that starts with "[task t_k3f2" arrives
-when it ends."), and held ("It waits for an approval; it reads the message
-when it continues"). Tool errors: unknown task (lists known IDs), empty text,
-text over 16 KiB, `MaxTaskTurns`, `MaxMessages`.
+when it ends."). Tool errors: unknown task (lists known IDs), empty text,
+text over 16 KiB, a `waiting` or `uncertain` child (says why, suggests a new
+task), `MaxTaskTurns`, and `MaxMessages` (per parent turn and task).
 
 The `message_parent` description says when to use it: a finding that changes
 the parent's plan, a blocker, or a question the child can work around; all
@@ -125,11 +144,11 @@ to that task.
 
 **Waits.** `wait_seconds` on `task` and `task_status` returns when the task
 (any task, without `task_id`) ends a turn or sends a steer message, when the
-time is up, or when the call's context ends. Delivery happens before the
-`changed` channel closes, so the item is in the parent's inbox when the tool
-returns, and the next model call holds it. A result that woke on mail omits
-the answer and says "The result follows as a message", so the answer does not
-arrive twice. A plain read (no wait) still returns the answer.
+time is up, or when the call's context ends. The result omits the content
+and says "A message from t_k3f2 follows" only when `Tasks` steered it into
+`Config.Session` successfully before the `changed` channel closed; the next
+model call then holds it once. Otherwise (no `Config.Session`, a failed
+steer) the result holds the text. A plain read still returns the answer.
 
 ## Sender tags and authority (track 1)
 
@@ -143,7 +162,12 @@ arrive twice. A plain read (no wait) still returns the answer.
 - **Escaping.** `FormatReminder` replaces `<` with `&lt;` where content holds
   `<system-reminder` or `</system-reminder`, ASCII case folded. The record
   keeps the original text; the `render_reminder` change notes the escape.
-  This applies to every reminder, so no text can close its tag or open one.
+  This applies to every reminder, so no reminder content can close its tag
+  or open one.
+- **Not escaped: tool results and user text** (PRD decision 4). A coding
+  agent must see a file's bytes. A look-alike tag there stays inside its
+  block, and no view, event, or record counts it as mail. Track 1 tests a
+  tool result with a forged tag.
 - **Who sets `From`.** The tool executor, from its binding: `task_send` sends
   as `parent` to the task named in the arguments; `message_parent` is built
   per task and sends as that task. `Tasks` checks that `CurrentCall` is a turn
@@ -160,14 +184,21 @@ start. The sender's record is the source: a settled `task_send` or
 `message_parent` call holds the text, the delivery, and, by its turn and call
 IDs, the message ID.
 
-- Both tools are idempotent. A rerun after a crash builds the same ID. The
-  recipient's inbox or queue refuses a repeat, which the tool treats as sent,
-  and a turn records an ID at most once.
-- `Recover(ctx, runner, turns)` runs in this order: resume interrupted child
-  turns; then for each settled `task_send` in the parent turns, redeliver it
-  if the child session lacks its ID; for each settled `message_parent` in the
-  child turns, redeliver it if the parent turns lack its ID; then notices, as
-  today. Each redelivery goes through `deliver`, so it follows the table.
+- **Delivered IDs.** `Tasks` keeps, per recipient, the message IDs its
+  record holds: IDs in turns' context, child turns' `msg:` command IDs, and
+  IDs in `queue:` keys. `deliver` adds an ID when it sends. A rerun send
+  builds the same ID, finds it in this set (or in the in-memory inbox or
+  queue), and the tool treats it as sent. The set, not the session's
+  in-memory queue, is what survives a restart.
+- `Recover(ctx, runner, turns)` runs in this order: build the delivered-ID
+  sets from the parent turns and each child session; then resume interrupted
+  child turns, whose rerun sends now see those sets; then for each settled
+  `task_send` in the parent turns, redeliver it if the child lacks its ID;
+  for each settled `message_parent` in the child turns, redeliver it if the
+  parent lacks its ID; then notices, as today. Each redelivery goes through
+  `deliver`, so it follows the table.
+- Crash tests: before send, after send, after delivery, and "delivered,
+  call not settled, turn resumed" (the resumed turn reruns the call).
 - A message the in-memory queue held when the process died is rebuilt this
   way, so the child sessions' `memory_only` warnings do not apply to mail.
 
@@ -199,9 +230,10 @@ This rides on the pending CLI task wiring (item 13).
 - **Queue-only messages that do not wake** (Codex `trigger_turn`). See PRD
   decision 3.
 - **A new `input_required` stop.** See PRD decision 7.
-- **An `Unattended` rule inside `delegate` only.** `Tasks` cannot close a
-  stopped turn and run queued items in one step without the session's
-  reservation logic, so the switch belongs on `Session`.
+- **A `Session.Unattended` field** that lets the queue run after a stop
+  nobody answers. Not needed: `Tasks` starts the next turn with its own
+  `Start`, which closes a stopped turn already, and the command ID records
+  the message ID for free.
 
 ## Tradeoffs
 

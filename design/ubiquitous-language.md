@@ -56,21 +56,23 @@ Session contracts remain proposed; see the
   host, or holding an unsettled uncertain call, whatever its liveness. Only
   proof that no worker still drives it makes a turn **stopped**; that proves
   nothing about effects the worker started. (Proposed; decision 38.)
-- **Subagent**: An agent performing delegated work as a **child turn** linked
-  to its parent turn.
+- **Subagent**: An agent performing delegated work, linked to the parent
+  turn's call that started it. A background subagent is a **task** that runs
+  in a **child session** of one or more child turns. (Proposed; decision 42;
+  was "a child turn".)
 - **Task**: One subagent the parent started with the `task` tool, named by a
   **task ID** such as `t_k3f2`. It runs in the background and can run more
-  than one turn. (Proposed; decision 41.)
+  than one turn. (Proposed; decision 42.)
 - **Child session**: The session a task runs in. Its first turn is the
   delegated work; each later turn starts from a message the parent sent, with
-  the child's own history. (Proposed; decision 41.)
+  the child's own history. (Proposed; decision 42.)
 - **Agent message**: Text a parent sends to one of its tasks, or a task sends
   to its parent, delivered as a steer or a queued message. The user says
   "message"; the longer name keeps it apart from `llm.Message`. (Proposed;
-  decision 41.)
+  decision 42.)
 - **Sender**: Who sent an agent message: `parent`, or a task ID with its
   subagent name. Dashi sets it from the sending turn, never from the text.
-  (Proposed; decision 42.)
+  (Proposed; decision 43.)
 - **Notice**: The agent message Dashi sends for a task when one of its turns
   ends, carrying the answer or the stop reason.
 

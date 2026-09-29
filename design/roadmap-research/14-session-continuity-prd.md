@@ -337,7 +337,7 @@ spec. **Mid-turn compaction** in the engine, before the CLI relies on sessions
 for long turns. **Fork** (a new session whose first start records the parent and
 the cut; stopped turns copied as closed). **Rewind** (a recorded marker with an
 expected-last-turn check; conversation only). **Child sessions** moved to the
-[subagent messages PRD](13-subagent-messages-prd.md) (decision 41): a task is a
+[subagent messages PRD](13-subagent-messages-prd.md) (decision 42): a task is a
 child session, resumable by task ID. **Deletion and retention** (an optional
 deleter; turns before the newest compaction turn; the host's explicit choice). **Replacing a
 running turn across processes** (a durable stop request). **An optional

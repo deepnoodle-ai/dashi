@@ -137,15 +137,19 @@ their records, and sends no `TaskEnded`; the next `Recover` resumes them.
 - FR-3: `Tasks` owns the child goroutines. The end of the tool call or the
   parent Turn does not cancel a child.
 - FR-4: `Tasks` calls `OnTask` once per end in one process. Without `OnTask`,
-  results reach the model only through `task_status`.
+  results reach the model only through `task_status`. (Superseded by
+  [decision 42](decisions.md): a task has many turns, and each child turn's
+  end is reported once.)
 - FR-5: A notice has origin `ContextTool` and the ID `task-done:<child ID>`.
-  (Superseded by [decision 42](decisions.md): origin `ContextAgent`, a
+  (Superseded by [decision 43](decisions.md): origin `ContextAgent`, a
   `task-ended` reminder, one notice per child turn.)
 - FR-6: `task_status` returns state and answer of an ended task at any time.
 - FR-7: `Recover` needs a `Loader` recorder and returns an error that says so.
   Without one, `Tasks` warns once, and tasks do not survive a restart.
 - FR-8: `Close` records no child as failed.
-- FR-9: A canceled child is not resumed.
+- FR-9: A canceled child is not resumed. (Still true of the canceled turn;
+  since [decision 42](decisions.md), a stopped child takes a follow-up as a
+  new turn.)
 - FR-10: A child keeps its own `Limits` and `Budget`. A parent `Budget` does
   not cap a child.
 - FR-11 (CLI task): the approval prompt names the subagent and task ID, also
@@ -177,7 +181,7 @@ check after each test.
 - A task that outlives the process (external settle, 13 PRD).
 - A message from the parent to a running child. (Superseded: now in scope,
   both ways; see the [subagent messages
-  PRD](roadmap-research/13-subagent-messages-prd.md) and decision 41.)
+  PRD](roadmap-research/13-subagent-messages-prd.md) and decision 42.)
 - Grandchildren: a child never gets the three task tools.
 - A cap over parent and children together.
 - A task list across conversations.
@@ -195,15 +199,17 @@ check after each test.
 
 1. **Background is the only mode.** The user asked; there are no users.
 2. **A host-owned `Tasks` owns children**, so their life does not depend on one
-   tool call. The library does not use "session".
+   tool call. The library does not use "session". (Superseded by
+   [decision 42](decisions.md): each task runs in a child `dashi.Session`
+   that `Tasks` drives.)
 3. **Status and result are one tool**, with a 60 second wait cap.
 4. **The notice uses the existing steer path**, origin `ContextTool`.
-   Superseded in part by [decision 42](decisions.md): the steer path stays;
+   Superseded in part by [decision 43](decisions.md): the steer path stays;
    the origin is `ContextAgent`.
 5. **One delivery rule, from the record only.** A repeat costs little; one rule
    is testable.
 6. **A notice is told apart** from other steers by origin and its `NoticeID`
-   prefix. No core change. Superseded by [decision 42](decisions.md): a
+   prefix. No core change. Superseded by [decision 43](decisions.md): a
    sender tag that Dashi sets, and origin `ContextAgent`.
 7. **One follow-up Turn for all waiting notices**, `StartScheduled`.
    `FollowUp` records the delivered children in the start's `CommandID`.
@@ -224,6 +230,8 @@ check after each test.
     ended tasks (changed in implementation).
 17. **`Recover` reports an ended child once per process.** It skips the child
     if the record holds the notice, or if `OnTask` already reported it.
+    Superseded by [decision 42](decisions.md): one report per child turn,
+    keyed by the child turn ID.
 18. **Reopen order does not matter** (implementation review). A `task` call
     that reruns and finds an ended child reports the end itself, as `Recover`
     would. The result says the task has ended. `Recover` after that skips the

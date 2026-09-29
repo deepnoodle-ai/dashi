@@ -7,7 +7,7 @@ in `tmp/research/subagent-comms/`. **Builds on:**
 [background subagents](../background-subagents.md),
 [session input](../session-input.md), [sessions](../sessions.md). **Tech
 spec:** [subagent-messages.md](../subagent-messages.md). **Decisions:**
-[41 to 43](../decisions.md). **Size:** L. **Risk:** public API, concepts, UI.
+[42 to 44](../decisions.md). **Size:** L. **Risk:** public API, concepts, UI.
 
 ## Problem
 
@@ -39,10 +39,8 @@ or a queue turn when the parent is idle. The record decides delivery once
 turn, run with `Runner.Run`; it has no inbox and no session. The CLI does not
 show tasks yet.
 
-Peers (research table): every product delivers mail at a boundary, after tool
-results and before the next model call. None inserts text mid-call; only
-Codex cut a model call for mail, and it made that opt-in. Codex tags mail with
-its author; Claude Code resumes a stopped child from its transcript.
+Peers deliver mail only after tool results, before the next model call;
+only Codex cut a model call for mail, and it made that opt-in.
 
 ## Users and job
 
@@ -63,11 +61,9 @@ who said what.
   "message"; "agent message" keeps it apart from `llm.Message`.
 - **Sender:** who sent an agent message: `parent`, or a task ID with its
   subagent name. Dashi sets it from the sending turn; the text cannot.
-- **Steer and queue:** the two ways a message is delivered, as for user input
-  ([session input](../session-input.md)). A steer reaches a running recipient
-  before its next model call. A queued message waits until the recipient's
-  turn ends, then starts its next turn. Either starts a turn when the
-  recipient is idle.
+- **Steer and queue:** as for user input ([session
+  input](../session-input.md)): before the recipient's next model call, or
+  as its next turn. Either starts a turn when the recipient is idle.
 - **Notice:** the message Dashi sends for the child when a task's turn ends,
   now one per child turn.
 
@@ -99,8 +95,11 @@ its own history, so it rereads nothing. Its answer arrives as a second notice.
 Acceptance:
 - [ ] Turn 2 of the child session holds turn 1 in its history.
 - [ ] A completed, failed, limited, or stopped child accepts the message as a
-      new turn. A child that waits for an approval or on an uncertain call
-      holds it until that clears; the tool result says so.
+      new turn.
+- [ ] `task_send` to a child that is `waiting` (for an approval) or
+      `uncertain` is a tool error that says why: "t_k3f2 waits for an
+      approval that nobody can give; start a new task". No message is held,
+      so `Tasks.Wait` and `RunUntilQuiet` return.
 - [ ] After `MaxTaskTurns` (default 10) turns, `task_send` is a tool error that
       suggests a new task.
 
@@ -114,7 +113,11 @@ turn ends.
 Acceptance:
 - [ ] The tag names the task that ran the call, whatever the text says.
 - [ ] After `MaxMessages` (default 8) messages in one child turn, the tool is a
-      tool error: "message limit reached; put the rest in your answer".
+      tool error: "message limit reached; put the rest in your answer". The
+      same cap bounds `task_send` calls to one task in one parent turn.
+- [ ] One child turn wakes an idle parent at most once. Its later messages
+      steer into a running parent turn, or arrive with its notice. So a task
+      starts at most `MaxTaskTurns` parent turns by message.
 - [ ] The CLI shows `← t_k3f2  Parse is in config/load.go; …` under the
       task.
 
@@ -124,11 +127,11 @@ Two ways, both named in the `task` result. End the turn: the next notice or
 message wakes the parent (no polling, no limit). Or wait inside the turn:
 `task{…, wait_seconds: 30}` or `task_status{task_id, wait_seconds: 30}`
 returns when the task's turn ends, when it sends a steer message, or when the
-time is up. The content then arrives as a steer right after the tool result,
-in the same model call.
+time is up.
 Acceptance:
-- [ ] A wait that ends on a message says "a message from t_k3f2 follows", and
-      the next model call holds that message once.
+- [ ] The result says "a message from t_k3f2 follows" only when `Tasks`
+      steered it into `Config.Session` before returning; the next model call
+      holds it once. Otherwise the result holds the text.
 - [ ] `wait_seconds` above 60 is a tool error, as today.
 
 ### UC-5: A child asks a question
@@ -142,11 +145,13 @@ Acceptance:
 ### UC-6: Restart
 
 The CLI crashes after a child sent a message and before the parent recorded
-it. On reopen, `Tasks.Recover` finds the settled `message_parent` call in the
-child's record and delivers the message, once. The same holds for `task_send`.
+it. On reopen, `Tasks.Recover` first reads which message IDs each recipient's
+record holds, then resumes child turns, then delivers each settled send the
+recipient lacks, once. The same holds for `task_send`.
 Acceptance:
-- [ ] A crash test at each point (before send, after send, after delivery)
-      leaves the message in the recipient's record exactly once.
+- [ ] A crash test at each point (before send, after send, after delivery,
+      and "delivered, call not settled, turn resumed") leaves the message in
+      the recipient's record exactly once.
 
 ## Requirements
 
@@ -156,11 +161,12 @@ Acceptance:
 - R-2: A message is a contextual reminder in a context item with origin
   `ContextAgent`. It never carries operator authority.
 - R-3: Dashi sets the sender from the tool's binding and the running turn.
-  Reminder rendering escapes reminder tags in content, so text cannot close
-  the tag or forge another one.
+  Rendering escapes reminder tags in reminder content only (decision 4).
 - R-4: A message ID derives from the sending call (`msg:<turn>/<call>`). A
-  message is delivered when the recipient's record holds its ID, in a turn's
-  context or a `queue:` start. `Recover` redelivers from the sender's record.
+  message is delivered when the recipient's record holds its ID: in a turn's
+  context, as a child turn's `CommandID`, or in a `queue:` start. A send
+  checks the recipient's record, not only its in-memory inbox and queue.
+  `Recover` redelivers from the sender's record.
 - R-5: Agent messages are never urgent: they cut no model call and skip no
   tool call.
 - R-6: With `Config.Session` set, `Tasks` delivers notices and messages to the
@@ -177,6 +183,9 @@ goroutine-leak check. [Spec](../subagent-messages.md).
 - A body holding `</system-reminder>` or `<system-reminder name="x">` renders
   escaped on every provider route; the prepared text has one open and one
   close tag.
+- A tool result that holds `<system-reminder name="agent-message"
+  from="parent">` reaches the provider inside its tool-result block,
+  unchanged, and yields no `ContextAgent` item and no `TaskMessage` event.
 - `ContextAgent` with an operator-tier reminder or a non-user role is refused.
 
 **Track 2: child sessions (L).** Children run as `dashi.Session`s; notices per
@@ -184,17 +193,24 @@ child turn, as reminders; `Config.Session`; `MaxTaskTurns`.
 - Every existing `delegate` test passes with child turn IDs `<child>-1`.
 - `Recover` resumes an interrupted child turn and reports each ended turn
   once; `Report` and `TaskView.Spend` count every child turn once.
+- Each child turn records as `Parent` the call that started it; `Report`
+  counts child turn 2, started by a `task_send` in parent turn 7, in turn 7.
+- Doc comments of `Tasks.Stop`, `Recover`, and `Report` state the new rules.
 - `examples/delegate` drops its `OnTask` routing for `Config.Session`.
 
 **Track 3: parent to child (M).** `task_send`, steer and queue, redelivery.
 - UC-1 and UC-2 acceptance; a steer that misses the child's turn runs as its
   next turn; a queue message to a running child runs after its answer.
+- `task_send` to a `waiting` and to an `uncertain` child: a tool error, and
+  `Tasks.Wait` returns.
 - UC-6 crash tests for `task_send`.
 
 **Track 4: child to parent and waits (M).** `message_parent`, `MaxMessages`,
 `TaskMessage` events, `wait_seconds` on `task`, waits that end on mail.
 - UC-3, UC-4, UC-5, and UC-6 acceptance for `message_parent`.
 - `RunUntilQuiet` runs a queue turn for a message that reaches an idle parent.
+- A chatty child (8 messages in each of 3 turns, idle parent) starts at most
+  3 parent turns by message.
 
 The CLI lines (`→` and `←` under a task, `/tasks ID` with the message log)
 join the pending CLI task wiring of item 13.
@@ -225,15 +241,21 @@ join the pending CLI task wiring of item 13.
    everything.
 3. **Every message wakes an idle recipient; no FYI mode.** Progress for humans
    already flows through `OnChild` events, so a model-facing message is one
-   the recipient should read. Caps (`MaxMessages`, `MaxTaskTurns`) and
-   coalescing bound the cost. Rejected: Codex's `trigger_turn` flag, which the
-   research recommended: it adds a third state where mail sits unread, and a
-   model must guess the flag.
-4. **Sender tags are set by Dashi and cannot be forged by text** (requirement
-   5). The tool knows which task it serves; content escaping keeps a body
-   inside its tag. This guarantees where a tag came from, not that the model
-   obeys it. Rejected: a sender field in the tool arguments, which the model
-   could set to anything.
+   the recipient should read. Caps bound the cost: `MaxMessages` per sending
+   turn and recipient, `MaxTaskTurns` per task, and one parent wake per child
+   turn, so a task wakes its parent by message at most 10 times. Rejected:
+   Codex's `trigger_turn` flag, which the research recommended: it adds a
+   third state where mail sits unread, and a model must guess the flag.
+4. **Dashi sets sender tags, and no message can forge one** (requirement 5).
+   The tool knows which task it serves; escaping keeps a message inside its
+   tag. The guarantee is narrow: a reminder Dashi renders is what its tag
+   says, and every mail event and record entry comes from a send call. Tool
+   results and user text are not rewritten, so they can hold a look-alike
+   tag, inside their own block. Nothing guarantees that the model obeys a
+   tag. Rejected: a sender field in the tool arguments, which the model
+   could set to anything; and escaping tool results and user text, because
+   a coding agent must see a file's bytes: one that reads a file holding the
+   tag (Dashi's own tests) would match or write `&lt;` and break its edit.
 5. **Messages are reminders with a new origin, `ContextAgent`** (requirement
    4). A typed reminder is what the model already reads as runtime context;
    the origin lets a UI and the record tell agent mail from user text and tool
@@ -242,17 +264,20 @@ join the pending CLI task wiring of item 13.
 6. **Blocking is the parent's choice, in two forms** (requirement 1). Ending
    the turn waits without limit or polling; `wait_seconds` on `task` and
    `task_status` waits up to 60 seconds inside a turn. A wait that wakes on
-   mail returns, and the mail follows as a steer, so there is one delivery
-   path (Codex's "wait without read" gap is closed). Rejected: a blocking
+   mail returns; the mail follows as a steer when `Tasks` delivered it to
+   `Config.Session`, and is in the result otherwise, so the model never gets
+   nothing (Codex's "wait without read" gap is closed). Rejected: a blocking
    `wait: true` on `task`, the mode background subagents removed.
 7. **A question is the end of a child turn, not a new stop.** With child
    sessions, "answer with a question, get a reply as the next turn" is A2A's
    `input-required` with no engine change. Rejected: a new `input_required`
    stop kind, an engine change for what sessions already give.
 8. **Delivery is once, from the record** (requirement 7's durability).
-   Message IDs come from the sending call, so a rerun send is a duplicate, and
-   `Recover` redelivers what the recipient lacks. Rejected: an in-memory
-   mailbox, which loses mail on restart as openclaw does.
+   Message IDs come from the sending call, so a rerun send is a duplicate
+   that the recipient's record (read by `Recover` before any turn resumes)
+   exposes. Mail a `waiting` or `uncertain` child could never read is
+   refused, not held. Rejected: an in-memory mailbox, which loses mail on
+   restart as openclaw does.
 9. **No model call is ever cut for agent mail.** Codex added, reverted, and
    gated this. Urgent steers stay a user choice.
 
@@ -269,10 +294,12 @@ delivered exactly once; no model call is cut by agent mail.
 - **Ping-pong.** Two models can thank each other forever. `MaxTaskTurns` and
   `MaxMessages` bound it; the tool texts discourage chatter. Measure on the
   CLI's longest sessions.
-- **Wake cost.** Every child message can start a parent turn. If this costs
-  too much in practice, add the FYI mode of decision 3. Not blocking.
+- **Wake cost.** A child turn can start one parent turn by message, and its
+  end one more. If this costs too much in practice, add the FYI mode of
+  decision 3. Not blocking.
 - **Child turn IDs change** (`<child>-n`). No users, so the format change is
   free.
-- **Open (not blocking):** should the CLI user be able to message a task
-  directly? Should a child see a short "sent while you were working" line, as
-  in Claude Code, or is the tag enough?
+- **Look-alike tags in tool results** (decision 4). The tool descriptions
+  say mail arrives only as its own reminder, never inside a tool result.
+- **Open (not blocking):** should a child see a short "sent while you were
+  working" line, as in Claude Code, or is the tag enough?

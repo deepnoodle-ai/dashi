@@ -42,11 +42,12 @@ authority from the tag, so the system prompt, and the provider's prompt cache,
 do not change as reminders come and go. Authorization of operator origin
 and tool use remains an application policy decision.
 
-Planned ([decision 42](decisions.md)): a reminder gains an optional `from`
+Planned ([decision 43](decisions.md)): a reminder gains an optional `from`
 attribute that Dashi sets for agent messages, and rendering escapes
-`<system-reminder` and `</system-reminder` in content, so no text can close
-its tag or forge another. Origin `ContextAgent` carries contextual reminders
-only.
+`<system-reminder` and `</system-reminder` in reminder content, so no
+reminder can close its tag or forge another. Tool results and user text are
+not escaped: a coding agent must see a file's bytes. Origin `ContextAgent`
+carries contextual reminders only.
 
 This adapts Dive's typed recorded reminders to Dashi's `ContextItem` projection
 and provider-neutral preparation boundary. It leaves string-based
