@@ -40,7 +40,7 @@ func run(ctx context.Context) error {
 
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("hooks: create client: %w", err)
+		return err
 	}
 	// A fake shell: it only reports a canned result.
 	shell := tool.MustFunc("run_shell", "Runs a shell command on the ops host.",
@@ -49,7 +49,7 @@ func run(ctx context.Context) error {
 			return tool.Succeeded("Filesystem  Use%\n/dev/sda1   91%"), nil
 		})
 	if err != nil {
-		return fmt.Errorf("hooks: %w", err)
+		return err
 	}
 
 	// BeforeModel runs before every model call, so it delivers the on-call

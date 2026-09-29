@@ -39,7 +39,7 @@ func run(ctx context.Context) error {
 
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("bigresult: create client: %w", err)
+		return err
 	}
 	fetch := tool.MustFunc(
 		"fetch_log",
@@ -66,7 +66,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("bigresult: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	// Result is what the model saw; Outcome is what the tool returned.

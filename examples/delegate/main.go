@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return fmt.Errorf("delegate: create client: %w", err)
+		return err
 	}
 	search := newSearchTool()
 
@@ -76,12 +76,12 @@ func run(ctx context.Context) error {
 	out, err := s.Send(ctx,
 		"Who owns the billing service, and who is on call for search?")
 	if err != nil {
-		return fmt.Errorf("delegate: run: %w", err)
+		return err
 	}
 	// Results that arrive after the turn ended start queue turns.
 	out, err = delegate.RunUntilQuiet(ctx, s, tasks)
 	if err != nil {
-		return fmt.Errorf("delegate: follow-up: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 

@@ -406,7 +406,7 @@ None is counted among the 24 items above.
 - **Terminal prompt helper** (done, #88) for examples
   (`examples/internal/prompt`); the approval examples copy about 25 lines of
   stdin handling.
-- **Example boilerplate:** drop the hand-prefixed error strings. #89
+- **Example boilerplate** (done, #89): drop the hand-prefixed error strings.
 - **Hook helpers:** a "seed context once" helper (`SeedContext`) and a "have I
   acted in this turn?" read from the record. Smaller: `JoinHooks` could take the
   helpers directly, `JoinHooks(onCall, guard)` for `onCall.Hooks()`. #90

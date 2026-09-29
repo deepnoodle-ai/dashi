@@ -46,7 +46,7 @@ func main() {
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("steering: create client: %w", err)
+		return err
 	}
 	search := tool.MustFunc(
 		"slow_search",
@@ -104,20 +104,20 @@ func run(ctx context.Context) error {
 		close(done)
 		forwarding.Wait()
 		if err != nil {
-			return fmt.Errorf("steering: run: %w", err)
+			return err
 		}
 		fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
 		turn, err := dashi.Project(out.Turn)
 		if err != nil {
-			return fmt.Errorf("steering: %w", err)
+			return err
 		}
 		history = append(history, turn...)
 		// Recorded steers are in that history already; only steers the turn
 		// never recorded start the next one.
 		left, err := inbox.Leftovers(out.Turn)
 		if err != nil {
-			return fmt.Errorf("steering: %w", err)
+			return err
 		}
 		input = nil
 		for _, steer := range left {

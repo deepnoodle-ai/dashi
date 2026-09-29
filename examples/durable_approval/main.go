@@ -39,7 +39,7 @@ func main() {
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("durable_approval: create client: %w", err)
+		return err
 	}
 	deploy := tool.MustFunc(
 		"deploy",
@@ -66,7 +66,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("durable_approval: run: %w", err)
+		return err
 	}
 	// The model may ask again after an answer, so repeat until the turn
 	// stops for another reason.
@@ -79,7 +79,7 @@ func run(ctx context.Context) error {
 			ok, err := stdin.Confirm(ctx,
 				fmt.Sprintf("Approve %s %s?", p.Name, p.Args))
 			if err != nil {
-				return fmt.Errorf("durable_approval: %w", err)
+				return err
 			}
 			// Approve and Deny only record the answer; nothing runs yet.
 			answer := p.Deny("The operator declined this deploy.")
@@ -87,11 +87,11 @@ func run(ctx context.Context) error {
 				answer = p.Approve()
 			}
 			if out, err = runner.Run(ctx, out.Turn, answer); err != nil {
-				return fmt.Errorf("durable_approval: record answer: %w", err)
+				return err
 			}
 		}
 		if out, err = runner.Run(ctx, out.Turn, dashi.Continue{}); err != nil {
-			return fmt.Errorf("durable_approval: continue: %w", err)
+			return err
 		}
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)

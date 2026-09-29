@@ -30,7 +30,7 @@ func run(ctx context.Context) error {
 
 	client, err := openaispeech.New(openaispeech.Config{})
 	if err != nil {
-		return fmt.Errorf("batch_speech: create client: %w", err)
+		return err
 	}
 	// Each call is prepared, then sent. Summary describes a prepared request
 	// without its text or audio, so a host can record what it is about to
@@ -40,7 +40,7 @@ func run(ctx context.Context) error {
 		Text:  "Hello from Dashi.",
 	})
 	if err != nil {
-		return fmt.Errorf("batch_speech: prepare synthesis: %w", err)
+		return err
 	}
 	s := synthesis.Summary()
 	fmt.Printf(
@@ -51,7 +51,7 @@ func run(ctx context.Context) error {
 	)
 	generated, err := client.SendSynthesis(ctx, synthesis)
 	if err != nil {
-		return fmt.Errorf("batch_speech: synthesize: %w", err)
+		return err
 	}
 
 	transcription, err := client.PrepareTranscription(ctx, speech.TranscribeInput{
@@ -59,13 +59,13 @@ func run(ctx context.Context) error {
 		Audio: generated.Audio,
 	})
 	if err != nil {
-		return fmt.Errorf("batch_speech: prepare transcription: %w", err)
+		return err
 	}
 	t := transcription.Summary()
 	fmt.Printf("Transcribing %d bytes of %s\n", t.InputBytes, t.InputMIMEType)
 	result, err := client.SendTranscription(ctx, transcription)
 	if err != nil {
-		return fmt.Errorf("batch_speech: transcribe: %w", err)
+		return err
 	}
 	fmt.Printf("Transcript: %s\n", result.Text)
 	return nil

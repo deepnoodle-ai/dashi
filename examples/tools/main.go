@@ -46,7 +46,7 @@ func run(ctx context.Context) error {
 	tools := newTools()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("tools: create client: %w", err)
+		return err
 	}
 	// Bound tools run by default; a BeforeTool hook can deny or defer calls.
 	runner := dashi.Runner{Client: client, Tools: tools}
@@ -62,7 +62,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("tools: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 

@@ -41,7 +41,7 @@ func run(ctx context.Context, dir, task string) error {
 	stdin := prompt.Stdin()
 	ws, err := workspace.New(dir)
 	if err != nil {
-		return fmt.Errorf("coding: open workspace: %w", err)
+		return err
 	}
 	// WithAsker adds the ask_user tool, so the model can ask you a question.
 	tools := ws.Tools(workspace.WithAsker(
@@ -77,7 +77,7 @@ func run(ctx context.Context, dir, task string) error {
 	})
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return fmt.Errorf("coding: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{
 		Client: client,
@@ -94,7 +94,7 @@ func run(ctx context.Context, dir, task string) error {
 		Input: []llm.Message{llm.UserMessage(llm.Text(task))},
 	})
 	if err != nil {
-		return fmt.Errorf("coding: run: %w", err)
+		return err
 	}
 	fmt.Printf("\nStop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil

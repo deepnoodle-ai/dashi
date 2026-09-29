@@ -46,11 +46,11 @@ func run(ctx context.Context, image, prompt string) error {
 	}
 	source, err := imageSource(image)
 	if err != nil {
-		return fmt.Errorf("vision: %w", err)
+		return err
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("vision: create client: %w", err)
+		return err
 	}
 	result, err := llm.Generate(
 		ctx,
@@ -64,7 +64,7 @@ func run(ctx context.Context, image, prompt string) error {
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("vision: generate: %w", err)
+		return err
 	}
 	fmt.Println(result.Message.Text())
 	return nil

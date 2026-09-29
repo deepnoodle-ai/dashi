@@ -57,7 +57,7 @@ func run(ctx context.Context) error {
 	)
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("live_follow: create client: %w", err)
+		return err
 	}
 	// Readers follow the store the runner commits steps to; a server would
 	// use a durable recorder that implements dashi.StepReader. The hub
@@ -102,7 +102,7 @@ func run(ctx context.Context) error {
 	}
 	wg.Wait()
 	if err != nil {
-		return fmt.Errorf("live_follow: run: %w", err)
+		return err
 	}
 	// Tab A has already shown the answer as it streamed.
 	fmt.Printf("Stop: %s\n", out.Stop.Kind)

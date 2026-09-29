@@ -38,7 +38,7 @@ func main() {
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("approval: create client: %w", err)
+		return err
 	}
 	deploy := tool.MustFunc(
 		"deploy",
@@ -83,7 +83,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("approval: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil

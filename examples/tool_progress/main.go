@@ -39,7 +39,7 @@ func run(ctx context.Context) error {
 	process := newProcessTool()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("tool_progress: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{process}}
 	start := dashi.Start{
@@ -60,7 +60,7 @@ func run(ctx context.Context) error {
 	// deltas, and tool progress as they happen, then the Outcome.
 	for event, err := range runner.Stream(ctx, dashi.Turn{}, start) {
 		if err != nil {
-			return fmt.Errorf("tool_progress: run: %w", err)
+			return err
 		}
 		switch {
 		case event.Progress != nil:
