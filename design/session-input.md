@@ -46,8 +46,8 @@ type Queued struct {
 
 Queue items are `ContextItem`s, so each keeps its ID and origin. An empty ID is
 generated and an empty origin means `ContextUser`, as for `Inbox.Send`; a
-repeated ID is an error. Items leave the queue in order. Taking items for a turn
-runs under the handle's lock. `Withdraw` is later, when a caller needs it.
+repeated ID is an error. Items leave the queue in order. Reserving items for a
+turn runs under the handle's lock. `Withdraw` is later, when a caller needs it.
 
 **In memory only.** A server that builds a handle per request loses the queue
 between requests. When the runner has a durable recorder (any host-set recorder
@@ -72,7 +72,7 @@ outcome is the last one's. When that turn stopped with anything but `NextNone`,
 items stay queued; `SessionState.Queued` counts them. Background tasks belong to
 `delegate.Tasks`, and `RunUntilQuiet` (below) is the call that waits for them.
 
-A **queue turn** takes every item under the lock and starts:
+A **queue turn** reserves every item under the lock and starts:
 
 ```go
 Start{
@@ -85,12 +85,29 @@ Start{
 The item IDs live in the command ID, as `delegate.FollowUp` records notices
 today. The compaction check runs before a queue turn as before any turn.
 
-A caller's **`Start` on an idle session** with items queued takes the
+A caller's **`Start` on an idle session** with items queued reserves the
 user-origin items and puts their messages ahead of its `Input`, since the user
 typed them first. This is the CLI's behavior: leftovers join the next prompt
 (`cmd/dashi/control.go`). Items of other origins, such as delegate notices, stay
 queued and run as a queue turn afterwards, so the `queue:` key keeps their IDs
 in the record for the delivery rule below.
+
+**Consuming items.** A reserved item keeps its ID and place in the queue, and no
+other turn takes it, until its turn's `turn_started` step is known committed;
+then it leaves. A later step's failure does not matter, since the items are in
+the record. `Run`'s error tells the two failures apart today. The start is
+certainly uncommitted on an error that is not a `*CommitError` (validation and
+other failures before any commit; the runner wraps every recorder error), or on
+a `*CommitError` with `PersistenceRejected`, `ErrRevisionConflict`, or
+`ErrCommandConflict` (the line `writeRejected` in `steering.go` draws for
+steers); the session then restores the items, in order. On a `*CommitError` with
+`PersistenceUnknown` for the start step, the session loads `S-n`: a start with
+this command ID consumes the items, a missing turn restores them, and a failed
+load keeps them reserved and returns the error. The next command reloads the
+last turn first and settles the reservation the same way; a retried queue turn
+reuses its deterministic `queue:` key, so it cannot record the items twice. The
+same rule covers user-origin items put ahead of a caller's `Start`, checked
+against that `Start`'s command ID.
 
 **Missed steers move to the queue.** After a turn ends `NextNone`, and when a
 new `Start` closes a stopped turn, the session calls `Inbox.Leftovers` on the

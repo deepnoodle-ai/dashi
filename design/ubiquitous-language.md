@@ -48,8 +48,9 @@ Session contracts remain proposed; see the
 - **Ended turn**: A turn whose stop is terminal; no command can run it again
   (`ErrTurnEnded`). A session **closes** a stopped turn that has not ended by
   canceling it when a new message arrives, and refuses while the turn is
-  **busy**: live, possibly live, or waiting on the host. (Proposed; decision
-  38.)
+  **busy**: live, possibly live (an expired lease included), waiting on the
+  host, or holding an unsettled uncertain call not known stopped. Only proof
+  that no worker still acts makes a turn **stopped**. (Proposed; decision 38.)
 - **Subagent**: An agent performing delegated work as a **child turn** linked
   to its parent turn.
 

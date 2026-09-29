@@ -39,8 +39,9 @@ type Session struct {
     Steering Steering
     // Compactor, when set, runs a compaction turn before a new turn.
     Compactor Compactor
-    // Exclusive says this handle is the only driver of the session, so a
-    // turn it is not running is not live.
+    // Exclusive promises that this handle is the only driver of the session
+    // and that earlier drivers have exited, so a turn it is not running is
+    // stopped.
     Exclusive bool
     // unexported: mutex, cached turns and views, in-memory recorder, inbox,
     // queue, and the IDs of turns this handle is running.
@@ -152,23 +153,46 @@ now. A turn with no stop recorded after its latest `Start` or `Continue` is
 either running or crashed.
 
 ```go
+type Liveness string // whether any worker may still act on a turn
+
+const (
+    LivenessUnknown Liveness = "unknown" // no proof, e.g. an expired lease
+    LivenessLive    Liveness = "live"    // a worker holds an unexpired claim
+    LivenessStopped Liveness = "stopped" // the host knows no worker still acts
+)
+
 // TurnLiveness is an optional Recorder capability for hosts that lease turns.
 type TurnLiveness interface {
-    // Live reports whether a worker holds an unexpired claim on the turn.
-    Live(ctx context.Context, turnID string) (bool, error)
+    Liveness(ctx context.Context, turnID string) (Liveness, error)
 }
 ```
 
-The session refines `TurnView.Next()`'s `NextResume` to `NextRunning` when this
-handle is running the turn, or when `Live` reports true. `NextResume` stays when
-`Live` reports false. Without the capability, liveness is unknown: the session
-keeps `NextResume` but treats the turn as possibly live, so a `Start` refuses.
+**Stopped is proof, not a timeout.** An expired claim shows only that a worker
+stopped renewing it: the worker may still be inside a provider call or a tool,
+and `WithOwner` fences its commits, not that effect. A host reports stopped
+only when the worker is known quiescent (its process exited, or host fencing
+guarantees no effect in flight); an expired lease, an error, and a missing
+capability are unknown. The session refines `NextResume` to `NextRunning` when
+this handle runs the turn or `Liveness` reports live.
 
-**`Exclusive`** is for a host where one handle drives the session. With it, a
-turn this handle is not running counts as not live, and a new message closes it.
-The CLI port sets it and keeps the process lock `cmd/dashi/session` holds today;
-the lock is a host promise, not a storage fact, so it is not a recorder
-capability. A leasing server leaves it off and implements `TurnLiveness`.
+**`Exclusive`** promises that no other process drives the session and that
+earlier ones have exited, so a turn this handle is not running is stopped. The
+CLI sets it under the process lock `cmd/dashi/session` holds today, a host
+promise rather than a recorder capability. It covers workers, not what they
+spawned: a tool's child process can outlive a crashed CLI, and the closed turn
+projects that call as "result unknown". Leasing servers implement
+`TurnLiveness`.
+
+**Taking over a lost worker.** A server recovers a turn whose lease expired
+with `Continue{}` under `WithOwner`, never by closing it and starting another.
+Resume repeats no effect: a started call that is neither `ReadOnly` nor
+`Idempotent` becomes uncertain (`tools_loop.go`) and is never rerun (decision
+11); safe calls may rerun; an unfinished model call is settled and repeated at
+a token cost only, unless it offered an unsafe provider-hosted tool, which
+makes it uncertain too (`runner.go`, `recoverModelIntent`). The old worker's
+in-flight effect may still complete, and its commits fail the owner fence, but
+no second copy starts, and an uncertain call blocks new turns until the host
+settles or cancels it.
 
 ## What a new `Start` does
 
@@ -178,15 +202,17 @@ After the idempotency check, a `Start` reads the last turn's refined `Next()`:
 |---|---|---|
 | None, or ended (completed, canceled, or a terminal limit) | `NextNone` | Starts |
 | No stop recorded; live | `NextRunning` | Refuses |
-| No stop recorded; known not live, or `Exclusive` | `NextResume` | Closes, starts |
-| No stop recorded; liveness unknown | `NextResume` | Refuses |
+| No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
+| No stop recorded; liveness unknown (an expired lease included) | `NextResume` | Refuses |
 | Waiting on approvals or results | `NextAnswer` | Refuses |
+| Uncertain, not yet settled | `NextResolve` | Refuses, unless stopped or `Exclusive` |
 | Interrupted, provider-pause limit, or answered and ready | `NextContinue` | Closes, starts |
 | At a budget or model-call limit | `NextRaiseBudget`, `NextRaiseAttempts` | Closes, starts |
-| Refused, failed, uncertain, or other limits | `NextResolve` | Closes, starts |
+| Refused, failed, or other limits | `NextResolve` | Closes, starts |
 
-A turn is **busy** when a `Start` refuses on it: live, possibly live, or waiting
-on the host. Answer a waiting turn or cancel it first. To add input to a running
+A turn is **busy** when a `Start` refuses on it: live, possibly live, waiting on
+the host, or holding an uncertain effect that another worker may still be
+causing. Answer or settle it, or cancel it, first. To add input to a running
 turn, or hold it for the next one, callers use `Steer` and `Enqueue`. To replace
 a running turn, they stop it (cancel its context or use `WithPause`), then send.
 
@@ -204,10 +230,9 @@ func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
 ```
 
 The message names the way out. For `NextResume`: "dashi: turn S-7 may still be
-running; if no worker runs it, resume it with Continue{} or discard it with
-Cancel{}". For `NextAnswer`: "answer its pending work or Cancel{} it". A server
-resumes only when `Live` reports false, with `WithOwner` to fence a stale
-worker.
+running; if its worker is lost, take it over with Continue{} or discard it with
+Cancel{}". For `NextAnswer`: "answer its pending work or Cancel{} it". For an
+uncertain turn: "settle its uncertain call with Settle{} or Cancel{} it".
 
 **Closing** sends `Cancel{CommandID: "close:" + turnID, Reason: CloseReason}`,
 where `CloseReason` is "a new message moved on". The fixed command ID makes two
@@ -294,7 +319,7 @@ return theirs in `Queued.Warnings`.
 
 | Name | Kind | When |
 |---|---|---|
-| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, or waits on the host; `Duplicate` for a retry of a turn that has not ended |
+| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that has not ended |
 | `ErrSessionNotFound` | error | An ID with no turns and no `New` |
 | `ErrSessionExists` | error | `New` on a session with turns |
 | `ErrCommandConflict` | error (engine) | Same key, different input |
@@ -311,3 +336,7 @@ agrees with the turns committed, including after a race on `S-n`) and a probing
 check (a session of 1, 2, 3, 64, and 1,000 turns is found with at most
 `2·log2(n)+2` reads). `filerecorder` and `MemoryRecorder` run both. Backends
 that skipped a shared suite have diverged elsewhere (ADK-Go #679, #1329).
+
+A lost-worker check expires the old claim during a model call, then during a
+non-idempotent tool call: a new message refuses, takeover never reruns the tool,
+the late commit is rejected, and no new turn starts while the call is unsettled.

@@ -341,9 +341,13 @@ on the public engine API, as `http.Get` sits over `Client.Do`. Turn records are
 the only truth: turn *n* of session `S` is `S-n`, an optional `SessionIndex`
 finds the last turn, and probing is the fallback. There is no session record,
 log, lease, or lock; recorder conditional appends, `S-n` collisions, and
-permanently ended turns keep the record correct. An optional `TurnLiveness` says
-whether a turn is live, and `Session.Exclusive` lets a host that is the only
-driver say that no other worker runs it. Rationale: every host rebuilt this
+permanently ended turns keep the record correct. An optional `TurnLiveness`
+reports a turn live, stopped, or unknown; an expired lease is unknown, because
+owner fencing rejects a stale worker's commits but not an effect it already
+dispatched. `Session.Exclusive` is the host's promise that it is the only driver
+and that earlier processes have exited. A lost worker's turn is taken over, not
+closed and replaced: `Continue{}` under `WithOwner` never reruns a started
+non-idempotent call (decision 11). Rationale: every host rebuilt this
 layer (the CLI's session package, the delegate example's loop). Two records that
 must stay in step drift in every peer that has them, and a library session that
 owns storage gets bypassed, as our production gateway bypassed Dive's. A value
@@ -386,8 +390,9 @@ uncertain projects as an error result ("result unknown; the turn ended"), and a
 pending model attempt projects nothing. Results recorded after the terminal stop
 count for audit and accounting but never change the projection. A new session
 message closes (cancels) a stopped turn unless it is busy: live, possibly live
-(liveness unknown, with no `TurnLiveness` and no `Exclusive`), or waiting on the
-host. A busy turn refuses with `TurnBusyError`, which names the recovery calls.
+(liveness unknown, an expired lease included, with no `Exclusive`), waiting on
+the host, or holding an unsettled uncertain call not known stopped. A busy
+turn refuses with `TurnBusyError`, which names the recovery calls.
 Rationale: `Project` failed on such turns, so an ended turn would drop out of
 the next turn's history, user prompt included, and a late result could change
 history that later turns were built on.

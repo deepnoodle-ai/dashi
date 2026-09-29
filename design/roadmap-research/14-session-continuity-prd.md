@@ -124,11 +124,13 @@ func (h *Handler) Message(w http.ResponseWriter, r *http.Request) {
 The v1 server contract: the queue lives in one handle and dies with the request
 (`Enqueue` returns `memory_only`); a turn another worker runs is steered through
 the host's steering source; stopping it from another process is later. A
-recovery worker resumes a turn that no worker holds:
+recovery worker takes over a turn whose lease expired. It never closes that turn
+and starts another, since the old worker may still be acting:
 
 ```go
 st, err := s.Open(ctx)
-if err == nil && st.Next == dashi.NextResume { // TurnLiveness: no live claim
+if err == nil && st.Next == dashi.NextResume { // no live claim
+    // Takeover: a started non-idempotent call becomes uncertain, never rerun.
     out, err = s.Run(ctx, dashi.Continue{}, dashi.WithOwner(workerID))
 }
 ```
@@ -186,12 +188,17 @@ too long. A transcript UI walks `s.Turns` and shows a marker for each turn whose
 - **FR-2** Turn records are the only truth. Turn *n* of session `S` is `S-n`.
   The last turn comes from an optional `SessionIndex`, or from probing.
 - **FR-3** No lock. Recorder conditional appends, `S-n` collisions, and
-  permanently ended turns are the guarantee. An optional `TurnLiveness` tells a
-  live turn from a crashed one; `Exclusive` says the handle is the only driver.
+  permanently ended turns are the guarantee. An optional `TurnLiveness` reports
+  live, stopped, or unknown; an expired lease is unknown, since only proof that
+  the worker is quiescent counts as stopped. `Exclusive` promises that the
+  handle is the only driver and that earlier processes have exited. A lost
+  worker's turn is taken over with `Continue{}` under `WithOwner`, which never
+  reruns a started non-idempotent call.
 - **FR-4** A `Start` refuses with `*TurnBusyError` only when the last turn is
-  busy: live, possibly live (liveness unknown: no `TurnLiveness` and no
-  `Exclusive`), or waiting on the host. It closes any other stopped turn with a
-  warning. The error names the recovery calls, `Continue{}` and `Cancel{}`.
+  busy: live, possibly live (liveness unknown, an expired lease included),
+  waiting on the host, or holding an unsettled uncertain call not known stopped.
+  It closes any other stopped turn with a warning. The error names the recovery
+  calls: `Continue{}`, `Settle{}`, and `Cancel{}`.
 - **FR-5** An ended turn always projects: unsettled calls become "result
   unknown" errors, and results that arrive later never change it.
 - **FR-6** A `Start` with a known command ID returns the first result, is
@@ -238,7 +245,10 @@ Five stacked tracks. Each is usable alone and tested by porting real code.
 - The first-program flow runs keyless in a new `examples/chat` on a scripted
   `dashitest` client (new), with a tool call and a denied call.
 - Tests cover every row of the last-turn table, with and without `Exclusive`
-  and `TurnLiveness`; a busy error's message names `Continue{}` and `Cancel{}`.
+  and `TurnLiveness`; a busy error's message names its recovery calls.
+- The old worker's claim expires during a model call, and during a
+  non-idempotent tool call: a new message refuses; takeover with `Continue{}`
+  does not rerun the tool call; no new turn overlaps the unsettled call.
 - Idempotency tests: a retry while the turn runs, after it ends, after queue and
   compaction turns ran after it, with different input, and two racing workers.
 - `dashitest` checks `SessionIndex` and probing; `filerecorder` passes by
@@ -248,6 +258,10 @@ Five stacked tracks. Each is usable alone and tested by porting real code.
 [Spec](../session-input.md).
 - Dispatch-on-idle, missed-steer, and `memory_only` tests; `Enqueue` returns the
   warning.
+- A queue turn's `Start` fails validation, is rejected by the recorder, and has
+  an unknown commit outcome: the first two restore the items in order; the
+  third loads the turn and consumes them only when its start committed. The
+  same three cases for user items put ahead of a caller's `Start`.
 - `examples/delegate` uses `RunUntilQuiet`; `FollowUpTurnID` is gone.
 - A cross-turn `Stream` yields each turn's events, tagged with its `TurnID`.
 - `cmd/dashi` runs on `Session` with `Exclusive`; its `session` package keeps
@@ -296,7 +310,9 @@ Five stacked tracks. Each is usable alone and tested by porting real code.
 | Closing stopped turns by default discards one a host might continue, such as one at its model-call limit | `turn_closed` warning; add a `KeepStopped` setting if a host needs it |
 | Chat UIs find refusal awkward | UIs call `Steer` or `Enqueue`; if every host enqueues on refusal, add an opt-in accept policy |
 | A fresh handle loads turns back to the newest compaction turn on every send | Measure on the CLI's longest sessions |
-| Without `TurnLiveness` or `Exclusive`, a crashed turn blocks new messages until the host resumes or cancels it | The error names the turn and both recovery calls; the CLI sets `Exclusive` under its lock |
+| Without `TurnLiveness` or `Exclusive`, a crashed turn blocks new messages until the host resumes or cancels it | The error names the turn and its recovery calls; the CLI sets `Exclusive` under its lock |
+| A worker whose lease expired may still finish an in-flight effect | Expired is unknown, never stopped; takeover never starts a second copy, and the uncertain call waits for the host to settle it |
+| A tool's child process outlives a crashed CLI despite `Exclusive` | The closed turn projects that call as "result unknown" |
 | Compaction turns appear in transcripts | `TurnView.Origin`; check against ACP replay |
 | Queued input is lost between requests | `memory_only` warning; the durable queue is the first later note |
 

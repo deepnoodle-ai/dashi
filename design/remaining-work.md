@@ -191,8 +191,10 @@ ledger, and a child index.
 **Status:** Designed, 2026-09-29; not built. `dashi.Session` is a handle over
 the unchanged engine: turn records are the only truth (turn IDs `S-n`), a new
 message refuses only on a busy turn (live, possibly live when neither
-`TurnLiveness` nor `Session.Exclusive` settles it, or waiting) and closes other
-stopped turns, sends are idempotent, input is steered or queued, compaction is a
+`TurnLiveness` nor `Session.Exclusive` proves it stopped, waiting, or holding an
+unsettled uncertain call) and closes other stopped turns, a lost worker's turn
+is taken over with `Continue{}` rather than replaced, sends are idempotent,
+input is steered or queued, compaction is a
 turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
 `cmd/dashi/session` store is the working prototype it replaces. **Size:** L.
 **Difficulty:** High. **Reference:**
