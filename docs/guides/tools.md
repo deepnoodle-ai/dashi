@@ -115,6 +115,23 @@ decoders are not sanitized. Declare a map or write a custom tool when dynamic
 keys have meaning. Existing hand-written schemas keep their own
 `additionalProperties` policy.
 
+### Read-only and idempotent tools
+
+Pass `tool.ReadOnly()` for a tool that changes nothing, and `tool.Idempotent()`
+for one where a repeat has the same effect as one call. They set
+`Definition.Annotations.ReadOnly` and `Idempotent`; without them each hint is
+nil, meaning unknown.
+
+```go
+search, err := tool.Func("search_notes", "Searches the notes.", searchFn,
+    tool.ReadOnly())
+```
+
+The hints change behavior. When a crash loses a call's result, a resumed turn
+reruns the call only if the tool has either hint; otherwise it does not run the
+call again and records that the earlier execution may have taken effect. A
+read-only subagent gets only tools marked read-only.
+
 ## Outcomes and errors
 
 Return `tool.Succeeded(text)` for the common case. `tool.Detached(id)` hands

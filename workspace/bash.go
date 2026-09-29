@@ -81,7 +81,7 @@ func newBash(s *scope, cfg ShellConfig) (tool.Tool, error) {
 			return runShell(ctx, s, cfg, in)
 		},
 	)
-	return annotate(t, false), err
+	return mutating(t), err
 }
 
 func runShell(

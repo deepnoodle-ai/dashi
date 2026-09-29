@@ -37,7 +37,7 @@ type askArgs struct {
 }
 
 func newAskUser(ask AskFunc) (tool.Tool, error) {
-	t, err := tool.Func(
+	return tool.Func(
 		ToolAskUser,
 		"Ask the person a question and wait for the answer. Use it when a "+
 			"missing fact blocks the work and you cannot find the fact in "+
@@ -58,6 +58,6 @@ func newAskUser(ask AskFunc) (tool.Tool, error) {
 			}
 			return tool.Succeeded(a.Text), nil
 		},
+		tool.ReadOnly(),
 	)
-	return annotate(t, true), err
 }

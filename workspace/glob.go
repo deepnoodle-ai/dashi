@@ -27,15 +27,15 @@ type globArgs struct {
 }
 
 func newGlob(s *scope) (tool.Tool, error) {
-	t, err := tool.Func(
+	return tool.Func(
 		ToolGlob,
 		"Find files by name pattern. ** matches any number of directories. "+
 			"The result lists paths relative to the workspace, newest first.",
 		func(_ context.Context, _ tool.Call, in globArgs) (tool.Outcome, error) {
 			return glob(s, in)
 		},
+		tool.ReadOnly(),
 	)
-	return annotate(t, true), err
 }
 
 func glob(s *scope, in globArgs) (tool.Outcome, error) {

@@ -30,6 +30,8 @@ import (
 // docs/guides/tools.md#defining-tools for the complete rules.
 // Unknown keys in struct arguments are ignored by default. Pass
 // WithStrictArguments to reject them, including in nested structs.
+// Pass ReadOnly or Idempotent to declare the matching annotation; either one
+// lets a runner repeat the call after a crash.
 // Keys that differ only in case from declared fields are rejected because Go
 // decoding could otherwise pass values to fn that differ from those validated
 // against the schema. Duplicate object keys keep their last value.
@@ -51,9 +53,11 @@ func Func[T any](
 		return Tool{}, fmt.Errorf("tool: %q: %w", name, err)
 	}
 	var zero T
-	strictArguments := false
+	var strictArguments, readOnly, idempotent bool
 	for _, option := range options {
 		strictArguments = strictArguments || option.strictArguments
+		readOnly = readOnly || option.readOnly
+		idempotent = idempotent || option.idempotent
 	}
 	s, err := schema.Generate(
 		zero,
@@ -85,6 +89,12 @@ func Func[T any](
 		Description: description,
 		Schema:      raw,
 		Kind:        KindLocal,
+	}
+	if readOnly {
+		d.Annotations.ReadOnly = new(true)
+	}
+	if idempotent {
+		d.Annotations.Idempotent = new(true)
 	}
 	if err = d.Validate(); err != nil {
 		return Tool{}, err
@@ -135,10 +145,12 @@ func (e typedExecutor[T]) validatedArguments(
 	return canonical, nil
 }
 
-// FuncOption configures a typed tool. Its zero value leaves the default
-// argument behavior unchanged.
+// FuncOption configures a typed tool. Its zero value leaves the defaults
+// unchanged.
 type FuncOption struct {
 	strictArguments bool
+	readOnly        bool
+	idempotent      bool
 }
 
 // WithStrictArguments rejects unknown keys in struct arguments instead of
@@ -146,6 +158,20 @@ type FuncOption struct {
 // struct locations, and direct execution uses the same policy.
 func WithStrictArguments() FuncOption {
 	return FuncOption{strictArguments: true}
+}
+
+// ReadOnly declares that the tool does not modify external state, by setting
+// Annotations.ReadOnly. A runner may then repeat a call whose result a crash
+// lost, and a read-only subagent may use the tool.
+func ReadOnly() FuncOption {
+	return FuncOption{readOnly: true}
+}
+
+// Idempotent declares that repeating a call has the same effect as making it
+// once, by setting Annotations.Idempotent. A runner may then repeat a call
+// whose result a crash lost.
+func Idempotent() FuncOption {
+	return FuncOption{idempotent: true}
 }
 
 // typedExecutor runs fn only for calls whose arguments satisfy the compiled

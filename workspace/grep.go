@@ -64,7 +64,7 @@ type grepArgs struct {
 
 func newGrep(s *scope) (tool.Tool, error) {
 	rg, _ := exec.LookPath("rg")
-	t, err := tool.Func(
+	return tool.Func(
 		ToolGrep,
 		"Search file contents with a regular expression. Skip hidden files "+
 			"and common dependency and build directories. Result paths are "+
@@ -72,8 +72,8 @@ func newGrep(s *scope) (tool.Tool, error) {
 		func(ctx context.Context, _ tool.Call, in grepArgs) (tool.Outcome, error) {
 			return grep(ctx, s, rg, in)
 		},
+		tool.ReadOnly(),
 	)
-	return annotate(t, true), err
 }
 
 func grep(
