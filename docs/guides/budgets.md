@@ -82,6 +82,9 @@ and keeps model and local tool costs separate. Empty cost maps produce
 `unknown: N`. Either counter prefixes model amounts with `at least`.
 `CostUnknown` also qualifies tool amounts because it can include aggregation
 overflow in either category. `CostPartial` alone qualifies only model amounts.
+The unknown counter can also include usage-counter overflow when both cost
+sums remain exact. The summary conservatively qualifies both categories because
+the counter does not identify its cause.
 Counters can overlap and do not form a combined count of unpriced calls.
 Use `Usage` and `UnpricedRequests` for detailed diagnostics. This summary
 controls default `fmt` display, including `%v`. Use fields or JSON for machine

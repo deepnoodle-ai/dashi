@@ -150,6 +150,43 @@ func TestSpendStringToolOverflow(t *testing.T) {
 	}
 }
 
+func TestSpendStringUsageOverflow(t *testing.T) {
+	initial := Spend{
+		Usage: llm.Usage{
+			InputTokens:   math.MaxInt,
+			Requests:      map[string]int{llm.MeterWebSearch: 1},
+			RequestsFinal: true,
+		},
+		Cost:     map[string]money.Amount{"USD": amount("0.5")},
+		ToolCost: map[string]money.Amount{"USD": amount("2")},
+	}
+	addition := Spend{
+		Usage:    llm.Usage{InputTokens: 1},
+		Cost:     map[string]money.Amount{"USD": amount("0.25")},
+		ToolCost: map[string]money.Amount{"USD": amount("3")},
+	}
+	// Both inputs are valid. Only their usage sum exceeds the counter limit.
+	for _, usage := range []llm.Usage{initial.Usage, addition.Usage} {
+		if err := usage.Validate(); err != nil {
+			t.Fatalf("invalid test usage: %v", err)
+		}
+	}
+	spend := initial.Add(addition)
+	if spend.Cost["USD"] != amount("0.75") || spend.ToolCost["USD"] != amount("5") {
+		t.Fatal("usage overflow must retain both exact monetary sums")
+	}
+	if !reflect.DeepEqual(spend.Usage, initial.Usage) {
+		t.Fatal("usage overflow must retain the original usage")
+	}
+	if spend.CostUnknown != 1 || spend.CostPartial != 0 {
+		t.Fatal("usage overflow must mark unknown accounting without marking partial cost")
+	}
+	want := "model: at least 0.75 USD; tools: at least 5 USD; unknown: 1"
+	if got := spend.String(); got != want {
+		t.Fatalf("String() = %q, want %q", got, want)
+	}
+}
+
 func TestSpendStringStableAndPreservesFields(t *testing.T) {
 	spend := Spend{
 		Usage: llm.Usage{
