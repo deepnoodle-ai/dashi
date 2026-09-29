@@ -161,7 +161,7 @@ out, err = s.Run(ctx, dashi.Continue{ModelAttempts: 2 * limit})
 
 ```go
 if out.Next() == dashi.NextAnswer {
-    out, err = s.Answer(ctx, out.Pending[0].Approve())
+    out, err = s.Answer(ctx, []dashi.Settle{out.Pending[0].Approve()})
 }
 ```
 

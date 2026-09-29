@@ -44,10 +44,21 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 }
 ```
 
-Requires Go 1.26 and an API key. Set `OPENAI_API_KEY`, then
-run `go run ./examples/basic` for one model call or `go run ./examples/agent`
-for a recorded agent turn. Both make paid requests. See
-[examples](examples/) for tools, approvals, resuming a turn, and more.
+An agent conversation is a session; each turn is recorded, and the second
+message needs no history code:
+
+```go
+s := &dashi.Session{Runner: dashi.Runner{Client: client}}
+out, err := s.Send(ctx, "What's the weather in Tokyo?")
+out, err = s.Send(ctx, "And in Fahrenheit?")
+```
+
+Requires Go 1.26. `go run ./examples/chat` runs a session with no API key, on
+a scripted client. Set `OPENAI_API_KEY`, then run `go run ./examples/basic`
+for one model call or `go run ./examples/agent` for a recorded agent turn;
+both make paid requests. See [examples](examples/) for tools, approvals,
+resuming a turn, and more, and [sessions](docs/guides/sessions.md) for
+conversations.
 
 ## Providers
 

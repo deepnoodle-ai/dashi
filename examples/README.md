@@ -1,12 +1,14 @@
 # Examples
 
 Small programs that each show one part of Dashi. Run them from the repository
-root with `go run ./examples/<name>`. Every example makes paid requests; the
-package comment at the top of each `main.go` names the environment variables
-it needs, and which of them are optional. Every example needs a provider key.
+root with `go run ./examples/<name>`. Every example but `chat` makes paid
+requests; the package comment at the top of each `main.go` names the
+environment variables it needs, and which of them are optional. Every example
+but `chat` needs a provider key.
 
 | Example             | Provider  | Shows                                                          |
 | ------------------- | --------- | -------------------------------------------------------------- |
+| `chat`              | None      | A session: two messages, a tool call, and a denied call        |
 | `basic`             | OpenAI    | One streamed model call, without an agent                      |
 | `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the answer    |
 | `agent`             | OpenAI    | One recorded agent turn                                        |

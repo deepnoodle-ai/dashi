@@ -50,7 +50,7 @@ type Session struct {
 func (s *Session) Run(ctx context.Context, c Command, opts ...RunOption) (Outcome, error)
 func (s *Session) Stream(ctx context.Context, c Command, opts ...RunOption) iter.Seq2[Event, error]
 func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (Outcome, error)
-func (s *Session) Answer(ctx context.Context, answers ...Settle) (Outcome, error)
+func (s *Session) Answer(ctx context.Context, answers []Settle, opts ...RunOption) (Outcome, error)
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
 func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, error)
@@ -78,7 +78,12 @@ wrapper; drifting entry points made one peer's streaming path ignore its session
 
 **`Answer`** runs `Settle` for each answer, then one `Continue`. The user makes
 one call; the record has separate steps, so decision 18 holds. It stops at the
-first `Settle` error.
+first `Settle` error. A `Settle` without a command ID gets `settle:` and its
+`CallID`, as `Pending`'s builders derive theirs from the call, and the
+`Continue`'s command ID is `answer:` and the settles' IDs, so a retried `Answer`
+is recognized. It takes `RunOption`s, as `Run` does,
+and passes them to each run, so a leasing host gives `WithOwner` and a live UI
+`WithObserver` the one way it gives them elsewhere.
 
 **`RunQueue`** starts the next turn from queued input when the session is idle,
 and reports false when nothing was queued; `delegate.RunUntilQuiet` needs it.
@@ -273,21 +278,28 @@ usual retry arrives while its turn still runs.
 2. Scan from the newest turn started by a caller's `Start` through the last
    turn. Queue and compaction turns (`queue:` and `compact:` keys) never start
    the window, whatever their origin, so it covers those that ran after the
-   caller's turn.
+   caller's turn. The key marks them because a queue turn's origin can be
+   `StartUser`; `Run` refuses a caller's `Start` with either prefix. A turn in the window that fails to load fails the check with
+   its error, since a missed key would run the command again.
 3. A turn matches when its recorded command ID equals the key. It is a duplicate
    when its input matches too: for a caller's `Start`, the recorded
    `StartFact.Input` ends with the retry's `Input` by JSON meaning (queued user
    items the session added come first); for a queue turn, the key itself is
    derived from the item IDs. History and agent are not compared. Same key,
    different input: `ErrCommandConflict`.
-4. A duplicate whose turn has ended (`NextNone`) returns its outcome.
-5. A duplicate whose turn has not ended returns `*TurnBusyError{Duplicate:
-   true}` naming it. `Stream` instead follows that turn with `Follow` when the
-   recorder is a `StepReader`.
-6. Two workers racing to `S-(n+1)` with the same key and different histories:
+4. A duplicate whose turn has stopped returns the turn's current outcome, as the
+   first call returned it: ended (`NextNone`), or stopped without ending
+   (waiting on an answer, at a limit, needing a decision), since waiting would
+   not change it.
+5. A duplicate whose turn may still be running (`NextRunning`, `NextResume`)
+   returns `*TurnBusyError{Duplicate: true}` naming it. `Stream` instead follows
+   that turn with `Follow` when the recorder is a `StepReader`.
+6. Two workers racing to `S-(n+1)` with the same key: with different histories,
    the engine's command digest covers `History` and the agent, so the loser gets
-   `ErrCommandConflict`. The session reloads and applies step 3, so a true retry
-   is still recognized.
+   `ErrCommandConflict`; with the same, the engine takes the loser as a retry
+   and returns the winner's outcome. Either way the session reloads and applies
+   step 3, so a true retry is recognized and a loser whose turn has no recorded
+   stop gets step 5, never a success for a turn still running.
 
 A host that needs a longer window deduplicates at admission. A later optional
 `SessionIndex` method can find a turn by `CommandID`.
@@ -330,7 +342,7 @@ return theirs in `Queued.Warnings`.
 
 | Name | Kind | When |
 |---|---|---|
-| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that has not ended |
+| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that may still be running |
 | `ErrSessionNotFound` | error | An ID with no turns and no `New` |
 | `ErrSessionExists` | error | `New` on a session with turns |
 | `ErrCommandConflict` | error (engine) | Same key, different input |
