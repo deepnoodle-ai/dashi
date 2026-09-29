@@ -1,9 +1,10 @@
 # Roadmap status
 
-Status snapshot: 2026-09-28, through PR #66. Hooks and live delivery have
-landed; see their [design](hooks.md) and [design](live-delivery.md). Steering has
-a separate [PRD](steering.md). This inventory covers other gaps against Dive
-and the temporary framework survey in `tmp/research/comparison/README.md`.
+Status snapshot: 2026-09-28, through PR #68. Hooks, live delivery, and
+steering parts 1–3 have landed; see their [design](hooks.md),
+[design](live-delivery.md), and [PRD](steering.md). This inventory covers other
+gaps against Dive and the temporary framework survey in
+`tmp/research/comparison/README.md`.
 The older [gap reports](gap-analysis.md) describe discovery-time code. A
 delivered first slice does not imply every provider route is qualified.
 
@@ -283,3 +284,26 @@ Dive's `a2a` and `otel` modules; no Dashi proposal. **Next:** Choose a real host
 for each adapter and preserve the Turn record as the source of execution facts.
 
 **Packet:** [source research](roadmap-research/24-a2a-otel-adapters-research.md) · [draft PRD](roadmap-research/24-a2a-otel-adapters-prd.md).
+
+## Follow-ups from hooks and steering
+
+Small known gaps, recorded so they are not lost; none has a design yet.
+
+- **Hook state (hooks part 2c).** Deferred from decision 31; see
+  [AfterTool hooks](hooks-after-tool.md).
+- **Output, then a deadline.** A turn whose structured output is recorded
+  stops `limited` at the deadline instead of completing.
+- **Tool-argument deltas** carry no byte offset or call ID.
+- **Context after a paused hosted call.** A `BeforeModel` hook's `Deliver`, or
+  a host `Deliver` while paused, can land after an unfinished paused hosted
+  search; steers already wait (`pausedMidHostedCall`).
+- **Urgent steer during `BeforeSend`** of a paused continuation cancels the
+  call before sending, and hooks run again: wasted work only.
+- **Non-text tool results** (images, cited text) stop the turn on Chat
+  Completions and Gemini; send a text placeholder instead.
+- **Flaky live test.** `TestLiveUrgentSteerCutsStream` once failed on OpenAI
+  with no cut; cause unknown.
+- **Steer skips in a parallel batch** omit running tools' output from the
+  `MaxCost` fit estimate; the pre-send check still enforces the cap.
+- **Resume without a binding.** An allowed call whose tool binding has
+  disappeared fails the turn rather than being skipped.
