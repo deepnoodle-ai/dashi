@@ -51,8 +51,9 @@ func CurrentCall(ctx context.Context) (CallRef, bool) {
 // recorded agent: Agent.Model is the model in use now. The turn is running,
 // so Stop is empty. An executor sees the turn as of its call's start, a
 // Toolset as of the model call it offers tools for, and a hook the same view
-// as its plan's Turn. CurrentTurn reports false for a context the runner did
-// not pass to an executor, a Toolset, or a hook.
+// as its plan's Turn. When a run starts inside another, as from a hook or an
+// executor, the inner run's turn wins. CurrentTurn reports false for a
+// context the runner did not pass to an executor, a Toolset, or a hook.
 func CurrentTurn(ctx context.Context) (TurnView, bool) {
 	if v, ok := ctx.Value(currentHookTurnKey{}).(TurnView); ok {
 		return snapshotView(v), true
@@ -109,8 +110,12 @@ type runnerContext struct {
 	turn   func() *replayState
 }
 
-// toolsContext returns ctx for a Toolset.Tools call.
+// toolsContext returns ctx for a Toolset.Tools call. It hides a call or hook
+// that ctx carries from an outer run, so a nested run's Toolset sees its own
+// turn and runner.
 func (r *runtime) toolsContext(ctx context.Context) context.Context {
+	ctx = without(ctx, currentHookTurnKey{})
+	ctx = without(ctx, currentCallKey{})
 	return context.WithValue(
 		ctx,
 		currentRunnerKey{},
@@ -118,12 +123,23 @@ func (r *runtime) toolsContext(ctx context.Context) context.Context {
 	)
 }
 
+// withCurrentCall returns ctx for an executor. It hides a hook turn that ctx
+// carries from an outer run, so a nested run's executor sees its own turn.
 func (r *runtime) withCurrentCall(ctx context.Context, ref CallRef) context.Context {
+	ctx = without(ctx, currentHookTurnKey{})
 	return context.WithValue(
 		ctx,
 		currentCallKey{},
 		callContext{ref, r.callRunner(), r.turnAt()},
 	)
+}
+
+// without hides the value of key in ctx, if ctx has one.
+func without(ctx context.Context, key any) context.Context {
+	if ctx.Value(key) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, key, nil)
 }
 
 // turnAt returns a function that replays the turn as recorded now, once and

@@ -466,6 +466,73 @@ func TestCurrentTurnInHooks(t *testing.T) {
 	}
 }
 
+// A run that a hook starts gives its executor and Toolset its own turn, and
+// the hook still sees its plan's turn.
+func TestCurrentTurnInNestedRun(t *testing.T) {
+	var execView, toolsetView, hookView TurnView
+	probe, err := tool.Func("a", "Probe.",
+		func(ctx context.Context, _ tool.Call, _ struct {
+			Value int `json:"value"`
+		}) (tool.Outcome, error) {
+			execView, _ = CurrentTurn(ctx)
+			return tool.Succeeded("ok"), nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := Runner{
+		Client: &scriptedClient{results: []llm.Result{
+			callResult("call-1", "a"),
+			final("inner done"),
+		}},
+		Tools: toolsetFunc(func(ctx context.Context) ([]tool.Tool, error) {
+			toolsetView, _ = CurrentTurn(ctx)
+			return []tool.Tool{probe}, nil
+		}),
+	}
+	innerAgent := testAgent()
+	innerAgent.ID = "inner-agent"
+	ran := false
+	hooks := Hooks{BeforeModel: []ModelHook{{Name: "nest", Func: func(
+		ctx context.Context, p ModelPlan,
+	) (ModelDecision, error) {
+		if ran {
+			return ModelDecision{}, nil
+		}
+		ran = true
+		if _, err := inner.Run(ctx, Turn{ID: "inner"}, Start{
+			Agent: innerAgent,
+			Input: userInput("go"),
+		}); err != nil {
+			return ModelDecision{}, err
+		}
+		hookView, _ = CurrentTurn(ctx)
+		return ModelDecision{}, nil
+	}}}}
+	outer := Runner{
+		Client: &scriptedClient{results: []llm.Result{final("done")}},
+		Hooks:  hooks,
+	}
+	if _, err := outer.Run(t.Context(), Turn{ID: "outer"}, Start{
+		Agent: testAgent(),
+		Input: userInput("go"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if execView.ID != "inner" || execView.Agent.ID != "inner-agent" {
+		t.Fatalf("executor view=%s %s, want the inner turn",
+			execView.ID, execView.Agent.ID)
+	}
+	if toolsetView.ID != "inner" || toolsetView.Agent.ID != "inner-agent" {
+		t.Fatalf("toolset view=%s %s, want the inner turn",
+			toolsetView.ID, toolsetView.Agent.ID)
+	}
+	if hookView.ID != "outer" || hookView.Agent.ID != "agent" {
+		t.Fatalf("hook view=%s %s, want the outer turn",
+			hookView.ID, hookView.Agent.ID)
+	}
+}
+
 // An executor context whose turn cannot be replayed reports no turn, so a
 // tool such as delegate's task tool fails instead of guessing the agent.
 func TestCurrentTurnReportsFalseWhenReplayFails(t *testing.T) {
