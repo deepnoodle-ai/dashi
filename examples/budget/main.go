@@ -1,9 +1,9 @@
-// Command budget runs a turn under a cost cap that fits the worst case of
-// one model call but not two. The turn stops limited after its tool call, before the second
-// call is sent; the host then authorizes more and a Continue with a raised
-// Budget finishes it. Set ANTHROPIC_API_KEY before running it;
-// ANTHROPIC_MODEL optionally overrides the catalog's default model, though
-// the cap below is sized for it.
+// Command budget runs a turn under a cost cap too small for even one model
+// call. Dashi checks each call's worst-case cost before sending it, so the
+// turn stops limited without spending anything; the host then authorizes
+// more, and a Continue with a raised Budget finishes the turn. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model.
 package main
 
 import (
@@ -49,8 +49,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("budget: %w", err)
 	}
-	// A cost cap needs a finite output allowance to bound each call's worst
-	// case. MaxTokens keeps that worst case small.
+	// A call's worst case counts its full output allowance, so MaxTokens
+	// keeps it small enough that the raised budget covers a few calls.
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model:    os.Getenv("ANTHROPIC_MODEL"),
@@ -63,7 +63,7 @@ func run(ctx context.Context) error {
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"How many units of SKU A-100 are in stock? Use the tool.",
 		))},
-		Budget: &dashi.Budget{MaxCost: usd("0.015")},
+		Budget: &dashi.Budget{MaxCost: usd("0.001")},
 	})
 	if err != nil {
 		return fmt.Errorf("budget: start: %w", err)
