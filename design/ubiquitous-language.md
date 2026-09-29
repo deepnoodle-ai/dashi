@@ -124,7 +124,7 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
   that meets it.
 - **Cache key**: An application label, such as a session ID, that groups calls
   sharing a prefix so the provider can route them to the same cache. Dashi sends
-  a hash of it.
+  it as given, hashed only when too long for the API.
 
 ## Guide execution and follow progress
 

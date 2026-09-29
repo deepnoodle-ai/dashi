@@ -54,12 +54,18 @@ call changes the system prompt, and it also drops the tools.
   0.1x or less. A prompt below the model's minimum (512 to 4,096 tokens) is
   silently not cached. Caches are shared per workspace; there is no key.
   Changing tools invalidates everything; changing `tool_choice` or thinking
-  settings invalidates the message cache.
+  settings invalidates the message cache. The automatic cache point works on
+  the Claude API, Claude Platform on AWS, Vertex AI, and Foundry; legacy
+  Bedrock rejects it with a 400. Recent models (Opus 4.8 and later, Sonnet
+  5.5, Fable and Mythos 5 and later, not Sonnet 5) accept a system message
+  inside `messages` without invalidating either cache.
 - **OpenAI** caches automatically. Before GPT-5.6, `prompt_cache_key` improves
   routing and `prompt_cache_retention` selects `in_memory` (5 to 10 minutes)
-  or `24h` (the default without zero data retention); writes are free. From
-  GPT-5.6, routing is automatic, the only lifetime is 30 minutes, writes cost
-  1.25x, and the key only separates accounting.
+  or `24h` (the default without zero data retention) on the models OpenAI
+  lists; writes are free. From GPT-5.6, routing is automatic, the only
+  lifetime is 30 minutes, writes cost 1.25x, and the key separates per-key
+  accounting and blocks cache-hit probing across users; the docs do not say
+  whether different keys share a prefix. Keys are limited to 64 characters.
 - **Gemini** caches implicitly on 2.5 and later models above 2,048 to 4,096
   tokens. There is no request field; named cached-content resources are a
   separate API.
@@ -97,7 +103,7 @@ making direct `llm.Client` calls who wants the same saving or none at all.
   offers that meets it.
 - **Cache key:** an application label, such as a session ID, that groups calls
   sharing a prefix so the provider routes them to the same cache. Dashi sends
-  a hash of it.
+  it as given, and a hash only when it is too long for the API.
 
 ## Use cases
 
@@ -114,9 +120,15 @@ Acceptance:
   (or the last tool when there is none) and the top-level automatic cache
   point; the request snapshot shows both.
 - [ ] In a live run above the model's minimum, the second call of a turn and
-  the first call of the second turn report cache reads.
-- [ ] Calls to OpenAI and Gemini carry no new fields; the session's OpenAI
-  calls carry `prompt_cache_key` derived from the session ID.
+  the first call of the second turn, sent within five minutes, report cache
+  reads.
+- [ ] A fixture with two session turns, each on a fresh agent the session
+  builds, shows turn 2's first request starting with the exact bytes of turn
+  1's last request: tools, system text, and leading messages.
+- [ ] Calls to Gemini carry no new fields. The session's OpenAI calls carry
+  the session ID as `prompt_cache_key` on models before GPT-5.6; on 5.6 and
+  later only once live qualification shows different keys still share a
+  prefix.
 
 ### UC-2: One-hour cache for a session with long pauses
 
@@ -151,20 +163,23 @@ Acceptance:
 ### UC-4: A host's own cache key
 
 A server sets `PromptCache.Key` to its tenant-scoped conversation ID. Two
-Runner instances with the same key send the same `prompt_cache_key`; different
-keys send different ones; the raw key never appears in the wire body.
+Runner instances with the same key send the same `prompt_cache_key`, the key
+itself, so OpenAI's per-key accounting shows the host's label. A key over 64
+characters is sent as a hash, and the snapshot records the change.
 
 ## Requirements
 
 - R-1: `llm.Settings` gains `PromptCache` with `Disable`, `TTL`, and `Key`. It
   applies to direct calls and to `Agent.Settings` alike. The zero value caches
-  on routes where Dashi places cache points, with the provider's default
-  lifetime.
+  on the Anthropic destinations the catalog marks as accepting the automatic
+  cache point, with the provider's default lifetime.
 - R-2: Anthropic Messages places at most two cache points: one on the block
   holding `Input.System` (or the last tool definition), and the automatic one.
   Both use the effective lifetime. Caller input is never mutated.
-- R-3: OpenAI Responses sends the hashed key and, for models that take it,
-  `prompt_cache_retention`. Gemini and other routes send nothing new.
+- R-3: OpenAI Responses sends the key as given (hashed only over 64
+  characters) and `prompt_cache_retention` only when the provider's default
+  may not meet the requested lifetime. The catalog, from OpenAI's model list,
+  says which models offer `24h`. Gemini and other routes send nothing new.
 - R-4: A requested lifetime is met or exceeded without a warning, clamped to
   the longest offered with a warning, or omitted with a warning where the route
   has no lifetime control; strict policy turns each warning into an error. A
@@ -175,12 +190,16 @@ keys send different ones; the raw key never appears in the wire body.
 - R-6: `Usage` reports the one-hour subset of cache writes; `Rates` gains an
   optional one-hour write rate; the Anthropic catalog states it. Cost and
   budget worst cases use it, and treat a missing rate as unknown.
-- R-7: A session fills an empty `Key` with its session ID. The key does not
+- R-7: A session supplies its ID as the key when the caller set none, on
+  models where the catalog marks a default key safe: OpenAI Responses before
+  GPT-5.6, and later models only after the live key check. The key does not
   change the agent's automatic revision.
 - R-8: The prefix stays byte-stable across the calls of a turn and across
   turns: the system prompt, tool order, and earlier messages do not change as
-  reminders arrive. Documented exceptions: the reserved final-answer call, a
-  hook that hides tools, a replaced snapshot item, and compaction.
+  reminders arrive. A replaced `Snapshot` item stays in place and the new one
+  is appended. Documented exceptions: the reserved final-answer call, a hook
+  that hides tools, a spent `NextCallOnly` item, a system message in the
+  history on Anthropic, and compaction.
 
 ## Not in scope
 
@@ -191,7 +210,8 @@ keys send different ones; the raw key never appears in the wire body.
 - OpenAI GPT-5.6 explicit cache points and prewarm, and Chat Completions keys.
   Automatic caching already covers the agent case.
 - Keeping the cache across the reserved final-answer call. It is one call per
-  turn at most; see the spec's follow-up.
+  turn at most; we accept the miss. See the spec's follow-up.
+- A one-hour default for the `dashi` CLI, until live hit rates exist.
 
 ## Decisions
 
@@ -199,7 +219,14 @@ keys send different ones; the raw key never appears in the wire body.
   prefix within five minutes, and one read repays the write surcharge. OpenAI
   now caches (and charges writes) by default, and Claude Code does too.
   Rejected: opt-in, as in most libraries, which leaves every Claude agent at
-  full price.
+  full price. It depends on the catalog's destination evidence, not the
+  hostname: the first-party API today, then Claude Platform on AWS, Vertex
+  AI, and Foundry as each is qualified; never legacy Bedrock.
+- **Snapshot items are append-only in the projection.** Removing a replaced
+  item breaks the prefix where it was; a per-call value such as the time
+  then rewrites every message on every call. Keeping old copies costs a few
+  tokens each, and the reminder instruction tells the model that the latest
+  item of a name is current. Rejected: removal with a stated cost.
 - **Automatic tail plus one fixed cache point.** The top-level field tracks the
   conversation and skips ineligible blocks; the fixed point keeps tools and
   system cached when messages change (compaction, a new session of the same
@@ -211,22 +238,29 @@ keys send different ones; the raw key never appears in the wire body.
 - **The setting lives in `llm.Settings`.** Direct calls and agents share it,
   and the snapshot already records settings. Rejected: a Runner or Session
   setting, which direct calls cannot use.
-- **Dashi hashes the key.** Hosts already hash IDs before sending them. The
-  cost: OpenAI's per-key accounting shows the hash.
+- **Dashi sends the key as given.** On GPT-5.6 the key's purpose is per-key
+  accounting, which a hash would make unreadable. A host that must hide an ID
+  hashes it itself. Rejected: hashing every key.
 
 ## Success
 
 A Claude agent's second and later calls in a turn read most of their input from
-the cache in live qualification, and the `dashi` CLI's cost per session falls
-accordingly. Budget worst cases never fall below the true charge. No existing
-fixture changes except Anthropic request bodies, which gain cache points.
+the cache in live qualification. Live qualification reports the net saving
+(read discount minus write surcharge) for a tool turn and for a chat turn
+after a pause of more than five minutes; the first must be positive.
+Budget worst cases never fall below the true charge. No existing fixture
+changes except Anthropic request bodies, which gain cache points.
 
 ## Risks and open questions
 
-- **Default-on raises one-shot cost by up to 25% of the prefix.** Direct callers
-  who make single calls should set `Disable`; the guide says so. Not blocking.
+- **Default-on can cost more.** The automatic point covers the whole prompt,
+  so a one-shot call pays the 25% write surcharge on all of its input, and a
+  chat turn without tool calls after a pause of more than five minutes gets
+  no reads and pays only the surcharge. Agent turns with tool calls repay it
+  on the next call. One-shot callers should set `Disable`; the guide says so.
+  Not blocking.
 - **A proxy that speaks Messages may reject the top-level field.** Default-on
-  applies only on the public Anthropic endpoint; elsewhere caching needs an
-  explicit request under the normal capability rules. Not blocking.
+  applies only on destinations the catalog documents; elsewhere caching needs
+  an explicit request under the normal capability rules. Not blocking.
 - **Provider drift.** OpenAI changed its model at GPT-5.6. Catalog lifetimes
   carry dates, and live qualification records each route. Not blocking.

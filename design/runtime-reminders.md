@@ -12,8 +12,12 @@ tag in ordinary user text cannot create a typed reminder or raise authority.
 `Start.Input` and `Deliver` accept `llm.ReminderMessage`. `BeforeModel` can
 return one through `ModelDecision.Deliver`. The full typed content is saved in
 the turn record and reconstructed by `Project`, including after an external tool
-wait or process restart. `ContextItem.Snapshot` replaces older items of the same
-origin and context-item name in the model projection; `NextCallOnly` keeps a
+wait or process restart. A `ContextItem.Snapshot` item supersedes older items
+of the same origin and context-item name: `Turn.Context` returns the latest,
+and the reminder instruction tells the model the latest of a name is current.
+The model projection keeps the older copies in place and appends the new one,
+so the prompt prefix stays cacheable ([prompt caching](prompt-cache.md),
+proposed; until built, the projection removes them). `NextCallOnly` keeps a
 recorded item until a later model call shows evidence of dispatch (a provider
 response or rejection); after an ambiguous crash the resent call carries it
 again, so it may reach the model twice rather than never. Neither rule edits

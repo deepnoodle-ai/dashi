@@ -427,14 +427,16 @@ projected history built from immutable earlier turns and compaction turns is
 exact without being copied; and hosts that keep conversations in their own
 tables can still supply the projected history through the engine.
 
-**41. Prompt caching is on by default, and every feature keeps the prefix
-stable.** Proposed ([prompt-cache.md](prompt-cache.md)). The zero value of
-`llm.Settings.PromptCache` places Anthropic cache points with the default
-lifetime on the public endpoint; `Disable` opts out. So that caching pays, any
-feature that adds per-call context puts it at the end of the messages, as a
-reminder or context item, never in the system prompt or tool definitions, and
+**41. Every feature keeps the prompt prefix stable.** Proposed
+([prompt-cache.md](prompt-cache.md)). So that prompt caching pays, a feature
+that adds per-call context appends it at the end of the messages, as a
+reminder or context item, never in the system prompt or tool definitions;
+the projection keeps sent messages in place, so a replaced `Snapshot` item
+stays and its successor is appended; and
 toolsets return a stable order. A feature that must change the prefix (the
-reserved final-answer call, compaction, a hook that hides tools) documents the
-miss. Rationale: an agent turn almost always reuses its prefix within five
-minutes, one read repays the write surcharge, and a single stray timestamp in
-instructions would silently undo the saving everywhere.
+reserved final-answer call, compaction, a hook that hides tools, a spent
+`NextCallOnly` item, and on Anthropic a system message in the history, which
+the codec moves into the top-level system) documents the miss. Rationale: a
+single stray timestamp in instructions, or one removed message far back in
+the history, silently undoes the saving on every later call. Whether caching
+is on by default is the prompt-cache spec's own decision.
