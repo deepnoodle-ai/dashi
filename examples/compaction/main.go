@@ -1,23 +1,25 @@
-// Command compaction shows a chat history shortened by a recorded summary.
-// It runs three questions, compacts the history, and asks a follow-up that
-// needs a fact from the summarized part. Set OPENAI_API_KEY before running it;
-// OPENAI_MODEL optionally overrides the catalog's default model. It makes
-// about five paid requests.
+// Command compaction shows a session that compacts its history. After three
+// questions the context window is nearly full, so before the fourth the
+// session runs a compaction turn: the model summarizes the older messages,
+// and later turns send the summary in their place. A second handle with no
+// compactor then reads the same projected history from the record. It
+// needs no API key: a scripted dashitest client stands in for the model,
+// so the replies are fixed. With a real client, the session code stays the
+// same.
 package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
+	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 func main() {
@@ -29,109 +31,95 @@ func main() {
 	}
 }
 
+// used is a scripted reply whose model call used tokens of context.
+func used(text string, tokens int) llm.Result {
+	r := dashitest.Reply(text)
+	r.Usage = &llm.Usage{InputTokens: tokens}
+	return r
+}
+
 func run(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
-
-	client, err := responses.New(responses.Config{})
-	if err != nil {
-		return fmt.Errorf("compaction: create client: %w", err)
-	}
-	model := os.Getenv("OPENAI_MODEL")
-	agent := dashi.Agent{Model: model}
-	runner := dashi.Runner{Client: client}
-
-	// The host owns three things: the raw history, the index where each Turn
-	// starts, and the newest Record.
-	var history []llm.Message
-	var starts []int
-	var record *compaction.Record
-	var last llm.Usage
-
-	ask := func(prompt string) (string, error) {
-		// Project gives the projected history: the summary, then the newer
-		// messages.
-		// A record that no longer matches the history yields the raw history.
-		view, err := compaction.Project(history, record)
-		switch {
-		case errors.Is(err, compaction.ErrCoverageMismatch):
-			fmt.Println("Warning:", err, "(using the raw history)")
-			record = nil
-		case err != nil:
-			return "", err
-		}
-		out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-			Agent:   agent,
-			History: view,
-			Input:   []llm.Message{llm.UserMessage(llm.Text(prompt))},
-		})
-		if err != nil {
-			return "", err
-		}
-		if out.Stop.Kind != dashi.StopCompleted {
-			return "", fmt.Errorf("turn stopped %s", out.Stop.Kind)
-		}
-		messages, err := dashi.Project(out.Turn)
-		if err != nil {
-			return "", err
-		}
-		starts = append(starts, len(history))
-		history = append(history, messages...)
-		last = compaction.LastUsage(out.Turn)
-		return out.Answer, nil
-	}
-
-	for _, prompt := range []string{
-		"My project is called Heron and it deploys on port 8443. " +
-			"Give me five tips for running a small web service.",
-		"Give me five tips for writing good logs.",
-		"Give me five tips for reviewing code.",
-	} {
-		if _, err := ask(prompt); err != nil {
-			return fmt.Errorf("compaction: %w", err)
-		}
-	}
-
-	// Compact replaces the older part of the history with a summary. A real
-	// host calls it when Policy.Due(last) is true. This example asks for it
-	// at once and keeps no recent Turns, so the summary alone stands for the
-	// history.
-	summarizer := compaction.NewSummarizer(client, compaction.SummarizerConfig{
-		Model: model,
-	})
-	next, err := compaction.Compact(
-		ctx,
-		summarizer,
-		history,
-		record,
-		compaction.Options{
-			TurnStarts:   starts,
-			Last:         last,
-			TailFraction: -1,
-		},
+	// The script is what a model would answer. The third reply reports a
+	// context of 26,000 tokens, over 80% of the 32,000-token window below.
+	client := dashitest.NewClient(
+		used("Noted: Heron deploys on port 8443.", 9_000),
+		used("Log in JSON, one event per line, with a request ID.", 17_000),
+		used("Review small changes, and read the tests first.", 26_000),
+		used("<summary>The user's project is Heron; it deploys on port 8443. "+
+			"They asked for tips on logs and code review.</summary>", 12_000),
+		used("Heron, on port 8443.", 3_000),
 	)
-	switch {
-	case errors.Is(err, compaction.ErrNoSavings):
-		fmt.Println("The summary is not smaller than the history. Kept as is.")
-	case err != nil:
-		return fmt.Errorf("compaction: compact: %w", err)
-	default:
-		record = next
-		fmt.Printf(
-			"Context shortened: %d messages -> summary (about %d -> %d tokens)\n",
-			len(history),
-			next.TokensBefore,
-			next.TokensAfter,
-		)
-		for currency, amount := range next.Cost {
-			fmt.Printf("Summary cost: %s %s\n", amount, currency)
-		}
+	// A real host takes the model's window from client.ModelInfo; the
+	// scripted client knows none.
+	policy := compaction.Policy{}
+	policy.Model.Capabilities.ContextWindow = 32_000
+	rec := dashi.NewMemoryRecorder()
+	s := &dashi.Session{
+		ID:     "heron",
+		New:    true,
+		Runner: dashi.Runner{Client: client, Recorder: rec},
+		Agent:  dashi.Agent{Model: dashitest.Model},
+		// By default the newest turns that fit in a quarter of the window
+		// stay verbatim. This example keeps none, so the summary alone
+		// stands for the earlier turns.
+		Compactor: &compaction.Compactor{Policy: policy, TailFraction: -1},
 	}
 
-	answer, err := ask("What is my project called, and which port does it use?")
-	if err != nil {
-		return fmt.Errorf("compaction: %w", err)
+	for _, text := range []string{
+		"My project is called Heron and it deploys on port 8443.",
+		"Any tips for logs?",
+		"And for code review?",
+		"What is my project called, and which port does it use?",
+	} {
+		fmt.Println("> " + text)
+		out, err := s.Send(ctx, text)
+		if err != nil {
+			return err
+		}
+		for _, w := range out.SessionWarnings {
+			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
+		}
+		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Answer)
 	}
-	fmt.Println(answer)
+
+	// The compaction turn is in the record, beside the conversation.
+	fmt.Println()
+	for turn, err := range s.Turns(ctx) {
+		if err != nil {
+			return err
+		}
+		view, err := dashi.Replay(turn)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s  %-10s  %d tokens used\n",
+			turn.ID, view.Origin, view.Spend.Usage.TotalInputTokens())
+	}
+	history, err := s.History(ctx)
+	if err != nil {
+		return err
+	}
+	projected, err := s.ProjectedHistory(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nconversation: %d messages; the next turn sends %d:\n",
+		len(history), len(projected))
+	for _, m := range projected {
+		fmt.Printf("  [%s] %.60s\n", m.Role, m.Text())
+	}
+
+	// A viewer or a recovery worker needs no compactor to send the same.
+	reader := &dashi.Session{
+		ID:     "heron",
+		Runner: dashi.Runner{Client: client, Recorder: rec},
+	}
+	again, err := reader.ProjectedHistory(ctx)
+	if err != nil {
+		return err
+	}
+	a, _ := json.Marshal(projected)
+	b, _ := json.Marshal(again)
+	fmt.Println("a handle with no compactor reads the same:", string(a) == string(b))
 	return nil
 }

@@ -1,20 +1,24 @@
-// Package compaction shortens a long conversation that the host owns.
+// Package compaction shortens a long conversation.
 //
-// A Dashi host keeps the message history and passes it to Runner as
-// Start.History. When the history nears the model's context window, the host
-// calls Compact. Compact asks a model for a summary of the older messages
-// and returns a Record. The host stores the Record next to its history. Project
-// then gives the projected history: one summary message, then the recent
-// messages.
+// With a dashi.Session, set Session.Compactor to a Compactor. When the last
+// model call used most of the window, the session runs a compaction turn
+// that asks the model for a summary of the older messages, and records the
+// replacement history in that turn. The package chooses the cut and builds
+// the request; it makes no model call itself.
 //
-// The package changes no history and holds no state. It does not depend on
-// Turn or Runner internals. It never covers the current request, so it runs
-// between Turns and not inside one. The summary is derived history. It has
-// user authority and never operator authority. System and developer messages
-// in the covered part stay in the projected history with their own role.
+// A host that drives the engine directly and keeps its own history calls
+// Compact instead. Compact asks a Summarizer for a summary and returns a
+// Record. The host stores the Record next to its history. Project then
+// gives the projected history: one summary message, then the recent
+// messages. This path changes no history and holds no state.
 //
-// The default summarizer adapts the continuation prompt from Dive's
-// compaction package.
+// Neither path covers the current request, so compaction runs between Turns
+// and not inside one. The summary is derived history. It has user authority
+// and never operator authority. System and developer messages in the
+// covered part stay in the projected history with their own role.
+//
+// The default prompt adapts the continuation prompt from Dive's compaction
+// package.
 package compaction
 
 import (

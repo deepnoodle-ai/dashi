@@ -390,6 +390,9 @@ func (r Runner) apply(
 		if origin == "" {
 			origin = StartUser
 		}
+		if err := validateCompaction(origin, c.Compaction); err != nil {
+			return Outcome{}, fmt.Errorf("dashi: %w", err)
+		}
 		if n := c.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
 				Code: WarningLimitAdjusted,
@@ -413,6 +416,7 @@ func (r Runner) apply(
 				HistoryFingerprint: fingerprint,
 				Input:              cloneMessages(c.Input),
 				Parent:             cloneCallRef(c.Parent),
+				Compaction:         c.Compaction.clone(),
 			},
 		}); o != nil {
 			return rt.result(*o)

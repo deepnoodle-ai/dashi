@@ -30,8 +30,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
 - [Steering](steering.md): messages from people while a turn runs.
 - [Skills](skills.md): loading skills from folders, giving the catalog to a
   model, and starting a skill by name.
-- [Compaction](compaction.md): shortening a long history with a recorded
-  summary.
+- [Compaction](compaction.md): shortening a long session with a compaction
+  turn, or a host-owned history with a recorded summary.
 - [Attachments](attachments.md): stored files by reference, and `@file`
   mentions for terminal front ends.
 - [Delegating to subagents](delegation.md): background `task` tools, result

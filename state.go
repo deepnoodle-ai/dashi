@@ -95,6 +95,9 @@ type TurnView struct {
 	// Origin is who supplied the turn's initial work, recorded at Start: an
 	// unset Start.Origin reads as StartUser. It is empty before Start.
 	Origin StartOrigin
+	// Compaction is what a compaction turn replaces, recorded at Start; nil
+	// for other turns.
+	Compaction *CompactionFact
 	// Revision is the latest acknowledged step sequence number.
 	Revision int64
 	// ModelAttempts counts settled calls that were not interrupted.
@@ -489,8 +492,12 @@ func (s *replayState) apply(step Step) error {
 		}
 		if origin != StartUser &&
 			origin != StartScheduled &&
-			origin != StartOperator {
+			origin != StartOperator &&
+			origin != StartCompaction {
 			return errors.New("invalid start origin")
+		}
+		if err := validateCompaction(origin, step.Started.Compaction); err != nil {
+			return err
 		}
 		for _, m := range step.Started.Input {
 			if origin != StartOperator && m.Role != llm.RoleUser {
@@ -518,6 +525,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.Parent = cloneCallRef(step.Started.Parent)
 		s.Origin = origin
+		s.Compaction = step.Started.Compaction.clone()
 		s.Agent = step.Started.Agent.resolved()
 		s.attemptCap = s.Agent.Limits.ModelAttempts
 		if step.Started.Budget != nil {

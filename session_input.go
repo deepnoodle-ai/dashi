@@ -74,6 +74,13 @@ func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error) {
 			"dashi: Session.Steering is not an *Inbox; send steers through it",
 		)
 	}
+	if s.compacting != "" {
+		return Queued{}, &TurnBusyError{
+			TurnID: s.compacting,
+			Next:   NextRunning,
+			Origin: StartCompaction,
+		}
+	}
 	item, err := s.newItem(steer.Item)
 	if err != nil {
 		return Queued{}, err
@@ -122,9 +129,28 @@ func (s *Session) EnqueueItem(
 }
 
 // History returns the conversation history: every message of every turn,
-// in order, including tool calls and results. A turn that cannot be read is
-// left out; Turns reports its error.
+// in order, including tool calls and results. Compaction turns are not
+// conversation, so it never includes them; Turns does. A turn that cannot
+// be read is left out; Turns reports its error.
 func (s *Session) History(ctx context.Context) ([]llm.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ID == "" {
+		return nil, nil
+	}
+	last, err := s.findLast(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.conversation(ctx, last), nil
+}
+
+// ProjectedHistory returns what the next new turn sends as Start.History,
+// unless a compaction turn runs first: the replacement history of the
+// newest completed compaction turn, then the messages of the turns after
+// it. Without compaction turns it equals History. A turn that cannot be
+// read is left out.
+func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ID == "" {
@@ -136,12 +162,6 @@ func (s *Session) History(ctx context.Context) ([]llm.Message, error) {
 	}
 	history, _ := s.history(ctx, last)
 	return history, nil
-}
-
-// ProjectedHistory returns what the next new turn sends as Start.History.
-// Until the session has compaction turns it equals History.
-func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) {
-	return s.History(ctx)
 }
 
 // Turns yields every turn record of the session, in order, from a copy.
@@ -441,7 +461,10 @@ func notStarted(err error) bool {
 // queue: key, the items were delivered: it consumes them and starts
 // nothing. An unreadable last turn is an error, even under Exclusive,
 // since it may hold that key. The caller holds mu.
-func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
+func (s *Session) planQueue(
+	ctx context.Context,
+	compacted bool,
+) (startPlan, bool, error) {
 	s.ready()
 	if err := s.settleReserved(ctx); err != nil {
 		return startPlan{}, false, err
@@ -507,6 +530,13 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 		return startPlan{}, false, nil
 	}
 	history, unreadable := s.history(ctx, last)
+	if !compacted {
+		cp, warnings := s.planCompaction(ctx, last, history, nil)
+		if cp != nil {
+			return *cp, true, nil
+		}
+		p.warnings = append(p.warnings, warnings...)
+	}
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
 	c.Agent = s.agentFor(ctx, Agent{}, last)

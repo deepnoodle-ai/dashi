@@ -317,6 +317,15 @@ const (
 	// cannot read the turn that may have taken some of them. New commands
 	// still run; RunQueue returns the error until the turn can be read.
 	WarningQueueBlocked WarningCode = "queue_blocked"
+	// WarningCompactionFailed means a compaction turn did not complete with
+	// an answer, or could not start. The session closed it, kept the
+	// previous projected history, and ran the next turn.
+	WarningCompactionFailed WarningCode = "compaction_failed"
+	// WarningCompactionMismatch means the turns a compaction turn covers no
+	// longer give the projected history its digest records. The session
+	// still honors the compaction turn, so every reader sends the same
+	// history.
+	WarningCompactionMismatch WarningCode = "compaction_mismatch"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -359,6 +368,8 @@ type StartFact struct {
 	// Parent is the tool call that caused this turn, when another turn's
 	// tool started it. It never changes after Start.
 	Parent *CallRef `json:"parent,omitempty"`
+	// Compaction is set on a compaction turn, and only there.
+	Compaction *CompactionFact `json:"compaction,omitempty"`
 }
 
 // StartOrigin records who supplied the initial work. The host must authorize
@@ -372,6 +383,9 @@ const (
 	StartScheduled StartOrigin = "scheduled"
 	// StartOperator identifies work started by an authorized operator.
 	StartOperator StartOrigin = "operator"
+	// StartCompaction identifies a Session's compaction turn, which
+	// summarizes the projected history. Its start records a CompactionFact.
+	StartCompaction StartOrigin = "compaction"
 )
 
 // ContextFact records context delivered to an existing turn.
@@ -674,6 +688,9 @@ type Start struct {
 	// with a different Parent is a command conflict. Dashi does not check
 	// that the call exists.
 	Parent *CallRef `json:"Parent,omitempty"`
+	// Compaction records what a compaction turn replaces. It is required
+	// with origin StartCompaction and allowed only with it.
+	Compaction *CompactionFact `json:"Compaction,omitempty"`
 }
 
 // Deliver adds context to a turn between runs. To reach a turn while it
