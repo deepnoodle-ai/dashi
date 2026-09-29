@@ -78,7 +78,6 @@ type TaskView struct { ID, ChildID, Subagent, Description string; Parent dashi.C
 func (v TaskView) Notice() Notice
 func (n Notice) Text() string; func (n Notice) Steer() dashi.Steer
 func NoticeID(childID string) string        // "task-done:" + childID
-func IsNotice(s dashi.Steer) bool
 func RunUntilQuiet(ctx context.Context, s *dashi.Session, t *Tasks,
     opts ...dashi.RunOption) (dashi.Outcome, error)
 ```
@@ -197,7 +196,8 @@ check after each test.
 4. **The notice uses the existing steer path**, origin `ContextTool`.
 5. **One delivery rule, from the record only.** A repeat costs little; one rule
    is testable.
-6. **`IsNotice` splits `Leftovers`** by origin and ID prefix. No core change.
+6. **A notice is told apart** from other steers by origin and its `NoticeID`
+   prefix. No core change.
 7. **One follow-up Turn for all waiting notices**, `StartScheduled`.
    `FollowUp` records the delivered children in the start's `CommandID`.
    Deliver cannot reach an ended Turn, so a follow-up Turn is the only way.

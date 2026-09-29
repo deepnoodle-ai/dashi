@@ -65,12 +65,6 @@ func (n Notice) Steer() dashi.Steer {
 	}}
 }
 
-// IsNotice reports whether a steer is a task notice.
-func IsNotice(s dashi.Steer) bool {
-	return s.Item.Origin == dashi.ContextTool &&
-		strings.HasPrefix(s.Item.ID, noticePrefix)
-}
-
 // deliveredNotices returns the children whose notice the turns record.
 func deliveredNotices(turns []dashi.Turn) map[string]bool {
 	out := map[string]bool{}

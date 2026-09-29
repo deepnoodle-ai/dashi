@@ -905,7 +905,7 @@ func TestStatusReadDoesNotSuppressTheNotice(t *testing.T) {
 	// is told again because the record holds no notice.
 	parent, _ := h.rec.Load(t.Context(), parentTurn)
 	left, err := h.inbox.Leftovers(parent)
-	if err != nil || len(left) != 1 || !delegate.IsNotice(left[0]) {
+	if err != nil || len(left) != 1 || !isNotice(left[0]) {
 		t.Fatalf("leftovers=%+v err=%v", left, err)
 	}
 	h.newTasks(t)
@@ -2012,7 +2012,7 @@ func TestUnrecordedNoticeComesBackOnceFromLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	left, err := h.inbox.Leftovers(turn)
-	if err != nil || len(left) != 1 || !delegate.IsNotice(left[0]) {
+	if err != nil || len(left) != 1 || !isNotice(left[0]) {
 		t.Fatalf("leftovers=%+v err=%v", left, err)
 	}
 	again, err := h.inbox.Leftovers(turn)
@@ -2343,4 +2343,10 @@ type toolsetFunc func(context.Context) ([]tool.Tool, error)
 
 func (f toolsetFunc) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return f(ctx)
+}
+
+// isNotice reports whether a steer is a task notice.
+func isNotice(s dashi.Steer) bool {
+	return s.Item.Origin == dashi.ContextTool &&
+		strings.HasPrefix(s.Item.ID, "task-done:")
 }
