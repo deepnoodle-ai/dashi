@@ -68,10 +68,12 @@ import (
 //     committed: LastTurn is 0 for a session with none, counts a session's
 //     turns by their dashi.TurnID, never counts another session whose ID
 //     shares a prefix, and counts a turn two workers raced to start once.
-//   - Without the index, a session of 1, 2, 3, 64, or 1,000 turns finds its
-//     last turn by probing turn IDs in at most 2·log2(n)+2 reads, plus one
-//     to load the last turn: through StepReader when the store is one, and
-//     through Loader alone.
+//   - Without the index, a session of 1, 2, or 3 turns finds its last turn
+//     by probing turn IDs in at most 2·log2(n)+2 reads, plus one to load
+//     the last turn: through StepReader when the store is one, and through
+//     Loader alone. Sessions whose IDs contain dashes find their own turns
+//     beside turn IDs that share a prefix ("x-1" beside "x-10", session "x"
+//     beside session "x-1").
 //
 // "Rejected" means a *dashi.CommitError with dashi.PersistenceRejected,
 // after which Load must show the record unchanged. Run does not check

@@ -95,6 +95,15 @@ var brokenStores = map[string]struct {
 		},
 		failing: "SessionIndexAgrees",
 	},
+	"loads-by-prefix": {
+		store: func() dashitest.Store {
+			return &loadsByPrefix{
+				MemoryRecorder: dashi.NewMemoryRecorder(),
+				turns:          map[string]bool{},
+			}
+		},
+		failing: "SessionProbing",
+	},
 	"changes-meaning": {
 		store: func() dashitest.Store {
 			return changesMeaning{newJSONBStore()}
@@ -276,6 +285,40 @@ func (s *indexedStore) LastTurn(_ context.Context, session string) (int, error) 
 		last = max(last, n)
 	}
 	return last, nil
+}
+
+// loadsByPrefix loads the highest turn whose ID starts with the one asked
+// for, as `WHERE turn_id LIKE $1 || '%' ORDER BY turn_id DESC LIMIT 1`
+// would, so "x-1" loads "x-10".
+type loadsByPrefix struct {
+	*dashi.MemoryRecorder
+	mu    sync.Mutex
+	turns map[string]bool
+}
+
+func (s *loadsByPrefix) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if err := s.MemoryRecorder.Commit(ctx, req); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.turns[req.Step.TurnID] = true
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *loadsByPrefix) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	s.mu.Lock()
+	match := ""
+	for tid := range s.turns {
+		if strings.HasPrefix(tid, id) && tid > match {
+			match = tid
+		}
+	}
+	s.mu.Unlock()
+	if match == "" {
+		match = id
+	}
+	return s.MemoryRecorder.Load(ctx, match)
 }
 
 // ignoresClaim accepts every owner, so it has no lease fence.

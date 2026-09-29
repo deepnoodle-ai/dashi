@@ -344,12 +344,14 @@ return theirs in `Queued.Warnings`.
 
 `dashitest` gains checks for any recorder that implements `SessionIndex` (it
 agrees with the turns committed, including after a race on `S-n`) and a probing
-check (a session of 1, 2, 3, 64, and 1,000 turns is found with at most
-`2·log2(n)+2` reads, plus one to load the last turn, through `StepReader` and
-through `Loader` alone). Both are part of `dashitest.Run`, so `filerecorder` and
-`MemoryRecorder` run both; neither implements `SessionIndex`, so they pass by
-probing, and a test store checks the index. Backends that skipped a shared
-suite have diverged elsewhere (ADK-Go #679, #1329).
+check (a session of 1, 2, and 3 turns is found with at most `2·log2(n)+2` reads,
+plus one to load the last turn, through `StepReader` and through `Loader` alone,
+and session IDs with dashes find their own turns beside IDs that share a
+prefix). The read bound is a property of the search, so a root test checks it
+at 64 and 1,000 turns on `MemoryRecorder`. Both are part of `dashitest.Run`, so
+`filerecorder` and `MemoryRecorder` run both; neither implements `SessionIndex`,
+so they pass by probing, and a test store checks the index. Backends that
+skipped a shared suite have diverged elsewhere (ADK-Go #679, #1329).
 
 A lost-worker check expires the old claim during a model call, then during a
 non-idempotent tool call: a new message refuses, takeover never reruns the tool,

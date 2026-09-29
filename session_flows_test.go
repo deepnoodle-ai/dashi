@@ -3,8 +3,11 @@ package dashi_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
@@ -186,6 +189,92 @@ func TestSessionUsesIndex(t *testing.T) {
 	if err != nil || st.Turns != 2 || rec.calls != 1 {
 		t.Fatalf("open: %v, turns %d, index calls %d", err, st.Turns, rec.calls)
 	}
+}
+
+// TestSessionProbingReads finds the last turn of long sessions by probing
+// in at most 2·log2(n)+2 reads, plus one to load the last turn, through
+// StepReader and through Loader alone. The bound belongs to the session's
+// search, so it is checked here on MemoryRecorder rather than on every store
+// in dashitest.
+func TestSessionProbingReads(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	for _, n := range []int{64, 1000} {
+		id := fmt.Sprintf("probe-%d", n)
+		for i := 1; i <= n; i++ {
+			turn := dashi.TurnID(id, i)
+			err := rec.Commit(t.Context(), dashi.CommitRequest{Step: dashi.Step{
+				Version:       1,
+				TurnID:        turn,
+				Seq:           1,
+				At:            time.Now(),
+				Kind:          dashi.StepStarted,
+				CommandID:     "start",
+				CommandDigest: "digest",
+				Started: &dashi.StartFact{
+					Agent: dashi.Agent{
+						Revision: "r1",
+						Provider: "test",
+						API:      "test",
+						Model:    "test",
+					},
+					Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+				},
+			}})
+			if err != nil {
+				t.Fatalf("seed %s: %v", turn, err)
+			}
+		}
+		limit := int64(2*math.Log2(float64(n))+2) + 1
+		loads := &countingLoader{rec: rec}
+		steps := &countingReader{countingLoader{rec: rec}}
+		for _, c := range []struct {
+			name  string
+			rec   dashi.Recorder
+			reads *int64
+		}{
+			{"Loader", loads, &loads.reads},
+			{"StepReader", steps, &steps.reads},
+		} {
+			s := &dashi.Session{ID: id, Runner: dashi.Runner{Recorder: c.rec}}
+			st, err := s.Open(t.Context())
+			if err != nil || st.Turns != n {
+				t.Fatalf("%s, %d turns: open %v, turns %d", c.name, n, err, st.Turns)
+			}
+			if *c.reads > limit {
+				t.Fatalf("%s, %d turns: %d reads; want at most %d", c.name, n, *c.reads, limit)
+			}
+		}
+	}
+}
+
+// countingLoader offers only Loader, and counts reads.
+type countingLoader struct {
+	rec   *dashi.MemoryRecorder
+	reads int64
+}
+
+func (c *countingLoader) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	return c.rec.Commit(ctx, req)
+}
+
+func (c *countingLoader) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	c.reads++
+	return c.rec.Load(ctx, id)
+}
+
+// countingReader adds StepReader, whose reads it also counts.
+type countingReader struct {
+	countingLoader
+}
+
+func (c *countingReader) StepsAfter(
+	ctx context.Context,
+	id string,
+	after int64,
+	limit int,
+) ([]dashi.Step, error) {
+	c.reads++
+	return c.rec.StepsAfter(ctx, id, after, limit)
 }
 
 // indexed answers LastTurn from a counter it keeps as turns start, and

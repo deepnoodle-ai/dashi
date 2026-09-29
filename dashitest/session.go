@@ -72,31 +72,45 @@ func testSessionIndexAgrees(t *testing.T, s Store) {
 	requireLast(sessionID, 4)
 }
 
-// testSessionProbing finds the last turn of sessions of 1, 2, 3, 64, and
-// 1,000 turns without a SessionIndex, through StepReader when the store is
-// one and through Loader alone, in at most 2·log2(n)+2 reads, plus one to
-// load the last turn.
+// testSessionProbing finds the last turn of sessions of 1, 2, and 3 turns
+// without a SessionIndex, through StepReader when the store is one and
+// through Loader alone, in at most 2·log2(n)+2 reads, plus one to load the
+// last turn. Session IDs may contain dashes, so it also opens sessions whose
+// turn IDs share a prefix: "x" (turn "x-1") beside a lone record "x-10", and
+// session "x-1" (turns "x-1-1" and "x-1-2"). A store that matches turn IDs
+// by prefix returns the wrong turn there. The read count is a property of
+// the session's search, not of the store, so the root tests check it at
+// larger sizes.
 func testSessionProbing(t *testing.T, s Store) {
 	_, reads := s.(dashi.StepReader)
-	for _, n := range []int{1, 2, 3, 64, 1000} {
-		id := fmt.Sprintf("%s-probe-%d", sessionID, n)
-		for i := 1; i <= n; i++ {
-			seed(t, s, dashi.TurnID(id, i), 1)
-		}
+	open := func(id string, n int, steps int64) {
+		t.Helper()
 		limit := int(2*math.Log2(float64(n))+2) + 1
 		probe := func(rec dashi.Recorder, counter *atomic.Int64) {
 			t.Helper()
 			session := &dashi.Session{ID: id, Runner: dashi.Runner{Recorder: rec}}
 			st, err := session.Open(t.Context())
 			if err != nil {
-				t.Fatalf("open a session of %d turns: %v", n, err)
+				t.Fatalf("open session %q of %d turns: %v", id, n, err)
 			}
 			if st.Turns != n {
-				t.Fatalf("a session of %d turns opened with %d", n, st.Turns)
+				t.Fatalf("session %q of %d turns opened with %d", id, n, st.Turns)
+			}
+			if want := dashi.TurnID(id, n); st.Last.ID != want ||
+				st.Last.Revision != steps {
+				t.Fatalf(
+					"session %q: last turn %s at revision %d; want %s at %d",
+					id,
+					st.Last.ID,
+					st.Last.Revision,
+					want,
+					steps,
+				)
 			}
 			if got := counter.Load(); got > int64(limit) {
 				t.Fatalf(
-					"finding turn %d took %d reads; want at most %d",
+					"session %q: finding turn %d took %d reads; want at most %d",
+					id,
 					n,
 					got,
 					limit,
@@ -110,6 +124,23 @@ func testSessionProbing(t *testing.T, s Store) {
 			probe(steps, &steps.reads)
 		}
 	}
+	for _, n := range []int{1, 2, 3} {
+		id := fmt.Sprintf("%s-probe-%d", sessionID, n)
+		for i := 1; i <= n; i++ {
+			seed(t, s, dashi.TurnID(id, i), 1)
+		}
+		open(id, n, 1)
+	}
+
+	// Each record has its own step count, so a store that answers for the
+	// wrong turn shows up in the last turn's revision.
+	x := sessionID + "-x"
+	seed(t, s, dashi.TurnID(x, 1), 1)
+	seed(t, s, x+"-10", 3)
+	seed(t, s, dashi.TurnID(x+"-1", 1), 2)
+	seed(t, s, dashi.TurnID(x+"-1", 2), 2)
+	open(x, 1, 1)
+	open(x+"-1", 2, 2)
 }
 
 // countingLoader hides every capability of a store but Loader, and counts
