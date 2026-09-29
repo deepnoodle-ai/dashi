@@ -93,21 +93,21 @@ queued and run as a queue turn afterwards, so the `queue:` key keeps their IDs
 in the record for the delivery rule below.
 
 **Consuming items.** A reserved item keeps its ID and place in the queue, and no
-other turn takes it, until its turn's `turn_started` step is known committed;
-then it leaves. A later step's failure does not matter, since the items are in
-the record. `Run`'s error tells the two failures apart today. The start is
-certainly uncommitted on an error that is not a `*CommitError` (validation and
-other failures before any commit; the runner wraps every recorder error), or on
-a `*CommitError` with `PersistenceRejected`, `ErrRevisionConflict`, or
-`ErrCommandConflict` (the line `writeRejected` in `steering.go` draws for
-steers); the session then restores the items, in order. On a `*CommitError` with
-`PersistenceUnknown` for the start step, the session loads `S-n`: a start with
-this command ID consumes the items, a missing turn restores them, and a failed
-load keeps them reserved and returns the error. The next command reloads the
-last turn first and settles the reservation the same way; a retried queue turn
-reuses its deterministic `queue:` key, so it cannot record the items twice. The
-same rule covers user-origin items put ahead of a caller's `Start`, checked
-against that `Start`'s command ID.
+other turn takes it, until the session knows whether this `Start`'s
+`turn_started` step committed. Only proof that it did not restores the items, in
+order: an error after which `Run` promises nothing was recorded (neither a
+`*CommitError` carrying a `Step` nor `ErrRecordInvalid`; `recorded` in
+`runner.go`), or a `*CommitError` whose `Step.Kind` is `turn_started` with
+`PersistenceRejected`, `ErrRevisionConflict`, or `ErrCommandConflict`. Anything
+else is inconclusive: an unknown outcome for the start, a failed later step (a
+rejected model step included), or `ErrRecordInvalid`, which follows recorded
+steps. The session then loads `S-n`: a `turn_started` step with this command ID
+consumes the items, a missing one restores them, and a failed load keeps them
+reserved and returns the error. The next command reloads the last turn first and
+settles the reservation the same way; a retried queue turn reuses its
+deterministic `queue:` key, so it cannot record the items twice. The same rule
+covers user-origin items put ahead of a caller's `Start`, checked against that
+`Start`'s command ID.
 
 **Missed steers move to the queue.** After a turn ends `NextNone`, and when a
 new `Start` closes a stopped turn, the session calls `Inbox.Leftovers` on the

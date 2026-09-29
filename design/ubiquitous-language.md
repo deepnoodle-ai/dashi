@@ -49,8 +49,9 @@ Session contracts remain proposed; see the
   (`ErrTurnEnded`). A session **closes** a stopped turn that has not ended by
   canceling it when a new message arrives, and refuses while the turn is
   **busy**: live, possibly live (an expired lease included), waiting on the
-  host, or holding an unsettled uncertain call not known stopped. Only proof
-  that no worker still acts makes a turn **stopped**. (Proposed; decision 38.)
+  host, or holding an unsettled uncertain call, whatever its liveness. Only
+  proof that no worker still drives it makes a turn **stopped**; that proves
+  nothing about effects the worker started. (Proposed; decision 38.)
 - **Subagent**: An agent performing delegated work as a **child turn** linked
   to its parent turn.
 

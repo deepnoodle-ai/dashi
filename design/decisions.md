@@ -345,8 +345,9 @@ permanently ended turns keep the record correct. An optional `TurnLiveness`
 reports a turn live, stopped, or unknown; an expired lease is unknown, because
 owner fencing rejects a stale worker's commits but not an effect it already
 dispatched. `Session.Exclusive` is the host's promise that it is the only driver
-and that earlier processes have exited. A lost worker's turn is taken over, not
-closed and replaced: `Continue{}` under `WithOwner` never reruns a started
+and that earlier processes have exited; neither proves that a started effect
+stopped (decision 38). A lost worker's turn is taken over, not closed and
+replaced: `Continue{}` under `WithOwner` never reruns a started
 non-idempotent call (decision 11). Rationale: every host rebuilt this
 layer (the CLI's session package, the delegate example's loop). Two records that
 must stay in step drift in every peer that has them, and a library session that
@@ -391,8 +392,11 @@ pending model attempt projects nothing. Results recorded after the terminal stop
 count for audit and accounting but never change the projection. A new session
 message closes (cancels) a stopped turn unless it is busy: live, possibly live
 (liveness unknown, an expired lease included, with no `Exclusive`), waiting on
-the host, or holding an unsettled uncertain call not known stopped. A busy
-turn refuses with `TurnBusyError`, which names the recovery calls.
+the host, or holding an unsettled uncertain call. The last is busy whatever the
+turn's liveness, even under `Exclusive`: a stopped worker does not prove a
+stopped effect. The host settles the call or cancels the turn; a cancel records
+its acceptance of the risk. A busy turn refuses with `TurnBusyError`, which
+names the recovery calls and the uncertain call.
 Rationale: `Project` failed on such turns, so an ended turn would drop out of
 the next turn's history, user prompt included, and a late result could change
 history that later turns were built on.
