@@ -22,6 +22,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
 - [Live updates](live-updates.md): serving a turn to browsers and observing a
   run in process.
 - [Steering](steering.md): messages from people while a turn runs.
+- [Skills](skills.md): loading skills from folders, giving the catalog to a
+  model, and starting a skill by name.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 
