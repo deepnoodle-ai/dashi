@@ -84,8 +84,9 @@ func run(ctx context.Context) error {
 		})
 
 	// BeforeFinish: if the answer lacks a next step, ask once more. Deliver
-	// alone is a nudge; a Reason would veto the answer instead. The nudge is
-	// named, so the turn records it, and a resumed turn does not nudge again.
+	// alone is a nudge; a Reason would veto the answer instead. The turn
+	// records the nudge; naming it lets the hook find it there, so a resumed
+	// turn does not nudge again.
 	finish := dashi.FinishHook{Name: "next-step", Func: func(
 		_ context.Context, p dashi.FinishPlan) (dashi.FinishDecision, error) {
 		_, nudged := p.Turn.Context(dashi.ContextRuntime, "next-step")

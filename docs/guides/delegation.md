@@ -45,7 +45,8 @@ observer for the rare host that wants a child to differ.
 tool offers two:
 
 - `Explore` reads and searches. It uses only tools whose `ReadOnly` annotation
-  is true. A tool with no annotation is left out.
+  is true. A tool with no annotation is left out; mark your own tools with
+  [`tool.ReadOnly()`](tools.md#read-only-and-idempotent-tools).
 - `General` can use every parent tool.
 
 A `Subagent` holds a name, a description for the model, a `dashi.Agent`
