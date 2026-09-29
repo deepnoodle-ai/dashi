@@ -146,13 +146,33 @@ type LastTurn struct {
 // Open reports whether the turn has not ended for good. A new prompt cancels
 // an open turn.
 func (l *LastTurn) Open() bool {
-	return l != nil && !l.View.Stop.Terminal
+	return l != nil && l.View.Next() != dashi.NextNone
 }
 
-// CanGoOn reports whether Enter can run the turn on: it stopped at the
-// model-call limit, or it is open and the library says Continue can run.
+// CanGoOn reports whether Enter can run the turn on: Continue can run now,
+// possibly with a raised model-call limit, or the turn failed in a way the
+// user may retry. A turn with no recorded stop was left by a worker that
+// crashed, since the session lock rules out a live one.
 func (l *LastTurn) CanGoOn() bool {
-	return l.LimitStopped() || l.Open() && l.View.ReadyToContinue
+	return l != nil && (l.View.Next() == dashi.NextContinue ||
+		l.LimitStopped() ||
+		l.Retryable() ||
+		l.View.Next() == dashi.NextResume && l.View.ReadyToContinue)
+}
+
+// Retryable reports whether the turn failed and Continue can run it again.
+// See retryable.
+func (l *LastTurn) Retryable() bool {
+	return l != nil && retryable(l.View)
+}
+
+// retryable reports whether a failed turn can be retried as it is. The
+// library says to resolve every failure, because it cannot tell a rejected
+// request from a rate limit or an overload; a person at the terminal can,
+// so Enter retries. A refusal is not a failure, so it is never retried.
+func retryable(v dashi.TurnView) bool {
+	return v.Next() == dashi.NextResolve && v.ReadyToContinue &&
+		v.Stop.Kind == dashi.StopFailed
 }
 
 // StopText says in words why the turn stopped.
@@ -171,17 +191,7 @@ func (l *LastTurn) StopText() string {
 
 // LimitStopped reports whether the turn stopped at its model-call limit.
 func (l *LastTurn) LimitStopped() bool {
-	if l == nil {
-		return false
-	}
-	return limitStop(l.View.Stop)
-}
-
-// limitStop reports whether s is a model-call limit stop that Continue can
-// raise.
-func limitStop(s dashi.Stop) bool {
-	return s.Kind == dashi.StopLimited && s.Limit != nil &&
-		s.Limit.Kind == dashi.LimitModelAttempts && !s.Terminal
+	return l != nil && l.View.Next() == dashi.NextRaiseAttempts
 }
 
 // Last loads the newest turn of the session. It returns nil when the
@@ -264,8 +274,8 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 	}, agent)
 }
 
-// Resume runs the last turn on, after a quit, a Ctrl-C, or the model-call
-// limit.
+// Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
+// or the model-call limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
 	last := e.Last(ctx)
 	if last.LimitStopped() {
@@ -421,6 +431,13 @@ func (e *Engine) run(
 	if out.Stop.Kind != "" {
 		e.cfg.Emit(r.Footer(out.TurnView))
 	}
+	if retryable(out.TurnView) {
+		e.cfg.Emit(Block{
+			Kind: KindNotice,
+			Text: "Press Enter to retry, or type a new prompt.",
+			Done: true,
+		})
+	}
 	res := Result{Outcome: out}
 	if out.Stop.Kind == dashi.StopInterrupted || runErr != nil {
 		// Steers that missed the turn stay in the inbox. The next run of
@@ -435,7 +452,7 @@ func (e *Engine) run(
 		}
 		return res, runErr
 	}
-	if limitStop(out.Stop) {
+	if out.Next() == dashi.NextRaiseAttempts {
 		// The turn can go on, so the steers that missed it stay in the
 		// inbox for its continuation.
 		if n := e.queuedSteers(out.Turn.ID); n > 0 {

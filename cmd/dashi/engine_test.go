@@ -454,3 +454,74 @@ func TestDiffIsCappedAt40Lines(t *testing.T) {
 		t.Fatal("diff block outside a repository")
 	}
 }
+
+// rejectWith fails a model call as the provider rejecting it.
+func rejectWith(status int, category llm.ErrorCategory) reply {
+	return func(context.Context, llm.Call) (llm.Result, error) {
+		return llm.Result{}, &llm.Error{
+			Provider:    "test",
+			Category:    category,
+			Disposition: llm.FailureRejected,
+			Status:      status,
+		}
+	}
+}
+
+// A rate-limited turn fails, and Enter retries it, in the same process and
+// after a restart.
+func TestEnterRetriesFailedTurn(t *testing.T) {
+	h := newHarness(t,
+		rejectWith(429, llm.ErrorRateLimited),
+		rejectWith(529, llm.ErrorOverloaded),
+		say("Recovered."),
+	)
+	h.input("hello")
+	mustHave(t, h.ui.text(), "Press Enter to retry, or type a new prompt.")
+	last := h.app.eng.Last(t.Context())
+	if !last.CanGoOn() || last.View.Stop.Kind != dashi.StopFailed {
+		t.Fatalf("stop=%+v next=%s", last.View.Stop, last.View.Next())
+	}
+	h.input("")
+	if n := strings.Count(h.ui.text(), "Press Enter to retry"); n != 2 {
+		t.Fatalf("retry hint shown %d times, want 2:\n%s", n, h.ui.text())
+	}
+	h.app.eng.Close()
+
+	// A new process opens the failed session and retries it.
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	h.app.ctrl.Open()
+	mustHave(t, h.ui.text(), "Turn 1 stopped (failed: ")
+	mustHave(t, h.ui.text(), "Press Enter to retry it, or type a new prompt to cancel it.")
+	h.input("")
+	mustHave(t, h.ui.text(), "Recovered.")
+	last = h.app.eng.Last(t.Context())
+	if last.CanGoOn() || last.View.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("stop=%+v", last.View.Stop)
+	}
+	if len(h.app.eng.Session().Turns) != 1 {
+		t.Fatalf("turns=%v", h.app.eng.Session().Turns)
+	}
+}
+
+// A refusal is not a failure to retry: Enter does not ask the model again.
+func TestEnterDoesNotRetryRefusal(t *testing.T) {
+	h := newHarness(t, func(context.Context, llm.Call) (llm.Result, error) {
+		return llm.Result{
+			Message: llm.AssistantMessage(llm.Text("No.")),
+			Stop:    llm.Stop{Kind: llm.StopRefusal},
+		}, nil
+	})
+	h.input("hello")
+	last := h.app.eng.Last(t.Context())
+	if last.View.Stop.Kind != dashi.StopRefused || last.CanGoOn() {
+		t.Fatalf("stop=%+v cango=%t", last.View.Stop, last.CanGoOn())
+	}
+	if strings.Contains(h.ui.text(), "retry") {
+		t.Fatalf("a refusal offered a retry:\n%s", h.ui.text())
+	}
+	h.input("")
+	if h.client.sends != 1 {
+		t.Fatalf("sends=%d, want 1", h.client.sends)
+	}
+}

@@ -194,6 +194,14 @@ func (c *Controller) Open() {
 	switch {
 	case last.LimitStopped():
 		// The limit stop block is already in the scrollback.
+	case last.Retryable():
+		c.emit(Block{
+			Kind: KindNotice,
+			Text: fmt.Sprintf(
+				"Turn %d %s. Press Enter to retry it, "+
+					"or type a new prompt to cancel it.", last.N, last.StopText()),
+			Done: true,
+		})
 	case last.CanGoOn():
 		c.emit(Block{
 			Kind: KindNotice,

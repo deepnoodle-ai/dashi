@@ -74,6 +74,16 @@ model call in the turn.
 `out.Answer` is the latest assistant text, even when the turn did not
 complete. Check `out.Stop` before showing it.
 
+`out.Next()` says what to do next, so a host need not decode `out.Stop`:
+`NextNone` (completed or ended), `NextAnswer` (settle `out.Pending`, then
+`Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseAttempts`
+(`Continue` with a raise), `NextResolve` (fix a failure, refusal, or uncertain
+effect, then `Continue`, or `Cancel`), and `NextResume` (no stop was recorded,
+so `out.Stop.Projected` is true: the worker may have crashed; `Continue`
+resumes it when `ReadyToContinue`, and otherwise settle `out.Pending` first;
+see [recovering turns](recovering-turns.md)). A hook's view of a running turn
+gives `NextRunning`.
+
 ## Prior conversation
 
 A turn is one input processed until the agent settles, possibly across many

@@ -525,8 +525,15 @@ type Stop struct {
 	// After a terminal stop the record accepts only late results of work
 	// that had already started, and other commands give ErrTurnEnded. A
 	// live reader that stops at a terminal stop can miss those results; a
-	// reload shows them.
+	// reload shows them. Project ignores them: an ended turn's projection
+	// is fixed at its terminal stop, and so is TurnView.Answer.
 	Terminal bool `json:"terminal,omitempty"`
+	// Projected means the record holds no stop after the latest Start or
+	// Continue: the run ended without recording one, or is still going.
+	// Replay and Outcome then infer Kind from the work in flight, and Kind
+	// is empty when none is. A recorded stop is never projected. A hook's
+	// view of a live run has an empty Stop that is not projected.
+	Projected bool `json:"projected,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool or a hook. The reason

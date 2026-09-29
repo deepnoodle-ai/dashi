@@ -33,7 +33,11 @@ A turn can span workers; its saved record holds the steps needed to resume its
 own work. When the running Go context ends, Dashi normally records
 `StopInterrupted` with the context cause. Reload the record and call `Continue`
 with the earlier conversation on any worker. `Continue` also recovers a crash
-that happened before the stop was written. Close the channel passed with
+that happened before the stop was written; such a turn's `Next()` is
+`NextResume`, and the next model call gets a reminder that the previous worker
+stopped mid-turn, so the model checks the current state before repeating any
+action. Repeated crashes before that call still add one reminder. Close the
+channel passed with
 `dashi.WithPause` for a graceful stop before the next model or tool call. Work
 already running finishes.
 
@@ -102,6 +106,12 @@ turn. After that, only
 `Settle` reporting the result of work that had already started is accepted;
 every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
 as not executed, so no approval stays pending on an ended turn.
+
+An ended turn always projects, so it stays in the history of later turns.
+`dashi.Project` reads it only up to its terminal stop: a call still started,
+waiting, or uncertain there becomes an error result ("Result unknown; the turn
+ended"), and a model call with no recorded result adds nothing. A late result
+is recorded and counts toward spend, but never changes the projected history.
 
 The zero `Limits` value gives the defaults: 8 model attempts, 10 resumes after
 interruption, 3 provider pauses, one tool call at a time, a reserved final
