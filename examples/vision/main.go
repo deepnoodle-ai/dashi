@@ -26,26 +26,25 @@ const defaultImage = "https://images.unsplash.com/photo-1506744038136-46273834b3
 
 func main() {
 	log.SetFlags(0)
+	image := flag.String("image", defaultImage, "image URL or local file path")
+	prompt := flag.String("prompt", "Describe this image.", "question to ask")
+	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := run(ctx); err != nil {
+	if err := run(ctx, *image, *prompt); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(ctx context.Context) error {
-	image := flag.String("image", defaultImage, "image URL or local file path")
-	prompt := flag.String("prompt", "Describe this image.", "question to ask")
-	flag.Parse()
+func run(ctx context.Context, image, prompt string) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 
 	model := os.Getenv("ANTHROPIC_MODEL")
 	if model == "" {
 		model, _ = catalog.Small("anthropic")
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-
-	source, err := imageSource(*image)
+	source, err := imageSource(image)
 	if err != nil {
 		return fmt.Errorf("vision: %w", err)
 	}
@@ -59,7 +58,7 @@ func run(ctx context.Context) error {
 		llm.Input{
 			Model: model,
 			Messages: []llm.Message{
-				llm.UserMessage(llm.Image(source), llm.Text(*prompt)),
+				llm.UserMessage(llm.Image(source), llm.Text(prompt)),
 			},
 		},
 		nil,

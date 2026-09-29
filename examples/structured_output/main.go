@@ -52,21 +52,23 @@ func run(ctx context.Context) error {
 		},
 		Client: client,
 	}
-	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Invent a fictional person.")),
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("structured_output: run start: %w", err)
+		return fmt.Errorf("structured_output: run: %w", err)
 	}
 	// DecodeOutput explains a missing output, such as a turn that stopped
 	// at a limit, in its error.
-	person, err := dashi.DecodeOutput[Person](outcome)
+	person, err := dashi.DecodeOutput[Person](out)
 	if err != nil {
-		return fmt.Errorf("structured_output: %w", err)
+		return fmt.Errorf("structured_output: decode: %w", err)
 	}
-	fmt.Printf("Source: %s\n", outcome.Output.Source)
+	// Source says whether the model submitted the object as a tool call or
+	// as its final text; either way it was validated.
+	fmt.Printf("Stop: %s; output from: %s\n", out.Stop.Kind, out.Output.Source)
 	fmt.Printf("%+v\n", person)
 	return nil
 }

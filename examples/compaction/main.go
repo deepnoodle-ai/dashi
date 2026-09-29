@@ -48,11 +48,15 @@ func run(ctx context.Context) error {
 	var last llm.Usage
 
 	ask := func(prompt string) (string, error) {
-		// One Project call gives the model view.
+		// Project gives the model view: the summary, then the newer messages.
+		// A record that no longer matches the history yields the raw history.
 		view, err := compaction.Project(history, record)
-		if errors.Is(err, compaction.ErrCoverageMismatch) {
-			fmt.Println("warning:", err, "(using the raw history)")
+		switch {
+		case errors.Is(err, compaction.ErrCoverageMismatch):
+			fmt.Println("Warning:", err, "(using the raw history)")
 			record = nil
+		case err != nil:
+			return "", err
 		}
 		out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 			History: view,
@@ -85,33 +89,40 @@ func run(ctx context.Context) error {
 		}
 	}
 
-	// One Compact call shortens the history. A real host calls it when
-	// Policy.Due(last) is true. This example asks for it at once, and keeps no
-	// recent Turns, so the summary alone stands for the history.
+	// Compact replaces the older part of the history with a summary. A real
+	// host calls it when Policy.Due(last) is true. This example asks for it
+	// at once and keeps no recent Turns, so the summary alone stands for the
+	// history.
 	summarizer := compaction.NewSummarizer(client, compaction.SummarizerConfig{
 		Model: model,
 	})
-	next, err := compaction.Compact(ctx, summarizer, history, record,
+	next, err := compaction.Compact(
+		ctx,
+		summarizer,
+		history,
+		record,
 		compaction.Options{
 			TurnStarts:   starts,
 			Last:         last,
 			TailFraction: -1,
-		})
+		},
+	)
 	switch {
 	case errors.Is(err, compaction.ErrNoSavings):
 		fmt.Println("The summary is not smaller than the history. Kept as is.")
 	case err != nil:
-		return fmt.Errorf("compaction: %w", err)
+		return fmt.Errorf("compaction: compact: %w", err)
 	default:
 		record = next
 		fmt.Printf(
-			"Context shortened: %d messages -> summary "+
-				"(about %d -> %d tokens, cost $%v)\n",
+			"Context shortened: %d messages -> summary (about %d -> %d tokens)\n",
 			len(history),
 			next.TokensBefore,
 			next.TokensAfter,
-			next.Cost["USD"],
 		)
+		for currency, amount := range next.Cost {
+			fmt.Printf("Summary cost: %s %s\n", amount, currency)
+		}
 	}
 
 	answer, err := ask("What is my project called, and which port does it use?")

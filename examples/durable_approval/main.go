@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -28,10 +29,18 @@ type deployArgs struct {
 
 func main() {
 	log.SetFlags(0)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run sets no timeout, because the turn waits for a person to answer.
+func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("durable_approval: create client: %w", err)
 	}
 	deploy, err := tool.Func(
 		"deploy",
@@ -44,7 +53,7 @@ func main() {
 		tool.WithStrictArguments(),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("durable_approval: create tool: %w", err)
 	}
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
@@ -60,28 +69,32 @@ func main() {
 			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},
 	})
+	if err != nil {
+		return fmt.Errorf("durable_approval: run: %w", err)
+	}
 	// The model may ask again after an answer, so repeat until the turn
 	// stops for another reason.
 	answers := bufio.NewReader(os.Stdin)
-	for err == nil && out.Stop.Kind == dashi.StopWaiting {
+	for out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
 			if p.Kind != dashi.PendingApproval {
 				continue // Continue reports anything left unanswered.
 			}
 			fmt.Printf("Approve %s %s? [y/N] ", p.Name, p.Args)
 			line, _ := answers.ReadString('\n')
+			// Approve and Deny only record the answer; nothing runs yet.
 			answer := p.Deny("The operator declined this deploy.")
-			if strings.TrimSpace(strings.ToLower(line)) == "y" {
+			if strings.ToLower(strings.TrimSpace(line)) == "y" {
 				answer = p.Approve()
 			}
 			if out, err = runner.Run(ctx, out.Turn, answer); err != nil {
-				log.Fatal(err)
+				return fmt.Errorf("durable_approval: record answer: %w", err)
 			}
 		}
-		out, err = runner.Run(ctx, out.Turn, dashi.Continue{})
-	}
-	if err != nil {
-		log.Fatal(err)
+		if out, err = runner.Run(ctx, out.Turn, dashi.Continue{}); err != nil {
+			return fmt.Errorf("durable_approval: continue: %w", err)
+		}
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	return nil
 }

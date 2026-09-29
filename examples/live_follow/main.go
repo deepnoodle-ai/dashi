@@ -1,11 +1,10 @@
-// Command live_follow runs one agent turn in a background worker while two
-// readers follow it with feed.Follow, as two browser tabs would. The first
-// follows from the start and also shows the model's text as it streams,
-// through a feed.Hub set as the runner's Observer; the second follows steps
-// only, joins late from a cursor, and leaves early, which does not affect
-// the turn. Set ANTHROPIC_API_KEY before
-// running it; ANTHROPIC_MODEL optionally overrides the catalog's default
-// model.
+// Command live_follow runs one agent turn while two readers follow it with
+// feed.Follow, as two browser tabs would. Tab A follows from the start and
+// also shows the model's text as it streams, through a feed.Hub set as the
+// runner's Observer. Tab B follows steps only: it joins late from a cursor
+// and leaves early, which does not affect the turn. Set ANTHROPIC_API_KEY
+// before running it; ANTHROPIC_MODEL optionally overrides the catalog's
+// default model.
 package main
 
 import (
@@ -24,8 +23,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// CityInput is the argument schema for check_weather.
-type CityInput struct {
+const turnID = "live-follow-demo"
+
+type cityArgs struct {
 	City string `json:"city" description:"City to check"`
 }
 
@@ -42,11 +42,12 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
+	// A slow tool, so the readers see the turn in progress.
 	weather, err := tool.Func(
 		"check_weather",
 		"Returns the current weather for a city.",
-		func(ctx context.Context, _ tool.Call, in CityInput) (tool.Outcome, error) {
-			select { // a slow lookup, so the followers see the turn in progress
+		func(ctx context.Context, _ tool.Call, in cityArgs) (tool.Outcome, error) {
+			select {
 			case <-time.After(time.Second):
 			case <-ctx.Done():
 				return tool.Outcome{}, ctx.Err()
@@ -55,16 +56,16 @@ func run(ctx context.Context) error {
 		},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("live_follow: create tool: %w", err)
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return fmt.Errorf("live_follow: create client: %w", err)
 	}
-	// The store the worker commits to is the one readers follow. A server
-	// would use a durable recorder that implements dashi.StepReader.
+	// Readers follow the store the runner commits steps to; a server would
+	// use a durable recorder that implements dashi.StepReader. The hub
+	// carries the live text previews, which are never recorded.
 	store := dashi.NewMemoryRecorder()
-	// The hub carries the runner's live previews to readers in this process.
 	var hub feed.Hub
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
@@ -76,65 +77,53 @@ func run(ctx context.Context) error {
 		Recorder: store,
 		Observer: hub.Observe,
 	}
-	const turnID = "live-follow-demo"
-	start := dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-		"What is the weather in Lisbon and in Oslo?",
-	))}}
 
-	// Followers get their own context: when the worker stops without
-	// ending the turn (a failure, a pause), Follow would keep waiting for
-	// the turn to resume, so the program cancels them itself.
+	// Follow waits for a turn that stopped without ending to resume, so the
+	// readers get their own context, which run cancels in that case.
 	followCtx, stopFollowing := context.WithCancel(ctx)
 	defer stopFollowing()
 	var wg sync.WaitGroup
-	// Tab A follows from the beginning until the turn ends. Once it has
-	// read seq 2, tab B opens from that cursor, reads three steps, and
-	// closes; its leaving ends only its own follow.
+	// Tab A follows until the turn ends. Once it has read seq 2, tab B opens
+	// from that cursor, reads three steps, and leaves.
 	wg.Go(func() {
-		follow(followCtx, &hub, store, "A", turnID, 0, 0, func(seq int64) {
+		follow(followCtx, &hub, store, "A", 0, 0, func(seq int64) {
 			if seq == 2 {
 				wg.Go(func() {
-					follow(followCtx, nil, store, "B", turnID, 2, 3, nil)
+					follow(followCtx, nil, store, "B", 2, 3, nil)
 				})
 			}
 		})
 	})
 
-	// The worker runs the turn under its own context, not a reader's.
-	out, runErr := runner.Run(ctx, dashi.Turn{ID: turnID}, start)
-	if runErr != nil || !out.Stop.Terminal {
-		// The turn did not end, so the followers would wait for it.
+	out, err := runner.Run(ctx, dashi.Turn{ID: turnID}, dashi.Start{
+		Input: []llm.Message{
+			llm.UserMessage(llm.Text("What is the weather in Lisbon and in Oslo?")),
+		},
+	})
+	if err != nil || !out.Stop.Terminal {
 		stopFollowing()
 	}
 	wg.Wait()
-	if runErr != nil {
-		return fmt.Errorf("live_follow: %w", runErr)
+	if err != nil {
+		return fmt.Errorf("live_follow: run: %w", err)
 	}
-	if !out.Stop.Terminal {
-		return fmt.Errorf(
-			"live_follow: the worker stopped without ending the turn: %s %s",
-			out.Stop.Kind,
-			out.Stop.Reason,
-		)
-	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	// Tab A has already shown the answer as it streamed.
+	fmt.Printf("Stop: %s\n", out.Stop.Kind)
 	return nil
 }
 
-// follow prints the turn's steps after the cursor, and with a hub the
+// follow prints the turn's steps after the cursor and, given a hub, the
 // model's text as it streams. It leaves after limit steps when limit is
 // positive, and calls onStep with each Seq it reads.
 func follow(
 	ctx context.Context,
 	hub *feed.Hub,
 	store dashi.StepReader,
-	tab, turnID string,
+	tab string,
 	after int64,
 	limit int,
 	onStep func(seq int64),
 ) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	read := 0
 	streaming := false
 	for e, err := range feed.Follow(ctx, hub, store, turnID, after) {
@@ -171,9 +160,6 @@ func follow(
 		if read++; limit > 0 && read == limit {
 			fmt.Printf("[%s] leaves at seq %d\n", tab, step.Seq)
 			return
-		}
-		if step.Stop != nil && step.Stop.Terminal {
-			fmt.Printf("[%s] the turn ended\n", tab)
 		}
 	}
 }

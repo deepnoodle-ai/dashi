@@ -39,21 +39,16 @@ func run(ctx context.Context) error {
 		Agent:  dashi.Agent{Model: os.Getenv("OPENAI_MODEL")},
 		Client: client,
 	}
-	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Say hello in one sentence.")),
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("agent: %w", err)
+		return fmt.Errorf("agent: run: %w", err)
 	}
-	if outcome.Stop.Kind != dashi.StopCompleted {
-		return fmt.Errorf(
-			"agent: turn stopped %s: %s",
-			outcome.Stop.Kind,
-			outcome.Stop.Reason,
-		)
-	}
-	fmt.Println(outcome.Answer)
+	// Run's error means the command did not apply. A model failure, a limit,
+	// or a wait is a result instead: Stop says how the turn ended.
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }

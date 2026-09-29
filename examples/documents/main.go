@@ -31,14 +31,6 @@ const builtIn = "The grass is green. The sky is blue. " +
 
 func main() {
 	log.SetFlags(0)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	if err := run(ctx); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func run(ctx context.Context) error {
 	doc := flag.String("doc", "", "PDF URL, or local PDF or text file")
 	prompt := flag.String(
 		"prompt",
@@ -46,15 +38,22 @@ func run(ctx context.Context) error {
 		"question to ask about the document",
 	)
 	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := run(ctx, *doc, *prompt); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context, doc, prompt string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 
 	model := os.Getenv("ANTHROPIC_MODEL")
 	if model == "" {
 		model, _ = catalog.Small("anthropic")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	document, err := loadDocument(*doc)
+	document, err := loadDocument(doc)
 	if err != nil {
 		return fmt.Errorf("documents: %w", err)
 	}
@@ -71,7 +70,7 @@ func run(ctx context.Context) error {
 			Model:    model,
 			Settings: llm.Settings{Citations: true},
 			Messages: []llm.Message{
-				llm.UserMessage(document, llm.Text(*prompt)),
+				llm.UserMessage(document, llm.Text(prompt)),
 			},
 		},
 		nil,
@@ -80,7 +79,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("documents: generate: %w", err)
 	}
 	for _, w := range result.Warnings {
-		fmt.Printf("warning: %s\n", w.Message)
+		fmt.Printf("Warning (%s): %s\n", w.Code, w.Message)
 	}
 
 	// A cited answer arrives as several text blocks, one per cited passage;
@@ -93,21 +92,21 @@ func run(ctx context.Context) error {
 		}
 		for _, citation := range c.Block.Text.Citations {
 			n++
-			fmt.Printf("\n[%d] %q", n, citation.Text)
-			if citation.Title != "" {
-				fmt.Printf(" (%s", citation.Title)
-				if l := citation.Location; l != nil {
-					fmt.Printf(", %s %d-%d", l.Unit, l.Start, l.End)
-				}
-				fmt.Print(")")
+			fmt.Printf("\n[%d] %q from %s", n, citation.Text, citation.Title)
+			if l := citation.Location; l != nil {
+				fmt.Printf(", %s %d-%d", l.Unit, l.Start, l.End)
 			}
 		}
 	}
-	fmt.Printf(
-		"\n\nTokens: %d in, %d out\n",
-		result.Usage.InputTokens,
-		result.Usage.OutputTokens,
-	)
+	fmt.Println()
+	// Usage is nil when the provider did not report it.
+	if u := result.Usage; u != nil {
+		fmt.Printf(
+			"\nTokens: %d in, %d out\n",
+			u.TotalInputTokens(),
+			u.OutputTokens,
+		)
+	}
 	return nil
 }
 

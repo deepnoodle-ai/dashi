@@ -42,6 +42,7 @@ func main() {
 	}
 }
 
+// run sets no timeout, because the chat waits for a person to type.
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -62,17 +63,21 @@ func run(ctx context.Context) error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("steering: %w", err)
+		return fmt.Errorf("steering: create tool: %w", err)
 	}
-	agent := dashi.Agent{
-		Model: os.Getenv("ANTHROPIC_MODEL"),
-		Instructions: "Answer briefly. Use slow_search once before " +
-			"answering. The user may send new messages while you work; " +
-			"follow the latest one.",
+	runner := dashi.Runner{
+		Agent: dashi.Agent{
+			Model: os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "Answer briefly. Use slow_search once before " +
+				"answering. The user may send new messages while you work; " +
+				"follow the latest one.",
+			// Steering can cost extra model calls, so allow more than the
+			// default.
+			Limits: dashi.Limits{ModelAttempts: 12},
+		},
+		Client: client,
+		Tools:  tool.List{search},
 	}
-	// Steering can cost extra model calls, so allow more than the default.
-	agent.Limits.ModelAttempts = 12
-	runner := dashi.Runner{Agent: agent, Client: client, Tools: tool.List{search}}
 
 	lines := make(chan string)
 	go func() {
@@ -98,28 +103,7 @@ func run(ctx context.Context) error {
 		// While the turn runs, every line typed is a steer.
 		done := make(chan struct{})
 		var forwarding sync.WaitGroup
-		forwarding.Go(func() {
-			for {
-				select {
-				case line, ok := <-lines:
-					if !ok {
-						return
-					}
-					send, note := inbox.SendText, "  (steer queued)"
-					if text, ok := strings.CutPrefix(line, "!"); ok {
-						line = text
-						send, note = inbox.SendUrgent, "  (urgent steer sent)"
-					}
-					if _, err := send(line); err != nil {
-						fmt.Println("  (steer not sent:", err.Error()+")")
-					} else {
-						fmt.Println(note)
-					}
-				case <-done:
-					return
-				}
-			}
-		})
+		forwarding.Go(func() { forwardSteers(lines, inbox, done) })
 		out, err := runner.Run(
 			ctx,
 			dashi.Turn{},
@@ -129,19 +113,10 @@ func run(ctx context.Context) error {
 		close(done)
 		forwarding.Wait()
 		if err != nil {
-			return fmt.Errorf("steering: %w", err)
+			return fmt.Errorf("steering: run: %w", err)
 		}
-		steers := 0
-		for _, step := range out.Turn.Steps {
-			if step.Context != nil && step.Context.Steering {
-				steers += len(step.Items())
-			}
-		}
-		fmt.Printf("[%s, %d steer(s) delivered]\n%s\n", out.Stop.Kind, steers, out.Answer)
-		if !out.Stop.Terminal {
-			// A resumable stop, such as a limit: this CLI gives the turn up.
-			fmt.Println("  (turn left unfinished)")
-		}
+		fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+
 		turn, err := dashi.Project(out.Turn)
 		if err != nil {
 			return fmt.Errorf("steering: %w", err)
@@ -153,9 +128,38 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("steering: %w", err)
 		}
-		input = input[:0]
+		input = nil
 		for _, steer := range left {
 			input = append(input, steer.Item.Message)
+		}
+	}
+}
+
+// forwardSteers sends each line to the inbox until done is closed. A line
+// starting with ! is sent as urgent.
+func forwardSteers(
+	lines <-chan string,
+	inbox *dashi.Inbox,
+	done <-chan struct{},
+) {
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				return
+			}
+			send, note := inbox.SendText, "  (steer queued)"
+			if text, ok := strings.CutPrefix(line, "!"); ok {
+				line = text
+				send, note = inbox.SendUrgent, "  (urgent steer sent)"
+			}
+			if _, err := send(line); err != nil {
+				fmt.Printf("  (steer not sent: %v)\n", err)
+			} else {
+				fmt.Println(note)
+			}
+		case <-done:
+			return
 		}
 	}
 }

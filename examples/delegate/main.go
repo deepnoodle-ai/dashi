@@ -4,7 +4,7 @@
 // as they happen, sends every finished result to the agent, and starts a
 // follow-up turn for results that arrive after the turn ended. Set
 // OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
-// default model.
+// catalog's default model.
 package main
 
 import (
@@ -23,8 +23,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// SearchInput is the argument schema for search_notes.
-type SearchInput struct {
+type searchArgs struct {
 	Query string `json:"query" description:"Words to look for"`
 }
 
@@ -47,25 +46,23 @@ func run(ctx context.Context) error {
 	}
 	search, err := newSearchTool()
 	if err != nil {
-		return fmt.Errorf("delegate: %w", err)
+		return fmt.Errorf("delegate: create tool: %w", err)
 	}
 
 	// The whole wiring: a Tasks value, its tools, and one OnTask callback
-	// that sends each finished result to the agent.
+	// that sends each finished result to the agent through the inbox.
 	inbox := dashi.NewInbox()
 	tasks := delegate.NewTasks(delegate.Config{
 		OnChild: printChild,
 		OnTask: func(e delegate.TaskEvent) {
-			if e.Kind != delegate.TaskEnded {
-				return
+			if e.Kind == delegate.TaskEnded {
+				fmt.Printf("<< task %s %s\n", e.Task.ID, e.Task.State)
+				_, _ = inbox.Send(e.Task.Notice().Steer())
 			}
-			fmt.Printf("<< task %s %s\n", e.Task.ID, e.Task.State)
-			_, _ = inbox.Send(e.Task.Notice().Steer())
 		},
 	})
 	defer tasks.Close(context.Background())
 
-	recorder := dashi.NewMemoryRecorder()
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model: os.Getenv("OPENAI_MODEL"),
@@ -76,7 +73,7 @@ func run(ctx context.Context) error {
 			Limits: dashi.Limits{ModelAttempts: 16},
 		},
 		Client:   client,
-		Recorder: recorder,
+		Recorder: dashi.NewMemoryRecorder(),
 		Tools:    tool.Join(tool.List{search}, tasks.Tools()),
 	}
 	out, err := runner.Run(
@@ -90,41 +87,24 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("delegate: run: %w", err)
 	}
-	history, err := dashi.Project(out.Turn)
-	if err != nil {
-		return err
-	}
 
 	// Results that ended after the turn wait in the inbox. Each round starts
-	// one follow-up turn that carries all of them.
+	// one follow-up turn that carries all of them, with the conversation so
+	// far as its history.
+	var history []llm.Message
 	for {
-		left, err := inbox.Leftovers(out.Turn)
+		notices, err := waitingNotices(ctx, inbox, tasks, out.Turn)
 		if err != nil {
-			return err
-		}
-		var notices []dashi.Steer
-		for _, s := range left {
-			if delegate.IsNotice(s) {
-				notices = append(notices, s)
-			}
+			return fmt.Errorf("delegate: %w", err)
 		}
 		if len(notices) == 0 {
-			// Wait covers the gap between a task ending and its notice
-			// reaching the inbox, so a true answer means nothing is left.
-			idle, err := tasks.Wait(ctx)
-			if err != nil {
-				return err
-			}
-			if idle {
-				if left, err = inbox.Leftovers(out.Turn); err != nil {
-					return err
-				}
-				if !slices.ContainsFunc(left, delegate.IsNotice) {
-					break
-				}
-			}
-			continue
+			break
 		}
+		turn, err := dashi.Project(out.Turn)
+		if err != nil {
+			return fmt.Errorf("delegate: %w", err)
+		}
+		history = append(history, turn...)
 		start := delegate.FollowUp(notices)
 		start.History = history
 		out, err = runner.Run(
@@ -136,24 +116,49 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("delegate: follow-up: %w", err)
 		}
-		if history, err = dashi.Project(out.Turn); err != nil {
-			return err
-		}
 	}
-	fmt.Println(out.Answer)
-	fmt.Printf("subagents cost %s\n", formatCost(taskSpend(tasks)))
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+
+	var spend dashi.Spend
+	for _, task := range tasks.List() {
+		spend = spend.Add(task.Spend)
+	}
+	for currency, amount := range spend.Cost {
+		fmt.Printf("Subagent cost: %s %s\n", amount, currency)
+	}
 	return nil
 }
 
-func taskSpend(tasks *delegate.Tasks) dashi.Spend {
-	var total dashi.Spend
-	for _, v := range tasks.List() {
-		total = total.Add(v.Spend)
+// waitingNotices returns the task results the turn did not deliver, waiting
+// while tasks still run. It returns none once every task has ended and been
+// delivered. Wait covers the gap between a task ending and its notice
+// reaching the inbox, so an empty inbox after an idle Wait means nothing is
+// left.
+func waitingNotices(
+	ctx context.Context,
+	inbox *dashi.Inbox,
+	tasks *delegate.Tasks,
+	turn dashi.Turn,
+) ([]dashi.Steer, error) {
+	idle := false
+	for {
+		left, err := inbox.Leftovers(turn)
+		if err != nil {
+			return nil, err
+		}
+		notices := slices.DeleteFunc(left, func(s dashi.Steer) bool {
+			return !delegate.IsNotice(s)
+		})
+		if len(notices) > 0 || idle {
+			return notices, nil
+		}
+		if idle, err = tasks.Wait(ctx); err != nil {
+			return nil, err
+		}
 	}
-	return total
 }
 
-// printChild draws each committed child tool call under the task call.
+// printChild draws each subagent's tool calls under its task.
 func printChild(e delegate.ChildEvent) {
 	step := e.Event.Step
 	if step == nil {
@@ -175,7 +180,7 @@ func newSearchTool() (tool.Tool, error) {
 	search, err := tool.Func(
 		"search_notes",
 		"Searches the team notes and returns matching lines.",
-		func(_ context.Context, _ tool.Call, in SearchInput) (tool.Outcome, error) {
+		func(_ context.Context, _ tool.Call, _ searchArgs) (tool.Outcome, error) {
 			return tool.Succeeded(
 				"ownership.md: billing service - owner: Priya (payments team)",
 			), nil
@@ -186,16 +191,4 @@ func newSearchTool() (tool.Tool, error) {
 	}
 	search.Definition.Annotations.ReadOnly = new(true)
 	return search, nil
-}
-
-// formatCost prints the cost of a spend as "$0.41". It sums the amounts of
-// every currency in the spend, which is correct for the single currency this
-// example uses.
-func formatCost(s dashi.Spend) string {
-	total := 0.0
-	for _, amount := range s.Cost {
-		f := amount.Float64()
-		total += f
-	}
-	return fmt.Sprintf("$%.2f", total)
 }

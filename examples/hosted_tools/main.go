@@ -43,7 +43,7 @@ func run(ctx context.Context, prompt string) error {
 		MaxUses: 3,
 	})
 	if err != nil {
-		return fmt.Errorf("hosted_tools: %w", err)
+		return fmt.Errorf("hosted_tools: create tool: %w", err)
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -59,30 +59,30 @@ func run(ctx context.Context, prompt string) error {
 			messages.NewCodeExecutionTool(messages.CodeExecutionToolOptions{}),
 		},
 	}
-	outcome, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {
-		return fmt.Errorf("hosted_tools: run start: %w", err)
+		return fmt.Errorf("hosted_tools: run: %w", err)
 	}
-	fmt.Printf("Stop: %s\n%s\n", outcome.Stop.Kind, outcome.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
 	// The provider may split hosted work across several model calls, so
 	// these read every call in the turn, not only the last message.
 	fmt.Println("\nHosted tool calls:")
-	for _, use := range outcome.Turn.HostedUses() {
+	for _, use := range out.Turn.HostedUses() {
 		fmt.Printf("  %s %s\n", use.Name, use.Input)
 	}
 	fmt.Println("\nSources:")
 	seen := map[string]bool{}
-	for _, citation := range outcome.Turn.Citations() {
+	for _, citation := range out.Turn.Citations() {
 		if !seen[citation.URL] {
 			seen[citation.URL] = true
 			fmt.Printf("  %s <%s>\n", citation.Title, citation.URL)
 		}
 	}
 
-	spend := outcome.Spend
+	spend := out.Spend
 	fmt.Printf(
 		"\nTokens: %d in, %d out; hosted requests: %v\n",
 		spend.Usage.TotalInputTokens(),

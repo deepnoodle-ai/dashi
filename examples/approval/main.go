@@ -1,8 +1,7 @@
 // Command approval runs a turn whose deploy tool needs a person's approval.
 // A BeforeTool hook asks at the terminal before each deploy call and allows
-// or denies it, so the whole turn is one Run; a denial's reason is what the
-// model sees as the call's result. A server that cannot wait for a person
-// uses the deferred form in examples/durable_approval instead. Set
+// or denies it, so the whole turn is one Run. A server that cannot wait for
+// a person uses the deferred form in examples/durable_approval instead. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the catalog's default model.
 package main
@@ -13,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -28,9 +28,18 @@ type deployArgs struct {
 
 func main() {
 	log.SetFlags(0)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run sets no timeout, because the turn waits for a person to answer.
+func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("approval: create client: %w", err)
 	}
 	deploy, err := tool.Func(
 		"deploy",
@@ -43,19 +52,23 @@ func main() {
 		tool.WithStrictArguments(),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("approval: create tool: %w", err)
 	}
-	// The hook runs before every deploy call and waits for an answer.
+	// OnTool decodes the call's arguments into the tool's own type. A
+	// denial's reason is what the model sees as the call's result.
 	answers := bufio.NewReader(os.Stdin)
-	ask := dashi.OnTool("deploy",
-		func(_ context.Context, _ dashi.ToolPlan, in deployArgs) (dashi.ToolDecision, error) {
-			fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
-			line, _ := answers.ReadString('\n')
-			if strings.ToLower(strings.TrimSpace(line)) == "y" {
-				return dashi.Allow("operator approved"), nil
-			}
-			return dashi.Deny("The operator declined this deploy. Do not retry it."), nil
-		})
+	ask := dashi.OnTool("deploy", func(
+		_ context.Context,
+		_ dashi.ToolPlan,
+		in deployArgs,
+	) (dashi.ToolDecision, error) {
+		fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
+		line, _ := answers.ReadString('\n')
+		if strings.ToLower(strings.TrimSpace(line)) == "y" {
+			return dashi.Allow("operator approved"), nil
+		}
+		return dashi.Deny("The operator declined this deploy. Do not retry it."), nil
+	})
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
@@ -65,15 +78,14 @@ func main() {
 		Tools:  tool.List{deploy},
 		Hooks:  ask.Hooks(),
 	}
-	// If the model asks again after an answer, the hook asks again, all
-	// within this one Run.
-	out, err := runner.Run(context.Background(), dashi.Turn{}, dashi.Start{
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("approval: run: %w", err)
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	return nil
 }
