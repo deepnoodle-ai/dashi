@@ -893,9 +893,14 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	if fact.Outcome == nil {
 		return
 	}
-	base := modelToolResult(fact.Call.ID, fact.Outcome)
-	current := base
 	hooked := len(r.hooks.AfterTool) > 0
+	if !hooked && r.agent.Limits.ToolResultBytes <= 0 {
+		return
+	}
+	// base shares its blocks with the outcome and is only read. Hooks get
+	// their own copies, and the shortened view copies only what it keeps.
+	base := sharedToolResult(fact.Call.ID, fact.Outcome)
+	current := base
 	if hooked {
 		current = r.afterToolHooks(ctx, fact, base)
 	}

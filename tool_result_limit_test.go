@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -502,5 +503,70 @@ func TestSettledHostResultIsShortened(t *testing.T) {
 	if view.Shortened() == nil || len(modelText(view.Result())) > 64<<10 ||
 		len(modelText(modelToolResult("call-1", view.Outcome))) != len(text) {
 		t.Fatalf("shortened = %+v", view.Shortened())
+	}
+}
+
+// encodedTextBytes is the text a provider sends for a result: the widest
+// separator any supported adapter puts between text blocks.
+func encodedTextBytes(r llm.ToolResult) int {
+	var parts []string
+	for _, b := range r.Output.Content {
+		if b.Text != nil {
+			parts = append(parts, b.Text.Text)
+		}
+	}
+	return len(strings.Join(parts, "\n\n"))
+}
+
+func TestShortenResultCountsProviderSeparators(t *testing.T) {
+	limit := 2048
+	cases := map[string][]content.Block{}
+	var empty, tiny, mixed []content.Block
+	for range 5000 {
+		empty = append(empty, content.TextBlock(""))
+		tiny = append(tiny, content.TextBlock("x"))
+	}
+	for range 900 {
+		mixed = append(mixed, content.TextBlock("ab"))
+	}
+	cases["empty"], cases["tiny"], cases["mixed"] = empty, tiny, mixed
+	for name, blocks := range cases {
+		r := llm.ToolResult{CallID: "c", Output: tool.Output{Content: blocks}}
+		view, _, ok := shortenResult(r, limit)
+		if name != "empty" && !ok {
+			t.Fatalf("%s: not shortened", name)
+		}
+		if got := encodedTextBytes(view); got > limit {
+			t.Fatalf("%s: encoded text is %d bytes, limit %d", name, got, limit)
+		}
+		if len(r.Output.Content) != len(blocks) {
+			t.Fatalf("%s: input changed", name)
+		}
+	}
+}
+
+func TestShortenResultKeepsLargeMediaWithoutCopyingDiscardedText(t *testing.T) {
+	media := make([]byte, 8<<20)
+	image := content.ImageBlock(content.Source{Data: media})
+	r := llm.ToolResult{CallID: "c", Output: tool.Output{Content: []content.Block{
+		content.TextBlock(strings.Repeat("a", 4<<20)),
+		image,
+	}}}
+	var before, after goruntime.MemStats
+	goruntime.GC()
+	goruntime.ReadMemStats(&before)
+	view, _, ok := shortenResult(r, 64<<10)
+	goruntime.ReadMemStats(&after)
+	if !ok {
+		t.Fatal("not shortened")
+	}
+	// The 4 MiB text and the 8 MiB media must not be copied in full more than
+	// the one joined string and one retained media copy allow.
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 14<<20 {
+		t.Fatalf("shortening allocated %d bytes", grew)
+	}
+	if len(view.Output.Content) != 2 ||
+		view.Output.Content[1].Kind != content.KindImage {
+		t.Fatalf("view = %+v", view.Output.Content)
 	}
 }

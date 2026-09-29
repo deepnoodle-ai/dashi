@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -69,14 +70,33 @@ func shortenResult(
 		return r, Shortened{}, false
 	}
 	var text strings.Builder
+	size := 0
+	for _, b := range r.Output.Content {
+		if b.Text != nil {
+			size += len(b.Text.Text)
+		}
+	}
+	text.Grow(size)
+	blocks := 0
 	for _, b := range r.Output.Content {
 		if b.Text != nil {
 			text.WriteString(b.Text.Text)
+			blocks++
 		}
 	}
 	all := text.String()
-	if len(all) <= limit {
+	if len(all)+providerSeparators(blocks) <= limit {
 		return r, Shortened{}, false
+	}
+	if len(all) <= limit {
+		// Only the separators that providers add between text blocks push
+		// the request over the limit. One merged block has none.
+		view, _ := layoutResult(r, all, len(all), len(all), "")
+		return view, Shortened{
+			OriginalBytes: len(all),
+			ShownBytes:    len(all),
+			Limit:         limit,
+		}, true
 	}
 	// The marker's numbers are at most as long as these, so this budget is
 	// safe. Invalid bytes become three-byte U+FFFD, so the kept text can
@@ -98,6 +118,17 @@ func shortenResult(
 	}
 }
 
+// maxSeparatorBytes is the longest text a provider adds between two text
+// blocks of one tool result: Chat Completions joins with one newline, and
+// Gemini and Responses join with two.
+const maxSeparatorBytes = 2
+
+// providerSeparators returns the most bytes providers add between n text
+// blocks.
+func providerSeparators(n int) int {
+	return max(n-1, 0) * maxSeparatorBytes
+}
+
 // cutOffsets returns where the kept head ends and the kept tail starts in s
 // for a budget of bytes. Each cut moves inward to a rune boundary.
 func cutOffsets(s string, budget int) (int, int) {
@@ -114,54 +145,36 @@ func cutOffsets(s string, budget int) (int, int) {
 }
 
 // layoutResult builds the shortened view from the text blocks of r, whose
-// text joined is all. The marker goes into the block where the head ends.
-// Invalid bytes in kept text become U+FFFD. A block that changes loses its
-// citations, since their character ranges no longer match. A text block
-// with nothing left is dropped. It also returns the view's text size.
+// text joined is all. The kept head, the marker, and the kept tail become one
+// text block at the place of the first text block, so providers add no
+// separators. Invalid bytes in kept text become U+FFFD, and the merged block
+// has no citations, since their character ranges no longer match. Non-text
+// blocks stay in order and are copied. It also returns the view's text size.
 func layoutResult(
 	r llm.ToolResult,
 	all string,
 	headEnd, tailStart int,
 	marker string,
 ) (llm.ToolResult, int) {
+	kept := strings.ToValidUTF8(
+		all[:headEnd]+marker+all[max(tailStart, headEnd):],
+		"\uFFFD",
+	)
 	out := r
-	out.Output = r.Output.Clone()
-	out.Output.Content = nil
+	// Copy nothing else: only the blocks kept are cloned below.
+	out.Output.Content = make([]content.Block, 0, len(r.Output.Content))
 	// No provider sends Display to the model, so the view drops it.
 	out.Output.Display = ""
-	size := 0
-	markerPlaced := false
-	offset := 0
+	placed := false
 	for _, b := range r.Output.Content {
 		if b.Text == nil {
 			out.Output.Content = append(out.Output.Content, b.Clone())
 			continue
 		}
-		start, end := offset, offset+len(b.Text.Text)
-		offset = end
-		var keep strings.Builder
-		if start < headEnd {
-			keep.WriteString(all[start:min(end, headEnd)])
+		if !placed && kept != "" {
+			out.Output.Content = append(out.Output.Content, content.TextBlock(kept))
 		}
-		placeMarker := !markerPlaced && end >= headEnd
-		if placeMarker {
-			keep.WriteString(marker)
-			markerPlaced = true
-		}
-		if end > tailStart {
-			keep.WriteString(all[max(start, tailStart):end])
-		}
-		kept := strings.ToValidUTF8(keep.String(), "\uFFFD")
-		if kept == "" {
-			continue
-		}
-		size += len(kept)
-		blk := b.Clone()
-		if kept != b.Text.Text {
-			blk.Text.Text = kept
-			blk.Text.Citations = nil
-		}
-		out.Output.Content = append(out.Output.Content, blk)
+		placed = true
 	}
-	return out, size
+	return out, len(kept)
 }

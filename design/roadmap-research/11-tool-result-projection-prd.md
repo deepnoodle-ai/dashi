@@ -109,14 +109,15 @@ does for other limits. A resumed turn keeps its limit if the default changes.
 ### What the model sees
 
 The limit counts the text bytes of all text blocks of one result, errors
-included. The view, marker included, holds at most `ToolResultBytes` bytes of
-text.
+included, plus up to 2 bytes for each gap between text blocks, because
+providers join blocks with `\n` or `\n\n`. The view, marker included, holds at
+most `ToolResultBytes` bytes of text. A shortened view has one text block.
 
 - **Under the limit:** the view equals the original. Nothing is recorded.
 - **Over the limit:** the view keeps the first half and the last half of the
   budget, with the marker between them. Shell and test output often ends with
   the error, so the tail matters.
-  - Text blocks are one sequence. Non-text blocks (images, resources) stay in
+  - Text blocks are one sequence and become one block in the view. Non-text blocks (images, resources) stay in
     place and are not counted.
   - Cuts move inward to a rune boundary. The text is valid UTF-8. Invalid
     bytes in the kept parts become U+FFFD.

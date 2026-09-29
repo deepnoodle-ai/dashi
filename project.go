@@ -30,6 +30,20 @@ func modelToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 	}
 }
 
+// sharedToolResult is modelToolResult without the deep copy. The caller
+// must only read the result, never change it, and copy any block it keeps.
+func sharedToolResult(callID string, o *tool.Outcome) llm.ToolResult {
+	output := tool.TextOutput("Tool was not executed.")
+	if o.Output != nil {
+		output = *o.Output
+	}
+	return llm.ToolResult{
+		CallID:  callID,
+		Output:  output,
+		IsError: o.State == tool.StateFailed || o.State == tool.StateNotExecuted,
+	}
+}
+
 func cloneToolResult(r llm.ToolResult) llm.ToolResult {
 	r.Output = r.Output.Clone()
 	return r
