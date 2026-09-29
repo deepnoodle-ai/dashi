@@ -56,14 +56,24 @@ func run(ctx context.Context) error {
 	}
 	// OnTool decodes the call's arguments into the tool's own type. A
 	// denial's reason is what the model sees as the call's result.
-	answers := bufio.NewReader(os.Stdin)
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
 	ask := dashi.OnTool("deploy", func(
-		_ context.Context,
+		ctx context.Context,
 		_ dashi.ToolPlan,
 		in deployArgs,
 	) (dashi.ToolDecision, error) {
 		fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
-		line, _ := answers.ReadString('\n')
+		line, err := readLine(ctx, lines)
+		if err != nil {
+			return dashi.ToolDecision{}, err
+		}
 		if strings.ToLower(strings.TrimSpace(line)) == "y" {
 			return dashi.Allow("operator approved"), nil
 		}
@@ -88,4 +98,14 @@ func run(ctx context.Context) error {
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
+}
+
+// readLine returns the next line, "" at end of input, or ctx's error on Ctrl-C.
+func readLine(ctx context.Context, lines <-chan string) (string, error) {
+	select {
+	case line := <-lines:
+		return line, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }

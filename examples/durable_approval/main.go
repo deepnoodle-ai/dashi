@@ -74,14 +74,24 @@ func run(ctx context.Context) error {
 	}
 	// The model may ask again after an answer, so repeat until the turn
 	// stops for another reason.
-	answers := bufio.NewReader(os.Stdin)
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
 	for out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
 			if p.Kind != dashi.PendingApproval {
 				continue // Continue reports anything left unanswered.
 			}
 			fmt.Printf("Approve %s %s? [y/N] ", p.Name, p.Args)
-			line, _ := answers.ReadString('\n')
+			line, err := readLine(ctx, lines)
+			if err != nil {
+				return fmt.Errorf("durable_approval: %w", err)
+			}
 			// Approve and Deny only record the answer; nothing runs yet.
 			answer := p.Deny("The operator declined this deploy.")
 			if strings.ToLower(strings.TrimSpace(line)) == "y" {
@@ -97,4 +107,14 @@ func run(ctx context.Context) error {
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
+}
+
+// readLine returns the next line, "" at end of input, or ctx's error on Ctrl-C.
+func readLine(ctx context.Context, lines <-chan string) (string, error) {
+	select {
+	case line := <-lines:
+		return line, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }

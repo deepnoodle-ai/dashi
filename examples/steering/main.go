@@ -94,11 +94,15 @@ func run(ctx context.Context) error {
 		"start a line with ! to interrupt the answer.")
 	for {
 		if len(input) == 0 {
-			line, ok := <-lines
-			if !ok {
-				return nil
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					return nil
+				}
+				input = []llm.Message{llm.UserMessage(llm.Text(line))}
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			input = []llm.Message{llm.UserMessage(llm.Text(line))}
 		}
 		// While the turn runs, every line typed is a steer.
 		done := make(chan struct{})
