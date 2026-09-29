@@ -25,10 +25,11 @@ const steeringInterruptedText = "The user interrupted your previous response."
 // is the only reader of Ready. The listener writes no run state and no
 // warnings.
 //
-// Two locks keep a slow source from stalling the run. sourceMu serializes
-// every call the run and the listener make to the source (U-1). mu guards
-// the state they share (U-2) and is never held while calling the source,
-// so commits never wait for a fetch. The lock order is sourceMu, then mu.
+// Two locks keep the listener's fetches from stalling the run. sourceMu
+// serializes every call the run and the listener make to the source (U-1).
+// mu guards the state they share (U-2) and is never held while calling the
+// source, so commits never wait for a fetch. The lock order is sourceMu,
+// then mu.
 type steerListener struct {
 	sourceMu sync.Mutex
 	mu       sync.Mutex
@@ -53,8 +54,9 @@ type steerListener struct {
 	call    *steerableCall
 	// fetchCancel ends the listener's Steers call in flight. The run calls
 	// it when a model call settles and whenever it needs the source or the
-	// listener's decision itself, so a slow source can delay a cut but
-	// never stall the run.
+	// listener's decision itself, so the listener's fetch never stalls the
+	// run. The run's own fetches (before a model call, and before a tool
+	// starts while a steer is pending) still wait on the source.
 	fetchCancel context.CancelFunc
 	// syncs counts run requests waiting on syncReq; while one waits, the
 	// listener starts no fetch, so it cannot keep the run waiting.
