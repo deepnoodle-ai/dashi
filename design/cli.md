@@ -72,7 +72,7 @@ Commands typed at the prompt:
 | `/model gpt-6-luna` | Sets the model for the next turn. |
 | `/new` | Starts a new session. |
 | `/sessions` | Lists sessions for this directory. Pick one to reopen. |
-| `/continue` | After a model-call limit stop, keeps going. |
+| `/continue` | After a model-call limit stop, continues that turn. |
 | `/quit` | Saves and exits. Ctrl-D does the same. |
 
 Flags: `--resume` or `-c` reopens the last session for this directory.
@@ -127,9 +127,9 @@ next turn's input (`Inbox.Leftovers`).
 
 **Limit stop.** The CLI sets `Limits.ModelAttempts` to 40. At the limit, the
 screen says: "Stopped after 40 model calls. Type /continue to go on."
-`/continue` starts a new turn with prior history. Its input is a system note
-in the scrollback, "Continuing after the model-call limit.", not a user line.
-Dashi ends a turn that used its last attempt, so this is a new turn.
+`/continue` continues that same turn with a raised limit
+(`dashi.Continue{ModelAttempts: 80}`, doubling each time). It adds no user
+line and no note. Decision 13 records the library change that allows it.
 
 **Resume.** `dashi -c` loads the session, replays every turn into the
 scrollback, and waits at the prompt. If the last turn did not end, the
@@ -251,7 +251,6 @@ mode and `-p` still run the loop.
 - Wire in `mcp`, `skills`, delegation, compaction, and attachments.
 - Persist remembered approvals in a settings file.
 - Session search, rename, and delete.
-- A library command that raises limits on a limited turn.
 
 ## Non-goals
 
@@ -267,7 +266,6 @@ mode and `-p` still run the loop.
 | --- | --- | --- |
 | `workspace` merges late | Stand-ins stay in the demo | Fallback adapter covers steps 1, 2, and 7 |
 | Wonton screen takes longer | Demo has no UI | Line mode on the same renderer |
-| A limited turn cannot continue | `/continue` makes a second turn | System note hides the seam; library gap recorded |
 | Quit during approval records a failure | Turn not continuable | Test first; fix the library in this PR |
 | Live `gpt-6-luna` differs from fakes | Demo surprise | Live check on Tuesday |
 | Steering costs extra calls | Limit surprise | Footer shows calls; limit is 40 |
@@ -290,8 +288,7 @@ mode and `-p` still run the loop.
 7. **Review 3 accepted in part.** Approval stays inline (the coordinator
    chose it). The PRD defines three input modes, Ctrl-C, and the quit path.
    `Defer` is not used in the CLI.
-8. **Review 4 accepted.** `/continue` means only "after the limit stop". Its
-   synthetic input is a system note. Cancel of an unfinished turn is shown.
+8. **Review 4 accepted.** `/continue` means only "after the limit stop". Cancel of an unfinished turn is shown.
    Interrupted turns continue with an empty Enter after `dashi -c`.
 9. **Review 5 accepted.** A bad turn is skipped with a notice.
 10. **Review 6 accepted by delegation.** The CLI stores no approval rules.
@@ -300,8 +297,9 @@ mode and `-p` still run the loop.
 11. **Plain Enter during a turn is a steer; `!` is urgent.** It matches
     `examples/steering`.
 12. **`/sessions` lists this directory only.** The `--all` flag is cut.
-13. **Record the raise-limit gap now**; fix it after the demo. The
-    `/continue` workaround is temporary.
+13. **Fix the limit gap in the library now** (orchestrator ruling; Dashi has
+    no users). `Continue.ModelAttempts` raises the limit and the same turn
+    goes on (library decision 34). `/continue` needs no synthetic input.
 
 ## Open questions
 
