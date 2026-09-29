@@ -385,6 +385,18 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 	}
 }
 
+func TestMustFuncPanicsOnBuildError(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("want panic for a string argument type")
+		}
+	}()
+	MustFunc("bad", "Bad.",
+		func(context.Context, Call, string) (Outcome, error) {
+			return Succeeded("ok"), nil
+		})
+}
+
 type (
 	recursiveSlice []recursiveSlice
 	recursiveMap   map[string]recursiveMap

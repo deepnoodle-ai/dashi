@@ -63,7 +63,7 @@ func run(ctx context.Context, mode, dir string) error {
 
 	recorder, err := filerecorder.New(filerecorder.Config{Dir: dir})
 	if err != nil {
-		return fmt.Errorf("resume: open recorder: %w", err)
+		return err
 	}
 	runner, err := newRunner(recorder)
 	if err != nil {
@@ -92,10 +92,10 @@ func run(ctx context.Context, mode, dir string) error {
 	case "resume":
 		out, err = deliver(ctx, runner, recorder)
 	default:
-		return fmt.Errorf("resume: unknown mode %q", mode)
+		return fmt.Errorf("unknown mode %q", mode)
 	}
 	if err != nil {
-		return fmt.Errorf("resume: %s: %w", mode, err)
+		return err
 	}
 	if out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
@@ -113,9 +113,9 @@ func run(ctx context.Context, mode, dir string) error {
 func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return dashi.Runner{}, fmt.Errorf("resume: create client: %w", err)
+		return dashi.Runner{}, err
 	}
-	sendEmail, err := tool.Func(
+	sendEmail := tool.MustFunc(
 		"send_email",
 		"Sends an email. Delivery is confirmed later by the mail service.",
 		func(_ context.Context, call tool.Call, in emailArgs) (tool.Outcome, error) {
@@ -127,9 +127,6 @@ func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 		},
 		tool.WithStrictArguments(),
 	)
-	if err != nil {
-		return dashi.Runner{}, fmt.Errorf("resume: create tool: %w", err)
-	}
 	return dashi.Runner{
 		Client:   client,
 		Tools:    tool.List{sendEmail},

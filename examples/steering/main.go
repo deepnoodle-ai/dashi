@@ -13,7 +13,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/examples/internal/prompt"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -46,9 +46,9 @@ func main() {
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("steering: create client: %w", err)
+		return err
 	}
-	search, err := tool.Func(
+	search := tool.MustFunc(
 		"slow_search",
 		"Looks up a topic. Takes a few seconds.",
 		func(ctx context.Context, _ tool.Call, in searchArgs) (tool.Outcome, error) {
@@ -62,9 +62,6 @@ func run(ctx context.Context) error {
 				"knowledge; this demo search returns no data."), nil
 		},
 	)
-	if err != nil {
-		return fmt.Errorf("steering: create tool: %w", err)
-	}
 	agent := dashi.Agent{
 		Model: os.Getenv("ANTHROPIC_MODEL"),
 		Instructions: "Answer briefly. Use slow_search once before " +
@@ -76,14 +73,7 @@ func run(ctx context.Context) error {
 	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{search}}
 
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
+	lines := prompt.Stdin().Lines()
 
 	inbox := dashi.NewInbox()
 	var history, input []llm.Message
@@ -114,20 +104,20 @@ func run(ctx context.Context) error {
 		close(done)
 		forwarding.Wait()
 		if err != nil {
-			return fmt.Errorf("steering: run: %w", err)
+			return err
 		}
 		fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
 		turn, err := dashi.Project(out.Turn)
 		if err != nil {
-			return fmt.Errorf("steering: %w", err)
+			return err
 		}
 		history = append(history, turn...)
 		// Recorded steers are in that history already; only steers the turn
 		// never recorded start the next one.
 		left, err := inbox.Leftovers(out.Turn)
 		if err != nil {
-			return fmt.Errorf("steering: %w", err)
+			return err
 		}
 		input = nil
 		for _, steer := range left {

@@ -400,15 +400,16 @@ None is counted among the 24 items above.
 - **Hooks example durability bug** (done in PR #86): its
   `BeforeFinish` hook keeps `nudged` in a closure, so a resume in another
   process nudges again. Read the turn record instead.
-- **`tool.MustFunc`** for static tools, so a tool needs no `if err` block. Skip
-  a handler without `tool.Call` and a `string` return: each is a second way to
-  write a tool, to save a few characters. #87
-- **Terminal prompt helper** for examples (`examples/internal/prompt`); the
-  approval examples copy about 25 lines of stdin handling. #88
-- **Example boilerplate:** drop the hand-prefixed error strings. #89
-- **Hook helpers:** a "seed context once" helper (`SeedContext`) and a "have I
-  acted in this turn?" read from the record. Smaller: `JoinHooks` could take the
-  helpers directly, `JoinHooks(onCall, guard)` for `onCall.Hooks()`. #90
+- **`tool.MustFunc`** (done, #87) for static tools, so a tool needs no `if err`
+  block. Skip a handler without `tool.Call` and a `string` return: each is a
+  second way to write a tool, to save a few characters.
+- **Terminal prompt helper** (done, #88) for examples
+  (`examples/internal/prompt`); the approval examples copy about 25 lines of
+  stdin handling.
+- **Example boilerplate** (done, #89): drop the hand-prefixed error strings.
+- **Hook helpers** (done, #90): `SeedContext` seeds context once per turn,
+  `TurnView.HookActed` reads "have I acted in this turn?" from the record, and
+  `JoinHooks` takes any `HookSet`, so `JoinHooks(onCall, guard)` works.
 - **LLM-judge tool gate:** investigate a helper like Dive's `PromptToolGate`.
   #91
 - **MCP example with no setup:** a runnable variant that starts its own stdio

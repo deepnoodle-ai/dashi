@@ -43,11 +43,11 @@ func run(ctx context.Context, prompt string) error {
 		MaxUses: 3,
 	})
 	if err != nil {
-		return fmt.Errorf("hosted_tools: create tool: %w", err)
+		return err
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("hosted_tools: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{
 		Client: client,
@@ -63,7 +63,7 @@ func run(ctx context.Context, prompt string) error {
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {
-		return fmt.Errorf("hosted_tools: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 

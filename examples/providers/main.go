@@ -83,7 +83,7 @@ func run(ctx context.Context, provider, model, prompt string) error {
 
 	client, err := newClient(provider)
 	if err != nil {
-		return fmt.Errorf("providers: create %s client: %w", provider, err)
+		return err
 	}
 	result, err := llm.Generate(
 		ctx,
@@ -97,7 +97,7 @@ func run(ctx context.Context, provider, model, prompt string) error {
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("providers: generate with %s: %w", provider, err)
+		return err
 	}
 	fmt.Println(result.Message.Text())
 	fmt.Printf("\nServed by: %s %s\n", result.Served.Provider, result.Served.Model)

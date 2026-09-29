@@ -34,7 +34,7 @@ type bookingArgs struct {
 }
 
 func run(ctx context.Context) error {
-	weather, err := tool.Func(
+	weather := tool.MustFunc(
 		"weather",
 		"Get the current weather in a city.",
 		func(_ context.Context, _ tool.Call, a weatherArgs) (tool.Outcome, error) {
@@ -42,19 +42,13 @@ func run(ctx context.Context) error {
 		},
 		tool.ReadOnly(),
 	)
-	if err != nil {
-		return err
-	}
-	book, err := tool.Func(
+	book := tool.MustFunc(
 		"book_flight",
 		"Book a flight.",
 		func(_ context.Context, _ tool.Call, a bookingArgs) (tool.Outcome, error) {
 			return tool.Succeeded("booked a flight to " + a.To), nil
 		},
 	)
-	if err != nil {
-		return err
-	}
 	// The script is what a model would answer to the messages below.
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "weather", `{"city":"Tokyo"}`),

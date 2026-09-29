@@ -7,15 +7,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/examples/internal/prompt"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -39,9 +38,9 @@ func main() {
 func run(ctx context.Context) error {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("approval: create client: %w", err)
+		return err
 	}
-	deploy, err := tool.Func(
+	deploy := tool.MustFunc(
 		"deploy",
 		"Deploys a version of the application to an environment.",
 		func(_ context.Context, _ tool.Call, in deployArgs) (tool.Outcome, error) {
@@ -51,30 +50,20 @@ func run(ctx context.Context) error {
 		},
 		tool.WithStrictArguments(),
 	)
-	if err != nil {
-		return fmt.Errorf("approval: create tool: %w", err)
-	}
+	stdin := prompt.Stdin()
 	// OnTool decodes the call's arguments into the tool's own type. A
 	// denial's reason is what the model sees as the call's result.
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
 	ask := dashi.OnTool("deploy", func(
 		ctx context.Context,
 		_ dashi.ToolPlan,
 		in deployArgs,
 	) (dashi.ToolDecision, error) {
-		fmt.Printf("Deploy %s to %s? [y/N] ", in.Version, in.Environment)
-		line, err := readLine(ctx, lines)
+		ok, err := stdin.Confirm(ctx,
+			fmt.Sprintf("Deploy %s to %s?", in.Version, in.Environment))
 		if err != nil {
 			return dashi.ToolDecision{}, err
 		}
-		if strings.ToLower(strings.TrimSpace(line)) == "y" {
+		if ok {
 			return dashi.Allow("operator approved"), nil
 		}
 		return dashi.Deny("The operator declined this deploy. Do not retry it."), nil
@@ -94,18 +83,8 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("approval: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
-}
-
-// readLine returns the next line, "" at end of input, or ctx's error on Ctrl-C.
-func readLine(ctx context.Context, lines <-chan string) (string, error) {
-	select {
-	case line := <-lines:
-		return line, nil
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
 }

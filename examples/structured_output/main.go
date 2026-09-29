@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return fmt.Errorf("structured_output: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{Client: client}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
@@ -56,13 +56,13 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("structured_output: run: %w", err)
+		return err
 	}
 	// DecodeOutput explains a missing output, such as a turn that stopped
 	// at a limit, in its error.
 	person, err := dashi.DecodeOutput[Person](out)
 	if err != nil {
-		return fmt.Errorf("structured_output: decode: %w", err)
+		return err
 	}
 	// Source says whether the model submitted the object as a tool call or
 	// as its final text; either way it was validated.

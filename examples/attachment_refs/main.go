@@ -65,7 +65,7 @@ func run(ctx context.Context) error {
 
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("attachment_refs: create client: %w", err)
+		return err
 	}
 
 	text := []byte("Quarterly note: revenue grew 12%. Churn fell to 2%.")
@@ -94,14 +94,14 @@ func run(ctx context.Context) error {
 		)},
 	})
 	if err != nil {
-		return fmt.Errorf("attachment_refs: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
 	// The record holds the reference and none of the bytes.
 	record, err := json.Marshal(out.Turn)
 	if err != nil {
-		return fmt.Errorf("attachment_refs: encode turn: %w", err)
+		return err
 	}
 	fmt.Printf(
 		"\nTurn record: %d bytes; upload: %d bytes\n",

@@ -60,21 +60,18 @@ func run(ctx context.Context, dir string) error {
 	// A person typed "/summarize INC-42": the expanded command is the prompt.
 	prompt, ok := set.Expand("summarize", "INC-42")
 	if !ok {
-		return errors.New("skills: no summarize command; check -dir")
+		return errors.New("no summarize command; check -dir")
 	}
 	// The bundle is both a toolset, holding the tool that loads a skill, and
 	// the source of hooks that show the model the skill catalog.
 	bundle, err := set.Bundle(skill.Options{})
 	if err != nil {
-		return fmt.Errorf("skills: bundle: %w", err)
+		return err
 	}
-	lookup, err := lookupTool()
-	if err != nil {
-		return fmt.Errorf("skills: create tool: %w", err)
-	}
+	lookup := lookupTool()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("skills: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{
 		Client: client,
@@ -86,14 +83,14 @@ func run(ctx context.Context, dir string) error {
 		Input: []llm.Message{llm.UserMessage(llm.Text(prompt))},
 	})
 	if err != nil {
-		return fmt.Errorf("skills: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }
 
-func lookupTool() (tool.Tool, error) {
-	return tool.Func(
+func lookupTool() tool.Tool {
+	return tool.MustFunc(
 		"incident_lookup",
 		"Look up a fictional incident.",
 		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {

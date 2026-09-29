@@ -40,15 +40,12 @@ func run(ctx context.Context) error {
 
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("budget: create client: %w", err)
+		return err
 	}
-	stock, err := tool.Func("check_stock", "Returns units in stock for a SKU.",
+	stock := tool.MustFunc("check_stock", "Returns units in stock for a SKU.",
 		func(_ context.Context, _ tool.Call, in stockArgs) (tool.Outcome, error) {
 			return tool.Succeeded("42 units"), nil
 		})
-	if err != nil {
-		return fmt.Errorf("budget: %w", err)
-	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{stock}}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		// A call's worst case counts its full output allowance, so MaxTokens
@@ -63,7 +60,7 @@ func run(ctx context.Context) error {
 		Budget: &dashi.Budget{MaxCost: usd("0.001")},
 	})
 	if err != nil {
-		return fmt.Errorf("budget: start: %w", err)
+		return err
 	}
 	report(out)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Terminal {
@@ -76,7 +73,7 @@ func run(ctx context.Context) error {
 		Budget: &dashi.Budget{MaxCost: usd("0.10")},
 	})
 	if err != nil {
-		return fmt.Errorf("budget: continue: %w", err)
+		return err
 	}
 	report(out)
 	fmt.Println(out.Answer)

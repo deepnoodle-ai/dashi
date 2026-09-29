@@ -31,7 +31,7 @@ func run(ctx context.Context) error {
 
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return fmt.Errorf("agent: create client: %w", err)
+		return err
 	}
 	runner := dashi.Runner{Client: client}
 	// Every Agent field may be left empty. An empty Model is the provider's
@@ -43,7 +43,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("agent: run: %w", err)
+		return err
 	}
 	// Run's error means the command did not apply. A model failure, a limit,
 	// or a wait is a result instead: Stop says how the turn ended.

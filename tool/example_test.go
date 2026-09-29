@@ -37,3 +37,31 @@ func ExampleReadOnly() {
 	// idempotent: true
 	// destructive known: false
 }
+
+// MustFunc builds a tool whose argument type is fixed at compile time, so
+// startup code needs no error check. It panics if the tool cannot be built,
+// as Func would report with an error.
+func ExampleMustFunc() {
+	owner := tool.MustFunc(
+		"lookup_owner",
+		"Returns the team that owns a service.",
+		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
+			return tool.Succeeded(in.Service + ": payments team"), nil
+		},
+		tool.ReadOnly(),
+	)
+	out, err := owner.Executor.Execute(context.Background(), tool.Call{
+		ID:   "call_1",
+		Name: "lookup_owner",
+		Args: []byte(`{"service":"billing"}`),
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(owner.Definition.Name)
+	fmt.Println(out.State)
+	// Output:
+	// lookup_owner
+	// succeeded
+}

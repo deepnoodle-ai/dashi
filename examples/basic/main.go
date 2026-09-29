@@ -36,7 +36,7 @@ func run(ctx context.Context) error {
 	}
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return fmt.Errorf("basic: create client: %w", err)
+		return err
 	}
 	// Prepare validates the input and builds the request without sending
 	// it; Stream sends it and yields text deltas, then the final Result.
@@ -48,12 +48,12 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("basic: prepare: %w", err)
+		return err
 	}
 	var result llm.Result
 	for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 		if err != nil {
-			return fmt.Errorf("basic: stream: %w", err)
+			return err
 		}
 		if event.Delta != nil && event.Delta.Kind == llm.DeltaText {
 			fmt.Print(event.Delta.Text)

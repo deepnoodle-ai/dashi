@@ -55,11 +55,11 @@ func run(ctx context.Context, doc, prompt string) error {
 	}
 	document, err := loadDocument(doc)
 	if err != nil {
-		return fmt.Errorf("documents: %w", err)
+		return err
 	}
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("documents: create client: %w", err)
+		return err
 	}
 	// Citations applies to every document in the request. Put the document
 	// before the question; Anthropic recommends that order for long inputs.
@@ -76,7 +76,7 @@ func run(ctx context.Context, doc, prompt string) error {
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("documents: generate: %w", err)
+		return err
 	}
 	for _, w := range result.Warnings {
 		fmt.Printf("Warning (%s): %s\n", w.Code, w.Message)

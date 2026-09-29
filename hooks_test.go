@@ -891,6 +891,18 @@ func TestJoinHooksNeverAliases(t *testing.T) {
 	}
 }
 
+func TestJoinHooksSkipsNil(t *testing.T) {
+	noop := func(context.Context, ToolPlan) (ToolDecision, error) {
+		return ToolDecision{}, nil
+	}
+	var extra HookSet
+	var typed *ModelHook
+	got := JoinHooks(toolHook("a", noop), extra, nil, typed)
+	if names := hookNames(got.BeforeTool); !slices.Equal(names, []string{"a"}) {
+		t.Fatalf("got %v; want [a]", names)
+	}
+}
+
 func TestActiveHooksRecordedAndChangeWarned(t *testing.T) {
 	noop := func(context.Context, ToolPlan) (ToolDecision, error) {
 		return ToolDecision{}, nil

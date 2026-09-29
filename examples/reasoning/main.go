@@ -33,7 +33,7 @@ func run(ctx context.Context) error {
 
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("reasoning: create client: %w", err)
+		return err
 	}
 	// Effort names a provider level ("low", "medium", "high", ...); an
 	// effort the model lacks is fitted to the nearest one, with a warning.
@@ -47,7 +47,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("reasoning: prepare: %w", err)
+		return err
 	}
 	// Each delta says what kind of output it carries, so thinking and answer
 	// text can be shown apart as they stream.
@@ -60,7 +60,7 @@ func run(ctx context.Context) error {
 	for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 		if err != nil {
 			fmt.Println()
-			return fmt.Errorf("reasoning: %w", err)
+			return err
 		}
 		if d := event.Delta; d != nil && labels[d.Kind] != "" {
 			if d.Kind != last {

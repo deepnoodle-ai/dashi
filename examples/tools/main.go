@@ -43,13 +43,10 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	tools, err := newTools()
-	if err != nil {
-		return fmt.Errorf("tools: create tools: %w", err)
-	}
+	tools := newTools()
 	client, err := messages.New(messages.Config{})
 	if err != nil {
-		return fmt.Errorf("tools: create client: %w", err)
+		return err
 	}
 	// Bound tools run by default; a BeforeTool hook can deny or defer calls.
 	runner := dashi.Runner{Client: client, Tools: tools}
@@ -65,7 +62,7 @@ func run(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("tools: run: %w", err)
+		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
 
@@ -82,12 +79,12 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// newTools builds the typed tools. tool.Func generates each input schema from
+// newTools builds the typed tools. tool.MustFunc generates each input schema from
 // its Go type and validates the model's arguments before the function runs.
 // Runner.Tools takes a tool.Toolset, so the available tools can change
 // between model calls; tool.List is a fixed one.
-func newTools() (tool.List, error) {
-	weather, err := tool.Func(
+func newTools() tool.List {
+	weather := tool.MustFunc(
 		"get_weather",
 		"Get the current weather for a city, in Celsius.",
 		func(_ context.Context, _ tool.Call, in weatherArgs) (tool.Outcome, error) {
@@ -99,10 +96,7 @@ func newTools() (tool.List, error) {
 			return tool.Succeeded("18°C, partly cloudy"), nil
 		},
 	)
-	if err != nil {
-		return nil, err
-	}
-	convert, err := tool.Func(
+	convert := tool.MustFunc(
 		"celsius_to_fahrenheit",
 		"Convert a temperature from Celsius to Fahrenheit.",
 		func(_ context.Context, _ tool.Call, in convertArgs) (tool.Outcome, error) {
@@ -111,8 +105,5 @@ func newTools() (tool.List, error) {
 			return tool.Succeeded(fmt.Sprintf("%.1f°F", f)), nil
 		},
 	)
-	if err != nil {
-		return nil, err
-	}
-	return tool.List{weather, convert}, nil
+	return tool.List{weather, convert}
 }

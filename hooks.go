@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -123,11 +124,28 @@ type Hooks struct {
 	BeforeFinish []FinishHook
 }
 
+// HookSet is anything that supplies hooks: a Hooks value, a single hook
+// such as a ToolHook, or a package's bundle of hooks.
+type HookSet interface {
+	Hooks() Hooks
+}
+
+// Hooks returns h, so a Hooks value is a HookSet.
+func (h Hooks) Hooks() Hooks {
+	return h
+}
+
 // JoinHooks returns the hooks of hs in order, in new slices, so later
-// changes to either side do not affect the other.
-func JoinHooks(hs ...Hooks) Hooks {
+// changes to either side do not affect the other. Pass hooks directly, as
+// in JoinHooks(onCall, guard), or whole sets. A nil set is skipped,
+// including a nil pointer such as a *ModelHook.
+func JoinHooks(hs ...HookSet) Hooks {
 	var out Hooks
-	for _, h := range hs {
+	for _, set := range hs {
+		if isNilHookSet(set) {
+			continue
+		}
+		h := set.Hooks()
 		out.BeforeModel = append(out.BeforeModel, h.BeforeModel...)
 		out.BeforeSend = append(out.BeforeSend, h.BeforeSend...)
 		out.BeforeTool = append(out.BeforeTool, h.BeforeTool...)
@@ -135,6 +153,16 @@ func JoinHooks(hs ...Hooks) Hooks {
 		out.BeforeFinish = append(out.BeforeFinish, h.BeforeFinish...)
 	}
 	return out
+}
+
+// isNilHookSet reports whether set is nil or holds a nil pointer, whose
+// value-receiver Hooks method would panic.
+func isNilHookSet(set HookSet) bool {
+	if set == nil {
+		return true
+	}
+	v := reflect.ValueOf(set)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 // WithHooks adds hooks for one Run or Stream call, after Runner.Hooks. Use it
@@ -401,6 +429,33 @@ type FinishDecision struct {
 	AcceptEmpty bool
 }
 
+// SeedContext returns a BeforeModel hook, named after item, that delivers
+// item before a model call whenever the turn does not hold it yet: once per
+// turn, for context such as who is on call. It reads the turn record with
+// TurnView.Context, so a turn resumed in another process does not deliver
+// it again. It panics if item has no Name, and it clears NextCallOnly, which
+// would expire the item after each call and deliver it again.
+//
+// In a Session, each turn delivers the item again, and the history keeps
+// the copies from earlier turns, so keep a seed small. The fresh copy is
+// what keeps the item in context after compaction drops old history.
+func SeedContext(item ContextItem) ModelHook {
+	if item.Name == "" {
+		panic("dashi: SeedContext item has no name")
+	}
+	item = cloneContextItem(item)
+	item.NextCallOnly = false
+	return ModelHook{
+		Name: item.Name,
+		Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+			if _, ok := p.Turn.Context(item.Origin, item.Name); ok {
+				return ModelDecision{}, nil
+			}
+			return ModelDecision{Deliver: []ContextItem{cloneContextItem(item)}}, nil
+		},
+	}
+}
+
 // OnTool returns a BeforeTool hook, named after the tool, that runs f only
 // for calls to that tool, with the arguments decoded into T. Other calls get
 // no opinion. A decode failure is a hook error, so the call is denied; it
@@ -526,7 +581,16 @@ func validatePoint[H hookShape[P, D], P, D any](
 			return fmt.Errorf("dashi: %s hook %d has no name", point, i+1)
 		}
 		if seen[h.Name] {
-			return fmt.Errorf("dashi: %s hook %q is listed twice", point, h.Name)
+			hint := ""
+			if point == HookBeforeModel {
+				hint = "; a SeedContext hook is named after its item"
+			}
+			return fmt.Errorf(
+				"dashi: %s hook %q is listed twice%s",
+				point,
+				h.Name,
+				hint,
+			)
 		}
 		if h.Func == nil {
 			return fmt.Errorf("dashi: %s hook %q has no function", point, h.Name)
