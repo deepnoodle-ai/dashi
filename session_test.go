@@ -361,6 +361,46 @@ func TestSessionLostWorker(t *testing.T) {
 	})
 }
 
+// TestSessionCommandConflict has two Starts with one command ID and
+// different input choose turn 1. The loser gets ErrCommandConflict whether
+// it finds the other turn before its run or at its turn_started commit, and
+// it starts no turn and makes no model call.
+func TestSessionCommandConflict(t *testing.T) {
+	for _, at := range []string{"before the run", "at commit"} {
+		t.Run(at, func(t *testing.T) {
+			rec := dashi.NewMemoryRecorder()
+			other := handle(rec, dashitest.NewClient(dashitest.Reply("other")))
+			other.New = true
+			keyed := func(text string) dashi.Start {
+				start := dashi.Say(text)
+				start.CommandID = "k"
+				return start
+			}
+			race := &interleave{
+				MemoryRecorder: rec,
+				atCommit:       at == "at commit",
+				turnID:         dashi.TurnID("s", 1),
+				other: func() {
+					if _, err := other.Run(context.Background(), keyed("goodbye")); err != nil {
+						t.Error(err)
+					}
+				},
+			}
+			client := dashitest.NewClient(dashitest.Reply("loser"))
+			s := handle(race, client)
+			s.New = true
+			_, err := s.Run(t.Context(), keyed("hello"))
+			if !errors.Is(err, dashi.ErrCommandConflict) {
+				t.Fatalf("err = %v; want ErrCommandConflict", err)
+			}
+			if n := len(client.Inputs()); n != 0 {
+				t.Fatalf("model calls = %d; want 0", n)
+			}
+			requireTurns(t, rec, 1)
+		})
+	}
+}
+
 // TestSessionRunningOnThisHandle refuses a second Start on the handle that
 // runs the last turn, whatever Exclusive says.
 func TestSessionRunningOnThisHandle(t *testing.T) {
@@ -770,4 +810,29 @@ func (c *chargeTool) tools() tool.Toolset {
 		tool.ReadOnly(),
 	)
 	return tool.List{charge, lookup}
+}
+
+// interleave runs other once, before the first Load of turnID or, with
+// atCommit, before the first turn_started commit, so another worker starts
+// that turn first.
+type interleave struct {
+	*dashi.MemoryRecorder
+	atCommit bool
+	turnID   string
+	other    func()
+	once     sync.Once
+}
+
+func (r *interleave) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	if !r.atCommit && id == r.turnID {
+		r.once.Do(r.other)
+	}
+	return r.MemoryRecorder.Load(ctx, id)
+}
+
+func (r *interleave) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if r.atCommit && req.Step.Kind == dashi.StepStarted {
+		r.once.Do(r.other)
+	}
+	return r.MemoryRecorder.Commit(ctx, req)
 }

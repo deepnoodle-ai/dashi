@@ -270,8 +270,8 @@ func (s *Session) planCommand(
 	return last, t.turn, warnings, nil
 }
 
-// start runs a new turn. A Start that loses a race on its turn ID, or finds
-// its command ID taken, reloads and applies the rules once more.
+// start runs a new turn. A Start that loses a race on its turn ID reloads
+// and applies the rules once more.
 func (s *Session) start(
 	ctx context.Context,
 	c Start,
@@ -298,17 +298,16 @@ func (s *Session) start(
 }
 
 // lostStart reports whether a Start lost a race for its turn: another
-// worker took the turn ID, or the command ID, before its turn_started step
-// committed. A conflict on a later step means the turn started and another
-// worker then took it over, so the Start must not run again.
+// worker's Start took the turn ID before this one's turn_started step
+// committed, so the next turn is free. Only the commit of turn_started
+// reports that. A conflict on a later step means the turn started and
+// another worker then took it over, and a command conflict means the
+// command ID is taken; either way the Start must not run again.
 func lostStart(err error) bool {
-	if !errors.Is(err, ErrRevisionConflict) &&
-		!errors.Is(err, ErrCommandConflict) {
-		return false
-	}
 	var ce *CommitError
-	return !errors.As(err, &ce) || ce.Step == nil ||
-		ce.Step.Kind == StepStarted
+	return errors.As(err, &ce) && ce.Step != nil &&
+		ce.Step.Kind == StepStarted &&
+		errors.Is(ce.Err, ErrRevisionConflict)
 }
 
 // startPlan is a chosen new turn.
