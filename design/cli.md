@@ -231,20 +231,11 @@ Extension
 
 - FR-17: `Feature` and `Policy` exist as shown. The stand-in tools use them.
 
-## User stories
-
-- **US-1.** As a developer, I ask for a fix and see each read, search, and edit
-  as it happens. Done when a test drives a fake client and checks each line.
-- **US-2.** As a developer, I approve a shell command once or always. Done when
-  a test answers each choice and checks the hook result.
-- **US-3.** As a developer, I send a correction mid-turn. Done when a test
-  sends a steer and finds it in the recorded turn.
-- **US-4.** As a developer, I quit and reopen the session. Done when a test
-  reopens a store and finds the same scrollback and history.
-- **US-5.** As a script author, I run `dashi -p`. Done when stdout holds only
-  the answer and the exit code is 0 for a completed turn.
-
 ## First slice (ships Tuesday night)
+
+Tests: a fake client drives each screen line, each approval answer, a steer
+found in the recorded turn, a reopened store with the same history, and `-p`
+printing only the answer.
 
 In scope: everything above, with two read-only stand-in tools (`read_file`,
 `list_files`) and one stand-in `run_shell` tool that always asks. The tools
