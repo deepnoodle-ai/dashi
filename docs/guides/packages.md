@@ -26,7 +26,7 @@ other.
 - `feed`: Serves a turn to live readers: committed steps from the record with
   the runner's live previews merged in place.
 - `compaction`: Shortens a host-owned history with a recorded summary, and
-  rebuilds the model view from the record.
+  rebuilds the projected history from the record.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 

@@ -15,7 +15,7 @@ Keep three values: the raw history, the index where each Turn starts, and the
 newest `Record` (nil at first).
 
 ```go
-// Before each Turn, build the model view.
+// Before each Turn, build the projected history.
 view, err := compaction.Project(history, rec)
 if errors.Is(err, compaction.ErrCoverageMismatch) {
 	log.Println("warning:", err) // the history changed; the raw history is in view

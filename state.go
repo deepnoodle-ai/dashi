@@ -59,9 +59,9 @@ type ToolView struct {
 	steered bool
 }
 
-// Shortened returns how the result limit shortened the model view, as
-// recorded when the call settled, or nil when the view is complete. It reads
-// the record, never the current limit.
+// Shortened returns how the result limit shortened the result in the
+// projected history, as recorded when the call settled, or nil when the
+// result is complete. It reads the record, never the current limit.
 func (v ToolView) Shortened() *Shortened {
 	if v.shortened == nil {
 		return nil

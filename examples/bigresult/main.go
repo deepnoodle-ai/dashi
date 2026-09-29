@@ -1,6 +1,6 @@
 // Command bigresult runs a turn whose tool returns a long log. Dashi shortens
-// the result in the model view, so the model reads a bounded text with a
-// marker, while the turn's record keeps the full log. Set ANTHROPIC_API_KEY
+// the result in the projected history, so the model reads a bounded text with
+// a marker, while the turn's record keeps the full log. Set ANTHROPIC_API_KEY
 // before running it; ANTHROPIC_MODEL optionally overrides the catalog's
 // default model.
 package main

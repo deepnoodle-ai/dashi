@@ -144,8 +144,8 @@ and [recorded-value decision 27](decisions.md).
 
 **Status:** First slice implemented on branch `tools/result-bounds`; PR
 pending. `Limits.ToolResultBytes` (default 64 KiB) shortens the text of each
-tool result in the model view, after `AfterTool`. The record keeps the full
-outcome and stores the view with `ToolFact.Shortened`. **Size:** M.
+tool result in the projected history, after `AfterTool`. The record keeps the
+full outcome and stores the shortened result with `ToolFact.Shortened`. **Size:** M.
 **Difficulty:** High. **Reference:** [adjacent-library
 findings](gaps/C-adjacent-libraries.md) and [design pitfalls](design-pitfalls.md).
 **Next:** Add a marker that points at a `content.Resource`, per-tool limits, a
@@ -192,7 +192,8 @@ ledger, and a child index.
 history from the application, and Dashi owns no cross-turn Session. The `dashi`
 CLI ([PRD](cli.md), [guide](../docs/guides/cli.md)) keeps its own session
 store in `cmd/dashi/session`: turn records are the only history, and one
-`History` function builds the model view. **Size:** L. **Difficulty:** High.
+`History` function builds the projected history. **Size:** L.
+**Difficulty:** High.
 **Reference:** [decision 19](decisions.md) and [history storage](history-storage.md).
 **Next:** Run the CLI with users, then decide which parts of the store (list,
 latest, lock, `History`) belong in the library. Pilot the draft PRD's optional
