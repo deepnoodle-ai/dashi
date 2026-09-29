@@ -191,16 +191,14 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 		) (tool.Outcome, error) {
 			return bundle.load(input.Name), nil
 		},
+		tool.ReadOnly(),
+		tool.Idempotent(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("skill: load tool: %w", err)
 	}
-	loader.Definition.Annotations = tool.Annotations{
-		ReadOnly:    new(true),
-		Destructive: new(false),
-		Idempotent:  new(true),
-		OpenWorld:   new(false),
-	}
+	loader.Definition.Annotations.Destructive = new(false)
+	loader.Definition.Annotations.OpenWorld = new(false)
 	bundle.loader = loader
 	return bundle, nil
 }

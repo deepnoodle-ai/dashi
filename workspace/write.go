@@ -43,7 +43,7 @@ func newWriteFile(s *scope) (tool.Tool, error) {
 			return tool.Succeeded(fmt.Sprintf("%s %s (%d bytes).", verb, in.Path, len(in.Content))), nil
 		},
 	)
-	return annotate(t, false), err
+	return mutating(t), err
 }
 
 type editArgs struct {
@@ -81,7 +81,7 @@ func newEditFile(s *scope) (tool.Tool, error) {
 			return tool.Succeeded(fmt.Sprintf("Edited %s: replaced %d occurrence(s).", in.Path, count)), nil
 		},
 	)
-	return annotate(t, false), err
+	return mutating(t), err
 }
 
 // applyEdit returns text with the edit applied and the number of replacements.

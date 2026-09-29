@@ -37,11 +37,11 @@ func TestLiveBackgroundTask(t *testing.T) {
 			return tool.Succeeded(
 				"ownership.md: the billing service is owned by Priya"), nil
 		},
+		tool.ReadOnly(),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	search.Definition.Annotations.ReadOnly = new(true)
 
 	inbox := dashi.NewInbox()
 	ended := make(chan delegate.TaskView, 4)

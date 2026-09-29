@@ -37,7 +37,9 @@ cannot disagree about it.
 | `bash`           | mutating  | Runs a command in the directory. Reports live output.    |
 | `ask_user`       | read-only | Asks a person through `WithAsker`. Absent without it.    |
 
-Each tool sets `Annotations.ReadOnly`. Use `WithoutTools` to remove tools.
+Each tool sets `Annotations.ReadOnly` (see
+[read-only and idempotent tools](tools.md#read-only-and-idempotent-tools)).
+Use `WithoutTools` to remove tools.
 The package does not bound the size of results, except `read_file` (2000
 lines) and `grep` and `glob` (a result count). Bound results in the host.
 

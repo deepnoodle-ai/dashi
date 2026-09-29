@@ -160,9 +160,10 @@ func fingerprint(def tool.Definition) string {
 	return string(sum[:])
 }
 
-// annotate marks t read-only or mutating.
-func annotate(t tool.Tool, readOnly bool) tool.Tool {
-	t.Definition.Annotations.ReadOnly = &readOnly
+// mutating marks t as not read-only. Read-only tools pass tool.ReadOnly
+// instead.
+func mutating(t tool.Tool) tool.Tool {
+	t.Definition.Annotations.ReadOnly = new(false)
 	return t
 }
 

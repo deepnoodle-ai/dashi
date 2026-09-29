@@ -185,10 +185,10 @@ func newSearchTool() (tool.Tool, error) {
 				"ownership.md: billing service - owner: Priya (payments team)",
 			), nil
 		},
+		tool.ReadOnly(),
 	)
 	if err != nil {
 		return tool.Tool{}, err
 	}
-	search.Definition.Annotations.ReadOnly = new(true)
 	return search, nil
 }

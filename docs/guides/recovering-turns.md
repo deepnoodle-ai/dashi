@@ -83,7 +83,8 @@ while its usage still counts toward spend. Its settlement's
 `ModelFact.Interrupted` names the cause: `InterruptRun` when the run stopped
 the call, `InterruptWorker` when recovery settles a call left open by a
 worker that stopped. A started tool without a result is
-rerun only if declared `ReadOnly` or `Idempotent`. Otherwise its outcome is
+rerun only if declared `ReadOnly` or `Idempotent` (see
+[read-only and idempotent tools](tools.md#read-only-and-idempotent-tools)). Otherwise its outcome is
 uncertain: check the outside system, report the result with `Settle`, and call
 `Continue`. `Settle` only records, including for [approvals](approvals.md) and external tool
 results. `Outcome.ReadyToContinue` and the replayed turn's
