@@ -118,6 +118,8 @@ tail share and compact again. The summarizer call has a price. It is in
 
 The summary is a user message with a fixed frame. It never has operator
 authority, so text inside old tool output cannot become an instruction.
+`Project` keeps each system or developer message of the covered part with its
+own role, before the summary. The summarizer does not see them.
 
 ## Limits
 

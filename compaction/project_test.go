@@ -146,3 +146,51 @@ func TestProjectPassesOpaqueContentThrough(t *testing.T) {
 		t.Fatal("opaque content changed")
 	}
 }
+
+func TestProjectKeepsOperatorMessagesAuthoritative(t *testing.T) {
+	history, starts := session(4, 2_000)
+	sys := llm.Message{Role: llm.RoleSystem, Content: []llm.Content{
+		llm.Text("Never delete files.")}}
+	dev := llm.Message{Role: llm.RoleDeveloper, Content: []llm.Content{
+		llm.Text("Answer in French.")}}
+	// Put an operator message inside the first covered Turn.
+	withOps := append([]llm.Message{sys}, history[:1]...)
+	withOps = append(withOps, dev)
+	withOps = append(withOps, history[1:]...)
+	for i := range starts {
+		starts[i] += 1
+		if starts[i] > 2 {
+			starts[i]++
+		}
+	}
+	starts[0] = 0
+	fake := &fakeSummarizer{text: "short"}
+	rec := compact(t, fake, withOps, nil, Options{
+		Policy:     policyWith(10_000),
+		TurnStarts: starts,
+	})
+	if rec.Covers.Messages < 3 {
+		t.Fatalf("cut %d does not cover the operator messages", rec.Covers.Messages)
+	}
+	for _, m := range fake.input {
+		if m.Role == llm.RoleSystem || m.Role == llm.RoleDeveloper {
+			t.Fatalf("summarizer received a %s message", m.Role)
+		}
+	}
+	view, err := Project(withOps, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view[0].Role != llm.RoleSystem || view[0].Text() != "Never delete files." {
+		t.Fatalf("view[0] = %s %q", view[0].Role, view[0].Text())
+	}
+	if view[1].Role != llm.RoleDeveloper || view[1].Text() != "Answer in French." {
+		t.Fatalf("view[1] = %s %q", view[1].Role, view[1].Text())
+	}
+	if view[2].Role != llm.RoleUser || !strings.Contains(view[2].Text(), "<summary>") {
+		t.Fatalf("view[2] is not the summary")
+	}
+	if !sameJSON(t, view[3:], withOps[rec.Covers.Messages:]) {
+		t.Fatal("tail changed")
+	}
+}
