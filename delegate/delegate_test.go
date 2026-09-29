@@ -1582,7 +1582,8 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 }
 
 // TestChildRecordsItsResolvedTools checks that the child's recorded
-// Agent.Tools names exactly the tools it may use, and that an empty set is
+// Agent.Tools names exactly the tools it may use when something restricts
+// it, stays empty ("every tool") when nothing does, and that an empty set is
 // recorded as NoTools.
 func TestChildRecordsItsResolvedTools(t *testing.T) {
 	for _, tc := range []struct {
@@ -1590,11 +1591,12 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 		sub     func(*delegate.Subagent)
 		parent  []string
 		want    []string
+		noTools bool
 		offered []string
 	}{
 		{
+			// Nothing to freeze: the child may use every tool.
 			name:    "every parent tool",
-			want:    []string{"read", "write"},
 			offered: []string{"read", "write"},
 		},
 		{
@@ -1625,6 +1627,7 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 				s.Agent.Tools = []string{"write"}
 				s.ReadOnly = true
 			},
+			noTools: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1641,13 +1644,61 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 			h.next(t, delegate.TaskEnded)
 			got := h.view(t, childID()).Agent
 			if strings.Join(got.Tools, ",") != strings.Join(tc.want, ",") ||
-				got.NoTools != (len(tc.want) == 0) {
+				got.NoTools != tc.noTools {
 				t.Fatalf("recorded tools=%v no_tools=%v, want %v",
 					got.Tools, got.NoTools, tc.want)
 			}
 			offered := toolNames(h.client.last("child"))
 			if strings.Join(offered, ",") != strings.Join(tc.offered, ",") {
 				t.Fatalf("offered=%v, want %v", offered, tc.offered)
+			}
+		})
+	}
+}
+
+// TestInheritingChildFollowsADynamicToolset checks that a tool the toolset
+// adds after the child starts reaches a child that inherits every tool, and
+// not a read-only child, whose tools were resolved at its start.
+func TestInheritingChildFollowsADynamicToolset(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		readOnly bool
+		want     string
+	}{
+		{name: "inheriting", want: "read,write,late"},
+		{name: "read-only", readOnly: true, want: "read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var added atomic.Bool
+			var calls atomic.Int32
+			child := func(context.Context, llm.Input) (llm.Result, error) {
+				if calls.Add(1) == 1 {
+					added.Store(true)
+					return toolCall("r1", "read", `{}`), nil
+				}
+				return costed(text("done"), "0.25"), nil
+			}
+			sub := scout()
+			sub.ReadOnly = tc.readOnly
+			cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+			h := newHarness(t, scripted(child), cfg, nil)
+			late := probe("late", yes(), &h.ran)
+			base := h.base
+			h.base = toolsetFunc(func(ctx context.Context) ([]tool.Tool, error) {
+				all, err := base.Tools(ctx)
+				if added.Load() {
+					all = append(all, late)
+				}
+				return all, err
+			})
+			h.newTasks(t)
+			if _, err := h.start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			h.next(t, delegate.TaskEnded)
+			got := toolNames(h.client.last("child"))
+			if strings.Join(got, ",") != tc.want {
+				t.Fatalf("child tools after the add=%v, want %s", got, tc.want)
 			}
 		})
 	}
@@ -2301,4 +2352,10 @@ func TestRecoverKeepsHostContextValues(t *testing.T) {
 		t.Fatalf("recovered child saw tenant=%v, want acme", got)
 	}
 	h.next(t, delegate.TaskEnded)
+}
+
+type toolsetFunc func(context.Context) ([]tool.Tool, error)
+
+func (f toolsetFunc) Tools(ctx context.Context) ([]tool.Tool, error) {
+	return f(ctx)
 }

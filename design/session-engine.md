@@ -233,7 +233,9 @@ applies. `Recover` and resume no longer set `runner.Agent`:
 `Continue` uses the recorded agent. At child start, `delegate` resolves the
 rules above, including `ReadOnly`, into explicit names in the child's
 `Agent.Tools` (`NoTools` when none are left), so the record is the child's
-permission and a later change to the subagent cannot widen a resumed child. `FollowUp(agent, notices)` takes the agent
+permission and a later change to the subagent cannot widen a resumed child.
+A child that nothing restricts records empty `Agent.Tools` and, like the
+parent, follows the toolset. `FollowUp(agent, notices)` takes the agent
 as a required argument, so a host cannot run a follow-up with the defaults by
 omission.
 

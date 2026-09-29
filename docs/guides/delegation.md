@@ -58,10 +58,13 @@ the child may use, even ones the parent agent did not select, so a parent that
 only delegates can give a worker `write`. A subagent with no `Agent.Tools`
 draws only from the tools the parent agent may use, so the parent's
 `Agent.Tools` or `Agent.NoTools` limits it too. `ReadOnly` applies in both
-cases. When the child starts, `delegate` resolves these rules into explicit
-names in the child's recorded `Agent.Tools` (`NoTools` if none are left). A
-resumed child uses that record, not the subagent's current config, and a tool
-a dynamic toolset adds after the child starts is not offered to it. A child never receives the three task tools, so a child cannot start a
+cases. When a rule restricts the child, `delegate` resolves it at child start
+into explicit names in the child's recorded `Agent.Tools` (`NoTools` if none
+are left). A resumed child uses that record, not the subagent's current config,
+and a tool a dynamic toolset adds after the child starts is not offered to it.
+A child with no rule (no named tools, a parent that may use every tool, and
+not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
+every tool, including one a toolset adds later. A child never receives the three task tools, so a child cannot start a
 child. It sees only its prompt, so the model must put every fact in the
 prompt.
 

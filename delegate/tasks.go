@@ -844,7 +844,9 @@ func mustStop(t dashi.Turn) dashi.Stop {
 // tools, or else the tools the parent agent may use, less the task tools, and
 // only read-only ones for a ReadOnly subagent. The record then bounds the
 // child, so a resume needs no rule and a change to the Subagent cannot widen
-// a running child. A named tool that parent lacks now stays in the list, so
+// a running child. When nothing restricts the child (no named tools, a parent
+// that may use every tool, and not ReadOnly), Tools stays empty, so the child
+// may use every tool, as the parent may. A named tool that parent lacks now stays in the list, so
 // the child warns that it is not offered, unless ReadOnly makes its effect
 // unknown. An empty result sets NoTools, since empty Tools means every tool.
 func childAgent(
@@ -865,6 +867,14 @@ func childAgent(
 		return agent, nil
 	}
 	named := len(sub.Agent.Tools) > 0
+	if !named && !sub.ReadOnly && !parentAgent.NoTools &&
+		len(parentAgent.Tools) == 0 {
+		// Nothing to freeze: like the parent, the child may use every tool,
+		// and it follows a toolset that adds one later. The child's runner
+		// hides the task tools.
+		agent.Tools = nil
+		return agent, nil
+	}
 	var all []tool.Tool
 	if parent != nil && (named || !parentAgent.NoTools) {
 		var err error
