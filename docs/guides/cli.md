@@ -34,7 +34,9 @@ arrives too late for the turn is not lost: it runs as the next turn. Type
 `/queue text` to hold a prompt for when the turn ends; it then runs as the
 next turn. Press Ctrl-C to stop the model call or the tool. The turn stays
 open, and Enter continues it; queued prompts wait and go ahead of your next
-prompt. Queued prompts live only while dashi runs.
+prompt, and the screen says how many wait. Queued prompts live only while
+dashi runs, so `/quit`, Ctrl-C, Ctrl-D, `/new`, and `/sessions` first warn that
+they would drop them; repeat the action to go ahead.
 
 ## Commands
 

@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -93,10 +94,47 @@ func TestQueuedPromptJoinsTheNextPrompt(t *testing.T) {
 	}
 }
 
+// A queued prompt that no turn took is shown after /discard, and /new,
+// /quit, and Ctrl-C warn before they drop it; repeating them goes ahead.
+func TestQueuedPromptIsNotDroppedSilently(t *testing.T) {
+	started := make(chan struct{})
+	h := newHarness(t, blockUntilDone(started))
+	h.app.ctrl.Input("first")
+	<-started
+	h.app.ctrl.Input("/queue then this")
+	h.app.ctrl.Interrupt()
+	h.app.ctrl.Wait()
+	h.input("/discard")
+	mustHave(t, h.ui.text(), "Turn 1 canceled.")
+	const waits = "1 queued message will go with the next prompt."
+	if n := strings.Count(h.ui.text(), waits); n != 2 {
+		t.Fatalf("%q shown %d times, want after the interrupt and the discard:\n%s",
+			waits, n, h.ui.text())
+	}
+
+	const lost = "1 queued message will be lost. Repeat %s to go ahead."
+	if h.app.ctrl.Interrupt() {
+		t.Fatal("Ctrl-C quit with a queued prompt")
+	}
+	mustHave(t, h.ui.text(), fmt.Sprintf(lost, "Ctrl-C"))
+	h.input("/quit")
+	mustHave(t, h.ui.text(), fmt.Sprintf(lost, "/quit"))
+	h.input("/new")
+	mustHave(t, h.ui.text(), fmt.Sprintf(lost, "/new"))
+	first := h.app.eng.Session().ID
+	h.input("/new")
+	if h.app.eng.Session().ID == first {
+		t.Fatal("the repeated /new did not start a new session")
+	}
+	if h.app.ctrl.Interrupt() != true {
+		t.Fatal("Ctrl-C did not quit an idle session with nothing queued")
+	}
+}
+
 // crashAfterToolStart records steps until a tool call starts, then fails
 // every commit, as a process that exited would.
 type crashAfterToolStart struct {
-	*session.Recorder
+	*filerecorder.Recorder
 	dead atomic.Bool
 }
 
@@ -123,7 +161,7 @@ func crashInCommand(t *testing.T, runs *atomicCounter, script ...reply) *harness
 		callTool("c1", "write_note", `{"text":"deploy"}`),
 	}, script...)...)
 	h.app.eng.Close()
-	h.recorder = func(rec *session.Recorder) dashi.Recorder {
+	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
 		return &crashAfterToolStart{Recorder: rec}
 	}
 	h.build(Options{Resume: true})

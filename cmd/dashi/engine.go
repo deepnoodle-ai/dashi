@@ -12,6 +12,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -35,7 +36,7 @@ type EngineConfig struct {
 	Emit func(Block)
 
 	// recorder wraps the session's recorder; tests use it to fail commits.
-	recorder func(*session.Recorder) dashi.Recorder
+	recorder func(*filerecorder.Recorder) dashi.Recorder
 }
 
 // Engine runs the turns of one session. It holds the session's metadata and
@@ -448,7 +449,7 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 		}
 		if ev.Outcome != nil {
 			res.Outcome, have = *ev.Outcome, true
-			e.settled(ctx, renderer(ev.TurnID), *ev.Outcome)
+			e.settled(renderer(ev.TurnID), *ev.Outcome)
 			continue
 		}
 		if err != nil || ev.TurnID == "" {
@@ -472,15 +473,36 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 			}
 		}
 	}
+	// Queued prompts that no turn took wait for the next prompt: after a
+	// turn that stopped without ending, a /discard or /done, or a refusal.
+	if n := e.Queued(); n > 0 {
+		e.notice("%d queued %s will go with the next prompt.",
+			n, plural(n, "message"))
+	}
 	if !have {
 		return Result{}, runErr
 	}
 	return res, runErr
 }
 
+// Queued counts the prompts and missed steers waiting in the open session's
+// queue. They live in this process only, so quitting or leaving the
+// session drops them.
+func (e *Engine) Queued() int {
+	chat := e.handle()
+	if chat == nil {
+		return 0
+	}
+	st, err := chat.Open(context.Background())
+	if err != nil {
+		return 0
+	}
+	return st.Queued
+}
+
 // settled shows the end of one turn: its footer, how to go on, the session's
-// warnings, and the input that waits for a later turn.
-func (e *Engine) settled(ctx context.Context, r *Renderer, out dashi.Outcome) {
+// warnings, and the steers that wait for a later turn.
+func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable {
 			e.warn("%s.", w.Message)
@@ -514,10 +536,6 @@ func (e *Engine) settled(ctx context.Context, r *Renderer, out dashi.Outcome) {
 		if n := e.queuedSteers(out.Turn.ID); n > 0 {
 			e.notice("%d queued %s kept for the next turn.", n, plural(n, "steer"))
 		}
-	}
-	if st, err := e.handle().Open(ctx); err == nil && st.Queued > 0 {
-		e.notice("%d queued %s will go with the next prompt.",
-			st.Queued, plural(st.Queued, "message"))
 	}
 }
 

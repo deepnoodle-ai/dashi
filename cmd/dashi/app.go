@@ -8,6 +8,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
@@ -22,7 +23,7 @@ type appConfig struct {
 	ModelAttempts int
 
 	// recorder wraps each session's recorder; tests use it.
-	recorder func(*session.Recorder) dashi.Recorder
+	recorder func(*filerecorder.Recorder) dashi.Recorder
 }
 
 // app is the engine and controller wired to one UI.

@@ -63,13 +63,16 @@ type Controller struct {
 	store *session.Store
 	dir   string
 
-	mu      sync.Mutex
-	mode    Mode
-	cancel  context.CancelFunc
-	quit    bool
-	answers chan string
-	wg      sync.WaitGroup
-	base    context.Context
+	mu     sync.Mutex
+	mode   Mode
+	cancel context.CancelFunc
+	quit   bool
+	// dropping is the action (a slash command, or Ctrl-C) that was just
+	// warned about dropping queued prompts; repeating it goes ahead.
+	dropping string
+	answers  chan string
+	wg       sync.WaitGroup
+	base     context.Context
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -227,7 +230,12 @@ func (c *Controller) Open() {
 }
 
 // Interrupt handles Ctrl-C. It returns true when the program should exit.
+// When prompts are queued, the first Ctrl-C at the prompt only warns that
+// quitting drops them.
 func (c *Controller) Interrupt() bool {
+	if c.Mode() == ModeIdle && c.keepQueued("Ctrl-C") {
+		return false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch c.mode {
@@ -264,6 +272,11 @@ func (c *Controller) Input(line string) {
 		c.steer(line)
 		return
 	}
+	c.mu.Lock()
+	if name, _, _ := strings.Cut(line, " "); name != c.dropping {
+		c.dropping = ""
+	}
+	c.mu.Unlock()
 	switch {
 	case line == "":
 		c.resume()
@@ -391,6 +404,9 @@ func (c *Controller) command(line string) {
 	arg = strings.TrimSpace(arg)
 	switch name {
 	case "/quit", "/exit":
+		if c.keepQueued(name) {
+			return
+		}
 		c.ui.Quit()
 	case "/continue":
 		if !c.eng.Last(c.base).LimitStopped() {
@@ -417,10 +433,16 @@ func (c *Controller) command(line string) {
 	case "/queue":
 		c.prompt(arg)
 	case "/new":
+		if c.keepQueued(name) {
+			return
+		}
 		c.async(c.newSession)
 	case "/model":
 		c.async(func(ctx context.Context) { c.model(ctx, arg) })
 	case "/sessions":
+		if c.keepQueued(name) {
+			return
+		}
 		c.async(c.sessions)
 	case "/help":
 		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
@@ -447,6 +469,26 @@ func (c *Controller) async(fn func(context.Context)) {
 		defer c.setMode(ModeIdle)
 		fn(c.base)
 	})
+}
+
+// keepQueued warns, the first time, that action would drop the prompts
+// queued in this session, and reports true so the caller stops. Repeating
+// the action goes ahead.
+func (c *Controller) keepQueued(action string) bool {
+	n := c.eng.Queued()
+	c.mu.Lock()
+	warned := c.dropping == action
+	c.dropping = ""
+	if n > 0 && !warned {
+		c.dropping = action
+	}
+	c.mu.Unlock()
+	if n == 0 || warned {
+		return false
+	}
+	c.emit(warnBlock("%d queued %s will be lost. Repeat %s to go ahead.",
+		n, plural(n, "message"), action))
+	return true
 }
 
 func (c *Controller) notice(format string, args ...any) {

@@ -311,6 +311,9 @@ func (s *screen) interrupt() []tui.Cmd {
 func (s *screen) requestQuit() []tui.Cmd {
 	switch s.ctrl.Mode() {
 	case ModeIdle:
+		if s.ctrl.keepQueued("Ctrl-D") {
+			return nil
+		}
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	case ModeRunning:

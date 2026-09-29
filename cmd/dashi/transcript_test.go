@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 )
 
 // TestWriteTranscript runs a steer, a queued prompt, and a crash-then-cancel
@@ -55,7 +55,7 @@ func TestWriteTranscript(t *testing.T) {
 		say("Starting over from a clean state."),
 	)
 	h.app.eng.Close()
-	h.recorder = func(rec *session.Recorder) dashi.Recorder {
+	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
 		return &crashAfterToolStart{Recorder: rec}
 	}
 	h.ui = newRecorderUI()

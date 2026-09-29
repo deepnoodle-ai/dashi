@@ -561,3 +561,38 @@ func TestEnterDoesNotRetryRefusal(t *testing.T) {
 		t.Fatalf("sends=%d, want 1", h.client.sends)
 	}
 }
+
+// A damaged last turn does not stop the session (FR-4): a new prompt warns
+// that the turn was left out and runs the next turn.
+func TestDamagedLastTurnIsSkipped(t *testing.T) {
+	h := newHarness(t, say("First answer."), say("Second answer."), say("Third."))
+	h.input("first question")
+	h.input("second question")
+	rec, err := h.store.Recorder(h.app.eng.Session())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := dashi.TurnID(h.app.eng.Session().ID, 2)
+	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.eng.Close()
+
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	h.app.ctrl.Open()
+	h.input("third question")
+	text := h.ui.text()
+	mustHave(t, text, "-2 was left out of the history, and the next turn starts after it")
+	mustHave(t, text, "Third.")
+	if n := turnsOf(t, h.store, h.app.eng.Session()); n != 3 {
+		t.Fatalf("turns=%d", n)
+	}
+	var sent []string
+	for _, m := range h.client.inputAt(2).Messages {
+		sent = append(sent, m.Text())
+	}
+	if got := strings.Join(sent, "|"); got != "first question|First answer.|third question" {
+		t.Fatalf("the model saw %q", got)
+	}
+}

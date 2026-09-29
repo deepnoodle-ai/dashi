@@ -102,7 +102,9 @@ then "steer delivered". A steer that misses a finished turn moves to the
 session's queue and runs as the next turn in the same command. After Ctrl-C
 the steers stay queued, the screen says how many, and the next run of the
 turn delivers them; a new prompt takes them first. `/queue text` enqueues a
-prompt for when the turn ends.
+prompt for when the turn ends. When a command ends with prompts still queued,
+the screen says how many. Quitting, `/new`, and `/sessions` warn once before
+they drop them.
 
 **Limit stop.** The CLI sets `Limits.ModelAttempts` to 40. Enter or
 `/continue` continues the same turn with a limit twice as high. It adds no
@@ -111,9 +113,10 @@ user line. A new prompt closes the limited turn instead.
 **Sessions.** Each session is a directory in `~/.dashi/sessions` with a
 `session.json` (title, directory, model) and one `filerecorder` log per turn. A
 `dashi.Session` with `Exclusive` drives it, under the lock; it builds the
-history and closes a stopped turn on a new prompt. The session's recorder finds
-the last turn by which logs exist, so a damaged log is skipped with a warning
-instead of hiding later turns. A turn left with a started command refuses a new
+history and closes a stopped turn on a new prompt. `filerecorder` finds the last
+turn by which logs exist, so a damaged log is skipped with a warning instead of
+hiding later turns; under `Exclusive`, a damaged last turn is left out and a new
+prompt runs the next turn. A turn left with a started command refuses a new
 prompt until `/done` or `/discard`. A session is written when its first turn
 records. A launch that runs no turn leaves nothing behind. `-p` sessions are
 saved like any other. `-c` picks the newest session with a turn, so `dashi -c -p

@@ -13,7 +13,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 )
 
@@ -185,79 +184,20 @@ func (st *Store) HasTurns(s *Session) bool {
 	if err != nil {
 		return false
 	}
-	ok, err := rec.exists(dashi.TurnID(s.ID, 1))
-	return err == nil && ok
+	n, err := rec.LastTurn(context.Background(), s.ID)
+	return err == nil && n > 0
 }
 
 // Recorder returns the turn recorder of s. The turn logs live in the
-// session's own directory.
-func (st *Store) Recorder(s *Session) (*Recorder, error) {
-	rec, err := filerecorder.New(filerecorder.Config{
+// session's own directory. It is a dashi.SessionIndex that finds the last
+// turn by which logs exist, so a damaged log is reported as that turn, not
+// read while the session opens.
+func (st *Store) Recorder(s *Session) (*filerecorder.Recorder, error) {
+	return filerecorder.New(filerecorder.Config{
 		Dir:         filepath.Join(st.root, s.ID, "turns"),
 		DisableSync: !st.sync,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Recorder{Recorder: rec}, nil
 }
-
-// Recorder is a filerecorder that also finds a session's last turn by which
-// turn logs exist (dashi.SessionIndex), without reading them. A dashi.Session
-// otherwise probes by reading steps, and a damaged log would then hide every
-// turn after it; this way the session skips that turn with a warning.
-type Recorder struct {
-	*filerecorder.Recorder
-}
-
-// LastTurn returns the highest n for which turn n of the session has a log
-// with content. It doubles the distance until a log is missing, then
-// searches between, so it stats about 2·log2(n) files.
-func (r *Recorder) LastTurn(_ context.Context, sessionID string) (int, error) {
-	has := func(n int) (bool, error) {
-		return r.exists(dashi.TurnID(sessionID, n))
-	}
-	lo, hi := 0, 0
-	for step := 1; hi == 0; step *= 2 {
-		ok, err := has(step)
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			lo = step
-		} else {
-			hi = step
-		}
-	}
-	for hi-lo > 1 {
-		mid := lo + (hi-lo)/2
-		ok, err := has(mid)
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	return lo, nil
-}
-
-// exists reports whether a turn's log has content. A rejected first write
-// can leave an empty file, which is no turn.
-func (r *Recorder) exists(turnID string) (bool, error) {
-	info, err := os.Stat(r.Path(turnID))
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-	return info.Size() > 0, nil
-}
-
-var _ dashi.SessionIndex = (*Recorder)(nil)
 
 // Lock claims s for this process until the returned function runs. It
 // returns ErrBusy when another process holds it.

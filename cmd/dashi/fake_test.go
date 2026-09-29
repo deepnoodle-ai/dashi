@@ -11,6 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -197,7 +198,7 @@ type harness struct {
 	app    *app
 	limit  int
 	// recorder, when set, wraps the recorder of the next build.
-	recorder func(*session.Recorder) dashi.Recorder
+	recorder func(*filerecorder.Recorder) dashi.Recorder
 	// notes counts runs of the write_note tool.
 	notes atomic.Int32
 }
