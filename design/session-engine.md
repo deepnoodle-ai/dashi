@@ -10,15 +10,16 @@ engine, and both are useful without sessions.
 One method maps every stop to the host's next action, so hosts stop decoding
 `Stop` fields. The project goal it serves: fix "errors with several meanings" at
 the library layer. It is not one complete answer in every case: `TurnView`
-never returns `NextRunning` (see below), and a `NextRaiseBudget` turn may also
-need more model attempts, which the host reads from `Stop`.
+returns `NextRunning` only in a hook's view (see below), and a
+`NextRaiseBudget` turn may also need more model attempts, which the host reads
+from `Stop`.
 
 ```go
 type Next string
 
 const (
     NextNone          Next = "none"           // completed, or ended for good
-    NextRunning       Next = "running"        // no stop recorded; live (session only)
+    NextRunning       Next = "running"        // no stop recorded; live (hook view, session)
     NextResume        Next = "resume"         // no stop recorded; not known to be live
     NextAnswer        Next = "answer"         // pending approvals or results
     NextContinue      Next = "continue"       // Continue can run now
@@ -30,25 +31,31 @@ const (
 func (v TurnView) Next() Next
 ```
 
-`Next` reads the **recorded** stop. `TurnView.Stop` is not enough: for a record
-with no stop step, replay fills in a projected stop (uncertain, interrupted, or
-waiting; `state.go`, `projectedStop`). `Next` uses replay's own record of
-whether a stop step follows the latest `Start` or `Continue`, and returns
-`NextResume` when none does. `TurnView` cannot know liveness, so it never
-returns `NextRunning`; the session refines `NextResume`
-([sessions.md](sessions.md#concurrency-and-liveness)).
+`Next` reads the **recorded** stop. For a record with no stop step after the
+latest `Start` or `Continue`, `Replay` and `Outcome` fill in a projected stop
+(uncertain, interrupted, waiting, or empty; `state.go`, `projectedStop`) and
+mark it `Stop.Projected`; `Next` then returns `NextResume`. The mark is an
+exported field, so a view sent as JSON gives the same `Next`. A hook's view
+during a run has an empty stop that is not projected, and gives `NextRunning`.
+Otherwise `TurnView` cannot know liveness; the session refines `NextResume`
+([sessions.md](sessions.md#concurrency-and-liveness)). `NextResume` means
+`Continue` resumes the turn when `ReadyToContinue`; otherwise `Continue` gives
+`ErrNotReady`, and the host settles `Pending` first or cancels.
 
 Every `StopKind`, `LimitKind`, and stop reason in the code maps to one value:
 
 | Recorded stop | Condition or reason | `Next` |
 |---|---|---|
-| none after the latest `Start`/`Continue` | | `NextResume` |
-| any non-terminal stop | structured output recorded | `NextContinue` (finishes without a model call) |
+| none: the turn has not started (`Revision` 0) | | `NextNone` |
+| none after the latest `Start`/`Continue` (`Stop.Projected`) | | `NextResume` |
+| none, in a hook's view during a run | | `NextRunning` |
+| any non-terminal stop | structured output recorded and `ReadyToContinue` | `NextContinue` (finishes without a model call) |
 | `completed`, `canceled` | | `NextNone` |
 | `limited` | `Terminal`: `deadline`, `interruptions`, or `cost` with unpriced spend | `NextNone` |
-| `limited` | `model_attempts` | `NextRaiseAttempts` |
-| `limited` | `cost`, `output_tokens`, `total_tokens` | `NextRaiseBudget` (raise attempts as well when none are left; decision 34) |
-| `limited` | `provider_pauses` | `NextContinue` |
+| `limited` | `model_attempts`, also with structured output recorded (the reserved final answer) | `NextRaiseAttempts` |
+| `limited` | `cost`, `output_tokens`, `total_tokens`, cap spent (not `ReadyToContinue`) | `NextRaiseBudget` (raise attempts as well when none are left; decision 34) |
+| `limited` | `cost` with `ReadyToContinue`: the next call's cost risk is unbounded (no price, no finite `max_tokens`, hosted tools), so a raise would not help | `NextResolve` |
+| `limited` | `provider_pauses`, `ReadyToContinue` (otherwise `NextResolve`) | `NextContinue` |
 | `limited` | `host` (a `BeforeSend` hook's spending denial) | `NextResolve` |
 | `limited` | reason `output` or `context` (one call hit its output or context window; no `Limit` detail) | `NextResolve` |
 | `waiting` | `ReadyToContinue` (every answer recorded) | `NextContinue` |
@@ -58,24 +65,31 @@ Every `StopKind`, `LimitKind`, and stop reason in the code maps to one value:
 | `refused` | a model refusal (the provider's raw reason) or a hook `Deny` | `NextResolve` |
 | `failed` | `tool_fatal`, `tool_outcome_invalid`, `hook_failed`, `output_rejected` | `NextResolve` |
 | `failed` | `content_no_resolver`, `content_unavailable`, `content_too_large`, `content_size_mismatch`, `content_digest_mismatch` | `NextResolve` |
-| `failed` | free-text failures: provider rejection, invalid or `incomplete_model_result`, `empty_response`, `tool binding unavailable`, `tool binding changed or unavailable`, `hosted tool cannot execute locally`, `prepared request changed destination`, `untrusted stop with client calls`, `untrusted stop with hosted approval`, native output schema unsupported, replay errors | `NextResolve` |
+| `failed` | free-text failures: provider rejection, invalid or `incomplete_model_result`, `empty_response`, `tool binding unavailable`, `tool binding changed or unavailable`, `hosted tool cannot execute locally`, `prepared request changed destination`, `prepared request changed original model input`, `untrusted stop with client calls`, `untrusted stop with hosted approval`, native output schema unsupported, replay errors | `NextResolve` |
 | `uncertain` | `ReadyToContinue` (the host settled it) | `NextContinue` |
 | `uncertain` | otherwise: `model attempt needs reconciliation`, `tool outcome needs reconciliation`, `provider-hosted tool may have run`, uncertain dispatch | `NextResolve` |
 
 `NextContinue` is never returned for a refusal, so a host is never told to ask
 the model again after it refused. A test builds each row; a new reason with no
-row fails the test.
+row fails the test. Track 3 may map an `interrupted` turn that is not ready but
+has `Pending` items to `NextAnswer`.
 
-**CLI.** `LimitStopped` becomes `Next() == NextRaiseAttempts`, `CanGoOn` becomes
-a check for `NextContinue` or `NextRaiseAttempts`, and `Open` becomes `Next() !=
-NextNone`.
+**CLI.** `LimitStopped` becomes `Next() == NextRaiseAttempts`, and `Open`
+becomes `Next() != NextNone`. `CanGoOn` accepts `NextContinue`,
+`NextRaiseAttempts`, and `NextResume` with `ReadyToContinue` (the CLI holds the
+session lock, so a turn with no recorded stop is not live). It also accepts a
+failed turn that is ready (`NextResolve`, `ReadyToContinue`, and `Stop.Kind ==
+StopFailed`, never a refusal): the library cannot tell a rejected request from
+a rate limit, but the user can, so the CLI shows "Press Enter to retry".
 
 **Resume after a crash.** When `Continue` resumes a turn with no recorded stop
 (`NextResume`), the runner adds a runtime reminder for the next model call: the
 previous worker stopped mid-turn, so check the current state before repeating
 any action. Dashi already reruns only read-only or idempotent tools and marks
 the rest uncertain (decision 11); the reminder covers the model's side, as
-Codex's restart turn does.
+Codex's restart turn does. Like the steering reminder, it is projected from the
+record, not recorded, and a later dispatched call drops it. Crashes that repeat
+before a call reaches the provider still give that call one reminder.
 
 ## Ended turns project and freeze
 
@@ -99,7 +113,8 @@ Two fixes in track 1:
   terminal stop.
 - **Freeze at the terminal stop.** `Project` reads an ended turn's steps only up
   to its terminal stop. Later results are still recorded, for audit and
-  accounting (`Spend` counts them), but never projected.
+  accounting (`Spend` counts them), but never projected, and `TurnView.Answer`
+  stays fixed there too.
 
 The fix avoids LangGraph's opposite mistake of patching dangling calls with fake
 successes (deepagents#5547).
