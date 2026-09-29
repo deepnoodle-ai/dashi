@@ -15,8 +15,9 @@
 // Report adds the children's spend to the parent's.
 //
 // A child inherits from the runner that runs the task call, at call time: the
-// client, recorder, hooks, and the parent's current model unless the Subagent
-// sets its own. Hosts wire it in a few lines:
+// client, recorder, and hooks, plus the parent turn's current model
+// (dashi.CurrentTurn) unless the Subagent sets its own. Hosts wire it in a few
+// lines:
 //
 //	tasks := delegate.NewTasks(delegate.Config{OnTask: onTask})
 //	runner.Tools = tool.Join(runner.Tools, tasks.Tools())
@@ -53,16 +54,16 @@ type Subagent struct {
 	Name string
 	// Description tells the model when to choose this subagent.
 	Description string
-	// Agent holds the instructions, model, and limits of the child turn.
-	// Limits bound the child's work; delegate adds no timeout of its own.
+	// Agent holds the instructions, model, tools, and limits of the child
+	// turn, and becomes its Start.Agent. Limits bound the child's work;
+	// delegate adds no timeout of its own. Agent.Tools names the parent
+	// tools the child may use; empty means every tool the parent agent may
+	// use. The child never receives the task tool, so a child cannot start
+	// a child.
 	Agent dashi.Agent
-	// Tools names the parent tools the child may use. Empty means every
-	// parent tool. The child never receives the task tool, so a child
-	// cannot start a child.
-	Tools []string
 	// ReadOnly limits the child to tools annotated read-only. It applies
-	// with Tools. A tool without the annotation is excluded, because an
-	// unknown effect is not a safe one.
+	// with Agent.Tools. A tool without the annotation is excluded, because
+	// an unknown effect is not a safe one.
 	ReadOnly bool
 }
 
@@ -113,7 +114,7 @@ type Config struct {
 	// field replaces the inherited value. Hooks are always inherited, so the
 	// host's approval prompt covers child tool calls. OnContextDone is
 	// ignored: Tasks interrupts a child on Close and cancels it on Stop.
-	// Agent and Tools are ignored. A Recorder should implement dashi.Loader.
+	// Tools is ignored. A Recorder should implement dashi.Loader.
 	// Without one, children run but do not survive a restart.
 	Runner dashi.Runner
 	// MaxAnswer caps the bytes of a child's answer that reach the model,
@@ -200,16 +201,19 @@ func Report(
 	return report, nil
 }
 
-// filtered is the child's view of the parent toolset. It resolves the parent
-// on every model call, so a dynamic toolset such as an MCP server keeps its
-// live behavior inside the child.
+// filtered is the child's view of the parent toolset: the tools the parent
+// agent may use, less the task tools, and only read-only ones for a ReadOnly
+// subagent. The child's own Agent.Tools selects from these. It resolves the
+// parent on every model call, so a dynamic toolset such as an MCP server keeps
+// its live behavior inside the child.
 type filtered struct {
-	parent tool.Toolset
-	sub    Subagent
+	parent      tool.Toolset
+	parentAgent dashi.Agent
+	readOnly    bool
 }
 
 func (f filtered) Tools(ctx context.Context) ([]tool.Tool, error) {
-	if f.parent == nil {
+	if f.parent == nil || f.parentAgent.NoTools {
 		return nil, nil
 	}
 	all, err := f.parent.Tools(ctx)
@@ -222,8 +226,9 @@ func (f filtered) Tools(ctx context.Context) ([]tool.Tool, error) {
 		readOnly := t.Definition.Annotations.ReadOnly
 		switch {
 		case name == ToolName || name == StatusToolName || name == StopToolName:
-		case len(f.sub.Tools) > 0 && !slices.Contains(f.sub.Tools, name):
-		case f.sub.ReadOnly && (readOnly == nil || !*readOnly):
+		case len(f.parentAgent.Tools) > 0 &&
+			!slices.Contains(f.parentAgent.Tools, name):
+		case f.readOnly && (readOnly == nil || !*readOnly):
 		default:
 			out = append(out, t)
 		}

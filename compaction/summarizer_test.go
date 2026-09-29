@@ -192,9 +192,9 @@ func TestSummarizerContinuityAfterCompaction(t *testing.T) {
 		},
 	}
 	out, err := (dashi.Runner{
-		Agent:  dashi.Agent{Model: "fixture"},
 		Client: agent,
 	}).Run(context.Background(), dashi.Turn{}, dashi.Start{
+		Agent:   dashi.Agent{Model: "fixture"},
 		History: view,
 		Input:   []llm.Message{llm.UserMessage(llm.Text("Which port do we deploy on?"))},
 	})

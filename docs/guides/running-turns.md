@@ -28,25 +28,29 @@ go run ./examples/agent
 Its [source](../../examples/agent/main.go) shows the agent, runner, command,
 and outcome.
 
-A `Runner` holds the agent and its services; each call passes a turn and one
-command. Everything else has a default, so the shortest turn is:
+A `Runner` holds services such as the client and tools; each call passes a
+turn and one command, and `Start` carries the agent. Everything else has a
+default, so the shortest turn is:
 
 ```go
 runner := dashi.Runner{Client: client, Tools: tools}
 out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 ```
 
-- **Agent.** Provider and API come from the client. An empty `Model` is the
-  provider's `catalog.Default`; providers without a catalog need `Model`. An
-  empty `Revision` is derived from the agent's behavior fields
-  (`"auto:…"`), so it changes when they do; tools are not part of it, so set
-  `Revision` yourself if you version tools. `ID` may stay empty.
+- **Agent.** Set it on `Start.Agent`; the turn records it, and later commands
+  run with the recorded agent. Provider and API come from the client. An empty
+  `Model` is the provider's `catalog.Default`; providers without a catalog
+  need `Model`. An empty `Revision` is derived from the agent's behavior
+  fields (`"auto:…"`), so it changes when they do; the tool selection is part
+  of it but tool implementations are not, so set `Revision` yourself if you
+  version tools. `ID` may stay empty.
 - **IDs.** A `Start` on the zero `Turn` gets a generated turn ID, and a command
   with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
   step's `CommandID` show them; see [IDs and commands](recovering-turns.md#ids-and-commands).
 - **Tools.** Every bound local and external tool runs: binding a tool is the
-  app's statement that the model may use it. To check or ask first, add a
-  [hook](hooks.md).
+  app's statement that the model may use it. `Agent.Tools` narrows that by
+  name ([tools](tools.md#choosing-tools-per-agent)). To check or ask first,
+  add a [hook](hooks.md).
 - **Keys.** A client built without an API key fails on its first call with an
   error matching `llm.ErrNoAPIKey`, which names the environment variable.
 
@@ -119,7 +123,7 @@ For a validated object result, set `Agent.OutputSchema` or pass a
 per-turn `Start.OutputSchema`, then decode the value after the turn:
 
 ```go
-runner.Agent.OutputSchema = dashi.MustOutputSchema[Person]()
+start.Agent.OutputSchema = dashi.MustOutputSchema[Person]()
 // Run the turn, then:
 person, err := dashi.DecodeOutput[Person](outcome)
 ```

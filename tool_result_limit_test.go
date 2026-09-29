@@ -179,12 +179,12 @@ func runBig(
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
 	}
 	out, err := (Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{bigTool(text, state, &runs)},
 		Hooks:  hooks,
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
 	if err != nil || out.Stop.Kind != StopCompleted || runs != 1 {
@@ -302,11 +302,12 @@ func TestContinueKeepsTheRecordedViewAndDoesNotRunTheToolAgain(t *testing.T) {
 		},
 	}
 	tools := tool.List{bigTool(text, tool.StateSucceeded, &runs)}
-	out, err := (Runner{Agent: agent, Client: first, Tools: tools}).Run(
+	out, err := (Runner{Client: first, Tools: tools}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	)
@@ -317,18 +318,21 @@ func TestContinueKeepsTheRecordedViewAndDoesNotRunTheToolAgain(t *testing.T) {
 	if out.Tools["call-1"].Shortened() == nil {
 		t.Fatal("the first run did not shorten the result")
 	}
-	// A runner with another limit cannot continue the turn.
+	// A retried Start with another limit is refused.
 	other := agent
 	other.Limits.ToolResultBytes = 4096
 	_, err = (Runner{
-		Agent:  other,
 		Client: &scriptedClient{results: []llm.Result{final("done")}},
 		Tools:  tools,
-	}).Run(t.Context(), out.Turn, Continue{CommandID: "bad"})
+	}).Run(t.Context(), out.Turn, Start{
+		CommandID: "start",
+		Agent:     other,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+	})
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("a changed limit was accepted: %v", err)
 	}
-	// A fresh runner without an agent uses the recorded one.
+	// A fresh runner continues with the recorded agent.
 	second := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err = (Runner{Client: second, Tools: tools}).Run(
 		t.Context(),
@@ -395,13 +399,13 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
 	}
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{bigTool(text, tool.StateSucceeded, &runs)},
 	}
 	var streamed *ToolFact
 	var final Outcome
 	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, Start{
+		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 	}) {
 		if err != nil {
@@ -428,10 +432,10 @@ func TestStartWarnsWhenLimitIsRaised(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 100
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := (Runner{Agent: agent, Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{Agent: agent, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -483,9 +487,10 @@ func TestSettledHostResultIsShortened(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "lookup"), final("found")},
 	}
-	runner := Runner{Agent: testAgent(), Client: client, Tools: tool.List{external}}
+	runner := Runner{Client: client, Tools: tool.List{external}}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
 	if err != nil || out.Stop.Kind != StopWaiting {
@@ -585,7 +590,6 @@ func runBlocks(t *testing.T, blocks []content.Block) Outcome {
 		}, nil
 	})
 	out, err := (Runner{
-		Agent:  agent,
 		Client: client,
 		Tools: tool.List{tool.Tool{
 			Definition: tool.Definition{
@@ -597,6 +601,7 @@ func runBlocks(t *testing.T, blocks []content.Block) Outcome {
 		}},
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
 	if err != nil || out.Stop.Kind != StopCompleted {

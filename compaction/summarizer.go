@@ -128,14 +128,13 @@ func (s *turnSummarizer) Summarize(
 	}
 	request := "<conversation>\n" + strings.Join(items, "\n\n") +
 		"\n</conversation>\n\n" + prompt
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: s.client}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{
 			Model:    s.cfg.Model,
 			Settings: llm.Settings{MaxTokens: maxTokens},
+			NoTools:  true,
 		},
-		Client: s.client,
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(request))},
 	})
 	if err != nil {

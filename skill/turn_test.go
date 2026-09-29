@@ -66,22 +66,20 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	client := &skillClient{}
 	revision := "incident-agent-v1:" + bundle.Digest() + ":focus-v1"
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:    "fixture",
-			Revision: revision,
-		},
 		Client:   client,
 		Tools:    tool.Join(tool.List{action}, bundle),
 		Recorder: dashi.NewMemoryRecorder(),
 		Hooks:    hook.Hooks(),
 	}
-	outcome, err := runner.Run(
-		t.Context(),
-		dashi.NewTurn("skills-same-batch"),
-		dashi.Start{
-			Input: []llm.Message{llm.UserMessage(llm.Text("review incident"))},
+	start := dashi.Start{
+		CommandID: "start",
+		Agent: dashi.Agent{
+			Model:    "fixture",
+			Revision: revision,
 		},
-	)
+		Input: []llm.Message{llm.UserMessage(llm.Text("review incident"))},
+	}
+	outcome, err := runner.Run(t.Context(), dashi.NewTurn("skills-same-batch"), start)
 	if err != nil || outcome.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("run: stop=%+v err=%v", outcome.Stop, err)
 	}
@@ -108,13 +106,11 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	}
 
 	// The bundle digest stayed the same; the host must change its explicit
-	// revision when focus selectors or their meaning change.
-	runner.Agent.Revision = "incident-agent-v1:" + bundle.Digest() + ":focus-v2"
-	_, err = runner.Run(
-		t.Context(),
-		outcome.Turn,
-		dashi.Continue{CommandID: "policy-changed"},
-	)
+	// revision when focus selectors or their meaning change, and a retried
+	// Start under the new revision no longer matches the recorded agent.
+	changed := start
+	changed.Agent.Revision = "incident-agent-v1:" + bundle.Digest() + ":focus-v2"
+	_, err = runner.Run(t.Context(), outcome.Turn, changed)
 	if !errors.Is(err, dashi.ErrAgentChanged) {
 		t.Fatalf("changed host policy revision: %v", err)
 	}
@@ -128,15 +124,16 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner.Agent = dashi.Agent{}
+	// Continue runs with the recorded agent, which does not cover the tool
+	// bundle, so a changed bundle is not reported as a changed agent.
 	runner.Tools = tool.Join(tool.List{action}, changedBundle)
 	_, err = runner.Run(
 		t.Context(),
 		outcome.Turn,
-		dashi.Continue{CommandID: "zero-agent"},
+		dashi.Continue{CommandID: "changed-bundle"},
 	)
 	if errors.Is(err, dashi.ErrAgentChanged) {
-		t.Fatalf("zero Agent unexpectedly verified changed tool bundle: %v", err)
+		t.Fatalf("recorded agent unexpectedly verified changed tool bundle: %v", err)
 	}
 }
 

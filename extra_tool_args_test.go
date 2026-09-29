@@ -495,7 +495,6 @@ func TestDeferredAliasWithoutExecutorCannotRunOnLaterBinding(t *testing.T) {
 			first.Stop, err, runs, hooks)
 	}
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{lookup},
 		Recorder: recorder,

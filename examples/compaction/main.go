@@ -38,7 +38,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("compaction: create client: %w", err)
 	}
 	model := os.Getenv("OPENAI_MODEL")
-	runner := dashi.Runner{Agent: dashi.Agent{Model: model}, Client: client}
+	agent := dashi.Agent{Model: model}
+	runner := dashi.Runner{Client: client}
 
 	// The host owns three things: the raw history, the index where each Turn
 	// starts, and the newest Record.
@@ -60,6 +61,7 @@ func run(ctx context.Context) error {
 			return "", err
 		}
 		out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+			Agent:   agent,
 			History: view,
 			Input:   []llm.Message{llm.UserMessage(llm.Text(prompt))},
 		})

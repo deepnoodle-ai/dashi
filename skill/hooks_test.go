@@ -50,7 +50,6 @@ func TestBundleHooksDeliverCatalogOnceAsRuntimeContext(t *testing.T) {
 	}
 	client := &hookClient{}
 	runner := dashi.Runner{
-		Agent:    dashi.Agent{Model: "fixture"},
 		Client:   client,
 		Tools:    tool.Join(tool.List{}, bundle),
 		Recorder: dashi.NewMemoryRecorder(),
@@ -59,7 +58,10 @@ func TestBundleHooksDeliverCatalogOnceAsRuntimeContext(t *testing.T) {
 	outcome, err := runner.Run(
 		t.Context(),
 		dashi.NewTurn("skills-hooks"),
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		dashi.Start{
+			Agent: dashi.Agent{Model: "fixture"},
+			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil || outcome.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("run: stop=%+v err=%v", outcome.Stop, err)

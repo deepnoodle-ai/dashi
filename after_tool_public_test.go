@@ -39,12 +39,12 @@ func TestAfterToolResultSurvivesAFileRecorder(t *testing.T) {
 		return dashi.ResultDecision{Replace: &r}, nil
 	}}
 	_, err = (dashi.Runner{
-		Agent:    dashi.Agent{Model: "fixture"},
 		Client:   &approvalClient{},
 		Tools:    tool.List{write},
 		Recorder: rec,
 		Hooks:    redact.Hooks(),
 	}).Run(t.Context(), dashi.NewTurn("t1"), dashi.Start{
+		Agent: dashi.Agent{Model: "fixture"},
 		Input: []llm.Message{llm.UserMessage(llm.Text("write it"))},
 	})
 	if err != nil {

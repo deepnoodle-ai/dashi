@@ -41,11 +41,11 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	agent := dashi.Agent{
+		Model:    model,
+		Settings: llm.Settings{MaxTokens: 2_000},
+	}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:    model,
-			Settings: llm.Settings{MaxTokens: 2_000},
-		},
 		Client: client,
 		Tools:  tool.List{note},
 	}
@@ -55,6 +55,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	ask := func(prompt string) dashi.Outcome {
 		t.Helper()
 		out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+			Agent:   agent,
 			History: history,
 			Input:   []llm.Message{llm.UserMessage(llm.Text(prompt))},
 		})
@@ -97,6 +98,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		t.Fatalf("view has %d messages, want the summary alone", len(view))
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent:   agent,
 		History: view,
 		Input: []llm.Message{llm.UserMessage(llm.Text(
 			"What was the release codename? Answer with the codename only.",

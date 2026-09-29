@@ -79,12 +79,12 @@ func run(ctx context.Context) error {
 		Size:   int64(len(text)),
 	}
 	runner := dashi.Runner{
-		Agent:           dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Client:          client,
 		ContentResolver: uploads,
 	}
 	tenantCtx := context.WithValue(ctx, tenantKey{}, "acme")
 	out, err := runner.Run(tenantCtx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{Model: os.Getenv("ANTHROPIC_MODEL")},
 		Input: []llm.Message{llm.UserMessage(
 			llm.Document(
 				content.Source{Ref: &ref, MIMEType: "text/plain"},

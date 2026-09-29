@@ -179,7 +179,7 @@ func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
 	if status := view.Tools["b"].Status; status != ToolAllowed {
 		t.Fatalf("later call status=%s, want allowed", status)
 	}
-	resumed, err := apply(first.Turn, def, Continue{CommandID: "continue"}, runner)
+	resumed, err := apply(first.Turn, Continue{CommandID: "continue"}, runner)
 	if err != nil {
 		t.Fatalf("continue after fatal tool error: %v", err)
 	}
@@ -247,19 +247,19 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 				t.Fatalf("panic reason=%q", reason)
 			}
 			continued := Continue{CommandID: "continue"}
-			if _, err := apply(first.Turn, def, continued, runner); err == nil {
+			if _, err := apply(first.Turn, continued, runner); err == nil {
 				t.Fatal("continued past an unreconciled panic")
 			}
 			out := succeeded("verified")
 			settle := Settle{CommandID: "reconcile", CallID: "a", Outcome: &out}
-			accepted, err := apply(first.Turn, def, settle, runner)
+			accepted, err := apply(first.Turn, settle, runner)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !accepted.ReadyToContinue || client.sends != 1 {
 				t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 			}
-			completed, err := apply(accepted.Turn, def, continued, runner)
+			completed, err := apply(accepted.Turn, continued, runner)
 			if err != nil || completed.Stop.Kind != StopCompleted {
 				t.Fatalf("continued=%+v err=%v", completed, err)
 			}
@@ -317,7 +317,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	client = &scriptedClient{results: []llm.Result{final("ok")}}
 	runner = toolRunner(client, rec, executor)
 	continued := Continue{CommandID: "continue"}
-	if _, err := apply(forged, testAgent(), continued, runner); err == nil {
+	if _, err := apply(forged, continued, runner); err == nil {
 		t.Fatal("continued past a recorded uncertain call")
 	}
 	out := tool.Outcome{
@@ -325,14 +325,14 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		Output: new(tool.TextOutput("connection lost")),
 	}
 	settle := Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
-	accepted, err := apply(forged, testAgent(), settle, runner)
+	accepted, err := apply(forged, settle, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !accepted.ReadyToContinue || client.sends != 0 {
 		t.Fatalf("accepted=%+v sends=%d", accepted, client.sends)
 	}
-	completed, err := apply(accepted.Turn, testAgent(), continued, runner)
+	completed, err := apply(accepted.Turn, continued, runner)
 	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("continued=%+v err=%v sends=%d", completed, err, client.sends)
 	}
@@ -342,23 +342,17 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 func startTurn(def Agent, runner Runner) (Outcome, error) {
 	command := Start{
 		CommandID: "start",
+		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	return apply(Turn{ID: "t1"}, def, command, runner)
+	return apply(Turn{ID: "t1"}, command, runner)
 }
 
-func apply(
-	turn Turn,
-	def Agent,
-	command Command,
-	runner Runner,
-) (Outcome, error) {
-	runner.Agent = def
+func apply(turn Turn, command Command, runner Runner) (Outcome, error) {
 	return runner.Run(context.Background(), turn, command)
 }
 
-// toolRunner binds executor as the "remote" tool and allows local calls. The
-// agent is set per call by apply.
+// toolRunner binds executor as the "remote" tool and allows local calls.
 func toolRunner(
 	client *scriptedClient,
 	rec Recorder,

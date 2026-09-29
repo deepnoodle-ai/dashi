@@ -45,7 +45,13 @@ type Engine struct {
 	sess   *session.Session
 	rec    *filerecorder.Recorder
 	unlock func()
-	model  string
+	// runner runs every command of the open session. It holds the
+	// services only; the agent goes on each Start. Open replaces it,
+	// because the recorder belongs to the session.
+	runner dashi.Runner
+	// model is the model the next Start uses. Changing it does not touch
+	// the runner.
+	model string
 }
 
 // NewEngine returns an engine with no session. Call Open before any turn.
@@ -109,6 +115,12 @@ func (e *Engine) Open(s *session.Session) error {
 	defer e.mu.Unlock()
 	e.release()
 	e.sess, e.rec, e.unlock = s, rec, unlock
+	e.runner = dashi.Runner{
+		Client:   e.cfg.Client,
+		Tools:    e.cfg.Wiring.Tools,
+		Hooks:    e.cfg.Wiring.Hooks,
+		Recorder: rec,
+	}
 	if s.Model != "" && e.model == "" {
 		e.model = s.Model
 	}
@@ -267,11 +279,11 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 		return Result{}, err
 	}
 	id := s.NextTurnID()
-	agent := e.agent()
 	return e.run(ctx, len(s.Turns)+1, dashi.NewTurn(id), dashi.Start{
+		Agent:   e.agent(),
 		Input:   []llm.Message{llm.UserMessage(llm.Text(text))},
 		History: hist,
-	}, agent)
+	})
 }
 
 // Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
@@ -288,7 +300,7 @@ func (e *Engine) Resume(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return e.run(ctx, last.N, last.Turn, dashi.Continue{History: hist}, dashi.Agent{})
+	return e.run(ctx, last.N, last.Turn, dashi.Continue{History: hist})
 }
 
 // ContinueLimit runs the last turn on after its model-call limit stop. The
@@ -306,7 +318,7 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 	return e.run(ctx, last.N, last.Turn, dashi.Continue{
 		History:       hist,
 		ModelAttempts: raised,
-	}, dashi.Agent{})
+	})
 }
 
 // Steer sends text to the running turn. An urgent steer also cuts the model
@@ -329,6 +341,8 @@ func (e *Engine) Steer(text string, urgent bool) error {
 	return nil
 }
 
+// agent is the agent the next Start runs. Continue and Cancel run with the
+// agent the turn recorded, so they take none.
 func (e *Engine) agent() dashi.Agent {
 	return dashi.Agent{
 		ID:           "dashi-cli",
@@ -338,17 +352,11 @@ func (e *Engine) agent() dashi.Agent {
 	}
 }
 
-func (e *Engine) runner(agent dashi.Agent) dashi.Runner {
+// sessionRunner returns the runner of the open session.
+func (e *Engine) sessionRunner() dashi.Runner {
 	e.mu.Lock()
-	rec := e.rec
-	e.mu.Unlock()
-	return dashi.Runner{
-		Agent:    agent,
-		Client:   e.cfg.Client,
-		Tools:    e.cfg.Wiring.Tools,
-		Hooks:    e.cfg.Wiring.Hooks,
-		Recorder: rec,
-	}
+	defer e.mu.Unlock()
+	return e.runner
 }
 
 // history builds the messages of the first n turns and shows a warning for
@@ -368,7 +376,7 @@ func (e *Engine) history(ctx context.Context, n int) ([]llm.Message, error) {
 }
 
 func (e *Engine) cancel(ctx context.Context, last *LastTurn) error {
-	_, err := e.runner(dashi.Agent{}).Run(ctx, last.Turn, dashi.Cancel{
+	_, err := e.sessionRunner().Run(ctx, last.Turn, dashi.Cancel{
 		Reason: "The user started a new prompt.",
 	})
 	if err != nil {
@@ -388,7 +396,6 @@ func (e *Engine) run(
 	n int,
 	turn dashi.Turn,
 	cmd dashi.Command,
-	agent dashi.Agent,
 ) (Result, error) {
 	r := NewRenderer(n, turnModel(turn, e.Model()), e.cfg.Dir)
 	var (
@@ -397,7 +404,7 @@ func (e *Engine) run(
 		runErr   error
 		recorded bool
 	)
-	for ev, err := range e.runner(agent).Stream(
+	for ev, err := range e.sessionRunner().Stream(
 		ctx, turn, cmd, dashi.WithSteering(e.Inbox),
 	) {
 		if ev.Outcome != nil {

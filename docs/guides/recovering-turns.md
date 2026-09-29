@@ -18,14 +18,15 @@ the recorder, because its step numbers are taken, so no model call or tool
 runs twice. What can happen is a second turn from a `Start` retried with no
 turn ID, or a `Deliver` recorded twice when its items carry no IDs.
 
-On an existing turn, a zero `Agent` runs with the turn's recorded agent, which
-suits commands such as `Settle` and `Cancel`. Setting any field, even only
-`Limits.Deadline`, makes the agent partly set: it takes its empty `ID`,
-`Model`, and `Revision` from the record, and any other difference fails with
-`ErrAgentChanged`, whose message names the fields. A zero `Agent` trusts the
-agent recorded in the turn you pass in, so load that turn from your own store.
-When the recorder implements `Loader`, Dashi checks the snapshot's agent
-against the stored record and returns `ErrAgentChanged` if they differ.
+Values a turn records travel on its commands: `Start.Agent` carries the agent,
+and the turn records it. `Continue`, `Settle`, and `Cancel` take no agent;
+they run with the one recorded in the turn you pass in, so load that turn
+from your own store. Process wiring for one call, such as steering, goes in
+run options, and long-lived services go on the `Runner`. A retried `Start`
+whose agent resolves differently from the recorded one fails with
+`ErrAgentChanged`, whose message names the fields. When the recorder
+implements `Loader`, Dashi also checks the snapshot's agent against the
+stored record and returns `ErrAgentChanged` if they differ.
 
 ## Resuming after a stop or crash
 
@@ -58,7 +59,7 @@ disk and is safe for several processes sharing the directory:
 
 ```go
 recorder, err := filerecorder.New(filerecorder.Config{Dir: "var/turns"})
-runner := dashi.Runner{Agent: agent, Client: client, Recorder: recorder}
+runner := dashi.Runner{Client: client, Recorder: recorder}
 ```
 
 To keep turns in your database instead, implement `dashi.Recorder` and

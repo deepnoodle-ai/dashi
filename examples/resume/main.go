@@ -73,9 +73,15 @@ func run(ctx context.Context, mode, dir string) error {
 	switch mode {
 	case "start":
 		// Running start again repeats the same command, which returns the
-		// recorded outcome instead of starting over.
+		// recorded outcome instead of starting over. The turn records its
+		// agent, so the resume process needs none.
 		out, err = runner.Run(ctx, dashi.NewTurn(turnID), dashi.Start{
 			CommandID: "start",
+			Agent: dashi.Agent{
+				ID:           "ops-bot",
+				Instructions: "You are an ops bot. Use send_email to notify people.",
+				Model:        os.Getenv("ANTHROPIC_MODEL"),
+			},
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text(
 					"Email alice@example.com with subject 'Nightly report' " +
@@ -102,9 +108,8 @@ func run(ctx context.Context, mode, dir string) error {
 	return nil
 }
 
-// newRunner builds the same agent and tools in both processes: a turn
-// records its agent and tool definitions, and Continue refuses a turn whose
-// agent has changed.
+// newRunner builds the same client and tools in both processes. Continue
+// runs with the agent the turn recorded at Start.
 func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
@@ -126,11 +131,6 @@ func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 		return dashi.Runner{}, fmt.Errorf("resume: create tool: %w", err)
 	}
 	return dashi.Runner{
-		Agent: dashi.Agent{
-			ID:           "ops-bot",
-			Instructions: "You are an ops bot. Use send_email to notify people.",
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-		},
 		Client:   client,
 		Tools:    tool.List{sendEmail},
 		Recorder: recorder,

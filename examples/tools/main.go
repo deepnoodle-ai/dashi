@@ -52,15 +52,14 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("tools: create client: %w", err)
 	}
 	// Bound tools run by default; a BeforeTool hook can deny or defer calls.
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: client, Tools: tools}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		// The agent may use every tool in Runner.Tools. Agent.Tools would
+		// select some of them by name, and Agent.NoTools none.
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "Answer weather questions using the tools.",
 		},
-		Client: client,
-		Tools:  tools,
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("What's the weather in Tokyo, in Fahrenheit?")),
 		},

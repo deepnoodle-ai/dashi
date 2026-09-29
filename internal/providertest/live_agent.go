@@ -54,7 +54,6 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		},
 	}
 	out, err := (dashi.Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 	}).Run(
@@ -62,6 +61,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		dashi.Turn{ID: "reminder-live"},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     def,
 			Origin:    dashi.StartOperator,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly the one word specified by the application reminder.")),
@@ -117,7 +117,6 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	var outcome *dashi.Outcome
 	previews, committed := 0, 0
 	for event, err := range (dashi.Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 	}).Stream(
@@ -125,6 +124,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		dashi.Turn{ID: "iterator-live"},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     def,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
 			},
@@ -202,7 +202,6 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		Limits: limits,
 	}
 	out, err := (dashi.Runner{
-		Agent:    def,
 		Client:   counted,
 		Tools:    tool.List{typed},
 		Recorder: dashi.NewMemoryRecorder(),
@@ -211,6 +210,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		dashi.Turn{ID: "limit-live"},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     def,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8, then answer with the result.")),
 			},
@@ -267,13 +267,13 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	}
 	start := dashi.Start{
 		CommandID:    "start",
+		Agent:        def,
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Call dashi_submit_output with answer equal to 42. Do not write a final text answer.")),
 		},
 	}
 	out, err := (dashi.Runner{
-		Agent:    def,
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 	}).Run(ctx, dashi.Turn{ID: "live-structured"}, start)
@@ -325,13 +325,14 @@ func AgentTurn(
 		recorder := dashi.NewMemoryRecorder()
 		start := dashi.Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with exactly one word: indigo.")),
 			},
 		}
 		out, err := streamOutcome(
 			ctx,
-			dashi.Runner{Agent: agent, Client: client, Recorder: recorder},
+			dashi.Runner{Client: client, Recorder: recorder},
 			dashi.Turn{ID: provider + "-live-stream"},
 			start,
 		)
@@ -396,13 +397,13 @@ func AgentTurn(
 			agent.Instructions = "For multiplication, use multiply_numbers. After the tool result, answer with only the product."
 			start := dashi.Start{
 				CommandID: "start",
+				Agent:     agent,
 				Input: []llm.Message{
 					llm.UserMessage(llm.Text("Use multiply_numbers to calculate 7 times 8. Answer with the result.")),
 				},
 			}
 			counted := &countingClient{Client: client}
 			runner := dashi.Runner{
-				Agent:    agent,
 				Client:   counted,
 				Tools:    tool.List{typed},
 				Recorder: recorder,
@@ -559,22 +560,24 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 		t.Fatal(err)
 	}
 	out, err := (dashi.Runner{
-		Agent: dashi.Agent{
-			Provider:     client.Provider(),
-			API:          client.API(),
-			Model:        modelName,
-			Instructions: "Use multiply_numbers to calculate products.",
-			Settings:     llm.Settings{MaxTokens: 1024},
-			Limits:       dashi.Limits{ModelAttempts: 4},
-		},
 		Client: client,
 		Tools:  tool.List{multiply},
 	}).Run(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Use multiply_numbers to calculate 7 times 8.",
-		))}},
+		dashi.Start{
+			Agent: dashi.Agent{
+				Provider:     client.Provider(),
+				API:          client.API(),
+				Model:        modelName,
+				Instructions: "Use multiply_numbers to calculate products.",
+				Settings:     llm.Settings{MaxTokens: 1024},
+				Limits:       dashi.Limits{ModelAttempts: 4},
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text(
+				"Use multiply_numbers to calculate 7 times 8.",
+			))},
+		},
 		dashi.WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted ||
@@ -601,13 +604,6 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	inbox := dashi.NewInbox()
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Provider: client.Provider(),
-			API:      client.API(),
-			Model:    modelName,
-			Settings: llm.Settings{MaxTokens: 2048},
-			Limits:   dashi.Limits{ModelAttempts: 3},
-		},
 		Client: client,
 	}
 	var streamed strings.Builder
@@ -616,9 +612,18 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Write a 600-word essay on the history of bridges.",
-		))}},
+		dashi.Start{
+			Agent: dashi.Agent{
+				Provider: client.Provider(),
+				API:      client.API(),
+				Model:    modelName,
+				Settings: llm.Settings{MaxTokens: 2048},
+				Limits:   dashi.Limits{ModelAttempts: 3},
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text(
+				"Write a 600-word essay on the history of bridges.",
+			))},
+		},
 		dashi.WithSteering(inbox),
 	) {
 		if err != nil {
@@ -680,13 +685,6 @@ func UrgentSteerPartialEndsInWhitespace(
 	inbox := dashi.NewInbox()
 	cutter := &whitespaceCutClient{Client: client, inbox: inbox}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Provider: client.Provider(),
-			API:      client.API(),
-			Model:    modelName,
-			Settings: llm.Settings{MaxTokens: 8192},
-			Limits:   dashi.Limits{ModelAttempts: 3},
-		},
 		Client: cutter,
 	}
 	var out dashi.Outcome
@@ -694,10 +692,19 @@ func UrgentSteerPartialEndsInWhitespace(
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Write the numbers from one to two hundred in English words, " +
-				"one per line.",
-		))}},
+		dashi.Start{
+			Agent: dashi.Agent{
+				Provider: client.Provider(),
+				API:      client.API(),
+				Model:    modelName,
+				Settings: llm.Settings{MaxTokens: 8192},
+				Limits:   dashi.Limits{ModelAttempts: 3},
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text(
+				"Write the numbers from one to two hundred in English words, " +
+					"one per line.",
+			))},
+		},
 		dashi.WithSteering(inbox),
 	) {
 		if err != nil {
@@ -806,16 +813,6 @@ func UrgentSteerAfterPause(
 	defer cancel()
 	inbox := dashi.NewInbox()
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Provider: client.Provider(),
-			API:      client.API(),
-			Model:    modelName,
-			Settings: llm.Settings{MaxTokens: 4096},
-			Limits: dashi.Limits{
-				ModelAttempts:  4,
-				ProviderPauses: 2,
-			},
-		},
 		Client: client,
 		Tools:  tool.List{search},
 	}
@@ -825,13 +822,25 @@ func UrgentSteerAfterPause(
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Run 14 separate web searches, one per query and one at a time, " +
-				"never combining them: the current mayor of each of Oslo, " +
-				"Lima, Quito, Accra, Hanoi, Perth, Porto, Turin, Leeds, " +
-				"Graz, Bergen, Tampere, Cork, and Basel. After all 14 " +
-				"searches, list the mayors.",
-		))}},
+		dashi.Start{
+			Agent: dashi.Agent{
+				Provider: client.Provider(),
+				API:      client.API(),
+				Model:    modelName,
+				Settings: llm.Settings{MaxTokens: 4096},
+				Limits: dashi.Limits{
+					ModelAttempts:  4,
+					ProviderPauses: 2,
+				},
+			},
+			Input: []llm.Message{llm.UserMessage(llm.Text(
+				"Run 14 separate web searches, one per query and one at a time, " +
+					"never combining them: the current mayor of each of Oslo, " +
+					"Lima, Quito, Accra, Hanoi, Perth, Porto, Turin, Leeds, " +
+					"Graz, Bergen, Tampere, Cork, and Basel. After all 14 " +
+					"searches, list the mayors.",
+			))},
+		},
 		dashi.WithSteering(inbox),
 	) {
 		if err != nil {

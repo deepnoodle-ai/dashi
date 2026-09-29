@@ -98,8 +98,9 @@ func FollowUpTurnID(notices []dashi.Steer) string {
 // FollowUp returns the Start for a turn that delivers notice steers when no
 // turn runs. They come from Inbox.Leftovers, filtered with IsNotice, or from
 // TaskView.Notice().Steer(). One turn carries all waiting notices. The start
-// is scheduled work: it claims no user authority. The host sets History and
-// passes FollowUpTurnID(notices) as the turn ID. The start records the
+// is scheduled work: it claims no user authority. The host sets Agent, usually
+// the conversation's, and History, and passes FollowUpTurnID(notices) as the
+// turn ID. The start records the
 // children it delivers, so Recover does not report them again. The list must
 // not be empty.
 func FollowUp(notices []dashi.Steer) dashi.Start {

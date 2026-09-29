@@ -68,10 +68,6 @@ func run(ctx context.Context) error {
 	store := dashi.NewMemoryRecorder()
 	var hub feed.Hub
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "Use check_weather for each city you are asked about.",
-		},
 		Client:   client,
 		Tools:    tool.List{weather},
 		Recorder: store,
@@ -96,6 +92,10 @@ func run(ctx context.Context) error {
 	})
 
 	out, err := runner.Run(ctx, dashi.Turn{ID: turnID}, dashi.Start{
+		Agent: dashi.Agent{
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "Use check_weather for each city you are asked about.",
+		},
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("What is the weather in Lisbon and in Oslo?")),
 		},

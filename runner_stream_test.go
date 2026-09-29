@@ -12,6 +12,7 @@ import (
 func streamStart() Start {
 	return Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
 }
@@ -23,7 +24,6 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 	}
 	recorder := NewMemoryRecorder()
 	sequence := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: recorder,
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart())
@@ -88,13 +88,12 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
 	for event, err := range (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}).Stream(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start"}, // no input
+		Start{CommandID: "start", Agent: testAgent()}, // no input
 	) {
 		if err == nil || event.Step != nil || event.Outcome != nil {
 			t.Fatalf("validation event=%+v err=%v", event, err)
@@ -106,7 +105,6 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 	recorder := &failOnceKind{base: NewMemoryRecorder(), kind: StepStarted}
 	steps, terminals := 0, 0
 	for event, err := range (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: recorder,
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
@@ -135,7 +133,6 @@ func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("unused")}}
 			recorder := NewMemoryRecorder()
 			for event, err := range (Runner{
-				Agent:    testAgent(),
 				Client:   client,
 				Recorder: recorder,
 			}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
@@ -191,7 +188,6 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	client := &cancelAfterDeltaClient{scriptedClient: &scriptedClient{}}
 	recorder := NewMemoryRecorder()
 	for event, err := range (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: recorder,
 	}).Stream(t.Context(), Turn{ID: "t1"}, streamStart()) {
@@ -244,7 +240,6 @@ func TestRunnerStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 		}),
 	}
 	for event, err := range (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{local},
 		Recorder: recorder,
@@ -271,7 +266,6 @@ func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call", "work")}}
 	recorder := NewMemoryRecorder()
 	for event, err := range (Runner{
-		Agent:         testAgent(),
 		Client:        client,
 		Recorder:      recorder,
 		OnContextDone: ContextCancel,

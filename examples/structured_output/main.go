@@ -43,16 +43,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("structured_output: create client: %w", err)
 	}
-	// With OutputSchema set, the turn completes only once the model submits
-	// an object that validates against it.
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: client}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		// With OutputSchema set, the turn completes only once the model
+		// submits an object that validates against it.
 		Agent: dashi.Agent{
 			Model:        os.Getenv("OPENAI_MODEL"),
 			OutputSchema: dashi.MustOutputSchema[Person](),
 		},
-		Client: client,
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Invent a fictional person.")),
 		},

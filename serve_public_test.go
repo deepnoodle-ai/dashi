@@ -231,12 +231,12 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 		})
 	}()
 	runner := dashi.Runner{
-		Agent:    dashi.Agent{Model: "fixture"},
 		Client:   finalClient{following: following, read: previewsRead},
 		Recorder: s.store,
 		Observer: s.hub.Observe,
 	}
 	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, dashi.Start{
+		Agent: dashi.Agent{Model: "fixture"},
 		Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 	})
 	if err != nil || !out.Stop.Terminal {

@@ -361,6 +361,7 @@ type harness struct {
 	cfg        delegate.Config
 	tasks      *delegate.Tasks
 	runner     dashi.Runner
+	agent      dashi.Agent
 	inbox      *dashi.Inbox
 	events     chan delegate.ChildEvent
 	taskEvents chan delegate.TaskEvent
@@ -434,8 +435,8 @@ func newHarness(
 		h.taskEvents <- e
 	}
 	h.cfg = cfg
+	h.agent = agent("parent")
 	h.runner = dashi.Runner{
-		Agent:    agent("parent"),
 		Client:   h.client,
 		Recorder: recorder,
 	}
@@ -484,6 +485,7 @@ func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
 		dashi.Turn{ID: parentTurn},
 		dashi.Start{
 			CommandID: "start",
+			Agent:     h.agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 		dashi.WithSteering(h.inbox),
@@ -771,7 +773,7 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
 	h.notify.Store(true)
-	h.runner.Agent.Limits.ToolConcurrency = 2
+	h.agent.Limits.ToolConcurrency = 2
 	out, err := h.start(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -814,6 +816,7 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	if start.Origin != dashi.StartScheduled {
 		t.Fatalf("origin=%q, want scheduled", start.Origin)
 	}
+	start.Agent = h.agent
 	followUp, err := h.runner.Run(t.Context(), dashi.Turn{ID: id}, start)
 	if err != nil {
 		t.Fatal(err)
@@ -879,9 +882,10 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 
 	// The host delivers the notice in a follow-up turn.
 	notices := []dashi.Steer{ended.Task.Notice().Steer()}
+	start := delegate.FollowUp(notices)
+	start.Agent = h.agent
 	followUp, err := h.runner.Run(t.Context(),
-		dashi.Turn{ID: delegate.FollowUpTurnID(notices)},
-		delegate.FollowUp(notices))
+		dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1500,9 +1504,10 @@ func toolNames(in llm.Input) []string {
 
 func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		sub  delegate.Subagent
-		want []string
+		name   string
+		sub    delegate.Subagent
+		parent []string
+		want   []string
 	}{
 		{
 			name: "all tools except the task tools",
@@ -1522,15 +1527,23 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 			name: "named tools",
 			sub: func() delegate.Subagent {
 				s := scout()
-				s.Tools = []string{"write", "task", "task_status", "task_stop"}
+				s.Agent.Tools = []string{"write", "task", "task_status", "task_stop"}
 				return s
 			}(),
 			want: []string{"write"},
+		},
+		{
+			// A child draws only from the tools the parent agent may use.
+			name:   "the parent's selection",
+			sub:    scout(),
+			parent: []string{"read", "task"},
+			want:   []string{"read"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := delegate.Config{Subagents: []delegate.Subagent{tc.sub}}
 			h := newHarness(t, script("x"), cfg, nil)
+			h.agent.Tools = tc.parent
 			if _, err := h.start(t.Context()); err != nil {
 				t.Fatal(err)
 			}
@@ -1628,7 +1641,7 @@ func TestTaskRejectsUnknownSubagent(t *testing.T) {
 func TestParallelTaskCallsGetOwnChildren(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
-	h.runner.Agent.Limits.ToolConcurrency = 2
+	h.agent.Limits.ToolConcurrency = 2
 	out, err := h.start(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -1703,7 +1716,7 @@ func TestChildInheritsParentModel(t *testing.T) {
 	sub.Agent.Provider, sub.Agent.API, sub.Agent.Model = "", "", ""
 	h := newHarness(t, script("x"),
 		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
-	h.runner.Agent.Model = "chosen-by-user"
+	h.agent.Model = "chosen-by-user"
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -1718,7 +1731,7 @@ func TestSubagentModelOverridesParent(t *testing.T) {
 	sub.Agent.Model = "cheap"
 	h := newHarness(t, script("x"),
 		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
-	h.runner.Agent.Model = "chosen-by-user"
+	h.agent.Model = "chosen-by-user"
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}

@@ -33,6 +33,25 @@ tools for one directory.
 `tool.List` is a fixed `tool.Toolset`. Implement `Toolset` yourself when the
 available tools change between model calls.
 
+## Choosing tools per agent
+
+`Runner.Tools` is every tool the process can run. Each agent picks from it by
+name with `Agent.Tools`; an empty list means all of them, and
+`Agent.NoTools` offers none. One runner can then serve agents with different
+tools:
+
+```go
+start := dashi.Start{
+    Agent: dashi.Agent{Tools: []string{"get_weather"}},
+    Input: input,
+}
+```
+
+The runner applies the selection before each model call, before any
+`BeforeModel` hook. A name the runner does not offer is skipped, and the turn
+records a `tool_not_offered` warning once per name. The selection is part of
+the agent, so the turn records it and it changes the derived `auto:` revision.
+
 ## Defining tools
 
 `tool.Func` generates the tool's input schema from its argument type `T` once,

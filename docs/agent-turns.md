@@ -4,27 +4,31 @@ A turn is one input processed until the agent settles; it can contain many
 model calls. Some SDKs call a single model call a "turn"; Dashi calls that a
 model attempt.
 
-An `Agent` pins reusable behavior and limits as plain JSON data. A `Runner`
-holds the agent and its long-lived services: the model client, tool source,
-hooks, and optional recorder and observer. An empty `Agent.Provider` or
-`Agent.API` is filled from the client, an empty `Model` is the provider's
-`catalog.Default`, and an empty `Revision` is derived from the agent's
-behavior fields. On an existing turn, a zero `Agent` is the recorded one, and a
-partly set agent takes its empty `ID`, `Model`, and `Revision` from the record.
+An `Agent` pins reusable behavior and limits as plain JSON data. Values the
+turn records travel on the command: `Start.Agent` carries the agent, and the
+turn records it resolved, so `Continue`, `Settle`, and `Cancel` take none and
+always run with the recorded one. A `Runner` holds only long-lived services:
+the model client, tool source, hooks, and optional recorder and observer.
+Process wiring for one call, such as steering, goes in run options. An empty
+`Agent.Provider` or `Agent.API` is filled from the client, an empty `Model` is
+the provider's `catalog.Default`, and an empty `Revision` is derived from the
+agent's behavior fields.
 The turn ID (`dashi.NewTurn(id)`) and each command's `CommandID` are generated
 when empty (`dashi.NewID`), but a durable host should choose and save them
 before the call. The command ID is an idempotency key: repeating it with the
 same payload returns the recorded result without repeating an effect, which a
 generated ID cannot do for a retry, and reusing it with different content
 fails. Pass the returned `Outcome.Turn` to the next call, or reload it from a
-durable recorder. When the recorder implements `Loader`, Dashi also rejects a
-snapshot whose recorded agent differs from the stored one.
+durable recorder. A retried `Start` whose agent resolves differently from the
+recorded one fails with `ErrAgentChanged`. When the recorder implements
+`Loader`, Dashi also rejects a snapshot whose recorded agent differs from the
+stored one.
 
-`Start` records its origin, its own input, and a fingerprint of
-`Start.History`. Pass the earlier conversation again in `Continue.History` on
-every resume; the saved turn holds only its own input and output. A mismatch
-warns and proceeds, unless `Continue.OnHistoryMismatch` is
-`HistoryMismatchReject`, which returns `ErrHistoryMismatch` and commits
+`Start` records its origin (`TurnView.Origin`), its own input, and a
+fingerprint of `Start.History`. Pass the earlier conversation again in
+`Continue.History` on every resume; the saved turn holds only its own input
+and output. A mismatch warns and proceeds, unless `Continue.OnHistoryMismatch`
+is `HistoryMismatchReject`, which returns `ErrHistoryMismatch` and commits
 nothing. See [the runnable example](../examples/agent/main.go) for setup.
 
 ## Results and errors

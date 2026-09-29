@@ -83,13 +83,12 @@ func requireFollowed(t *testing.T, got []Step, first int64, turn Turn) {
 func pausedTurn(t *testing.T, rec *MemoryRecorder) (Outcome, Runner) {
 	t.Helper()
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   &scriptedClient{results: []llm.Result{final("done")}},
 		Recorder: rec,
 	}
 	pause := make(chan struct{})
 	close(pause)
-	first, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(), WithPause(pause))
+	first, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(testAgent()), WithPause(pause))
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
@@ -327,10 +326,9 @@ func TestStepSettles(t *testing.T) {
 		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "hi"}},
 	}
 	runner := toolRunner(client, NewMemoryRecorder(), ok)
-	runner.Agent = testAgent()
 	deltaMessages := map[string]bool{}
 	var steps []Step
-	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart()) {
+	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart(testAgent())) {
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -66,11 +66,12 @@ func runAgent(
 	hooks Hooks,
 ) Outcome {
 	t.Helper()
-	out, err := (Runner{Agent: agent, Client: client, Tools: tools, Hooks: hooks}).Run(
+	out, err := (Runner{Client: client, Tools: tools, Hooks: hooks}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 	)
@@ -364,13 +365,13 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 	base := NewMemoryRecorder()
 	tools := tool.List{namedTool("read", nil), namedTool("write", nil)}
 	_, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tools,
 		Recorder: &failNthKind{base: base, kind: StepToolSettled, n: 1},
 		Hooks:    hider.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if persistence(err) != PersistenceRejected {
@@ -390,7 +391,6 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 		return ModelDecision{}, nil
 	}}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{namedTool("read", nil)},
 		Recorder: base,

@@ -56,19 +56,19 @@ func oneCall(name string) []llm.Result {
 	return []llm.Result{callResult("call", name), final("ok")}
 }
 
-func progressRunner(
-	limit int,
-	results []llm.Result,
-	tools ...tool.Tool,
-) Runner {
-	agent := testAgent()
-	agent.Limits.ToolConcurrency = limit
+func progressRunner(results []llm.Result, tools ...tool.Tool) Runner {
 	return Runner{
-		Agent:    agent,
 		Client:   &scriptedClient{results: results},
 		Tools:    tool.List(tools),
 		Recorder: NewMemoryRecorder(),
 	}
+}
+
+// progressStart starts turn "t1" with the given tool concurrency.
+func progressStart(limit int) Start {
+	start := streamStart()
+	start.Agent.Limits.ToolConcurrency = limit
+	return start
 }
 
 // progressOrder checks that every progress event for a call falls between
@@ -120,9 +120,9 @@ func (o *progressOrder) add(event Event) {
 	}
 }
 
-func (o *progressOrder) stream(r Runner) {
+func (o *progressOrder) stream(r Runner, start Start) {
 	o.t.Helper()
-	events := r.Stream(o.t.Context(), Turn{ID: "t1"}, streamStart())
+	events := r.Stream(o.t.Context(), Turn{ID: "t1"}, start)
 	for event, err := range events {
 		if err != nil {
 			o.t.Fatal(err)
@@ -154,8 +154,8 @@ func TestStreamDeliversToolProgress(t *testing.T) {
 		return tool.Succeeded("ok"), nil
 	})
 	order := newProgressOrder(t)
-	runner := progressRunner(1, oneCall("work"), work)
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	runner := progressRunner(oneCall("work"), work)
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)
@@ -202,9 +202,9 @@ func TestSlowStreamConsumerDoesNotBlockReporting(t *testing.T) {
 		return tool.Succeeded("ok"), nil
 	})
 	order := newProgressOrder(t)
-	runner := progressRunner(1, oneCall("work"), work)
+	runner := progressRunner(oneCall("work"), work)
 	blocked := false
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)
@@ -254,10 +254,9 @@ func TestParallelToolProgressUnderRace(t *testing.T) {
 		t.Run(fmt.Sprintf("concurrency %d", limit), func(t *testing.T) {
 			order := newProgressOrder(t)
 			order.stream(progressRunner(
-				limit,
 				[]llm.Result{namedCallsResult(names...), final("ok")},
 				tools...,
-			))
+			), progressStart(limit))
 			for _, p := range order.progress {
 				if p.Message != p.CallID ||
 					names[p.CallID[1]-'0'] != p.Name {
@@ -283,7 +282,7 @@ func TestProgressBeforePanicIsDelivered(t *testing.T) {
 		panic("boom")
 	})
 	order := newProgressOrder(t)
-	order.stream(progressRunner(1, []llm.Result{callResult("call", "work")}, work))
+	order.stream(progressRunner([]llm.Result{callResult("call", "work")}, work), progressStart(1))
 	if len(order.progress) != 1 || order.progress[0].Message != "about to fail" {
 		t.Fatalf("progress=%+v", order.progress)
 	}
@@ -347,7 +346,6 @@ func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 				return tool.Succeeded("ok"), nil
 			})
 			runner := progressRunner(
-				2,
 				[]llm.Result{namedCallsResult("work", "hold")},
 				work,
 				hold,
@@ -362,7 +360,7 @@ func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 			}
 			order := newProgressOrder(t)
 			// progressOrder fails on any report delivered after tool_waiting.
-			order.stream(runner)
+			order.stream(runner, progressStart(2))
 			if len(order.progress) == 0 ||
 				order.progress[0].Message != "handing off" {
 				t.Fatalf("progress=%+v", order.progress)
@@ -388,12 +386,11 @@ func TestBreakingStreamWhileToolReports(t *testing.T) {
 		return tool.Outcome{}, ctx.Err()
 	})
 	runner := progressRunner(
-		1,
 		[]llm.Result{callResult("call", "work")},
 		work,
 	)
 	recorder := runner.Recorder.(*MemoryRecorder)
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)
@@ -431,11 +428,10 @@ func TestNestedRunnerProgressStaysInItsTurn(t *testing.T) {
 	) (tool.Outcome, error) {
 		tool.Report(ctx, tool.Progress{Message: "outer"})
 		child := progressRunner(
-			1,
 			[]llm.Result{callResult("child-call", "inner"), final("ok")},
 			inner,
 		)
-		out, err := child.Run(ctx, Turn{ID: "child"}, streamStart())
+		out, err := child.Run(ctx, Turn{ID: "child"}, progressStart(1))
 		if err != nil || out.Stop.Kind != StopCompleted {
 			return tool.Outcome{}, fmt.Errorf("child: %v %+v", err, out.Stop)
 		}
@@ -443,10 +439,9 @@ func TestNestedRunnerProgressStaysInItsTurn(t *testing.T) {
 	})
 	order := newProgressOrder(t)
 	order.stream(progressRunner(
-		1,
 		[]llm.Result{callResult("call", "outer"), final("ok")},
 		outer,
-	))
+	), progressStart(1))
 	if len(order.progress) != 1 || order.progress[0].Message != "outer" {
 		t.Fatalf("progress=%+v", order.progress)
 	}
@@ -464,8 +459,8 @@ func TestRunWithoutListenerShadowsOuterReporter(t *testing.T) {
 		tool.Report(ctx, tool.Progress{Message: "nobody listens"})
 		return tool.Succeeded("ok"), nil
 	})
-	runner := progressRunner(1, oneCall("work"), work)
-	out, err := runner.Run(ctx, Turn{ID: "t1"}, streamStart())
+	runner := progressRunner(oneCall("work"), work)
+	out, err := runner.Run(ctx, Turn{ID: "t1"}, progressStart(1))
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
@@ -488,7 +483,7 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 	var mu sync.Mutex
 	var observed []ToolProgress
 	stopped := make(chan struct{})
-	runner := progressRunner(1, oneCall("work"), work)
+	runner := progressRunner(oneCall("work"), work)
 	runner.Observer = func(event Event) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -500,7 +495,7 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 		}
 	}
 	order := newProgressOrder(t)
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)
@@ -532,13 +527,13 @@ func TestRunWithObserverDeliversProgress(t *testing.T) {
 		return tool.Succeeded("ok"), nil
 	})
 	got := make(chan string, 1)
-	runner := progressRunner(1, oneCall("work"), work)
+	runner := progressRunner(oneCall("work"), work)
 	runner.Observer = func(event Event) {
 		if event.Progress != nil {
 			got <- event.Progress.Message
 		}
 	}
-	_, err := runner.Run(t.Context(), Turn{ID: "t1"}, streamStart())
+	_, err := runner.Run(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +589,6 @@ func TestStreamBreakStopsObserverProgress(t *testing.T) {
 		return tool.Outcome{}, ctx.Err()
 	})
 	runner := progressRunner(
-		reporters+1,
 		[]llm.Result{namedCallsResult("report", "report", "report", "hold")},
 		report,
 		hold,
@@ -623,7 +617,7 @@ func TestStreamBreakStopsObserverProgress(t *testing.T) {
 			close(stopped)
 		}
 	}
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(reporters+1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)
@@ -665,7 +659,7 @@ func TestProgressFloodKeepsObserverSteps(t *testing.T) {
 	})
 	release := make(chan struct{})
 	stopped := make(chan struct{})
-	runner := progressRunner(1, oneCall("work"), work)
+	runner := progressRunner(oneCall("work"), work)
 	runner.Observer = func(event Event) {
 		<-release
 		if event.Step != nil && event.Step.Kind == StepStopped {
@@ -673,7 +667,7 @@ func TestProgressFloodKeepsObserverSteps(t *testing.T) {
 		}
 	}
 	order := newProgressOrder(t)
-	events := runner.Stream(t.Context(), Turn{ID: "t1"}, streamStart())
+	events := runner.Stream(t.Context(), Turn{ID: "t1"}, progressStart(1))
 	for event, err := range events {
 		if err != nil {
 			t.Fatal(err)

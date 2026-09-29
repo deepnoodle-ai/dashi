@@ -187,7 +187,8 @@ func (ts *Tasks) execStart(
 		))
 	}
 	parent, _ := dashi.CurrentRunner(ctx)
-	v, err := ts.startTask(ctx, sub, args, ref, parent)
+	turn, _ := dashi.CurrentTurn(ctx)
+	v, err := ts.startTask(ctx, sub, args, ref, parent, turn.Agent)
 	if err != nil {
 		if ctx.Err() != nil {
 			return tool.Outcome{}, ctx.Err()

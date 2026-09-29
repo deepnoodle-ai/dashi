@@ -80,15 +80,15 @@ func run(ctx context.Context) error {
 		return dashi.Deny("The operator declined this deploy. Do not retry it."), nil
 	})
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model:        os.Getenv("ANTHROPIC_MODEL"),
-			Instructions: "You are a release manager. Use the deploy tool to deploy.",
-		},
 		Client: client,
 		Tools:  tool.List{deploy},
 		Hooks:  ask.Hooks(),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{
+			Model:        os.Getenv("ANTHROPIC_MODEL"),
+			Instructions: "You are a release manager. Use the deploy tool to deploy.",
+		},
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Deploy v1.4.2 to production.")),
 		},

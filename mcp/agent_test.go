@@ -189,11 +189,11 @@ func runAgent(
 ) (dashi.Outcome, error) {
 	t.Helper()
 	return dashi.Runner{
-		Agent:  dashi.Agent{Model: "fixture"},
 		Client: model,
 		Tools:  tool.Join(ts),
 		Hooks:  hooks,
 	}.Run(t.Context(), dashi.NewTurn("t1"), dashi.Start{
+		Agent: dashi.Agent{Model: "fixture"},
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
 }

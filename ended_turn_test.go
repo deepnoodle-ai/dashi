@@ -65,7 +65,7 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	if _, err := Project(turn); err == nil {
 		t.Fatal("an open turn with unsettled calls projected")
 	}
-	runner := Runner{Agent: testAgent(), Client: &scriptedClient{}}
+	runner := Runner{Client: &scriptedClient{}}
 	canceled, err := runner.Run(t.Context(), turn, Cancel{CommandID: "close"})
 	if err != nil || !canceled.Stop.Terminal {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
@@ -111,7 +111,7 @@ func TestCanceledTurnDropsPendingModelAttempt(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 	)
-	canceled, err := (Runner{Agent: testAgent(), Client: &scriptedClient{}}).Run(
+	canceled, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(), turn, Cancel{CommandID: "close"},
 	)
 	if err != nil {
@@ -135,7 +135,6 @@ func TestCrashResumeCarriesReminder(t *testing.T) {
 		final("done"),
 	}}
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{localTool("lookup", execFunc(lookup42))},
 	}
@@ -153,14 +152,14 @@ func TestCrashResumeCarriesReminder(t *testing.T) {
 	// A Continue after a recorded stop adds nothing.
 	paused := make(chan struct{})
 	close(paused)
-	stopped, err := (Runner{Agent: testAgent(), Client: client}).Run(
-		t.Context(), Turn{ID: "p"}, limitsStart(), WithPause(paused),
+	stopped, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "p"}, limitsStart(testAgent()), WithPause(paused),
 	)
 	if err != nil || stopped.Stop.Kind != StopInterrupted {
 		t.Fatalf("pause=%+v err=%v", stopped.Stop, err)
 	}
 	client.results = append(client.results, final("ok"))
-	if _, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	if _, err := (Runner{Client: client}).Run(
 		t.Context(), stopped.Turn, Continue{},
 	); err != nil {
 		t.Fatal(err)
@@ -194,7 +193,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopUncertain {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
-	runner := Runner{Agent: testAgent(), Client: client}
+	runner := Runner{Client: client}
 	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "close"})
 	if err != nil || !canceled.Stop.Terminal {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
@@ -244,7 +243,7 @@ func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 	// The first resume records its Continue, then its worker crashes
 	// before the model call: keep the record only up to that Continue.
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
-	runner := Runner{Agent: testAgent(), Client: client}
+	runner := Runner{Client: client}
 	first, err := runner.Run(t.Context(), crashed, Continue{CommandID: "resume-1"})
 	if err != nil {
 		t.Fatal(err)

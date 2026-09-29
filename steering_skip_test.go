@@ -116,19 +116,22 @@ func (b *skipBench) releaseOn(id string) <-chan struct{} {
 func skipRunner(
 	client llm.Client,
 	bench *skipBench,
-	concurrency int,
 	rec Recorder,
 	extra ...tool.Tool,
 ) Runner {
-	agent := testAgent()
-	agent.Limits.ToolConcurrency = concurrency
 	return Runner{
-		Agent:    agent,
 		Client:   client,
 		Tools:    append(tool.List{bench.tool()}, extra...),
 		Hooks:    bench.hooks(),
 		Recorder: rec,
 	}
+}
+
+// skipStart starts the turn with the given tool concurrency.
+func skipStart(concurrency int) Start {
+	agent := testAgent()
+	agent.Limits.ToolConcurrency = concurrency
+	return startAgent(agent)
 }
 
 // requireSkipped checks that call id settled as kept from starting by a
@@ -207,11 +210,11 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 		urgentCall{result: batchResult(allWork, "a", "b", "c")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -270,11 +273,11 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 		urgentCall{result: batchResult(allWork, "a", "b", "c", "d")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 2, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(2),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -330,11 +333,11 @@ func TestNonUrgentSteerSkipsNoToolCall(t *testing.T) {
 		urgentCall{result: batchResult(allWork, "a", "b", "c")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -389,12 +392,12 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 		urgentCall{result: batchResult(names, "p", "e", "a", "b")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil, external)
+	runner := skipRunner(client, bench, nil, external)
 	runner.Hooks = approvals.Hooks()
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopWaiting {
@@ -489,11 +492,11 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		urgentCall{result: final("ok")},
 	)
 	rec := &crashOnSkip{MemoryRecorder: NewMemoryRecorder(), id: "d"}
-	runner := skipRunner(client, bench, 2, rec)
+	runner := skipRunner(client, bench, rec)
 	if _, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(2),
 		WithSteering(inbox),
 	); err == nil {
 		t.Fatal("the lost settlement was not reported")
@@ -556,11 +559,11 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 		urgentCall{result: batchResult(allWork, "a", "b")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil {
@@ -630,7 +633,7 @@ func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
 		},
 		result: batchResult(submit, "s1"),
 	})
-	out := runUrgent(t, client, inbox, func(r *Runner) { r.Agent = agent })
+	out := runUrgentAgent(t, client, inbox, agent)
 	if out.Stop.Kind != StopCompleted || out.Output == nil {
 		t.Fatalf("stop=%+v output=%s", out.Stop, out.Output)
 	}
@@ -657,8 +660,7 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 		},
 		result: batchResult(allWork, "a", "b"),
 	})
-	out := runUrgent(t, client, inbox, func(r *Runner) {
-		r.Agent = agent
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{bench.tool()}
 	})
 	requireRan(t, out.Turn, "a")
@@ -694,8 +696,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 		},
 		urgentCall{result: final("x")},
 	)
-	out := runUrgent(t, client, inbox, func(r *Runner) {
-		r.Agent = agent
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{bench.tool()}
 	})
 	// A reserved final answer ends the turn as limited by ModelAttempts.
@@ -751,11 +752,11 @@ func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
 		urgentCall{result: batchResult(name, "a", "b", "x", "c")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -791,11 +792,11 @@ func TestUrgentSteerSkipsExternalCallBeforeHandOff(t *testing.T) {
 		urgentCall{result: batchResult(func(string) string { return "ext" }, "e")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil, external)
+	runner := skipRunner(client, bench, nil, external)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -841,8 +842,7 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 		t:              t,
 		inbox:          inbox,
 	}
-	out := runUrgent(t, client, inbox, func(r *Runner) {
-		r.Agent = agent
+	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Recorder = rec
 	})
 	if out.Stop.Kind != StopCompleted || out.Output == nil {
@@ -965,11 +965,11 @@ func TestUrgentSteerWaitingAtStartSkipsTheCall(t *testing.T) {
 				urgentCall{result: batchResult(named, "a", "b")},
 				urgentCall{result: final("ok")},
 			)
-			runner := skipRunner(client, bench, 1, nil, external)
+			runner := skipRunner(client, bench, nil, external)
 			out, err := runner.Run(
 				t.Context(),
 				Turn{ID: "t1"},
-				startInput(),
+				skipStart(1),
 				WithSteering(inbox),
 			)
 			if err != nil || out.Stop.Kind != StopCompleted {
@@ -1009,11 +1009,11 @@ func TestUrgentSteerAfterStartDoesNotInterruptTheCall(t *testing.T) {
 		urgentCall{result: batchResult(allWork, "a", "b")},
 		urgentCall{result: final("ok")},
 	)
-	runner := skipRunner(client, bench, 1, nil)
+	runner := skipRunner(client, bench, nil)
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		startInput(),
+		skipStart(1),
 		WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
@@ -1035,7 +1035,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
 	submit := func(string) string { return SubmitOutputTool }
 	client := newUrgentClient(urgentCall{result: batchResult(submit, "s1")})
-	out := runUrgent(t, client, NewInbox(), func(r *Runner) { r.Agent = agent })
+	out := runUrgentAgent(t, client, NewInbox(), agent)
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
@@ -1146,11 +1146,11 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 				)},
 				urgentCall{result: final("ok")},
 			)
-			runner := skipRunner(client, bench, 1, nil, external, write)
+			runner := skipRunner(client, bench, nil, external, write)
 			out, err := runner.Run(
 				ctx,
 				Turn{ID: "t1"},
-				startInput(),
+				skipStart(1),
 				WithSteering(inbox),
 			)
 			if err != nil || out.Stop.Kind != StopInterrupted {

@@ -85,13 +85,6 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			ID:       "agent",
-			Revision: "r1",
-			Provider: provider,
-			API:      messages.API,
-			Model:    model,
-		},
 		Client: client,
 		Tools:  tool.List{search},
 	}
@@ -101,6 +94,13 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		dashi.Turn{ID: "cut-search"},
 		dashi.Start{
 			CommandID: "start",
+			Agent: dashi.Agent{
+				ID:       "agent",
+				Revision: "r1",
+				Provider: provider,
+				API:      messages.API,
+				Model:    model,
+			},
 			Input: []llm.Message{
 				llm.UserMessage(llm.Text("What is the population of Tokyo?")),
 			},

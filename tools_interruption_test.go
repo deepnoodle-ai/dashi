@@ -62,7 +62,6 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 				}),
 			}
 			out, err := (Runner{
-				Agent:    testAgent(),
 				Client:   client,
 				Tools:    tool.List{bound},
 				Recorder: rec,
@@ -147,7 +146,6 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	finished := make(chan result, 1)
 	go func() {
 		out, err := (Runner{
-			Agent:    def,
 			Client:   client,
 			Tools:    tool.List{first, second},
 			Recorder: rec,
@@ -156,6 +154,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 			Turn{ID: "t1"},
 			Start{
 				CommandID: "start",
+				Agent:     def,
 				Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 			},
 			WithPause(pause),
@@ -197,7 +196,6 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 		t.Fatalf("second tool status=%s; want pending", secondStatus)
 	}
 	resumed, err := (Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{first, second},
 		Recorder: rec,
@@ -232,14 +230,13 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
 	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil {
 		t.Fatal(err)

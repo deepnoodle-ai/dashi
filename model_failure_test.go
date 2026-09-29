@@ -29,7 +29,6 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		t.Fatalf("settlement=%+v", settled)
 	}
 	second, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Continue{CommandID: "retry"})
@@ -49,7 +48,6 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	if _, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -60,7 +58,6 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
 	}
 	proved, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -81,7 +78,6 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		t.Fatalf("proof=%+v err=%v sends=%d", proved, err, client.sends)
 	}
 	retried, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), proved.Turn, Continue{CommandID: "retry"})
@@ -119,7 +115,6 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 		t.Fatalf("usage=%+v err=%v", view.Spend.Usage, err)
 	}
 	falseProof, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(

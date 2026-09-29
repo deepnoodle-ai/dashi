@@ -89,17 +89,17 @@ func run(ctx context.Context, dir, task string) error {
 		return fmt.Errorf("coding: create client: %w", err)
 	}
 	runner := dashi.Runner{
+		Client: client,
+		Tools:  tools,
+		Hooks:  policy.Hooks(),
+	}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{
 			Model: os.Getenv("OPENAI_MODEL"),
 			Instructions: "You are a coding agent. Work in the workspace " +
 				"with the tools. Read code before you change it. Run the " +
 				"tests to check your work.",
 		},
-		Client: client,
-		Tools:  tools,
-		Hooks:  policy.Hooks(),
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text(task))},
 	})
 	if err != nil {

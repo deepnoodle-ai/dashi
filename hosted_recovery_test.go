@@ -44,7 +44,6 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		Origin:    origin,
 	}
 	if _, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -59,7 +58,6 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		t.Fatal("incomplete hosted approval was accepted")
 	}
 	second, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
@@ -110,7 +108,6 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	canceled, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})

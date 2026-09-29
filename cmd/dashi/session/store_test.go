@@ -70,11 +70,11 @@ func addTurn(
 	}
 	id := s.NextTurnID()
 	runner := dashi.Runner{
-		Agent:    dashi.Agent{Model: "fixture"},
 		Client:   echoClient{},
 		Recorder: rec,
 	}
 	out, err := runner.Run(t.Context(), dashi.NewTurn(id), dashi.Start{
+		Agent:   dashi.Agent{Model: "fixture"},
 		Input:   []llm.Message{llm.UserMessage(llm.Text(text))},
 		History: hist.Messages,
 	})

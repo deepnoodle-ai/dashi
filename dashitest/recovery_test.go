@@ -101,13 +101,13 @@ func testRecovery(
 	model := &scriptedModel{}
 	work := &countingTool{}
 	runner := dashi.Runner{
-		Agent:    testAgent(),
 		Client:   model,
 		Tools:    work,
 		Recorder: rec,
 	}
 	begin := dashi.Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 
@@ -251,7 +251,6 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 				}
 			}
 			runner := dashi.Runner{
-				Agent:    testAgent(),
 				Client:   model,
 				Tools:    work,
 				Recorder: rec,
@@ -332,7 +331,6 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 				dashi.Turn{ID: "t1"},
 				startCommand(),
 				dashi.Runner{
-					Agent:    testAgent(),
 					Client:   model,
 					Tools:    work,
 					Recorder: newTurnLoader{dashi.NewMemoryRecorder(), tc.load},
@@ -355,6 +353,7 @@ func TestStartProceedsWhenTurnNotFound(t *testing.T) {
 func startCommand() dashi.Start {
 	return dashi.Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do the work"))},
 	}
 }

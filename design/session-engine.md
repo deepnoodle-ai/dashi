@@ -150,10 +150,11 @@ type Start struct {
 }
 ```
 
-The engine fills a zero `Start.Agent` field as `Runner.Agent` is filled today
+The engine fills zero `Start.Agent` fields from the client and the catalog
 (`defaults.go`, `agentFor`). Commands on an existing turn always use the
-recorded agent, so `ErrAgentChanged` applies only to a retried `Start`, whose
-digest covers the agent. The `Limits.ToolResultBytes` warning at `Start` reads
+recorded agent, so `ErrAgentChanged` applies to a retried `Start`, whose digest
+covers the agent, and to a caller's snapshot whose recorded agent differs from
+a `Loader`'s record. The `Limits.ToolResultBytes` warning at `Start` reads
 `Start.Agent`.
 
 ## Carry-forward
@@ -196,10 +197,12 @@ type Agent struct {
 
 Before each call the runner filters the resolved toolset by name, then applies
 `BeforeModel` hiding. Nothing new is recorded at start: the selection is part of
-the recorded agent, and it enters the automatic revision (today's derivation
-"cannot see tools"; `turn.go`). A named tool the toolset does not offer records
-a `tool_not_offered` warning once per turn. The final-answer reserve and
-`dashi_submit_output` are unaffected.
+the recorded agent, and it enters the automatic revision. A named tool the
+toolset does not offer records a `tool_not_offered` warning once per turn, on
+the next committed step. `NoTools` wins over `Tools`. Only selected tools are
+validated, and a call to a tool that was not selected settles as an unknown
+tool without running. The final-answer reserve and `dashi_submit_output` are
+unaffected.
 
 ## `CurrentTurn` and `delegate`
 
@@ -212,16 +215,21 @@ a `tool_not_offered` warning once per turn. The final-answer reserve and
 func CurrentTurn(ctx context.Context) (TurnView, bool)
 ```
 
+The view is taken as the call starts, with an empty `Stop` as in a hook's view;
+a `Toolset` sees the turn as of the model call it offers tools for.
 `CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
 from `Subagent.Agent`, taking provider, API, and model from `CurrentTurn` when
 unset (decision 22 of item 13). `Subagent.Tools` becomes `Subagent.Agent.Tools`;
-`Subagent.ReadOnly` stays, since it filters by annotation. `Recover` and resume
-no longer set `runner.Agent`: `Continue` uses the recorded agent.
+`Subagent.ReadOnly` stays, since it filters by annotation. A child draws only
+from the tools the parent agent may use: the parent turn's selection applies
+before the child's. `Recover` and resume no longer set `runner.Agent`:
+`Continue` uses the recorded agent. `FollowUp` returns a `Start` with no agent;
+the host sets it.
 
 ## Record changes
 
 `Agent` gains `tools` and `no_tools`. Track 2 adds `TurnView.Origin`, the
-recorded `Start.Origin`: carry-forward (track 2), the idempotency window and
+recorded `Start.Origin`: carry-forward, the idempotency window, and
 `TurnBusyError.Origin` (track 3), and queue turns (track 4) all read it. Track 5
 adds the `compaction` `StartOrigin` and a `StartFact.Compaction` fact
 ([session-input.md](session-input.md#compaction-turns)). Dashi has no users, so

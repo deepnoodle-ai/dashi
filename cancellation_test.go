@@ -62,14 +62,13 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	finished := make(chan Outcome, 1)
 	go func() {
 		out, _ := (Runner{
-			Agent:    def,
 			Client:   client,
 			Tools:    tool.List{first, second},
 			Recorder: rec,
 		}).Run(
 			ctx,
 			Turn{ID: "t1"},
-			Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+			Start{CommandID: "start", Agent: def, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		)
 		finished <- out
 	}()
@@ -108,7 +107,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("late")),
 	}
-	settled, err := (Runner{Agent: def, Client: client, Recorder: rec}).Run(
+	settled, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
 		Settle{CommandID: "late", CallID: "a", Outcome: &late},
@@ -174,14 +173,13 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	rec := NewMemoryRecorder()
 	go func() {
 		out, _ := (Runner{
-			Agent:    testAgent(),
 			Client:   client,
 			Tools:    tool.List{makeTool("first"), makeTool("second"), third},
 			Recorder: rec,
 		}).Run(
 			ctx,
 			Turn{ID: "t1"},
-			Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+			Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 		)
 		finished <- out
 	}()
@@ -241,7 +239,6 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", first, err)
 	}
 	canceled, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
@@ -267,13 +264,12 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 		},
 	}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted ||
 		client.sends != 0 || len(out.Pending) != 0 {
@@ -318,14 +314,13 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
 	}).Run(
 		ctx,
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted || runs != 0 ||
 		client.sends != 1 || len(out.Pending) != 0 {

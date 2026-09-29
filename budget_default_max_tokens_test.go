@@ -90,13 +90,6 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	}
 	plans := &sendPlans{}
 	out, err := (dashi.Runner{
-		Agent: dashi.Agent{
-			ID:       "agent",
-			Revision: "r1",
-			Provider: "router",
-			API:      completions.API,
-			Model:    "priced",
-		},
 		Client: client,
 		Hooks:  plans.hooks(),
 	}).Run(
@@ -104,6 +97,13 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 		dashi.Turn{ID: "capped"},
 		dashi.Start{
 			CommandID: "start",
+			Agent: dashi.Agent{
+				ID:       "agent",
+				Revision: "r1",
+				Provider: "router",
+				API:      completions.API,
+				Model:    "priced",
+			},
 			Budget: &dashi.Budget{
 				MaxCost: &dashi.Money{
 					Amount:   money.MustParseAmount("1"),

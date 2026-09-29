@@ -63,15 +63,15 @@ func run(ctx context.Context) error {
 	})
 	defer tasks.Close(context.Background())
 
+	agent := dashi.Agent{
+		Model: os.Getenv("OPENAI_MODEL"),
+		Instructions: "Answer questions about the team notes. Start one " +
+			"task with the explore subagent for each separate question, " +
+			"all in one step. Do not wait for them: a message arrives " +
+			"when each one ends.",
+		Limits: dashi.Limits{ModelAttempts: 16},
+	}
 	runner := dashi.Runner{
-		Agent: dashi.Agent{
-			Model: os.Getenv("OPENAI_MODEL"),
-			Instructions: "Answer questions about the team notes. Start one " +
-				"task with the explore subagent for each separate question, " +
-				"all in one step. Do not wait for them: a message arrives " +
-				"when each one ends.",
-			Limits: dashi.Limits{ModelAttempts: 16},
-		},
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 		Tools:    tool.Join(tool.List{search}, tasks.Tools()),
@@ -79,9 +79,12 @@ func run(ctx context.Context) error {
 	out, err := runner.Run(
 		ctx,
 		dashi.Turn{},
-		dashi.Start{Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Who owns the billing service, and who is on call for search?",
-		))}},
+		dashi.Start{
+			Agent: agent,
+			Input: []llm.Message{llm.UserMessage(llm.Text(
+				"Who owns the billing service, and who is on call for search?",
+			))},
+		},
 		dashi.WithSteering(inbox),
 	)
 	if err != nil {
@@ -106,6 +109,7 @@ func run(ctx context.Context) error {
 		}
 		history = append(history, turn...)
 		start := delegate.FollowUp(notices)
+		start.Agent = agent
 		start.History = history
 		out, err = runner.Run(
 			ctx,

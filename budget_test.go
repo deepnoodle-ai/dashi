@@ -98,7 +98,6 @@ func runBudgetTurnErr(
 	def := testAgent()
 	def.Settings = settings
 	return (Runner{
-		Agent:  def,
 		Client: client,
 		Tools:  tools,
 		Hooks:  hooks,
@@ -107,6 +106,7 @@ func runBudgetTurnErr(
 		Turn{ID: "budget"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Budget:    budget,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 		},
@@ -435,7 +435,6 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	def.Settings.MaxTokens = 500
 	rec := NewMemoryRecorder()
 	runner := Runner{
-		Agent:    def,
 		Client:   client,
 		Tools:    tool.List{lookup},
 		Recorder: rec,
@@ -445,6 +444,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 		Turn{ID: "raise"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Budget:    initial,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
 		},
@@ -616,7 +616,6 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 	def := testAgent()
 	def.Settings.MaxTokens = 100
 	runner := Runner{
-		Agent:  def,
 		Client: client,
 		Tools:  tool.List{lookup},
 	}
@@ -625,6 +624,7 @@ func TestBudgetOutputCapRaiseResumesWithRemainingAllowance(t *testing.T) {
 		Turn{ID: "tokens"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Budget:    &Budget{MaxOutputTokens: 50},
 			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
 		},
@@ -674,12 +674,7 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	def := testAgent()
-	def.Settings.MaxTokens = 100
-	_, err := (Runner{
-		Agent:  def,
-		Client: client,
-	}).Run(
+	_, err := (Runner{Client: client}).Run(
 		t.Context(),
 		out.Turn,
 		Continue{
@@ -810,7 +805,6 @@ func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 	def := testAgent()
 	def.Settings.MaxTokens = 100
 	runner := Runner{
-		Agent:  def,
 		Client: client,
 		Tools:  tool.List{budgetLookup(nil)},
 	}
@@ -819,6 +813,7 @@ func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 		Turn{ID: "unforeseen"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Budget:    &Budget{MaxCost: &Money{Amount: amount("1"), Currency: "USD"}},
 			Input:     []llm.Message{llm.UserMessage(llm.Text("lookup"))},
 		},
@@ -889,13 +884,13 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 	def := testAgent()
 	def.Settings.MaxTokens = 100
 	out, err := (Runner{
-		Agent:  def,
 		Client: client,
 	}).Run(
 		ctx,
 		Turn{ID: "partial"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Budget: &Budget{
 				MaxOutputTokens: 2,
 				MaxCost:         &Money{Amount: amount("0.01"), Currency: "USD"},
@@ -980,13 +975,12 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if settled.Charge.Total != amount("0.000102") {
 				t.Fatalf("estimated charge=%s", settled.Charge.Total)
 			}
-			def := testAgent()
-			def.Settings.MaxTokens = 100
 			client := newPricedClient(final("unused"))
-			continued, err := (Runner{
-				Agent:  def,
-				Client: client,
-			}).Run(t.Context(), out.Turn, Continue{CommandID: "resume"})
+			continued, err := (Runner{Client: client}).Run(
+				t.Context(),
+				out.Turn,
+				Continue{CommandID: "resume"},
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1104,11 +1098,12 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	}
 	def := testAgent()
 	def.Settings.MaxTokens = 100
-	out, err := (Runner{Agent: def, Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		ctx,
 		Turn{ID: "cut"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("search"))},
 		},
 	)
@@ -1158,11 +1153,12 @@ func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
 		pricedClient: newPricedClient(),
 		cancel:       cancel,
 	}
-	out, err := (Runner{Agent: testAgent(), Client: client}).Run(
+	out, err := (Runner{Client: client}).Run(
 		ctx,
 		Turn{ID: "cut"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("search"))},
 		},
 	)
@@ -1369,7 +1365,6 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 		},
 	}}
 	out, err := (Runner{
-		Agent:  def,
 		Client: client,
 		Tools:  tool.List{search},
 	}).Run(
@@ -1377,6 +1372,7 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 		Turn{ID: "grounding-cut"},
 		Start{
 			CommandID: "start",
+			Agent:     def,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("who won?"))},
 		},
 	)

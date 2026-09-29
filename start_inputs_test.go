@@ -17,12 +17,12 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 	}
 	start := Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Origin:    StartScheduled,
 		History:   history,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("scheduled report"))},
 	}
 	first, err := (Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}).Run(t.Context(), Turn{ID: "t1"}, start)
@@ -48,11 +48,12 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 	}
 	again := Start{
 		CommandID: "start",
+		Agent:     testAgent(),
 		Origin:    StartScheduled,
 		History:   history,
 		Input:     start.Input,
 	}
-	_, err = (Runner{Agent: testAgent(), Client: client, Recorder: rec}).Run(
+	_, err = (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		first.Turn,
 		again,
@@ -75,13 +76,12 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 	} {
 		client := &scriptedClient{results: []llm.Result{final("done")}}
 		out, err := (Runner{
-			Agent:    testAgent(),
 			Client:   client,
 			Recorder: NewMemoryRecorder(),
 		}).Run(
 			t.Context(),
 			Turn{ID: "t1"},
-			Start{CommandID: "start", Origin: tc.origin, Input: []llm.Message{message}},
+			Start{CommandID: "start", Agent: testAgent(), Origin: tc.origin, Input: []llm.Message{message}},
 		)
 		if tc.valid && (err != nil || out.Stop.Kind != StopCompleted) {
 			t.Fatalf("origin %q rejected: out=%+v err=%v", tc.origin, out, err)

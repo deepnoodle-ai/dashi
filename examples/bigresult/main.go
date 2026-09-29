@@ -56,17 +56,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("bigresult: create tool: %w", err)
 	}
-	runner := dashi.Runner{
+	runner := dashi.Runner{Client: client, Tools: tool.List{fetch}}
+	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "You are an operations agent. Report why the service failed.",
 			// The default is 64 KiB. Set a lower limit for a small context.
 			Limits: dashi.Limits{ToolResultBytes: 16 << 10},
 		},
-		Client: client,
-		Tools:  tool.List{fetch},
-	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Input: []llm.Message{
 			llm.UserMessage(llm.Text("Why did the billing service fail?")),
 		},

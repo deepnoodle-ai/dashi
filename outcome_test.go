@@ -79,7 +79,6 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 	}}
 	runs := 0
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{countingTool("deploy", &runs), externalTool("mail")},
 		Recorder: NewMemoryRecorder(),
@@ -88,7 +87,11 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("start stop=%+v err=%v", out.Stop, err)
@@ -161,14 +164,17 @@ func TestApproveOnNonApprovalIsRejected(t *testing.T) {
 		toolUse(toolCall("ext-1", "mail", `{}`)),
 	}}
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{externalTool("mail")},
 	}
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil || len(out.Pending) != 1 {
 		t.Fatalf("start pending=%v err=%v", out.Pending, err)
@@ -193,7 +199,6 @@ func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 	runs := 0
 	base := NewMemoryRecorder()
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{countingTool("deploy", &runs)},
 		Recorder: base,
@@ -202,7 +207,11 @@ func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil || len(out.Pending) != 1 {
 		t.Fatalf("start pending=%v err=%v", out.Pending, err)
@@ -252,7 +261,6 @@ func TestContinueOnWaitingTurnIsNotReady(t *testing.T) {
 	}}
 	runs := 0
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", &runs)},
 		Hooks:  RequireApproval("deploy"),
@@ -260,7 +268,11 @@ func TestContinueOnWaitingTurnIsNotReady(t *testing.T) {
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +289,7 @@ func TestContinueOnWaitingTurnIsNotReady(t *testing.T) {
 
 func TestRejectedInvalidTurnKeepsCallerTurn(t *testing.T) {
 	turn := Turn{ID: "t1", Steps: []Step{{Kind: StepStopped}}}
-	out, err := (Runner{Agent: testAgent(), Client: &scriptedClient{}}).Run(
+	out, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(),
 		turn,
 		Continue{CommandID: "c"},
@@ -384,7 +396,6 @@ func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 4
 	runner := Runner{
-		Agent:  agent,
 		Client: client,
 		Tools:  tool.List{countingTool("work", &runs)},
 		Hooks:  viewRecordingHooks(&stops, &authorized),
@@ -392,7 +403,11 @@ func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     agent,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -679,7 +694,6 @@ func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
 	}}
 	runs := 0
 	runner := Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", &runs)},
 		Hooks:  RequireApproval("deploy"),
@@ -687,7 +701,11 @@ func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -715,7 +733,6 @@ func TestDenialKeepsHookVerdictAndRecordsAnswer(t *testing.T) {
 func TestEmptyDenialReasonGivesDefaultText(t *testing.T) {
 	out, client := deniedDeploy(t, "")
 	done, err := (Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", new(int))},
 		Hooks:  RequireApproval("deploy"),
@@ -735,14 +752,17 @@ func TestReplayRejectsStaleApprovalStep(t *testing.T) {
 		toolUse(toolCall("call-1", "deploy", `{}`)),
 	}}
 	out, err := (Runner{
-		Agent:  testAgent(),
 		Client: client,
 		Tools:  tool.List{countingTool("deploy", new(int))},
 		Hooks:  RequireApproval("deploy"),
 	}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -777,7 +797,7 @@ func TestCorruptRecordAfterCommitIsDistinct(t *testing.T) {
 		t.Fatalf("outcome dropped the recorded steps: %+v", out.Turn)
 	}
 	// A caller's invalid turn is a rejected command, not ErrRecordInvalid.
-	_, err := (Runner{Agent: testAgent(), Client: &scriptedClient{}}).Run(
+	_, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(),
 		rt.turn,
 		Continue{CommandID: "c"},

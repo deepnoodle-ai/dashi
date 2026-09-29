@@ -108,13 +108,10 @@ func runWithRef(
 	messages ...llm.Message,
 ) Outcome {
 	t.Helper()
-	if runner.Agent.ID == "" {
-		runner.Agent = testAgent()
-	}
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: messages},
+		Start{CommandID: "start", Agent: testAgent(), Input: messages},
 	)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -211,7 +208,6 @@ func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	runner := Runner{
-		Agent:           testAgent(),
 		Client:          client,
 		Recorder:        rec,
 		ContentResolver: resolver,
@@ -219,7 +215,7 @@ func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
 	first, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{refMessage(ref)}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{refMessage(ref)}},
 	)
 	if err != nil || first.Stop.Reason != StopReasonContentUnavailable ||
 		first.Stop.Terminal {
@@ -244,13 +240,14 @@ func TestRefInHistoryResolvesUnderTheCurrentTurnID(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	runner := Runner{Agent: testAgent(), Client: client, ContentResolver: resolver}
+	runner := Runner{Client: client, ContentResolver: resolver}
 
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "turn-2"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			History:   []llm.Message{refMessage(ref)},
 			Input:     []llm.Message{llm.UserMessage(llm.Text("and now?"))},
 		},
@@ -614,7 +611,6 @@ func TestRefPausedTurnResolvesAgainOnResume(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	runner := Runner{
-		Agent:           testAgent(),
 		Client:          client,
 		Recorder:        rec,
 		ContentResolver: resolver,
@@ -634,7 +630,7 @@ func TestRefPausedTurnResolvesAgainOnResume(t *testing.T) {
 	first, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{refMessage(ref)}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{refMessage(ref)}},
 		WithPause(pause),
 	)
 	if err != nil || first.Stop.Kind != StopInterrupted {
@@ -737,7 +733,6 @@ func TestRefStreamHydrates(t *testing.T) {
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
-		Agent:           testAgent(),
 		Client:          client,
 		ContentResolver: resolver,
 	}
@@ -746,7 +741,7 @@ func TestRefStreamHydrates(t *testing.T) {
 	for event, err := range runner.Stream(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{refMessage(ref)}},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{refMessage(ref)}},
 	) {
 		if err != nil {
 			t.Fatal(err)

@@ -16,7 +16,7 @@ func TestMalformedInputTurnReturnsErrorWithoutPanic(t *testing.T) {
 		Kind:    StepStarted,
 		Output:  &StructuredOutput{Value: json.RawMessage(`{bad`)},
 	}}}
-	out, err := (Runner{Agent: testAgent(), Client: &scriptedClient{}}).Run(
+	out, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(),
 		turn,
 		Continue{CommandID: "c"},
@@ -54,11 +54,11 @@ func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
 	}}
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 4
-	runner := Runner{Agent: agent, Client: client}
+	runner := Runner{Client: client}
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "t1"},
-		Start{CommandID: "start", Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+		Start{CommandID: "start", Agent: agent, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
 	)
 	if err != nil || len(out.Pending) != 1 {
 		t.Fatalf("start pending=%v err=%v", out.Pending, err)

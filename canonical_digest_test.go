@@ -269,7 +269,6 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		},
 	)
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -282,6 +281,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			History:   history,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
@@ -305,6 +305,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		turn,
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			History:   history,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
@@ -390,7 +391,6 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		},
 	)
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Tools:    tool.List{binding},
 		Recorder: rec,
@@ -402,6 +402,7 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			History:   history,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
@@ -464,7 +465,6 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	}
 	history := messyHistory()
 	runner := Runner{
-		Agent:    testAgent(),
 		Client:   client,
 		Recorder: rec,
 	}
@@ -473,6 +473,7 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{
 			CommandID: "start",
+			Agent:     testAgent(),
 			History:   history,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},

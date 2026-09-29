@@ -341,7 +341,8 @@ func (ts *Tasks) Recover(
 				continue
 			}
 			ref := dashi.CallRef{TurnID: turn.ID, CallID: callID}
-			if err := ts.adopt(ctx, r, loader, ref, call.Args, delivered); err != nil {
+			err := ts.adopt(ctx, r, view.Agent, loader, ref, call.Args, delivered)
+			if err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -352,6 +353,7 @@ func (ts *Tasks) Recover(
 func (ts *Tasks) adopt(
 	ctx context.Context,
 	parent dashi.Runner,
+	parentAgent dashi.Agent,
 	loader dashi.Loader,
 	ref dashi.CallRef,
 	rawArgs []byte,
@@ -377,7 +379,9 @@ func (ts *Tasks) adopt(
 			TaskID(childID), args.Subagent,
 		)
 	}
-	t, added, err := ts.register(ctx, sub, ref, args.Description, parent, child, view)
+	t, added, err := ts.register(
+		ctx, sub, ref, args.Description, parent, parentAgent, child, view,
+	)
 	if err != nil {
 		return err
 	}
@@ -401,6 +405,7 @@ func (ts *Tasks) register(
 	ref dashi.CallRef,
 	description string,
 	parent dashi.Runner,
+	parentAgent dashi.Agent,
 	child dashi.Turn,
 	view dashi.TurnView,
 ) (*task, bool, error) {
@@ -422,11 +427,9 @@ func (ts *Tasks) register(
 		return t, true, nil
 	}
 	t.steps = slices.Clone(child.Steps)
-	runner := ts.childRunner(sub, ref, parent, t)
-	// Continue with the agent the child recorded, so a change to the
-	// subagent since then cannot make the record and the runner disagree.
-	// startTask does the same.
-	runner.Agent = view.Agent
+	// Continue runs with the agent the child recorded, so a change to the
+	// subagent since then does not reach it. startTask does the same.
+	runner := ts.childRunner(sub, ref, parent, parentAgent, t)
 	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
@@ -740,9 +743,10 @@ func (ts *Tasks) startTask(
 	args taskArgs,
 	ref dashi.CallRef,
 	parent dashi.Runner,
+	parentAgent dashi.Agent,
 ) (TaskView, error) {
 	t := newTask(sub, ref, args.Description)
-	runner := ts.childRunner(sub, ref, parent, t)
+	runner := ts.childRunner(sub, ref, parent, parentAgent, t)
 	if !loads(runner.Recorder) {
 		ts.warnNoLoader()
 	}
@@ -782,13 +786,13 @@ func (ts *Tasks) startTask(
 	case !found:
 		start := dashi.Start{
 			CommandID: t.childID + "/start",
+			Agent:     childAgent(sub, parentAgent),
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
 		}
 		ts.launchLocked(ctx, t, runner, dashi.Turn{ID: t.childID}, start)
 	case t.resumable(saved):
 		t.steps = slices.Clone(saved.Steps)
-		runner.Agent = view.Agent
 		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
@@ -830,13 +834,27 @@ func mustStop(t dashi.Turn) dashi.Stop {
 	return s
 }
 
+// childAgent returns the child's Start.Agent. A Subagent that sets no model
+// uses the parent turn's current model.
+func childAgent(sub Subagent, parent dashi.Agent) dashi.Agent {
+	agent := sub.Agent
+	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
+		agent.Provider = parent.Provider
+		agent.API = parent.API
+		agent.Model = parent.Model
+	}
+	agent.ID = cmp.Or(agent.ID, sub.Name)
+	return agent
+}
+
 // childRunner builds the runner for one child. It starts from the runner that
-// runs the task call, applies the host's overrides, and replaces the agent and
-// tools. A Subagent that sets no model uses the parent's current model.
+// runs the task call, applies the host's overrides, and replaces the tools
+// with those the parent agent may use.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
 	parent dashi.Runner,
+	parentAgent dashi.Agent,
 	t *task,
 ) dashi.Runner {
 	over := ts.cfg.Runner
@@ -850,15 +868,11 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
-	agent := sub.Agent
-	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
-		agent.Provider = parent.Agent.Provider
-		agent.API = parent.Agent.API
-		agent.Model = parent.Agent.Model
+	runner.Tools = filtered{
+		parent:      parent.Tools,
+		parentAgent: parentAgent,
+		readOnly:    sub.ReadOnly,
 	}
-	agent.ID = cmp.Or(agent.ID, sub.Name)
-	runner.Agent = agent
-	runner.Tools = filtered{parent: parent.Tools, sub: sub}
 	template := over.Observer
 	onChild := ts.cfg.OnChild
 	runner.Observer = func(e dashi.Event) {
