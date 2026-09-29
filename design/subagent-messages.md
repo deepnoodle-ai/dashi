@@ -157,15 +157,16 @@ steer) the result holds the text. A plain read still returns the answer.
 - **Rendering.** A message is `llm.ReminderMessage(Reminder{Name:
   "agent-message", Tier: contextual, From: from, Content: text})`. A notice
   uses the name `task-ended`, with its current text as content. `From` is
-  `parent` or `task t_k3f2 (explore)`.
+  `parent` or `task t_k3f2 (explore)`; the helper that builds it strips
+  forbidden characters from the name and truncates to 64 bytes.
 - **`llm.Reminder.From`** (new, `json:"from,omitempty"`): at most 64 bytes of
   printable UTF-8 with no quote or angle bracket. `FormatReminder` writes it as
   `from="…"` after `name`.
 - **Escaping.** `FormatReminder` replaces `<` with `&lt;` where content holds
   `<system-reminder` or `</system-reminder`, ASCII case folded. The record
-  keeps the original text; the `render_reminder` change notes the escape.
-  This applies to every reminder, so no reminder content can close its tag
-  or open one.
+  keeps the original text; the `render_reminder` change notes the escape in
+  its reason, and `llm.ReminderEscapes` reports it. This applies to every
+  reminder, so no reminder content can close its tag or open one.
 - **Not escaped: tool results and user text** (PRD decision 4). A coding
   agent must see a file's bytes. A look-alike tag there stays inside its
   block, and no view, event, or record counts it as mail. Track 1 tests a
@@ -175,8 +176,10 @@ steer) the result holds the text. A plain read still returns the answer.
   per task and sends as that task. `Tasks` checks that `CurrentCall` is a turn
   of the expected session, parent or child, and fails the call otherwise.
 - **`ContextAgent`** (new origin, `"agent"`): content another agent in this
-  session tree sent. User role only, contextual reminders only, like
-  `ContextTool`. Queue turns it starts are `StartScheduled`.
+  session tree sent. User role only, contextual reminders only, with a
+  sender: `validateContext` requires exactly one contextual reminder with a
+  non-empty `From`, so live input, steering, the inbox, hooks, and replay
+  agree. Queue turns it starts are `StartScheduled`.
 
 ## Delivery once (tracks 3 and 4)
 

@@ -152,6 +152,9 @@ func Adapt(
 					m.Role == llm.RoleUser {
 					reason = "destination cannot preserve operator authority at this history position; rendered as user context"
 				}
+				if llm.ReminderEscapes(reminder) {
+					reason += "; reminder tags in content escaped"
+				}
 				changes = append(
 					changes,
 					llm.ContentChange{

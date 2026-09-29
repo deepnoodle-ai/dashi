@@ -155,8 +155,9 @@ it.
 approval is a separate response that never becomes a local call.
 
 Context from the user (`ContextUser`, also the meaning of an empty origin),
-the application's runtime (`ContextRuntime`), or a tool (`ContextTool`) uses
-the user role; only operator context (`ContextOperator`) and operator-origin
+the application's runtime (`ContextRuntime`), a tool (`ContextTool`), or
+another agent in the session tree (`ContextAgent`) uses the user role; only
+operator context (`ContextOperator`) and operator-origin
 starts may use a system or developer role, and the host authenticates that
 origin. A local executor's Go error settles the call as
 `tool.StateFailed` with the error text, and the turn continues; wrap it with

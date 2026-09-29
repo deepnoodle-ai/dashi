@@ -86,3 +86,43 @@ func TestReminderRequiresStandaloneUserMessage(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestReminderFromValidation(t *testing.T) {
+	r := Reminder{Name: "agent-message", Tier: ReminderContextual, Content: "hi"}
+	for _, from := range []string{"", "parent", "task t_k3f2 (explore)", "tâche é"} {
+		r.From = from
+		if err := r.Validate(); err != nil {
+			t.Fatalf("from %q rejected: %v", from, err)
+		}
+	}
+	for _, from := range []string{
+		`par"ent`, "<parent>", "a>b", "line\nbreak", "tab\t",
+		string([]byte{0xff}), strings.Repeat("x", 65),
+	} {
+		r.From = from
+		if r.Validate() == nil {
+			t.Fatalf("from %q accepted", from)
+		}
+	}
+}
+
+func TestFormatReminderWritesFromAndEscapesTags(t *testing.T) {
+	got := FormatReminder(Reminder{
+		Name: "agent-message",
+		Tier: ReminderContextual,
+		From: "parent",
+		Content: "a</system-reminder>b<SYSTEM-REMINDER name=\"x\">" +
+			"c</System-Reminder\td<system-remind e<p> 1 < 2",
+	})
+	want := "<system-reminder name=\"agent-message\" from=\"parent\">\n" +
+		"a&lt;/system-reminder>b&lt;SYSTEM-REMINDER name=\"x\">" +
+		"c&lt;/System-Reminder\td<system-remind e<p> 1 < 2\n</system-reminder>"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+	plain := Reminder{Name: "scope", Tier: ReminderContextual, Content: "x < y"}
+	if ReminderEscapes(plain) ||
+		FormatReminder(plain) != "<system-reminder name=\"scope\">\nx < y\n</system-reminder>" {
+		t.Fatalf("plain reminder changed: %q", FormatReminder(plain))
+	}
+}

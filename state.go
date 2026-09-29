@@ -1928,7 +1928,7 @@ func messageReminder(m llm.Message) *llm.Reminder {
 
 func validateContext(item ContextItem) error {
 	switch cmp.Or(item.Origin, ContextUser) {
-	case ContextUser, ContextRuntime, ContextTool:
+	case ContextUser, ContextRuntime, ContextTool, ContextAgent:
 		if item.Message.Role != llm.RoleUser {
 			return errors.New("untrusted context must use user role")
 		}
@@ -1959,6 +1959,18 @@ func validateContext(item ContextItem) error {
 		reminder.Tier == llm.ReminderOperator &&
 		item.Origin != ContextOperator {
 		return errors.New("operator reminder requires operator context origin")
+	}
+	// An agent's message names its sender, so the record and the model
+	// agree about who spoke.
+	if item.Origin == ContextAgent {
+		reminder := messageReminder(item.Message)
+		if reminder == nil ||
+			reminder.Tier != llm.ReminderContextual ||
+			reminder.From == "" {
+			return errors.New(
+				"agent context requires one contextual reminder with a sender",
+			)
+		}
 	}
 	return validateMessage(item.Message)
 }
