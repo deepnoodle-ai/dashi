@@ -394,10 +394,10 @@ recorded so they are not lost. The larger items (the session, the chat and
 string start, stop meanings, approvals, and the delegation loop) are item 14.
 None is counted among the 24 items above.
 
-- **`tool.ReadOnly()` and `tool.Idempotent()` options** (in
+- **`tool.ReadOnly()` and `tool.Idempotent()` options** (done in
   [PR #86](https://github.com/deepnoodle-ai/dashi/pull/86)). The flags decide
   resume reruns (decision 11) and subagent access, and setting them by mutation after construction is easy to forget.
-- **Hooks example durability bug** (in PR #86): its
+- **Hooks example durability bug** (done in PR #86): its
   `BeforeFinish` hook keeps `nudged` in a closure, so a resume in another
   process nudges again. Read the turn record instead.
 - **`tool.MustFunc`** for static tools, so a tool needs no `if err` block. Skip
