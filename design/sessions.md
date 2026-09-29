@@ -127,8 +127,9 @@ the turns it ran.
 
 Probing needs turns numbered from 1 without gaps. The session never skips a
 number: a `Start` always targets `last+1`. A host that deletes turns (later)
-must implement `SessionIndex`. `filerecorder` cannot list turns, so it probes
-rather than keep a side index, a second record to keep in step.
+must implement `SessionIndex`. `filerecorder` implements it by which turn logs
+exist, the same search over file names with no side index, so a damaged log
+is found without being read and is then skipped as unreadable.
 
 **Cache.** The handle caches loaded turns and their views. A turn with a
 terminal stop never changes its projection ([ended
@@ -137,7 +138,11 @@ projection is final. The handle reloads the last turn before each command.
 
 **Unreadable turns.** Building projected or conversation history skips a turn
 that fails to load or replay, and adds a `turn_unreadable` warning naming it, as
-the CLI does today. An unreadable *last* turn is an error.
+the CLI does today. An unreadable *last* turn is an error, since its liveness is
+unknown, except under `Exclusive`, where it has no worker: a new `Start` or
+queue turn leaves it out of the history with `turn_unreadable` and starts
+`S-(n+1)`. A keyed `Start` still fails, since the idempotency check cannot rule
+out that the turn holds its key.
 
 ## Concurrency and liveness
 
@@ -215,6 +220,8 @@ The first matching row applies:
 | Last turn | `Next()` | A new `Start` |
 |---|---|---|
 | None, or ended (completed, canceled, or a terminal limit) | `NextNone` | Starts |
+| Cannot be read, under `Exclusive` | unknown | Skips it with `turn_unreadable`, starts |
+| Cannot be read, without `Exclusive` | unknown | Returns the load error |
 | Live, or running on this handle | `NextRunning` | Refuses, no `CallID` |
 | Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
 | No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
@@ -339,9 +346,9 @@ once roadmap item 2 adds such a setting to `llm.Settings`.
 ## Errors and warnings
 
 Session warnings are not in any turn record, so the ones a turn run produces
-(`turn_closed`, `turn_unreadable`, `compaction_failed`, `compaction_mismatch`,
-and `memory_only` for the in-memory recorder) go on a new field,
-`Outcome.SessionWarnings []Warning`. `Steer`, `Enqueue`, and `EnqueueItem`
+(`turn_closed`, `turn_unreadable`, `queue_blocked`, `compaction_failed`,
+`compaction_mismatch`, and `memory_only` for the in-memory recorder) go on a new
+field, `Outcome.SessionWarnings []Warning`. `Steer`, `Enqueue`, and `EnqueueItem`
 return theirs in `Queued.Warnings`.
 
 | Name | Kind | When |
@@ -352,7 +359,8 @@ return theirs in `Queued.Warnings`.
 | `ErrCommandConflict` | error (engine) | Same key, different input |
 | `turn_closed` | warning | A new `Start` closed the last turn |
 | `memory_only` | warning | In-memory recorder; or input queued under a durable recorder |
-| `turn_unreadable` | warning | A turn was skipped while building history |
+| `turn_unreadable` | warning | A turn was skipped while building history, or an unreadable last turn under `Exclusive` |
+| `queue_blocked` | warning | A reservation cannot be settled, so the queue waits ([session-input.md](session-input.md)) |
 | `compaction_failed`, `compaction_mismatch` | warning | See [session-input.md](session-input.md#compaction-turns) |
 | `tool_not_offered` | recorded warning | See [session-engine.md](session-engine.md#tool-selection) |
 
@@ -365,8 +373,8 @@ plus one to load the last turn, through `StepReader` and through `Loader` alone,
 and session IDs with dashes find their own turns beside IDs that share a
 prefix). The read bound is a property of the search, so a root test checks it
 at 64 and 1,000 turns on `MemoryRecorder`. Both are part of `dashitest.Run`, so
-`filerecorder` and `MemoryRecorder` run both; neither implements `SessionIndex`,
-so they pass by probing, and a test store checks the index. Backends that
+`filerecorder` and `MemoryRecorder` run both; `MemoryRecorder` passes by
+probing, and `filerecorder` and a test store check the index. Backends that
 skipped a shared suite have diverged elsewhere (ADK-Go #679, #1329).
 
 A lost-worker check expires the old claim during a model call, then during a

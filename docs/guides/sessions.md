@@ -39,7 +39,8 @@ the scripted `dashitest.Client`, with a tool call and a denied call.
   recorder lets any handle, in any process, reopen the session. The session
   finds its last turn by probing turn IDs through `StepReader` or `Loader`,
   about 2·log2(n) reads; a recorder can answer in one with `SessionIndex`.
-  `filerecorder` probes. `dashitest.Run` checks both.
+  `filerecorder` implements it by which turn logs exist, so finding the last
+  turn reads none of them. `dashitest.Run` checks both.
 - **Open.** `s.Open(ctx)` reports the last turn's view and `Next`; it never
   runs anything.
 
@@ -122,9 +123,12 @@ Scheduled and operator turns do not pass their agent on.
 ## Warnings
 
 `Outcome.SessionWarnings` holds what no turn records: `turn_closed`,
-`memory_only`, and `turn_unreadable`, for a turn left out of the history
-because it could not be loaded or projected. An unreadable last turn is an
-error.
+`memory_only`, `queue_blocked` (below), and `turn_unreadable`, for a turn left
+out of the history because it could not be loaded or projected. An unreadable
+last turn is an error, since its worker may still run it, unless the handle
+sets `Exclusive`: then no worker does, so a new turn or queue turn leaves it
+out with `turn_unreadable` and starts after it. A keyed `Start` still fails,
+since that turn may hold its key.
 
 ## Steering and queued input
 
@@ -161,9 +165,13 @@ first, ahead of its own input, since the user typed them first; other items
 run as a queue turn after it.
 
 **Nothing is lost or doubled.** An item stays queued, in its place, until the
-session knows whether the `Start` that carried it recorded its first step.
-When the result is unclear, the session loads the turn to decide, and if the
-load fails the item stays reserved until the next command settles it. A steer
+session knows whether the `Start` that carried it recorded its first step. A
+`turn_started` event the run already reported proves it did. When the result
+is unclear, the session loads the turn to decide. If the load fails, the item
+stays reserved: new commands still run, but the queue waits, each outcome
+warns `queue_blocked`, and `RunQueue` returns the error until the turn can be
+read. A queue turn whose `queue:` key a recent turn already started is a
+duplicate, so its items are dropped as delivered. A steer
 that misses its turn moves to the queue when the turn ends or a new `Start`
 closes it; while the turn can still be continued, the steer waits for its
 `Continue`.

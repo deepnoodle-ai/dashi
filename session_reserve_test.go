@@ -101,11 +101,10 @@ func TestSessionReservedItems(t *testing.T) {
 				}
 				s.Agent.Provider = ""
 				if tc.loadFails > 0 {
-					// Still reserved: the next command cannot settle them
-					// either, and runs nothing.
-					if _, err := s.Open(t.Context()); err == nil ||
-						!strings.Contains(err.Error(), "stay reserved") {
-						t.Fatalf("open: %v", err)
+					// Still reserved after Open fails to settle them too;
+					// Open itself works (TestSessionQueueBlocked).
+					if st, err := s.Open(t.Context()); err != nil || st.Queued != 2 {
+						t.Fatalf("open: %+v, %v", st, err)
 					}
 				}
 				want := 2
@@ -155,4 +154,96 @@ func TestSessionReservedItems(t *testing.T) {
 			})
 		}
 	}
+}
+
+// writeOnly is a recorder that can only commit.
+type writeOnly struct{ rec dashi.Recorder }
+
+func (w writeOnly) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	return w.rec.Commit(ctx, req)
+}
+
+// A Stream consumer that breaks after the turn_started event has seen the
+// start commit, so the queued items it carried are consumed even when the
+// recorder cannot load the turn to check.
+func TestSessionStreamBreakWriteOnly(t *testing.T) {
+	mem := dashi.NewMemoryRecorder()
+	s := handle(writeOnly{mem}, dashitest.NewClient(dashitest.Reply("unused")))
+	s.New = true
+	if _, err := s.Enqueue(t.Context(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	for ev, err := range s.Stream(t.Context(), dashi.Say("hi")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+			break
+		}
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 0 {
+		t.Fatalf("open: %+v, %v", st, err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || ran {
+		t.Fatalf("run queue: %v, %v", ran, err)
+	}
+	if got := input(t, mem, "s-1"); !slices.Equal(got, []string{"a", "hi"}) {
+		t.Fatalf("turn 1 input=%q", got)
+	}
+}
+
+// ackLost loses the acknowledgement of turn s-1's start, whose record then
+// cannot be read.
+type ackLost struct {
+	*dashi.MemoryRecorder
+	lost atomic.Bool
+}
+
+func (r *ackLost) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	err := r.MemoryRecorder.Commit(ctx, req)
+	if err == nil && req.Step.TurnID == "s-1" && req.Step.Kind == dashi.StepStarted {
+		r.lost.Store(true)
+		return errors.New("acknowledgement lost")
+	}
+	return err
+}
+
+func (r *ackLost) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	if id == "s-1" && r.lost.Load() {
+		return dashi.Turn{}, errors.New("disk error")
+	}
+	return r.MemoryRecorder.Load(ctx, id)
+}
+
+// A reservation the session cannot settle holds back only the queue: new
+// commands and Open run, each outcome warns queue_blocked, and RunQueue
+// returns the error.
+func TestSessionQueueBlocked(t *testing.T) {
+	mem := dashi.NewMemoryRecorder()
+	rec := &ackLost{MemoryRecorder: mem}
+	s := handle(rec, dashitest.NewClient(dashitest.Reply("ok")))
+	s.New = true
+	s.Exclusive = true // so the session skips the unreadable turn 1
+	if _, err := s.Enqueue(t.Context(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Send(t.Context(), "hi"); err == nil {
+		t.Fatal("the lost start succeeded")
+	}
+	out, err := s.Send(t.Context(), "next")
+	if err != nil || out.Turn.ID != "s-2" ||
+		!hasWarning(out.SessionWarnings, dashi.WarningQueueBlocked) {
+		t.Fatalf("send: %v, turn %s, warnings %v", err, out.Turn.ID, out.SessionWarnings)
+	}
+	if got := input(t, mem, "s-2"); !slices.Equal(got, []string{"next"}) {
+		t.Fatalf("turn 2 input=%q", got)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 1 {
+		t.Fatalf("open: %+v, %v", st, err)
+	}
+	_, ran, err := s.RunQueue(t.Context())
+	if ran || err == nil || !strings.Contains(err.Error(), "stay reserved") {
+		t.Fatalf("run queue: %v, %v", ran, err)
+	}
+	requireTurns(t, mem, 2)
 }

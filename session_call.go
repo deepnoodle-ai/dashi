@@ -53,7 +53,11 @@ func (s *Session) Stream(
 // the items wait. A queue turn's Start has the command ID "queue:" and the
 // sorted item IDs in JSON, origin StartUser when any item came from the
 // user and StartScheduled otherwise, and the items' messages as Input, in
-// queue order.
+// queue order. A queue turn whose key a turn in the idempotency window
+// already started is a duplicate: its items were delivered, so they leave
+// the queue and nothing runs. While queued items stay reserved for a turn
+// the session cannot read, RunQueue returns that error and runs nothing;
+// the outcomes of other commands warn WarningQueueBlocked meanwhile.
 func (s *Session) RunQueue(
 	ctx context.Context,
 	opts ...RunOption,
@@ -80,6 +84,10 @@ type call struct {
 	yield func(Event, error) bool
 	// stopped is set once the consumer broke the range.
 	stopped bool
+	// started is set when the last exec of a Start saw its turn_started
+	// step: the engine reports a step only once it committed, so the
+	// queued items the Start carried were delivered.
+	started bool
 }
 
 func (cl *call) run(ctx context.Context, c Command) (Outcome, error) {
@@ -109,7 +117,9 @@ func (cl *call) dispatch(
 	for err == nil && !cl.stopped && ctx.Err() == nil &&
 		out.Next() == NextNone {
 		next, ran, qerr := cl.queueTurn(ctx)
-		if !ran && qerr == nil {
+		if !ran && (qerr == nil || errors.Is(qerr, errReserved)) {
+			// Nothing ran, or the queue waits on a reservation, which the
+			// outcome already warns of.
 			break
 		}
 		if cl.yield == nil {
@@ -142,7 +152,7 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 			if err == nil && p.done == nil {
 				// The turn was planned but never ran: release it, and put
 				// the queued items it carried back.
-				s.finish(ctx, p.n, p.id, Outcome{}, context.Canceled, nil, p.reserved)
+				s.finish(ctx, p.n, p.id, Outcome{}, context.Canceled, nil, p.reserved, false)
 			}
 			return Outcome{}, context.Canceled
 		}
@@ -160,7 +170,7 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 			return Outcome{}, cl.fail(err)
 		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
-		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved)
+		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved, cl.started)
 		if attempt == 0 && (lostStart(err) || !fresh && takenKey(err)) {
 			continue
 		}
@@ -186,7 +196,7 @@ func (cl *call) command(ctx context.Context, c Command) (Outcome, error) {
 		return Outcome{}, cl.fail(err)
 	}
 	out, err := cl.exec(ctx, p.runner, p.turn, c)
-	out, err = s.finish(ctx, p.n, p.turn.ID, out, err, p.warnings, nil)
+	out, err = s.finish(ctx, p.n, p.turn.ID, out, err, p.warnings, nil, false)
 	cl.report(out, err)
 	return out, err
 }
@@ -200,6 +210,10 @@ func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 		s.mu.Lock()
 		p, ok, err := s.planQueue(ctx)
 		s.mu.Unlock()
+		if errors.Is(err, errReserved) {
+			// The queue waits; each outcome warns WarningQueueBlocked.
+			return Outcome{}, false, err
+		}
 		if err != nil {
 			return Outcome{}, false, cl.fail(err)
 		}
@@ -207,7 +221,7 @@ func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 			return Outcome{}, false, nil
 		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
-		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved)
+		out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, p.reserved, cl.started)
 		if attempt == 0 && lostStart(err) {
 			continue
 		}
@@ -230,8 +244,12 @@ func (cl *call) exec(
 	source := cl.s.steering()
 	cl.s.mu.Unlock()
 	opts := append([]RunOption{WithSteering(source)}, cl.opts...)
+	cl.started = false
 	if cl.yield == nil {
-		return r.Run(ctx, turn, c, opts...)
+		out, err := r.Run(ctx, turn, c, opts...)
+		cl.started = len(out.Turn.Steps) > 0 &&
+			startedBy(&out.Turn.Steps[0], turn.ID, c)
+		return out, err
 	}
 	var out Outcome
 	var runErr error
@@ -248,6 +266,9 @@ func (cl *call) exec(
 		if ev.TurnID == "" {
 			ev.TurnID = turn.ID
 		}
+		if ev.Step != nil && startedBy(ev.Step, turn.ID, c) {
+			cl.started = true
+		}
 		if !cl.yield(ev, nil) {
 			cl.stopped = true
 			break
@@ -262,6 +283,14 @@ func (cl *call) exec(
 		}
 	}
 	return out, runErr
+}
+
+// startedBy reports whether step is the turn_started step that Start c
+// committed for turn turnID.
+func startedBy(step *Step, turnID string, c Command) bool {
+	start, ok := c.(Start)
+	return ok && step.Kind == StepStarted && step.TurnID == turnID &&
+		step.CommandID == start.CommandID
 }
 
 // report yields a turn's Outcome event, or the error alone when nothing
@@ -303,7 +332,8 @@ func (cl *call) forward(events []Event) bool {
 
 // follow yields the steps of a running turn this call is a retry of, then
 // each new step as it commits, and ends with the turn's Outcome event at
-// its next stop. Without a recorder that can read steps, it returns busy.
+// its next stop, or at once when the loaded turn already rests at one.
+// Without a recorder that can read steps, it returns busy.
 func (cl *call) follow(
 	ctx context.Context,
 	turnID string,
@@ -330,6 +360,11 @@ func (cl *call) follow(
 			return Outcome{}, context.Canceled
 		}
 	}
+	// The turn stopped after the duplicate check. Follow would wait while
+	// it rests at a stop that has not ended it, so report it now.
+	if n := len(turn.Steps); n > 0 && turn.Steps[n-1].Kind == StepStopped {
+		return cl.reportTurn(turn)
+	}
 	for step, err := range Follow(ctx, reader, turnID, after) {
 		if err != nil {
 			return Outcome{}, cl.fail(err)
@@ -348,6 +383,11 @@ func (cl *call) follow(
 	if err != nil {
 		return Outcome{}, cl.fail(err)
 	}
+	return cl.reportTurn(turn)
+}
+
+// reportTurn yields the Outcome event of a followed turn.
+func (cl *call) reportTurn(turn Turn) (Outcome, error) {
 	view, err := Replay(turn)
 	if err != nil {
 		return Outcome{}, cl.fail(err)

@@ -294,17 +294,24 @@ func itemMessages(items []*queuedItem) []llm.Message {
 }
 
 // settle decides the fate of reserved items from the result of the Start
-// that carried them. Success consumes them. Proof that the Start's
-// turn_started step was not recorded restores them in order. Anything else
-// is inconclusive, and the session loads the turn: a turn_started step with
-// the Start's command ID consumes them, a missing one restores them, and a
-// failed load keeps them reserved and adds its error. The caller holds mu.
-func (s *Session) settle(ctx context.Context, r *reservation, err error) error {
+// that carried them. Success consumes them, and so does a turn_started
+// event the run already reported (started): the engine emits a step only
+// once it committed. Proof that the Start's turn_started step was not
+// recorded restores them in order. Anything else is inconclusive, and the
+// session loads the turn: a turn_started step with the Start's command ID
+// consumes them, a missing one restores them, and a failed load keeps them
+// reserved and adds its error. The caller holds mu.
+func (s *Session) settle(
+	ctx context.Context,
+	r *reservation,
+	started bool,
+	err error,
+) error {
 	r.open = false
 	switch {
-	case err == nil:
+	case err == nil || started:
 		s.release(r, true)
-		return nil
+		return err
 	case notStarted(err):
 		s.release(r, false)
 		return err
@@ -315,8 +322,14 @@ func (s *Session) settle(ctx context.Context, r *reservation, err error) error {
 	return err
 }
 
+// errReserved marks a reservation the session cannot settle: it cannot
+// tell whether a turn took the queued items. New commands still run, but
+// the queue waits, so its items never run out of order or twice.
+var errReserved = errors.New("dashi: queued items stay reserved")
+
 // settleReserved settles the reservations of Starts that ended with an
-// unknown result, before the next command. The caller holds mu.
+// unknown result. It returns an error matching errReserved when one cannot
+// be settled; only the queue waits on it. The caller holds mu.
 func (s *Session) settleReserved(ctx context.Context) error {
 	var pending []*reservation
 	for _, q := range s.queue {
@@ -337,8 +350,8 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 	loader, ok := s.recorder().(Loader)
 	if !ok {
 		return fmt.Errorf(
-			"dashi: queued items stay reserved: turn %s cannot be loaded "+
-				"to learn whether it started",
+			"%w: turn %s cannot be loaded to learn whether it started",
+			errReserved,
 			id,
 		)
 	}
@@ -352,12 +365,38 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 		s.release(r, false)
 	default:
 		return fmt.Errorf(
-			"dashi: queued items stay reserved until turn %s can be read: %w",
+			"%w until turn %s can be read: %w",
+			errReserved,
 			id,
 			err,
 		)
 	}
 	return nil
+}
+
+// queueBlocked returns a WarningQueueBlocked while a reservation cannot be
+// settled. The caller holds mu.
+func (s *Session) queueBlocked() []Warning {
+	n := 0
+	var id string
+	for _, q := range s.queue {
+		if r := q.reserved; r != nil && !r.open {
+			n++
+			id = TurnID(s.ID, r.n)
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return []Warning{{
+		Code: WarningQueueBlocked,
+		Message: fmt.Sprintf(
+			"%d queued items wait, and the queue with them, until the session "+
+				"can read turn %s to learn whether it took them",
+			n,
+			id,
+		),
+	}}
 }
 
 // release consumes a reservation's items or puts them back in place.
@@ -396,7 +435,11 @@ func notStarted(err error) bool {
 }
 
 // planQueue chooses a queue turn for every free item, when the session is
-// idle. The caller holds mu.
+// idle. It fails with errReserved while a reservation cannot be settled,
+// since items that turn may have taken would otherwise run out of order.
+// When a turn in the idempotency window already started with the same
+// queue: key, the items were delivered: it consumes them and starts
+// nothing. The caller holds mu.
 func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 	s.ready()
 	if err := s.settleReserved(ctx); err != nil {
@@ -417,12 +460,17 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, false, err
 	}
+	var p startPlan
+	upTo := last // the turns the history holds
 	if last > 0 {
-		t, err := s.load(ctx, last)
+		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
 			return startPlan{}, false, err
 		}
-		if s.refine(ctx, t).next != NextNone {
+		if skip != nil {
+			p.warnings = append(p.warnings, *skip)
+			upTo = last - 1
+		} else if s.refine(ctx, t).next != NextNone {
 			return startPlan{}, false, nil
 		}
 	}
@@ -442,12 +490,42 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 		Origin:    origin,
 		Input:     itemMessages(items),
 	}
-	var p startPlan
-	c.History, p.warnings = s.history(ctx, last)
+	used, err := s.usedKey(ctx, c.CommandID, upTo)
+	if err != nil {
+		return startPlan{}, false, err
+	}
+	if used {
+		s.release(s.reserve(items, c.CommandID, 0), true)
+		return startPlan{}, false, nil
+	}
+	history, unreadable := s.history(ctx, upTo)
+	p.warnings = append(p.warnings, unreadable...)
+	c.History = history
 	c.Agent = s.agentFor(ctx, Agent{}, last)
 	p.reserved = s.reserve(items, c.CommandID, last+1)
 	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
 	s.running[p.id]++
 	s.driving = p.id
 	return p, true, nil
+}
+
+// usedKey reports whether a turn in the idempotency window, from turn n
+// back through the newest turn a caller's Start began, started with key.
+// A turn that fails to load fails the check, since a missed key would
+// deliver the items twice. The caller holds mu.
+func (s *Session) usedKey(ctx context.Context, key string, n int) (bool, error) {
+	for ; n >= 1; n-- {
+		t, err := s.load(ctx, n)
+		if err != nil {
+			return false, err
+		}
+		id := t.turn.Steps[0].CommandID
+		if id == key {
+			return true, nil
+		}
+		if !internalKey(id) {
+			return false, nil
+		}
+	}
+	return false, nil
 }

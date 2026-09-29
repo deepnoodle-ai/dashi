@@ -51,7 +51,9 @@ type Session struct {
 	// Exclusive promises that this handle is the only driver of the session
 	// and that earlier drivers have exited, so a turn this handle is not
 	// running has no worker. It proves nothing about effects they started:
-	// an unsettled uncertain call still makes a turn busy.
+	// an unsettled uncertain call still makes a turn busy. A last turn that
+	// cannot be read is skipped with a warning rather than blocking the
+	// session.
 	Exclusive bool
 
 	// mu guards everything below. Run holds it while choosing the turn and
@@ -222,7 +224,9 @@ func (s *Session) Answer(
 // after the idempotency check and the last-turn rules: it returns the
 // earlier result of a retried command ID, refuses with *TurnBusyError while
 // the last turn is busy, and otherwise closes a stopped last turn and
-// starts. Queued user input (see Enqueue) goes ahead of the Start's Input.
+// starts. A last turn that cannot be read is an error, except under
+// Exclusive: then the Start leaves it out of the history with a
+// WarningTurnUnreadable and starts the turn after it. Queued user input (see Enqueue) goes ahead of the Start's Input.
 // Any other command (Continue, Settle, Deliver, Cancel) goes to the last
 // turn. The session sets Start.History and Continue.History to the
 // projected history of the turns before the target turn, replacing any the
@@ -275,9 +279,8 @@ func (s *Session) Open(ctx context.Context) (SessionState, error) {
 	if s.ID == "" {
 		return SessionState{Next: NextNone, Queued: queued}, nil
 	}
-	if err := s.settleReserved(ctx); err != nil {
-		return SessionState{}, err
-	}
+	// A reservation that cannot be settled holds only the queue back.
+	_ = s.settleReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return SessionState{}, err
@@ -318,9 +321,8 @@ func (s *Session) planCommand(
 	if s.ID == "" {
 		return commandPlan{}, ErrSessionNotFound
 	}
-	if err := s.settleReserved(ctx); err != nil {
-		return commandPlan{}, err
-	}
+	// A reservation that cannot be settled holds only the queue back.
+	_ = s.settleReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return commandPlan{}, err
@@ -399,9 +401,9 @@ func (s *Session) planStart(
 		s.ID = NewID()
 		s.created = true
 	}
-	if err := s.settleReserved(ctx); err != nil {
-		return startPlan{}, err
-	}
+	// A reservation that cannot be settled holds only the queue back; its
+	// items are not free, so this Start does not take them.
+	_ = s.settleReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return startPlan{}, err
@@ -419,24 +421,34 @@ func (s *Session) planStart(
 	// even while its first turn runs.
 	s.created = true
 	var p startPlan
+	upTo := last // the turns the history holds
 	if last > 0 {
-		closed, events, err := s.closeLast(ctx, last, opts, stream)
-		p.closing = events
+		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
 			return p, err
 		}
-		if closed {
-			p.warnings = append(p.warnings, Warning{
-				Code: WarningTurnClosed,
-				Message: fmt.Sprintf(
-					"turn %s was closed: %s",
-					TurnID(s.ID, last),
-					CloseReason,
-				),
-			})
+		if skip != nil {
+			p.warnings = append(p.warnings, *skip)
+			upTo = last - 1
+		} else {
+			closed, events, err := s.closeLast(ctx, last, t, opts, stream)
+			p.closing = events
+			if err != nil {
+				return p, err
+			}
+			if closed {
+				p.warnings = append(p.warnings, Warning{
+					Code: WarningTurnClosed,
+					Message: fmt.Sprintf(
+						"turn %s was closed: %s",
+						TurnID(s.ID, last),
+						CloseReason,
+					),
+				})
+			}
 		}
 	}
-	history, unreadable := s.history(ctx, last)
+	history, unreadable := s.history(ctx, upTo)
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
 	c.Agent = s.agentFor(ctx, c.Agent, last)
@@ -514,6 +526,29 @@ func (s *Session) duplicate(
 	return nil, nil
 }
 
+// readLast loads the last turn before a new turn starts. Without Exclusive,
+// a last turn that cannot be read is an error: its worker may still run it.
+// Under Exclusive it has no worker, so the session skips it: t is nil, and
+// skip is the turn_unreadable warning for the new turn's outcome. The
+// caller holds mu.
+func (s *Session) readLast(
+	ctx context.Context,
+	last int,
+) (t *sessionTurn, skip *Warning, err error) {
+	t, err = s.load(ctx, last)
+	if err == nil || !s.Exclusive || ctx.Err() != nil {
+		return t, nil, err
+	}
+	return nil, &Warning{
+		Code: WarningTurnUnreadable,
+		Message: fmt.Sprintf(
+			"turn %s was left out of the history, and the next turn starts after it: %v",
+			TurnID(s.ID, last),
+			err,
+		),
+	}, nil
+}
+
 // closeLast applies the last-turn rules to a new Start: it returns an error
 // when the turn is busy, closes a stopped turn that has not ended, and
 // reports whether it closed one. Steers the closed turn never recorded move
@@ -521,13 +556,10 @@ func (s *Session) duplicate(
 func (s *Session) closeLast(
 	ctx context.Context,
 	last int,
+	t *sessionTurn,
 	opts []RunOption,
 	stream bool,
 ) (bool, []Event, error) {
-	t, err := s.load(ctx, last)
-	if err != nil {
-		return false, nil, err
-	}
 	r := s.refine(ctx, t)
 	if busy := r.busy(t, s.Exclusive); busy != nil {
 		return false, nil, busy
@@ -550,6 +582,7 @@ func (s *Session) closeLast(
 	}
 	var out Outcome
 	var events []Event
+	var err error
 	if stream {
 		// The consumer gets these events after the lock is released.
 		out, events, err = collectRun(ctx, s.runner(), t.turn, closing, opts)
@@ -572,8 +605,9 @@ func (s *Session) closeLast(
 }
 
 // finish records a command's result in the cache, settles the queued items
-// it carried, moves missed steers to the queue when its turn ended, and
-// adds the session's warnings to its outcome. Clearing the running turn and
+// it carried (started: the run reported its turn_started step), moves
+// missed steers to the queue when its turn ended, and adds the session's
+// warnings to its outcome. Clearing the running turn and
 // moving missed steers happen under one lock, so a steer is either in the
 // inbox when they move or goes to the queue itself.
 func (s *Session) finish(
@@ -584,6 +618,7 @@ func (s *Session) finish(
 	err error,
 	warnings []Warning,
 	reserved *reservation,
+	started bool,
 ) (Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -594,7 +629,7 @@ func (s *Session) finish(
 		s.driving = ""
 	}
 	if reserved != nil {
-		err = s.settle(ctx, reserved, err)
+		err = s.settle(ctx, reserved, started, err)
 	}
 	if out.Turn.ID == id && len(out.Turn.Steps) > 0 {
 		s.store(n, out.Turn)
@@ -604,6 +639,7 @@ func (s *Session) finish(
 		s.moveLeftovers(out.Turn)
 	}
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
+	out.SessionWarnings = append(out.SessionWarnings, s.queueBlocked()...)
 	return s.withMemoryWarningLocked(out), err
 }
 

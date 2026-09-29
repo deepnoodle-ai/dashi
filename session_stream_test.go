@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
@@ -178,6 +180,52 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	steps := got.steps["s-1"]
 	if steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
 		t.Fatalf("steps=%v", steps)
+	}
+	requireTurns(t, rec, 1)
+}
+
+// staleLoad serves each turn once without its last step, as a read that
+// raced the turn's stop would.
+type staleLoad struct {
+	*liveRecorder
+	stale atomic.Bool
+}
+
+func (r *staleLoad) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	turn, err := r.liveRecorder.Load(ctx, id)
+	if err == nil && len(turn.Steps) > 1 && r.stale.CompareAndSwap(true, false) {
+		turn.Steps = turn.Steps[:len(turn.Steps)-1]
+	}
+	return turn, err
+}
+
+// A followed duplicate that stopped after the duplicate check, at a stop
+// that has not ended it, is reported at once rather than waited on.
+func TestSessionStreamFollowsStoppedDuplicate(t *testing.T) {
+	rec := &staleLoad{liveRecorder: newLiveRecorder()}
+	client := dashitest.NewClient()
+	s := handle(rec, client)
+	s.New = true
+	pause := make(chan struct{})
+	close(pause)
+	start := dashi.Say("hi")
+	start.CommandID = "k"
+	if _, err := s.Run(t.Context(), start, dashi.WithPause(pause)); err != nil {
+		t.Fatal(err)
+	}
+	// The duplicate check reads the turn before its stop, which a live
+	// worker makes NextRunning; the follow then loads the stopped turn.
+	rec.set(dashi.LivenessLive)
+	rec.stale.Store(true)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	got := drain(t, handle(rec, client).Stream(ctx, start))
+	if ctx.Err() != nil {
+		t.Fatal("the stream waited on a stopped turn")
+	}
+	if len(got.errs) != 0 || !slices.Equal(got.outcomes, []string{"s-1"}) ||
+		got.last.Next() != dashi.NextContinue {
+		t.Fatalf("errs=%v outcomes=%v next=%s", got.errs, got.outcomes, got.last.Next())
 	}
 	requireTurns(t, rec, 1)
 }

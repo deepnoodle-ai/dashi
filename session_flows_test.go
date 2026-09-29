@@ -395,13 +395,17 @@ func TestSessionHistory(t *testing.T) {
 }
 
 // TestSessionUnreadableTurn leaves a turn that cannot be loaded out of the
-// history with a warning; an unreadable last turn is an error.
+// history with a warning. An unreadable last turn is an error, since its
+// worker may still run it, except under Exclusive: then it has no worker,
+// so a new turn and a queue turn skip it with a warning.
 func TestSessionUnreadableTurn(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(
 		dashitest.Reply("one"),
 		dashitest.Reply("two"),
 		dashitest.Reply("three"),
+		dashitest.Reply("four"),
+		dashitest.Reply("five"),
 	)
 	s := handle(rec, client)
 	s.New = true
@@ -422,6 +426,31 @@ func TestSessionUnreadableTurn(t *testing.T) {
 	if _, err := handle(broken, client).Send(t.Context(), "fourth"); err == nil {
 		t.Fatal("an unreadable last turn was accepted")
 	}
+
+	exclusive := handle(broken, client)
+	exclusive.Exclusive = true
+	out, err = exclusive.Send(t.Context(), "fourth")
+	if err != nil || out.Turn.ID != "s-4" ||
+		!hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) {
+		t.Fatalf("send: %v, turn %s, warnings %v", err, out.Turn.ID, out.SessionWarnings)
+	}
+	if got := texts(client.Inputs()[3].Messages); got != "hi|one|hi|two|fourth" {
+		t.Fatalf("fourth call saw %q", got)
+	}
+
+	broken.id = dashi.TurnID("s", 4)
+	exclusive = handle(broken, client)
+	exclusive.Exclusive = true
+	if _, err := exclusive.Enqueue(t.Context(), "queued"); err != nil {
+		t.Fatal(err)
+	}
+	out, ran, err := exclusive.RunQueue(t.Context())
+	if err != nil || !ran || out.Turn.ID != "s-5" ||
+		!hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) {
+		t.Fatalf("run queue: %v, %v, turn %s, warnings %v",
+			err, ran, out.Turn.ID, out.SessionWarnings)
+	}
+	requireTurns(t, rec, 5)
 }
 
 // TestSessionCarryForward merges each new turn's agent field by field from

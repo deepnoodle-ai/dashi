@@ -454,3 +454,29 @@ func TestSessionDispatchKeepsWarnings(t *testing.T) {
 		t.Fatalf("warnings=%+v", out.SessionWarnings)
 	}
 }
+
+// A queue turn whose queue: key a turn in the idempotency window already
+// started is a duplicate: its items were delivered, so they are consumed
+// and no turn starts.
+func TestSessionQueueUsedKey(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	s := handle(rec, dashitest.NewClient(dashitest.Reply("ok")))
+	s.New = true
+	note := dashi.ContextItem{ID: "n1", Message: llm.UserMessage(llm.Text("note"))}
+	if _, err := s.EnqueueItem(t.Context(), note); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || !ran {
+		t.Fatalf("run queue: %v, %v", ran, err)
+	}
+	if _, err := s.EnqueueItem(t.Context(), note); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || ran {
+		t.Fatalf("second run queue: %v, %v", ran, err)
+	}
+	if n := queued(t, s); n != 0 {
+		t.Fatalf("queued=%d", n)
+	}
+	requireTurns(t, rec, 1)
+}

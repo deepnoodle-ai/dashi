@@ -61,7 +61,7 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 			// The failed run returned the recorded steps, so the handle
 			// made the session.
 			s.created = started
-			err := s.settle(ctx, res, invalid)
+			err := s.settle(ctx, res, false, invalid)
 			n := len(s.queue)
 			s.mu.Unlock()
 			if err != invalid {
