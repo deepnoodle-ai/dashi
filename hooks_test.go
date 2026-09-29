@@ -896,7 +896,8 @@ func TestJoinHooksSkipsNil(t *testing.T) {
 		return ToolDecision{}, nil
 	}
 	var extra HookSet
-	got := JoinHooks(toolHook("a", noop), extra, nil)
+	var typed *ModelHook
+	got := JoinHooks(toolHook("a", noop), extra, nil, typed)
 	if names := hookNames(got.BeforeTool); !slices.Equal(names, []string{"a"}) {
 		t.Fatalf("got %v; want [a]", names)
 	}

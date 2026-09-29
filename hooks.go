@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -136,11 +137,12 @@ func (h Hooks) Hooks() Hooks {
 
 // JoinHooks returns the hooks of hs in order, in new slices, so later
 // changes to either side do not affect the other. Pass hooks directly, as
-// in JoinHooks(onCall, guard), or whole sets. A nil set is skipped.
+// in JoinHooks(onCall, guard), or whole sets. A nil set is skipped,
+// including a nil pointer such as a *ModelHook.
 func JoinHooks(hs ...HookSet) Hooks {
 	var out Hooks
 	for _, set := range hs {
-		if set == nil {
+		if isNilHookSet(set) {
 			continue
 		}
 		h := set.Hooks()
@@ -151,6 +153,16 @@ func JoinHooks(hs ...HookSet) Hooks {
 		out.BeforeFinish = append(out.BeforeFinish, h.BeforeFinish...)
 	}
 	return out
+}
+
+// isNilHookSet reports whether set is nil or holds a nil pointer, whose
+// value-receiver Hooks method would panic.
+func isNilHookSet(set HookSet) bool {
+	if set == nil {
+		return true
+	}
+	v := reflect.ValueOf(set)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 // WithHooks adds hooks for one Run or Stream call, after Runner.Hooks. Use it
