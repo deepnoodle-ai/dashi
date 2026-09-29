@@ -101,7 +101,10 @@ While a command runs, `bash` calls `tool.Report` up to four times a second.
 
 `ApprovalRequest` carries a one-line `Summary`. For `write_file` and
 `edit_file` it carries a unified diff in `Preview`. For `bash` it carries the
-exact `Command` and the workspace `Dir`. The policy reads the files in the
+exact `Command` and the workspace `Dir`. The fields hold text that the model controls. A host must not print them raw:
+an escape sequence or a carriage return can rewrite the prompt. Show
+`ApprovalRequest.Printable()` instead. It replaces control characters with
+visible marks and keeps newline and tab. The policy reads the files in the
 workspace to build previews. An `edit_file` call that cannot work (the text is
 missing or not unique) runs with no prompt, because the tool fails and tells
 the model.

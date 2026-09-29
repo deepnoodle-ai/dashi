@@ -99,7 +99,10 @@ func run(ctx context.Context, dir, task string) error {
 
 // describe renders an approval request for the terminal. A shell command
 // appears in full, with its directory, because approval is the only guard.
+// The request text comes from the model, so it goes through Printable first.
+// Raw, it could hold escape sequences that rewrite the prompt.
 func describe(r workspace.ApprovalRequest) string {
+	r = r.Printable()
 	if r.Tool == workspace.ToolBash {
 		return fmt.Sprintf("Run in %s:\n%s\n", r.Dir, r.Command)
 	}

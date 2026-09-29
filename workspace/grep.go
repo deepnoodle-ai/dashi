@@ -221,19 +221,22 @@ func goSearch(
 		if sink.full {
 			return
 		}
-		data, err := os.ReadFile(p)
-		if err != nil || bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
-			return
-		}
 		rel := s.rel(p)
 		if in.Glob != "" && !globMatchesPath(in.Glob, rel) {
 			return
 		}
-		for _, l := range searchFile(re, rel, string(data), in.Context, mode) {
-			if !sink.add(l) {
-				return
-			}
+		f, err := os.Open(p)
+		if err != nil {
+			return
 		}
+		defer f.Close()
+		head := make([]byte, 8000)
+		k, _ := io.ReadFull(f, head)
+		if bytes.IndexByte(head[:k], 0) >= 0 {
+			return
+		}
+		r := io.MultiReader(bytes.NewReader(head[:k]), f)
+		searchFile(r, re, rel, in.Context, mode, sink.add)
 	}
 	info, err := os.Stat(target)
 	if err != nil {
@@ -272,47 +275,86 @@ func globMatchesPath(pattern, rel string) bool {
 	return false
 }
 
+// grepMatchLine is the most bytes of one line that the search keeps in
+// memory. Longer lines are cut before matching, as with ripgrep output.
+const grepMatchLine = 64 << 10
+
+type numberedLine struct {
+	n    int
+	text string
+}
+
+// searchFile reads r one line at a time and passes each result line to emit.
+// It stops when emit returns false. It keeps only the lines of pending
+// context and a match count, so memory use does not depend on file size.
 func searchFile(
+	r io.Reader,
 	re *regexp.Regexp,
-	rel, text string,
+	rel string,
 	context int,
 	mode string,
-) []string {
-	scanner := bufio.NewScanner(strings.NewReader(text))
-	scanner.Buffer(nil, 1<<24)
-	var all []string
-	for scanner.Scan() {
-		all = append(all, scanner.Text())
-	}
-	var hits []int
-	for i, line := range all {
-		if re.MatchString(line) {
-			hits = append(hits, i)
+	emit func(string) bool,
+) {
+	br := bufio.NewReaderSize(r, 64<<10)
+	var before []numberedLine
+	after, last, count := 0, 0, 0
+	for n := 1; ; n++ {
+		chunk, isPrefix, err := br.ReadLine()
+		if err != nil {
+			break
 		}
-	}
-	switch {
-	case len(hits) == 0:
-		return nil
-	case mode == "files":
-		return []string{rel}
-	case mode == "count":
-		return []string{fmt.Sprintf("%s:%d", rel, len(hits))}
-	}
-	var out []string
-	last := -1
-	for _, h := range hits {
-		from, to := max(h-context, 0), min(h+context, len(all)-1)
-		if last >= 0 && from > last+1 && context > 0 {
-			out = append(out, "--")
+		text := string(chunk)
+		for isPrefix {
+			_, isPrefix, _ = br.ReadLine()
 		}
-		for i := max(from, last+1); i <= to; i++ {
-			sep := "-"
-			if slices.Contains(hits, i) {
-				sep = ":"
+		if len(text) > grepMatchLine {
+			text = text[:grepMatchLine]
+		}
+		if re.MatchString(text) {
+			switch mode {
+			case "files":
+				emit(rel)
+				return
+			case "count":
+				count++
+				continue
 			}
-			out = append(out, fmt.Sprintf("%s%s%d%s%s", rel, sep, i+1, sep, all[i]))
+			first := n
+			if len(before) > 0 {
+				first = before[0].n
+			}
+			if last > 0 && context > 0 && first > last+1 && !emit("--") {
+				return
+			}
+			for _, b := range before {
+				if !emit(fmt.Sprintf("%s-%d-%s", rel, b.n, b.text)) {
+					return
+				}
+			}
+			before = before[:0]
+			if !emit(fmt.Sprintf("%s:%d:%s", rel, n, text)) {
+				return
+			}
+			last, after = n, context
+			continue
 		}
-		last = max(last, to)
+		if mode != "content" || context == 0 {
+			continue
+		}
+		if after > 0 {
+			if !emit(fmt.Sprintf("%s-%d-%s", rel, n, text)) {
+				return
+			}
+			last = n
+			after--
+			continue
+		}
+		if len(before) == context {
+			before = before[1:]
+		}
+		before = append(before, numberedLine{n, text})
 	}
-	return out
+	if mode == "count" && count > 0 {
+		emit(fmt.Sprintf("%s:%d", rel, count))
+	}
 }
