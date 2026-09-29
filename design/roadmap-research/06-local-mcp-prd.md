@@ -58,7 +58,7 @@ type Server struct {
     Headers map[string]string
     Disabled bool
     Source   string           // file that defined it; set by the loaders
-        Untrusted bool           // needs Options.Approve; set by LoadProjectFile
+    Untrusted bool          // needs Options.Approve; set by LoadProjectFile
     Warnings []string        // parse problems, unset variables
 }
 
@@ -95,7 +95,7 @@ type ServerStatus struct {
     Name, Source string
     State        State // Connected, Failed, Declined, Disabled
     Tools        int
-        Err          error    // set when Failed
+    Err          error    // set when Failed
     Changed      bool     // server said its tools changed; call Refresh
     Warnings     []string // config problems, dropped or degraded tools
 }
@@ -220,7 +220,6 @@ status screen (below).
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-
 | `${VAR}` in a project entry sends a secret to a repo-chosen URL | Secret leak | The prompt shows variable names. Approval binds to the fingerprint. |
 | Orphan server processes | Leaked processes | Close stops each child. Test it. |
 | Uncertain effect after a lost response | Model may repeat a mutating call | Text says the call may have run. Runner marker is follow-up. |
@@ -261,3 +260,7 @@ status screen (below).
    exits keeps its tools in the snapshot until `Refresh`, so a pending call gets
    a clear error. The loaders return an error for a missing file. Session
    errors that are not JSON-RPC replies count as a lost connection.
+10. **Review fixes.** An approval error declines the server, and `Refresh`
+    skips declined servers, so a failed prompt never starts a project server. A
+    failed status adds the last 20 lines (4 KB) of the child's stderr. A call
+    after `Close` says the toolset is closed.

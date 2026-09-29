@@ -50,8 +50,13 @@ server only when `Options.Approve` returns true. A nil callback declines.
 before any server starts. It receives the raw entry, so the prompt can show the
 exact command and the variable names. It also receives `Server.Fingerprint()`,
 a hash of the raw entry and its file path. To remember an answer, key it on the
-fingerprint. A changed command, argument, variable, URL, or header gives a new
-fingerprint, so the host asks again.
+fingerprint. A changed command, argument, environment entry, URL, header, type,
+or file path gives a new fingerprint, so the host asks again. This includes a
+changed variable name in the text, such as `${A}` to `${B}`. The value of a
+variable is not part of the fingerprint. A rotated secret does not ask again.
+
+`Open` declines a server when `Approve` returns false or an error. `Refresh`
+never starts a declined server.
 
 `Merge` never lets an untrusted entry replace a trusted entry of the same name.
 The trusted entry stays, with a warning.

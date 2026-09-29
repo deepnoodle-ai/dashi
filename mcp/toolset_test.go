@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"slices"
@@ -147,7 +148,7 @@ func TestApproveSeesRawEntry(t *testing.T) {
 	}
 }
 
-func TestApprovalErrorFailsOnlyThatServer(t *testing.T) {
+func TestApprovalErrorDeclinesOnlyThatServer(t *testing.T) {
 	bad, _ := stdioServer(t)
 	bad.Untrusted = true
 	good, _ := stdioServer(t)
@@ -156,7 +157,7 @@ func TestApprovalErrorFailsOnlyThatServer(t *testing.T) {
 			return false, os.ErrDeadlineExceeded
 		},
 	})
-	if st := statusOf(t, ts, "bad"); st.State != StateFailed || st.Err == nil {
+	if st := statusOf(t, ts, "bad"); st.State != StateDeclined || st.Err == nil {
 		t.Fatalf("status = %+v", st)
 	}
 	if st := statusOf(t, ts, "good"); st.State != StateConnected {
@@ -493,5 +494,70 @@ func TestSessionOutlivesTheConnectContext(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if _, err := run(t, ts, "mcp__web__echo", `{"text":"x"}`); err != nil {
 		t.Fatalf("call after the Open context ended: %v", err)
+	}
+}
+
+func TestRefreshNeverStartsAServerWhoseApprovalFailed(t *testing.T) {
+	srv, log := stdioServer(t)
+	srv.Untrusted = true
+	ts := open(t, map[string]Server{"p": srv}, Options{
+		Approve: func(context.Context, string, Server, string) (bool, error) {
+			return false, os.ErrDeadlineExceeded
+		},
+	})
+	if err := ts.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.Refresh(t.Context(), "p"); err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf(t, ts, "p"); st.State != StateDeclined || st.Tools != 0 {
+		t.Fatalf("status = %+v", st)
+	}
+	if got := readLog(log); got != "" {
+		t.Fatalf("Refresh started an unapproved server: %q", got)
+	}
+}
+
+func TestFailedStatusIncludesServerStderr(t *testing.T) {
+	ts := open(t, map[string]Server{
+		"sad": {
+			Command: "sh",
+			Args:    []string{"-c", "echo 'missing API_KEY' >&2; exit 1"},
+		},
+	}, Options{})
+	st := statusOf(t, ts, "sad")
+	if st.State != StateFailed || !strings.Contains(st.Err.Error(), "missing API_KEY") {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestStderrTailKeepsTheLastLines(t *testing.T) {
+	var tl tail
+	for i := range 100 {
+		fmt.Fprintf(&tl, "line %d\n", i)
+	}
+	got := strings.Split(tl.text(), "\n")
+	if len(got) != tailLines || got[len(got)-1] != "line 99" {
+		t.Fatalf("tail = %q", got)
+	}
+	big := strings.Repeat("x", 10*tailBytes)
+	tl.Write([]byte(big))
+	if len(tl.buf) > tailBytes {
+		t.Fatalf("buffer grew to %d bytes", len(tl.buf))
+	}
+}
+
+func TestCallAfterCloseSaysTheToolsetIsClosed(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts, err := Open(t.Context(), Config{Servers: map[string]Server{"test": srv}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	echo := find(t, ts, "mcp__test__echo")
+	ts.Close()
+	_, err = echo.Executor.Execute(t.Context(), tool.Call{ID: "c", Name: echo.Definition.Name, Args: []byte(`{"text":"x"}`)})
+	if err == nil || !strings.Contains(err.Error(), "closed") || strings.Contains(err.Error(), "may have run") {
+		t.Fatalf("err = %v", err)
 	}
 }

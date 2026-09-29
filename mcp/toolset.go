@@ -42,7 +42,7 @@ const (
 type Options struct {
 	// Approve runs once for each Untrusted server, in sorted name order, one
 	// at a time, before any server starts. It gets the raw entry and its
-	// fingerprint. A false result skips the server; an error fails it. Nil
+	// fingerprint. A false result or an error declines the server. Nil
 	// declines every untrusted server. The package stores no answer: the host
 	// may remember one, keyed on the fingerprint.
 	Approve func(
@@ -71,7 +71,8 @@ type ServerStatus struct {
 	// Tools counts the tools offered to the model.
 	Tools int
 
-	// Err is set when State is StateFailed.
+	// Err is set when State is StateFailed. It is also set for a declined
+	// server whose approval callback returned an error.
 	Err error
 
 	// Changed means the server said its tool list changed. Call Refresh
@@ -118,6 +119,7 @@ type conn struct {
 	// listed holds the remote tools of the current session.
 	listed  []*mcp.Tool
 	changed bool
+	stderr  *tail
 	// notes are runtime warnings; dropped are the last rebuild's collisions.
 	notes   []string
 	dropped []string
@@ -157,7 +159,9 @@ func Open(ctx context.Context, cfg Config, opts Options) (*Toolset, error) {
 				return nil, ctx.Err()
 			}
 			if err != nil {
-				c.state, c.err = StateFailed, fmt.Errorf("approval: %w", err)
+				// A failed prompt is not consent. Declined servers never
+				// start, and Refresh skips them.
+				c.state, c.err = StateDeclined, fmt.Errorf("approval: %w", err)
 				continue
 			}
 			if !ok {
@@ -315,13 +319,16 @@ func (t *Toolset) dial(ctx context.Context, c *conn) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cs, tools, warnings, err := t.connect(ctx, c)
+	cs, tools, warnings, errTail, err := t.connect(ctx, c)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		err = fmt.Errorf("timed out after %s", timeout)
 	}
+	if err != nil {
+		err = errTail.explain(err)
+	}
 	t.mu.Lock()
 	old := c.session
-	c.session, c.listed, c.changed = cs, tools, false
+	c.session, c.listed, c.changed, c.stderr = cs, tools, false, errTail
 	c.notes = warnings
 	if err != nil {
 		c.state, c.err = StateFailed, err
@@ -342,22 +349,25 @@ func (t *Toolset) dial(ctx context.Context, c *conn) {
 	}
 	go func() {
 		cs.Wait()
-		t.fail(c, cs, errors.New("server exited"))
+		t.fail(c, cs, errTail.explain(errors.New("server exited")))
 	}()
 }
 
 func (t *Toolset) connect(
 	ctx context.Context,
 	c *conn,
-) (*mcp.ClientSession, []*mcp.Tool, []string, error) {
+) (*mcp.ClientSession, []*mcp.Tool, []string, *tail, error) {
 	s, warnings := c.server.expanded()
 	typ, err := s.transport()
 	if err != nil {
-		return nil, nil, warnings, err
+		return nil, nil, warnings, nil, err
 	}
+	var errTail *tail
 	var transport mcp.Transport
 	if typ == TypeStdio {
 		cmd := exec.Command(s.Command, s.Args...)
+		errTail = &tail{}
+		cmd.Stderr = errTail
 		cmd.Env = os.Environ()
 		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 			cmd.Env = append(cmd.Env, k+"="+s.Env[k])
@@ -387,14 +397,14 @@ func (t *Toolset) connect(
 	)
 	cs, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, nil, warnings, err
+		return nil, nil, warnings, errTail, err
 	}
 	tools, err := listAll(ctx, cs)
 	if err != nil {
 		cs.Close()
-		return nil, nil, warnings, fmt.Errorf("list tools: %w", err)
+		return nil, nil, warnings, errTail, fmt.Errorf("list tools: %w", err)
 	}
-	return cs, tools, warnings, nil
+	return cs, tools, warnings, errTail, nil
 }
 
 func (t *Toolset) httpClient(name string, s Server) *http.Client {
@@ -562,8 +572,11 @@ func (e *executor) Execute(
 	call tool.Call,
 ) (tool.Outcome, error) {
 	e.set.mu.Lock()
-	cs, state, cause := e.c.session, e.c.state, e.c.err
+	cs, state, cause, closed := e.c.session, e.c.state, e.c.err, e.set.closed
 	e.set.mu.Unlock()
+	if closed {
+		return tool.Outcome{}, errors.New("the MCP toolset is closed")
+	}
 	if cs == nil || state != StateConnected {
 		return tool.Outcome{}, fmt.Errorf(
 			"MCP server %q is not connected: %v",
