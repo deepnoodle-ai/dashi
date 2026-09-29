@@ -246,7 +246,8 @@ func (s *Session) Answer(
 // projected history of the turns before the target turn, replacing any the
 // caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
-// turns. Every turn gets the handle's steering source (see Steering).
+// turns, and a Start cannot claim origin StartCompaction or set
+// Compaction. Every turn gets the handle's steering source (see Steering).
 //
 // When a Start or Continue ends its turn with NextNone and input is
 // queued, the same call runs queue turns until the queue is empty or a
@@ -269,7 +270,9 @@ func (s *Session) Run(
 	return (&call{s: s, opts: opts}).run(ctx, c)
 }
 
-// checkCommand refuses a nil command and a Start with a reserved key.
+// checkCommand refuses a nil command, a Start with a reserved key, and a
+// Start that claims to be a compaction turn: the session's projection
+// trusts compaction turns, so only its Compactor may start them.
 func checkCommand(c Command) error {
 	switch c := c.(type) {
 	case nil:
@@ -279,6 +282,11 @@ func checkCommand(c Command) error {
 			return fmt.Errorf(
 				"dashi: command ID %q uses a prefix reserved for the session's queue and compaction turns",
 				c.CommandID,
+			)
+		}
+		if c.Origin == StartCompaction || c.Compaction != nil {
+			return errors.New(
+				"dashi: compaction turns are started by the session's Compactor",
 			)
 		}
 	}
@@ -672,7 +680,7 @@ func (s *Session) finish(
 	if s.driving == id && s.running[id] == 0 {
 		s.driving = ""
 	}
-	if s.compacting == id {
+	if s.compacting == id && s.running[id] == 0 {
 		s.compacting = ""
 	}
 	if reserved != nil {

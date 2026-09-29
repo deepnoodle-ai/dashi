@@ -674,3 +674,77 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 		}
 	}
 }
+
+// Two calls on one handle plan the same compaction slot. The loser's
+// finish must not clear the handle's compacting mark while the winner's
+// compaction turn runs, so a Steer still refuses.
+func TestSessionCompactionSameHandleRace(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		used("one", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("b"),
+	)
+	first := handle(rec, client)
+	first.New = true
+	sendAll(t, first, "first")
+
+	g := newGate()
+	bDone := make(chan error, 1)
+	var s *dashi.Session
+	race := &raceRecorder{MemoryRecorder: rec, before: func() {
+		// A has planned the compaction slot; B plans it too and wins.
+		go func() {
+			_, err := s.Send(context.Background(), "from b")
+			bDone <- err
+		}()
+		g.requireEntered(t, bDone)
+	}}
+	s = handle(race, gatedClient{Client: client, gate: g})
+	s.Compactor = keepLast{limit: 100}
+	s.Send(t.Context(), "from a") // loses the slot; its result does not matter
+
+	_, err := s.Steer(t.Context(), "hurry")
+	var busy *dashi.TurnBusyError
+	if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
+		t.Fatalf("steer during the compaction: %v; want a TurnBusyError", err)
+	}
+	close(g.release)
+	if err := <-bDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Only the session's Compactor starts compaction turns: the projection
+// trusts them, so a caller's Start cannot claim the origin or the fact.
+func TestSessionRefusesCallerCompaction(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	s := handle(rec, dashitest.NewClient())
+	s.New = true
+	byOrigin := dashi.Say("hello")
+	byOrigin.Origin = dashi.StartCompaction
+	byFact := dashi.Say("hello")
+	byFact.Compaction = &dashi.CompactionFact{Frame: "Summary:"}
+	both := byFact
+	both.Origin = dashi.StartCompaction
+	for name, start := range map[string]dashi.Start{
+		"origin": byOrigin,
+		"fact":   byFact,
+		"both":   both,
+	} {
+		if _, err := s.Run(t.Context(), start); err == nil ||
+			!strings.Contains(err.Error(), "Compactor") {
+			t.Fatalf("Run with %s: err = %v; want a refusal", name, err)
+		}
+		var err error
+		for _, e := range s.Stream(t.Context(), start) {
+			err = e
+		}
+		if err == nil || !strings.Contains(err.Error(), "Compactor") {
+			t.Fatalf("Stream with %s: err = %v; want a refusal", name, err)
+		}
+	}
+	if _, err := rec.Load(t.Context(), dashi.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
+		t.Fatalf("turn 1: %v; want none", err)
+	}
+}
