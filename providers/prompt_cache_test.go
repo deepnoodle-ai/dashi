@@ -356,3 +356,38 @@ func TestCompletionsOmitsCacheLifetime(t *testing.T) {
 		t.Fatal("strict omitted a cache lifetime")
 	}
 }
+
+// A Responses model that states cache support but lists no lifetimes gets
+// no retention, so a requested lifetime is omitted with a warning, never
+// reported as met; strict refuses it.
+func TestResponsesUnknownLifetimesOmitTheLifetime(t *testing.T) {
+	const endpoint = "https://api.openai.com/v1/responses"
+	info := textModel(providerCase{name: "openai"}, endpoint)
+	info.Capabilities.Features[llm.FeaturePromptCache] = llm.SupportSupported
+	models := map[string]llm.ModelInfo{"requested": info}
+	in := cacheInput("requested", time.Hour)
+	in.Settings.PromptCache.Key = "conversation-7"
+
+	p := newResponses(t, responses.Config{APIKey: "test", Models: models})
+	r, err := p.Prepare(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := cacheBody(t, r)
+	a, ok := ttlAdjustment(r)
+	if !ok || a.Action != llm.AdjustmentOmit || len(r.Warnings()) != 1 ||
+		body["prompt_cache_retention"] != nil ||
+		body["prompt_cache_key"] != "conversation-7" ||
+		r.Effective().PromptCache.TTL != 0 {
+		t.Fatalf("unknown lifetimes: %s, %+v", r.Body(), r.Adjustments())
+	}
+
+	strict := newResponses(t, responses.Config{
+		APIKey:           "test",
+		Models:           models,
+		CapabilityPolicy: llm.CapabilityStrict,
+	})
+	if _, err := strict.Prepare(t.Context(), in); err == nil {
+		t.Fatal("strict reported an unsendable cache lifetime as met")
+	}
+}

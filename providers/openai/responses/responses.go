@@ -192,7 +192,7 @@ func (p *Client) Prepare(
 		return llm.Request{}, err
 	}
 	limits := apiLimits
-	if !p.sendsPromptCache(r.Model) {
+	if !p.sendsCacheLifetime(r.Model) {
 		limits = uncachedLimits
 	}
 	r, adjustments, err := p.client.Fit(r, limits, nil)
@@ -372,6 +372,18 @@ func (p *Client) sendsPromptCache(model string) bool {
 	return info.Capabilities.Features[llm.FeaturePromptCache] == llm.SupportSupported
 }
 
+// sendsCacheLifetime reports whether a lifetime can reach this model: it
+// gets cache fields and its ModelInfo lists the lifetimes to choose from.
+// Without them the encoder sends no retention, so Fit must not report a
+// requested lifetime as met.
+func (p *Client) sendsCacheLifetime(model string) bool {
+	if !p.sendsPromptCache(model) {
+		return false
+	}
+	info, _ := p.client.ModelInfo(model)
+	return len(info.Capabilities.CacheTTLs) > 0
+}
+
 // wireCacheKey returns key as given, or a deterministic hash when it is too
 // long for the API. The request snapshot's Body records the key sent.
 func wireCacheKey(key string) string {
@@ -402,8 +414,8 @@ var apiLimits = llm.Capabilities{
 	MaxTemperature: 2,
 }
 
-// uncachedLimits are apiLimits for a model that gets no cache fields, so a
-// lifetime is omitted with a warning, as on Chat Completions.
+// uncachedLimits are apiLimits for a model that gets no cache lifetime, so
+// a lifetime is omitted with a warning, as on Chat Completions.
 var uncachedLimits = func() llm.Capabilities {
 	limits := apiLimits
 	limits.Features = maps.Clone(apiLimits.Features)
