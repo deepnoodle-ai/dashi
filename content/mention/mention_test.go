@@ -2,6 +2,7 @@ package mention
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,7 +246,7 @@ func TestExpandWarnings(t *testing.T) {
 		Root:          root,
 		MaxImageBytes: 100,
 		MaxTextBytes:  1024,
-		MaxTotalBytes: 8,
+		MaxTotalBytes: 400,
 	}
 	tests := []struct {
 		name  string
@@ -319,6 +320,32 @@ func TestExpandDefaultImageLimitCountsBase64Size(t *testing.T) {
 	want := "Skipped @big.png: 3.75 MB is over the 3.75 MB image limit."
 	if len(res.Warnings) != 1 || !strings.HasPrefix(res.Warnings[0], "Skipped @big.png:") {
 		t.Fatalf("warnings = %q, want prefix of %q", res.Warnings, want)
+	}
+}
+
+func TestExpandTotalLimitCountsBase64Size(t *testing.T) {
+	root := t.TempDir()
+	size := 5 << 20 * 3 / 4
+	var input []string
+	for i := 0; i < 8; i++ {
+		name := fmt.Sprintf("img%d.png", i)
+		write(t, filepath.Join(root, name), append(pngBytes, make([]byte, size-len(pngBytes))...))
+		input = append(input, "@"+name)
+	}
+
+	// Eight images total 30 MiB raw, under the 32 MiB limit, but about 40
+	// MiB as base64.
+	res := Expand(strings.Join(input, " "), Options{Root: root})
+
+	if len(res.Blocks) != 6 || len(res.Warnings) != 2 {
+		t.Fatalf("blocks = %d, warnings = %q", len(res.Blocks), res.Warnings)
+	}
+	if !strings.Contains(res.Warnings[0], "limit for one message") {
+		t.Fatalf("warning = %q", res.Warnings[0])
+	}
+	res = Expand(strings.Join(input, " "), Options{Root: root, MaxTotalBytes: -1})
+	if len(res.Blocks) != 8 {
+		t.Fatalf("unlimited: blocks = %d", len(res.Blocks))
 	}
 }
 

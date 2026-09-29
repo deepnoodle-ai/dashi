@@ -36,6 +36,10 @@ const (
 	defaultMaxTextBytes  = 256 << 10
 	defaultMaxTotalBytes = 32 << 20
 
+	// attachmentOverhead is the request size added to each attachment for
+	// its JSON wrapper and media type.
+	attachmentOverhead = 256
+
 	// sniffBytes is how much of a file with an unknown extension Expand reads
 	// to find its type.
 	sniffBytes = 512
@@ -64,7 +68,8 @@ type Options struct {
 	// MaxTextBytes limits one text file. Zero means 256 KB.
 	MaxTextBytes int64
 
-	// MaxTotalBytes limits all files in one message. Zero means 32 MB.
+	// MaxTotalBytes limits the request size of all files in one message. Images
+	// and PDFs count as base64 text plus a small overhead. Zero means 32 MB.
 	MaxTotalBytes int64
 }
 
@@ -246,7 +251,7 @@ func (e *expander) attach(input string, w *word) (string, bool) {
 		return "", false
 	}
 	e.seen[full] = true
-	e.total += size
+	e.total += wireSize(kind, size)
 	e.res.Blocks = append(e.res.Blocks, block)
 	e.res.Attached = append(e.res.Attached, Attachment{
 		Path:     w.path,
@@ -298,6 +303,15 @@ func knownExtension(name string) (string, bool) {
 	return ext, false
 }
 
+// wireSize is the size a file adds to the provider request. Providers send
+// images and PDFs as base64 text, which is four bytes for every three.
+func wireSize(kind fileKind, size int64) int64 {
+	if kind == kindImage || kind == kindPDF {
+		size = (size + 2) / 3 * 4
+	}
+	return size + attachmentOverhead
+}
+
 func isImageType(mimeType string) bool {
 	switch mimeType {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":
@@ -339,7 +353,7 @@ func (e *expander) read(
 		e.warn(typed, "%s is over the %s %s limit.", sizeText(size), sizeText(limit), what)
 		return block, 0, false
 	}
-	if e.opt.MaxTotalBytes >= 0 && e.total+size > e.opt.MaxTotalBytes {
+	if e.opt.MaxTotalBytes >= 0 && e.total+wireSize(kind, size) > e.opt.MaxTotalBytes {
 		e.warn(typed, "it would pass the %s limit for one message.", sizeText(e.opt.MaxTotalBytes))
 		return block, 0, false
 	}
