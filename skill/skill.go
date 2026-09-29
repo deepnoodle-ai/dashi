@@ -1,6 +1,9 @@
-// Package skill provides a small, optional in-memory catalog and load tool.
-// The host selects definitions, places the catalog at an appropriate context
-// origin, and owns every policy or action constraint associated with them.
+// Package skill provides a small, optional skill catalog and load tool. Build
+// it from definitions in memory (New) or from SKILL.md files on disk
+// (LoadDirs). The host selects skills and owns every policy or action
+// constraint associated with them. Bundle.Hooks gives the catalog to the model
+// as contextual runtime context; the loader never reads supporting files and
+// no skill text grants a tool.
 package skill
 
 import (

@@ -152,12 +152,15 @@ reference rule that preserves the original result for audit.
 
 ### 12. Skills
 
-**Status:** First slice merged in
-[PR #59](https://github.com/deepnoodle-ai/dashi/pull/59). It added an optional
-in-memory skill catalog and loader, outside the turn core. **Size:** M.
-**Difficulty:** Medium. **Reference:** [example-port gaps](gaps/F-example-ports.md),
-Dive's skill guide, and [functional areas](functional-areas.md). **Next:**
-Qualify with an application consumer before expanding the package.
+**Status:** Second slice implemented on branch `skills/filesystem`, ready for
+review. The first slice ([PR #59](https://github.com/deepnoodle-ai/dashi/pull/59))
+added the in-memory catalog. The second adds `skill.LoadDirs`, `DefaultDirs`,
+`Set.Expand` for `/name` use, and `Bundle.Hooks` for catalog delivery, with a
+guide and example. **Size:** M. **Difficulty:** Medium. **Reference:**
+[example-port gaps](gaps/F-example-ports.md), Dive's skill guide, and
+[functional areas](functional-areas.md). **Next:** wire the CLI: load in
+`main`, join `bundle.Hooks()`, and route `/name` to `Expand`. Later: reload,
+namespaced commands, and `load_skill` arguments.
 
 **Packet:** [source research](roadmap-research/12-skills-research.md) · [PRD](roadmap-research/12-skills-prd.md).
 

@@ -1,6 +1,6 @@
 # PRD: skills from the filesystem
 
-**Roadmap item 12 · Status: Revised after review, second slice · 2026-09-28.** Builds on the in-memory bundle merged in PR #59. Source: [research](12-skills-research.md). Reference: Dive's `skill` package.
+**Roadmap item 12 · Status: Approved, implemented on branch `skills/filesystem`, second slice · 2026-09-28.** Builds on the in-memory bundle merged in PR #59. Source: [research](12-skills-research.md). Reference: Dive's `skill` package.
 
 ## Problem
 
@@ -43,6 +43,10 @@ type Info struct{ Name, Description, ArgumentHint, Dir string; ModelInvocable, U
 
 // Reminder is the catalog as contextual (non-operator) runtime context.
 func (b *Bundle) Reminder() llm.Reminder
+
+// Hooks delivers that reminder before each model call, once per turn, as a
+// runtime snapshot item. Join it with the host's hooks.
+func (b *Bundle) Hooks() dashi.Hooks
 ```
 
 The application flow:
@@ -53,20 +57,9 @@ for _, w := range warns { log.Printf("skill: %s: %s", w.Path, w.Message) }
 bundle, err := set.Bundle(skill.Options{})
 runner.Tools = tool.Join(tool.List{existing}, bundle)
 
-// Project text is not operator text. Deliver the catalog as runtime context,
-// not in Agent.Instructions. The item ID holds the digest for audit.
-item := dashi.ContextItem{
-    ID: "skills-" + bundle.Digest(), Name: "skills", Snapshot: true,
-    Origin:  dashi.ContextRuntime,
-    Message: llm.ReminderMessage(bundle.Reminder()),
-}
-runner.Hooks = dashi.JoinHooks(runner.Hooks, dashi.Hooks{BeforeModel: []dashi.ModelHook{
-    func(_ context.Context, p dashi.ModelPlan) (dashi.ModelDecision, error) {
-        if cur, ok := p.Turn.Context(dashi.ContextRuntime, "skills"); ok && cur.ID == item.ID {
-            return dashi.ModelDecision{}, nil
-        }
-        return dashi.ModelDecision{Deliver: []dashi.ContextItem{item}}, nil
-    }}})
+// Project text is not operator text. Hooks delivers the catalog as runtime
+// context, not in Agent.Instructions. The item ID holds the digest for audit.
+runner.Hooks = dashi.JoinHooks(runner.Hooks, bundle.Hooks())
 // Do not put bundle.Digest() in Agent.Revision for file skills (see Decisions).
 
 // The CLI user types "/review src/api":
@@ -128,6 +121,9 @@ if body, ok := set.Expand("review", "src/api"); ok { prompt = body }
 - **Review finding 5, accepted: no digest in the revision.** File skills change by design between runs, and demo step 7 reopens a session. The digest goes in the context item ID.
 - **Review finding 6, accepted as written.** `Expand` keeps its bool. The guide shows `Skills()` for the cause.
 - **Review finding 7, accepted.** `DefaultDirs` takes the repository root. The CLI passes the nearest `.git` directory, not the working directory.
+
+- **Orchestrator correction: `Bundle.Hooks` delivers the catalog.** The first sample made every host write about 12 lines of `BeforeModel` code. One call now does it: `Hooks` returns a `dashi.Hooks` with one `BeforeModel` hook that delivers the catalog snapshot unless the turn already holds it. `Reminder` stays for hosts that deliver the catalog their own way. An empty bundle returns no hooks. The `skill` package now imports the root `dashi` package. The root package does not import `skill`, so there is no cycle.
+- **Implementation calls.** The library module adds `gopkg.in/yaml.v3` for frontmatter, because real skills use block scalars. The loader measures the catalog with the longest tool name (64 bytes), so any valid `Options.ToolName` fits. `load_skill` output for a folder skill is the base-directory line, then the `# name` heading, then the body. A file over 80 KiB warns and is skipped. `ArgumentHint` is kept for UIs and is not shown to the model.
 
 ## Ship plan
 
