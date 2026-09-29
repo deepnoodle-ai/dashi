@@ -7,7 +7,7 @@ history reference). **Roadmap:** [item 14](../remaining-work.md); reworks [item
 [pi](14-session-study-pi.md) and [Codex](14-session-study-codex.md), and
 [decision 19](../decisions.md). **Tech spec:** [sessions.md](../sessions.md),
 with [session-engine.md](../session-engine.md) and
-[session-input.md](../session-input.md). **Size:** L. **Risk:** public API, new
+[session-input.md](../session-input.md). **PRD PR:** #96. **Size:** L. **Risk:** public API, new
 concepts.
 
 ## User problem
