@@ -656,3 +656,38 @@ func TestShortenResultKeepsTextAndMediaOrder(t *testing.T) {
 		t.Fatalf("encoded %d bytes", n)
 	}
 }
+
+func TestShortenResultFragmentedInputKeepsHeadAndTail(t *testing.T) {
+	limit := 2048
+	var blocks []content.Block
+	var want strings.Builder
+	for i := range 1000 {
+		c := string(rune('a' + i%26))
+		want.WriteString(c)
+		blocks = append(blocks, content.TextBlock(c))
+	}
+	all := want.String()
+	r := llm.ToolResult{CallID: "c", Output: tool.Output{Content: blocks}}
+	view, s, ok := shortenResult(r, limit)
+	if !ok || s.ShownBytes == 0 {
+		t.Fatalf("no text kept: ok=%v shortened=%+v", ok, s)
+	}
+	if got := encodedTextBytes(view); got > limit {
+		t.Fatalf("encoded text is %d bytes, limit %d", got, limit)
+	}
+	var joined strings.Builder
+	for _, b := range view.Output.Content {
+		if b.Text != nil {
+			joined.WriteString(b.Text.Text)
+		}
+	}
+	got := joined.String()
+	head, tail, found := strings.Cut(got, "[Tool output shortened")
+	if !found || head == "" || !strings.HasPrefix(all, head) {
+		t.Fatalf("head not kept: %q", head)
+	}
+	tail = tail[strings.LastIndex(tail, "]")+1:]
+	if tail == "" || !strings.HasSuffix(all, tail) {
+		t.Fatalf("tail not kept: %q", tail)
+	}
+}

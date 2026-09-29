@@ -101,12 +101,13 @@ func shortenResult(
 		view, _ := layoutResult(r, 0, 0, "")
 		return view, Shortened{}, true
 	}
-	// The marker's numbers are at most as long as these, so this budget is
-	// safe. Separators count against it. Invalid bytes become three-byte
-	// U+FFFD, so the kept text can grow after the cut. Shrink the budget
-	// until the view fits. At least one byte is always omitted.
-	budget := limit - len(toolResultMarker(len(all), len(all))) -
-		providerSeparators(nonEmpty)
+	// The marker's numbers are at most as long as these. Start with a budget
+	// that ignores separators, because the blocks that stay are not known
+	// yet. Then measure the layout, which counts only the separators of the
+	// blocks it keeps, and shrink the budget by the excess until the view
+	// fits. Invalid bytes become three-byte U+FFFD, so the kept text can also
+	// grow after the cut. At least one byte is always omitted.
+	budget := limit - len(toolResultMarker(len(all), len(all)))
 	budget = min(budget, len(all)-1)
 	for {
 		headEnd, tailStart := cutOffsets(all, budget)
@@ -120,7 +121,10 @@ func shortenResult(
 				Limit:         limit,
 			}, true
 		}
-		budget -= size - limit
+		// Each kept byte removed frees at most 1+maxSeparatorBytes bytes of
+		// size (its own and the separator of a block that becomes empty),
+		// so this step never cuts more than needed.
+		budget -= max((size-limit)/(1+maxSeparatorBytes), 1)
 	}
 }
 
