@@ -139,6 +139,8 @@ their records, and sends no `TaskEnded`; the next `Recover` resumes them.
 - FR-4: `Tasks` calls `OnTask` once per end in one process. Without `OnTask`,
   results reach the model only through `task_status`.
 - FR-5: A notice has origin `ContextTool` and the ID `task-done:<child ID>`.
+  (Superseded by [decision 42](decisions.md): origin `ContextAgent`, a
+  `task-ended` reminder, one notice per child turn.)
 - FR-6: `task_status` returns state and answer of an ended task at any time.
 - FR-7: `Recover` needs a `Loader` recorder and returns an error that says so.
   Without one, `Tasks` warns once, and tasks do not survive a restart.
@@ -173,7 +175,9 @@ check after each test.
 ## Out of scope
 
 - A task that outlives the process (external settle, 13 PRD).
-- A message from the parent to a running child.
+- A message from the parent to a running child. (Superseded: now in scope,
+  both ways; see the [subagent messages
+  PRD](roadmap-research/13-subagent-messages-prd.md) and decision 41.)
 - Grandchildren: a child never gets the three task tools.
 - A cap over parent and children together.
 - A task list across conversations.
@@ -194,10 +198,13 @@ check after each test.
    tool call. The library does not use "session".
 3. **Status and result are one tool**, with a 60 second wait cap.
 4. **The notice uses the existing steer path**, origin `ContextTool`.
+   Superseded in part by [decision 42](decisions.md): the steer path stays;
+   the origin is `ContextAgent`.
 5. **One delivery rule, from the record only.** A repeat costs little; one rule
    is testable.
 6. **A notice is told apart** from other steers by origin and its `NoticeID`
-   prefix. No core change.
+   prefix. No core change. Superseded by [decision 42](decisions.md): a
+   sender tag that Dashi sets, and origin `ContextAgent`.
 7. **One follow-up Turn for all waiting notices**, `StartScheduled`.
    `FollowUp` records the delivered children in the start's `CommandID`.
    Deliver cannot reach an ended Turn, so a follow-up Turn is the only way.

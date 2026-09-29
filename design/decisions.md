@@ -440,3 +440,48 @@ the codec moves into the top-level system) documents the miss. Rationale: a
 single stray timestamp in instructions, or one removed message far back in
 the history, silently undoes the saving on every later call. Whether caching
 is on by default is the prompt-cache spec's own decision.
+
+Decisions 41–43 add messages between a parent agent and its subagents, the
+third slice of roadmap item 13. The PRD is
+[13-subagent-messages-prd.md](roadmap-research/13-subagent-messages-prd.md);
+the tech spec is [subagent-messages.md](subagent-messages.md). They supersede
+parts of the [background subagents PRD](background-subagents.md) (decisions 4
+and 6, FR-5, and its out-of-scope line on parent messages), the [child turns
+PRD](roadmap-research/13-child-turns-prd.md)'s out-of-scope "resume by task ID
+from the model", and the [sessions
+PRD](roadmap-research/14-session-continuity-prd.md)'s "child sessions" under
+Later. Each of those now points here.
+
+**41. A task is a child session, and agent messages steer or queue.** Proposed.
+A task runs in a child session that `delegate.Tasks` drives, so it can take
+more than one turn. The parent sends with `task_send`, the child with
+`message_parent`; the sender picks `steer` (before the recipient's next model
+call; the default) or `queue` (when its turn ends, as its next turn). Either
+starts a turn when the recipient is idle or ended, so a finished child takes a
+follow-up with its history. There is no mode that does not wake; per-turn
+message caps and a per-task turn cap bound the cost. A child's question ends
+its turn, and the parent's reply starts the next one, so no new stop kind is
+needed. The parent waits by ending its turn, or up to 60 seconds with
+`wait_seconds` on `task` or `task_status`. Agent mail is never urgent.
+Rationale: the session already has an inbox, a queue, and dispatch; peers
+deliver mail only at the boundary before a model call; Codex's mid-call cut
+and its wake flag cost more than they gave.
+
+**42. Agent messages are reminders from origin `ContextAgent`, tagged by
+Dashi.** Proposed. A message or notice is a contextual reminder
+(`agent-message`, `task-ended`) whose new `From` field Dashi sets from the
+tool's binding and the running turn: `parent` or `task t_k3f2 (explore)`.
+`FormatReminder` escapes reminder tags in content, so text cannot close its
+tag or forge another. `ContextAgent` takes the user role and contextual tier
+only. Rationale: the model reads who wrote what; the record and a UI can tell
+agent mail from user and tool content. Supersedes the background subagents
+PRD's decisions 4 and 6 (notices with origin `ContextTool`, told apart only by
+ID prefix).
+
+**43. Agent mail is delivered once, from the sender's record.** Proposed. A
+message ID derives from the sending call (`msg:<turn>/<call>`). A message is
+delivered when the recipient's record holds its ID in a turn's context or a
+`queue:` start, the rule notices already use. `Recover` redelivers each
+settled send the recipient lacks. Rationale: no mailbox store beside the
+records; a rerun send is a duplicate, and a restart loses nothing (openclaw
+and Codex lost or raced mail in memory).

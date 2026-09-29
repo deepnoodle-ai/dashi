@@ -156,6 +156,14 @@ with anything but `NextNone`. The host's `OnTask` enqueues
 `e.Task.Notice().Steer().Item`, or sends `e.Task.Notice().Steer()` with
 `SteerItem` so a running turn reads it at once.
 
+**Agent messages** ([spec](subagent-messages.md), decisions 41–43) extend this.
+Each task runs in a child session, and a parent and its tasks exchange messages
+through the same two calls: `SteerItem` for a steer, `EnqueueItem` for a queued
+message. With `delegate.Config.Session` set, `Tasks` puts notices and messages
+on the parent session itself, and `OnTask` is for display only. `Tasks.Wait`
+and `RunUntilQuiet` wake on messages as on notices. Child sessions set the new
+`Session.Unattended`, so their queue also runs after a stop nobody will answer.
+
 ## Streams and transcripts
 
 **`Session.Stream`** yields the events of every turn the call runs, including a
