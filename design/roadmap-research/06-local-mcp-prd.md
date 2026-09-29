@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft, revised 2026-09-28 for the demo slice |
+| Status | Draft, revised 2026-09-28 after independent review |
 | Roadmap | [Item 6](../remaining-work.md), size M |
 | Evidence | [Source review](06-local-mcp-research.md) |
 
@@ -27,9 +27,9 @@ what runs. A broken server does not stop my work."
 - MCP tool calls pass the same `BeforeTool` hooks as every other tool.
 - A failed server never stops the agent. The user sees why it failed.
 
-Success: an integration test has a scripted model call a tool on a real test
-server over stdio and streamable HTTP. The demo step "the agent calls a tool
-from a configured MCP server" works in the `dashi` CLI.
+Success: a scripted model calls a tool on a real test server over stdio and
+streamable HTTP. The demo step "the agent calls a tool from a configured MCP
+server" works in the `dashi` CLI.
 
 ## Non-goals
 
@@ -37,7 +37,7 @@ from a configured MCP server" works in the `dashi` CLI.
   keychain code. Record it as a follow-up.
 - Legacy SSE, MCP prompts, resources, sampling, roots, elicitation, and building
   MCP servers.
-- Approval policy. The host decides. MCP hints never grant permission.
+
 - Result-size bounds (roadmap 11) and tool progress display.
 
 ## Public API
@@ -58,8 +58,14 @@ type Server struct {
     Headers map[string]string
     Disabled bool
     Source   string           // file that defined it; set by the loaders
-    Untrusted bool           // needs Options.Approve; set by LoadProjectFile
+        Untrusted bool           // needs Options.Approve; set by LoadProjectFile
+    Warnings []string        // parse problems, unset variables
 }
+
+// Fingerprint is a stable hash of the raw entry (before variable expansion):
+// command, args, env, URL, headers, and the file path.
+func (s Server) Fingerprint() string
+
 
 func ParseConfig(data []byte) (Config, error)      // reads the "mcpServers" key
 func LoadFile(path string) (Config, error)         // trusted: user or flag file
@@ -67,10 +73,11 @@ func LoadProjectFile(path string) (Config, error)  // servers are Untrusted
 func Merge(cfgs ...Config) Config                  // later files win per name
 
 type Options struct {
-    // Approve runs once per Untrusted server, before it starts. A false
-    // result skips the server. Nil means decline. Zero value is safe.
-    Approve func(ctx context.Context, name string, s Server) (bool, error)
-    // ConnectTimeout bounds each server's start and discovery. Zero is 30s.
+    // Approve runs once per Untrusted server, in sorted name order, one at a
+    // time, before any server starts. It gets the raw entry and its
+    // fingerprint. A false result skips the server. Nil means decline.
+    Approve func(ctx context.Context, name string, s Server, fingerprint string) (bool, error)
+    // ConnectTimeout bounds each server's start and discovery. Zero is 10s.
     ConnectTimeout time.Duration
     // HTTPClient lets the host add per-server auth to HTTP servers. Optional.
     HTTPClient func(name string, s Server) *http.Client
@@ -88,10 +95,11 @@ type ServerStatus struct {
     Name, Source string
     State        State // Connected, Failed, Declined, Disabled
     Tools        int
-    Err          error    // set when Failed
-    Warnings     []string // renamed tools, degraded content
+        Err          error    // set when Failed
+    Changed      bool     // server said its tools changed; call Refresh
+    Warnings     []string // config problems, dropped or degraded tools
 }
-type ToolInfo struct{ Server, Remote string; ReadOnlyHint bool }
+type ToolInfo struct{ Server, Remote string }
 ```
 
 Use in an application:
@@ -105,28 +113,38 @@ runner := dashi.Runner{Tools: tool.Join(localTools, ts), Hooks: hooks}
 ```
 
 `Open` returns an error only if the context ends. A bad entry, a missing
-program, or a timeout becomes a `Failed` status. Servers start in parallel.
+program, or a timeout becomes a `Failed` status. Approved servers start in
+parallel. Invalid JSON in a whole file makes `ParseConfig` and `LoadFile` return
+an error. The CLI warns and continues without that file.
+
 
 ## Flows
 
 **Config.** The file format is `{"mcpServers": {"github": {"command": "gh-mcp",
 "args": ["serve"], "env": {"TOKEN": "${GH_TOKEN}"}}}}`. The loader expands
 `${VAR}` and `${VAR:-default}` in command, args, env, URL, and headers. An unset
-variable expands to empty text and adds a warning. The parser ignores other
-keys, so it reads a settings file that has more content.
+variable expands to empty text and adds a warning on the `Server`. `Open` copies
+it into `Status`. The parser ignores other keys, so it reads a settings file
+that has more content.
 
-**Approval.** `Open` calls `Approve` for each Untrusted server. The CLI asks
-"Start server 'github' from .mcp.json?" and may remember the answer. The package
-stores no answer. `Merge` keeps the trust flag of the winning entry. A user file
-entry overrides a project entry of the same name, so the project cannot replace
-a trusted server.
+**Approval.** `Open` calls `Approve` once per Untrusted server, one at a time,
+in sorted name order, before it starts any project server. The callback gets the
+raw entry, so the prompt shows the exact command or URL and the variable names
+it reads. It also gets the fingerprint. The CLI asks "Start server 'github' from
+.mcp.json?" and may remember the answer, keyed on the fingerprint. A changed
+command, args, env, URL, or headers gives a new fingerprint, so the CLI asks
+again. The package stores no answer. `Merge` keeps the user entry when a project
+entry has the same name, and adds a warning to that server's status.
 
 **Discovery and names.** After connect, the client reads every page of
 `tools/list`. The model sees `mcp__<server>__<tool>`, as in Claude Code. The
-client replaces characters outside `[A-Za-z0-9_-]` and limits names to 64
-characters. When two names collide, the client adds a short hash to the later
-one and records a warning. It does not fail. Dispatch uses the original remote
-name. The definition keeps the raw input schema and hints as annotations.
+name depends only on the server name and the remote tool name. The client
+replaces characters outside `[A-Za-z0-9_-]`. It cuts names longer than 64
+characters to 57 and appends `_` and 6 hex characters of a hash of the full
+name. If two tools still get the same name, the client sorts servers by name,
+keeps the first tool, drops the later one, and reports the drop in `Status`.
+Start order never changes a name. Dispatch uses the original remote name. The
+definition keeps the raw input schema and hints as annotations.
 
 **Calls.** `BeforeTool` hooks run first. A hook can use `Info` to find the
 server. The executor then calls the server with the run context. Context cancel
@@ -141,21 +159,25 @@ and size. The note adds a status warning. Nothing vanishes silently.
 
 **Failure and lifecycle.** A failed server has `Failed` status, and its tools
 are absent. If a stdio process exits later, its calls fail with a clear message
-and the status becomes `Failed`. `Refresh` restarts named servers (all if none
-named) and re-lists tools. The CLI calls it between turns, never during one,
-because the runner requires the offered definition to match at dispatch. The
-client never retries a call. A transport error after send returns a failed
-outcome whose text says the call may have run. Close stops all servers and is
-safe to call twice.
+and the status becomes `Failed`. `Refresh` re-lists tools on live servers and
+reconnects only `Failed` servers. It never restarts a live server. A
+`tools/list_changed` notice sets `Changed` on that server's status, so the CLI
+refreshes only when a server changed or failed. The CLI calls `Refresh` between
+turns, never during one, because the runner requires the offered definition to
+match at dispatch. The client never retries a call. A transport error after send
+returns a failed outcome whose text says the call may have run. Close stops all
+servers and is safe to call twice.
 
 ## Acceptance criteria
 
 1. `ParseConfig` reads stdio and http entries, expands variables, and rejects
    nothing fatally. An invalid entry appears as a `Failed` status.
 2. `Merge` lets later files win. An untrusted entry never replaces a trusted
-   one.
+   one, and the user entry gets a warning.
 3. An Untrusted server does not start when `Approve` is nil or returns false.
-   The test server records that it never ran.
+   The test server records that it never ran. `Approve` runs in sorted order,
+   never concurrently. A changed command, args, or URL changes the fingerprint.
+   An unchanged raw entry keeps it.
 4. A scripted model calls `mcp__test__echo` on the test server over stdio and
    sees the result in its next request. The same test passes over HTTP.
 5. A test hook that denies `mcp__test__echo` blocks the call. The server sees no
@@ -165,10 +187,13 @@ safe to call twice.
 7. Results: image, structured, error, and binary-resource cases each map as
    described. A test covers each.
 8. Cancel during a slow call returns quickly. The test server sees the cancel.
-9. Two tools with colliding names both appear, one with a hash suffix, and both
-   dispatch to the right remote name.
-10. `Refresh` picks up a tool that the test server adds. `Close` ends child
-    processes.
+9. The same config gives the same tool names on every open, in any start order.
+   A name collision keeps the tool of the first server by sorted name, drops the
+   other, and reports it in `Status`. A name over 64 characters gets a stable
+   short name.
+10. `Refresh` picks up a tool that the test server adds. It does not restart a
+    live server (the process ID stays). It reconnects a server that exited.
+    `Close` ends child processes.
 
 ## Slice for Tuesday night
 
@@ -177,12 +202,12 @@ In: everything above, the test server (`mcp/internal/testserver`: `echo`, `add`,
 the guide `docs/guides/mcp.md`, and the `packages.md` entry. Tests run under the
 scripted provider with no network.
 
-Later: `tools/list_changed` notifications with an `OnChange` callback; OAuth and
-token store; a runner marker for uncertain effect, so a lost response stops for
-host reconciliation ([draft](06-local-mcp-research.md)); SSE; resources and
-prompts; a bound on result size once roadmap 11 lands. After the CLI PR merges,
-the CLI track wires `Open`, the approval prompt, and a `/mcp` status screen
-(below).
+Later: an `OnChange` callback for `tools/list_changed` (the `Changed` flag ships
+now); OAuth and token store; a runner marker for uncertain effect, so a lost
+response stops for host reconciliation ([draft](06-local-mcp-research.md)); SSE;
+resources and prompts; a bound on result size once roadmap 11 lands. After the
+CLI PR merges, the CLI track wires `Open`, the approval prompt, and a `/mcp`
+status screen (below).
 
 ```
 /mcp
@@ -195,7 +220,8 @@ the CLI track wires `Open`, the approval prompt, and a `/mcp` status screen
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| SDK API changes | Rework | Pin v1.7.0. Keep SDK types out of the public API. |
+
+| `${VAR}` in a project entry sends a secret to a repo-chosen URL | Secret leak | The prompt shows variable names. Approval binds to the fingerprint. |
 | Orphan server processes | Leaked processes | Close stops each child. Test it. |
 | Uncertain effect after a lost response | Model may repeat a mutating call | Text says the call may have run. Runner marker is follow-up. |
 | Provider rejects a result block | Turn fails | Convert audio and binary to text when the provider lacks support. Test per route later. |
@@ -204,16 +230,26 @@ the CLI track wires `Open`, the approval prompt, and a `/mcp` status screen
 
 1. **Own module.** The SDK brings an HTTP and OAuth stack. The core module stays
    lean. Gemini already sets the pattern.
-2. **Approval is a callback in `Open`.** The library owns the rule "untrusted
-   never starts". The host owns the prompt and its memory. This makes the safe
-   path the short path.
+2. **Approval is a callback in `Open`, keyed on a fingerprint.** The library
+   owns the rule "untrusted never starts". The host owns the prompt and its
+   memory. A remembered approval holds only for that fingerprint, so a
+   repository cannot change a command after approval. Prompts run one at a time,
+   in sorted order. Same name in user and project files: the user entry wins,
+   with a warning. (Review 1, 4.)
 3. **Server failure is status, not error.** Program rule: warn and adjust. The
    agent must run when one server breaks.
-4. **Names use `mcp__server__tool`.** This matches Claude Code, so users keep
-   their permission rules. Collisions get a hash, not a failure.
+4. **Names use `mcp__server__tool`, from server and tool name only.** This
+   matches Claude Code, so users keep permission rules and resumed sessions
+   (demo step 7) keep working. A collision drops the later tool in sorted server
+   order and reports it. Start order never decides. (Review 2.)
 5. **Fixed snapshot with explicit `Refresh`.** The runner matches definitions at
-   dispatch. A live swap could break a pending call.
+   dispatch. A live swap could break a pending call. `Refresh` re-lists live
+   servers and reconnects only failed ones. (Review 3.)
 6. **OAuth deferred.** Static headers, env expansion, and the `HTTPClient` hook
    cover the demo and host-owned auth.
 7. **Uncertain effect is text for now.** The correct fix needs a runner change.
-   That change does not block the demo.
+   It does not block the demo.
+8. **Review points 5, 6, 7 accepted.** Warnings live on `Server` and reach
+   `Status`. `ToolInfo` drops the read-only hint (`Definition.Annotations` holds
+   it). Connect timeout is 10 seconds. No background connect. MCP hints never
+   grant permission.
