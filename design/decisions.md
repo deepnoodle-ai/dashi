@@ -317,3 +317,13 @@ for generated IDs: step-sequence fencing already stops a stale retry, and a
 recorded warning would sit in every turn of a durable host that chose to rely
 on it. Dashi had no users, so there is no migration.
 The nil-Policy default is now "no hook opinion" (decision 31).
+
+**34. A turn that reached its model-attempt limit continues as the same turn.**
+Decided 2026-09-28. `Continue.ModelAttempts` is the complete raised limit and
+must exceed the limit in force. The runner records it on the `turn_continued`
+step (`Step.ModelAttempts`), and replay keeps it as the turn's cap. The
+agent's recorded `Limits` do not change, so `ErrAgentChanged` checks stay the
+same. A stop at this limit is no longer terminal, and a budget stop after the
+last attempt is no longer terminal either: a raise of both continues it. A
+host needs no second turn, and no synthetic input, to say "keep going".
+Dashi had no users, so there is no migration.

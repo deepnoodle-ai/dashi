@@ -212,7 +212,9 @@ type Step struct {
 	CommandDigest string     `json:"command_digest,omitempty"`
 	Started       *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
-	Budget         *Budget                     `json:"budget,omitempty"`
+	Budget *Budget `json:"budget,omitempty"`
+	// ModelAttempts on a continuation records the raised model-attempt cap.
+	ModelAttempts  int                         `json:"model_attempts,omitempty"`
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`
 	Tool           *ToolFact                   `json:"tool,omitempty"`
@@ -515,9 +517,10 @@ type Stop struct {
 	// Terminal means the turn has ended: no command can run it again,
 	// whatever the host settles or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline or its
-	// interruptions limit; for any limited turn that has used all its model
-	// attempts; and for a turn limited by cost whose spend includes a cost
-	// that cannot be priced. The runner sets it when it records the stop.
+	// interruptions limit; and for a turn limited by cost whose spend
+	// includes a cost that cannot be priced. A turn stopped at its model
+	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
+	// The runner sets it when it records the stop.
 	//
 	// After a terminal stop the record accepts only late results of work
 	// that had already started, and other commands give ErrTurnEnded. A
@@ -640,6 +643,13 @@ type Continue struct {
 	History   []llm.Message
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget
+	// ModelAttempts raises the turn's model-attempt limit to this total. Zero
+	// keeps the current limit. It must exceed the limit now in force, which
+	// is the agent's Limits.ModelAttempts until an earlier Continue raises
+	// it. A turn that stopped at its limit continues only when this raise
+	// leaves room for another call. The raise applies to this turn from then
+	// on, and the recorded agent does not change.
+	ModelAttempts int
 	// OnHistoryMismatch controls what happens when History differs from the
 	// fingerprint recorded at Start. The default warns and proceeds.
 	//

@@ -776,7 +776,7 @@ func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 
 func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
 	s := &replayState{}
-	s.Agent.Limits.ModelAttempts = 8
+	s.attemptCap = 8
 	for _, tc := range []struct {
 		settled  int
 		inFlight bool

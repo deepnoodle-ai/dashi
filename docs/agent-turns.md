@@ -64,8 +64,9 @@ turn waits on, when it cannot. `Outcome.ReadyToContinue`, and the same flag on
 a replayed turn, tells a host's sweeper when to schedule `Continue`. `Deliver`
 records context without running. `Cancel` ends the turn. `Stop.Terminal`
 marks every stop that ends a turn: completed, canceled, a deadline or
-interruptions limit, any limit reached after the last model attempt, or a cost
-cap over an unknown cost. At any terminal stop, unstarted calls become known
+interruptions limit, or a cost cap over an unknown cost. A stop at the
+model-attempt limit is not terminal: `Continue{ModelAttempts: n}` raises the
+limit to `n` and runs the same turn on. At any terminal stop, unstarted calls become known
 not executed, while started effects can still receive late results; other
 commands return `ErrTurnEnded`.
 

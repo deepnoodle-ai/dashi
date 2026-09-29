@@ -34,6 +34,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
   mentions for terminal front ends.
 - [Delegating to subagents](delegation.md): the `task` tool, child turns,
   parent links, retries, cancel, and spend roll-up.
+- [The dashi terminal coding agent](cli.md): installing and using the CLI,
+  its commands, sessions, and approvals.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 

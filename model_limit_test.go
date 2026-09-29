@@ -353,3 +353,133 @@ func answerLookup() tool.Tool {
 		}),
 	}
 }
+
+func TestContinueRaisesModelAttemptLimit(t *testing.T) {
+	def := testAgent()
+	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalAnswer: true}
+	client := &scriptedClient{
+		results: []llm.Result{
+			callResult("c1", "lookup"),
+			callResult("c2", "lookup"),
+			callResult("c3", "lookup"),
+			final("done"),
+		},
+	}
+	lookup := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Succeeded("ok"), nil
+		}),
+	}
+	runner := Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    tool.List{lookup},
+		Recorder: NewMemoryRecorder(),
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "limit"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+	})
+	if err != nil || !limitedForAttempts(out.Stop) || out.Stop.Terminal {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+
+	// Without a raise, or with a raise that does not exceed the limit, the
+	// turn does not continue.
+	if _, err := runner.Run(t.Context(), out.Turn, Continue{
+		CommandID: "plain",
+	}); err == nil {
+		t.Fatal("continue without a raise ran a spent turn")
+	}
+	if _, err := runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "same",
+		ModelAttempts: 2,
+	}); err == nil {
+		t.Fatal("a raise equal to the limit was accepted")
+	}
+
+	// The raise keeps the same turn and its record.
+	out, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "raise-1",
+		ModelAttempts: 3,
+	})
+	if err != nil || !limitedForAttempts(out.Stop) || out.Turn.ID != "limit" {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if out.Stop.Limit.Limit != 3 || out.Stop.Limit.Used != 3 {
+		t.Fatalf("limit detail=%+v", out.Stop.Limit)
+	}
+
+	// A second raise builds on the first, and the record replays.
+	if _, err := runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "lower",
+		ModelAttempts: 3,
+	}); err == nil {
+		t.Fatal("a raise equal to the raised limit was accepted")
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "raise-2",
+		ModelAttempts: 10,
+	})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "done" {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	}
+	if _, err := Replay(out.Turn); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+}
+
+func TestBudgetRaiseAloneCannotRunToolsWithoutModelCalls(t *testing.T) {
+	s := &replayState{}
+	s.Revision, s.ModelAttempts, s.attemptCap = 2, 3, 3
+	s.Stop = Stop{
+		Kind:  StopLimited,
+		Limit: &LimitDetail{Kind: LimitTotalTokens},
+	}
+	s.Tools = map[string]ToolView{"c1": {Status: ToolRequested}}
+	s.callOrder = []string{"c1"}
+	raise := &Budget{MaxTotalTokens: 1 << 40}
+	if s.canContinueWith(raise, 0) || s.canContinueWith(raise, 3) {
+		t.Fatal("a budget raise without a model-call raise was accepted")
+	}
+	if !s.canContinueWith(raise, 4) {
+		t.Fatal("a budget raise with room for a model call was rejected")
+	}
+}
+
+func TestStructuredAnswerOnFinalCallCompletesAfterContinue(t *testing.T) {
+	def := structuredAgent()
+	def.Limits.ModelAttempts = 2
+	client := &scriptedClient{
+		results: []llm.Result{
+			callResult("lookup-1", "lookup"),
+			submitResult("submit", `{"answer":42}`),
+		},
+	}
+	runner := Runner{
+		Agent:    def,
+		Client:   client,
+		Tools:    tool.List{answerLookup()},
+		Recorder: NewMemoryRecorder(),
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "limit"}, Start{
+		CommandID: "start",
+		Input:     []llm.Message{llm.UserMessage(llm.Text("look up 42"))},
+	})
+	if err != nil || !limitedForAttempts(out.Stop) {
+		t.Fatalf("out=%+v err=%v", out.Stop, err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "more",
+		ModelAttempts: 3,
+	})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
+		client.sends != 2 {
+		t.Fatalf("stop=%+v err=%v sends=%d", out.Stop, err, client.sends)
+	}
+}

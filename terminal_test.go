@@ -27,8 +27,7 @@ func testStop(kind StopKind, limit LimitKind) *Stop {
 	switch {
 	case kind == StopCompleted, kind == StopCanceled:
 		stop.Terminal = true
-	case limit == LimitDeadline, limit == LimitInterruptions,
-		limit == LimitModelAttempts:
+	case limit == LimitDeadline, limit == LimitInterruptions:
 		stop.Terminal = true
 	}
 	return stop
@@ -55,9 +54,9 @@ func TestTerminalStops(t *testing.T) {
 		{name: "uncertain", stop: Stop{Kind: StopUncertain}},
 		{name: "deadline", stop: limited(LimitDeadline), want: true},
 		{name: "interruptions", stop: limited(LimitInterruptions), want: true},
-		{name: "model attempts", stop: limited(LimitModelAttempts), attempts: 8, want: true},
-		{name: "cost after last attempt", stop: limited(LimitCost), attempts: 8, want: true},
-		{name: "host after last attempt", stop: limited(LimitHost), attempts: 9, want: true},
+		{name: "model attempts", stop: limited(LimitModelAttempts), attempts: 8},
+		{name: "cost after last attempt", stop: limited(LimitCost), attempts: 8},
+		{name: "host after last attempt", stop: limited(LimitHost), attempts: 9},
 		{name: "cost", stop: limited(LimitCost)},
 		{name: "cost with unknown spend", stop: limited(LimitCost), costUnknown: 1, want: true},
 		{name: "unpriced model", stop: Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}}},
@@ -71,7 +70,7 @@ func TestTerminalStops(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &replayState{}
 			s.Stop, s.ModelAttempts = tt.stop, tt.attempts
-			s.Agent.Limits.ModelAttempts = 8
+			s.attemptCap = 8
 			s.Revision = 2
 			s.Spend.CostUnknown = tt.costUnknown
 			if got := s.terminal(); got != tt.want {
@@ -86,7 +85,7 @@ func TestTerminalStops(t *testing.T) {
 				MaxTotalTokens:  1 << 40,
 				MaxCost:         &Money{Amount: money.Amount(1 << 60), Currency: "USD"},
 			}
-			if s.canContinueWithBudget(huge) || s.canContinue() {
+			if s.canContinueWith(huge, 1<<30) || s.canContinue() {
 				t.Fatal("a terminal stop can continue")
 			}
 		})
@@ -356,14 +355,15 @@ func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
 	}
 }
 
-// A budget stop after the last model attempt is terminal end to end: no
-// raise can resume it, and replay agrees with the recorded flag.
-func TestBudgetStopAfterLastAttemptIsTerminal(t *testing.T) {
+// A budget stop after the last model attempt is not terminal: a raise of the
+// budget and of the model-attempt cap together resumes it, and replay agrees
+// with the recorded flag.
+func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
 	def := testAgent()
 	def.Limits.ModelAttempts = 1
 	call := callResult("call-1", "remote")
 	call.Usage = &llm.Usage{OutputTokens: 50}
-	client := &scriptedClient{results: []llm.Result{call}}
+	client := &scriptedClient{results: []llm.Result{call, final("done")}}
 	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		return tool.Succeeded("done"), nil
 	})
@@ -378,18 +378,19 @@ func TestBudgetStopAfterLastAttemptIsTerminal(t *testing.T) {
 		out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitOutputTokens {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if !out.Stop.Terminal {
-		t.Fatal("budget stop after the last attempt is not terminal")
+	if out.Stop.Terminal {
+		t.Fatal("budget stop after the last attempt is terminal")
 	}
 	if _, err := Replay(out.Turn); err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(t.Context(), out.Turn, Continue{
-		CommandID: "raise",
-		Budget:    &Budget{MaxOutputTokens: 1000},
+	out, err = runner.Run(t.Context(), out.Turn, Continue{
+		CommandID:     "raise",
+		Budget:        &Budget{MaxOutputTokens: 1000},
+		ModelAttempts: 3,
 	})
-	if !errors.Is(err, ErrTurnEnded) {
-		t.Fatalf("raise err=%v", err)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 }
 
@@ -399,15 +400,17 @@ func TestBudgetStopAfterLastAttemptIsTerminal(t *testing.T) {
 // model_settled and model_reconciled consult.
 func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	s := &replayState{}
-	s.Agent.Limits.ModelAttempts = 2
+	s.attemptCap = 2
 	s.Stop = Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitHost, Code: "plan"}}
 	s.ModelAttempts = 1
 	if err := s.checkStillOpen(); err != nil {
 		t.Fatalf("open stop: %v", err)
 	}
-	s.ModelAttempts = 2 // a late result used the last attempt
-	if err := s.checkStillOpen(); err == nil {
-		t.Fatal("a late result ended the turn without a stop")
+	// A late result that uses the last attempt leaves the stop open, since a
+	// Continue can raise the model-attempt cap.
+	s.ModelAttempts = 2
+	if err := s.checkStillOpen(); err != nil {
+		t.Fatalf("spent cap: %v", err)
 	}
 	s.Stop.Terminal = true
 	if err := s.checkStillOpen(); err != nil {

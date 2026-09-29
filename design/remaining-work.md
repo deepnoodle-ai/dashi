@@ -184,12 +184,15 @@ wait for a host that needs them.
 
 ### 14. Session continuity
 
-**Status:** Open. Each Turn receives prior history from the application; Dashi owns
-no cross-turn Session. This is an explicit open question, not missing Turn
-persistence. **Size:** L. **Difficulty:** High. **Reference:** [decision 19](decisions.md)
-and [history storage](history-storage.md). **Next:** Pilot the draft PRD's
-optional history reference with a durable host before considering a Session
-store.
+**Status:** Open in the library; proven in the CLI. Each Turn receives prior
+history from the application, and Dashi owns no cross-turn Session. The `dashi`
+CLI ([PRD](cli.md), [guide](../docs/guides/cli.md)) keeps its own session
+store in `cmd/dashi/session`: turn records are the only history, and one
+`History` function builds the model view. **Size:** L. **Difficulty:** High.
+**Reference:** [decision 19](decisions.md) and [history storage](history-storage.md).
+**Next:** Run the CLI with users, then decide which parts of the store (list,
+latest, lock, `History`) belong in the library. Pilot the draft PRD's optional
+history reference with a durable host before adding a library Session.
 
 **Packet:** [source research](roadmap-research/14-session-continuity-research.md) · [draft PRD](roadmap-research/14-session-continuity-prd.md).
 
