@@ -309,3 +309,63 @@ func TestLoadSkillToolAddsBaseDirectoryForFolderSkills(t *testing.T) {
 		t.Fatalf("load output = %q, want %q", out, want)
 	}
 }
+
+func TestLoadDirsAcceptsClaudeCodeCommandFiles(t *testing.T) {
+	set, warns := skill.LoadDirs("testdata/claude-commands")
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %+v", warns)
+	}
+	tests := []struct {
+		name, description, hint string
+	}{
+		{"commit", "Create a git commit", "[message]"},
+		{
+			"review-pr",
+			"Review pull request: check style and tests",
+			"[pr-number] [priority] [assignee]",
+		},
+		{
+			"fix-issue",
+			"Fix issue #$ARGUMENTS following our coding standards",
+			"[issue-number]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := info(set, tt.name)
+			if !ok {
+				t.Fatalf("%s did not load", tt.name)
+			}
+			if got.Description != tt.description ||
+				got.ArgumentHint != tt.hint ||
+				!got.UserInvocable {
+				t.Fatalf("info = %+v", got)
+			}
+		})
+	}
+	body, ok := set.Expand("review-pr", "12 high alice")
+	if !ok || body != "Review PR #12 with priority high and assign it to alice." {
+		t.Fatalf("expand = %q, %v", body, ok)
+	}
+}
+
+func TestLoadDirsIgnoresWrongTypeFieldAndNamesIt(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"odd/SKILL.md": "---\ndescription: {a: b}\n" +
+			"disable-model-invocation: [x]\n---\nBody.",
+	})
+	set, warns := skill.LoadDirs(root)
+	if _, ok := info(set, "odd"); !ok {
+		t.Fatal("skill with wrong-type fields did not load")
+	}
+	if len(warns) != 2 {
+		t.Fatalf("warnings = %+v", warns)
+	}
+	for i, field := range []string{`"description"`, `"disable-model-invocation"`} {
+		if !strings.Contains(warns[i].Path, "odd") ||
+			!strings.Contains(warns[i].Message, field) {
+			t.Errorf("warning %d = %+v", i, warns[i])
+		}
+	}
+}

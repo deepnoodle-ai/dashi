@@ -30,7 +30,9 @@ per turn. The model calls `load_skill` to read the full text of a skill.
 | `<dir>/<name>/SKILL.md` | Folder skill. Model and user can use it. |
 | `<dir>/<name>.md` | Command file. Only the user can use it. |
 
-Other files in a skill folder are supporting files. The loader does not read
+The loader reads a flat `.md` file in any search dir, so a stray `NOTES.md`
+in a skills dir becomes a command. Keep notes out of these dirs (`README.md`
+is skipped). Other files in a skill folder are supporting files. The loader does not read
 them. The text that the model receives starts with `Base directory: <dir>`,
 so the agent can read a supporting file with its own file tool.
 
@@ -58,6 +60,11 @@ Review $1 for bugs. Report each bug with its file and line.
 - `argument-hint` is for your UI. `Info.ArgumentHint` returns it.
 - `disable-model-invocation: true` keeps the skill out of the catalog.
 - `user-invocable: false` stops `Expand` from returning the skill.
+- The reader accepts the forms that Claude Code files use: `argument-hint:
+  [a] [b]`, a colon in an unquoted description, and text after ` #`. If
+  strict YAML fails, the loader reads plain `key: value` lines. A field with
+  a value it cannot use (for example a list for `description`) is ignored, and
+  a warning names the file and the field.
 - A file with no frontmatter is valid. Other fields, such as
   `allowed-tools`, are ignored. A skill file cannot grant a tool.
 

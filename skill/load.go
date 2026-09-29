@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -58,12 +59,13 @@ type entry struct {
 	body string
 }
 
+// frontmatter holds the fields the loader reads. Zero values mean absent.
 type frontmatter struct {
-	Name                   string `yaml:"name"`
-	Description            string `yaml:"description"`
-	ArgumentHint           string `yaml:"argument-hint"`
-	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
-	UserInvocable          *bool  `yaml:"user-invocable"`
+	Name                   string
+	Description            string
+	ArgumentHint           string
+	DisableModelInvocation bool
+	UserInvocable          *bool
 }
 
 // LoadDirs reads every <dir>/<name>/SKILL.md and every <dir>/<name>.md. Earlier
@@ -80,6 +82,11 @@ func LoadDirs(dirs ...string) (*Set, []Warning) {
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
+		}
+		// An absolute path keeps the base-directory line valid for a file
+		// tool that runs from another working directory.
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
 		}
 		found, more := loadDir(dir)
 		warnings = append(warnings, more...)
@@ -240,7 +247,7 @@ func loadDir(dir string) ([]entry, []Warning) {
 		var (
 			e   entry
 			ok  bool
-			bad *Warning
+			bad []Warning
 		)
 		switch {
 		case info.IsDir():
@@ -250,9 +257,7 @@ func loadDir(dir string) ([]entry, []Warning) {
 			base := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 			e, ok, bad = loadFile(path, base, "")
 		}
-		if bad != nil {
-			warnings = append(warnings, *bad)
-		}
+		warnings = append(warnings, bad...)
 		if !ok {
 			continue
 		}
@@ -274,26 +279,27 @@ func loadDir(dir string) ([]entry, []Warning) {
 	return found, warnings
 }
 
-func loadFolder(dir, base string) (entry, bool, *Warning) {
+func loadFolder(dir, base string) (entry, bool, []Warning) {
 	path := filepath.Join(dir, skillFile)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return entry{}, false, &Warning{
+		return entry{}, false, []Warning{{
 			Path: dir,
 			Message: "folder has no " + skillFile +
 				"; nested directories are not loaded",
-		}
+		}}
 	}
 	return loadFile(path, base, dir)
 }
 
 // loadFile parses one skill file. dir is empty for a command file, which only
-// a user can invoke.
-func loadFile(path, base, dir string) (entry, bool, *Warning) {
-	fail := func(format string, args ...any) (entry, bool, *Warning) {
-		return entry{}, false, &Warning{
+// a user can invoke. A field of the wrong type is ignored with a warning that
+// names the field; the skill still loads.
+func loadFile(path, base, dir string) (entry, bool, []Warning) {
+	fail := func(format string, args ...any) (entry, bool, []Warning) {
+		return entry{}, false, []Warning{{
 			Path:    path,
 			Message: fmt.Sprintf(format, args...),
-		}
+		}}
 	}
 	raw, err := readLimited(path)
 	if err != nil {
@@ -302,14 +308,19 @@ func loadFile(path, base, dir string) (entry, bool, *Warning) {
 	if !utf8.Valid(raw) {
 		return fail("file is not valid UTF-8")
 	}
-	var fm frontmatter
+	var (
+		fm       frontmatter
+		warnings []Warning
+	)
 	body := raw
 	if front, rest, found, err := splitFrontmatter(raw); err != nil {
 		return fail("%v", err)
 	} else if found {
 		body = rest
-		if err := yaml.Unmarshal(front, &fm); err != nil {
-			return fail("invalid frontmatter YAML: %v", oneLine(err))
+		var problems []string
+		fm, problems = parseFields(front)
+		for _, problem := range problems {
+			warnings = append(warnings, Warning{Path: path, Message: problem})
 		}
 	}
 	name := strings.TrimSpace(fm.Name)
@@ -346,7 +357,148 @@ func loadFile(path, base, dir string) (entry, bool, *Warning) {
 			UserInvocable:  userOK,
 		},
 		body: text,
-	}, true, nil
+	}, true, warnings
+}
+
+// parseFields reads the known fields from a frontmatter block. Real command
+// files are often not strict YAML (an unquoted colon in a description, or
+// "argument-hint: [a] [b]"), so when YAML fails the parser falls back to
+// reading "key: value" lines. A known field with a value it cannot use is
+// ignored and reported by name.
+func parseFields(front []byte) (frontmatter, []string) {
+	values := map[string]any{}
+	if err := yaml.Unmarshal(front, &values); err != nil {
+		values = lineFields(string(front))
+	} else {
+		keepHashText(values, lineFields(string(front)))
+	}
+	var (
+		fm       frontmatter
+		problems []string
+	)
+	text := func(key string) string {
+		v, ok := values[key]
+		if !ok {
+			return ""
+		}
+		s, ok := scalarText(v)
+		if !ok {
+			problems = append(problems, fmt.Sprintf(
+				"frontmatter field %q ignored: expected text", key,
+			))
+		}
+		return s
+	}
+	flag := func(key string) *bool {
+		v, ok := values[key]
+		if !ok {
+			return nil
+		}
+		b, ok := boolValue(v)
+		if !ok {
+			problems = append(problems, fmt.Sprintf(
+				"frontmatter field %q ignored: expected true or false", key,
+			))
+			return nil
+		}
+		return &b
+	}
+	fm.Name = text("name")
+	fm.Description = text("description")
+	fm.ArgumentHint = text("argument-hint")
+	if b := flag("disable-model-invocation"); b != nil {
+		fm.DisableModelInvocation = *b
+	}
+	fm.UserInvocable = flag("user-invocable")
+	return fm, problems
+}
+
+// keepHashText restores text after " #". YAML reads that as a comment, but a
+// description such as "Fix issue #$ARGUMENTS" is prose in command files. It
+// applies only to unquoted single-line text.
+func keepHashText(values, lines map[string]any) {
+	for key, v := range values {
+		parsed, ok := v.(string)
+		raw, _ := lines[key].(string)
+		if !ok || raw == parsed || !strings.HasPrefix(raw, parsed) {
+			continue
+		}
+		if strings.ContainsAny(raw[:1], "\"'[{&*!|>%@`") ||
+			!strings.HasPrefix(strings.TrimSpace(raw[len(parsed):]), "#") {
+			continue
+		}
+		values[key] = raw
+	}
+}
+
+// scalarText turns a YAML value into text. A list, such as the YAML reading
+// of "argument-hint: [issue-number]", is written back in brackets.
+func scalarText(v any) (string, bool) {
+	switch v := v.(type) {
+	case nil:
+		return "", true
+	case string:
+		return v, true
+	case bool, int, int64, uint64, float64:
+		return fmt.Sprint(v), true
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			part, ok := scalarText(item)
+			if !ok {
+				return "", false
+			}
+			parts = append(parts, part)
+		}
+		return "[" + strings.Join(parts, ", ") + "]", true
+	}
+	return "", false
+}
+
+func boolValue(v any) (bool, bool) {
+	switch v := v.(type) {
+	case bool:
+		return v, true
+	case string:
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		return b, err == nil
+	}
+	return false, false
+}
+
+var keyLine = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$`)
+
+// lineFields reads top-level "key: value" lines. Indented lines continue the
+// value above. A lone ">" or "|" marks a block value and is dropped.
+func lineFields(front string) map[string]any {
+	values := map[string]any{}
+	var key string
+	for _, line := range strings.Split(front, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if m := keyLine.FindStringSubmatch(line); m != nil {
+			key = m[1]
+			value := strings.TrimSpace(m[2])
+			switch value {
+			case ">", "|", ">-", "|-":
+				value = ""
+			}
+			values[key] = unquote(value)
+			continue
+		}
+		if key != "" && strings.TrimSpace(line) != "" &&
+			(line[0] == ' ' || line[0] == '\t') {
+			prev, _ := values[key].(string)
+			values[key] = strings.TrimSpace(prev + " " + strings.TrimSpace(line))
+		}
+	}
+	return values
+}
+
+func unquote(v string) string {
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
 
 func readLimited(path string) ([]byte, error) {

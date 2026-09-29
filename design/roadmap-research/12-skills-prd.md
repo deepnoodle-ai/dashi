@@ -125,6 +125,11 @@ if body, ok := set.Expand("review", "src/api"); ok { prompt = body }
 - **Orchestrator correction: `Bundle.Hooks` delivers the catalog.** The first sample made every host write about 12 lines of `BeforeModel` code. One call now does it: `Hooks` returns a `dashi.Hooks` with one `BeforeModel` hook that delivers the catalog snapshot unless the turn already holds it. `Reminder` stays for hosts that deliver the catalog their own way. An empty bundle returns no hooks. The `skill` package now imports the root `dashi` package. The root package does not import `skill`, so there is no cycle.
 - **Implementation calls.** The library module adds `gopkg.in/yaml.v3` for frontmatter, because real skills use block scalars. The loader measures the catalog with the longest tool name (64 bytes), so any valid `Options.ToolName` fits. `load_skill` output for a folder skill is the base-directory line, then the `# name` heading, then the body. A file over 80 KiB warns and is skipped. `ArgumentHint` is kept for UIs and is not shown to the model.
 
+- **Implementation review, accepted: tolerant frontmatter (blocking).** Claude Code files use `argument-hint: [message]`, unquoted colons, and ` #` text. The loader decodes into a map, joins a list into bracketed text, and falls back to `key: value` lines when YAML fails. A field with an unusable value is ignored with a warning that names the file and field. Fixtures in `skill/testdata/claude-commands` copy the documented command forms.
+- **Review finding 2, accepted.** `go mod tidy` moves `gopkg.in/yaml.v3` to a direct dependency. The PR names it.
+- **Review finding 3, accepted.** `LoadDirs` converts each dir to an absolute path, so the base-directory line never depends on the working directory.
+- **Review finding 4, rejected.** Loading flat files only from dirs named `commands` would tie behavior to a dir name, and hosts pass custom dirs. The guide states the rule and tells authors to keep notes elsewhere.
+
 ## Ship plan
 
 **By Tuesday night (this slice):** `LoadDirs`, `DefaultDirs`, `Set`, `Expand`, `Dir` support, fixtures and tests, updated example, `docs/guides/skills.md`, roadmap update. The CLI wiring is a later, short PR: load in `main`, add the bundle and catalog item, route `/name` to `Expand`.
