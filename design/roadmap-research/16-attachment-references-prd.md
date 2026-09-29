@@ -1,67 +1,207 @@
-# 16. Turn-owned attachment references — draft PRD
+# PRD: attachments — stored references and `@file` mentions
 
-**Status:** Draft for review, 2026-09-28. **Size/difficulty:** M / High (roadmap estimate). **Research:** [comparative findings](16-attachment-references-research.md). **Existing proposal:** `design/history-storage.md:155-187`; this draft narrows its first slice to verifiable inline bytes.
+| Field | Value |
+| --- | --- |
+| Status | Revised after independent review, 2026-09-28 |
+| Roadmap | [Item 16](../remaining-work.md), size M / high difficulty, plus the CLI attachment helper |
+| Evidence | [Source review](16-attachment-references-research.md), [history storage](../history-storage.md), Dive CLI `attachments.go` |
+| Demo | Wednesday 2026-09-30. PR 1 (Part B) ships by Tuesday night. PR 2 (Part A) follows on its own branch. |
 
-## User problem
+## Problem
 
-A host that stores an uploaded image or document already has a durable, authorized artifact identity. Today it must put the bytes into Dashi's `Start.Input` or a tool result. Those bytes enter the Turn record and can grow checkpoints and logs. If the host substitutes a URL or provider file ID, Dashi has no way to recheck host authorization or prove the bytes behind that location. Mobius solves this with a costly conversion around Dive's content types. A Dashi user should be able to say “this Turn includes this stored attachment” once, inspect the Turn without loading it, and have each model request use only content that the host still authorizes.
+Two users cannot attach files today.
 
-## Goals and non-goals
+1. **The `dashi` CLI user** types `explain @internal/wake/wake.go` or `what is wrong in ./err.png`. Dashi has no code that turns those words into content the model can read. Dive's CLI has this code, and the Dashi CLI needs it back.
+2. **A Dashi host** already stores uploads. To attach one, the host must copy its bytes into `Start.Input` or a tool result. The bytes enter the Turn record and grow every checkpoint and log. A URL or provider file ID cannot fix this: Dashi cannot check who may read it, or prove which bytes it names.
 
-**Goals:** A small application-owned reference in existing media `content.Source`; immutable byte identity (size and SHA-256); host-controlled resolution and access check before each `Prepare`; exact request evidence without persisting resolved bytes; explicit errors for missing, revoked, changed, oversized, or unsupported content. The same mechanism should work for current-turn input, delivered context, and tool-result media.
+If we do nothing, the CLI has no file mentions, and each host writes its own conversion layer.
 
-**Non-goals:** Dashi artifact storage, upload endpoints, automatic externalization of inline content, private URL fetch, a generic resource browser, signed-URL/provider-file-ID resolution, or a new Session/history store. Prior `History` remains caller-owned. Existing public URLs and provider IDs keep their current explicit semantics.
+## Goals and metrics
 
-## Proposed smallest contract
+- A CLI user attaches a workspace file or image with one word. Time to attach: no extra step.
+- A host records a stored attachment as an ID, a SHA-256 digest, and a size. The Turn record holds no attachment bytes. Test: a Turn with a 5 MiB ref serializes to under 1 KiB.
+- Each model call re-checks access and bytes. Test: revoked, missing, changed, and oversized content each stop the Turn before any model request.
+- A CLI user drags a screenshot from the Desktop into the terminal and it attaches. No extra step.
+- Guardrails: inline `Source` behavior does not change. Every Turn runs the model-request path that Part A changes, so that path gets the most tests. `Project`, replay, and inspection never call the host.
+
+## Users
+
+**Primary:** the CLI user (demo path). **Secondary:** the host developer who stores uploads and runs Turns for many tenants.
+
+## Part A: content references (library)
+
+### Public API
 
 ```go
-// Sketch, names subject to Go API review.
+// package content
 type Ref struct {
-    ID     string // opaque host identifier; never treated as a URL/path
-    SHA256 string // canonical hex digest of original bytes
-    Size   int64
+    ID     string `json:"id"`     // opaque host ID; never a URL or path
+    SHA256 string `json:"sha256"` // lowercase hex digest of the bytes
+    Size   int64  `json:"size"`   // byte count of the bytes
 }
-// content.Source gains Ref *content.Ref, mutually exclusive with Data/URL/ID/URI.
-// Existing Source.MIMEType and document title remain the media metadata.
+// Source gains: Ref *Ref `json:"ref,omitempty"`
+// Ref excludes Data, URL, ID, URI, Origin, and ExpiresAt.
+// Ref requires MIMEType, because Dashi cannot detect it without the bytes.
 
+// package dashi
 type ContentResolver interface {
+    // Resolve returns the bytes of ref. It checks that turnID may read ref.
     Resolve(ctx context.Context, turnID string, ref content.Ref) ([]byte, error)
 }
-// Runner.Content binds the application resolver for model preparation.
+// Runner gains:
+//   ContentResolver ContentResolver // nil: a Turn that holds a Ref stops before its first model call
+//   ContentLimits ContentLimits
+
+type ContentLimits struct {
+    MaxRefBytes   int64 // per ref; zero means 32 MiB; negative means no limit
+    MaxTotalBytes int64 // per model request; zero means 64 MiB; negative means no limit
+}
 ```
 
-The host saves and validates the attachment first, computes the digest from the stored bytes, and records a `Source{Ref: ..., MIMEType: ...}`. The ref is an identifier, **not** an access token. The host resolver uses trusted invocation context plus Turn/session/tenant policy to re-authorize and read it, including after resume. It must retain bytes for as long as that Turn may legitimately need another model call. Deletion or revocation is allowed and causes a visible pre-dispatch failure.
-
-Dashi keeps the ref in Turn facts. After final message projection and `BeforeModel` adjustments, it resolves every app ref on a **detached** input immediately before `Client.Prepare`. It checks exact `Size` and SHA-256 of returned bytes, rejects inputs exceeding configured limits, and passes ordinary inline `Source.Data` to the existing provider preparation path. The host resolver must bound its own storage read. The original facts and policy-visible Turn view remain ref-bearing. `BeforeSend` sees the actual prepared request; the existing `ModelFact.RequestDigest` pins its exact body. Replay and inspection never call the resolver. A retry or resumed model call resolves and re-authorizes again; no cached bytes may bypass that check. Providers can still report unsupported media through their normal `Prepare` error.
-
-For the first slice, resolver output is **bytes only**. Returning a signed URL or provider ID cannot be checked against `Ref.SHA256` by Dashi and has separate expiry/origin behavior. That may be a later contract with explicit attestations and content-change evidence. No arbitrary URI is implicitly fetched.
-
-### Developer flow
+### Host flow
 
 ```go
-saved := artifactStore.Save(ctx, tenantID, upload) // host-owned, durable
 source := content.Source{
-    Ref: &content.Ref{ID: saved.ID, SHA256: saved.SHA256, Size: saved.Size},
-    MIMEType: saved.MIMEType,
+    Ref:      &content.Ref{ID: "upl_1", SHA256: sum, Size: 812},
+    MIMEType: "image/png",
 }
-// Put source in an image/document input block or a tool-result block.
-runner.Content = contentResolver // host uses trusted ctx + turnID to authorize
+turn, err := runner.Run(ctx, dashi.Start{Input: []content.Block{
+    content.TextBlock("What is wrong here?"), content.ImageBlock(source),
+}})
 ```
 
-The example is deliberately host-shaped: Dashi offers no storage client or upload policy. API review should settle whether the resolver is a `Runner` field or per-`Apply` dependency so a shared Runner cannot accidentally resolve under the wrong tenant.
+The record holds only the ref. Before each model call, Dashi does this on a copy of the input:
 
-## Acceptance criteria
+1. Check each ref's declared size against `ContentLimits`. This needs no I/O.
+2. Call `ContentResolver.Resolve` with the run context. The host uses that context to check tenant and session.
+3. Check that the returned length equals `Size` and the SHA-256 equals `SHA256`.
+4. Put the bytes in `Source.Data`, then call `Prepare`.
 
-1. Source validation accepts exactly one location; a ref requires nonempty opaque ID, positive size, valid SHA-256, and media metadata required by its content kind. Existing `Data`, `URL`, `ID`, and `URI` behavior remains compatible.
-2. Starting a Turn or committing a tool result with `Ref` records only the ref and metadata. Project/replay/inspection produce the same ref without I/O. Inline content still works; Dashi never auto-externalizes it.
-3. A model call with refs requires a resolver. It resolves only on an in-memory copy after the final model input is assembled and before `Prepare`; all refs in current-turn input, context, tool results, and caller-supplied history are handled uniformly without changing ownership of history.
-4. A resolver failure, authorization denial, deletion, size/digest mismatch, or configured size limit stops **before model intent/dispatch** with a typed, actionable error naming the ref and cause without leaking bytes. It never omits or replaces the content silently. A retry must not accept different bytes under the same ref.
-5. Successful preparation records the digest of the exact resolved wire request and no hydrated bytes in Turn facts. `BeforeSend` can inspect/authorize that prepared request. Paused/resumed Turns re-authorize on the next model call; deleting or unbinding an artifact prevents further delivery.
-6. Tests cover input and tool-result refs, duplicate refs, no resolver, revoked/missing/changed bytes, bounded oversized input, resume, and a provider that rejects the media type. A small example shows host storage and tenant/session authorization, including retention responsibility.
+`ModelFact.RequestDigest` covers the request body with the bytes. Facts store no bytes. Every retry and resume runs steps 1 to 4 again. Dashi keeps no cache across calls, so a revoked ref stops delivery at the next call.
 
-## Risks and open decisions
+### Failure behavior
 
-- **Failure lifecycle:** Current `runner.go:1086-1089` turns `Prepare` errors into a failure. Decide the exact typed stop/error and whether a host can resume after restoring the *same* authorized bytes. No automatic substitution or silent retry is proposed.
-- **Resolver binding:** A global Runner can serve many tenants. Prefer a per-invocation trusted context or explicit scoped resolver binding; do not infer authority from the opaque ID or rely on an arbitrary user string inside the ref.
-- **Limits and memory:** The resolver returns bytes, so Dashi needs a clear per-object and aggregate ceiling before accepting them; large streaming documents or provider uploads can be a later extension. A duplicate-ref cache within one preparation may save I/O only after each access check.
-- **Request evidence:** `RequestDigest` proves the encoded body Dashi prepared, not provider receipt. Existing interruption/uncertainty handling remains authoritative. Do not persist `RequestSnapshot.Body`, which includes hydrated bytes (`llm/request.go:18-32`).
+A ref problem stops the Turn as failed before Dashi records a model intent. The failure names the ref ID and one reason: `no_resolver`, `unavailable` (any resolver error, including denied and deleted), `too_large`, `size_mismatch`, or `digest_mismatch`. It never includes bytes. Dashi never drops, replaces, or falls back to another location. This is a known failure, not an uncertain one.
+
+## Part B: `@file` mentions (helper for the CLI)
+
+A new package, `content/mention`. It uses only the standard library and `content`. It does not depend on the `workspace` package (Decision 8). Policy comes from `Options`.
+
+```go
+type Options struct {
+    Root          string // base for relative paths; zero means the current directory
+    MaxImageBytes int64  // per image; zero means 3.75 MB (Decision 4)
+    MaxFileBytes  int64  // per PDF; zero means 10 MiB
+    MaxTextBytes  int64  // per text file; zero means 256 KiB
+    MaxTotalBytes int64  // all files in one message; zero means 32 MiB
+}
+type Result struct {
+    Text     string          // input with each attached mention replaced by a label
+    Blocks   []content.Block // one block per attached file, in order
+    Attached []Attachment    // Path, MIMEType, Size, for the screen
+    Warnings []string        // one plain sentence per skipped mention
+}
+func Expand(input string, opt Options) Result
+```
+
+### What the user sees
+
+| Input | Result |
+| --- | --- |
+| `explain @internal/wake/wake.go` | Text becomes `explain [file: internal/wake/wake.go]`. Blocks hold one text document titled with the path. |
+| `what is wrong in ./err.png` | The path stays in the text. Blocks hold one image. |
+| `see @docs/spec.pdf` | Blocks hold one PDF document. |
+| `mail me@example.com` | No change. `@` starts a mention only at the start of the text or after a space or opening bracket. |
+| `look at ~/Desktop/Screen\ Shot\ 1.png` | Attaches the image. A terminal drop inserts this form. |
+| `look at '/tmp/a b.png'` or `file:///tmp/a.png` | Attaches the image. Quotes and `file://` URLs work. |
+| `read @big.png` (8 MB) | Warning: `Skipped @big.png: 8 MB is over the 3.75 MB image limit.` |
+| `read @app.bin` | Warning: `Skipped @app.bin: not text, an image, or a PDF.` |
+
+Rules:
+
+- A mention is `@path` or `@"path with spaces"`. Trailing `?!,.:;)]}` is not part of the path.
+- The user chooses every attachment. It is not a model action, so no workspace boundary applies. A relative path resolves against `Root`. An absolute path, a `~` path, and a `file://` URL attach from anywhere the user can read. The model's tools keep the workspace boundary.
+- The parser reads shell quotes and backslash escapes the way a terminal inserts a dropped path.
+- A bare word (no `@`) attaches only when it names an existing image or PDF file. A bare text path stays prose, so a pasted stack trace is safe.
+- Image types: PNG, JPEG, GIF, WebP. PDF is a document. A text file is a document with `text/plain` and its path as title. Any other file, or invalid UTF-8, is skipped with a warning.
+- A skipped mention never fails the send. The CLI shows the warnings and sends the message.
+- The same file mentioned twice attaches once.
+
+## User stories
+
+- **US-1.** As a CLI user, I type `@path` so the model reads that file.
+  - [ ] Test: a text file becomes a titled `text/plain` document block.
+  - [ ] Test: `me@example.com` is not a mention.
+  - [ ] Test: trailing punctuation, a quoted path with spaces, and a duplicate mention behave as the rules say.
+- **US-2.** As a CLI user, I name an image or PDF anywhere on disk so the model sees it.
+  - [ ] One test per path form: `./err.png`, absolute, `~`, backslash-escaped, quoted, and `file://`.
+  - [ ] Test: a bare text path stays prose.
+- **US-3.** As a CLI user, I see why a file was not attached.
+  - [ ] Test: missing file, directory, binary file, oversized image, oversized text, and the total limit each yield one warning and no block.
+- **US-4.** As a CLI user, my attachment reaches the model.
+  - [ ] Test: `Expand` output passes `Validate` and `Prepare` for the default OpenAI model and for Anthropic, for text, image, and PDF.
+- **US-5.** As a host developer, I start a Turn with a ref and the record stays small.
+  - [ ] Test: `Source` JSON round-trips a ref; `Validate` rejects a ref with any other location.
+  - [ ] Test: replay and `Project` make no `Resolve` call.
+- **US-6.** As a host developer, I revoke a file and the next model call stops.
+  - [ ] Tests: no resolver, resolver error, size mismatch, digest mismatch, and oversized ref each stop the Turn before a model intent.
+  - [ ] Test: the same ref twice in one request resolves twice. Each call checks access.
+  - [ ] Test: a paused Turn calls `Resolve` again on resume.
+  - [ ] Test: a provider that rejects the media type returns its normal `Prepare` error.
+  - [ ] Test: a ref in a tool result works like a ref in input.
+- **US-7.** As any Dashi user, a Turn with no ref runs exactly as before.
+  - [ ] The existing runner, hook, budget, steering, and provider suites pass unchanged.
+  - [ ] Tests: `BeforeModel` sees ref-bearing input; `BeforeSend` sees hydrated input; `RequestDigest` covers hydrated bytes; a hook that adds a ref-bearing block gets hydrated; streaming and non-streaming runs both hydrate.
+
+## Decisions
+
+1. **The CLI stores attachments inline, not by ref.** Reason: a ref needs a resolver, an attachment store, and a file that cannot change. The CLI has none of these. It reads the file at send time and the bytes enter the session file, capped by `MaxTotalBytes`. A later change can move them to a content-addressed store and use `Ref`.
+2. **`Runner.ContentResolver` is a Runner field and receives the run context and Turn ID.** Reason: the host sets the context on every `Run` call, so a shared Runner cannot resolve under the wrong tenant unless the host passes the wrong context. The opaque ID carries no authority. The name avoids `Content`, which already means blocks (review 7, accepted).
+3. **The resolver returns bytes only.** Reason: Dashi can verify bytes. It cannot verify a signed URL or a provider file ID. This replaces the text in `history-storage.md` that allowed a signed URL or file ID, a `content_unavailable` reason, and a substitution policy. PR 2 updates that document so the design has one answer (review 6, accepted).
+4. **The image default is 3.75 MB of file size.** Reason: Anthropic rejects an image above 5 MB, and it counts the base64 text, which is one third larger than the file. The default is thus 5 MB x 3/4. A file that passes is accepted by every main provider (OpenAI and Google accept more). An image over the limit gets a warning and is not sent, so the provider never fails the whole message. Dashi does not resize. A host can set `MaxImageBytes` higher for a provider that has a higher limit (review 4, accepted; implementation review 1, accepted).
+5. **A ref failure is a terminal failed stop.** Reason: this matches every other failure before a model request. Resume after the host restores the same bytes is later work. The size limit checks the declared `Size` before any I/O; the digest check catches a wrong `Size`. The host must bound its own read.
+6. **Text files become document blocks.** Reason: the Anthropic and OpenAI providers both accept `text/plain` documents, and the record keeps the path as a title.
+7. **Skipped mentions warn; they do not fail.** Reason: the user may have typed `@` on purpose in prose. Zero-value rules say warn and adjust.
+8. **User attachments have no workspace boundary, and `mention` does not use the `workspace` package.** Reason: the user picks the file and can already read it, so a boundary protects nothing (review 1, accepted). The model's tools keep their boundary in `workspace`. This removes the duplicate path check and any signature dependency on the codetools track (review 2, accepted). Symbolic links need no special handling for the same reason. Dive's string-prefix check is not copied.
+9. **Delivery splits in two PRs. Both stay in scope.** PR 1 is Part B and ships Tuesday night. PR 2 is Part A, on a second branch cut from the PR 1 branch after PR 1 opens. Reason: Part A changes the request path that every Turn runs. It gets its own review and the tests in US-6 and US-7 (review 3, accepted in part: no deferral, separate PR).
+10. **Review 5 is accepted.** The stories above add the missing parsing, limit, and `Prepare` tests.
+
+11. **Implementation review of PR 1 (2026-09-28).**
+    - The provider tests use the default capability policy and check that the text document, the image, and the PDF are in each request body (accepted).
+    - `@main.go:42` and `@main.go:42-50` attach `main.go`. The line reference stays in the text (accepted).
+    - A mention in backticks or quotes attaches, for example `` `@a.go` `` (accepted).
+    - The duplicate `scanWords` comment is deleted (accepted).
+    - A warning prints sizes with up to two decimals, rounded up, so a file that is over the limit never prints as equal to it (accepted).
+    - `design/history-storage.md` changed in PR 1 (commit 02161a1), not in PR 2. The PR 1 description says so.
+
+## Delivery
+
+**PR 1: mention helper.** `content/mention`, its tests (US-1 to US-4), and a doc comment. Branch `content/attachment-refs`.
+
+**PR 2: content references.** Branch cut from PR 1. `content.Ref`, `Source.Ref`, validation, `ContentResolver`, limits, hydration before `Prepare`, tests (US-5 to US-7), example `examples/attachment-refs`, guide `docs/guides/attachments.md`, the `history-storage.md` update, and the roadmap update.
+
+**Later.** CLI store by ref. Resume after restored bytes. Resolver results that are signed URLs or provider file IDs. Image resize. Streaming resolver for large documents. Audio and video mentions.
+
+## Out of scope
+
+Dashi artifact storage or upload endpoints. Automatic externalization of inline content. Fetching a URL. A resource browser. A history store; caller-owned `History` is unchanged. `@` autocomplete (a CLI screen feature).
+
+## Technical notes
+
+- `runner.go` compares `snapshot.Input` with `input` after `Prepare`. Compare against the hydrated input. Keep the ref-bearing input for `BeforeModel`, facts, and inspection.
+- `llm.RequestSnapshot` holds bytes in memory. The record must not store it.
+- Hydrate on a clone. `Source.Clone` already detaches `Data`.
+
+## Risks
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| The `snapshot.Input` equality check fails on hydrated input | Every ref Turn fails | Write that test first; compare against the hydrated copy |
+| Part A breaks the ordinary request path | Every Turn fails | Separate PR; US-7 tests; no-ref path takes no new branch |
+| A host cache skips the access check | Revoked content still reaches the model | The guide says the resolver runs on every call; Dashi caches nothing |
+| A request with 64 MiB of bytes exceeds a provider limit | Provider error | The provider's `Prepare` error passes through; the guide lists limits |
+| The user attaches a secret file by mistake | The model reads it | The screen lists every attachment before the send |
+
+## Open questions
+
+- Should `Resolve` receive the step or attempt number? The Turn ID suffices for tenant checks. Add it only if a host needs it.

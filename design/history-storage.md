@@ -157,18 +157,22 @@ the log: it needs only a reference type and a resolver.
 A new `content.Source` location, exclusive with Data, URL, ID, and URI:
 
 ```go
-type Ref struct{ ID, Digest string; Size int64 } // opaque app ID, sha256, bytes
-// Source.Ref *Ref; Source.MIMEType stays required.
+type Ref struct {
+    ID     string // opaque app ID, never a URL or path
+    SHA256 string // lowercase hex digest
+    Size   int64
+}
+// Source.Ref *Ref; Source.MIMEType is required.
 ```
 
 **Resolution.** Replay, `Project`, and inspection never resolve. Immediately
-before `Prepare`, the engine passes the projected messages through an optional
-`Runner.Content` resolver: `Resolve(ctx, Ref) (Source, error)`. It returns
-inline bytes, a signed URL, or a provider file ID with origin (upload once,
-reuse the ID); the engine checks digest and size of returned bytes. The recorded
-intent keeps the reference; the request digest already covers the resolved body
-(`engine.go:566`). A reference with no resolver fails before dispatch with a
-clear error.
+before `Prepare`, the engine hydrates a copy of the model input through
+`Runner.ContentResolver`: `Resolve(ctx, turnID, Ref) ([]byte, error)`. It
+returns bytes only. Dashi cannot verify a signed URL or a provider file ID
+against the digest, so those are a later contract. The engine checks declared
+size against limits, then the length and SHA-256 of the returned bytes. The
+recorded intent keeps the reference; the request digest covers the resolved
+body. A reference with no resolver fails before dispatch with a clear error.
 
 **Access and retention stay in the host.** The resolver runs with the host's
 context on every model call, so a revoked share, a deleted file, or a tenant
@@ -176,11 +180,11 @@ mismatch is rechecked each time, as mobius does at resume. Dashi stores no
 bytes and sets no retention.
 
 **Missing bytes.** Resolution failure is a known pre-dispatch failure: no model
-intent is recorded, and the turn stops with a typed `content_unavailable` reason
-naming the reference. It is not uncertainty. A host may opt in to a substitution
-policy, recorded as a content change like `omit_reasoning`, that replaces the
-block with a text note; Dashi never drops it silently. Inspection of old turns
-is unaffected because it never resolves.
+intent is recorded, and the turn stops as failed with a reason that names the
+reference and the cause (no resolver, unavailable, too large, size mismatch, or
+digest mismatch). It is not uncertainty. Dashi never drops or replaces the block;
+a substitution policy is not offered. Inspection of old turns is unaffected
+because it never resolves.
 
 A tool returning large media stores it and returns a `Ref`; Dashi does not
 externalize bytes at commit. This removes mobius's dehydrate and restore pass:
