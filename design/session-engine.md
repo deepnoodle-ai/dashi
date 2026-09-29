@@ -216,8 +216,10 @@ func CurrentTurn(ctx context.Context) (TurnView, bool)
 ```
 
 The view is taken as the call starts, with an empty `Stop` as in a hook's view;
-a `Toolset` sees the turn as of the model call it offers tools for.
-`CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
+a `Toolset` sees the turn as of the model call it offers tools for, and every
+hook sees its plan's `Turn`. The task tool fails the turn when `CurrentTurn`
+reports false, as it does for `CurrentCall`, rather than start a child without
+the parent's selection. `CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
 from `Subagent.Agent`, taking provider, API, and model from `CurrentTurn` when
 unset (decision 22 of item 13). `Subagent.Tools` becomes `Subagent.Agent.Tools`;
 `Subagent.ReadOnly` stays, since it filters by annotation. A subagent with no

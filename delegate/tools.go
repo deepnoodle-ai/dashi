@@ -187,7 +187,14 @@ func (ts *Tasks) execStart(
 		))
 	}
 	parent, _ := dashi.CurrentRunner(ctx)
-	turn, _ := dashi.CurrentTurn(ctx)
+	// Without the parent turn the child would lose the parent's tool
+	// selection and model, so fail rather than widen what the child may do.
+	turn, ok := dashi.CurrentTurn(ctx)
+	if !ok {
+		return tool.Outcome{}, tool.Fatal(errors.New(
+			"delegate: the task tool cannot read its parent turn",
+		))
+	}
 	v, err := ts.startTask(ctx, sub, args, ref, parent, turn.Agent)
 	if err != nil {
 		if ctx.Err() != nil {

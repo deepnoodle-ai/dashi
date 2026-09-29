@@ -47,7 +47,7 @@ func (r *runtime) beforeModel(
 	}
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeModel {
-		d, err := callHook(r.ctx, h, ModelPlan{
+		d, err := callHook(hookContext(r.ctx, s.TurnView), h, ModelPlan{
 			Input: cloneInput(*input),
 			Turn:  snapshotView(s.TurnView),
 		})
@@ -282,7 +282,7 @@ func (r *runtime) beforeSend(
 		if remaining != nil {
 			plan.Remaining = new(*remaining)
 		}
-		d, err := callHook(r.ctx, h, plan)
+		d, err := callHook(hookContext(r.ctx, s.TurnView), h, plan)
 		if err == nil {
 			err = validSendDecision(d, total)
 		}
@@ -367,7 +367,7 @@ func (r *runtime) authorizeTool(
 restart:
 	var allow, deferred *ToolVerdict
 	for _, h := range r.hooks.BeforeTool {
-		d, err := callHook(ctx, h, ToolPlan{
+		d, err := callHook(hookContext(ctx, view), h, ToolPlan{
 			Call:       call.Clone(),
 			Definition: def.Clone(),
 			Turn:       snapshotView(view),
@@ -514,7 +514,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		p := plan
 		p.Turn = snapshotView(plan.Turn)
 		p.Output = slices.Clone(plan.Output)
-		d, err := callHook(r.ctx, h, p)
+		d, err := callHook(hookContext(r.ctx, plan.Turn), h, p)
 		if err == nil {
 			for _, item := range d.Deliver {
 				if e := validateContext(item); e != nil {
@@ -942,7 +942,7 @@ func (r *runtime) afterToolHooks(
 	def := view.Tools[fact.Call.ID].Definition
 	mark := r.hookMark()
 	for i, h := range r.hooks.AfterTool {
-		d, err := callHook(ctx, h, ResultPlan{
+		d, err := callHook(hookContext(ctx, view), h, ResultPlan{
 			Call:       fact.Call.Clone(),
 			Definition: def.Clone(),
 			Outcome:    fact.Outcome.Clone(),

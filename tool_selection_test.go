@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -250,6 +251,102 @@ func TestCurrentTurnInExecutor(t *testing.T) {
 	}
 	if toolsetView.ID != "t1" || toolsetView.Agent.Model != "fixture" {
 		t.Fatalf("toolset view=%+v", toolsetView)
+	}
+}
+
+// Every hook the runner calls during a turn can read the turn with
+// CurrentTurn, and sees the same view as its plan's Turn.
+func TestCurrentTurnInHooks(t *testing.T) {
+	seen := map[HookPoint]TurnView{}
+	planned := map[HookPoint]TurnView{}
+	record := func(point HookPoint, ctx context.Context, plan TurnView) {
+		v, ok := CurrentTurn(ctx)
+		if !ok {
+			t.Errorf("%s: CurrentTurn reported no turn", point)
+		}
+		seen[point], planned[point] = v, plan
+	}
+	hooks := Hooks{
+		BeforeModel: []ModelHook{{Name: "m", Func: func(
+			ctx context.Context, p ModelPlan,
+		) (ModelDecision, error) {
+			record(HookBeforeModel, ctx, p.Turn)
+			return ModelDecision{}, nil
+		}}},
+		BeforeSend: []SendHook{{Name: "s", Func: func(
+			ctx context.Context, p SendPlan,
+		) (SendDecision, error) {
+			record(HookBeforeSend, ctx, p.Turn)
+			return SendDecision{}, nil
+		}}},
+		BeforeTool: []ToolHook{{Name: "t", Func: func(
+			ctx context.Context, p ToolPlan,
+		) (ToolDecision, error) {
+			record(HookBeforeTool, ctx, p.Turn)
+			return ToolDecision{}, nil
+		}}},
+		AfterTool: []ResultHook{{Name: "r", Func: func(
+			ctx context.Context, p ResultPlan,
+		) (ResultDecision, error) {
+			record(HookAfterTool, ctx, p.Turn)
+			return ResultDecision{}, nil
+		}}},
+		BeforeFinish: []FinishHook{{Name: "f", Func: func(
+			ctx context.Context, p FinishPlan,
+		) (FinishDecision, error) {
+			record(HookBeforeFinish, ctx, p.Turn)
+			return FinishDecision{}, nil
+		}}},
+	}
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "a"),
+		final("done"),
+	}}
+	runner := Runner{
+		Client: client,
+		Tools:  selectionTools(t, map[string]int{}),
+		Hooks:  hooks,
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		Agent: testAgent(),
+		Input: userInput("go"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	for _, point := range []HookPoint{
+		HookBeforeModel, HookBeforeSend, HookBeforeTool, HookAfterTool,
+		HookBeforeFinish,
+	} {
+		v, ok := seen[point]
+		if !ok {
+			t.Fatalf("%s: hook did not run", point)
+		}
+		if v.ID != "t1" || v.Agent.Model != "fixture" ||
+			v.Next() != NextRunning {
+			t.Fatalf("%s: CurrentTurn=%+v", point, v)
+		}
+		if !reflect.DeepEqual(v, planned[point]) {
+			t.Fatalf("%s: CurrentTurn differs from the plan's Turn", point)
+		}
+	}
+}
+
+// An executor context whose turn cannot be replayed reports no turn, so a
+// tool such as delegate's task tool fails instead of guessing the agent.
+func TestCurrentTurnReportsFalseWhenReplayFails(t *testing.T) {
+	ctx := context.WithValue(t.Context(), currentCallKey{}, callContext{
+		ref:  CallRef{TurnID: "t1", CallID: "c1"},
+		turn: func() *replayState { return nil },
+	})
+	if _, ok := CurrentCall(ctx); !ok {
+		t.Fatal("CurrentCall reported no call")
+	}
+	if _, ok := CurrentTurn(ctx); ok {
+		t.Fatal("CurrentTurn reported a turn it could not replay")
 	}
 }
 

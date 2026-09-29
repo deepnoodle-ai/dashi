@@ -47,12 +47,16 @@ func CurrentCall(ctx context.Context) (CallRef, bool) {
 	return c.ref, ok
 }
 
-// CurrentTurn returns the view of the turn whose tool call ctx serves, as of
-// the call's start, including its recorded agent: Agent.Model is the model in
-// use now. As in a hook's view, the turn is running, so Stop is empty. A
-// Toolset sees the turn as of the model call it offers tools for.
-// CurrentTurn reports false outside the runner.
+// CurrentTurn returns the view of the turn that ctx serves, including its
+// recorded agent: Agent.Model is the model in use now. The turn is running,
+// so Stop is empty. An executor sees the turn as of its call's start, a
+// Toolset as of the model call it offers tools for, and a hook the same view
+// as its plan's Turn. CurrentTurn reports false for a context the runner did
+// not pass to an executor, a Toolset, or a hook.
 func CurrentTurn(ctx context.Context) (TurnView, bool) {
+	if v, ok := ctx.Value(currentHookTurnKey{}).(TurnView); ok {
+		return snapshotView(v), true
+	}
 	var turn func() *replayState
 	if c, ok := ctx.Value(currentCallKey{}).(callContext); ok {
 		turn = c.turn
@@ -67,6 +71,15 @@ func CurrentTurn(ctx context.Context) (TurnView, bool) {
 		return TurnView{}, false
 	}
 	return snapshotView(s.TurnView), true
+}
+
+// currentHookTurnKey carries the turn view the runner passes to a hook.
+type currentHookTurnKey struct{}
+
+// hookContext returns ctx for a hook whose plan shows turn, so code the hook
+// calls can read the turn with CurrentTurn.
+func hookContext(ctx context.Context, turn TurnView) context.Context {
+	return context.WithValue(ctx, currentHookTurnKey{}, snapshotView(turn))
 }
 
 // CurrentRunner returns a copy of the runner that runs the call CurrentCall

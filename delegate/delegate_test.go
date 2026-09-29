@@ -1723,6 +1723,33 @@ func TestTaskIDIsAFixedFunctionOfTheChild(t *testing.T) {
 	}
 }
 
+// Outside a runner the task tool cannot read the parent call or turn, so it
+// fails the turn instead of starting a child with guessed tools and model.
+func TestTaskToolOutsideRunnerIsFatal(t *testing.T) {
+	tasks := delegate.NewTasks(delegate.Config{})
+	list, err := tasks.Tools().Tools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task tool.Tool
+	for _, tl := range list {
+		if tl.Definition.Name == delegate.ToolName {
+			task = tl
+		}
+	}
+	_, err = task.Executor.Execute(t.Context(), tool.Call{
+		ID:   "c1",
+		Name: delegate.ToolName,
+		Args: []byte(`{"subagent":"general","prompt":"x","description":"x"}`),
+	})
+	if !errors.Is(err, tool.ErrFatal) {
+		t.Fatalf("err=%v, want a fatal error", err)
+	}
+	if n := len(tasks.List()); n != 0 {
+		t.Fatalf("started %d tasks", n)
+	}
+}
+
 func TestDefaultCatalogHasExploreAndGeneral(t *testing.T) {
 	list, err := delegate.NewTasks(delegate.Config{}).Tools().Tools(t.Context())
 	if err != nil || len(list) != 3 {
