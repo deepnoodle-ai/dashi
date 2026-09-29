@@ -24,6 +24,11 @@ const (
 	// a notification from a long-running job. It must use the user role.
 	ContextTool ContextOrigin = "tool"
 
+	// ContextAgent is content another agent in this session tree sent, such
+	// as a parent's message to its subagent. It must use the user role and
+	// never carries an operator-tier reminder.
+	ContextAgent ContextOrigin = "agent"
+
 	// ContextOperator is instruction from the application's operator, who
 	// configures the agent. It may use the user, system, or developer role
 	// and is the only origin allowed operator-tier reminders.

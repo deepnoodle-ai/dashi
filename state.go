@@ -1928,7 +1928,7 @@ func messageReminder(m llm.Message) *llm.Reminder {
 
 func validateContext(item ContextItem) error {
 	switch cmp.Or(item.Origin, ContextUser) {
-	case ContextUser, ContextRuntime, ContextTool:
+	case ContextUser, ContextRuntime, ContextTool, ContextAgent:
 		if item.Message.Role != llm.RoleUser {
 			return errors.New("untrusted context must use user role")
 		}

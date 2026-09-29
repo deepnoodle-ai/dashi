@@ -24,6 +24,18 @@ func TestReminderPreparedWireAndEvidence(t *testing.T) {
 	providertest.ReminderRendered(t, client, llm.RoleUser)
 }
 
+func TestReminderTagsCannotBeForged(t *testing.T) {
+	client, err := gemini.New(gemini.Config{
+		APIKey:           "test",
+		CapabilityPolicy: llm.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providertest.ReminderEscaped(t, client)
+	providertest.ForgedTagInToolResult(t, client)
+}
+
 func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string

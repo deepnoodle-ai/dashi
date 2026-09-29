@@ -163,9 +163,9 @@ steer) the result holds the text. A plain read still returns the answer.
   `from="…"` after `name`.
 - **Escaping.** `FormatReminder` replaces `<` with `&lt;` where content holds
   `<system-reminder` or `</system-reminder`, ASCII case folded. The record
-  keeps the original text; the `render_reminder` change notes the escape.
-  This applies to every reminder, so no reminder content can close its tag
-  or open one.
+  keeps the original text; the `render_reminder` change notes the escape in
+  its reason, and `llm.ReminderEscapes` reports it. This applies to every
+  reminder, so no reminder content can close its tag or open one.
 - **Not escaped: tool results and user text** (PRD decision 4). A coding
   agent must see a file's bytes. A look-alike tag there stays inside its
   block, and no view, event, or record counts it as mail. Track 1 tests a
@@ -175,8 +175,10 @@ steer) the result holds the text. A plain read still returns the answer.
   per task and sends as that task. `Tasks` checks that `CurrentCall` is a turn
   of the expected session, parent or child, and fails the call otherwise.
 - **`ContextAgent`** (new origin, `"agent"`): content another agent in this
-  session tree sent. User role only, contextual reminders only, like
-  `ContextTool`. Queue turns it starts are `StartScheduled`.
+  session tree sent. Validated like `ContextTool`: user role only, and an
+  operator-tier reminder is refused. It does not require a reminder or a
+  `From`; `Message.Item` always builds one. Queue turns it starts are
+  `StartScheduled`.
 
 ## Delivery once (tracks 3 and 4)
 
