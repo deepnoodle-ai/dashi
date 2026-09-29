@@ -359,11 +359,11 @@ func TestExpandTotalLimitCountsTextAsBase64(t *testing.T) {
 		input = append(input, "@"+name)
 	}
 
-	// 110 files total about 26.8 MiB raw, under the 32 MiB limit, but about
-	// 35.7 MiB as base64. Only 96 fit.
+	// 110 files total about 26.9 MiB raw, under the 32 MiB limit, but about
+	// 35.7 MiB as base64. Only 98 fit.
 	res := Expand(strings.Join(input, " "), Options{Root: root})
 
-	if len(res.Blocks) != 96 || len(res.Warnings) != 14 {
+	if len(res.Blocks) != 98 || len(res.Warnings) != 12 {
 		t.Fatalf("blocks = %d, warnings = %d", len(res.Blocks), len(res.Warnings))
 	}
 	if !strings.Contains(res.Warnings[0], "limit for one message") {
