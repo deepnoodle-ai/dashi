@@ -53,11 +53,14 @@ tool offers two:
 
 A `Subagent` holds a name, a description for the model, and a `dashi.Agent`
 (instructions, model, limits, and tools) that becomes the child's
-`Start.Agent`. Its `Agent.Tools` names the parent tools the child may use. A
-child draws only from the tools the parent agent may use, so the parent's
-`Agent.Tools` or `Agent.NoTools` limits the child too. A child never receives
-the three task tools, so a child cannot start a child. It sees only its
-prompt, so the model must put every fact in the prompt.
+`Start.Agent`. Its `Agent.Tools` names the tools of the runner's `Tools` that
+the child may use, even ones the parent agent did not select, so a parent that
+only delegates can give a worker `write`. A subagent with no `Agent.Tools`
+draws only from the tools the parent agent may use, so the parent's
+`Agent.Tools` or `Agent.NoTools` limits it too. `ReadOnly` applies in both
+cases. A child never receives the three task tools, so a child cannot start a
+child. It sees only its prompt, so the model must put every fact in the
+prompt.
 
 ## The link between parent and child
 

@@ -1539,6 +1539,29 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 			parent: []string{"read", "task"},
 			want:   []string{"read"},
 		},
+		{
+			// A parent that only delegates still gives a worker the tools
+			// the host named for it.
+			name: "named tools outside the parent's selection",
+			sub: func() delegate.Subagent {
+				s := scout()
+				s.Agent.Tools = []string{"write"}
+				return s
+			}(),
+			parent: []string{"task", "task_status", "task_stop"},
+			want:   []string{"write"},
+		},
+		{
+			name: "named tools stay read-only",
+			sub: func() delegate.Subagent {
+				s := scout()
+				s.Agent.Tools = []string{"read", "write"}
+				s.ReadOnly = true
+				return s
+			}(),
+			parent: []string{"task"},
+			want:   []string{"read"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := delegate.Config{Subagents: []delegate.Subagent{tc.sub}}

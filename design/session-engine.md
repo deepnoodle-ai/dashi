@@ -220,9 +220,12 @@ a `Toolset` sees the turn as of the model call it offers tools for.
 `CurrentRunner` stays for services. `delegate` builds a child's `Start.Agent`
 from `Subagent.Agent`, taking provider, API, and model from `CurrentTurn` when
 unset (decision 22 of item 13). `Subagent.Tools` becomes `Subagent.Agent.Tools`;
-`Subagent.ReadOnly` stays, since it filters by annotation. A child draws only
-from the tools the parent agent may use: the parent turn's selection applies
-before the child's. `Recover` and resume no longer set `runner.Agent`:
+`Subagent.ReadOnly` stays, since it filters by annotation. A subagent with no
+`Agent.Tools` draws only from the tools the parent agent may use: the parent
+turn's selection applies before the child's. A subagent whose `Agent.Tools` the
+host named draws from `Runner.Tools`, so a parent that only delegates can still
+give a worker `write`. Either way the task tools are removed and `ReadOnly`
+applies. `Recover` and resume no longer set `runner.Agent`:
 `Continue` uses the recorded agent. `FollowUp` returns a `Start` with no agent;
 the host sets it.
 

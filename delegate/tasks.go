@@ -849,7 +849,7 @@ func childAgent(sub Subagent, parent dashi.Agent) dashi.Agent {
 
 // childRunner builds the runner for one child. It starts from the runner that
 // runs the task call, applies the host's overrides, and replaces the tools
-// with those the parent agent may use.
+// with the child's view of them (see filtered).
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
@@ -871,6 +871,7 @@ func (ts *Tasks) childRunner(
 	runner.Tools = filtered{
 		parent:      parent.Tools,
 		parentAgent: parentAgent,
+		explicit:    len(sub.Agent.Tools) > 0,
 		readOnly:    sub.ReadOnly,
 	}
 	template := over.Observer
