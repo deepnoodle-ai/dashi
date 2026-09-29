@@ -187,11 +187,15 @@ runs a **compaction turn** in the next slot, before the caller's turn or a queue
 turn:
 
 - Origin `compaction`, a summarizer agent with `NoTools`, and command ID
-  `"compact:" + TurnID(s, n)`, so two workers collide as duplicates.
-- Its one model call is the summary request, so spend, budgets, and recovery
-  work as for any turn. Its `Input` is the summary prompt with a text transcript
-  of the projected history, as package `compaction` builds today (item 15,
-  decision 8); `History` is empty.
+  `"compact:" + TurnID(s, n)`, so two workers collide as duplicates: a revision
+  or command conflict at any step of the compaction turn means another worker
+  took the slot, and the loser plans again and uses that worker's turn, with no
+  warning.
+- Its one model call is the summary request, so spend and recovery work as for
+  any turn, and the caller's `Start.Budget` caps it (before a queue turn there
+  is none). Its `Input` is the summary prompt with a text transcript of the
+  projected history, as package `compaction` builds today (item 15, decision 8);
+  `History` is empty.
 - Its output is the **replacement history**: the summary plus the kept messages,
   which need not be a contiguous tail. The package keeps system and developer
   messages from the covered part.
@@ -219,19 +223,20 @@ type Compactor interface {
 
 The compactor fills `Keep`, `SummaryAt`, `Frame`, the agent, and `Input`; the
 session sets `Through`, `Digest` (the history fingerprint of `projected`), the
-command ID, the origin, an empty `History`, and `NoTools`, and an empty model
-becomes the session's. `last` is the usage of the last turn's final model
-call.
+command ID, the origin, an empty `History`, `NoTools`, and the caller's
+`Budget`, and an empty model becomes the session's. `last` is the usage of the
+last turn's final model call.
 
 `Start` gains `Compaction *CompactionFact`, required with origin `compaction`
 and allowed only with it (the engine checks both, and that `SummaryAt` is in
 range), and `TurnView` gains `Compaction` (it gains `Origin` in track 2). The
 replacement history is `Keep[:SummaryAt]`, then one user text message of
-`Frame`, a blank line, and the turn's trimmed answer, then `Keep[SummaryAt:]`.
-A compaction turn that did not complete with a non-empty answer replaces
-nothing. It is a pure function of the record, so a reader with no `Compactor`
-builds it. This is the one place a turn records earlier messages (decision
-39).
+`Frame`, a blank line, and the summary, then `Keep[SummaryAt:]`. The summary is
+the trimmed text inside the answer's last `<summary>` and `</summary>` tags, or
+the whole trimmed answer when it has none. A compaction turn that did not
+complete with a non-empty summary replaces nothing. It is a pure function of the
+record, so a reader with no `Compactor` builds it. This is the one place a turn
+records earlier messages (decision 39).
 
 An earlier draft also had `Compactor.Replace(projected, out)`. It is dropped: a
 completed turn accepts no further steps (`acceptsAfterEnd`), so a replacement
@@ -259,15 +264,17 @@ turn builds, as `turn_unreadable` does.
 turns, and `s.Turns` does: the summary is a session event, not conversation. UIs
 hide compaction turns by `TurnView.Origin` or show a marker.
 
-**Failure.** If the compaction turn does not complete with an answer, the
+**Failure.** If the compaction turn does not complete with a summary, the
 session closes it (`close:` cancel), keeps the previous projected history, adds
 `compaction_failed`, and starts the caller's turn. The session runs the
-compaction check only when the last turn completed and is not a compaction
-turn, so it never compacts a broken tail (ADK-Go, Nvoken), and a failing
-summary is tried at most once per completed turn, each time with a warning. A
-compactor whose `Start` fails warns the same way and records no turn. When the
-caller's context ends or a `Stream` consumer stops during a compaction turn,
-the call returns; the next `Start` closes that turn with `compaction_failed`.
+compaction check only when the last turn completed, is not a compaction turn,
+and was not just closed by this `Start` (closing completes a turn that recorded
+structured output), so it never compacts a broken tail (ADK-Go, Nvoken), and a
+failing summary is tried at most once per completed turn, each time with a
+warning. A compactor whose `Start` fails warns the same way and records no turn.
+When the caller's context ends or a `Stream` consumer stops during a compaction
+turn, the call returns; the next `Start` closes that turn with
+`compaction_failed`.
 
 **Package `compaction`.** `compaction.New(policy Policy) *Compactor` implements
 the interface; `Compactor`'s zero value works, and its fields add `Model`,
@@ -275,10 +282,12 @@ the interface; `Compactor`'s zero value works, and its fields add `Model`,
 the projected history holds a message other than system and developer ones;
 `Start` chooses the cut, the kept messages, and the transcript input. With no
 turn starts to go by, it cuts only where a user message that is not a tool
-result starts, never splitting a tool call from its result. It cannot check
-savings before the summary exists, so `ErrNoSavings` has no counterpart.
-`Compactor` makes no model call. `Compact`, `Project`, `Record`, `LastUsage`,
-and `NewSummarizer` stay for hosts that drive the engine directly.
+result starts, never splitting a tool call from its result. The kept tail is
+sized by `Policy`'s window; the transcript by the smaller of that window and the
+catalog window of `Model`, when set. It cannot check savings before the summary
+exists, so `ErrNoSavings` has no counterpart. `Compactor` makes no model call.
+`Compact`, `Project`, `Record`, `LastUsage`, and `NewSummarizer` stay for hosts
+that drive the engine directly.
 
 **Precedent.** pi makes compaction an operation that goes through the same
 admission as a prompt; Codex runs an unsteerable `Compact` task and stores

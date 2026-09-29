@@ -252,9 +252,9 @@ func (s *Session) Answer(
 // queued, the same call runs queue turns until the queue is empty or a
 // turn stops any other way; the result is the last turn's, with the
 // session warnings of the earlier ones. With a Compactor, a compaction
-// turn may run first, before a Start or a queue turn: the next turn's
-// outcome carries its session warnings, and WarningCompactionFailed when
-// it fails.
+// turn may run first, before a Start, under the Start's Budget, or before
+// a queue turn: the next turn's outcome carries its session warnings, and
+// WarningCompactionFailed when it fails.
 //
 // The outcome and error mean what Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
@@ -446,6 +446,7 @@ func (s *Session) planStart(
 	s.created = true
 	var p startPlan
 	upTo := last // the turns the history holds
+	closed := false
 	if last > 0 {
 		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
@@ -455,7 +456,8 @@ func (s *Session) planStart(
 			p.warnings = append(p.warnings, *skip)
 			upTo = last - 1
 		} else {
-			closed, events, err := s.closeLast(ctx, last, t, opts, stream)
+			var events []Event
+			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
 			if err != nil {
 				return p, err
@@ -466,8 +468,10 @@ func (s *Session) planStart(
 		}
 	}
 	history, unreadable := s.history(ctx, upTo)
-	if upTo == last && !compacted {
-		cp, warnings := s.planCompaction(ctx, last, history)
+	// A turn this Start closed did not complete as its caller meant, even
+	// when closing completed it, so no compaction follows it.
+	if upTo == last && !compacted && !closed {
+		cp, warnings := s.planCompaction(ctx, last, history, c.Budget)
 		if cp != nil {
 			return *cp, nil
 		}

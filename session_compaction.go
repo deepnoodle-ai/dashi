@@ -19,14 +19,16 @@ type Compactor interface {
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
 	// where the summary goes among them, and its frame. The session sets
-	// the command ID, origin, history, Through, and Digest, and turns tools
-	// off.
+	// the command ID, origin, history, Through, and Digest, turns tools
+	// off, and applies the caller's Start.Budget when it has one.
 	Start(projected []llm.Message) (Start, error)
 }
 
 // CompactionFact is recorded in the start fact of a compaction turn. With
 // the turn's answer it forms the replacement history: Keep[:SummaryAt], a
-// user message of Frame and the answer, then Keep[SummaryAt:]. This is the
+// user message of Frame and the summary, then Keep[SummaryAt:]. The
+// summary is the text inside the answer's last <summary> and </summary>
+// tags, or the whole answer when it has none. This is the
 // one place a turn records earlier messages, so a reader with no Compactor
 // builds the same history.
 type CompactionFact struct {
@@ -78,11 +80,11 @@ func validateCompaction(origin StartOrigin, f *CompactionFact) error {
 }
 
 // replacement returns the replacement history of a compaction turn, and
-// false when the turn did not complete with an answer, so it replaces
-// nothing.
+// false when the turn did not complete with a summary (summaryText), so it
+// replaces nothing.
 func replacement(v TurnView) ([]llm.Message, bool) {
 	f := v.Compaction
-	answer := strings.TrimSpace(v.Answer)
+	answer := summaryText(v.Answer)
 	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
 		return nil, false
 	}
@@ -94,6 +96,23 @@ func replacement(v TurnView) ([]llm.Message, bool) {
 	out = append(out, f.Keep[:f.SummaryAt]...)
 	out = append(out, llm.UserMessage(llm.Text(summary)))
 	return append(out, f.Keep[f.SummaryAt:]...), true
+}
+
+// summaryText returns the summary in a compaction turn's answer: the
+// trimmed text inside the last <summary> and </summary> tags when the
+// answer has them, else the whole trimmed answer. Empty tags give an empty
+// summary, which replaces nothing.
+func summaryText(answer string) string {
+	answer = strings.TrimSpace(answer)
+	end := strings.LastIndex(answer, "</summary>")
+	if end < 0 {
+		return answer
+	}
+	start := strings.LastIndex(answer[:end], "<summary>")
+	if start < 0 {
+		return answer
+	}
+	return strings.TrimSpace(answer[start+len("<summary>") : end])
 }
 
 // lastUsage returns the usage of the last model call of turn that reported
@@ -114,11 +133,13 @@ func lastUsage(turn Turn) llm.Usage {
 // WarningCompactionFailed instead, and the turn runs without compaction.
 // The check is skipped after a turn that failed or was canceled, and after
 // a compaction turn, so a failing summary is tried at most once per
-// completed turn. The caller holds mu.
+// completed turn. A non-nil budget, the caller's Start.Budget, caps the
+// compaction turn too. The caller holds mu.
 func (s *Session) planCompaction(
 	ctx context.Context,
 	last int,
 	projected []llm.Message,
+	budget *Budget,
 ) (*startPlan, []Warning) {
 	if s.Compactor == nil || last == 0 {
 		return nil, nil
@@ -154,6 +175,10 @@ func (s *Session) planCompaction(
 		c.Agent.Provider, c.Agent.API, c.Agent.Model = a.Provider, a.API, a.Model
 	}
 	c.Agent.Tools, c.Agent.NoTools = nil, true
+	if budget != nil {
+		b := budget.Clone()
+		c.Budget = &b
+	}
 	s.running[id]++
 	s.compacting = id
 	return &startPlan{
@@ -168,16 +193,16 @@ func (s *Session) planCompaction(
 // compact runs a planned compaction turn. For Stream, it reports the
 // turn's Outcome event. A compaction turn that fails or ends without an
 // answer adds WarningCompactionFailed to the call, and one that stopped
-// without ending is closed first. It returns an error only when the call
-// must stop: the consumer broke the range, or the context ended; the next
-// Start then closes the turn.
-func (cl *call) compact(ctx context.Context, p startPlan) error {
+// without ending is closed first. It reports lost when another worker took
+// the slot, so the caller plans again and finds that worker's turn. It
+// returns an error only when the call must stop: the consumer broke the
+// range, or the context ended; the next Start then closes the turn.
+func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	s := cl.s
 	out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
 	out, err = s.finish(ctx, p.n, p.id, out, err, nil, nil, false)
-	if lostStart(err) || takenKey(err) || err == nil && out.Stop.Projected {
-		// Another worker took this slot; planning again finds its turn.
-		return nil
+	if takenSlot(err) || err == nil && out.Stop.Projected {
+		return true, nil
 	}
 	if err == nil {
 		cl.report(out, nil)
@@ -186,13 +211,13 @@ func (cl *call) compact(ctx context.Context, p startPlan) error {
 		}
 	}
 	if cl.stopped {
-		return context.Canceled
+		return false, context.Canceled
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	if _, ok := replacement(out.TurnView); ok && err == nil {
-		return nil
+		return false, nil
 	}
 	var warning Warning
 	switch {
@@ -216,16 +241,24 @@ func (cl *call) compact(ctx context.Context, p startPlan) error {
 		}
 		s.mu.Unlock()
 		if !cl.forward(events) {
-			return context.Canceled
+			return false, context.Canceled
 		}
 		if err != nil {
 			// The next Start closes it, with this warning.
-			return nil
+			return false, nil
 		}
 		warning = closedWarning(t)
 	}
 	cl.warnings = append(cl.warnings, warning)
-	return nil
+	return false, nil
+}
+
+// takenSlot reports whether a compaction turn failed because another
+// worker took its slot: the same compact: key runs one turn, so a revision
+// or command conflict at any step means that worker records it.
+func takenSlot(err error) bool {
+	return errors.Is(err, ErrRevisionConflict) ||
+		errors.Is(err, ErrCommandConflict)
 }
 
 func compactionFailed(msg string) Warning {

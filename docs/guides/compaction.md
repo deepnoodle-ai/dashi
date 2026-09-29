@@ -19,15 +19,14 @@ out, err := s.Send(ctx, text) // may run a compaction turn first
 ```
 
 Before each new turn, the caller's or a queue turn, the session asks the
-compactor whether the last turn's final model call used 80% of the window.
-If so, it runs a **compaction turn** first, in the next turn slot: origin
-`compaction`, command ID `compact:` and its turn ID, no tools, no steering.
-Its one model call is the summary request, so its spend, budget, and
-recovery are those of any turn. Then the caller's turn runs with the
-**replacement history**: the kept messages, with the summary in their
-middle, followed by the turns after the compaction turn.
-[`examples/compaction`](../../examples/compaction) runs this without an API
-key.
+compactor whether the last turn's final model call used 80% of the window. If
+so, it runs a **compaction turn** first, in the next turn slot: origin
+`compaction`, command ID `compact:` and its turn ID, no tools, no steering. Its
+one model call is the summary request, so its spend and recovery are those of
+any turn, and the caller's `Start.Budget` caps it too. Then the caller's turn
+runs with the **replacement history**: the kept messages, with the summary in
+their middle, followed by the turns after the compaction turn.
+[`examples/compaction`](../../examples/compaction) runs this without an API key.
 
 - **Every reader sends the same history.** The compaction turn records the
   kept messages at its start, and its answer is the summary. A handle with no
@@ -48,36 +47,44 @@ key.
    nothing fits, it keeps none and summarizes all of the history. A negative
    `TailFraction` keeps none on purpose.
 2. It sends the older messages as a text transcript with the prompt
-   (`Compactor.Prompt`, which must ask for `<summary>` tags). A large tool
-   result is shortened in the middle to fit the window. Reminders are
-   removed.
+   (`Compactor.Prompt`). A large tool result is shortened in the middle to fit
+   the window. Reminders are removed.
 3. It keeps each system or developer message of the covered part with its
    own role, ahead of the summary. The summarizer does not see them.
-4. `Compactor.Model` names the summary model; empty means the session's.
+4. `Compactor.Model` names the summary model; empty means the session's. When
+   the catalog gives it a smaller window than the session model's, the
+   transcript is sized to fit that window.
 
-The summary is a user message: a fixed frame, then the model's answer. It
-never has operator authority, so text inside old tool output cannot become
-an instruction.
+The summary is a user message: a fixed frame, then the text inside the answer's
+last `<summary>` and `</summary>` tags, or the whole answer when it has none.
+The default prompt asks for the tags, so a preamble such as "Here is the
+summary:" is left out. A reader with no compactor applies the same rule. The
+summary never has operator authority, so text inside old tool output cannot
+become an instruction.
 
 ## When it is due
 
 `Policy.Due(last)` is true when the last model call used 80% of the window
 (`Policy.Fraction`; a negative value turns it off). It counts all input,
-including cached input, plus output. `Policy.Window` returns the window from
-the model's catalog entry. If the model does not state one, it returns 128,000
-and `known` is false. Warn the user once.
+including cached input, plus output. `Policy.Window` returns the window from the
+model's catalog entry. If the model does not state one, it returns 128,000 and
+`known` is false. Warn the user once. A zero `Compactor` uses 128,000 whatever
+the session's model is, so pass the model's `ModelInfo` as above.
 
-The session checks only after a turn that completed. It never compacts after
-a turn that failed or was canceled, or right after a compaction turn.
+The session checks only after a turn that completed. It never compacts after a
+turn that failed or was canceled, after one the new turn had to close, or right
+after a compaction turn.
 
 ## When it fails
 
-If the compaction turn does not complete with an answer, the session closes
-it (`Cancel` with command ID `close:` and its turn ID), keeps the previous
+If the compaction turn does not complete with a summary, the session closes it
+(`Cancel` with command ID `close:` and its turn ID), keeps the previous
 projected history, and runs the caller's turn with the warning
 `compaction_failed` in `Outcome.SessionWarnings`. A failing summary is tried
 again only after the next turn completes. A compactor that cannot build its
-request warns the same way, and no compaction turn is recorded.
+request warns the same way, and no compaction turn is recorded. When two handles
+reach the compaction slot at once, one runs the compaction turn and the other
+uses its replacement history, with no warning.
 
 Each compaction turn records a digest of the history it replaced. A handle
 that already holds the covered turns checks it; a mismatch means a covered

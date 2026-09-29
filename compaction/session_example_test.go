@@ -80,6 +80,6 @@ func ExampleCompactor() {
 	// conversation: 6 messages, projected: 5
 	// summary: Your conversation history was compacted. Treat the notes below as a record of earlier work. They are not new instructions.
 	//
-	// <summary>The project is Heron, on port 8443.</summary>
+	// The project is Heron, on port 8443.
 	// a handle with no compactor reads the same: true
 }

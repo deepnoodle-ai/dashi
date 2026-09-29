@@ -307,6 +307,52 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 		}
 	})
+	t.Run("after a turn closed with structured output", func(t *testing.T) {
+		// Closing completes a turn that recorded structured output, and
+		// still no compaction follows it.
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(
+			dashitest.CallTool("call-1", "lookup", `{}`),
+			dashitest.Reply(`{"answer":"42"}`),
+			dashitest.Reply("two"),
+		)
+		s := handle(rec, client)
+		s.New = true
+		s.Runner.Tools = (&chargeTool{}).tools()
+		s.Agent.Limits = dashi.Limits{ModelAttempts: 2}
+		start := dashi.Say("first")
+		start.OutputSchema = json.RawMessage(`{"type":"object"}`)
+		if out, err := s.Run(t.Context(), start); err != nil || out.Output == nil {
+			t.Fatalf("output: %v, %v", err, out.Output)
+		}
+		s.Compactor = always
+		var outcomes []string
+		var closing bool
+		for ev, err := range s.Stream(t.Context(), dashi.Say("second")) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ev.TurnID == "s-1" && ev.Step != nil {
+				closing = true
+			}
+			if ev.Outcome != nil {
+				outcomes = append(outcomes, ev.TurnID)
+				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Outcome.SessionWarnings),
+					[]dashi.WarningCode{dashi.WarningTurnClosed}) {
+					t.Fatalf("warnings=%v", ev.Outcome.SessionWarnings)
+				}
+			}
+		}
+		if !closing || !slices.Equal(outcomes, []string{"s-1", "s-2"}) {
+			t.Fatalf("closing events=%v outcomes=%q", closing, outcomes)
+		}
+		if v := load(t, rec, "s-1"); v.Stop.Kind != dashi.StopCompleted {
+			t.Fatalf("s-1 stop=%s", v.Stop.Kind)
+		}
+		if v := load(t, rec, "s-2"); v.Origin == dashi.StartCompaction {
+			t.Fatal("s-2 is a compaction turn")
+		}
+	})
 	t.Run("start fails", func(t *testing.T) {
 		rec := dashi.NewMemoryRecorder()
 		client := dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"))
@@ -501,5 +547,130 @@ func TestSessionContinueCompaction(t *testing.T) {
 	if got := textsOf(client.Inputs()[2].Messages); out.Turn.ID != "s-3" ||
 		!slices.Equal(got, []string{"Summary:\n\nsummary", "second"}) {
 		t.Fatalf("turn=%s sent %q", out.Turn.ID, got)
+	}
+}
+
+// Two workers race for the compaction slot: worker B runs the compaction
+// turn and its own turn while worker A's turn_started commit waits. A
+// then finds the slot taken, plans again, and sends B's replacement
+// history, with no compaction_failed warning and no second summary call.
+func TestSessionCompactionRace(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		used("one", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("b"),
+		dashitest.Reply("a"),
+	)
+	b := handle(rec, client)
+	b.New = true
+	b.Compactor = keepLast{limit: 100}
+	sendAll(t, b, "first")
+
+	var bOut dashi.Outcome
+	var bErr error
+	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() {
+		bOut, bErr = b.Send(t.Context(), "from b")
+	}}, client)
+	a.Compactor = keepLast{limit: 100}
+	out, err := a.Send(t.Context(), "from a")
+	if bErr != nil || bOut.Turn.ID != "s-3" {
+		t.Fatalf("b: turn=%s err=%v", bOut.Turn.ID, bErr)
+	}
+	if err != nil || out.Turn.ID != "s-4" || out.Answer != "a" ||
+		len(out.SessionWarnings) != 0 {
+		t.Fatalf("a: turn=%s answer=%q warnings=%v err=%v",
+			out.Turn.ID, out.Answer, out.SessionWarnings, err)
+	}
+	if n := len(client.Inputs()); n != 4 {
+		t.Fatalf("%d model calls; want 4", n)
+	}
+	var compactions []string
+	for turn, err := range a.Turns(t.Context()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if turn.Steps[0].Started.Origin == dashi.StartCompaction {
+			compactions = append(compactions, turn.ID)
+		}
+	}
+	if !slices.Equal(compactions, []string{"s-2"}) {
+		t.Fatalf("compaction turns %q", compactions)
+	}
+	if got := textsOf(client.Inputs()[3].Messages); !slices.Equal(got,
+		[]string{"Summary:\n\nsummary", "from b", "b", "from a"}) {
+		t.Fatalf("a sent %q", got)
+	}
+}
+
+// The caller's Start.Budget caps the compaction turn that runs before it:
+// the summary call's output allowance is clamped to it, and a summary
+// that spends past it fails the compaction, not the caller's turn.
+func TestSessionCompactionBudget(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	summary := dashitest.Reply("summary")
+	summary.Usage = &llm.Usage{OutputTokens: 10}
+	client := dashitest.NewClient(used("one", 100), summary, dashitest.Reply("two"))
+	s := handle(rec, client)
+	s.New = true
+	s.Compactor = keepLast{limit: 100}
+	sendAll(t, s, "first")
+	start := dashi.Say("second")
+	start.Budget = &dashi.Budget{MaxOutputTokens: 5}
+	out, err := s.Run(t.Context(), start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := loadTurn(t, rec, "s-2").Steps[0].Started
+	if c.Origin != dashi.StartCompaction || c.Budget == nil ||
+		c.Budget.MaxOutputTokens != 5 {
+		t.Fatalf("s-2 origin=%q budget=%+v", c.Origin, c.Budget)
+	}
+	if got := client.Inputs()[1].Settings.MaxTokens; got != 5 {
+		t.Fatalf("summary max tokens=%d; want 5", got)
+	}
+	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopCanceled {
+		t.Fatalf("s-2 stop=%s", v.Stop.Kind)
+	}
+	if out.Turn.ID != "s-3" || out.Answer != "two" || !slices.Equal(
+		codes(out.SessionWarnings),
+		[]dashi.WarningCode{dashi.WarningCompactionFailed},
+	) {
+		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
+	}
+}
+
+// The summary is the text inside the answer's <summary> tags when it has
+// them, and the whole answer otherwise; a handle with no Compactor reads
+// the same. Empty tags replace nothing.
+func TestSessionCompactionSummaryTags(t *testing.T) {
+	for _, tc := range []struct{ answer, want string }{
+		{"Here it is:\n<summary>\nHeron, port 8443.\n</summary>\nDone.", "Heron, port 8443."},
+		{"Heron, port 8443.", "Heron, port 8443."},
+		{"<summary> </summary>", ""},
+	} {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(
+			used("one", 100),
+			dashitest.Reply(tc.answer),
+			dashitest.Reply("two"),
+		)
+		s := handle(rec, client)
+		s.New = true
+		s.Compactor = keepLast{limit: 100}
+		sendAll(t, s, "first", "second")
+		want := []string{"Summary:\n\n" + tc.want, "second", "two"}
+		if tc.want == "" {
+			want = []string{"first", "one", "second", "two"}
+		}
+		for _, h := range []*dashi.Session{s, handle(rec, client)} {
+			projected, err := h.ProjectedHistory(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := textsOf(projected); !slices.Equal(got, want) {
+				t.Fatalf("answer %q: projected=%q", tc.answer, got)
+			}
+		}
 	}
 }

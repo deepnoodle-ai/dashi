@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -11,18 +12,23 @@ import (
 // the session runs a compaction turn when the last model call used
 // Policy's share of the window. The Compactor chooses what to summarize and
 // builds the summary request; the session's turn makes the model call, so
-// its spend, budget, and recovery are those of any turn. The zero value
-// works, with the defaults of Policy.
+// its spend and recovery are those of any turn, and the caller's
+// Start.Budget caps it. The zero value works, with the defaults of Policy,
+// but its window is DefaultWindow (128,000 tokens) whatever the session's
+// model is: set Policy.Model to the session model's ModelInfo.
 type Compactor struct {
 	// Policy says when compaction is due. Its window also sizes the kept
 	// tail and the transcript.
 	Policy Policy
 
-	// Model writes the summary. Empty means the session's model.
+	// Model writes the summary. Empty means the session's model. When the
+	// catalog knows Model and its window is smaller than Policy's, the
+	// transcript is sized to fit it.
 	Model string
 
-	// Prompt replaces DefaultPrompt. It must ask for the summary between
-	// <summary> and </summary> tags.
+	// Prompt replaces DefaultPrompt. The summary is the text inside the
+	// answer's last <summary> and </summary> tags, or the whole answer
+	// when it has none.
 	Prompt string
 
 	// MaxTokens limits the summary output. Zero means 16384.
@@ -61,7 +67,7 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	request, maxTokens, err := summaryRequest(
 		covered,
 		c.Prompt,
-		window,
+		c.summaryWindow(window),
 		c.MaxTokens,
 	)
 	if err != nil {
@@ -81,6 +87,23 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 			Frame:     summaryFrame,
 		},
 	}, nil
+}
+
+// summaryWindow returns the window of the summary call: the smaller of
+// window, the session model's, and Model's catalog window.
+func (c *Compactor) summaryWindow(window int) int {
+	if c.Model == "" {
+		return window
+	}
+	for _, provider := range catalog.Providers() {
+		if e, ok := catalog.Find(provider, c.Model); ok {
+			if w := e.Capabilities.ContextWindow; w > 0 {
+				return min(window, w)
+			}
+			break
+		}
+	}
+	return window
 }
 
 // cut returns the index of the first kept message: the earliest cut whose

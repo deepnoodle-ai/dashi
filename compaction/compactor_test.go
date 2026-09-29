@@ -97,3 +97,31 @@ func TestCompactorNeeded(t *testing.T) {
 func system(text string) llm.Message {
 	return llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text(text)}}
 }
+
+// A summary model with a smaller window than the session's sizes the
+// transcript and the output allowance to its own window.
+func TestCompactorSummaryModelWindow(t *testing.T) {
+	history, _ := session(8, 400_000) // about 800k tokens
+	session := &Compactor{Policy: policyWith(1_000_000), TailFraction: -1}
+	small := *session
+	small.Model = "claude-haiku-4-5" // a 200k-token window in the catalog
+	big, err := session.Start(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := small.Start(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fits := func(s dashi.Start, window int) bool {
+		in := len(s.Input[0].Text()) / bytesPerToken
+		return in+s.Agent.Settings.MaxTokens <= window
+	}
+	if !fits(s, 200_000) || fits(big, 200_000) {
+		t.Fatalf("summary request of %d bytes; session model's %d",
+			len(s.Input[0].Text()), len(big.Input[0].Text()))
+	}
+	if got := s.Agent.Settings.MaxTokens; got != defaultSummaryTokens {
+		t.Fatalf("max tokens=%d", got)
+	}
+}

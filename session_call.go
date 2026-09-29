@@ -181,10 +181,13 @@ func (cl *call) start(ctx context.Context, c Start) (Outcome, error) {
 		if p.compact {
 			// The compaction turn runs first; then the Start is planned
 			// again, after it.
-			if err := cl.compact(ctx, p); err != nil {
+			lost, err := cl.compact(ctx, p)
+			if err != nil {
 				return Outcome{}, err
 			}
-			compacted = true
+			// A lost slot leaves the check to the next plan, after the
+			// other worker's turns.
+			compacted = !lost
 			continue
 		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
@@ -242,10 +245,11 @@ func (cl *call) queueTurn(ctx context.Context) (Outcome, bool, error) {
 			return Outcome{}, false, nil
 		}
 		if p.compact {
-			if err := cl.compact(ctx, p); err != nil {
+			lost, err := cl.compact(ctx, p)
+			if err != nil {
 				return Outcome{}, false, err
 			}
-			compacted = true
+			compacted = !lost
 			continue
 		}
 		out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
