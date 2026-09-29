@@ -193,45 +193,65 @@ func Report(
 // the parent already has. Children draw from the tools of the runner that runs
 // the call, filtered by each Subagent; they never receive the task tool.
 //
-// The tool is marked idempotent. After a crash the runner runs the call
-// again, and the same child continues from its record. This needs a recorder
-// that implements dashi.Loader. The recorder is known only at call time, so
-// when it is not a Loader the tool logs one warning on first use, and a
-// crash can then lead to a second child. When cfg.Runner.Recorder is set and
-// is not a Loader, New knows this at once, warns, and leaves the mark off.
+// The tool is marked idempotent when the recorder can load turns. After a
+// crash, the runner then runs the call again, and the same child continues
+// from its record. Without a recorder that loads turns (a nil recorder, or
+// one that is not a dashi.Loader), the child still runs, but the tool is not
+// marked idempotent. A resume then reports the call as uncertain and starts
+// no second child. The tool logs one warning at its first call. When
+// cfg.Runner.Recorder is set and is not a Loader, New warns at once.
 func New(cfg Config) tool.Toolset {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
 		catalog = []Subagent{Explore(), General()}
 	}
-	t := &taskTools{cfg: cfg, catalog: slices.Clone(catalog), resumable: true}
-	if cfg.Runner.Recorder != nil {
-		if _, ok := cfg.Runner.Recorder.(dashi.Loader); !ok {
-			t.resumable = false
-			t.warnNoLoader()
-		}
+	t := &taskTools{cfg: cfg, catalog: slices.Clone(catalog)}
+	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
+		t.warnNoLoader()
 	}
 	return t
 }
 
 type taskTools struct {
-	cfg       Config
-	catalog   []Subagent
-	resumable bool
-	warn      sync.Once
+	cfg     Config
+	catalog []Subagent
+	warn    sync.Once
+}
+
+// loads reports whether the recorder can load turns. A nil recorder cannot.
+func loads(r dashi.Recorder) bool {
+	if r == nil {
+		return false
+	}
+	_, ok := r.(dashi.Loader)
+	return ok
+}
+
+// resumable reports whether a retry can find the child. It uses the override
+// recorder, else the recorder of the runner that asks for tools. Outside a
+// runner it assumes the host will set a recorder that loads turns.
+func (t *taskTools) resumable(ctx context.Context) bool {
+	if r := t.cfg.Runner.Recorder; r != nil {
+		return loads(r)
+	}
+	if parent, ok := dashi.CurrentRunner(ctx); ok {
+		return loads(parent.Recorder)
+	}
+	return true
 }
 
 func (t *taskTools) warnNoLoader() {
 	t.warn.Do(func() {
 		slog.Warn(
-			"delegate: recorder is not a dashi.Loader; a retry after a " +
-				"crash can start a second child",
+			"delegate: subagents cannot resume without a host recorder " +
+				"that implements dashi.Loader; after an interruption the " +
+				"task call is reported as uncertain",
 		)
 	})
 }
 
 // Tools returns the task tool.
-func (t *taskTools) Tools(context.Context) ([]tool.Tool, error) {
+func (t *taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 	names := make([]string, len(t.catalog))
 	var list strings.Builder
 	for i, s := range t.catalog {
@@ -276,7 +296,7 @@ func (t *taskTools) Tools(context.Context) ([]tool.Tool, error) {
 		Schema: schema,
 		Kind:   tool.KindLocal,
 	}
-	if t.resumable {
+	if t.resumable(ctx) {
 		def.Annotations.Idempotent = new(true)
 	}
 	return []tool.Tool{{Definition: def, Executor: t}}, nil
@@ -317,14 +337,7 @@ func (t *taskTools) Execute(
 	parent, _ := dashi.CurrentRunner(ctx)
 	id := ChildID(ref.TurnID, ref.CallID)
 	runner := t.childRunner(sub, ref, parent)
-	if runner.Recorder == nil {
-		return tool.Outcome{}, tool.Fatal(errors.New(
-			"delegate: the task tool needs a Recorder that the host keeps " +
-				"between runs; set Runner.Recorder on the parent runner " +
-				"or Config.Runner.Recorder",
-		))
-	}
-	if _, ok := runner.Recorder.(dashi.Loader); !ok {
+	if !loads(runner.Recorder) {
 		t.warnNoLoader()
 	}
 	turn, command, saved, err := t.plan(ctx, runner, id, ref, args.Prompt)

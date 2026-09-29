@@ -1108,7 +1108,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	}
 	defs := []tool.Definition{}
 	if !finalAnswerOnly && r.runner.Tools != nil {
-		tools, e := r.runner.Tools.Tools(r.ctx)
+		tools, e := r.runner.Tools.Tools(r.toolsContext(r.ctx))
 		if e != nil {
 			return r.failureOrContext(e), false
 		}

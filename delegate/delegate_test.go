@@ -691,7 +691,7 @@ func TestTaskWithoutLoaderWarnsAndIsNotIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n := strings.Count(logs.String(), "not a dashi.Loader"); n != 2 {
+	if n := strings.Count(logs.String(), "without a host recorder"); n != 2 {
 		t.Fatalf("warnings=%d, want 2 (one from New, one from the tool): %q",
 			n, logs.String())
 	}
@@ -1183,17 +1183,66 @@ func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 	}
 }
 
-// Without a host recorder, the child record would end with the parent Run.
-// The task fails before it starts a child.
-func TestTaskWithoutHostRecorderFailsBeforeChild(t *testing.T) {
-	h := newHarness(t, script("x"), delegate.Config{}, nil)
+// A nil Recorder is a supported mode. The child runs and the parent gets the
+// answer.
+func TestTaskWithoutHostRecorderReturnsChildAnswer(t *testing.T) {
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	h := newHarness(t, script("found it"), delegate.Config{}, nil)
 	h.runner.Recorder = nil
 	out, err := h.start(t.Context())
-	if err == nil && out.Stop.Kind == dashi.StopCompleted {
-		t.Fatal("the parent completed without a host recorder")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := h.client.sends("child"); got != 0 {
-		t.Fatalf("child model calls=%d, want 0", got)
+	if out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("parent stop=%+v", out.Stop)
+	}
+	if got := toolResult(t, out.TurnView); got != "found it" {
+		t.Fatalf("task result=%q", got)
+	}
+	if n := strings.Count(logs.String(), "without a host recorder"); n != 1 {
+		t.Fatalf("warnings=%d, want 1: %q", n, logs.String())
+	}
+}
+
+// With a nil Recorder, task is not marked idempotent. An interrupted resume
+// reports the call as uncertain and starts no second child.
+func TestTaskWithoutHostRecorderResumeIsUncertain(t *testing.T) {
+	started := make(chan struct{}, 1)
+	var release atomic.Bool
+	h := newHarness(t, blockingChild(started, &release), delegate.Config{}, nil)
+	h.runner.Recorder = nil
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan dashi.Outcome, 1)
+	go func() {
+		out, _ := h.start(ctx)
+		done <- out
+	}()
+	<-started
+	cancel()
+	out := <-done
+	if out.Stop.Kind != dashi.StopInterrupted {
+		t.Fatalf("parent stop=%+v", out.Stop)
+	}
+	before := h.client.sends("child")
+
+	release.Store(true)
+	resumed, err := h.runner.Run(t.Context(), out.Turn, dashi.Continue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Stop.Kind == dashi.StopCompleted {
+		t.Fatalf("resume completed; want an uncertain call: %+v", resumed.Stop)
+	}
+	if got := h.client.sends("child"); got != before {
+		t.Fatalf("child model calls=%d, want %d", got, before)
+	}
+	if st := resumed.Tools[callID].Status; st != dashi.ToolUncertain {
+		t.Fatalf("task call status=%s, want uncertain", st)
 	}
 }
 
