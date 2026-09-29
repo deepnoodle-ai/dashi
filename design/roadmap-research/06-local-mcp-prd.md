@@ -256,7 +256,7 @@ status screen (below).
    when it starts a server, so the prompt shows variable names and the
    fingerprint ignores changed variable values. The loaders add no unset
    variable warning; `Open` adds it. `Definition.Annotations` gets the
-   destructive, idempotent, and open-world hints, never read-only. A server that
+   destructive and open-world hints, never read-only or idempotent. A server that
    exits keeps its tools in the snapshot until `Refresh`, so a pending call gets
    a clear error. The loaders return an error for a missing file. Session
    errors that are not JSON-RPC replies count as a lost connection.

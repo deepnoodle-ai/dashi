@@ -55,7 +55,10 @@ func New(opts Options) *mcp.Server {
 	s.server = mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 	s.logf("start")
 
-	mcp.AddTool(s.server, &mcp.Tool{Name: "echo", Description: "Return the text."},
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name: "echo", Description: "Return the text.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in TextArgs) (*mcp.CallToolResult, any, error) {
 			s.logf("call echo")
 			return text(in.Text), nil, nil

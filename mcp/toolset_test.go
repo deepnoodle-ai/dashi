@@ -40,6 +40,18 @@ func TestOpenOffersPrefixedToolsOverStdio(t *testing.T) {
 	}
 }
 
+// The test server marks echo read-only and idempotent. The runner repeats a
+// call of unknown outcome for such tools, so the client must ignore both
+// hints. An interrupted MCP call then ends the turn as uncertain.
+func TestServerHintsNeverMarkACallSafeToRepeat(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts := open(t, map[string]Server{"test": srv}, Options{})
+	a := find(t, ts, "mcp__test__echo").Definition.Annotations
+	if a.ReadOnly != nil || a.Idempotent != nil {
+		t.Fatalf("annotations = %+v", a)
+	}
+}
+
 func TestToolNamesAreTheSameOnEveryOpen(t *testing.T) {
 	a, _ := stdioServer(t)
 	b, _ := stdioServer(t)

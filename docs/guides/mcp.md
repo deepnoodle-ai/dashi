@@ -75,9 +75,11 @@ sorted name) stays. The other is dropped and reported in `Status`.
 ## Approve calls
 
 MCP tool calls pass the same `BeforeTool` hooks as every other tool. The
-package copies the destructive, idempotent, and open-world hints to
-`Definition.Annotations`. It never sets the read-only hint, because a server
-cannot vouch for itself. A hook that trusts MCP servers must say so on its own.
+package copies the destructive and open-world hints to
+`Definition.Annotations`. It never sets the read-only or idempotent hint,
+because a server cannot vouch for itself. After an interrupted run, the runner
+does not repeat an MCP call whose result is unknown. A hook that trusts MCP
+servers must say so on its own.
 
 ## Results
 

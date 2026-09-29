@@ -528,9 +528,10 @@ func (t *Toolset) rebuild() {
 	}
 }
 
-// definition builds the model-facing definition. It copies the destructive,
-// idempotent, and open-world hints but never the read-only hint: the server
-// is not trusted to say that a call is safe.
+// definition builds the model-facing definition. It copies the destructive
+// and open-world hints. It never copies the read-only or idempotent hint. The
+// runner repeats a call of unknown outcome when a tool is marked safe to
+// repeat, and a server must not control that choice.
 func definition(server string, remote *mcp.Tool) (tool.Definition, error) {
 	schema := json.RawMessage(`{"type":"object"}`)
 	if remote.InputSchema != nil {
@@ -553,9 +554,6 @@ func definition(server string, remote *mcp.Tool) (tool.Definition, error) {
 	if a := remote.Annotations; a != nil {
 		def.Annotations.Destructive = a.DestructiveHint
 		def.Annotations.OpenWorld = a.OpenWorldHint
-		if a.IdempotentHint {
-			def.Annotations.Idempotent = new(true)
-		}
 	}
 	return def, def.Validate()
 }
