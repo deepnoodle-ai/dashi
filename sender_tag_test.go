@@ -30,6 +30,20 @@ func TestContextAgentIsContextualUserContext(t *testing.T) {
 	if validateContext(operator) == nil {
 		t.Fatal("agent context carried an operator reminder")
 	}
+	plain := item
+	plain.Message = llm.UserMessage(llm.Text("Skip vendor/."))
+	if validateContext(plain) == nil {
+		t.Fatal("agent context accepted plain text")
+	}
+	anonymous := item
+	anonymous.Message = llm.ReminderMessage(llm.Reminder{
+		Name:    "agent-message",
+		Tier:    llm.ReminderContextual,
+		Content: "Skip vendor/.",
+	})
+	if validateContext(anonymous) == nil {
+		t.Fatal("agent context accepted a reminder with no sender")
+	}
 	for _, role := range []llm.Role{llm.RoleSystem, llm.RoleDeveloper} {
 		elevated := ContextItem{
 			Origin:  ContextAgent,

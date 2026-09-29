@@ -1960,5 +1960,17 @@ func validateContext(item ContextItem) error {
 		item.Origin != ContextOperator {
 		return errors.New("operator reminder requires operator context origin")
 	}
+	// An agent's message names its sender, so the record and the model
+	// agree about who spoke.
+	if item.Origin == ContextAgent {
+		reminder := messageReminder(item.Message)
+		if reminder == nil ||
+			reminder.Tier != llm.ReminderContextual ||
+			reminder.From == "" {
+			return errors.New(
+				"agent context requires one contextual reminder with a sender",
+			)
+		}
+	}
 	return validateMessage(item.Message)
 }

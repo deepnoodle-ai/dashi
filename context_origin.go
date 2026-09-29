@@ -25,8 +25,8 @@ const (
 	ContextTool ContextOrigin = "tool"
 
 	// ContextAgent is content another agent in this session tree sent, such
-	// as a parent's message to its subagent. It must use the user role and
-	// never carries an operator-tier reminder.
+	// as a parent's message to its subagent. It must be one contextual
+	// reminder in the user role, with a sender in From.
 	ContextAgent ContextOrigin = "agent"
 
 	// ContextOperator is instruction from the application's operator, who

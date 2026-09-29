@@ -46,7 +46,7 @@ attribute that Dashi sets for agent messages, and rendering escapes
 `<system-reminder` and `</system-reminder` in reminder content, so no
 reminder can close its tag or forge another. Tool results and user text are
 not escaped: a coding agent must see a file's bytes. Origin `ContextAgent`
-carries user-role context and never an operator-tier reminder.
+carries exactly one contextual reminder, in the user role, with a `from`.
 
 This adapts Dive's typed recorded reminders to Dashi's `ContextItem` projection
 and provider-neutral preparation boundary. It leaves string-based

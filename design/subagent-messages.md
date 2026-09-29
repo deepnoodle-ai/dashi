@@ -157,7 +157,8 @@ steer) the result holds the text. A plain read still returns the answer.
 - **Rendering.** A message is `llm.ReminderMessage(Reminder{Name:
   "agent-message", Tier: contextual, From: from, Content: text})`. A notice
   uses the name `task-ended`, with its current text as content. `From` is
-  `parent` or `task t_k3f2 (explore)`.
+  `parent` or `task t_k3f2 (explore)`; the helper that builds it strips
+  forbidden characters from the name and truncates to 64 bytes.
 - **`llm.Reminder.From`** (new, `json:"from,omitempty"`): at most 64 bytes of
   printable UTF-8 with no quote or angle bracket. `FormatReminder` writes it as
   `from="…"` after `name`.
@@ -175,10 +176,10 @@ steer) the result holds the text. A plain read still returns the answer.
   per task and sends as that task. `Tasks` checks that `CurrentCall` is a turn
   of the expected session, parent or child, and fails the call otherwise.
 - **`ContextAgent`** (new origin, `"agent"`): content another agent in this
-  session tree sent. Validated like `ContextTool`: user role only, and an
-  operator-tier reminder is refused. It does not require a reminder or a
-  `From`; `Message.Item` always builds one. Queue turns it starts are
-  `StartScheduled`.
+  session tree sent. User role only, contextual reminders only, with a
+  sender: `validateContext` requires exactly one contextual reminder with a
+  non-empty `From`, so live input, steering, the inbox, hooks, and replay
+  agree. Queue turns it starts are `StartScheduled`.
 
 ## Delivery once (tracks 3 and 4)
 
