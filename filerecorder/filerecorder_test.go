@@ -65,6 +65,55 @@ func TestClaimedTurnWithoutStepsIsNotFound(t *testing.T) {
 	requireSteps(t, r, "turn", 1)
 }
 
+// LastTurn finds a session's last turn by which logs exist, without reading
+// them: a damaged log still counts, an empty one does not, and a session ID
+// with dashes finds only its own turns.
+func TestLastTurn(t *testing.T) {
+	r := newRecorder(t, t.TempDir())
+	last := func(id string) int {
+		t.Helper()
+		n, err := r.LastTurn(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := last("x"); n != 0 {
+		t.Fatalf("empty session: %d", n)
+	}
+	for i := 1; i <= 5; i++ {
+		commit(t, r, step(dashi.TurnID("x", i), 1, "hi"), "")
+	}
+	commit(t, r, step(dashi.TurnID("x-1", 1), 1, "hi"), "")
+	commit(t, r, step("x-10", 1, "hi"), "")
+	if n := last("x"); n != 5 {
+		t.Fatalf("x: %d", n)
+	}
+	if n := last("x-1"); n != 1 {
+		t.Fatalf("x-1: %d", n)
+	}
+	if n := last("x-10"); n != 0 {
+		t.Fatalf("x-10: %d", n)
+	}
+	// A damaged last log is still a turn; an empty one is not.
+	if err := os.WriteFile(r.Path("x-5"), []byte("not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := last("x"); n != 5 {
+		t.Fatalf("x with a damaged turn 5: %d", n)
+	}
+	path := r.Path("x-6")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := last("x"); n != 5 {
+		t.Fatalf("x with an empty turn 6: %d", n)
+	}
+}
+
 func TestTornTailIsIgnoredAndReplaced(t *testing.T) {
 	r := newRecorder(t, t.TempDir())
 	commit(t, r, step("turn", 1, "first"), "")

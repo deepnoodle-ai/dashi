@@ -17,8 +17,11 @@ these for the caller ([sessions.md](sessions.md#what-a-new-start-does)).
 **Steering.** With `Session.Steering` nil, the handle owns an `*Inbox` and
 passes it with `WithSteering` to every turn it runs, except compaction turns.
 `s.Steer(ctx, text)` sends a user steer to it and returns `Queued` (below) with
-the steer's ID and the `TurnID` it reached. When the handle runs no turn, the
-steer goes straight to the queue and `TurnID` is empty. When the handle runs a
+the steer's ID and the `TurnID` it reached; `s.SteerItem(ctx, steer)` takes a
+whole `Steer`, for an urgent one (the CLI's `!`) or a task notice. When the
+handle runs no turn, the steer goes straight to the queue and `TurnID` is
+empty. A turn the handle runs is one a `Start`, `Continue`, or queue turn of
+this handle drives. When the handle runs a
 compaction turn, `Steer` returns `*TurnBusyError{Origin: StartCompaction}`; the
 caller can `Enqueue`. A host with its own durable steering source sets
 `Session.Steering` and sends through its own system; `s.Steer` then returns an
@@ -46,8 +49,10 @@ type Queued struct {
 
 Queue items are `ContextItem`s, so each keeps its ID and origin. An empty ID is
 generated and an empty origin means `ContextUser`, as for `Inbox.Send`; a
-repeated ID is an error. Items leave the queue in order. Reserving items for a
-turn runs under the handle's lock. `Withdraw` is later, when a caller needs it.
+repeated ID (in the queue or the handle's inbox) is an error. An item's message
+must use the user role, since it becomes `Start` input. Items leave the queue in
+order. Reserving items for a turn runs under the handle's lock. `Withdraw` is
+later, when a caller needs it.
 
 **In memory only.** A server that builds a handle per request loses the queue
 between requests. When the runner has a durable recorder (any host-set recorder
@@ -60,12 +65,15 @@ another process is later.
 
 ## Dispatch on idle
 
-When a turn this handle drives ends with `NextNone` and the queue holds items,
-the same `Run` or `Stream` call starts the next turn from them, and repeats
-until the queue is empty or a turn stops any other way. Every peer queue does
+When a `Start` or `Continue` this handle runs ends its turn with `NextNone`
+and the queue holds items, the same `Run` or `Stream` call starts the next
+turn from them, and repeats until the queue is empty or a turn stops any other
+way. `Settle`, `Deliver`, and `Cancel` run no model call, so nothing queued
+runs after them. Every peer queue does
 this (Codex's queue extension, pi's next design, LangGraph's `enqueue`, ACP's
 inject); a queue that waits for the next send strands input. `RunQueue` does the
-same for an idle session with no new input.
+same for an idle session (last turn `NextNone`, or none) with no new input;
+when it runs nothing it returns false and the last turn's outcome.
 
 Done is not settled (pi #5886): the call returns when its own turns end, and the
 outcome is the last one's. When that turn stopped with anything but `NextNone`,
@@ -94,20 +102,28 @@ in the record for the delivery rule below.
 
 **Consuming items.** A reserved item keeps its ID and place in the queue, and no
 other turn takes it, until the session knows whether this `Start`'s
-`turn_started` step committed. Only proof that it did not restores the items, in
-order: an error after which `Run` promises nothing was recorded (neither a
-`*CommitError` carrying a `Step` nor `ErrRecordInvalid`; `recorded` in
-`runner.go`), or a `*CommitError` whose `Step.Kind` is `turn_started` with
-`PersistenceRejected`, `ErrRevisionConflict`, or `ErrCommandConflict`. Anything
-else is inconclusive: an unknown outcome for the start, a failed later step (a
-rejected model step included), or `ErrRecordInvalid`, which follows recorded
-steps. The session then loads `S-n`: a `turn_started` step with this command ID
-consumes the items, a missing one restores them, and a failed load keeps them
-reserved and returns the error. The next command reloads the last turn first and
-settles the reservation the same way; a retried queue turn reuses its
-deterministic `queue:` key, so it cannot record the items twice. The same rule
-covers user-origin items put ahead of a caller's `Start`, checked against that
-`Start`'s command ID.
+`turn_started` step committed. A `turn_started` event the run reported is proof
+that it did, since the engine emits a step only once it commits, so a `Stream`
+consumer that breaks after it consumes the items. Only proof that it did not
+restores the items, in order: an error after which `Run` promises nothing was
+recorded (neither a `*CommitError` carrying a `Step` nor `ErrRecordInvalid`;
+`recorded` in `runner.go`), or a `*CommitError` whose `Step.Kind` is
+`turn_started` with `PersistenceRejected`, `ErrRevisionConflict`, or
+`ErrCommandConflict`. Anything else is inconclusive: an unknown outcome for the
+start, a failed later step (a rejected model step included), or
+`ErrRecordInvalid`, which follows recorded steps. The session then loads `S-n`:
+a `turn_started` step with this command ID consumes the items, a missing one
+restores them, and a failed load keeps them reserved and returns the error. The
+same rule covers user-origin items put ahead of a caller's `Start`, checked
+against that `Start`'s command ID. Each later command tries to settle it the
+same way, but only the queue waits on it: `Open` and new commands run without
+the reserved items, each outcome warns `queue_blocked`, and `RunQueue` returns
+the error. A retried queue turn reuses its deterministic `queue:` key, and the
+session scans the idempotency window for it before starting one; a match means
+the items were delivered, so it consumes them and starts nothing. A turn in the
+window that cannot be read fails the scan, even an unreadable last turn under
+`Exclusive`, since it may hold the key: `RunQueue` returns the error and the
+items wait until a caller's `Start` moves past that turn.
 
 **Missed steers move to the queue.** After a turn ends `NextNone`, and when a
 new `Start` closes a stopped turn, the session calls `Inbox.Leftovers` on the
@@ -135,8 +151,10 @@ func RunUntilQuiet(ctx context.Context, s *dashi.Session, tasks *Tasks,
 ```
 
 It loops over `s.RunQueue` and `tasks.Wait`, which returns false after each
-report and true when nothing is pending. The host's `OnTask` enqueues
-`e.Task.Notice().Steer().Item`. The CLI's `-p` mode uses it too.
+report and true when nothing is pending, and also returns when a turn stops
+with anything but `NextNone`. The host's `OnTask` enqueues
+`e.Task.Notice().Steer().Item`, or sends `e.Task.Notice().Steer()` with
+`SteerItem` so a running turn reads it at once.
 
 ## Streams and transcripts
 
@@ -154,11 +172,13 @@ later, when the ACP adapter or another caller needs it; Codex has none and pays
 for it in resume cost (#38787).
 
 **Transcripts.** `s.Turns(ctx)` yields every turn record in order, compaction
-and closed turns included; an unreadable turn yields its error and the iteration
-goes on. For ACP replay, message IDs derive from the turn ID and the message's
-index in the turn (`MessageID(turnID, i)`), so they are stable across replays. A
-turn the session closed has a canceled stop with reason `CloseReason` ("a new
-message moved on"), so replay can mark it.
+and closed turns included; an unreadable turn yields a `Turn` holding only its
+ID, with its error, and the iteration goes on. For ACP replay, message IDs
+derive from the turn ID and the message's index in the turn (`MessageID(turnID,
+i)`, added with the ACP adapter), so they are stable across replays. A turn the
+session closed has a canceled stop with reason `CloseReason` ("a new message
+moved on"), so replay can mark it. `s.History` skips a turn it cannot read,
+without a warning; `Turns` reports it.
 
 ## Compaction turns
 

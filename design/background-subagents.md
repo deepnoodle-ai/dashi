@@ -78,10 +78,12 @@ type TaskView struct { ID, ChildID, Subagent, Description string; Parent dashi.C
 func (v TaskView) Notice() Notice
 func (n Notice) Text() string; func (n Notice) Steer() dashi.Steer
 func NoticeID(childID string) string        // "task-done:" + childID
-func IsNotice(s dashi.Steer) bool
-func FollowUp(notices []dashi.Steer) dashi.Start
-func FollowUpTurnID(notices []dashi.Steer) string
+func RunUntilQuiet(ctx context.Context, s *dashi.Session, t *Tasks,
+    opts ...dashi.RunOption) (dashi.Outcome, error)
 ```
+
+`FollowUp` and `FollowUpTurnID` were replaced by the session's queue turns
+([session-input.md](session-input.md#delegation)).
 
 `ChildID`, `Report`, `OnChild`, `MaxAnswer`, `Subagent`, `CurrentCall`,
 `CurrentRunner`, `Spend.Add`, and the Loader rule stay as in PR 77.
@@ -99,20 +101,21 @@ child, `task` returns the same ID, so it is idempotent. The child does not
 depend on the tool call or the parent Turn.
 
 **Delivery rule.** A result is delivered when the record of the conversation
-holds the notice `task-done:<child ID>`: in a Turn's context, or in the
-`CommandID` of a follow-up Turn's start. Nothing else counts. A `task_status`
-read does not suppress a notice. `Recover` and the live path use this check.
-`OnTask` fires once per end in one process; a second `Recover` sends none.
+holds the notice `task-done:<child ID>`: in a Turn's context, or in the `queue:`
+`CommandID` of a session queue Turn's start. Nothing else counts. A
+`task_status` read does not suppress a notice. `Recover` and the live path use
+this check. `OnTask` fires once per end in one process; a second `Recover` sends
+none.
 
 **Running Turn.** On `TaskEnded`, the host sends `notice.Steer()` to the
 `Inbox`. The steer has origin `ContextTool`, never user text. The next model
 call sees it. A Turn records an ID once. A steer that a run claimed but did
 not record comes back from `Leftovers`, once.
 
-**No Turn running.** `IsNotice` splits `Inbox.Leftovers`: user steers follow
-the steering rule; notices go to `FollowUp(agent, notices)`, one Turn for all
-waiting notices, with `Origin: StartScheduled`. It claims no user authority. A
-notice that arrives during that Turn is a steer into it.
+**No Turn running.** The notice waits in the session's queue and runs as a
+queue Turn, one for all waiting notices, with `Origin: StartScheduled`. It
+claims no user authority. A notice that arrives during that Turn is a steer
+into it.
 
 **Crash or reopen.** `Recover` walks the Turns the host holds, finds the
 `task` calls, and loads each child by `ChildID`. It resumes a child with no
@@ -193,7 +196,8 @@ check after each test.
 4. **The notice uses the existing steer path**, origin `ContextTool`.
 5. **One delivery rule, from the record only.** A repeat costs little; one rule
    is testable.
-6. **`IsNotice` splits `Leftovers`** by origin and ID prefix. No core change.
+6. **A notice is told apart** from other steers by origin and its `NoticeID`
+   prefix. No core change.
 7. **One follow-up Turn for all waiting notices**, `StartScheduled`.
    `FollowUp` records the delivered children in the start's `CommandID`.
    Deliver cannot reach an ended Turn, so a follow-up Turn is the only way.

@@ -43,34 +43,34 @@ func TestLiveBackgroundTask(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inbox := dashi.NewInbox()
+	s := &dashi.Session{Agent: dashi.Agent{
+		Model: model,
+		Instructions: "Start one explore task for the question, then " +
+			"answer from its result. Do not answer before the message " +
+			"about the task arrives.",
+		Limits: dashi.Limits{ModelAttempts: 16},
+	}}
 	ended := make(chan delegate.TaskView, 4)
 	tasks := delegate.NewTasks(delegate.Config{OnTask: func(e delegate.TaskEvent) {
 		if e.Kind == delegate.TaskEnded {
-			_, _ = inbox.Send(e.Task.Notice().Steer())
+			_, _ = s.SteerItem(context.Background(), e.Task.Notice().Steer())
 			ended <- e.Task
 		}
 	}})
 	t.Cleanup(func() { _ = tasks.Close(context.Background()) })
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
-	agent := dashi.Agent{
-		Model: model,
-		Instructions: "Start one explore task for the question, then " +
-			"answer from its result. Do not answer before the message " +
-			"about the task arrives.",
-		Limits: dashi.Limits{ModelAttempts: 16},
-	}
-	runner := dashi.Runner{
+	s.Runner = dashi.Runner{
 		Client:   client,
 		Recorder: dashi.NewMemoryRecorder(),
 		Tools:    tool.Join(tool.List{search}, tasks.Tools()),
 	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-		Agent: agent,
-		Input: []llm.Message{llm.UserMessage(llm.Text(
-			"Who owns the billing service? Use a task to look it up."))},
-	}, dashi.WithSteering(inbox))
+	if _, err := s.Send(ctx,
+		"Who owns the billing service? Use a task to look it up."); err != nil {
+		t.Fatal(err)
+	}
+	// A result that arrives after the turn ended starts a queue turn.
+	out, err := delegate.RunUntilQuiet(ctx, s, tasks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,35 +80,8 @@ func TestLiveBackgroundTask(t *testing.T) {
 		if v.State != "completed" || !strings.Contains(v.Answer, "Priya") {
 			t.Fatalf("task=%+v", v)
 		}
-	case <-time.After(time.Minute):
+	default:
 		t.Fatal("the task never ended")
-	}
-	turn := out.Turn
-	if !strings.Contains(out.Answer, "Priya") {
-		// The turn ended before the result arrived: the notice is owed.
-		left, err := inbox.Leftovers(turn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var notices []dashi.Steer
-		for _, s := range left {
-			if delegate.IsNotice(s) {
-				notices = append(notices, s)
-			}
-		}
-		if len(notices) != 1 {
-			t.Fatalf("answer=%q and %d notices owed", out.Answer, len(notices))
-		}
-		history, err := dashi.Project(turn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		start := delegate.FollowUp(agent, notices)
-		start.History = history
-		out, err = runner.Run(ctx, dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 	t.Logf("answer: %s", out.Answer)
 	if !strings.Contains(out.Answer, "Priya") {

@@ -313,6 +313,10 @@ const (
 	// WarningMemoryOnly means the session is recorded only in the handle's
 	// in-memory recorder and ends with the handle.
 	WarningMemoryOnly WarningCode = "memory_only"
+	// WarningQueueBlocked means queued items wait because the session
+	// cannot read the turn that may have taken some of them. New commands
+	// still run; RunQueue returns the error until the turn can be read.
+	WarningQueueBlocked WarningCode = "queue_blocked"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does

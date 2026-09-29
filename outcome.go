@@ -25,8 +25,8 @@ type Outcome struct {
 	Turn Turn
 	TurnView
 	// SessionWarnings holds the warnings of a Session command, which no
-	// turn records: WarningTurnClosed, WarningTurnUnreadable, and
-	// WarningMemoryOnly. Runner.Run leaves it empty.
+	// turn records: WarningTurnClosed, WarningTurnUnreadable,
+	// WarningMemoryOnly, and WarningQueueBlocked. Runner.Run leaves it empty.
 	SessionWarnings []Warning
 }
 

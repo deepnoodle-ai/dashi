@@ -367,6 +367,8 @@ type harness struct {
 	taskEvents chan delegate.TaskEvent
 	observed   atomic.Int32
 	notify     atomic.Bool
+	// session, when set, gets each ended task's notice on its queue.
+	session atomic.Pointer[dashi.Session]
 	// ran counts runs of the read and write probes.
 	ran atomic.Int32
 }
@@ -432,6 +434,9 @@ func newHarness(
 	cfg.OnTask = func(e delegate.TaskEvent) {
 		if e.Kind == delegate.TaskEnded && h.notify.Load() {
 			_, _ = h.inbox.Send(e.Task.Notice().Steer())
+		}
+		if s := h.session.Load(); e.Kind == delegate.TaskEnded && s != nil {
+			_, _ = s.EnqueueItem(context.Background(), e.Task.Notice().Steer().Item)
 		}
 		h.taskEvents <- e
 	}
@@ -770,90 +775,69 @@ func recordedNotice(t *testing.T, turn dashi.Turn) dashi.ContextItem {
 	return dashi.ContextItem{}
 }
 
-func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
+// Notices that arrive after the session's turn ended wait in its queue, and
+// RunUntilQuiet delivers them all in one queue turn, which records the
+// delivery in its command ID.
+func TestNoticesAfterTheTurnMakeOneQueueTurn(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
-	h.notify.Store(true)
 	h.agent.Limits.ToolConcurrency = 2
-	out, err := h.start(t.Context())
+	s := &dashi.Session{ID: "conv", New: true, Runner: h.runner, Agent: h.agent}
+	h.session.Store(s)
+	out, err := s.Send(t.Context(), "go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != dashi.StopCompleted {
-		t.Fatalf("parent stop=%+v", out.Stop)
+	if out.Stop.Kind != dashi.StopCompleted || out.Answer != "parent done" {
+		t.Fatalf("parent stop=%+v answer=%q", out.Stop, out.Answer)
 	}
 	g1.open()
 	g2.open()
-	for range 2 {
-		h.next(t, delegate.TaskEnded)
-	}
-	// The user also typed a line while no turn ran.
-	if _, err := h.inbox.SendText("also fix the docs"); err != nil {
-		t.Fatal(err)
-	}
-	left, err := h.inbox.Leftovers(out.Turn)
+	// Both children end before the queue runs, so one turn carries both.
+	h.next(t, delegate.TaskEnded)
+	h.next(t, delegate.TaskEnded)
+	out, err = delegate.RunUntilQuiet(t.Context(), s, h.tasks)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var user, notices []dashi.Steer
-	for _, s := range left {
-		if delegate.IsNotice(s) {
-			notices = append(notices, s)
-		} else {
-			user = append(user, s)
-		}
+	if out.Turn.ID != dashi.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
+		out.Answer != "parent read the notice" {
+		t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Answer)
 	}
-	if len(left) != 3 || len(user) != 1 ||
-		user[0].Item.Origin != dashi.ContextUser {
-		t.Fatalf("leftovers=%d user=%d", len(left), len(user))
-	}
-
-	// Either order of the notices names the same follow-up turn.
-	id := delegate.FollowUpTurnID(notices)
-	if id != delegate.FollowUpTurnID([]dashi.Steer{notices[1], notices[0]}) {
-		t.Fatal("follow-up turn ID depends on notice order")
-	}
-	start := delegate.FollowUp(h.agent, notices)
-	if start.Origin != dashi.StartScheduled {
-		t.Fatalf("origin=%q, want scheduled", start.Origin)
-	}
-	if start.Agent.Instructions != h.agent.Instructions {
-		t.Fatalf("agent=%+v, want the one passed", start.Agent)
-	}
-	followUp, err := h.runner.Run(t.Context(), dashi.Turn{ID: id}, start)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if followUp.Stop.Kind != dashi.StopCompleted ||
-		followUp.Answer != "parent read the notice" {
-		t.Fatalf("follow-up stop=%+v answer=%q", followUp.Stop, followUp.Answer)
+	if len(h.tasks.List()) != 2 {
+		t.Fatalf("tasks=%+v", h.tasks.List())
 	}
 	in := inputText(h.client.last("parent"))
 	for _, want := range []string{"answer to first", "answer to second"} {
 		if !strings.Contains(in, want) {
-			t.Fatalf("follow-up input lacks %q: %q", want, in)
+			t.Fatalf("queue turn input lacks %q: %q", want, in)
 		}
 	}
-	// The user's line was never turned into a notice, and the notices were
-	// never turned into user text.
-	if strings.Contains(in, "also fix the docs") {
-		t.Fatalf("user line leaked into the follow-up: %q", in)
+	key := out.Turn.Steps[0].CommandID
+	if !strings.HasPrefix(key, "queue:") || strings.Count(key, "task-done:") != 2 {
+		t.Fatalf("queue turn command ID=%q", key)
 	}
-	// The follow-up records the delivery, so a reopened host sends nothing.
-	parent, err := h.rec.Load(t.Context(), parentTurn)
-	if err != nil {
-		t.Fatal(err)
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 0 || st.Turns != 2 {
+		t.Fatalf("state=%+v err=%v", st, err)
 	}
+
+	// The queue turn records the delivery, so a reopened host sends nothing.
+	var turns []dashi.Turn
+	for turn, err := range s.Turns(t.Context()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, turn)
+	}
+	h.session.Store(nil)
 	h.newTasks(t)
-	if err := h.tasks.Recover(t.Context(), h.runner,
-		[]dashi.Turn{parent, followUp.Turn}); err != nil {
+	if err := h.tasks.Recover(t.Context(), h.runner, turns); err != nil {
 		t.Fatal(err)
 	}
 	h.none(t, delegate.TaskEnded)
-	// Without the follow-up turn, both notices are still owed.
+	// Without the queue turn, both notices are still owed.
 	h.newTasks(t)
-	if err := h.tasks.Recover(t.Context(), h.runner,
-		[]dashi.Turn{parent}); err != nil {
+	if err := h.tasks.Recover(t.Context(), h.runner, turns[:1]); err != nil {
 		t.Fatal(err)
 	}
 	h.next(t, delegate.TaskEnded)
@@ -883,13 +867,14 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 	}
 	h.none(t, delegate.TaskEnded)
 
-	// The host delivers the notice in a follow-up turn.
-	notices := []dashi.Steer{ended.Task.Notice().Steer()}
-	start := delegate.FollowUp(h.agent, notices)
-	followUp, err := h.runner.Run(t.Context(),
-		dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
-	if err != nil {
+	// The host delivers the notice in a queue turn of a session.
+	conv := &dashi.Session{New: true, Runner: h.runner, Agent: h.agent}
+	if _, err := conv.EnqueueItem(t.Context(), ended.Task.Notice().Steer().Item); err != nil {
 		t.Fatal(err)
+	}
+	queued, ran, err := conv.RunQueue(t.Context())
+	if err != nil || !ran {
+		t.Fatalf("ran=%v err=%v", ran, err)
 	}
 	parent, err := h.rec.Load(t.Context(), parentTurn)
 	if err != nil {
@@ -897,7 +882,7 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 	}
 	h.newTasks(t)
 	if err := h.tasks.Recover(t.Context(), h.runner,
-		[]dashi.Turn{parent, followUp.Turn}); err != nil {
+		[]dashi.Turn{parent, queued.Turn}); err != nil {
 		t.Fatal(err)
 	}
 	h.none(t, delegate.TaskEnded)
@@ -920,7 +905,7 @@ func TestStatusReadDoesNotSuppressTheNotice(t *testing.T) {
 	// is told again because the record holds no notice.
 	parent, _ := h.rec.Load(t.Context(), parentTurn)
 	left, err := h.inbox.Leftovers(parent)
-	if err != nil || len(left) != 1 || !delegate.IsNotice(left[0]) {
+	if err != nil || len(left) != 1 || !isNotice(left[0]) {
 		t.Fatalf("leftovers=%+v err=%v", left, err)
 	}
 	h.newTasks(t)
@@ -2027,7 +2012,7 @@ func TestUnrecordedNoticeComesBackOnceFromLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	left, err := h.inbox.Leftovers(turn)
-	if err != nil || len(left) != 1 || !delegate.IsNotice(left[0]) {
+	if err != nil || len(left) != 1 || !isNotice(left[0]) {
 		t.Fatalf("leftovers=%+v err=%v", left, err)
 	}
 	again, err := h.inbox.Leftovers(turn)
@@ -2358,4 +2343,10 @@ type toolsetFunc func(context.Context) ([]tool.Tool, error)
 
 func (f toolsetFunc) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return f(ctx)
+}
+
+// isNotice reports whether a steer is a task notice.
+func isNotice(s dashi.Steer) bool {
+	return s.Item.Origin == dashi.ContextTool &&
+		strings.HasPrefix(s.Item.ID, "task-done:")
 }

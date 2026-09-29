@@ -27,7 +27,8 @@
 // the whole log. The Recorder is also a dashi.StepReader, so dashi.Follow
 // can serve a turn to live readers, and a dashi.StepWaiter that wakes them
 // at once on this process's commits and within a quarter second of another
-// process's. Each read takes a shared lock on the log, which a commit waits
+// process's. As a dashi.SessionIndex it finds a session's last turn by which
+// logs exist. Each read takes a shared lock on the log, which a commit waits
 // for, so many followers reading one turn add latency to its commits; a
 // dashboard with many readers serves them from its own fan-out instead.
 //
@@ -112,10 +113,11 @@ type Recorder struct {
 }
 
 var (
-	_ dashi.Recorder   = (*Recorder)(nil)
-	_ dashi.Loader     = (*Recorder)(nil)
-	_ dashi.StepReader = (*Recorder)(nil)
-	_ dashi.StepWaiter = (*Recorder)(nil)
+	_ dashi.Recorder     = (*Recorder)(nil)
+	_ dashi.Loader       = (*Recorder)(nil)
+	_ dashi.StepReader   = (*Recorder)(nil)
+	_ dashi.StepWaiter   = (*Recorder)(nil)
+	_ dashi.SessionIndex = (*Recorder)(nil)
 )
 
 // New returns a recorder for the turn logs in cfg.Dir, creating the
@@ -193,6 +195,54 @@ func (r *Recorder) Path(turnID string) string {
 	sum := sha256.Sum256([]byte(turnID))
 	name := hex.EncodeToString(sum[:])
 	return filepath.Join(r.dir, name[:2], name+".jsonl")
+}
+
+// LastTurn returns the highest n for which turn n of the session
+// (dashi.TurnID) has a log with content, or 0 when it has none. It
+// implements dashi.SessionIndex by which files exist, without reading them,
+// so a damaged log does not hide the turns before it: a dashi.Session then
+// reports that turn as unreadable. It doubles n until a log is missing,
+// then searches between, so it looks at about 2·log2(n) files. An empty
+// log, left by a rejected first write, is no turn; a log that holds only a
+// lease claim (Claim) counts as one, since only a read could tell.
+func (r *Recorder) LastTurn(_ context.Context, sessionID string) (int, error) {
+	lo, hi := 0, 0
+	for n := 1; hi == 0; n *= 2 {
+		ok, err := r.hasLog(dashi.TurnID(sessionID, n))
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			lo = n
+		} else {
+			hi = n
+		}
+	}
+	for hi-lo > 1 {
+		mid := lo + (hi-lo)/2
+		ok, err := r.hasLog(dashi.TurnID(sessionID, mid))
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return lo, nil
+}
+
+// hasLog reports whether turnID's log exists with content.
+func (r *Recorder) hasLog(turnID string) (bool, error) {
+	info, err := os.Stat(r.Path(turnID))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("filerecorder: %w", err)
+	}
+	return info.Size() > 0, nil
 }
 
 // Load returns the turn's committed steps, or an error matching
