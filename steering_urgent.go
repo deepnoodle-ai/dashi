@@ -3,7 +3,10 @@ package dashi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // errSteered is the private cause a model call's context ends with when an
@@ -22,10 +25,11 @@ const steeringInterruptedText = "The user interrupted your previous response."
 // is the only reader of Ready. The listener writes no run state and no
 // warnings.
 //
-// Two locks keep a slow source from stalling the run. sourceMu serializes
-// every call the run and the listener make to the source (U-1). mu guards
-// the state they share (U-2) and is never held while calling the source,
-// so commits never wait for a fetch. The lock order is sourceMu, then mu.
+// Two locks keep the listener's fetches from stalling the run. sourceMu
+// serializes every call the run and the listener make to the source (U-1).
+// mu guards the state they share (U-2) and is never held while calling the
+// source, so commits never wait for a fetch. The lock order is sourceMu,
+// then mu.
 type steerListener struct {
 	sourceMu sync.Mutex
 	mu       sync.Mutex
@@ -33,9 +37,10 @@ type steerListener struct {
 	// ID, refreshed after each commit, so it never interrupts for a steer
 	// the record already holds.
 	recorded map[string]ContextItem
-	// urgent holds fresh urgent steers not yet recorded. FR-6 removes an ID
-	// when it records the steer or when the source no longer returns it.
-	urgent map[string]bool
+	// urgent holds fresh urgent steers not yet recorded, by ID. FR-6
+	// removes an ID when it records the steer or when the source no longer
+	// returns it.
+	urgent map[string]ContextItem
 	// interrupted holds the IDs that already cut a call short: each
 	// interrupts at most once.
 	interrupted map[string]bool
@@ -49,11 +54,16 @@ type steerListener struct {
 	call    *steerableCall
 	// fetchCancel ends the listener's Steers call in flight. The run calls
 	// it when a model call settles and whenever it needs the source or the
-	// listener's decision itself, so a slow source can delay a cut but
-	// never stall the run.
+	// listener's decision itself, so the listener's fetch never stalls the
+	// run. The run's own fetches (before a model call, and before a tool
+	// starts while a steer is pending) still wait on the source.
 	fetchCancel context.CancelFunc
-	stop        context.CancelFunc
-	finished    chan struct{}
+	// syncs counts run requests waiting on syncReq; while one waits, the
+	// listener starts no fetch, so it cannot keep the run waiting.
+	syncs    int
+	syncReq  chan chan bool
+	stop     context.CancelFunc
+	finished chan struct{}
 }
 
 // steerableCall is a model call the listener may cut short. It is
@@ -90,10 +100,11 @@ func (r *runtime) startSteering(s *replayState) {
 	ctx, stop := context.WithCancel(r.ctx)
 	l := &steerListener{
 		recorded:    map[string]ContextItem{},
-		urgent:      map[string]bool{},
+		urgent:      map[string]ContextItem{},
 		interrupted: map[string]bool{},
 		loopBack:    map[string]bool{},
 		seenSet:     map[string]bool{},
+		syncReq:     make(chan chan bool),
 		stop:        stop,
 		finished:    make(chan struct{}),
 	}
@@ -229,16 +240,88 @@ func (l *steerListener) run(
 	ready <-chan struct{},
 ) {
 	defer close(l.finished)
+	// pending is set while a signal is owed a fetch: the run cut the
+	// listener's fetch short. It is tried again, so the signal is not lost,
+	// unless a run request takes it over first.
+	pending := false
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ready:
+		if pending {
+			l.mu.Lock()
+			waiting := l.syncs > 0
+			l.mu.Unlock()
+			var retry <-chan struct{}
+			if !waiting {
+				retry = closedChan
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case reply := <-l.syncReq:
+				l.handOver(ready, reply, true)
+				pending = false
+				continue
+			case <-retry:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return
+			case reply := <-l.syncReq:
+				l.handOver(ready, reply, false)
+				continue
+			case <-ready:
+			}
 		}
-		// A fetch the run cut short is tried again, so the signal is not
-		// lost; the retry waits until the run is done with the source.
-		for l.check(ctx, source, turnID) {
-		}
+		pending = l.check(ctx, source, turnID)
+	}
+}
+
+// closedChan is always ready to receive.
+var closedChan = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// handOver answers a run's sync request: it reports whether a steer may be
+// waiting that the listener has not fetched, a signal on Ready or a fetch
+// cut short, and leaves that fetch to the run.
+func (l *steerListener) handOver(
+	ready <-chan struct{},
+	reply chan<- bool,
+	pending bool,
+) {
+	select {
+	case <-ready:
+		pending = true
+	default:
+	}
+	reply <- pending
+}
+
+// sync waits until the listener is between signals, then reports whether
+// a steer may be waiting that the listener has not fetched. The listener
+// is the only reader of Ready, so only it can tell a signal it received
+// but has not acted on; asking it closes that gap. A fetch in flight is
+// cut short rather than waited for. The caller must not hold sourceMu.
+func (l *steerListener) sync() bool {
+	l.mu.Lock()
+	l.syncs++
+	if l.fetchCancel != nil {
+		l.fetchCancel()
+	}
+	l.mu.Unlock()
+	defer func() {
+		l.mu.Lock()
+		l.syncs--
+		l.mu.Unlock()
+	}()
+	reply := make(chan bool, 1)
+	select {
+	case l.syncReq <- reply:
+		return <-reply
+	case <-l.finished:
+		return false
 	}
 }
 
@@ -259,6 +342,15 @@ func (l *steerListener) check(
 	l.mu.Unlock()
 	l.sourceMu.Lock()
 	defer l.sourceMu.Unlock()
+	// A run waiting to sync takes the signal over; fetching now would only
+	// keep it waiting.
+	l.mu.Lock()
+	if l.syncs > 0 {
+		l.fetchCancel = nil
+		l.mu.Unlock()
+		return ctx.Err() == nil
+	}
+	l.mu.Unlock()
 	steers, err := source.Steers(fetchCtx, turnID)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -267,25 +359,7 @@ func (l *steerListener) check(
 		// FR-6 reports a failing source; the listener writes no warnings.
 		return fetchCtx.Err() != nil && ctx.Err() == nil
 	}
-	for _, steer := range steers {
-		if id := steer.Item.ID; id != "" && !l.seenSet[id] {
-			l.seenSet[id] = true
-			l.seen = append(l.seen, id)
-		}
-	}
-	fresh, _, _ := classifySteers(l.recorded, steers)
-	var ids []string
-	var items []ContextItem
-	for _, steer := range fresh {
-		items = append(items, steer.Item)
-		if !steer.Urgent {
-			continue
-		}
-		l.urgent[steer.Item.ID] = true
-		if !l.interrupted[steer.Item.ID] {
-			ids = append(ids, steer.Item.ID)
-		}
-	}
+	ids, items := l.merge(steers)
 	c := l.call
 	if len(ids) == 0 || c == nil || c.cut {
 		return false
@@ -309,15 +383,44 @@ func (l *steerListener) check(
 	return false
 }
 
+// merge claims a fetch's steers and adds the fresh urgent ones to the
+// urgent set. It returns the fresh items and the urgent IDs that have not
+// cut a call yet. The caller holds mu.
+func (l *steerListener) merge(steers []Steer) ([]string, []ContextItem) {
+	for _, steer := range steers {
+		if id := steer.Item.ID; id != "" && !l.seenSet[id] {
+			l.seenSet[id] = true
+			l.seen = append(l.seen, id)
+		}
+	}
+	fresh, _, _ := classifySteers(l.recorded, steers)
+	var ids []string
+	var items []ContextItem
+	for _, steer := range fresh {
+		items = append(items, steer.Item)
+		if !steer.Urgent {
+			continue
+		}
+		l.urgent[steer.Item.ID] = steer.Item
+		if !l.interrupted[steer.Item.ID] {
+			ids = append(ids, steer.Item.ID)
+		}
+	}
+	return ids, items
+}
+
 // lockSource cuts the listener's fetch in flight short, then takes
-// sourceMu. The caller unlocks sourceMu.
-func (l *steerListener) lockSource() {
+// sourceMu. The caller unlocks sourceMu. It reports whether it cut a fetch
+// short.
+func (l *steerListener) lockSource() bool {
 	l.mu.Lock()
-	if l.fetchCancel != nil {
+	cut := l.fetchCancel != nil
+	if cut {
 		l.fetchCancel()
 	}
 	l.mu.Unlock()
 	l.sourceMu.Lock()
+	return cut
 }
 
 // release ends the listener's hold on c, cuts a fetch in flight short, and
@@ -379,4 +482,119 @@ func reminderTokens() int {
 	return estimatedItemTokens([]ContextItem{{
 		Message: steeringReminder(),
 	}})
+}
+
+// reasonSteering is the reason recorded on a call an urgent steer kept
+// from starting, and steerSkipText is the result the model sees for it.
+const (
+	reasonSteering = "steering"
+	steerSkipText  = "Not run: the user sent new input."
+)
+
+// steerSkips reports whether call id must not start because of an urgent
+// steer. Once a call of a batch is skipped, no later call of that batch
+// starts, so the record alone decides a resumed batch the same way.
+// Otherwise the urgent set decides, and only when a later model call that
+// can offer tools will deliver the steer: a skip the model cannot act on
+// would only cancel its work. When only the reserved final-answer call
+// remains, the batch runs and that call receives the steer; when no call
+// remains, the batch runs and the steer waits with a warning. Earlier
+// calls, such as one awaiting approval, are not held back by the record.
+// Only a requested or allowed call can be skipped: a started call may have
+// taken effect. The caller exempts dashi_submit_output, whose finish point
+// decides a waiting steer itself.
+func (r *runtime) steerSkips(s *replayState, id string) bool {
+	if status := s.Tools[id].Status; status != ToolRequested &&
+		status != ToolAllowed {
+		return false
+	}
+	attempt := s.callAttempts[id]
+	for _, other := range s.callOrder {
+		if other == id {
+			break
+		}
+		if s.callAttempts[other] == attempt && s.Tools[other].steered {
+			return true
+		}
+	}
+	steers := r.urgentSteers()
+	if len(steers) == 0 {
+		return false
+	}
+	extra := estimatedItemTokens(steers)
+	// Tools still running in a parallel batch have not recorded their
+	// output, so the cost estimate leaves it out. The next call's own
+	// pre-send cost check still enforces MaxCost on the real request.
+	if r.nextCallPossible(s, extra) {
+		return true
+	}
+	// Only the reserved final-answer call remains. It offers no tools, so a
+	// skip would only cancel the model's work; the batch runs and that call
+	// receives the steer, like any steer waiting before it.
+	if !r.pauseRequested() && r.callFits(s, extra, true) {
+		return false
+	}
+	if !r.steers.skipDeclined {
+		r.steers.skipDeclined = true
+		cause := noCallCause(s)
+		if s.roomForAnyCall() {
+			cause = "a limit, the deadline, or a pause"
+		}
+		r.warnSteering(fmt.Sprintf(
+			"%d urgent steer(s) did not skip the remaining tool calls: no "+
+				"further model call can happen because of %s; they stay "+
+				"with their source",
+			len(steers),
+			cause,
+		))
+	}
+	return false
+}
+
+// urgentSteers returns the urgent set's steers, including every urgent
+// steer the source held when it was called: this is the boundary before a
+// call starts. The cached set alone could miss a steer whose signal the
+// listener has not acted on yet, or whose fetch the run just cut short, so
+// in those cases the run fetches itself under the source lock and merges
+// the result as the listener would. With nothing pending, it makes no
+// source call. A steer that arrives after the boundary does not affect
+// the call.
+func (r *runtime) urgentSteers() []ContextItem {
+	l := r.listen
+	if l == nil {
+		return nil
+	}
+	fetch := l.sync()
+	if l.lockSource() {
+		fetch = true
+	}
+	defer l.sourceMu.Unlock()
+	if fetch {
+		// FR-6 reports a failing source; this check only looks.
+		if steers, err := r.opts.steering.Steers(r.ctx, r.turn.ID); err == nil {
+			l.mu.Lock()
+			l.merge(steers)
+			l.mu.Unlock()
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var items []ContextItem
+	for _, item := range l.urgent {
+		items = append(items, item)
+	}
+	return items
+}
+
+// skipForSteer settles a requested or allowed call as not executed, so the
+// steer reaches the model before the batch goes on.
+func (r *runtime) skipForSteer(call tool.Call) *Outcome {
+	out := tool.Outcome{
+		State:  tool.StateNotExecuted,
+		Output: new(tool.TextOutput(steerSkipText)),
+	}
+	return r.commit(Step{
+		Kind: StepToolSettled,
+		Tool: &ToolFact{Call: call, Outcome: &out, Reason: reasonSteering},
+	})
 }

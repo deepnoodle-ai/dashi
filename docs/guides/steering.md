@@ -53,6 +53,17 @@ if out.Stop.Terminal {
   its partial text visible, marked as interrupted, since `out.Answer` and
   the transcript helpers skip interrupted results. A durable source signals
   urgent steers by implementing `dashi.SteeringNotifier`.
+- **Urgent steers and tools.** An urgent steer never stops a running tool,
+  but no later call in the batch starts: each settles `not_executed` with
+  reason `steering` and the result "Not run: the user sent new input.", and
+  the steer reaches the next model call. A steer that arrives during the
+  model call without cutting it can skip the whole batch; the model sees
+  each skipped result, then the steer, and can ask again. Approvals,
+  external waits, and `dashi_submit_output` are never skipped. Calls are
+  skipped only when a later model call that can offer tools will follow:
+  on the last normal attempt the batch runs and the steer goes to the
+  reserved final-answer call, and when no model call can happen the batch
+  runs and a `WarningSteering` says why.
 
 A durable host implements `dashi.Steering` over its own table, keyed by turn:
 `Steers` returns the rows not yet acknowledged, and `Delivered` consumes them.

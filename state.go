@@ -55,6 +55,8 @@ type ToolView struct {
 	// result is what AfterTool hooks showed the model instead of the
 	// outcome; see Result.
 	result *llm.ToolResult
+	// steered marks a call an urgent steer kept from starting.
+	steered bool
 }
 
 // Result is what the model sees for a settled call: the outcome's output,
@@ -853,6 +855,11 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("wait is not settlement")
 			}
 			if v.Call.Name == SubmitOutputTool {
+				// A steer never skips the submission; the finish point
+				// decides a waiting steer for it.
+				if step.Tool.Reason == reasonSteering {
+					return errors.New("a steer never skips the reserved output tool")
+				}
 				if step.Tool.Outcome.State != tool.StateNotExecuted &&
 					v.Status != ToolStarted {
 					return errors.New("reserved output tool requires runner start")
@@ -872,6 +879,12 @@ func (s *replayState) apply(step Step) error {
 				if step.Tool.Outcome.State != tool.StateNotExecuted {
 					return errors.New("unexecuted tool cannot have an execution result")
 				}
+			case ToolAllowed:
+				// Only an urgent steer keeps an allowed call from starting.
+				if step.Tool.Outcome.State != tool.StateNotExecuted ||
+					step.Tool.Reason != reasonSteering {
+					return errors.New("only a steer settles an allowed call without running it")
+				}
 			case ToolStarted, ToolWaiting, ToolUncertain:
 			default:
 				return errors.New("tool result without execution or denial")
@@ -889,6 +902,9 @@ func (s *replayState) apply(step Step) error {
 				}
 				v.result = new(cloneToolResult(*step.Tool.Result))
 			}
+			v.steered = (v.Status == ToolRequested || v.Status == ToolAllowed) &&
+				step.Tool.Outcome.State == tool.StateNotExecuted &&
+				step.Tool.Reason == reasonSteering
 			v.Status = ToolSettled
 			v.Outcome = step.Tool.Outcome
 		}

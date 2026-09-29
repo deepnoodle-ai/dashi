@@ -1,7 +1,6 @@
 # PRD: Steering a running turn
 
-**Status:** Part 1 merged (#52); part 2 (urgent steers) implemented, except
-skipping tools not yet started ·
+**Status:** Part 1 merged (#52); part 2 (urgent steers) implemented ·
 **Date:** 2026-09-28 · **Owner:** Curtis · **Decision:** 32 · **Builds on:**
 [hooks](hooks.md)
 
@@ -46,8 +45,7 @@ func (in *Inbox) SendUrgent(text string) (string, error)
 `SendUrgent`, and `Send` with `Urgent` set, signal `Ready`: a channel with a
 buffer of one, created lazily under the mutex so `Inbox{}` works. `SendText`
 does not signal. A source without a notifier gets no interrupts; the first
-urgent steer FR-6 delivers from it records one `WarningSteering` per run. The
-example sends lines starting with `!` as urgent.
+urgent steer FR-6 delivers from it records one `WarningSteering` per run.
 
 ### The listener
 
@@ -98,11 +96,9 @@ example sends lines starting with `!` as urgent.
   a context derived from the run's, cancelled with a private cause
   `errSteered`. The stream loop emits and accumulates partial text only while
   that context is live; later frames still count toward usage and the
-  estimate, as does a message returned after the cut. For a steering cut
-  that message is never kept as the partial, since the partial is projected
-  into the next call; a run-cancelled call is never projected and keeps it
-  for audit. The run marks the attempt *handed off* just before it calls
-  `llm.Stream`.
+  estimate, as does a message returned after the cut; only a run-cancelled
+  call (never projected) keeps that message. The run marks the attempt
+  *handed off* just before it calls `llm.Stream`.
 - **U-7. Settlement order.** After the call returns:
   1. The run's context ended: cause `run`, as today.
   2. The result is complete (no error, a stop kind other than
@@ -112,17 +108,14 @@ example sends lines starting with `!` as urgent.
   3. The call context's cause is `errSteered`: cause `steering`. It is
      `NoDispatch` only if the cancel came before the hand-off mark or the
      client reports `FailureNotDispatched`; a missing response proves
-     nothing. Every other cut call counts as sent. The settlement never sets
-     `Failure: FailureNotDispatched`, which replay rejects when interrupted.
-     A Dashi timeout reason means that timer fired first: the timeout wins.
+     nothing. Every other cut call counts as sent. A Dashi timeout reason
+     means that timer fired first: the timeout wins.
   4. Otherwise, today's error path.
 - **U-8. Counting.** A call cut off by a steer does **not** count toward
   `ModelAttempts` (replay already skips interrupted calls; no change). It is
   recorded as an attempt and counts toward spend and every cost cap. Each
   interrupt needs a new urgent steer, so user input bounds them, and even the
-  reserved final-answer call may be cut and asked again. This amends decision
-  32, which counted steering interrupts as attempts. `Interruptions` is
-  unchanged.
+  reserved final-answer call may be cut and asked again.
 - **U-9. Billing.** The settlement keeps the response ID, partial output, and
   observed usage. The output estimate counts every streamed delta (text,
   reasoning, tool arguments). Under a `MaxCost` cap, every sent call cut off
@@ -142,15 +135,12 @@ example sends lines starting with `!` as urgent.
   partial as one assistant text block: text parts joined, trailing whitespace
   trimmed, with no citations, tool calls, reasoning, or replay data. An empty
   or whitespace-only partial adds nothing, reminder included (Anthropic
-  rejects a blank message, and the reminder would describe nothing). A
-  projected, unrecorded contextual reminder named `steering-interrupted`
-  follows ("The user interrupted your previous response."; reminder names
-  allow no underscore), then the steer as a user message.
-  This refines decision 9 for steering only. Other interrupted calls stay out
-  of projection.
+  rejects a blank message). A projected, unrecorded contextual reminder named
+  `steering-interrupted` follows ("The user interrupted your previous
+  response."), then the steer as a user message. This refines decision 9 for
+  steering only. Other interrupted calls stay out of projection.
 - **U-12. `NextCallOnly`.** A steering-interrupted call does not expire
-  `NextCallOnly` items; `modelDispatched` excludes it. The hooks guide says
-  to use `Snapshot` for per-call values.
+  `NextCallOnly` items; `modelDispatched` excludes it.
 - **U-13. Answers and vetoes.** An interrupted call is never an answer:
   `Answer` and the finish point ignore it, and a veto that hides an earlier
   answer stays in force. No hook runs for the interrupt itself.
@@ -168,9 +158,6 @@ example sends lines starting with `!` as urgent.
   result. FR-6 holds steers and the listener does not cut the continuation,
   since providers reject a request that does not end with the paused
   result. The steer lands after the continuation.
-- Under `MaxOutputTokens`, a cut late in a long call can leave the
-  replacement a small clamp. Accepted for now; the fix would publish the
-  streamed estimate for `replacementFits` to subtract.
 
 ### Recovery and record format
 
@@ -183,20 +170,27 @@ still presents the steer for FR-6. The settlement closes the attempt's preview
   (`json:"interrupted,omitempty"`): `InterruptNone` (`""`),
   `InterruptWorker` (recovered after a crash), `InterruptRun` (the run's
   context ended, the deadline passed, or a pause arrived before dispatch),
-  and, with the listener, `InterruptSteering`.
-  Replay rejects an unknown cause.
-- `Steer.Urgent` is not recorded; the record shows the effect.
-- `decisions.md` 32 records U-8, U-9's exemption from decision 24, and
-  U-11's refinement of decision 9.
+  and `InterruptSteering`. Replay rejects an unknown cause.
+- `Steer.Urgent` is not recorded; the record shows the effect. Decision 32
+  records U-8, U-9, and U-11.
 
-### Next PR: tools not yet started
+### Tools not yet started
 
-Running tools are never interrupted. Next, the tool loop reads the urgent set
-before each call's `BeforeTool`. Once it is non-empty, no later call in the
-batch starts: requested calls settle not executed, and allowed calls gain a
-transition from `allowed` to `not_executed`, both with reason `steering` and
-output "Not run: the user sent new input." Approvals and external waits stay
-pending.
+Running tools are never interrupted. The tool loop reads the urgent set
+before each call's `BeforeTool` (after its argument checks) and before a
+call starts or goes to the host. A steer queued before that check counts
+even if the listener has not fetched it: the run asks the listener, and on a
+pending signal or a cut fetch it fetches itself; otherwise it makes no
+source call. Once the set is non-empty, no later call in the batch starts:
+each settles not executed with reason `steering` (replay accepts `allowed`
+to `not_executed` only then) and output "Not run: the user sent new input."
+A steer during the model call can skip the whole batch; the model sees each
+skipped result plus the steer. A recorded skip skips the rest of its batch
+on resume. Started calls finish or re-run; approvals and external waits stay
+pending. `dashi_submit_output` is left to the finish point, and replay
+rejects a steering skip of it. Calls skip only if a later call can offer
+tools: on the last normal attempt the batch runs and the steer goes to the
+final-answer call; with no call left, the batch runs, with a warning.
 
 ## Plan and tests
 
@@ -204,20 +198,22 @@ pending.
   partial, reminder, and steer, in order; blank partials add nothing;
   citations stripped.
 - A result completing as the cancel arrives stands; a cancel before hand-off
-  is `NoDispatch`; a buffered signal skips the request before `BeforeSend`;
-  a dropped steer loops back once.
+  is `NoDispatch`; a buffered signal skips the request; a dropped steer loops
+  back once.
 - Counting and billing: attempts unchanged, spend grows; the final-answer
   call can be cut; one interrupt per ID; reasoning deltas raise the
   estimate; under `MaxCost`, `Charge` is the worst case and the cap holds.
 - No interrupt from unsafe hosted tools, a paused hosted call, a non-urgent
   steer, or a source without a notifier; each warning once. `NextCallOnly`
   items survive; vetoes hold.
+- Skips: sequential and parallel batches, external calls, a crash and
+  resume, forged replay reasons, a steer not yet fetched at the start;
+  submissions (also on replay) and last calls never skip.
 - Faults: a crash after the cancel; rejected and unknown settlement writes;
-  a `Steers` that blocks. `-race` on the listener, source lock, and `Inbox`.
+  a blocking `Steers`. `-race` on the listener, source lock, and `Inbox`.
 - Live (Anthropic, OpenAI Responses, Gemini, one Chat Completions route): cut
   a long streamed answer; the provider accepts partial, reminder, and steer.
-  After an Anthropic `pause_turn` with an unfinished search, the cut is
-  declined with a warning and the steer lands after the continuation.
+  An Anthropic `pause_turn` mid-search declines the cut with a warning.
 
 ## Risks
 
@@ -226,3 +222,4 @@ pending.
 | Wasted tokens; generation continues after cancel | Opt-in; U-10; charged, capped |
 | A provider rejects partial text | U-11's trimming; live tests |
 | Slow `Steers` or a flood of urgent steers | Own lock; one interrupt per ID |
+| Under `MaxOutputTokens`, a late cut leaves the replacement a small clamp | Accepted for now |
