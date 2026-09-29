@@ -219,7 +219,11 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			// checks above run first, so a call that fails them reports
 			// that failure. A submission is never skipped: the finish
 			// point decides a waiting steer for it.
-			if v.Call.Name != SubmitOutputTool && r.steerSkips(state, id) {
+			skip := v.Call.Name != SubmitOutputTool && r.steerSkips(state, id)
+			if ctx.Err() != nil {
+				return r.contextStop(), true
+			}
+			if skip {
 				if o := r.skipForSteer(v.Call); o != nil {
 					return *o, true
 				}
@@ -284,9 +288,15 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		// Each check below, just before a call starts, covers a steer that
 		// arrived during BeforeTool, while the call waited for a slot, or
 		// on resume; the call is allowed but has not started. Handing a
-		// call to the host is its start.
+		// call to the host is its start. A check can fetch from the source;
+		// a run that ended meanwhile stops before the start, as it does when
+		// it ends during BeforeTool.
 		if v.Definition.Kind == tool.KindExternal {
-			if r.steerSkips(state, id) {
+			skip := r.steerSkips(state, id)
+			if ctx.Err() != nil {
+				return r.contextStop(), true
+			}
+			if skip {
 				if o := r.skipForSteer(v.Call); o != nil {
 					return *o, true
 				}
@@ -347,7 +357,11 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			break
 		}
 		if v.Status != ToolStarted {
-			if r.steerSkips(state, id) {
+			skip := r.steerSkips(state, id)
+			if ctx.Err() != nil {
+				return r.contextStop(), true
+			}
+			if skip {
 				if o := r.skipForSteer(v.Call); o != nil {
 					cancel()
 					return *o, true

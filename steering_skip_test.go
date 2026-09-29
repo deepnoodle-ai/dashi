@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1067,5 +1068,124 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	if _, err := Replay(forged); err == nil ||
 		!strings.Contains(err.Error(), "never skips the reserved output tool") {
 		t.Fatalf("replay err = %v", err)
+	}
+}
+
+// cancellingInbox is a steering source whose armed fetch cancels the run
+// and then blocks until the run's context ends, as a slow source does when
+// the run is cancelled during the fetch.
+type cancellingInbox struct {
+	*staleInbox
+	cancel context.CancelFunc
+}
+
+func (s *cancellingInbox) Steers(ctx context.Context, turnID string) ([]Steer, error) {
+	if !s.armed.CompareAndSwap(true, false) {
+		return s.Inbox.Steers(ctx, turnID)
+	}
+	s.cancel()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A run cancelled while the check before a call's start fetches from the
+// source stops as a cancel before the check does: a non-repeatable local
+// call is not recorded started, and an external call is not handed to the
+// host.
+func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
+	oneProc(t)
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "ext",
+		Schema: json.RawMessage(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	var writes atomic.Int32
+	write := tool.Tool{
+		Definition: tool.Definition{
+			Name:   "write",
+			Schema: json.RawMessage(`{"type":"object"}`),
+			Kind:   tool.KindLocal,
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			writes.Add(1)
+			return tool.Outcome{
+				State:  tool.StateSucceeded,
+				Output: new(tool.TextOutput("written")),
+			}, nil
+		}),
+	}
+	kinds := func(turn Turn) []StepKind {
+		var out []StepKind
+		for _, step := range turn.Steps {
+			out = append(out, step.Kind)
+		}
+		return out
+	}
+	for _, name := range []string{"write", "ext"} {
+		run := func(t *testing.T, duringFetch bool) Outcome {
+			t.Helper()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			inbox := &cancellingInbox{staleInbox: newStaleInbox(), cancel: cancel}
+			bench := newSkipBench()
+			// BeforeTool runs after the check at the top of the loop and
+			// before the check at the start. A pending signal makes that
+			// check fetch from the source itself.
+			bench.onPlan = func(string) {
+				if !duringFetch {
+					cancel()
+					return
+				}
+				inbox.armed.Store(true)
+				inbox.signal()
+			}
+			client := newUrgentClient(
+				urgentCall{result: batchResult(
+					func(string) string { return name },
+					"b",
+				)},
+				urgentCall{result: final("ok")},
+			)
+			runner := skipRunner(client, bench, 1, nil, external, write)
+			out, err := runner.Run(
+				ctx,
+				Turn{ID: "t1"},
+				startInput(),
+				WithSteering(inbox),
+			)
+			if err != nil || out.Stop.Kind != StopInterrupted {
+				t.Fatalf("stop=%+v err=%v", out.Stop, err)
+			}
+			for _, kind := range []StepKind{StepToolStarted, StepToolWaiting} {
+				if steps := stepsOf(out.Turn, kind); len(steps) != 0 {
+					t.Fatalf("%s recorded: %+v", kind, steps)
+				}
+			}
+			if ids := pendingIDs(out.Pending); len(ids) != 0 {
+				t.Fatalf("pending=%v", ids)
+			}
+			if writes.Load() != 0 {
+				t.Fatal("write ran")
+			}
+			view, err := Replay(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status := view.Tools["b"].Status; status != ToolAllowed {
+				t.Fatalf("b status = %s, want allowed", status)
+			}
+			return out
+		}
+		t.Run(name, func(t *testing.T) {
+			before := run(t, false)
+			during := run(t, true)
+			if !slices.Equal(kinds(before.Turn), kinds(during.Turn)) {
+				t.Fatalf(
+					"steps %v, want %v",
+					kinds(during.Turn),
+					kinds(before.Turn),
+				)
+			}
+		})
 	}
 }
