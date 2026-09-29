@@ -91,7 +91,9 @@ the parent runner, which the child inherits:
 - `ContextCancel`: the child records `canceled`.
 - `ContextInterrupt` (default): the child records an interruption, and the
   `task` call stays open. The parent stops as interrupted. When the host
-  continues the parent, the same child continues.
+  continues the parent, the same child continues only when the recorder is a
+  `dashi.Loader`. Without a `Loader`, the resumed `task` call is uncertain and
+  no child restarts (see "Retries and crashes").
 
 For an interactive program where Ctrl-C ends the session, set `ContextCancel`
 on the parent runner. The child follows.
@@ -112,7 +114,8 @@ test". Two children can run at once, so the prompt must handle parallel calls.
 
 The prompt must answer inline, inside the hook. If a hook defers a child's
 call, the child stops `waiting`. This host cannot answer it, so the `task`
-call settles as an error, and the child stays resumable by its ID.
+call settles as an error. With a `Loader` recorder, the child stays
+resumable by its ID.
 
 ## Showing the child's work
 

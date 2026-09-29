@@ -93,7 +93,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 **Retry after a crash.** With a recorder that loads turns, the `task` tool is marked idempotent, so the runner runs it again. The ID rule finds the same child. The child model calls that already settled do not run again.
 
-**Cancel and interrupt.** The child runs under the tool's context. When the parent context ends under `ContextCancel`, the child records `StopCanceled`, and the tool settles the call as an error that says "canceled". Under `ContextInterrupt` (the default), the child records an interrupt and the tool does not settle the call. The parent call stays open and the parent stops as interrupted. On resume, the runner runs `task` again and the same child continues.
+**Cancel and interrupt.** The child runs under the tool's context. When the parent context ends under `ContextCancel`, the child records `StopCanceled`, and the tool settles the call as an error that says "canceled". Under `ContextInterrupt` (the default), the child records an interrupt and the tool does not settle the call. The parent call stays open and the parent stops as interrupted. On resume with a recorder that loads turns (`dashi.Loader`), the runner runs `task` again and the same child continues. Without a `Loader`, the resumed call is uncertain and no child restarts (FR-15).
 
 **Live display.** The tool sets the child's `Observer` itself and sends every child event to `OnChild`: committed steps, model deltas, and tool progress. If `Config.Runner` has an `Observer`, the tool calls it too, after `OnChild`. The parent's `Observer` gets no child events.
 
@@ -112,7 +112,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 - FR-9: The child uses the parent runner's `Hooks`, so the host's inline approval prompt covers every child tool call. The hook sees the child's `TurnView`. `TurnView.Parent` is set, and the agent name identifies the subagent, so the prompt can say "explore wants to run: go test". Two parallel children can prompt at once; the host serializes its prompts.
 - FR-10: The tool returns the child's final answer as text, cut to `MaxAnswer`. The tool says when it cut the text.
 - FR-11: The tool settles the call as an error only when the child stops `failed`, `limited`, `refused`, or `canceled`. The error text names the stop reason. An interrupted child never settles the call (see Cancel and interrupt).
-- FR-11a: If the child stops `waiting` for a deferred approval, the tool settles the call as an error that says: "subagent needs approval that was deferred; this host cannot answer it inline". The child stays resumable by its ID.
+- FR-11a: If the child stops `waiting` for a deferred approval, the tool settles the call as an error that says: "subagent needs approval that was deferred; this host cannot answer it inline". With a `Loader` recorder, the child stays resumable by its ID.
 - FR-12: Parent calls to `task` can run in parallel. Each has its own child ID.
 - FR-13: Zero `Config` works: `Explore` (only tools with `Annotations.ReadOnly` set, so MCP tools filter correctly) and `General` (all tools). `Subagent.Agent.Limits` bounds the child's work; no new timeout setting exists.
 - FR-15: The tool needs a recorder that implements `dashi.Loader`. If the recorder is not one, or the host recorder is nil, the tool still runs the child on the first call. It logs one warning and is not marked idempotent. On a resumed parent the call is reported uncertain, and no second child starts. See decisions 21 and 25.
@@ -131,7 +131,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
   - [ ] With a recorder that is not a `Loader`, `New` warns once and `task` is not idempotent.
 - **US-3 Cancel.** As a CLI user, I press Ctrl-C and both agents stop.
   - [ ] A test cancels the parent context during a child model call under `ContextCancel`. Both records show `canceled`.
-  - [ ] A test interrupts during a child model call under `ContextInterrupt`, then resumes the parent. The child continues. No second child exists. No settled child model call repeats. The parent records no failed `task` result.
+  - [ ] A test interrupts during a child model call under `ContextInterrupt`, then resumes the parent, with a `Loader` recorder. The child continues. No second child exists. No settled child model call repeats. The parent records no failed `task` result.
 - **US-4 Spend.** As a CLI user, I see what the child cost.
   - [ ] `Report` counts a resumed child once, with partial and unknown-price flags preserved.
   - [ ] Parent `TurnView.Spend` does not include the child.
@@ -154,7 +154,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Two turn records are not one transaction | A crash can leave a parent call open and a child finished | Child ID is stable. The tool is idempotent. The tests cover each crash point. |
+| Two turn records are not one transaction | A crash can leave a parent call open and a child finished | Child ID is stable. With a `Loader`, the tool is idempotent. The tests cover each crash point. |
 | Idempotent mark hides a real repeat | A child tool with side effects can run twice after a crash | The child's own record stops repeated model calls. Non-idempotent child tools follow the runner's existing recovery rule. Document it in the guide. |
 | Re-run without a `Loader` | Second paid child | FR-15 withholds the idempotent mark and warns. The resumed call is uncertain, so no second child starts. |
 | Child cancel reports success too early | User thinks work stopped | Report `canceled` only when the child record shows a stop. |
@@ -164,8 +164,8 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 1. **Ship the synchronous `task` tool first, not the external-settle flow.** The CLI needs a blocking tool by Wednesday. The link and ID rule serve both paths.
 2. **Child ID is derived from `(parent turn ID, call ID)`.** The host stores nothing. A host that wants its own ID can call `Start` itself.
-3. **Mark `task` idempotent (see decision 21 for the recorder rule).** The re-run resumes the same child. Without a `Loader` (or with a nil host recorder) the tool runs the child once, is not marked idempotent, and warns once (review finding 2, accepted). A resumed parent reports the call uncertain, and no second child starts. Dashi warns and adjusts; it does not fail.
-4. **An interrupted child does not settle the call.** The parent call stays open, the parent stops interrupted, and resume continues the same child. Only `failed`, `limited`, `refused`, and `canceled` children settle an error (finding 1, accepted).
+3. **Mark `task` idempotent (see decision 21 for the recorder rule).** With a `Loader`, the re-run resumes the same child. Without a `Loader` (or with a nil host recorder) the tool runs the child once, is not marked idempotent, and warns once (review finding 2, accepted). A resumed parent reports the call uncertain, and no second child starts. Dashi warns and adjusts; it does not fail.
+4. **An interrupted child does not settle the call.** The parent call stays open, the parent stops interrupted, and resume continues the same child when the recorder is a `Loader`. Without one, the resumed call is uncertain and no child restarts. Only `failed`, `limited`, `refused`, and `canceled` children settle an error (finding 1, accepted).
 5. **One type, `CallRef`, and `CurrentCall(ctx)`.** "Origin" already means who supplied content, so it is not reused (finding 4, accepted). `Start.Parent` is a `*CallRef`.
 6. **The user-facing word is "subagent".** The type is `delegate.Subagent`. It wraps a `dashi.Agent`, so `Agent` keeps one meaning and each subagent gets its own model and limits at no cost (finding 3, accepted; per-agent model leaves "out of scope").
 7. **The tool is named `task`.** Correction: Dive names its tool `Agent`, not `task`. `task` is the name coding-agent users know for launching a subagent, and models see it often. `agent` would also clash with the `dashi.Agent` type in prompts and docs. The parameter is `subagent` (finding 7, accepted).
@@ -178,10 +178,10 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 14. **Cancel follows the inherited `OnContextDone`.** The CLI sets `ContextCancel` on the parent runner. Library hosts keep the default.
 
 15. **`Subagent.ReadOnly` field.** `Tools` names tools, and "only read-only tools" needs its own switch, so `Subagent` has a `ReadOnly bool`. `Explore()` and `General()` are functions, not variables, because `Agent` holds maps.
-16. **A child with no recorded stop resumes.** A crash after `Start` but before any run step leaves a child whose stop is empty. The retry continues it. Only `failed`, `limited`, `refused`, `canceled`, `waiting`, `uncertain`, and `completed` children use their saved result.
+16. **A child with no recorded stop resumes.** A crash after `Start` but before any run step leaves a child whose stop is empty. With a `Loader`, the retry continues it. Only `failed`, `limited`, `refused`, `canceled`, `waiting`, `uncertain`, and `completed` children use their saved result.
 17. **A saved failed child is not run again.** After a crash between the child's end and the parent's settle, the retry returns the saved error and makes no model call.
 18. **Cancel needs no settle.** The runner never records a tool result once the parent context has ended, so under both `OnContextDone` values the `task` call stays open. Under `ContextCancel` the parent stops canceled with the call unsettled, not settled as an error.
-19. **Record and client faults stop the parent.** A load, commit, or client error from the child run returns `tool.Fatal`, because the model cannot fix it. The child stays resumable by its ID.
+19. **Record and client faults stop the parent.** A load, commit, or client error from the child run returns `tool.Fatal`, because the model cannot fix it. With a `Loader` recorder, the child stays resumable by its ID.
 
 20. **A child inherits from the running runner, at call time (implementation review 1 to 3, accepted).** A fixed copy made at `New` sent children to the old recorder after a session reopened, started a second paid child, and used a different model from the one the user chose. The runner now puts a copy of itself in the executor context (`dashi.CurrentRunner`), and the tool builds the child from it. The copy has the turn's resolved agent and the command's hooks. `New` takes only `Config`; children draw tools from the running runner. `Config.Runner` overrides only what a host sets.
 21. **Idempotent when the recorder loads turns.** The runner passes its recorder to the toolset when it asks for tools (decision 25). `task` is marked idempotent only when that recorder, or `Config.Runner.Recorder`, is a `Loader`. Otherwise the tool warns once at the first call, and `New` warns at once for a `Config.Runner.Recorder` that is not a `Loader`.

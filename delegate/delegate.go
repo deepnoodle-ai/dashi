@@ -5,9 +5,11 @@
 //
 // The child is a full Dashi turn with its own record. The record names the
 // parent tool call (dashi.Start.Parent), and the child's ID comes from that
-// call (ChildID), so a retry after a crash finds the same child and never
-// starts a second one. Report adds the children's spend to the parent's
-// without mixing child model cost into tool cost.
+// call (ChildID). If the recorder can load turns (a dashi.Loader), a retry
+// after a crash finds the same child and never starts a second one. If it
+// cannot, the resumed call is uncertain and no child restarts. Report adds
+// the children's spend to the parent's without mixing child model cost into
+// tool cost.
 //
 // A child inherits from the runner that runs the task call, at call time: the
 // client, recorder, hooks, and cancel behavior, and the parent's current
@@ -146,7 +148,8 @@ type SpendReport struct {
 
 // ChildID returns the ID of the child turn for one parent tool call. The
 // result depends only on the two arguments, and different pairs give
-// different IDs, so the host stores nothing and a retry finds the same child.
+// different IDs, so the host stores nothing. With a Loader recorder, a retry
+// finds the same child.
 // A host that wants its own ID can call Runner.Run with Start itself.
 func ChildID(parentTurnID, callID string) string {
 	// The length prefix keeps ("a", "b:c") apart from ("a:b", "c").
@@ -440,7 +443,8 @@ func (t *taskTools) childRunner(
 // failure turns an error from loading or running the child into the call's
 // error. A context that ended is not a fault; the runner records that stop
 // itself. Any other error is a record or client fault the model cannot fix,
-// so it stops the parent turn and leaves the child resumable by its ID.
+// so it stops the parent turn. With a Loader recorder, the child is
+// resumable by its ID.
 func (t *taskTools) failure(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -451,7 +455,8 @@ func (t *taskTools) failure(ctx context.Context, err error) error {
 // answer maps a child's stop to the parent call's result. Only a completed
 // child gives an answer. An interrupted child gives an error the runner
 // discards when the parent's context has ended, which leaves the call open
-// so a resume continues the same child.
+// so a resume continues the same child when the recorder is a Loader.
+// Without a Loader, the resumed call is uncertain and no child restarts.
 func (t *taskTools) answer(
 	name string,
 	out dashi.Outcome,
