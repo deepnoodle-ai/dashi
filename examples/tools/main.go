@@ -73,9 +73,7 @@ func run(ctx context.Context) error {
 		out.Spend.Usage.TotalInputTokens(),
 		out.Spend.Usage.OutputTokens,
 	)
-	for currency, amount := range out.Spend.Cost {
-		fmt.Printf("Cost: %s %s\n", amount, currency)
-	}
+	fmt.Printf("Cost: %s\n", out.Spend)
 	return nil
 }
 

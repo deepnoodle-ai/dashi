@@ -68,6 +68,25 @@ worst case (`AtRisk`) rounds up to the nano, so rounding never breaches a cap,
 and a settled list-price charge rounds half to even. A ledger in coarser units
 converts from `Nanos()` with its own rounding, for example up for holds.
 
+Print Spend directly for a readable cost summary:
+
+```go
+fmt.Println(out.Spend)
+// model: at least 0.00014 USD; tools: 2 USD; partial: 1
+```
+
+`Spend.String()` prints exact amounts, sorts currencies within each section,
+and keeps model and local tool costs separate. Empty cost maps produce
+`no recorded cost`. An explicit zero retains its currency, such as
+`model: 0 USD`. Positive counters appear independently as `partial: N` and
+`unknown: N`. Either counter prefixes model amounts with `at least`.
+`CostUnknown` also qualifies tool amounts because it can include aggregation
+overflow in either category. `CostPartial` alone qualifies only model amounts.
+Counters can overlap and do not form a combined count of unpriced calls.
+Use `Usage` and `UnpricedRequests` for detailed diagnostics. This summary
+controls default `fmt` display, including `%v`. Use fields or JSON for machine
+processing and storage.
+
 To raise a cap, authorize the increase in the application and pass the full
 new budget to `Continue`. It can raise existing caps but cannot lower them or
 introduce a new cap. Each raise is saved as a continuation step and appears in
