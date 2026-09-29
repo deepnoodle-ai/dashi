@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Revised after independent review, 2026-09-28 |
+| Status | Implemented, 2026-09-28: PR 1 (Part B) and PR 2 (Part A) |
 | Roadmap | [Item 16](../remaining-work.md), size M / high difficulty, plus the CLI attachment helper |
 | Evidence | [Source review](16-attachment-references-research.md), [history storage](../history-storage.md), Dive CLI `attachments.go` |
 | Demo | Wednesday 2026-09-30. PR 1 (Part B) ships by Tuesday night. PR 2 (Part A) follows on its own branch. |
@@ -19,7 +19,7 @@ If we do nothing, the CLI has no file mentions, and each host writes its own con
 ## Goals and metrics
 
 - A CLI user attaches a workspace file or image with one word. Time to attach: no extra step.
-- A host records a stored attachment as an ID, a SHA-256 digest, and a size. The Turn record holds no attachment bytes. Test: a Turn with a 5 MiB ref serializes to under 1 KiB.
+- A host records a stored attachment as an ID, a SHA-256 digest, and a size. The Turn record holds no attachment bytes. Test: a whole Turn with a 5 MiB ref serializes to under 4 KiB, and the size does not depend on the file.
 - Each model call re-checks access and bytes. Test: revoked, missing, changed, and oversized content each stop the Turn before any model request.
 - A CLI user drags a screenshot from the Desktop into the terminal and it attaches. No extra step.
 - Guardrails: inline `Source` behavior does not change. Every Turn runs the model-request path that Part A changes, so that path gets the most tests. `Project`, replay, and inspection never call the host.
@@ -81,7 +81,7 @@ The record holds only the ref. Before each model call, Dashi does this on a copy
 
 ### Failure behavior
 
-A ref problem stops the Turn as failed before Dashi records a model intent. The failure names the ref ID and one reason: `no_resolver`, `unavailable` (any resolver error, including denied and deleted), `too_large`, `size_mismatch`, or `digest_mismatch`. It never includes bytes. Dashi never drops, replaces, or falls back to another location. This is a known failure, not an uncertain one.
+A ref problem stops the Turn as failed before Dashi records a model intent. `Stop.Reason` holds one exported code and `Stop.RefID` names the ref: `StopReasonContentNoResolver`, `StopReasonContentUnavailable` (any resolver error, including denied and deleted), `StopReasonContentTooLarge`, `StopReasonContentSizeMismatch`, or `StopReasonContentDigestMismatch`. A host branches on the code. The stop never includes bytes. The stop is not terminal: after the host fixes the cause, `Continue` calls the resolver again and resumes the Turn. Dashi never drops, replaces, or falls back to another location. This is a known failure, not an uncertain one.
 
 ## Part B: `@file` mentions (helper for the CLI)
 
@@ -159,7 +159,7 @@ Rules:
 2. **`Runner.ContentResolver` is a Runner field and receives the run context and Turn ID.** Reason: the host sets the context on every `Run` call, so a shared Runner cannot resolve under the wrong tenant unless the host passes the wrong context. The opaque ID carries no authority. The name avoids `Content`, which already means blocks (review 7, accepted).
 3. **The resolver returns bytes only.** Reason: Dashi can verify bytes. It cannot verify a signed URL or a provider file ID. This replaces the text in `history-storage.md` that allowed a signed URL or file ID, a `content_unavailable` reason, and a substitution policy. PR 2 updates that document so the design has one answer (review 6, accepted).
 4. **The image default is 3.75 MB of file size.** Reason: Anthropic rejects an image above 5 MB, and it counts the base64 text, which is one third larger than the file. The default is thus 5 MB x 3/4. A file that passes is accepted by every main provider (OpenAI and Google accept more). An image over the limit gets a warning and is not sent, so the provider never fails the whole message. Dashi does not resize. A host can set `MaxImageBytes` higher for a provider that has a higher limit (review 4, accepted; implementation review 1, accepted).
-5. **A ref failure is a terminal failed stop.** Reason: this matches every other failure before a model request. Resume after the host restores the same bytes is later work. The size limit checks the declared `Size` before any I/O; the digest check catches a wrong `Size`. The host must bound its own read.
+5. **A ref failure is a failed stop that `Continue` can resume.** Reason: the failure happens before a model request, like a hook failure. The stop is not terminal, so a host can restore the bytes or grant access, then call `Continue`. The runner asks the resolver again and the Turn goes on. This works by default and needs no new command. A host that will not recover can leave the Turn failed. The size limit checks the declared `Size` before any I/O; the digest check catches a wrong `Size`. The host must bound its own read.
 6. **Text files become document blocks.** Reason: the Anthropic and OpenAI providers both accept `text/plain` documents, and the record keeps the path as a title.
 7. **Skipped mentions warn; they do not fail.** Reason: the user may have typed `@` on purpose in prose. Zero-value rules say warn and adjust.
 8. **User attachments have no workspace boundary, and `mention` does not use the `workspace` package.** Reason: the user picks the file and can already read it, so a boundary protects nothing (review 1, accepted). The model's tools keep their boundary in `workspace`. This removes the duplicate path check and any signature dependency on the codetools track (review 2, accepted). Symbolic links need no special handling for the same reason. Dive's string-prefix check is not copied.
@@ -174,13 +174,23 @@ Rules:
     - A warning prints sizes with up to two decimals, rounded up, so a file that is over the limit never prints as equal to it (accepted).
     - `design/history-storage.md` changed in PR 1 (commit 02161a1), not in PR 2. The PR 1 description says so.
 
+12. **Implementation calls (2026-09-28).** A `Ref` needs a positive `Size`, like inline data. `llm.NewRequest` rejects an input that still holds a `Ref`, so no provider can send an unresolved reference. The stop carries a code and the reference ID, and omits the resolver's error text (see decision 13). Mention labels are `[file: path]` and `[image: path]`. Size limits use binary units (1 MB is 1 MiB) and print as MB and KB. A skipped mention prints the text as typed, for example `@big.png`.
+
+13. **Implementation review of PR 2 (2026-09-28).**
+    - The stop codes are exported: `StopReasonContentNoResolver`, `...Unavailable`, `...TooLarge`, `...SizeMismatch`, and `...DigestMismatch`. `Stop.RefID` holds the reference ID. The message text `content reference "ID": cause` is removed. The codes are reserved, so a hook cannot fake them (accepted).
+    - `Continue` resolves again and resumes. The guide and decision 5 now say so. Tests cover the failure, the fix, and the resume (accepted; the reviewer's finding 2 was resolved toward the code, not away from it).
+    - A ref in history or an earlier tool result resolves under the ID of the current turn. Reason: Dashi keeps no record of which turn first held the ref, and a per-turn cache would break the rule that a revoked ref stops at the next call. The guide tells hosts to check tenant or session from `ctx`. A test fixes this behavior (decided and documented).
+    - `Block.Sources` and `Content.Sources` are removed from the public API. They live in `internal/contentsrc`, and `Input.HasRef` stays public. No caller outside the module can alias a recorded block now (accepted).
+    - Media edits (OpenAI images, Grok imagine) reject a ref with an error that names it: `content reference "ID" cannot be an edit image; pass the bytes`. `Source.Validate` still accepts a ref, because a message needs it (accepted).
+    - A test runs a whole Turn with a 5 MiB ref and measures `json.Marshal(out.Turn)`. It is about 1.9 KB, all of it steps, and it does not grow with the file. The PRD metric now reads "under 4 KiB for a whole Turn" (accepted; the metric changed because a Turn has steps as well as the ref).
+
 ## Delivery
 
 **PR 1: mention helper.** `content/mention`, its tests (US-1 to US-4), and a doc comment. Branch `content/attachment-refs`.
 
 **PR 2: content references.** Branch cut from PR 1. `content.Ref`, `Source.Ref`, validation, `ContentResolver`, limits, hydration before `Prepare`, tests (US-5 to US-7), example `examples/attachment-refs`, guide `docs/guides/attachments.md`, the `history-storage.md` update, and the roadmap update.
 
-**Later.** CLI store by ref. Resume after restored bytes. Resolver results that are signed URLs or provider file IDs. Image resize. Streaming resolver for large documents. Audio and video mentions.
+**Later.** CLI store by ref. Resolver results that are signed URLs or provider file IDs. Image resize. Streaming resolver for large documents. Audio and video mentions.
 
 ## Out of scope
 

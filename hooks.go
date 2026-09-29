@@ -616,7 +616,9 @@ func validHookLimit(limit LimitDetail) bool {
 func reservedStopReason(reason string) bool {
 	switch reason {
 	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
-		StopReasonToolOutcomeInvalid:
+		StopReasonToolOutcomeInvalid, StopReasonContentNoResolver,
+		StopReasonContentUnavailable, StopReasonContentTooLarge,
+		StopReasonContentSizeMismatch, StopReasonContentDigestMismatch:
 		return true
 	}
 	return false

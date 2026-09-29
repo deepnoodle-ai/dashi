@@ -39,6 +39,11 @@ type Runner struct {
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
+	// ContentResolver supplies the bytes of content.Ref sources. When nil, a
+	// turn that holds a reference fails before its first model request.
+	ContentResolver ContentResolver
+	// ContentLimits bounds the bytes that references add to a model request.
+	ContentLimits ContentLimits
 }
 
 // RunOption adjusts one Run or Stream call.
@@ -1199,6 +1204,12 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 				},
 			)
 		}
+	}
+	// References become verified bytes only here, after every hook has seen
+	// the recorded input and before it is prepared and sent.
+	input, refStop := r.hydrate(input)
+	if refStop != nil {
+		return *refStop, false
 	}
 	req, err := r.runner.Client.Prepare(r.ctx, input)
 	if err != nil {

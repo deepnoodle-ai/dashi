@@ -26,6 +26,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `providers`         | Any       | The same call on each provider; only the client changes        |
 | `vision`            | Anthropic | Describing an image from a URL or a local file                 |
 | `documents`         | Anthropic | Asking about a text or PDF document, with cited passages       |
+| `attachment_refs`   | Anthropic | A stored upload named by ID and digest, resolved per request   |
 
 For example:
 

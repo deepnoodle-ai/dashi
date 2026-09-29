@@ -331,6 +331,11 @@ func jsonReference(block content.Block) (map[string]string, error) {
 		return map[string]string{"image_url": source.URL}, nil
 	case source.ID != "":
 		return nil, errors.New("images: provider file ID requires a qualified Files API scope")
+	case source.Ref != nil:
+		return nil, fmt.Errorf(
+			"images: content reference %q cannot be an image reference; pass the bytes",
+			source.Ref.ID,
+		)
 	}
 	return nil, errors.New("images: provider URI cannot be used as an image reference")
 }

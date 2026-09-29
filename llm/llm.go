@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -162,6 +163,26 @@ func Document(source content.Source, title string) Content {
 // independently modifying a copy.
 func Block(block content.Block) Content {
 	return Content{Kind: ContentBlock, Block: &block}
+}
+
+// sources returns pointers to every source in c: a block's source and the
+// sources in blocks of a tool result, hosted-use output, or hosted result. They
+// alias c's payload.
+func (c Content) sources() []*content.Source {
+	var block, result, hosted []content.Block
+	if c.Block != nil {
+		block = []content.Block{*c.Block}
+	}
+	if c.ToolResult != nil {
+		result = c.ToolResult.Output.Content
+	}
+	if c.HostedResult != nil {
+		hosted = c.HostedResult.Output
+	}
+	if c.HostedUse != nil {
+		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	}
+	return contentsrc.Blocks(block, result, hosted)
 }
 
 // Validate checks a recordable content value with exactly one matching payload.

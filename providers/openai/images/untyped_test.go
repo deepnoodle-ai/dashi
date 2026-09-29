@@ -6,6 +6,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -63,5 +64,30 @@ func TestEditDetectsUntypedImageMIMEType(t *testing.T) {
 	}
 	if files != 2 {
 		t.Fatalf("uploaded %d files, want image and mask", files)
+	}
+}
+
+// A content reference names bytes that only a host can supply, so an edit
+// gives an error that names the reference.
+func TestEditRejectsContentReferenceByName(t *testing.T) {
+	client := testClient(
+		t,
+		"http://unused.invalid/v1",
+		media.ImageCapabilities{Edit: model.SupportSupported},
+	)
+	input := imageInput(media.ImageEdit)
+	input.ReferenceImages = []content.Block{content.ImageBlock(content.Source{
+		MIMEType: "image/png",
+		Ref: &content.Ref{
+			ID:     "upl_1",
+			SHA256: strings.Repeat("0", 64),
+			Size:   10,
+		},
+	})}
+
+	_, err := client.PrepareImage(t.Context(), input)
+
+	if err == nil || !strings.Contains(err.Error(), `content reference "upl_1"`) {
+		t.Fatalf("error = %v", err)
 	}
 }

@@ -76,6 +76,11 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	if err := p.Input.Validate(); err != nil {
 		return Request{}, err
 	}
+	if p.Input.HasRef() {
+		return Request{}, errors.New(
+			"llm: preparation requires resolved content references",
+		)
+	}
 	effective := p.Input
 	effective.Settings = p.Effective
 	if err := effective.Validate(); err != nil {
@@ -193,4 +198,20 @@ func Generate(
 		return Result{}, err
 	}
 	return client.Send(ctx, Call{Request: request, Sink: sink})
+}
+
+// HasRef reports whether any message holds an unresolved content reference. A
+// prepared request must carry bytes, because a reference names bytes that only
+// the application can supply.
+func (i Input) HasRef() bool {
+	for _, m := range i.Messages {
+		for _, c := range m.Content {
+			for _, s := range c.sources() {
+				if s.Ref != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
