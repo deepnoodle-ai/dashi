@@ -315,6 +315,16 @@ as the source of execution facts.
 
 **Packet:** [source research](roadmap-research/24-a2a-otel-adapters-research.md) · [draft PRD](roadmap-research/24-a2a-otel-adapters-prd.md).
 
+## Coding tools and approval policy
+
+**Status:** First slice implemented in package `workspace` on branch
+`tools/coding`; no roadmap item. It has eight tools, a symlink-safe path scope,
+and an approval `Policy`. One `workspace.New(dir)` value owns the directory
+for tools and policy. Live test: an OpenAI agent fixed a failing test in a
+temporary repository. **Next:** Wire it into `cmd/dashi`; see the
+[PRD](coding-tools.md) for later work (read roots, bash prefix rules, Windows
+kill).
+
 ## Follow-ups from hooks and steering
 
 Small known gaps, recorded so they are not lost. None is counted among the 24

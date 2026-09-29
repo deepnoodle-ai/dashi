@@ -15,6 +15,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
 | `bigresult`         | Anthropic | A large tool result: the model sees a bounded view             |
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
+| `coding`            | OpenAI    | A coding agent in one directory, with approval prompts         |
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
 | `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |

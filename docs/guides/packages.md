@@ -12,6 +12,8 @@ other.
   and budgets.
 - `model`: Shared model identity, capability support, and evidence.
 - `tool`: Definitions, calls, outputs, execution outcomes, and typed functions.
+- `workspace`: Coding tools for one directory (read, search, edit, shell) and an
+  approval policy for them.
 - `llm`: Model references, requests, preparation, results, streaming, and
   usage.
 - `media`: Image, video, and non-speech audio values, preparation, results, and

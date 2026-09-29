@@ -27,6 +27,9 @@ search, err := messages.NewWebSearchTool(messages.WebSearchToolOptions{})
 runner.Tools = tool.List{weather, search}
 ```
 
+For a coding agent, [coding tools](coding-tools.md) provides file and shell
+tools for one directory.
+
 `tool.List` is a fixed `tool.Toolset`. Implement `Toolset` yourself when the
 available tools change between model calls.
 
