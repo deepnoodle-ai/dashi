@@ -150,12 +150,29 @@ func (l *LastTurn) Open() bool {
 }
 
 // CanGoOn reports whether Enter can run the turn on: Continue can run now,
-// possibly with a raised model-call limit. A turn with no recorded stop was
-// left by a worker that crashed, since the session lock rules out a live one.
+// possibly with a raised model-call limit, or the turn failed in a way the
+// user may retry. A turn with no recorded stop was left by a worker that
+// crashed, since the session lock rules out a live one.
 func (l *LastTurn) CanGoOn() bool {
 	return l != nil && (l.View.Next() == dashi.NextContinue ||
 		l.LimitStopped() ||
+		l.Retryable() ||
 		l.View.Next() == dashi.NextResume && l.View.ReadyToContinue)
+}
+
+// Retryable reports whether the turn failed and Continue can run it again.
+// See retryable.
+func (l *LastTurn) Retryable() bool {
+	return l != nil && retryable(l.View)
+}
+
+// retryable reports whether a failed turn can be retried as it is. The
+// library says to resolve every failure, because it cannot tell a rejected
+// request from a rate limit or an overload; a person at the terminal can,
+// so Enter retries. A refusal is not a failure, so it is never retried.
+func retryable(v dashi.TurnView) bool {
+	return v.Next() == dashi.NextResolve && v.ReadyToContinue &&
+		v.Stop.Kind == dashi.StopFailed
 }
 
 // StopText says in words why the turn stopped.
@@ -257,8 +274,8 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 	}, agent)
 }
 
-// Resume runs the last turn on, after a quit, a Ctrl-C, or the model-call
-// limit.
+// Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
+// or the model-call limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
 	last := e.Last(ctx)
 	if last.LimitStopped() {
@@ -413,6 +430,13 @@ func (e *Engine) run(
 	}
 	if out.Stop.Kind != "" {
 		e.cfg.Emit(r.Footer(out.TurnView))
+	}
+	if retryable(out.TurnView) {
+		e.cfg.Emit(Block{
+			Kind: KindNotice,
+			Text: "Press Enter to retry, or type a new prompt.",
+			Done: true,
+		})
 	}
 	res := Result{Outcome: out}
 	if out.Stop.Kind == dashi.StopInterrupted || runErr != nil {
