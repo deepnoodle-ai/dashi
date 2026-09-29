@@ -24,9 +24,13 @@ if errors.Is(err, compaction.ErrCoverageMismatch) {
 out, err := runner.Run(ctx, turn, dashi.Start{History: view, Input: input})
 
 // After each Turn, append its messages and note where it started.
-starts = append(starts, len(history))
-msgs, _ := dashi.Project(out.Turn)
-history = append(history, msgs...)
+msgs, err := dashi.Project(out.Turn)
+if err != nil {
+	log.Println("warning:", err)
+} else if len(msgs) > 0 { // a Turn with no messages has no start
+	starts = append(starts, len(history))
+	history = append(history, msgs...)
+}
 
 // Then compact when the window is nearly full, or when the user asks.
 last := compaction.LastUsage(out.Turn)
@@ -52,7 +56,8 @@ tool loop sends the whole history again. The summarizer is
    result. A steer inside a Turn is not a Turn start.
 2. It keeps the newest Turns that fit in a quarter of the context window
    (`Options.TailFraction`). If the newest Turn does not fit, it keeps none
-   and summarizes all of the history.
+   and summarizes all of the history. A negative `TailFraction` keeps none on
+   purpose.
 3. It sends the older messages to the summarizer as a text transcript. A large
    tool result is shortened in the middle to fit the summarizer's window.
    Reminders are removed. The default summarizer runs one Dashi Turn with no
@@ -61,7 +66,19 @@ tool loop sends the whole history again. The summarizer is
    summarizer call, the tokens before and after, and the coverage.
 
 `Compact` runs between Turns. It never covers the request that comes next.
-It does not run inside a Turn.
+It does not run inside a Turn. Do not compact while a Turn waits to continue
+(for example, for an approval, also across a restart). `Continue` must get the
+same history view that the Turn started with. If not, Dashi records
+`WarningHistoryMismatch` or rejects the Turn.
+
+If `TurnStarts` has a repeat, has a wrong order, or points outside the
+history, `Compact` corrects the list and lists each change in
+`Record.Warnings`. Show them to the user. The compaction goes on.
+
+If the summarizer model has a small window, the summary output allowance
+shrinks to a quarter of the window. If the older messages still cannot fit,
+`Compact` returns an error and no Record. The session goes on with the old
+view.
 
 ## The Record
 
@@ -107,4 +124,7 @@ authority, so text inside old tool output cannot become an instruction.
 - Compaction does not run inside a Turn. One Turn that fills the window is not
   helped. Overflow recovery is a later feature.
 - Token counts in `TokensAfter` and the tail budget are estimates.
-- The host must supply correct Turn starts.
+- The host should supply correct Turn starts. `Compact` corrects small errors
+  and warns.
+- A session with one long Turn cannot compact, because the only Turn is never
+  covered.

@@ -188,19 +188,50 @@ func TestCompactLeavesNoRecordOnFailure(t *testing.T) {
 	}
 }
 
-func TestCompactRejectsBadTurnStarts(t *testing.T) {
-	history, _ := session(2, 100)
-	for _, starts := range [][]int{{0, 0}, {2, 1}, {0, 99}, {-1, 4}} {
-		_, err := Compact(
-			context.Background(),
-			&fakeSummarizer{text: "x"},
-			history,
-			nil,
-			Options{TurnStarts: starts},
-		)
-		if err == nil {
-			t.Fatalf("starts %v accepted", starts)
-		}
+func TestCompactNormalizesBadTurnStarts(t *testing.T) {
+	history, good := session(4, 400)
+	n := len(history)
+	cases := map[string][]int{
+		"repeat":       {good[0], good[1], good[1], good[2], good[3]},
+		"empty turn":   append(append([]int{}, good...), n),
+		"out of order": {good[0], good[2], good[1], good[3]},
+		"negative":     append([]int{-1}, good...),
+		"far":          append(append([]int{}, good...), n+50),
+	}
+	for name, starts := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := compact(t, &fakeSummarizer{text: "short"}, history, nil,
+				Options{Policy: policyWith(20_000), TurnStarts: starts})
+			if len(rec.Warnings) == 0 {
+				t.Fatal("no warning for changed starts")
+			}
+			if rec.Covers.Turns < 1 || rec.Covers.Turns > 4 || rec.Covers.Messages != coverEnd(good, len(history), rec.Covers.Turns) {
+				t.Fatalf("coverage = %+v", rec.Covers)
+			}
+			view, err := Project(history, rec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			validPairs(t, view)
+		})
+	}
+}
+
+func TestCompactCleanStartsGiveNoWarning(t *testing.T) {
+	history, starts := session(4, 400)
+	rec := compact(t, &fakeSummarizer{text: "short"}, history, nil,
+		Options{Policy: policyWith(20_000), TurnStarts: starts})
+	if len(rec.Warnings) != 0 {
+		t.Fatalf("warnings = %v", rec.Warnings)
+	}
+}
+
+func TestCompactNegativeTailKeepsNoTurns(t *testing.T) {
+	history, starts := session(4, 400)
+	rec := compact(t, &fakeSummarizer{text: "short"}, history, nil,
+		Options{Policy: policyWith(20_000), TurnStarts: starts, TailFraction: -1})
+	if rec.Covers.Messages != len(history) {
+		t.Fatalf("covers %d of %d", rec.Covers.Messages, len(history))
 	}
 }
 
@@ -309,4 +340,13 @@ func TestCompactRefusesRecordThatDoesNotMatch(t *testing.T) {
 	if !errors.Is(err, ErrCoverageMismatch) || s.calls != 0 {
 		t.Fatalf("err=%v calls=%d", err, s.calls)
 	}
+}
+
+// coverEnd returns the history index where the Turn after n covered Turns
+// starts, or the history length when all Turns are covered.
+func coverEnd(starts []int, total, n int) int {
+	if n >= len(starts) {
+		return total
+	}
+	return starts[n]
 }

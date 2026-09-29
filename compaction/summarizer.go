@@ -118,6 +118,9 @@ func (s *turnSummarizer) Summarize(
 		prompt = DefaultPrompt
 	}
 	window := s.window()
+	// A small window cannot hold the default output allowance. Give the
+	// output at most a quarter of the window, so the input has room.
+	maxTokens = min(maxTokens, window/4)
 	budget := int(float64(window-maxTokens)*inputMargin) * bytesPerToken
 	items, err := fitTranscript(renderTranscript(messages), budget)
 	if err != nil {

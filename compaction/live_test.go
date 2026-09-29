@@ -82,7 +82,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		Policy:       Policy{},
 		TurnStarts:   starts,
 		Last:         last,
-		TailFraction: 1e-9, // keep no Turns, so only the summary holds the fact
+		TailFraction: -1, // keep no Turns, so only the summary holds the fact
 	})
 	if err != nil {
 		t.Fatal(err)

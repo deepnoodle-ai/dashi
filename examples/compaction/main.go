@@ -95,7 +95,7 @@ func run(ctx context.Context) error {
 		compaction.Options{
 			TurnStarts:   starts,
 			Last:         last,
-			TailFraction: 1e-9,
+			TailFraction: -1,
 		})
 	switch {
 	case errors.Is(err, compaction.ErrNoSavings):

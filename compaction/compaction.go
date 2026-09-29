@@ -23,6 +23,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +82,11 @@ type Record struct {
 	// Model is the model that wrote the summary.
 	Model string `json:"model"`
 
+	// Warnings lists the changes Compact made to the input so that it could
+	// go on, for example a repeated Turn start that it dropped. The host shows
+	// them to the user. The list is empty when the input was clean.
+	Warnings []string `json:"warnings,omitempty"`
+
 	// Usage and Cost are the spend of the summarizer call. Cost has exact
 	// charges by currency and may be empty when the call is unpriced.
 	Usage llm.Usage               `json:"usage"`
@@ -125,7 +132,8 @@ type Options struct {
 	Last llm.Usage
 
 	// TailFraction is the share of the window kept as verbatim recent
-	// messages. Zero means DefaultTailFraction.
+	// messages. Zero means DefaultTailFraction. A negative value keeps no
+	// recent Turns, so the summary alone stands for the history.
 	TailFraction float64
 }
 
@@ -148,9 +156,8 @@ func Compact(
 	if s == nil {
 		return nil, errors.New("compaction: summarizer is required")
 	}
-	if err := checkStarts(opts.TurnStarts, len(history)); err != nil {
-		return nil, err
-	}
+	starts, warnings := normalizeStarts(opts.TurnStarts, len(history))
+	opts.TurnStarts = starts
 	covered := 0
 	if prev != nil {
 		if err := verify(history, prev); err != nil {
@@ -168,10 +175,10 @@ func Compact(
 	}
 	window, _ := opts.Policy.Window()
 	fraction := opts.TailFraction
-	if fraction <= 0 {
+	if fraction == 0 {
 		fraction = DefaultTailFraction
 	}
-	budget := int(fraction * float64(window))
+	budget := max(0, int(fraction*float64(window)))
 	cut, coveredTurns := chooseCut(
 		history,
 		opts.TurnStarts,
@@ -223,6 +230,7 @@ func Compact(
 			Digest:   digest,
 		},
 		Summary:      text,
+		Warnings:     warnings,
 		Model:        summary.Model,
 		Usage:        summary.Usage,
 		Cost:         summary.Cost,
@@ -321,18 +329,40 @@ func withoutReminders(messages []llm.Message) []llm.Message {
 	return out
 }
 
-// checkStarts rejects turn starts that are out of order or out of range.
-func checkStarts(starts []int, n int) error {
-	for i, s := range starts {
-		if s < 0 || s >= n || i > 0 && s <= starts[i-1] {
-			return fmt.Errorf(
-				"compaction: turn start %d (index %d) is out of order or range",
-				s,
-				i,
-			)
+// normalizeStarts sorts the starts, removes repeats, and removes starts that
+// are outside the history. A Turn that added no messages gives such a start
+// (an empty Turn, a paused approval, or a failed Turn). Each change adds a
+// warning. The input slice is not changed.
+func normalizeStarts(starts []int, n int) ([]int, []string) {
+	out := make([]int, 0, len(starts))
+	dropped := 0
+	for _, s := range starts {
+		if s < 0 || s >= n {
+			dropped++
+			continue
 		}
+		out = append(out, s)
 	}
-	return nil
+	sorted := !sort.IntsAreSorted(out)
+	sort.Ints(out)
+	out = slices.Compact(out)
+	repeats := len(starts) - dropped - len(out)
+	var warnings []string
+	if dropped > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"dropped %d turn start(s) outside the history (empty Turns)",
+			dropped,
+		))
+	}
+	if repeats > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"dropped %d repeated turn start(s)", repeats,
+		))
+	}
+	if sorted {
+		warnings = append(warnings, "sorted turn starts that were out of order")
+	}
+	return out, warnings
 }
 
 // verify checks that rec describes the start of history.

@@ -231,3 +231,20 @@ func TestFitTranscriptKeepsCountAndBudget(t *testing.T) {
 		t.Fatalf("total = %d", total)
 	}
 }
+
+func TestSummarizerSmallWindowShrinksOutputAllowance(t *testing.T) {
+	client := &fakeClient{
+		window: 8_000,
+		reply: func(llm.Input) llm.Result {
+			return textResult("<summary>ok</summary>")
+		},
+	}
+	history, _ := session(2, 200)
+	// The default allowance (16,384) is larger than the whole window.
+	if _, err := summarize(t, client, SummarizerConfig{Model: "fixture"}, history); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.inputs[0].Settings.MaxTokens; got != 2_000 {
+		t.Fatalf("max tokens = %d, want a quarter of the window", got)
+	}
+}

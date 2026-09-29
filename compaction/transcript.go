@@ -2,7 +2,6 @@ package compaction
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -119,8 +118,10 @@ func fitTranscript(items []string, budget int) ([]string, error) {
 		floor += min(len(s), minItemBytes)
 	}
 	if floor > budget {
-		return nil, errors.New(
-			"compaction: history is too large for the summarizer model",
+		return nil, fmt.Errorf(
+			"compaction: history is too large for the summarizer model "+
+				"(%d items need at least %d bytes; the limit is %d)",
+			len(items), floor, budget,
 		)
 	}
 	// Find the largest per-item limit that fits, by bisection.

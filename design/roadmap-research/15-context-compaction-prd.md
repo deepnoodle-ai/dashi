@@ -205,8 +205,16 @@ From the first draft: a helper package, not a Session layer (the program says th
 Changes made during implementation:
 
 8. **The summarizer sends a text transcript, not structured messages.** Some providers reject tool calls in a request that defines no tools, and replay data (signed reasoning, opaque items) belongs to the original model. Reasoning and opaque content stay out; media becomes a marker.
-9. **Cut rule.** Compact picks the smallest cut after the previous record whose tail fits the budget. It skips a cut that would leave a tool result without its call, even if the host supplied it. Fewer than two Turns, or no Turn beyond the previous record, gives `ErrNothingToCompact`. Bad `TurnStarts` return an error.
+9. **Cut rule.** Compact picks the smallest cut after the previous record whose tail fits the budget. It skips a cut that would leave a tool result without its call, even if the host supplied it. Fewer than two Turns, or no Turn beyond the previous record, gives `ErrNothingToCompact`.
 10. **`LastUsage(turn)` is part of the API.** `Spend.Usage` sums every call, and each call in a tool loop resends the history. Only the last call shows the context size.
 11. **`TokensAfter` scales the real count** by the estimated after/before ratio, because the estimate counts JSON bytes and can exceed the provider count. Without provider usage, both numbers are estimates.
 12. **Unknown window.** The package has no logger. `Policy.Window` returns `known == false` and the host warns once.
 13. **Example and live test.** `examples/compaction` is a paid example, like the others. The offline check of the wiring is `Example` in the package tests. A summarizer input that cannot fit returns an error and no record.
+
+From the implementation review:
+
+14. **Bad `TurnStarts` are corrected, not rejected (accepted, top finding).** A Turn that adds no messages gives a repeated start or a start at `len(history)`. A hard error would stop compaction for the whole session, and Dashi warns and adjusts. `Compact` sorts, removes repeats, and drops out-of-range starts. `Record.Warnings` lists each change. The guide now checks the `Project` error and adds a start only for a Turn with messages.
+15. **Negative `TailFraction` keeps no Turns (accepted).** The example used `1e-9`. A negative value follows the zero-value rule, and the example and live test use it.
+16. **Small summarizer window (accepted).** The output allowance is at most a quarter of the window, so the input budget stays positive. If the input still cannot fit, the error states the sizes, and the host keeps the old view.
+17. **Guide states no compaction while a Turn waits to continue (accepted).** `Continue` needs the same view.
+18. **One long Turn cannot compact (accepted as a known limit).** Only the finished Turns are safe to cover. Mid-turn compaction and overflow recovery are a follow-up, listed in the guide Limits.
