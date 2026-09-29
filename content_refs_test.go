@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -838,5 +839,129 @@ func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
 	}
 	if strings.Contains(out.Stop.Reason, "content reference") {
 		t.Fatalf("stop blames the reference: %q", out.Stop.Reason)
+	}
+}
+
+func hostedUseMessage(ref content.Ref) llm.Message {
+	return llm.UserMessage(llm.Text("read this"), llm.Content{
+		Kind: llm.ContentHostedUse,
+		HostedUse: &llm.HostedUse{
+			ID:   "h1",
+			Name: "fetch",
+			Type: "tool_use",
+			Origin: content.Origin{
+				Provider: "test",
+				API:      "test.chat",
+				Model:    "m",
+				Scope:    "fixture",
+			},
+			Output: []content.Block{refBlock(ref)},
+		},
+	})
+}
+
+func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
+	ref := refFor("upl_1", refBytes)
+	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+
+	out := runWithRef(
+		t,
+		Runner{Client: client, ContentResolver: resolver},
+		hostedUseMessage(ref),
+	)
+
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	if resolver.count() != 1 {
+		t.Fatalf("resolver calls = %d", resolver.count())
+	}
+	found := false
+	for _, m := range client.inputs[0].Messages {
+		for _, c := range m.Content {
+			for _, s := range contentSources(c) {
+				found = found || bytes.Equal(s.Data, refBytes)
+			}
+		}
+	}
+	if !found || client.inputs[0].HasRef() {
+		t.Fatal("the hosted use reference was not hydrated")
+	}
+}
+
+func TestRefInHostedUseOutputStopsWithoutResolver(t *testing.T) {
+	ref := refFor("upl_1", refBytes)
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+
+	out := runWithRef(t, Runner{Client: client}, hostedUseMessage(ref))
+
+	if out.Stop.Reason != StopReasonContentNoResolver {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	requireNoModelIntent(t, out, client)
+}
+
+// reusedBuffer returns one scratch slice for every reference.
+type reusedBuffer struct {
+	files map[string][]byte
+	buf   []byte
+}
+
+func (r *reusedBuffer) Resolve(
+	_ context.Context,
+	_ string,
+	ref content.Ref,
+) ([]byte, error) {
+	r.buf = append(r.buf[:0], r.files[ref.ID]...)
+	return r.buf, nil
+}
+
+func TestRefResolverBufferReuseDoesNotCorruptEarlierRef(t *testing.T) {
+	a := []byte("first attachment!")
+	b := []byte("other attachment?")
+	refA, refB := refFor("a", a), refFor("b", b)
+	resolver := &reusedBuffer{files: map[string][]byte{"a": a, "b": b}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+
+	out := runWithRef(
+		t,
+		Runner{Client: client, ContentResolver: resolver},
+		llm.UserMessage(llm.Block(refBlock(refA)), llm.Block(refBlock(refB))),
+	)
+
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	var got [][]byte
+	for _, c := range client.inputs[0].Messages[0].Content {
+		for _, s := range contentSources(c) {
+			got = append(got, s.Data)
+		}
+	}
+	if len(got) != 2 || !bytes.Equal(got[0], a) || !bytes.Equal(got[1], b) {
+		t.Fatalf("hydrated bytes = %q", got)
+	}
+}
+
+func TestRefAggregateSizeOverflowStopsBeforeResolve(t *testing.T) {
+	big := func(id string) content.Ref {
+		return content.Ref{ID: id, SHA256: refFor("x", nil).SHA256, Size: math.MaxInt64 - 1}
+	}
+	resolver := &countingResolver{files: map[string][]byte{}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+
+	out := runWithRef(
+		t,
+		Runner{
+			Client:          client,
+			ContentResolver: resolver,
+			ContentLimits:   ContentLimits{MaxRefBytes: -1, MaxTotalBytes: math.MaxInt64},
+		},
+		llm.UserMessage(llm.Block(refBlock(big("a"))), llm.Block(refBlock(big("b")))),
+	)
+
+	if out.Stop.Reason != StopReasonContentTooLarge || resolver.count() != 0 {
+		t.Fatalf("stop = %+v, calls = %d", out.Stop, resolver.count())
 	}
 }

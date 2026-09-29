@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
@@ -104,10 +105,13 @@ func (r *runtime) checkRefSizes(sources []*content.Source) (string, string) {
 		if maxRef >= 0 && size > maxRef {
 			return StopReasonContentTooLarge, s.Ref.ID
 		}
-		total += size
-		if maxTotal >= 0 && total > maxTotal {
+		if maxTotal >= 0 && size > maxTotal-total {
 			return StopReasonContentTooLarge, s.Ref.ID
 		}
+		if size > math.MaxInt64-total {
+			return StopReasonContentTooLarge, s.Ref.ID
+		}
+		total += size
 	}
 	if r.runner.ContentResolver == nil {
 		return StopReasonContentNoResolver, sources[0].Ref.ID
@@ -129,6 +133,8 @@ func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
 	if err != nil {
 		return nil, StopReasonContentUnavailable
 	}
+	// Own the bytes: a resolver may reuse its buffer for the next call.
+	data = bytes.Clone(data)
 	if int64(len(data)) != ref.Size {
 		return nil, StopReasonContentSizeMismatch
 	}
@@ -145,7 +151,7 @@ func (r *runtime) refStop(id, reason string) *Outcome {
 }
 
 // contentSources returns pointers to every source in c, including the blocks
-// of tool results and hosted results. They alias c, so the caller passes a
+// of tool results, hosted results, and hosted uses. They alias c, so the caller passes a
 // clone.
 func contentSources(c llm.Content) []*content.Source {
 	var block, result, hosted []content.Block
@@ -157,6 +163,9 @@ func contentSources(c llm.Content) []*content.Source {
 	}
 	if c.HostedResult != nil {
 		hosted = c.HostedResult.Output
+	}
+	if c.HostedUse != nil {
+		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
 	}
 	return contentsrc.Blocks(block, result, hosted)
 }

@@ -213,3 +213,38 @@ func TestNewRequestRejectsUnresolvedContentReference(t *testing.T) {
 		t.Fatal("a request with an unresolved reference was accepted")
 	}
 }
+
+func TestNewRequestRejectsUnresolvedReferenceInHostedUseOutput(t *testing.T) {
+	ref := content.Ref{ID: "upl_1", SHA256: strings.Repeat("a", 64), Size: 3}
+	origin := content.Origin{Provider: "p", API: "a", Model: "m", Scope: "s"}
+	input := Input{
+		Model: "m",
+		Messages: []Message{UserMessage(Content{
+			Kind: ContentHostedUse,
+			HostedUse: &HostedUse{
+				ID:     "h1",
+				Name:   "fetch",
+				Type:   "tool_use",
+				Origin: origin,
+				Output: []content.Block{content.ImageBlock(content.Source{
+					Ref:      &ref,
+					MIMEType: "image/png",
+				})},
+			},
+		})},
+	}
+	if !input.HasRef() {
+		t.Fatal("HasRef missed the hosted use reference")
+	}
+
+	_, err := NewRequest(RequestSnapshot{
+		Origin:    origin,
+		Input:     input,
+		Effective: input.Settings,
+		Body:      []byte(`{}`),
+	})
+
+	if err == nil {
+		t.Fatal("a request with an unresolved hosted use reference was accepted")
+	}
+}

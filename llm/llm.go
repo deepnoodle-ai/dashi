@@ -178,6 +178,9 @@ func (c Content) sources() []*content.Source {
 	if c.HostedResult != nil {
 		hosted = c.HostedResult.Output
 	}
+	if c.HostedUse != nil {
+		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	}
 	return contentsrc.Blocks(block, result, hosted)
 }
 
