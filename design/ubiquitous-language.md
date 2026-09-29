@@ -4,7 +4,8 @@ Public concepts grounded in the [conceptual model][model] and
 [Dive's current API][dive]. These name what callers configure, supply, inspect,
 and act on. Foundation terms follow the [accepted terminology][terminology];
 the agent, runner, and command names follow [decision 30](decisions.md).
-Session contracts remain proposed.
+Session contracts remain proposed; see the
+[sessions PRD](roadmap-research/14-session-continuity-prd.md).
 
 ## Define an agent
 
@@ -32,10 +33,25 @@ Session contracts remain proposed.
   model calls, with its calls, usage, and state persisted across continuation.
   Some SDKs call one model call plus its tool calls a "turn"; Dashi calls that
   a **model attempt** and never uses "turn" for a loop iteration.
-- **Session**: Reserved for a future conversation of many turns and their
-  saved history. Avoid "thread" and "conversation" as type names.
+- **Session**: A conversation of many turns, named by a **session ID**. It holds
+  the whole conversation history plus the other events and information around
+  it: stops, approvals, steers, compaction summaries, spend, warnings, and
+  closed turns. It is stored as its turns' records and has no record of its own.
+  Avoid "thread" and "conversation" as type names. (Proposed; see the [sessions
+  PRD](roadmap-research/14-session-continuity-prd.md).)
+- **Session handle**: The Go value (`dashi.Session`) that drives one session in
+  one process or request, with its runner, steering, and cache. It holds no
+  durable state: anything that must outlast it belongs in the turn records. Many
+  handles, in many processes, can refer to one session over its life.
 - **Turn outcome**: The returned turn, its **stop** (why execution paused or
   ended), and recording status.
+- **Ended turn**: A turn whose stop is terminal; no command can run it again
+  (`ErrTurnEnded`). A session **closes** a stopped turn that has not ended by
+  canceling it when a new message arrives, and refuses while the turn is
+  **busy**: live, possibly live (an expired lease included), waiting on the
+  host, or holding an unsettled uncertain call, whatever its liveness. Only
+  proof that no worker still drives it makes a turn **stopped**; that proves
+  nothing about effects the worker started. (Proposed; decision 38.)
 - **Subagent**: An agent performing delegated work as a **child turn** linked
   to its parent turn.
 
@@ -60,9 +76,18 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
 - **Context item**: Named information with origin, authority, lifetime, and
   accumulation or replacement behavior; generalizes Dive's typed reminders.
 - **Message and content**: Role-attributed text, media, and tool calls/results.
-  **Conversation history** is the message view across turns.
-- **Compaction**: Summarizing model-facing history while retaining the
-  execution record.
+- **Conversation history**: Every message across a session's turns: user and
+  assistant messages, tool calls, and tool results. It is complete and never
+  shortened; compaction does not remove anything from it.
+- **Projected history**: The messages sent to the model for one call: the
+  conversation history after compaction and projection. `Start.History` and
+  `Continue.History` carry the projected history of earlier turns.
+- **Compaction**: Summarizing the projected history while retaining the
+  conversation history and the execution record.
+- **Replacement history**: What a compaction turn records to stand in for the
+  projected history of the turns it covers: the summary plus the kept messages.
+  Every reader builds later turns' projected history from it. (Proposed;
+  decision 39.)
 
 ## Inspect calls and results
 
