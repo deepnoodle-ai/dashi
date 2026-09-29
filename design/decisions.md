@@ -20,13 +20,13 @@ errors represent uncertainty" rule for tools.
 once at dispatch, commit the settled step with the panic value as the reason,
 and stop the turn as uncertain. Nothing is re-run.
 
-**3. Live updates use three delivery classes and a cursor.** Decided in
-direction; proposal in [live-delivery.md](live-delivery.md). Committed steps are
+**3. Live updates use three delivery classes and a cursor.** Decided; the
+design is [live-delivery.md](live-delivery.md). Committed steps are
 never dropped; previews are lossy and a gap signal tells the consumer to resync;
 UIs follow the record by `Seq` through a read-after-cursor path so several
-readers can replay independently and a disconnect never cancels work. The
-backend shape is open and should be the simplest thing that meets those
-properties; a design note precedes the code.
+readers can replay independently and a disconnect never cancels work. Built as
+`dashi.Follow`, which reads committed steps after a cursor, and `feed.Follow`,
+which merges a `feed.Hub`'s in-process previews and gaps into that stream.
 
 **4. Capability checks warn and adjust by default; they do not fail.** Decided
 in direction. When a request asks for something the model cannot take, prefer
