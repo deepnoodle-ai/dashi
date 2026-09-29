@@ -78,7 +78,7 @@ func workspaceWiring(env Env) (wiring, error) {
 func buildWiring(env Env) (wiring, error) {
 	var (
 		sets    []tool.Toolset
-		hooks   []dashi.Hooks
+		hooks   []dashi.HookSet
 		out     wiring
 		closers []func() error
 	)

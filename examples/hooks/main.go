@@ -1,7 +1,8 @@
-// Command hooks runs one turn with three hooks and prints a line each time
-// one fires: a BeforeModel hook delivers on-call context once, a BeforeTool
-// hook denies shell commands that touch prod, and a BeforeFinish hook asks
-// the model to continue once if its answer has no "Next step:" line. Set
+// Command hooks runs one turn with three hooks: a BeforeModel hook delivers
+// on-call context once, a BeforeTool hook denies shell commands that touch
+// prod, and a BeforeFinish hook asks the model to continue once if its
+// answer has no "Next step:" line. The last two print a line each time they
+// fire. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the catalog's default model.
 package main
@@ -52,25 +53,18 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	// BeforeModel runs before every model call, so it delivers the on-call
-	// note only when the turn does not hold it yet. The note is recorded in
-	// the turn and stays in the model's context from then on.
-	onCall := dashi.ModelHook{Name: "on-call", Func: func(
-		_ context.Context, p dashi.ModelPlan) (dashi.ModelDecision, error) {
-		if _, ok := p.Turn.Context(dashi.ContextRuntime, "on-call"); ok {
-			return dashi.ModelDecision{}, nil
-		}
-		fmt.Println("[before_model] delivering on-call context")
-		return dashi.ModelDecision{Deliver: []dashi.ContextItem{{
-			Name:   "on-call",
-			Origin: dashi.ContextRuntime,
-			Message: llm.ReminderMessage(llm.Reminder{
-				Name:    "on-call",
-				Tier:    llm.ReminderContextual,
-				Content: "The on-call engineer this week is Priya (pager: 555-0142).",
-			}),
-		}}}, nil
-	}}
+	// BeforeModel runs before every model call. SeedContext delivers the
+	// on-call note only when the turn does not hold it yet; the note is
+	// recorded in the turn and stays in the model's context from then on.
+	onCall := dashi.SeedContext(dashi.ContextItem{
+		Name:   "on-call",
+		Origin: dashi.ContextRuntime,
+		Message: llm.ReminderMessage(llm.Reminder{
+			Name:    "on-call",
+			Tier:    llm.ReminderContextual,
+			Content: "The on-call engineer this week is Priya (pager: 555-0142).",
+		}),
+	})
 
 	// BeforeTool: a simple rule, no second model. The model sees the reason.
 	guard := dashi.OnTool("run_shell",
@@ -85,18 +79,17 @@ func run(ctx context.Context) error {
 
 	// BeforeFinish: if the answer lacks a next step, ask once more. Deliver
 	// alone is a nudge; a Reason would veto the answer instead. The turn
-	// records the nudge; naming it lets the hook find it there, so a resumed
+	// records the hook's answer, and HookActed reads it there, so a resumed
 	// turn does not nudge again.
 	finish := dashi.FinishHook{Name: "next-step", Func: func(
 		_ context.Context, p dashi.FinishPlan) (dashi.FinishDecision, error) {
-		_, nudged := p.Turn.Context(dashi.ContextRuntime, "next-step")
+		nudged := p.Turn.HookActed(dashi.HookBeforeFinish, "next-step")
 		if nudged || strings.Contains(p.Answer, "Next step:") {
 			fmt.Println("[before_finish] answer accepted")
 			return dashi.FinishDecision{}, nil
 		}
 		fmt.Println("[before_finish] asking the model to continue")
 		return dashi.FinishDecision{Deliver: []dashi.ContextItem{{
-			Name:   "next-step",
 			Origin: dashi.ContextRuntime,
 			Message: llm.UserMessage(llm.Text(
 				"End with one line that starts with \"Next step:\".",
@@ -107,7 +100,7 @@ func run(ctx context.Context) error {
 	runner := dashi.Runner{
 		Client: client,
 		Tools:  tool.List{shell},
-		Hooks:  dashi.JoinHooks(onCall.Hooks(), guard.Hooks(), finish.Hooks()),
+		Hooks:  dashi.JoinHooks(onCall, guard, finish),
 	}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{

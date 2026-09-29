@@ -45,7 +45,7 @@ type Hooks struct {
     BeforeFinish []FinishHook
 }
 
-func JoinHooks(hs ...Hooks) Hooks // always allocates
+func JoinHooks(hs ...HookSet) Hooks // always allocates; HookSet has Hooks()
 func WithHooks(Hooks) RunOption   // after Runner.Hooks, for this call only
 // OnTool decodes a tool's arguments into T; the hook is named after the tool.
 func OnTool[T any](tool string,

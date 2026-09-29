@@ -123,11 +123,24 @@ type Hooks struct {
 	BeforeFinish []FinishHook
 }
 
+// HookSet is anything that supplies hooks: a Hooks value, a single hook
+// such as a ToolHook, or a package's bundle of hooks.
+type HookSet interface {
+	Hooks() Hooks
+}
+
+// Hooks returns h, so a Hooks value is a HookSet.
+func (h Hooks) Hooks() Hooks {
+	return h
+}
+
 // JoinHooks returns the hooks of hs in order, in new slices, so later
-// changes to either side do not affect the other.
-func JoinHooks(hs ...Hooks) Hooks {
+// changes to either side do not affect the other. Pass hooks directly, as
+// in JoinHooks(onCall, guard), or whole sets.
+func JoinHooks(hs ...HookSet) Hooks {
 	var out Hooks
-	for _, h := range hs {
+	for _, set := range hs {
+		h := set.Hooks()
 		out.BeforeModel = append(out.BeforeModel, h.BeforeModel...)
 		out.BeforeSend = append(out.BeforeSend, h.BeforeSend...)
 		out.BeforeTool = append(out.BeforeTool, h.BeforeTool...)
@@ -399,6 +412,25 @@ type FinishDecision struct {
 	// AcceptEmpty accepts a candidate with no text, which otherwise fails the
 	// turn as empty_response.
 	AcceptEmpty bool
+}
+
+// SeedContext returns a BeforeModel hook, named after item, that delivers
+// item before a model call whenever the turn does not hold it yet: once per
+// turn, for context such as who is on call. It reads the turn record with
+// TurnView.Context, so a turn resumed in another process does not deliver
+// it again. Give item a Name, and leave NextCallOnly unset, or the item
+// expires after each call and is delivered again.
+func SeedContext(item ContextItem) ModelHook {
+	item = cloneContextItem(item)
+	return ModelHook{
+		Name: item.Name,
+		Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+			if _, ok := p.Turn.Context(item.Origin, item.Name); ok {
+				return ModelDecision{}, nil
+			}
+			return ModelDecision{Deliver: []ContextItem{cloneContextItem(item)}}, nil
+		},
+	}
 }
 
 // OnTool returns a BeforeTool hook, named after the tool, that runs f only

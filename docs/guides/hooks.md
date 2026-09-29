@@ -91,7 +91,9 @@ Supply the same `Runner.Hooks` on every command for a turn: each command runs
 only the hooks it is given, and a change is recorded as a warning.
 `dashi.WithHooks` adds hooks for one call, for extras such as a terminal
 prompt. Hook names must be unique within a point; reusable packages should
-prefix theirs. `dashi.JoinHooks` combines hook sets. For a hook that defers every
+prefix theirs. `dashi.JoinHooks` combines hook sets: anything with a `Hooks()`
+method, including a single hook and a `Hooks` value, as in
+`dashi.JoinHooks(onCall, guard, runner.Hooks)`. For a hook that defers every
 tool not marked read-only, see
 [deferring for later](approvals.md#deferring-for-later).
 
@@ -99,7 +101,12 @@ tool not marked read-only, see
 
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
-item that is already current. It may run more than once for one reply, and
+item that is already current. `dashi.SeedContext(item)` is that hook for a
+fixed item, such as who is on call: it delivers the item once per turn. To act
+once per turn in any hook, ask `p.Turn.HookActed(point, name)`, which reports
+whether the named hook has answered this turn. Both read the turn record, not
+a variable in the hook, so they hold when another process resumes the turn.
+`BeforeModel` may run more than once for one reply, and
 `BeforeSend` may be asked again for the same reply, when an [urgent steer](steering.md)
 sends the run back before the request is sent. Deliver a value that must
 reflect each call as a named `Snapshot` item, and reserve spending in the

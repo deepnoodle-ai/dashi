@@ -407,9 +407,9 @@ None is counted among the 24 items above.
   (`examples/internal/prompt`); the approval examples copy about 25 lines of
   stdin handling.
 - **Example boilerplate** (done, #89): drop the hand-prefixed error strings.
-- **Hook helpers:** a "seed context once" helper (`SeedContext`) and a "have I
-  acted in this turn?" read from the record. Smaller: `JoinHooks` could take the
-  helpers directly, `JoinHooks(onCall, guard)` for `onCall.Hooks()`. #90
+- **Hook helpers** (done, #90): `SeedContext` seeds context once per turn,
+  `TurnView.HookActed` reads "have I acted in this turn?" from the record, and
+  `JoinHooks` takes any `HookSet`, so `JoinHooks(onCall, guard)` works.
 - **LLM-judge tool gate:** investigate a helper like Dive's `PromptToolGate`.
   #91
 - **MCP example with no setup:** a runnable variant that starts its own stdio

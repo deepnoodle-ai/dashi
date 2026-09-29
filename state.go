@@ -137,6 +137,25 @@ type TurnView struct {
 	// live holds the latest named context item per origin and name that the
 	// next model call would still see; see Context.
 	live map[string]ContextItem
+	// acted holds the hooks, by point and name, with a recorded answer; see
+	// HookActed.
+	acted map[hookKey]bool
+}
+
+type hookKey struct {
+	point HookPoint
+	name  string
+}
+
+// HookActed reports whether the named hook at point has given an answer
+// this turn, other than no opinion or a failure, so a hook can act once per
+// turn: a BeforeFinish hook that nudges only once asks
+// HookActed(HookBeforeFinish, its name). It reads the turn record, so the
+// answer holds for a turn resumed in another process. An answer is recorded
+// with the next step committed after the hook ran, so a hook does not see
+// its own answer until then.
+func (v TurnView) HookActed(point HookPoint, name string) bool {
+	return v.acted[hookKey{point, name}]
 }
 
 // Context returns the latest context item with this origin and name that the
@@ -233,6 +252,7 @@ func snapshotView(v TurnView) TurnView {
 			out.live[k] = cloneContextItem(item)
 		}
 	}
+	out.acted = maps.Clone(v.acted)
 	return out
 }
 
@@ -290,6 +310,7 @@ func replay(t Turn) (*replayState, error) {
 			s.activeHooks = step.ActiveHooks
 		}
 		s.trackContext(step)
+		s.trackHooks(step)
 		if err := s.trackIDs(step); err != nil {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
@@ -1499,6 +1520,19 @@ func validateModelAccounting(fact *ModelFact) error {
 		}
 	}
 	return nil
+}
+
+// trackHooks notes the hooks that answered in step; see HookActed.
+func (s *replayState) trackHooks(step Step) {
+	for _, r := range step.HookResults {
+		if r.Verdict == VerdictFailed {
+			continue
+		}
+		if s.acted == nil {
+			s.acted = map[hookKey]bool{}
+		}
+		s.acted[hookKey{r.Point, r.Name}] = true
+	}
 }
 
 // trackContext keeps the named items the next model call would see: the

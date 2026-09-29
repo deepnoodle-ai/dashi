@@ -16,7 +16,7 @@ if err != nil {
 	return err
 }
 runner.Tools = tool.Join(tool.List{existing}, bundle)
-runner.Hooks = dashi.JoinHooks(runner.Hooks, bundle.Hooks())
+runner.Hooks = dashi.JoinHooks(runner.Hooks, bundle)
 ```
 
 `bundle.Hooks()` gives the catalog to the model before each model call, once
