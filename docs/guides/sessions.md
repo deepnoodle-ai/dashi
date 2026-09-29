@@ -85,12 +85,14 @@ To take over a turn whose worker was lost, run `Continue{}` under
 key, so each call is a new message. With a key, the session looks back from
 the last turn through the newest turn a caller's `Start` began:
 
-- the same key and input returns that turn's outcome once it has ended, and
-  `*TurnBusyError{Duplicate: true}` before;
+- the same key and input returns that turn's current outcome, as the first
+  call returned it (ended, or stopped waiting on an answer or at a limit),
+  and `*TurnBusyError{Duplicate: true}` while the turn may still be running;
 - the same key with other input fails with `ErrCommandConflict`.
 
 Two workers that race to start the same turn collide on its ID; the loser
-reloads and applies the rules once more.
+reloads and applies the rules once more, so it gets the duplicate error
+while the winner runs, never a success for an unfinished turn.
 
 ```go
 start := dashi.Say(message)

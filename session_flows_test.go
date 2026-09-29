@@ -150,6 +150,105 @@ func TestSessionIdempotency(t *testing.T) {
 		}
 		requireTurns(t, rec, 1)
 	})
+	t.Run("racing workers, equal history", func(t *testing.T) {
+		// Worker c chooses turn 1, then worker d starts it with the same key,
+		// input, history, and agent, and runs. The engine takes c's Start as
+		// a retry of d's, so c must get the duplicate busy error, not a
+		// success for a turn still running.
+		rec := dashi.NewMemoryRecorder()
+		held := &heldLoad{MemoryRecorder: rec, id: dashi.TurnID("s", 1),
+			reached: make(chan struct{}), proceed: make(chan struct{})}
+		cClient := dashitest.NewClient()
+		c := handle(held, cClient)
+		c.New = true
+		type result struct {
+			out dashi.Outcome
+			err error
+		}
+		cDone := make(chan result, 1)
+		go func() {
+			out, err := c.Run(context.Background(), keyed("k", "hello"))
+			cDone <- result{out, err}
+		}()
+		<-held.reached // c planned turn 1 and is about to run it
+
+		g := newGate()
+		d := handle(rec, gatedClient{dashitest.NewClient(dashitest.Reply("from d")), g})
+		d.New = true
+		dDone := make(chan error, 1)
+		go func() {
+			_, err := d.Run(context.Background(), keyed("k", "hello"))
+			dDone <- err
+		}()
+		g.requireEntered(t, dDone)
+		close(held.proceed)
+
+		got := <-cDone
+		busy := requireBusy(t, got.err, dashi.NextResume, false)
+		if !busy.Duplicate || busy.TurnID != dashi.TurnID("s", 1) {
+			t.Fatalf("c: busy = %+v; want a duplicate of turn 1", busy)
+		}
+		close(g.release)
+		if err := <-dDone; err != nil {
+			t.Fatal(err)
+		}
+		// Once d ends, c's retry returns d's result.
+		out, err := c.Run(t.Context(), keyed("k", "hello"))
+		if err != nil || out.Answer != "from d" {
+			t.Fatalf("c retry: %v, %q", err, out.Answer)
+		}
+		if n := len(cClient.Inputs()); n != 0 {
+			t.Fatalf("c made %d model calls", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("after it stopped waiting", func(t *testing.T) {
+		// The first call stopped waiting on an approval and returned
+		// NextAnswer; a retry returns that result, not a busy error.
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.CallTool("call-1", "charge", `{}`))
+		a := handle(rec, client)
+		a.New = true
+		a.Runner.Tools = (&chargeTool{}).tools()
+		a.Runner.Hooks = dashi.RequireApproval("charge")
+		first, err := a.Run(t.Context(), keyed("k", "pay"))
+		if err != nil || first.Next() != dashi.NextAnswer {
+			t.Fatalf("first: %v, next %s", err, first.Next())
+		}
+		for _, s := range []*dashi.Session{a, handle(rec, client)} {
+			out, err := s.Run(t.Context(), keyed("k", "pay"))
+			if err != nil || out.Turn.ID != first.Turn.ID ||
+				out.Next() != dashi.NextAnswer || len(out.Pending) != 1 ||
+				out.Pending[0].ID != first.Pending[0].ID {
+				t.Fatalf("retry: %v, turn %s next %s", err, out.Turn.ID, out.Next())
+			}
+		}
+		if n := len(client.Inputs()); n != 1 {
+			t.Fatalf("model calls = %d; want 1", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+}
+
+// heldLoad holds the first Load of one turn until the test proceeds, so a
+// worker that already chose that turn runs it only after another worker
+// started it.
+type heldLoad struct {
+	*dashi.MemoryRecorder
+	id      string
+	once    sync.Once
+	reached chan struct{}
+	proceed chan struct{}
+}
+
+func (r *heldLoad) Load(ctx context.Context, id string) (dashi.Turn, error) {
+	if id == r.id {
+		r.once.Do(func() {
+			close(r.reached)
+			<-r.proceed
+		})
+	}
+	return r.MemoryRecorder.Load(ctx, id)
 }
 
 // TestSessionOpenAndCreate covers New, ErrSessionNotFound, and

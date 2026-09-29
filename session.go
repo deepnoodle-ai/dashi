@@ -92,8 +92,8 @@ type TurnBusyError struct {
 	Next Next `json:"next"`
 	// Origin is who started the busy turn.
 	Origin StartOrigin `json:"origin,omitempty"`
-	// Duplicate means the refused Start is a retry of that turn, which has
-	// not ended yet.
+	// Duplicate means the refused Start is a retry of that turn, which may
+	// still be running.
 	Duplicate bool `json:"duplicate,omitempty"`
 	// CallID names the unsettled uncertain call that makes the turn busy
 	// when no worker is known to run the turn. Settle it after checking its
@@ -329,6 +329,13 @@ func (s *Session) start(
 		if attempt == 0 && lostStart(err) {
 			continue
 		}
+		// A keyed Start that raced another worker's equal Start to the same
+		// turn gets that turn's outcome from the engine, as a retry. With
+		// no stop recorded, the turn may still be running, so plan again:
+		// the idempotency check then refuses it as a duplicate.
+		if attempt < 2 && !fresh && err == nil && out.Stop.Projected {
+			continue
+		}
 		return out, err
 	}
 }
@@ -431,8 +438,10 @@ func (s *Session) checkExists(last int) error {
 // duplicate applies the idempotency check. It scans back from the last
 // turn through the newest turn a caller's Start began; queue and
 // compaction turns never end the window, since they run after the caller's
-// turn. A match with the same input returns the turn's outcome once it has
-// ended, and a busy error before; a match with other input conflicts.
+// turn. A match with the same input returns the turn's current outcome,
+// as the first call returned it, unless the turn may still be running
+// (NextRunning or NextResume): then waiting helps, and it returns a
+// duplicate busy error. A match with other input conflicts.
 func (s *Session) duplicate(
 	ctx context.Context,
 	c Start,
@@ -454,7 +463,7 @@ func (s *Session) duplicate(
 				)
 			}
 			r := s.refine(ctx, t)
-			if r.next != NextNone {
+			if r.next == NextRunning || r.next == NextResume {
 				return nil, &TurnBusyError{
 					TurnID:    t.turn.ID,
 					Next:      r.next,
