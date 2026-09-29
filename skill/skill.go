@@ -34,6 +34,10 @@ type Definition struct {
 	Name         string
 	Description  string
 	Instructions string
+	// Dir is the folder of a skill that came from disk. When it is set,
+	// loaded text starts with a "Base directory" line, so the model can
+	// find supporting files. The bundle never reads that folder.
+	Dir string
 }
 
 // Options controls the model-facing name of the load tool. The zero value uses
@@ -97,6 +101,7 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 			Name:         strings.TrimSpace(definition.Name),
 			Description:  strings.Join(strings.Fields(definition.Description), " "),
 			Instructions: definition.Instructions,
+			Dir:          definition.Dir,
 		}
 		switch {
 		case entry.Name == "":
@@ -242,9 +247,10 @@ func (b *Bundle) load(name string) tool.Outcome {
 	}
 	for _, entry := range b.definitions {
 		if strings.EqualFold(entry.Name, name) {
-			return tool.Succeeded(
-				"# " + entry.Name + "\n\n" + entry.Instructions,
-			)
+			return tool.Succeeded(withBaseDir(
+				entry.Dir,
+				"# "+entry.Name+"\n\n"+entry.Instructions,
+			))
 		}
 	}
 	return tool.Failed(
@@ -254,6 +260,15 @@ func (b *Bundle) load(name string) tool.Outcome {
 			availableNames(b.definitions),
 		),
 	)
+}
+
+// withBaseDir puts the base-directory line first for a skill that has a
+// folder. Loaded text and slash text share this rule.
+func withBaseDir(dir, text string) string {
+	if dir == "" {
+		return text
+	}
+	return "Base directory: " + dir + "\n\n" + text
 }
 
 func formatCatalog(toolName string, definitions []Definition) string {
