@@ -45,8 +45,9 @@ func WithoutTools(names ...string) Option
 type AskFunc func(ctx context.Context, q Question) (Answer, error)
 type Question struct {
 	Prompt  string
-	Options []Option // empty means free text
+	Choices []Choice // empty means free text
 }
+type Choice struct{ Label, Description string }
 type Answer struct{ Text string }
 
 // Approval policy for Runner.Hooks.
