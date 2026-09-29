@@ -114,7 +114,7 @@ func Expand(input string, opt Options) Result
 | `mail me@example.com` | No change. `@` starts a mention only at the start of the text or after a space or opening bracket. |
 | `look at ~/Desktop/Screen\ Shot\ 1.png` | Attaches the image. A terminal drop inserts this form. |
 | `look at '/tmp/a b.png'` or `file:///tmp/a.png` | Attaches the image. Quotes and `file://` URLs work. |
-| `read @big.png` (8 MB) | Warning: `Skipped @big.png: 8 MB is over the 5 MB image limit.` |
+| `read @big.png` (8 MB) | Warning: `Skipped @big.png: 8 MB is over the 3.75 MB image limit.` |
 | `read @app.bin` | Warning: `Skipped @app.bin: not text, an image, or a PDF.` |
 
 Rules:
