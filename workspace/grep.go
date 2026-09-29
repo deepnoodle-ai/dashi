@@ -34,8 +34,8 @@ func newGrep(s *scope) (tool.Tool, error) {
 	t, err := tool.Func(
 		ToolGrep,
 		"Search file contents with a regular expression. Skip hidden files "+
-			"and files that .gitignore lists. Result paths are relative to the "+
-			"workspace. Use glob to limit the files searched.",
+			"and common dependency and build directories. Result paths are "+
+			"relative to the workspace. Use glob to limit the files searched.",
 		func(ctx context.Context, _ tool.Call, in grepArgs) (tool.Outcome, error) {
 			return grep(ctx, s, rg, in)
 		},

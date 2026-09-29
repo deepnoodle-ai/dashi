@@ -51,7 +51,7 @@ type Approval struct {
 	Reason string
 }
 
-// PolicyOption changes how NewPolicy builds a Policy.
+// PolicyOption changes how Workspace.Policy builds a Policy.
 type PolicyOption func(*Policy)
 
 // TrustTools names tools that run without a prompt, in addition to the
@@ -64,32 +64,29 @@ func TrustTools(names ...string) PolicyOption {
 	}
 }
 
-// InDir sets the workspace directory. The Policy reads files there to build
-// previews, and reports it as the working directory of shell commands. The
-// default is the current directory. Pass the same directory as Tools.
-func InDir(dir string) PolicyOption {
-	return func(p *Policy) {
-		p.dir = dir
-	}
-}
-
 // Policy decides which tool calls need approval. It plugs into Runner.Hooks.
 // A Policy is safe for concurrent use. It asks one question at a time, so a
 // prompt from one call holds up the other calls of the same batch.
 type Policy struct {
+	ws      *Workspace
 	ask     ApprovalFunc
 	trusted []string
-	dir     string
 
 	mu    sync.Mutex // held while asking, so prompts do not overlap
 	rules map[string]bool
 }
 
-// NewPolicy returns a Policy that asks through ask. A nil ask makes the
-// Policy defer every call that needs approval, for the durable approval flow:
-// the turn waits, and the host answers later with the pending item.
-func NewPolicy(ask ApprovalFunc, opts ...PolicyOption) *Policy {
-	p := &Policy{ask: ask, dir: ".", rules: map[string]bool{}}
+// Policy returns the approval Policy for this Workspace. It asks through ask.
+// A nil ask makes the Policy defer every call that needs approval, for the
+// durable approval flow: the turn waits, and the host answers later with the
+// pending item.
+//
+// The Policy trusts the read-only tools that this Workspace built. It
+// recognizes them by their full definition, so a tool from another package
+// that has the same name, such as an MCP tool, still asks. It reads files in
+// the Workspace directory to build previews.
+func (w *Workspace) Policy(ask ApprovalFunc, opts ...PolicyOption) *Policy {
+	p := &Policy{ws: w, ask: ask, rules: map[string]bool{}}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -113,20 +110,26 @@ func (p *Policy) decide(
 	if slices.Contains(p.trusted, name) {
 		return dashi.Allow("trusted tool"), nil
 	}
-	if slices.Contains(readOnlyTools, name) &&
-		ptrTrue(plan.Definition.Annotations.ReadOnly) {
+	owned, readOnly := p.ws.lookup(plan.Definition)
+	if owned && readOnly {
 		return dashi.Allow("read-only tool"), nil
+	}
+	if owned && p.editCannotSucceed(plan) {
+		// The tool fails without a change, and its error text tells the
+		// model what to fix. A prompt would ask the person to approve a
+		// call that cannot do anything.
+		return dashi.Allow("the call cannot change a file"), nil
 	}
 	if p.ask == nil {
 		return dashi.Defer("The call needs approval."), nil
 	}
-	key := ruleKey(plan.Call.Name, plan.Call.Args)
+	key := ruleKey(owned, plan.Call.Name, plan.Call.Args)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.rules[key] {
 		return dashi.Allow("allowed by a remembered answer"), nil
 	}
-	a, err := p.ask(ctx, p.request(plan))
+	a, err := p.ask(ctx, p.request(plan, owned))
 	if err != nil {
 		return dashi.ToolDecision{}, err
 	}
@@ -147,7 +150,12 @@ func (p *Policy) decide(
 // ruleKey names what a remembered answer covers: the whole tool for the file
 // tools, and the exact call for everything else. A rule for a command prefix
 // would be unsafe, because "go test ./... && rm -rf ~" starts with "go test".
-func ruleKey(name string, args json.RawMessage) string {
+// A tool of another package never shares a rule with this package's tool of
+// the same name.
+func ruleKey(owned bool, name string, args json.RawMessage) string {
+	if !owned {
+		return "external:" + name + ":" + string(args)
+	}
 	switch name {
 	case ToolWriteFile, ToolEditFile:
 		return name
@@ -160,11 +168,14 @@ func ruleKey(name string, args json.RawMessage) string {
 	return name + ":" + string(args)
 }
 
-func (p *Policy) request(plan dashi.ToolPlan) ApprovalRequest {
+func (p *Policy) request(plan dashi.ToolPlan, owned bool) ApprovalRequest {
 	r := ApprovalRequest{
 		Tool:    plan.Call.Name,
 		Summary: plan.Call.Name,
 		Args:    plan.Call.Args,
+	}
+	if !owned {
+		return r
 	}
 	switch plan.Call.Name {
 	case ToolWriteFile:
@@ -182,7 +193,7 @@ func (p *Policy) request(plan dashi.ToolPlan) ApprovalRequest {
 	case ToolBash:
 		var in bashArgs
 		if json.Unmarshal(plan.Call.Args, &in) == nil {
-			r.Command, r.Dir = in.Command, p.dir
+			r.Command, r.Dir = in.Command, p.ws.Dir()
 			first, _, multi := strings.Cut(in.Command, "\n")
 			if multi {
 				first += " ..."
@@ -193,22 +204,23 @@ func (p *Policy) request(plan dashi.ToolPlan) ApprovalRequest {
 	return r
 }
 
-// preview reads use the same scope rules as the tools, so a path outside the
-// workspace gives no preview and leaks no file content.
-func (p *Policy) readOld(path string) (string, bool) {
-	s, err := newScope(p.dir)
-	if err != nil {
-		return "", false
-	}
-	resolved, err := s.resolve(path)
+// readOld reads the current content of path for a preview. It uses the same
+// scope rules as the tools, so a path outside the workspace gives no preview
+// and leaks no file content. A file that is not there reads as empty.
+// ok is false when the content is unknown, and then there is no preview.
+func (p *Policy) readOld(path string) (old string, ok bool) {
+	resolved, err := p.ws.scope.resolve(path)
 	if err != nil {
 		return "", false
 	}
 	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", os.IsNotExist(err)
+	switch {
+	case err == nil:
+		return string(data), true
+	case os.IsNotExist(err):
+		return "", true
 	}
-	return string(data), true
+	return "", false
 }
 
 func (p *Policy) writePreview(in writeArgs) string {
@@ -229,6 +241,29 @@ func (p *Policy) editPreview(in editArgs) string {
 		return ""
 	}
 	return unifiedDiff(in.Path, old, updated)
+}
+
+// editCannotSucceed reports whether plan is an edit_file call that the tool
+// will reject: a path outside the workspace, a missing or unreadable file, or
+// text that is missing or not unique.
+func (p *Policy) editCannotSucceed(plan dashi.ToolPlan) bool {
+	if plan.Call.Name != ToolEditFile {
+		return false
+	}
+	var in editArgs
+	if json.Unmarshal(plan.Call.Args, &in) != nil {
+		return false
+	}
+	resolved, err := p.ws.scope.resolve(in.Path)
+	if err != nil {
+		return true
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return true
+	}
+	_, _, err = applyEdit(in.Path, string(data), in)
+	return err != nil
 }
 
 func ptrTrue(p *bool) bool {

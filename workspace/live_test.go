@@ -42,17 +42,17 @@ func TestLiveAgentFixesFailingTest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tools, err := workspace.Tools(dir)
+	ws, err := workspace.New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	tools := ws.Tools()
 	var approvals atomic.Int32
-	policy := workspace.NewPolicy(
+	policy := ws.Policy(
 		func(context.Context, workspace.ApprovalRequest) (workspace.Approval, error) {
 			approvals.Add(1)
 			return workspace.Approval{Allow: true}, nil
 		},
-		workspace.InDir(dir),
 	)
 	client, err := responses.New(responses.Config{APIKey: key})
 	if err != nil {

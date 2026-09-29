@@ -42,7 +42,11 @@ func run(ctx context.Context, dir, task string) error {
 	defer cancel()
 
 	answers := bufio.NewReader(os.Stdin)
-	tools, err := workspace.Tools(dir, workspace.WithAsker(
+	ws, err := workspace.New(dir)
+	if err != nil {
+		return err
+	}
+	tools := ws.Tools(workspace.WithAsker(
 		func(_ context.Context, q workspace.Question) (workspace.Answer, error) {
 			fmt.Printf("\n? %s\n", q.Prompt)
 			for _, c := range q.Choices {
@@ -53,12 +57,9 @@ func run(ctx context.Context, dir, task string) error {
 			return workspace.Answer{Text: strings.TrimSpace(line)}, nil
 		},
 	))
-	if err != nil {
-		return err
-	}
 	// Reads run without a prompt. Writes and shell commands ask. Answering
 	// "a" allows the same kind of call again while the program runs.
-	policy := workspace.NewPolicy(
+	policy := ws.Policy(
 		func(_ context.Context, r workspace.ApprovalRequest) (workspace.Approval, error) {
 			fmt.Printf("\n%s\n%s\nAllow? [y/N/a] ", r.Summary, r.Preview)
 			line, _ := answers.ReadString('\n')
@@ -68,9 +69,8 @@ func run(ctx context.Context, dir, task string) error {
 			case "a":
 				return workspace.Approval{Allow: true, Remember: true}, nil
 			}
-			return workspace.Approval{Reason: "The user declined."}, nil
+			return workspace.Approval{}, nil
 		},
-		workspace.InDir(dir),
 	)
 	client, err := responses.New(responses.Config{})
 	if err != nil {

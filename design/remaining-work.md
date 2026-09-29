@@ -316,7 +316,8 @@ as the source of execution facts.
 
 **Status:** First slice implemented in package `workspace` on branch
 `tools/coding`; no roadmap item. It has eight tools, a symlink-safe path scope,
-and an approval `Policy`. Live test: an OpenAI agent fixed a failing test in a
+and an approval `Policy`. One `workspace.New(dir)` value owns the directory
+for tools and policy. Live test: an OpenAI agent fixed a failing test in a
 temporary repository. **Next:** Wire it into `cmd/dashi`; see the
 [PRD](coding-tools.md) for later work (read roots, bash prefix rules, Windows
 kill).

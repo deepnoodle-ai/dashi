@@ -14,13 +14,15 @@
 package workspace
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"slices"
+	"sync"
 
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Tool names. The Policy trusts the read-only names in this list, so a host
-// must not bind another tool under one of them.
+// Tool names.
 const (
 	ToolReadFile      = "read_file"
 	ToolListDirectory = "list_directory"
@@ -32,7 +34,7 @@ const (
 	ToolAskUser       = "ask_user"
 )
 
-// Option changes how Tools builds the tool set. The zero value of every
+// Option changes how Workspace.Tools builds the tool set. The zero value of every
 // option works.
 type Option func(*config)
 
@@ -66,18 +68,41 @@ func WithoutTools(names ...string) Option {
 	}
 }
 
-// Tools returns the coding tools for dir. dir must be an existing directory.
-// The tools resolve relative paths against dir and refuse paths outside it.
-// Register the result as Runner.Tools.
-func Tools(dir string, opts ...Option) (tool.List, error) {
-	var cfg config
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+// Workspace is one directory that the coding tools work in. It owns the
+// directory for the tools and for the approval Policy, so the two cannot
+// disagree. It also remembers the exact tools that it built, so the Policy
+// can tell them from a tool of another package that has the same name.
+type Workspace struct {
+	scope *scope
+
+	mu    sync.Mutex
+	owned map[string]bool // definition fingerprint -> read-only
+}
+
+// New returns a Workspace for dir. dir must be an existing directory.
+func New(dir string) (*Workspace, error) {
 	s, err := newScope(dir)
 	if err != nil {
 		return nil, err
 	}
+	return &Workspace{scope: s, owned: map[string]bool{}}, nil
+}
+
+// Dir returns the absolute directory of the workspace.
+func (w *Workspace) Dir() string {
+	return w.scope.root
+}
+
+// Tools returns the coding tools. They resolve relative paths against the
+// directory and refuse paths outside it. Register the result as
+// Runner.Tools. Every call returns new tools; the Policy of this Workspace
+// recognizes the tools of all of them.
+func (w *Workspace) Tools(opts ...Option) tool.List {
+	var cfg config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	s := w.scope
 	builders := []func() (tool.Tool, error){
 		func() (tool.Tool, error) { return newReadFile(s) },
 		func() (tool.Tool, error) { return newListDirectory(s) },
@@ -96,22 +121,43 @@ func Tools(dir string, opts ...Option) (tool.List, error) {
 	for _, build := range builders {
 		t, err := build()
 		if err != nil {
-			return nil, err
+			// The definitions are fixed in this package, so a failure is a
+			// bug that tests catch.
+			panic("workspace: build tool: " + err.Error())
 		}
-		if !slices.Contains(cfg.without, t.Definition.Name) {
-			list = append(list, t)
+		if slices.Contains(cfg.without, t.Definition.Name) {
+			continue
 		}
+		w.register(t)
+		list = append(list, t)
 	}
-	return list, nil
+	return list
 }
 
-// readOnlyTools are the names that the Policy runs without a prompt.
-var readOnlyTools = []string{
-	ToolReadFile,
-	ToolListDirectory,
-	ToolGlob,
-	ToolGrep,
-	ToolAskUser,
+func (w *Workspace) register(t tool.Tool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.owned[fingerprint(t.Definition)] = ptrTrue(t.Definition.Annotations.ReadOnly)
+}
+
+// lookup reports whether def is exactly a tool that this Workspace built,
+// and whether that tool is read-only.
+func (w *Workspace) lookup(def tool.Definition) (owned, readOnly bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	readOnly, owned = w.owned[fingerprint(def)]
+	return owned, readOnly
+}
+
+// fingerprint identifies a definition by all of its content. A tool from
+// another package that copies only the name does not match.
+func fingerprint(def tool.Definition) string {
+	data, err := json.Marshal(def)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return string(sum[:])
 }
 
 // annotate marks t read-only or mutating.

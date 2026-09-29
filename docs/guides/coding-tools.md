@@ -11,16 +11,18 @@ Set `OPENAI_API_KEY`, then run
 ([example](../../examples/coding/main.go)).
 
 ```go
-tools, err := workspace.Tools(dir, workspace.WithAsker(ask))
+ws, err := workspace.New(dir)
 // Handle err, then:
-policy := workspace.NewPolicy(approve, workspace.InDir(dir))
 runner := dashi.Runner{
 	Agent: agent, Client: client,
-	Tools: tools, Hooks: policy.Hooks(),
+	Tools: ws.Tools(workspace.WithAsker(ask)),
+	Hooks: ws.Policy(approve).Hooks(),
 }
 ```
 
-`Tools` returns an error when `dir` is not an existing directory.
+`New` returns an error when `dir` is not an existing directory. The
+`Workspace` owns the directory for both the tools and the policy, so they
+cannot disagree about it.
 
 ## The tools
 
@@ -69,16 +71,26 @@ pass `timeout` in milliseconds. The tool reduces a longer value and says so.
 On timeout or cancel, the tool kills the shell and its child processes on
 Unix, and returns the output so far. `ShellConfig` changes these values.
 
+The tool keeps at most 1 MiB of output in memory: the first 512 KiB and the
+last 512 KiB. A note in the middle says how many bytes were dropped. This
+protects memory. Bound the model's view in the host.
+
+A command may start a background process, such as `server &`. The tool waits
+half a second for output after the shell exits, then returns the output and
+success, with a note. The background process keeps running, but its output
+pipe is closed. Redirect its output to a file to keep it.
+
 While a command runs, `bash` calls `tool.Report` up to four times a second.
 `Progress.Message` is the last output line. `Progress.Data` decodes to
 `ShellProgress`, which holds the last 20 lines.
 
 ## Approval policy
 
-`NewPolicy(ask).Hooks()` returns a `BeforeTool` hook. For each call:
+`ws.Policy(ask).Hooks()` returns a `BeforeTool` hook. For each call:
 
-1. A read-only tool of this package runs with no prompt. So does a tool that
-   you name with `TrustTools`.
+1. A read-only tool that this `Workspace` built runs with no prompt. The
+   policy matches the full tool definition, not the name, so an MCP tool named
+   `grep` still asks. `TrustTools` names more tools that run with no prompt.
 2. A remembered answer for the call allows it.
 3. Any other tool calls your `ApprovalFunc`. This includes MCP tools, also when
    they carry a `ReadOnly` annotation. The tool's author sets that annotation,
@@ -89,8 +101,10 @@ While a command runs, `bash` calls `tool.Report` up to four times a second.
 
 `ApprovalRequest` carries a one-line `Summary`. For `write_file` and
 `edit_file` it carries a unified diff in `Preview`. For `bash` it carries the
-exact `Command` and the `Dir`. Pass `InDir` so that the policy can read the
-files for previews.
+exact `Command` and the workspace `Dir`. The policy reads the files in the
+workspace to build previews. An `edit_file` call that cannot work (the text is
+missing or not unique) runs with no prompt, because the tool fails and tells
+the model.
 
 `Remember: true` on an allow stores a rule in the `Policy`. The rule lives as
 long as the `Policy`. A new `Policy` starts with none. For `write_file` and

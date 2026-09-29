@@ -34,8 +34,11 @@ The first user is a developer who builds a coding agent, starting with the `dash
 Package name: `workspace`. It says where the tools work. The name `toolkit` would say nothing.
 
 ```go
-// Tools returns the coding tools for dir. dir must be an existing directory.
-func Tools(dir string, opts ...Option) (tool.List, error)
+// A Workspace owns one directory for the tools and the policy.
+func New(dir string) (*Workspace, error) // dir must be an existing directory
+func (w *Workspace) Dir() string
+func (w *Workspace) Tools(opts ...Option) tool.List
+func (w *Workspace) Policy(ask ApprovalFunc, opts ...PolicyOption) *Policy
 
 // Options. The zero value of each works.
 func WithAsker(ask AskFunc) Option      // adds ask_user; without it the tool is absent
@@ -51,7 +54,6 @@ type Choice struct{ Label, Description string }
 type Answer struct{ Text string }
 
 // Approval policy for Runner.Hooks.
-func NewPolicy(ask ApprovalFunc, opts ...PolicyOption) *Policy
 func (p *Policy) Hooks() dashi.Hooks
 func TrustTools(names ...string) PolicyOption // tools that skip the prompt
 
@@ -77,9 +79,10 @@ type ShellProgress struct{ Lines []string } // last 20 output lines
 The agent uses it like this:
 
 ```go
-tools, err := workspace.Tools(dir, workspace.WithAsker(cliAsk))
-runner := dashi.Runner{Agent: agent, Client: client, Tools: tools,
-	Hooks: workspace.NewPolicy(cliApprove).Hooks()}
+ws, err := workspace.New(dir)
+runner := dashi.Runner{Agent: agent, Client: client,
+	Tools: ws.Tools(workspace.WithAsker(cliAsk)),
+	Hooks: ws.Policy(cliApprove).Hooks()}
 ```
 
 ### The tools
@@ -109,7 +112,7 @@ Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because th
 
 **Policy.** For each call, the policy decides as follows:
 
-1. A read-only tool from this package runs with no prompt. So does a tool that the host names with `TrustTools`.
+1. A read-only tool that this `Workspace` built runs with no prompt, as does a tool that the host names with `TrustTools`. An `edit_file` call that the tool will reject also runs, because it changes nothing.
 2. A remembered rule for the call allows it.
 3. Any other tool calls `ApprovalFunc`. This includes MCP tools, even when they carry a `ReadOnly` annotation. An annotation is a hint from the tool's author, so the policy does not trust it.
 4. `Approval.Allow` returns `dashi.Allow`. A refusal returns `dashi.Deny` with the reason. The default reason tells the model not to retry the same call.
@@ -121,9 +124,9 @@ The request for `write_file` and `edit_file` carries a unified diff in `Preview`
 
 ## Decisions
 
-1. **Package name `workspace`.** It names the boundary that the tools enforce. `Tools(dir)` reads well at the call site.
-2. **`Tools` returns an error.** A missing directory is not safe to adjust. The brief showed one return value. The error is the cost of failing early.
-3. **The policy trusts only this package and a host list.** The review found that a `ReadOnly` hint from an MCP server could skip every prompt. The policy now skips the prompt for this package's read-only tools and for names in `TrustTools`. Every other tool asks. The MCP PRD must keep `ReadOnly` unset unless the host trusts the server.
+1. **Package name `workspace`.** It names the boundary that the tools enforce. `workspace.New(dir)` reads well at the call site.
+2. **`New` returns an error; `Tools` does not.** A missing directory is not safe to adjust, so `New` fails early, once. (Revised in the implementation review: the first slice had `Tools(dir)` return the error.)
+3. **The policy trusts only this package and a host list.** The review found that a `ReadOnly` hint from an MCP server could skip every prompt. The policy now skips the prompt for the read-only tools that its `Workspace` built (matched by full definition, see 23) and for names in `TrustTools`. Every other tool asks. The MCP PRD must keep `ReadOnly` unset unless the host trusts the server.
 4. **Snake-case tool names, `bash` for the shell.** Models know `read_file`, `edit_file`, and `bash`. The names carry no version or product prefix.
 5. **Non-zero exit is a failed outcome.** The tool ran, but the command failed. The person and the model both need to see that.
 6. **The shell is not sandboxed.** The path checks cover the file tools only. A shell command can reach any path the user can. The approval prompt is the guard, and the guide says so. An OS sandbox is later work.
@@ -136,16 +139,22 @@ The request for `write_file` and `edit_file` carries a unified diff in `Preview`
 13. **`bash` takes a `timeout` argument.** Long test runs need it. The tool clamps it and says so.
 14. **`ShellProgress` is an exported type.** The CLI must parse `Data` to show live lines.
 15. **No test for the symlink check-then-write race.** The test is unreliable. The tool opens the resolved path, and the guide documents the remaining gap.
-. **`InDir` policy option.** The policy reads files to build diffs and must know the workspace. The PRD API had no way to say so. `InDir(dir)` sets it; the default is the current directory. A path outside the workspace gets no preview.
-18. **Only an allow is remembered.** A remembered refusal of `edit_file` would block the tool for the whole session. `Remember` on a refusal is ignored.
-19. **Rules for other tools match the exact arguments.** A tool that is not `write_file`, `edit_file`, or `bash` is remembered by name and exact argument text.
-20. **The shell runs in its own session.** It has no terminal, so a command such as `git push` cannot prompt on `/dev/tty`. The process-group kill still works.
-21. **grep and glob limits.** `grep` returns at most 250 lines by default (`head_limit`). `glob` returns at most 1000 files. Both say when they cut the result. Both skip `.git`, `node_modules`, and similar directories. The Go search also skips hidden files, as `rg` does. The tool `grep` output mode is `files`, not `files_with_matches`.
-22. **Glob patterns.** A pattern with no `/` matches at any depth. `{a,b}` groups work.
+16. **Superseded by 22.** The first slice added an `InDir` policy option so previews could read files. The review showed that a host who forgot it got a false new-file diff, so 22 removed it.
+17. **Only an allow is remembered.** A remembered refusal of `edit_file` would block the tool for the whole session. `Remember` on a refusal is ignored.
+18. **Rules for other tools match the exact arguments.** A tool that is not `write_file`, `edit_file`, or `bash` is remembered by name and exact argument text.
+19. **The shell runs in its own session.** It has no terminal, so a command such as `git push` cannot prompt on `/dev/tty`. The process-group kill still works.
+20. **grep and glob limits.** `grep` returns at most 250 lines by default (`head_limit`). `glob` returns at most 1000 files. Both say when they cut the result. Both skip `.git`, `node_modules`, and similar directories. The Go search also skips hidden files, as `rg` does. The tool `grep` output mode is `files`, not `files_with_matches`.
+21. **Glob patterns.** A pattern with no `/` matches at any depth. `{a,b}` groups work.
+22. **One value owns the directory.** `workspace.New(dir)` returns a `Workspace`; `ws.Tools(...)` and `ws.Policy(...)` share its directory, so previews and the shell `Dir` cannot be wrong. `InDir` and `NewPolicy` are gone. Reason: the review probe overwrote a 3-line file behind a prompt that showed a new-file diff. When the policy cannot read the old file, it shows no preview.
+23. **The policy recognizes tools by full definition.** A hook sees only the `Definition`, not the executor. The workspace records a fingerprint (name, description, schema, annotations) of every tool it builds, and only a match counts as its own. An outside tool with the same name, such as an MCP `grep` with `ReadOnly` set, asks. Remembered rules of the package tools are not shared with outside tools of the same name. Limit: an outside tool that copies the whole definition looks the same to a hook; that needs a host that registers hostile tools on purpose, and `TrustTools` has the same trust level.
+24. **Background processes do not fail the shell.** After the shell exits, the tool waits 500 ms for output and then returns the result with success and a note, instead of the `WaitDelay expired` error. The process is left running, and its pipe is closed; the note tells the model to redirect output to a file. A real non-zero exit still fails.
+25. **Shell output is capped in memory.** The tool keeps the first 512 KiB and last 512 KiB and says how many bytes it dropped. This is a need of the tool (2 GB probe), not generic bounding, which the tool-output track owns.
+26. **An `edit_file` call that cannot work skips the prompt.** The tool fails without a change and its text tells the model what to fix, so a prompt would ask the person to approve nothing.
+27. **The `grep` description no longer claims `.gitignore` support.** The Go search does not read it; `rg` does. Fixing the text, not the fallback, keeps the fallback small.
 
 ## First slice (ship by Tuesday night)
 
-- Package `workspace` with all eight tools, path scope, `Tools`, `NewPolicy`, and the options above.
+- Package `workspace` with all eight tools, path scope, `New`, `Workspace.Tools`, `Workspace.Policy`, and the options above.
 - Unix process-group kill. Other platforms build with a plain kill of the child.
 - Tests: each tool; a table of path-escape cases (`..`, absolute path, symlink to outside, symlink to a new file, symlinked parent); edit uniqueness; shell timeout and kill; progress; policy decisions, including `Remember` and deferral.
 - Example `examples/coding`. Guide `docs/guides/coding-tools.md`, linked from `tools.md` and `approvals.md`.
@@ -185,3 +194,7 @@ None block the first slice.
 ## Review outcome
 
 The independent review found seven items. Accepted: 1 (trust), 2 (preview), 3 (lifetime and wording), 4 (type names), 5 (`ShellProgress`), 6 (`timeout`), 7 (drop the race test). Rejected: none. Decisions 3 and 10 to 15 record the reasons.
+
+## Implementation review outcome
+
+Accepted: 1 (one value owns the directory, decision 22), 2 (background processes, 25), 3 (output cap, 26), 4 (policy trust by identity, 24), 5 (failing edit skips the prompt, 27), 6 (grep text, 28), 7 (example `Reason` removed; numbering fixed, 16 now points to 23). Rejected: none. `golangci-lint` items (errcheck in tests, ST1005 on model-facing text) are not findings: the model-facing text needs capitals and full stops.

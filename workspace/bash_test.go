@@ -113,3 +113,64 @@ func TestBashRefusesEmptyCommand(t *testing.T) {
 	out, text := call(t, list, ToolBash, map[string]any{"command": "  "})
 	wantState(t, out, text, tool.StateFailed)
 }
+
+func TestBashBackgroundProcessDoesNotFailTheCommand(t *testing.T) {
+	list, _ := newTestTools(t)
+	start := time.Now()
+	out, text := call(t, list, ToolBash, map[string]any{"command": "sleep 5 & echo started"})
+	wantState(t, out, text, tool.StateSucceeded)
+	wantContains(t, text, "started")
+	wantContains(t, text, "background process")
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("the call took %s", time.Since(start))
+	}
+}
+
+func TestBashBackgroundProcessWithRedirectedOutputHasNoNote(t *testing.T) {
+	list, _ := newTestTools(t)
+	out, text := call(t, list, ToolBash, map[string]any{"command": "sleep 5 >/dev/null 2>&1 & echo started"})
+	wantState(t, out, text, tool.StateSucceeded)
+	if text != "started" {
+		t.Fatalf("text = %q", text)
+	}
+}
+
+func TestBashBackgroundProcessKeepsRealFailure(t *testing.T) {
+	list, _ := newTestTools(t)
+	out, text := call(t, list, ToolBash, map[string]any{"command": "sleep 5 & echo bad; exit 2"})
+	wantState(t, out, text, tool.StateFailed)
+	wantContains(t, text, "Exit code 2")
+}
+
+func TestBashOutputKeepsHeadAndTailWithinLimit(t *testing.T) {
+	list, _ := newTestTools(t)
+	out, text := call(t, list, ToolBash, map[string]any{
+		"command": "echo FIRST; yes abcdefghi | head -c 5000000; echo; echo LAST",
+	})
+	wantState(t, out, text, tool.StateSucceeded)
+	if len(text) > shellHeadMax+shellTailMax+1024 {
+		t.Fatalf("result has %d bytes", len(text))
+	}
+	if !strings.HasPrefix(text, "FIRST\n") || !strings.HasSuffix(text, "LAST") {
+		t.Fatalf("head or tail missing: %q ... %q", text[:20], text[len(text)-20:])
+	}
+	wantContains(t, text, "bytes of output dropped from the middle")
+}
+
+func TestShellOutputCounts(t *testing.T) {
+	o := newShellOutput(context.Background(), 4, 4)
+	for _, chunk := range []string{"ab", "cdef", "ghij", "klmn", "opqr"} {
+		o.Write([]byte(chunk))
+	}
+	got := o.String()
+	// 18 bytes in all: head "abcd", tail "opqr", 10 dropped.
+	wantContains(t, got, "abcd\n[... 10 bytes of output dropped")
+	if !strings.HasSuffix(got, "...]\nopqr") {
+		t.Fatalf("output = %q", got)
+	}
+	small := newShellOutput(context.Background(), 8, 8)
+	small.Write([]byte("hello\n"))
+	if got := small.String(); got != "hello" {
+		t.Fatalf("small = %q", got)
+	}
+}

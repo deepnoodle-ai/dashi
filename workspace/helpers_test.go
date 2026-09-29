@@ -15,11 +15,11 @@ import (
 func newTestTools(t *testing.T, opts ...Option) (tool.List, string) {
 	t.Helper()
 	dir := t.TempDir()
-	list, err := Tools(dir, opts...)
+	ws, err := New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return list, dir
+	return ws.Tools(opts...), dir
 }
 
 // call runs the named tool and returns its outcome and text.

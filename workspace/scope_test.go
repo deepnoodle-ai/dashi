@@ -109,12 +109,12 @@ func TestFileToolsRefuseEscape(t *testing.T) {
 	}
 }
 
-func TestToolsRefusesMissingDirectory(t *testing.T) {
-	if _, err := Tools(filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Fatal("Tools accepted a missing directory")
+func TestNewRefusesMissingDirectory(t *testing.T) {
+	if _, err := New(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("New accepted a missing directory")
 	}
 	file := writeTestFile(t, t.TempDir(), "f", "x")
-	if _, err := Tools(file); err == nil {
-		t.Fatal("Tools accepted a file")
+	if _, err := New(file); err == nil {
+		t.Fatal("New accepted a file")
 	}
 }

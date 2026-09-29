@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -19,6 +19,15 @@ const (
 	defaultShellMax     = 10 * time.Minute
 	progressInterval    = 250 * time.Millisecond
 	progressLines       = 20
+
+	// The bash tool keeps the first and the last part of the output, so a
+	// command that prints without end cannot fill memory.
+	shellHeadMax = 512 << 10
+	shellTailMax = 512 << 10
+
+	// drainWait bounds how long the tool waits for output after the shell
+	// exits. A background process can hold the output pipes open.
+	drainWait = 500 * time.Millisecond
 )
 
 // ShellConfig sets the limits of the bash tool. The zero value of each field
@@ -97,11 +106,11 @@ func runShell(
 		runCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	out := &shellOutput{ctx: ctx}
+	out := newShellOutput(ctx, shellHeadMax, shellTailMax)
 	cmd := exec.CommandContext(runCtx, cfg.Path, "-c", in.Command)
 	cmd.Dir = s.root
 	cmd.Stdout, cmd.Stderr = out, out
-	cmd.WaitDelay = 2 * time.Second
+	cmd.WaitDelay = drainWait
 	configureProcess(cmd)
 	err := cmd.Run()
 	text := out.String()
@@ -121,6 +130,13 @@ func runShell(
 		))
 	case errors.As(err, &exit):
 		return fail(fmt.Sprintf("%s\n[Exit code %d]%s", text, exit.ExitCode(), note))
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The shell exited with success, but a background process still
+		// holds the output pipes. The command itself worked.
+		return tool.Succeeded(text + "\n[The command succeeded. A background " +
+			"process it started is still running and its output is not " +
+			"captured. Redirect its output to a file, such as " +
+			"\"cmd > log.txt 2>&1 &\", to keep it.]" + note), nil
 	case err != nil:
 		return fail(fmt.Sprintf("cannot run the shell %s: %v", cfg.Path, err))
 	}
@@ -128,36 +144,93 @@ func runShell(
 }
 
 // shellOutput collects the merged output of a command and reports the last
-// lines as progress, at most four times a second.
+// lines as progress, at most four times a second. It keeps the first headMax
+// bytes and the last tailMax bytes, and counts what it drops.
 type shellOutput struct {
-	ctx  context.Context
-	mu   sync.Mutex
-	buf  bytes.Buffer
-	last time.Time
+	ctx     context.Context
+	headMax int
+	tailMax int
+
+	mu      sync.Mutex
+	head    []byte
+	tail    []byte // may grow to twice tailMax before it is cut
+	dropped int
+	last    time.Time
+}
+
+func newShellOutput(ctx context.Context, headMax, tailMax int) *shellOutput {
+	return &shellOutput{ctx: ctx, headMax: headMax, tailMax: tailMax}
 }
 
 func (o *shellOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.buf.Write(p)
+	n := len(p)
+	if room := o.headMax - len(o.head); room > 0 {
+		take := min(room, len(p))
+		o.head = append(o.head, p[:take]...)
+		p = p[take:]
+	}
+	if len(p) > 0 {
+		o.tail = append(o.tail, p...)
+		if len(o.tail) > 2*o.tailMax {
+			cut := len(o.tail) - o.tailMax
+			o.dropped += cut
+			o.tail = append(o.tail[:0], o.tail[cut:]...)
+		}
+	}
 	if now := time.Now(); now.Sub(o.last) >= progressInterval {
 		o.last = now
 		o.report()
 	}
-	return len(p), nil
+	return n, nil
 }
 
+// String returns the output. When bytes were dropped, a marker between the
+// head and the tail says how many.
 func (o *shellOutput) String() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return strings.TrimRight(o.buf.String(), "\n")
+	head, tail, dropped := o.head, o.tail, o.dropped
+	if len(tail) > o.tailMax {
+		cut := len(tail) - o.tailMax
+		dropped += cut
+		tail = tail[cut:]
+	}
+	if dropped == 0 {
+		return strings.TrimRight(string(head)+string(tail), "\n")
+	}
+	// Do not start or end a part in the middle of a character.
+	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+		dropped++
+	}
+	for i := len(head) - 1; i >= 0 && i >= len(head)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(head[i]) {
+			if !utf8.FullRune(head[i:]) {
+				dropped += len(head) - i
+				head = head[:i]
+			}
+			break
+		}
+	}
+	return strings.TrimRight(fmt.Sprintf(
+		"%s\n[... %d bytes of output dropped from the middle. The first %d "+
+			"bytes and the last %d bytes are shown. Write the output to a "+
+			"file, or filter it with grep, head or tail, to see the part "+
+			"that you need ...]\n%s",
+		head, dropped, len(head), len(tail), tail,
+	), "\n")
 }
 
 // report must run with mu held.
 func (o *shellOutput) report() {
-	tail := o.buf.Bytes()
-	tail = tail[max(len(tail)-8192, 0):]
-	lines := strings.Split(strings.TrimRight(string(tail), "\n"), "\n")
+	recent := o.tail[max(len(o.tail)-8192, 0):]
+	if len(recent) < 8192 {
+		// The tail is short, so the last lines may reach into the head.
+		recent = append(append([]byte{}, o.head[max(len(o.head)-(8192-len(recent)), 0):]...), recent...)
+	}
+	lines := strings.Split(strings.TrimRight(string(recent), "\n"), "\n")
 	lines = lines[max(len(lines)-progressLines, 0):]
 	data, err := json.Marshal(ShellProgress{Lines: lines})
 	if err != nil {
