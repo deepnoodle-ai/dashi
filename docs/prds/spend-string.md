@@ -1,6 +1,6 @@
 # Print a readable cost summary from Spend
 
-Status: Approved  
+Status: Shipped in #118\
 PRD PR: [#112](https://github.com/deepnoodle-ai/dashi/pull/112) (merged) · Implementation PR: [#118](https://github.com/deepnoodle-ai/dashi/pull/118) · Updated: 2026-09-29
 
 ## Problem
