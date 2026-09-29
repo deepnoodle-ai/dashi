@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -849,5 +850,222 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 	fact := settledFact(t, out.Turn, "s1")
 	if fact.Reason != "not accepted: "+sourceSteering {
 		t.Fatalf("s1 settled as %+v", fact)
+	}
+}
+
+// staleInbox is an Inbox with its own Ready signal. Once armed, its next
+// Steers call reads the queue, then holds its answer until its context
+// ends: a slow listener fetch that began before a steer was queued.
+type staleInbox struct {
+	*Inbox
+	ready   chan struct{}
+	armed   atomic.Bool
+	entered chan struct{}
+}
+
+func newStaleInbox() *staleInbox {
+	return &staleInbox{
+		Inbox:   NewInbox(),
+		ready:   make(chan struct{}, 1),
+		entered: make(chan struct{}, 1),
+	}
+}
+
+func (s *staleInbox) Ready() <-chan struct{} { return s.ready }
+
+func (s *staleInbox) signal() {
+	select {
+	case s.ready <- struct{}{}:
+	default:
+	}
+}
+
+func (s *staleInbox) Steers(ctx context.Context, turnID string) ([]Steer, error) {
+	if !s.armed.CompareAndSwap(true, false) {
+		return s.Inbox.Steers(ctx, turnID)
+	}
+	steers, err := s.Inbox.Steers(ctx, turnID)
+	s.entered <- struct{}{}
+	<-ctx.Done()
+	return steers, err
+}
+
+// sendDuringFetch queues an urgent steer and signals Ready while the
+// listener's fetch, begun before the steer, is in flight. It returns with
+// the steer queued and signalled but not in the urgent set.
+func (s *staleInbox) sendDuringFetch(t *testing.T, text string) {
+	t.Helper()
+	s.armed.Store(true)
+	s.signal()
+	<-s.entered
+	if _, err := s.SendUrgent(text); err != nil {
+		t.Error(err)
+		return
+	}
+	s.signal()
+}
+
+// oneProc runs the test on one processor, so the listener cannot wake for a
+// signal until the run goroutine blocks: a steer sent from the run
+// goroutine stays unfetched until the run's next check looks.
+func oneProc(t *testing.T) {
+	prev := goruntime.GOMAXPROCS(1)
+	t.Cleanup(func() { goruntime.GOMAXPROCS(prev) })
+}
+
+// A steer already waiting when a call reaches its start skips the call,
+// even when the listener has not fetched it yet: the listener has not
+// woken for the signal, or its fetch began before the steer was queued.
+// The check before the start, or before the hand-off to the host, then
+// looks at the source itself.
+func TestUrgentSteerWaitingAtStartSkipsTheCall(t *testing.T) {
+	external := tool.Tool{Definition: tool.Definition{
+		Name:   "ext",
+		Schema: json.RawMessage(`{"type":"object"}`),
+		Kind:   tool.KindExternal,
+	}}
+	oneProc(t)
+	for _, tc := range []struct {
+		name  string
+		tool  string
+		stale bool
+	}{
+		{"unfetched", "work", false},
+		{"unfetched external", "ext", false},
+		{"stale fetch", "work", true},
+		{"stale fetch external", "ext", true},
+	} {
+		name := tc.tool
+		t.Run(tc.name, func(t *testing.T) {
+			inbox := newStaleInbox()
+			bench := newSkipBench()
+			// BeforeTool for b runs after the check at the top of the loop
+			// and before the check at the start, on the run goroutine.
+			bench.onPlan = func(id string) {
+				if id != "b" {
+					return
+				}
+				if tc.stale {
+					inbox.sendDuringFetch(t, "stop")
+					return
+				}
+				if _, err := inbox.SendUrgent("stop"); err != nil {
+					t.Error(err)
+				}
+				inbox.signal()
+			}
+			named := func(id string) string {
+				if id == "b" {
+					return name
+				}
+				return "work"
+			}
+			client := newUrgentClient(
+				urgentCall{result: batchResult(named, "a", "b")},
+				urgentCall{result: final("ok")},
+			)
+			runner := skipRunner(client, bench, 1, nil, external)
+			out, err := runner.Run(
+				t.Context(),
+				Turn{ID: "t1"},
+				startInput(),
+				WithSteering(inbox),
+			)
+			if err != nil || out.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", out.Stop, err)
+			}
+			requireRan(t, out.Turn, "a")
+			requireSkipped(t, out.Turn, "b", true)
+			if bench.runs("b") != 0 {
+				t.Fatal("b ran")
+			}
+			requireResultsThenSteer(
+				t,
+				client.inputs()[1],
+				"stop",
+				[]string{"b"},
+				"a",
+			)
+		})
+	}
+}
+
+// A steer queued after a call started does not interrupt it; it skips only
+// the calls not yet started, even while the listener's fetch is in flight.
+func TestUrgentSteerAfterStartDoesNotInterruptTheCall(t *testing.T) {
+	oneProc(t)
+	inbox := newStaleInbox()
+	bench := newSkipBench()
+	var cut atomic.Bool
+	release := bench.releaseOn("b")
+	bench.run["a"] = func(ctx context.Context) error {
+		<-release
+		inbox.sendDuringFetch(t, "stop")
+		cut.Store(ctx.Err() != nil)
+		return nil
+	}
+	client := newUrgentClient(
+		urgentCall{result: batchResult(allWork, "a", "b")},
+		urgentCall{result: final("ok")},
+	)
+	runner := skipRunner(client, bench, 1, nil)
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		startInput(),
+		WithSteering(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if cut.Load() {
+		t.Fatal("the steer cancelled the started call")
+	}
+	requireRan(t, out.Turn, "a")
+	// b was allowed while a ran, and waited for a's slot.
+	requireSkipped(t, out.Turn, "b", true)
+	requireResultsThenSteer(t, client.inputs()[1], "stop", []string{"b"}, "a")
+}
+
+// A steer never skips the submission, so a record claiming it did is
+// forged.
+func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
+	agent := testAgent()
+	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
+	submit := func(string) string { return SubmitOutputTool }
+	client := newUrgentClient(urgentCall{result: batchResult(submit, "s1")})
+	out := runUrgent(t, client, NewInbox(), func(r *Runner) { r.Agent = agent })
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+		t.Fatal(err)
+	}
+	// Forge: the allowed submission settles as skipped by a steer instead
+	// of starting.
+	forged := cloneTurn(out.Turn)
+	var steps []Step
+	for _, step := range forged.Steps {
+		if step.Tool != nil && step.Tool.Call.ID == "s1" {
+			if step.Kind == StepToolStarted {
+				continue
+			}
+			if step.Kind == StepToolSettled {
+				skipped := tool.Outcome{
+					State:  tool.StateNotExecuted,
+					Output: new(tool.TextOutput(steerSkipText)),
+				}
+				step.Tool.Outcome = &skipped
+				step.Tool.Reason = reasonSteering
+				step.Tool.Result = nil
+			}
+		}
+		step.Seq = int64(len(steps) + 1)
+		steps = append(steps, step)
+	}
+	forged.Steps = steps
+	if _, err := Replay(forged); err == nil ||
+		!strings.Contains(err.Error(), "never skips the reserved output tool") {
+		t.Fatalf("replay err = %v", err)
 	}
 }

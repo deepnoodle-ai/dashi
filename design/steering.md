@@ -178,16 +178,19 @@ still presents the steer for FR-6. The settlement closes the attempt's preview
 
 Running tools are never interrupted. The tool loop reads the urgent set
 before each call's `BeforeTool` (after its argument checks) and before a
-call starts or goes to the host. Once it is non-empty, no later call in the
-batch starts: each settles not executed with reason `steering` (replay
-accepts `allowed` to `not_executed` only then) and output "Not run: the user
-sent new input." A steer during the model call can skip the whole batch; the
-model sees each skipped result plus the steer. A recorded skip skips the
-rest of its batch on resume. Started calls finish or re-run; approvals and
-external waits stay pending. `dashi_submit_output` is left to the finish
-point. Calls skip only if a later call can offer tools: on the last normal
-attempt the batch runs and the steer goes to the final-answer call; with no
-call left, the batch runs, with a warning.
+call starts or goes to the host. A steer queued before that check counts
+even if the listener has not fetched it: the run asks the listener, and on a
+pending signal or a cut fetch it fetches itself; otherwise it makes no
+source call. Once the set is non-empty, no later call in the batch starts:
+each settles not executed with reason `steering` (replay accepts `allowed`
+to `not_executed` only then) and output "Not run: the user sent new input."
+A steer during the model call can skip the whole batch; the model sees each
+skipped result plus the steer. A recorded skip skips the rest of its batch
+on resume. Started calls finish or re-run; approvals and external waits stay
+pending. `dashi_submit_output` is left to the finish point, and replay
+rejects a steering skip of it. Calls skip only if a later call can offer
+tools: on the last normal attempt the batch runs and the steer goes to the
+final-answer call; with no call left, the batch runs, with a warning.
 
 ## Plan and tests
 
@@ -204,7 +207,8 @@ call left, the batch runs, with a warning.
   steer, or a source without a notifier; each warning once. `NextCallOnly`
   items survive; vetoes hold.
 - Skips: sequential and parallel batches, external calls, a crash and
-  resume, forged replay reasons; submissions and last calls never skip.
+  resume, forged replay reasons, a steer not yet fetched at the start;
+  submissions (also on replay) and last calls never skip.
 - Faults: a crash after the cancel; rejected and unknown settlement writes;
   a blocking `Steers`. `-race` on the listener, source lock, and `Inbox`.
 - Live (Anthropic, OpenAI Responses, Gemini, one Chat Completions route): cut

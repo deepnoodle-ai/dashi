@@ -56,8 +56,12 @@ type steerListener struct {
 	// listener's decision itself, so a slow source can delay a cut but
 	// never stall the run.
 	fetchCancel context.CancelFunc
-	stop        context.CancelFunc
-	finished    chan struct{}
+	// syncs counts run requests waiting on syncReq; while one waits, the
+	// listener starts no fetch, so it cannot keep the run waiting.
+	syncs    int
+	syncReq  chan chan bool
+	stop     context.CancelFunc
+	finished chan struct{}
 }
 
 // steerableCall is a model call the listener may cut short. It is
@@ -98,6 +102,7 @@ func (r *runtime) startSteering(s *replayState) {
 		interrupted: map[string]bool{},
 		loopBack:    map[string]bool{},
 		seenSet:     map[string]bool{},
+		syncReq:     make(chan chan bool),
 		stop:        stop,
 		finished:    make(chan struct{}),
 	}
@@ -233,16 +238,88 @@ func (l *steerListener) run(
 	ready <-chan struct{},
 ) {
 	defer close(l.finished)
+	// pending is set while a signal is owed a fetch: the run cut the
+	// listener's fetch short. It is tried again, so the signal is not lost,
+	// unless a run request takes it over first.
+	pending := false
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ready:
+		if pending {
+			l.mu.Lock()
+			waiting := l.syncs > 0
+			l.mu.Unlock()
+			var retry <-chan struct{}
+			if !waiting {
+				retry = closedChan
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case reply := <-l.syncReq:
+				l.handOver(ready, reply, true)
+				pending = false
+				continue
+			case <-retry:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return
+			case reply := <-l.syncReq:
+				l.handOver(ready, reply, false)
+				continue
+			case <-ready:
+			}
 		}
-		// A fetch the run cut short is tried again, so the signal is not
-		// lost; the retry waits until the run is done with the source.
-		for l.check(ctx, source, turnID) {
-		}
+		pending = l.check(ctx, source, turnID)
+	}
+}
+
+// closedChan is always ready to receive.
+var closedChan = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// handOver answers a run's sync request: it reports whether a steer may be
+// waiting that the listener has not fetched, a signal on Ready or a fetch
+// cut short, and leaves that fetch to the run.
+func (l *steerListener) handOver(
+	ready <-chan struct{},
+	reply chan<- bool,
+	pending bool,
+) {
+	select {
+	case <-ready:
+		pending = true
+	default:
+	}
+	reply <- pending
+}
+
+// sync waits until the listener is between signals, then reports whether
+// a steer may be waiting that the listener has not fetched. The listener
+// is the only reader of Ready, so only it can tell a signal it received
+// but has not acted on; asking it closes that gap. A fetch in flight is
+// cut short rather than waited for. The caller must not hold sourceMu.
+func (l *steerListener) sync() bool {
+	l.mu.Lock()
+	l.syncs++
+	if l.fetchCancel != nil {
+		l.fetchCancel()
+	}
+	l.mu.Unlock()
+	defer func() {
+		l.mu.Lock()
+		l.syncs--
+		l.mu.Unlock()
+	}()
+	reply := make(chan bool, 1)
+	select {
+	case l.syncReq <- reply:
+		return <-reply
+	case <-l.finished:
+		return false
 	}
 }
 
@@ -263,6 +340,15 @@ func (l *steerListener) check(
 	l.mu.Unlock()
 	l.sourceMu.Lock()
 	defer l.sourceMu.Unlock()
+	// A run waiting to sync takes the signal over; fetching now would only
+	// keep it waiting.
+	l.mu.Lock()
+	if l.syncs > 0 {
+		l.fetchCancel = nil
+		l.mu.Unlock()
+		return ctx.Err() == nil
+	}
+	l.mu.Unlock()
 	steers, err := source.Steers(fetchCtx, turnID)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -271,25 +357,7 @@ func (l *steerListener) check(
 		// FR-6 reports a failing source; the listener writes no warnings.
 		return fetchCtx.Err() != nil && ctx.Err() == nil
 	}
-	for _, steer := range steers {
-		if id := steer.Item.ID; id != "" && !l.seenSet[id] {
-			l.seenSet[id] = true
-			l.seen = append(l.seen, id)
-		}
-	}
-	fresh, _, _ := classifySteers(l.recorded, steers)
-	var ids []string
-	var items []ContextItem
-	for _, steer := range fresh {
-		items = append(items, steer.Item)
-		if !steer.Urgent {
-			continue
-		}
-		l.urgent[steer.Item.ID] = steer.Item
-		if !l.interrupted[steer.Item.ID] {
-			ids = append(ids, steer.Item.ID)
-		}
-	}
+	ids, items := l.merge(steers)
 	c := l.call
 	if len(ids) == 0 || c == nil || c.cut {
 		return false
@@ -313,15 +381,44 @@ func (l *steerListener) check(
 	return false
 }
 
+// merge claims a fetch's steers and adds the fresh urgent ones to the
+// urgent set. It returns the fresh items and the urgent IDs that have not
+// cut a call yet. The caller holds mu.
+func (l *steerListener) merge(steers []Steer) ([]string, []ContextItem) {
+	for _, steer := range steers {
+		if id := steer.Item.ID; id != "" && !l.seenSet[id] {
+			l.seenSet[id] = true
+			l.seen = append(l.seen, id)
+		}
+	}
+	fresh, _, _ := classifySteers(l.recorded, steers)
+	var ids []string
+	var items []ContextItem
+	for _, steer := range fresh {
+		items = append(items, steer.Item)
+		if !steer.Urgent {
+			continue
+		}
+		l.urgent[steer.Item.ID] = steer.Item
+		if !l.interrupted[steer.Item.ID] {
+			ids = append(ids, steer.Item.ID)
+		}
+	}
+	return ids, items
+}
+
 // lockSource cuts the listener's fetch in flight short, then takes
-// sourceMu. The caller unlocks sourceMu.
-func (l *steerListener) lockSource() {
+// sourceMu. The caller unlocks sourceMu. It reports whether it cut a fetch
+// short.
+func (l *steerListener) lockSource() bool {
 	l.mu.Lock()
-	if l.fetchCancel != nil {
+	cut := l.fetchCancel != nil
+	if cut {
 		l.fetchCancel()
 	}
 	l.mu.Unlock()
 	l.sourceMu.Lock()
+	return cut
 }
 
 // release ends the listener's hold on c, cuts a fetch in flight short, and
@@ -452,19 +549,32 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 	return false
 }
 
-// urgentSteers returns the urgent set's steers. Like registerCall, it takes
-// the source lock, so a steer the listener has fetched is decided before
-// the run looks. Taking the lock cancels the listener's fetch in flight;
-// the listener retries it once the run lets go. That is safe: a steer the
-// cut fetch would have found is seen by the retry, only later, and a later
-// steer can only skip fewer calls (U-1).
+// urgentSteers returns the urgent set's steers, including every urgent
+// steer the source held when it was called: this is the boundary before a
+// call starts. The cached set alone could miss a steer whose signal the
+// listener has not acted on yet, or whose fetch the run just cut short, so
+// in those cases the run fetches itself under the source lock and merges
+// the result as the listener would. With nothing pending, it makes no
+// source call. A steer that arrives after the boundary does not affect
+// the call.
 func (r *runtime) urgentSteers() []ContextItem {
 	l := r.listen
 	if l == nil {
 		return nil
 	}
-	l.lockSource()
+	fetch := l.sync()
+	if l.lockSource() {
+		fetch = true
+	}
 	defer l.sourceMu.Unlock()
+	if fetch {
+		// FR-6 reports a failing source; this check only looks.
+		if steers, err := r.opts.steering.Steers(r.ctx, r.turn.ID); err == nil {
+			l.mu.Lock()
+			l.merge(steers)
+			l.mu.Unlock()
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var items []ContextItem

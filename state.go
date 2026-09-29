@@ -855,6 +855,11 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("wait is not settlement")
 			}
 			if v.Call.Name == SubmitOutputTool {
+				// A steer never skips the submission; the finish point
+				// decides a waiting steer for it.
+				if step.Tool.Reason == reasonSteering {
+					return errors.New("a steer never skips the reserved output tool")
+				}
 				if step.Tool.Outcome.State != tool.StateNotExecuted &&
 					v.Status != ToolStarted {
 					return errors.New("reserved output tool requires runner start")
