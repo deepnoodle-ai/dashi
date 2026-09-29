@@ -8,12 +8,15 @@ it needs, and which of them are optional. Every example needs a provider key.
 | Example             | Provider  | Shows                                                          |
 | ------------------- | --------- | -------------------------------------------------------------- |
 | `basic`             | OpenAI    | One streamed model call, without an agent                      |
+| `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the answer    |
 | `agent`             | OpenAI    | One recorded agent turn                                        |
 | `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
+| `hooks`             | Anthropic | Hooks that deliver context, deny a call, and nudge an answer   |
 | `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
 | `approval`          | Anthropic | A person approves or denies a tool call during the run         |
 | `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
 | `bigresult`         | Anthropic | A large tool result: the model sees a bounded view             |
+| `budget`            | Anthropic | A turn stopped by its cost cap, then continued with a raise    |
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
 | `coding`            | OpenAI    | A coding agent in one directory, with approval prompts         |
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
@@ -28,6 +31,10 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `vision`            | Anthropic | Describing an image from a URL or a local file                 |
 | `documents`         | Anthropic | Asking about a text or PDF document, with cited passages       |
 | `attachment_refs`   | Anthropic | A stored upload named by ID and digest, resolved per request   |
+| `batch_speech`      | OpenAI    | Synthesizing a short speech clip, then transcribing it         |
+
+The MCP example is in its own Go module, at `mcp/example`: run it from `mcp/`
+with `go run ./example`. It uses Anthropic and the servers in a `.mcp.json`.
 
 For example:
 
