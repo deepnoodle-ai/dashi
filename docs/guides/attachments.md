@@ -113,6 +113,7 @@ for _, w := range res.Warnings {
 | `@src/main.go` | A text document block. The text becomes `[file: src/main.go]`. |
 | `./err.png`, `spec.pdf` | An image or PDF block. The path stays in the text. |
 | `~/Desktop/Screen\ Shot.png`, `'/tmp/a b.png'`, `file:///tmp/a.png` | The forms a terminal inserts when a person drops a file. |
+| `@main.go:12` | The file `main.go`. The text becomes `[file: main.go]:12`. |
 | `me@example.com`, `main.go:12` | No change. |
 
 A word without `@` attaches only when it names an existing image or PDF.
