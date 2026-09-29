@@ -136,10 +136,13 @@ func (h Hooks) Hooks() Hooks {
 
 // JoinHooks returns the hooks of hs in order, in new slices, so later
 // changes to either side do not affect the other. Pass hooks directly, as
-// in JoinHooks(onCall, guard), or whole sets.
+// in JoinHooks(onCall, guard), or whole sets. A nil set is skipped.
 func JoinHooks(hs ...HookSet) Hooks {
 	var out Hooks
 	for _, set := range hs {
+		if set == nil {
+			continue
+		}
 		h := set.Hooks()
 		out.BeforeModel = append(out.BeforeModel, h.BeforeModel...)
 		out.BeforeSend = append(out.BeforeSend, h.BeforeSend...)
@@ -418,10 +421,18 @@ type FinishDecision struct {
 // item before a model call whenever the turn does not hold it yet: once per
 // turn, for context such as who is on call. It reads the turn record with
 // TurnView.Context, so a turn resumed in another process does not deliver
-// it again. Give item a Name, and leave NextCallOnly unset, or the item
-// expires after each call and is delivered again.
+// it again. It panics if item has no Name, and it clears NextCallOnly, which
+// would expire the item after each call and deliver it again.
+//
+// In a Session, each turn delivers the item again, and the history keeps
+// the copies from earlier turns, so keep a seed small. The fresh copy is
+// what keeps the item in context after compaction drops old history.
 func SeedContext(item ContextItem) ModelHook {
+	if item.Name == "" {
+		panic("dashi: SeedContext item has no name")
+	}
 	item = cloneContextItem(item)
+	item.NextCallOnly = false
 	return ModelHook{
 		Name: item.Name,
 		Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
@@ -558,7 +569,16 @@ func validatePoint[H hookShape[P, D], P, D any](
 			return fmt.Errorf("dashi: %s hook %d has no name", point, i+1)
 		}
 		if seen[h.Name] {
-			return fmt.Errorf("dashi: %s hook %q is listed twice", point, h.Name)
+			hint := ""
+			if point == HookBeforeModel {
+				hint = "; a SeedContext hook is named after its item"
+			}
+			return fmt.Errorf(
+				"dashi: %s hook %q is listed twice%s",
+				point,
+				h.Name,
+				hint,
+			)
 		}
 		if h.Func == nil {
 			return fmt.Errorf("dashi: %s hook %q has no function", point, h.Name)

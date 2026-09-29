@@ -102,15 +102,18 @@ tool not marked read-only, see
 `BeforeModel` runs before every model call in the turn, so a hook that
 delivers context should check `p.Turn.Context(origin, name)` first and skip an
 item that is already current. `dashi.SeedContext(item)` is that hook for a
-fixed item, such as who is on call: it delivers the item once per turn. To act
-once per turn in any hook, ask `p.Turn.HookActed(point, name)`, which reports
-whether the named hook has answered this turn. Both read the turn record, not
-a variable in the hook, so they hold when another process resumes the turn.
-`BeforeModel` may run more than once for one reply, and
-`BeforeSend` may be asked again for the same reply, when an [urgent steer](steering.md)
-sends the run back before the request is sent. Deliver a value that must
-reflect each call as a named `Snapshot` item, and reserve spending in the
-recorder with the model intent, not in the hook.
+fixed item, such as who is on call: it delivers the item once per turn. In a
+`Session`, each turn delivers it again and the history keeps the earlier
+copies, so keep a seed small; the fresh copy keeps it in context after
+compaction drops old history. To act once per turn in any hook, ask
+`p.Turn.HookActed(point, name)`, which reports whether the named hook has
+answered this turn. Both read the turn record, not a variable in the hook, so
+they hold when another process resumes the turn. `BeforeModel` may run more
+than once for one reply, and `BeforeSend` may be asked again for the same
+reply, when an [urgent steer](steering.md) sends the run back before the
+request is sent. Deliver a value that must reflect each call as a named
+`Snapshot` item, and reserve spending in the recorder with the model intent,
+not in the hook.
 
 `BeforeFinish` vetoes an answer with a `Reason`, which the model sees as "Not
 accepted: …" before it answers again, or nudges with `Deliver` items alone. A nudge never spends the

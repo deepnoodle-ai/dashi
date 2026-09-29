@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -108,4 +109,59 @@ func TestHookHelpersHoldAcrossResume(t *testing.T) {
 	if seeded != 1 {
 		t.Errorf("note delivered %d times; want 1", seeded)
 	}
+}
+
+// SeedContext rejects an item it could never find in the record, clears
+// NextCallOnly, and names itself when its hook name clashes.
+func TestSeedContextGuardsItsItem(t *testing.T) {
+	t.Run("no name", func(t *testing.T) {
+		defer func() {
+			r := recover()
+			msg, _ := r.(string)
+			if !strings.Contains(msg, "SeedContext") {
+				t.Fatalf("panic %v; want one that names SeedContext", r)
+			}
+		}()
+		dashi.SeedContext(dashi.ContextItem{
+			Origin:  dashi.ContextRuntime,
+			Message: llm.UserMessage(llm.Text("A note.")),
+		})
+	})
+	t.Run("next call only", func(t *testing.T) {
+		seed := dashi.SeedContext(dashi.ContextItem{
+			Name:         "note",
+			Origin:       dashi.ContextRuntime,
+			Message:      llm.UserMessage(llm.Text("A note.")),
+			NextCallOnly: true,
+		})
+		d, err := seed.Func(context.Background(), dashi.ModelPlan{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Deliver) != 1 || d.Deliver[0].NextCallOnly {
+			t.Fatalf("delivered %+v; want one item without NextCallOnly", d.Deliver)
+		}
+	})
+	t.Run("name clash", func(t *testing.T) {
+		seed := dashi.SeedContext(dashi.ContextItem{
+			Name:    "note",
+			Origin:  dashi.ContextRuntime,
+			Message: llm.UserMessage(llm.Text("A note.")),
+		})
+		other := dashi.ModelHook{Name: "note", Func: func(
+			context.Context, dashi.ModelPlan) (dashi.ModelDecision, error) {
+			return dashi.ModelDecision{}, nil
+		}}
+		runner := dashi.Runner{
+			Client: dashitest.NewClient(dashitest.Reply("Hi.")),
+			Hooks:  dashi.JoinHooks(seed, other),
+		}
+		_, err := runner.Run(context.Background(), dashi.Turn{}, dashi.Start{
+			Agent: dashi.Agent{Model: dashitest.Model},
+			Input: []llm.Message{llm.UserMessage(llm.Text("Hi."))},
+		})
+		if err == nil || !strings.Contains(err.Error(), "SeedContext") {
+			t.Fatalf("err %v; want one that names SeedContext", err)
+		}
+	})
 }
