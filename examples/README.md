@@ -13,6 +13,7 @@ it needs, and which of them are optional. Every example needs a provider key.
 | `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
 | `approval`          | Anthropic | A person approves or denies a tool call during the run         |
 | `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
+| `bigresult`         | Anthropic | A large tool result: the model sees a bounded view             |
 | `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
 | `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
 | `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |

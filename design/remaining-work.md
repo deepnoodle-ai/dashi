@@ -9,9 +9,9 @@ gaps against Dive and the temporary framework survey in
 The older [gap reports](gap-analysis.md) describe discovery-time code. A
 delivered first slice does not imply every provider route is qualified.
 
-Of the 24 items below, **2 are resolved** (9, 10), **6 have a merged first
-slice with work remaining** (1, 4, 8, 12, 20, 22), and **16 remain open**
-(2, 3, 5–7, 11, 13–19, 21, 23, 24). Thus 22 still have some work, including
+Of the 24 items below, **2 are resolved** (9, 10), **7 have a first
+slice with work remaining** (1, 4, 8, 11, 12, 20, 22; item 11 awaits its PR), and
+**15 remain open** (2, 3, 5–7, 13–19, 21, 23, 24). Thus 22 still have some work, including
 qualification and measurement as well as implementation. The separate hooks
 and steering follow-ups at the end are outside this count. At this snapshot,
 no roadmap-item implementation PR is open.
@@ -142,13 +142,16 @@ and [recorded-value decision 27](decisions.md).
 
 ### 11. Tool-result size and projection
 
-**Status:** Open. A tool can return an unbounded result that is sent on later
-model calls. **Size:** M. **Difficulty:** High. **Reference:** [adjacent-library
-findings](gaps/C-adjacent-libraries.md) and [design pitfalls](design-pitfalls.md);
-no approved design. **Next:** Define a recorded, visible truncation or
-reference rule that preserves the original result for audit.
+**Status:** First slice implemented on branch `tools/result-bounds`; PR
+pending. `Limits.ToolResultBytes` (default 64 KiB) shortens the text of each
+tool result in the model view, after `AfterTool`. The record keeps the full
+outcome and stores the view with `ToolFact.Shortened`. **Size:** M.
+**Difficulty:** High. **Reference:** [adjacent-library
+findings](gaps/C-adjacent-libraries.md) and [design pitfalls](design-pitfalls.md).
+**Next:** Add a marker that points at a `content.Resource`, per-tool limits, a
+request-byte ceiling, and CLI display of `Shortened`; see the PRD.
 
-**Packet:** [source research](roadmap-research/11-tool-result-projection-research.md) · [draft PRD](roadmap-research/11-tool-result-projection-prd.md).
+**Packet:** [source research](roadmap-research/11-tool-result-projection-research.md) · [PRD](roadmap-research/11-tool-result-projection-prd.md) · [guide](../docs/guides/tools.md#large-results).
 
 ### 12. Skills
 
