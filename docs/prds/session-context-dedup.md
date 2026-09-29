@@ -48,6 +48,7 @@ A developer uses Session compaction. Its replacement keeps all, some, or none of
 - [ ] If only an older value survives, the configured current value appends after it.
 - [ ] A summary mentioning the context does not count as its retained message.
 - [ ] Reopening after compaction produces the same behavior.
+- [ ] Old compaction records without identity receive one new identified delivery. Their retained unidentified copies remain in place.
 
 ## Requirements
 
@@ -68,7 +69,7 @@ A developer uses Session compaction. Its replacement keeps all, some, or none of
 
 ## Scope and risks
 
-Do not deduplicate arbitrary history, alter caller-authored Deliver semantics, or interpret summary text. Do not add manual compaction or change compaction thresholds. Message identity metadata must survive cloning and JSON storage while remaining absent from provider wire content. Existing turn records must project without migration. The tech spec will define the metadata representation and delivery-ID handling before implementation.
+Do not deduplicate arbitrary history, alter caller-authored Deliver semantics, or interpret summary text. Do not add manual compaction or change compaction thresholds. Message identity metadata must survive cloning and JSON storage while remaining absent from provider wire content. Existing ordinary turn records gain identity during projection without migration. Old compaction Keep messages cannot prove identity and can temporarily duplicate a new delivery. The tech spec will define the metadata representation and delivery-ID handling before implementation.
 
 ## Success
 
