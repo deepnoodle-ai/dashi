@@ -417,8 +417,12 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		running++
 		call := v.Call.Clone()
 		slot := progress.open(call)
+		callCtx := withCurrentCall(
+			ctx,
+			CallRef{TurnID: r.turn.ID, CallID: call.ID},
+		)
 		go func() {
-			results <- execute(ctx, boundExecutor, call, slot)
+			results <- execute(callCtx, boundExecutor, call, slot)
 		}()
 	}
 	for running > 0 {

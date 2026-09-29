@@ -349,6 +349,11 @@ func (r Runner) apply(
 				return Outcome{}, err
 			}
 		}
+		if c.Parent != nil {
+			if err := c.Parent.Validate(); err != nil {
+				return Outcome{}, err
+			}
+		}
 		if err := validateHistory(c.History); err != nil {
 			return Outcome{}, err
 		}
@@ -391,6 +396,7 @@ func (r Runner) apply(
 				Origin:             origin,
 				HistoryFingerprint: fingerprint,
 				Input:              cloneMessages(c.Input),
+				Parent:             cloneCallRef(c.Parent),
 			},
 		}); o != nil {
 			return rt.result(*o)

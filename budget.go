@@ -193,6 +193,54 @@ func (s Spend) Clone() Spend {
 	return s
 }
 
+// Add returns the sum of s and o for reports that cover several turns, such
+// as a parent and its children. Model Cost and ToolCost stay in separate
+// maps, and every counter keeps its own meaning, so a total never hides
+// which part was estimated, unpriced, or unknown. A sum that overflows is
+// not stored; it adds one to CostUnknown instead.
+func (s Spend) Add(o Spend) Spend {
+	sum := s.Clone()
+	o = o.Clone()
+	if err := sum.Usage.Add(&o.Usage); err != nil {
+		sum.CostUnknown++
+	}
+	sum.Cost = addCosts(&sum, sum.Cost, o.Cost)
+	sum.ToolCost = addCosts(&sum, sum.ToolCost, o.ToolCost)
+	sum.Estimated += o.Estimated
+	sum.CostUnknown += o.CostUnknown
+	sum.CostPartial += o.CostPartial
+	for meter, n := range o.UnpricedRequests {
+		if sum.UnpricedRequests == nil {
+			sum.UnpricedRequests = map[string]int{}
+		}
+		sum.UnpricedRequests[meter] += n
+	}
+	return sum
+}
+
+func addCosts(
+	sum *Spend,
+	into, from map[string]money.Amount,
+) map[string]money.Amount {
+	if len(from) > 0 && into == nil {
+		into = map[string]money.Amount{}
+	}
+	for currency, amount := range from {
+		if err := addCurrencyCost(into, currency, amount); err != nil {
+			sum.CostUnknown++
+		}
+	}
+	return into
+}
+
+func cloneCallRef(c *CallRef) *CallRef {
+	if c == nil {
+		return nil
+	}
+	copied := *c
+	return &copied
+}
+
 func (b Budget) raisedFrom(old Budget) error {
 	if err := b.Validate(); err != nil {
 		return err
