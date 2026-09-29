@@ -55,8 +55,9 @@ func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 // that fit in the tail budget, cutting only where a user message other than
 // a tool result starts, and never between a tool call and its result. The
 // messages before the cut are sent as a text transcript with the prompt,
-// without their reminders. Their system and developer messages are kept
-// ahead of the summary, with their own role.
+// without their reminders, but with agent mail (a reminder with a From).
+// Their system and developer messages are kept ahead of the summary, with
+// their own role.
 func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()
 	cut := c.cut(projected, window)

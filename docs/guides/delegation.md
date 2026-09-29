@@ -26,7 +26,8 @@ out, err := s.Send(ctx, "Who owns billing, and who is on call for search?")
 out, err = delegate.RunUntilQuiet(ctx, s, tasks) // results that came later
 ```
 
-[`examples/delegate`](../../examples/delegate) is a complete program.
+[`examples/delegate`](../../examples/delegate) is a complete program; it
+runs with no API key, on scripted clients.
 
 A child inherits from the runner that runs the `task` call, at the time of the
 call: the client, recorder, and hooks. It also takes the parent turn's current

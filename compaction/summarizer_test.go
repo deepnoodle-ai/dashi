@@ -86,6 +86,30 @@ func TestSummarizerRequestHasNoToolsAndCarriesTranscript(t *testing.T) {
 	}
 }
 
+func TestSummarizerRequestCarriesAgentMail(t *testing.T) {
+	client := &fakeClient{
+		window: 100_000,
+		reply: func(llm.Input) llm.Result {
+			return textResult("<summary>ok</summary>")
+		},
+	}
+	history, _ := session(1, 50)
+	history = append(history, llm.ReminderMessage(llm.Reminder{
+		Name:    "task-ended",
+		Tier:    llm.ReminderContextual,
+		From:    "task t_k3f2 (explore)",
+		Content: "AGENT-MAIL",
+	}))
+	cfg := SummarizerConfig{Model: "fixture"}
+	if _, err := summarize(t, client, cfg, history); err != nil {
+		t.Fatal(err)
+	}
+	want := "[message from task t_k3f2 (explore)]\nAGENT-MAIL"
+	if req := lastRequest(client); !strings.Contains(req, want) {
+		t.Fatalf("request lacks the agent mail:\n%s", req)
+	}
+}
+
 func TestSummarizerFailsWithoutSummaryTags(t *testing.T) {
 	client := &fakeClient{
 		window: 100_000,

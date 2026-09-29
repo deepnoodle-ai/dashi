@@ -48,7 +48,8 @@ their middle, followed by the turns after the compaction turn.
    `TailFraction` keeps none on purpose.
 2. It sends the older messages as a text transcript with the prompt
    (`Compactor.Prompt`). A large tool result is shortened in the middle to fit
-   the window. Reminders are removed.
+   the window. Reminders are removed, except agent mail: a reminder with a
+   `From`, such as a subagent's answer, becomes an item that names its sender.
 3. It keeps each system or developer message of the covered part with its
    own role, ahead of the summary. The summarizer does not see them.
 4. `Compactor.Model` names the summary model; empty means the session's. When

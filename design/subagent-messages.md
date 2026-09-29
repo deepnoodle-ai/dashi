@@ -64,7 +64,8 @@ parent Session ──task_send──▶ Tasks ─────SteerItem/Start─�
   `Notice.Item()` is the `task-ended` reminder, from `task t_k3f2 (explore)`
   (`taskSender` strips what `From` forbids and cuts it to 64 bytes), cut to
   fit the 64 KiB reminder limit. Compaction keeps reminders with a `From` in
-  the summarizer's input, since nobody supplies agent mail again; it still
+  the summarizer's input, since nobody supplies agent mail again; the
+  transcript writes each as an item with its sender and content. It still
   drops the others.
 - **`MaxTaskTurns`** (default 10; negative means none) bounds the turns of one
   child session. `Tasks` checks it wherever it starts a child turn.
