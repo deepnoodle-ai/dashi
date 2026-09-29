@@ -35,8 +35,10 @@ optional. Every example but those two needs a provider key.
 | `attachment_refs`   | Anthropic | A stored upload named by ID and digest, resolved per request   |
 | `batch_speech`      | OpenAI    | Synthesizing a short speech clip, then transcribing it         |
 
-The MCP example is in its own Go module, at `mcp/example`: run it from `mcp/`
-with `go run ./example`. It uses Anthropic and the servers in a `.mcp.json`.
+The MCP examples are in their own Go module. From `mcp/`, run
+`go run ./example/keyless` to start a stdio MCP server and call its `add` tool.
+It uses fixed model replies and needs no API key or config file.
+Run `go run ./example` to use Anthropic and the servers in a `.mcp.json`.
 
 For example:
 

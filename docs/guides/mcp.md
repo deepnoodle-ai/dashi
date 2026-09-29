@@ -109,6 +109,23 @@ clear message until `Refresh` reconnects it.
 
 ## Try it
 
+Run a complete example without an API key, config file, or separate server:
+
+```sh
+cd mcp
+go run ./example/keyless
+```
+
+The program starts its own stdio MCP server, calls its `add` tool through a
+Dashi agent, and closes the child process. `dashitest` supplies fixed model
+replies. The MCP connection and tool result are real:
+
+```text
+MCP server demo: connected (1 tool)
+MCP result: {"sum":5}
+Scripted answer: 2 + 3 = 5.
+```
+
 The `mcp/example` program asks before it starts each server and before each
 call. See its package comment for a test server that you can run without a
 server of your own. The package tests run a small test server in
