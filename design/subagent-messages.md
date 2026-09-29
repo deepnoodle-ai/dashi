@@ -109,9 +109,11 @@ Without `Config.Session`, `OnTask` gets `TaskMessage` and `TaskEnded` events,
 and the host calls the same two methods. `Config.Session` needs the handle's
 own inbox; with a host `Session.Steering`, route from `OnTask`. A message is
 pending until delivered, so `Tasks.Wait` and `RunUntilQuiet` wake on it.
-Mail is never held for a recipient that cannot read it; a steer left in a
-child that then stops `waiting` or `uncertain` is not pending, and the
-notice says "your message was not read".
+Mail is never held for a recipient that cannot read it. A steer accepted
+while a child ran, whose turn then stops `waiting` or `uncertain` before it
+reads the steer, is **undeliverable**: a final outcome, not pending mail. The
+notice for that turn says "your message was not read", and the parent may
+send it again once the child can take it.
 
 **Parent wakes.** A child turn's first message that finds the parent idle
 starts a parent queue turn. Its later messages steer into a running parent
@@ -190,15 +192,25 @@ IDs, the message ID.
   builds the same ID, finds it in this set (or in the in-memory inbox or
   queue), and the tool treats it as sent. The set, not the session's
   in-memory queue, is what survives a restart.
+- **Target turn.** A settled send records, in its tool result's details, the
+  recipient turn it steered into, or none when it started or queued a turn.
+  A message whose target turn has ended without its ID, and stopped
+  `waiting` or `uncertain`, is undeliverable. Ended turns never change, so
+  every reader and every restart reaches the same outcome.
 - `Recover(ctx, runner, turns)` runs in this order: build the delivered-ID
   sets from the parent turns and each child session; then resume interrupted
   child turns, whose rerun sends now see those sets; then for each settled
   `task_send` in the parent turns, redeliver it if the child lacks its ID;
   for each settled `message_parent` in the child turns, redeliver it if the
   parent lacks its ID; then notices, as today. Each redelivery goes through
-  `deliver`, so it follows the table.
-- Crash tests: before send, after send, after delivery, and "delivered,
-  call not settled, turn resumed" (the resumed turn reruns the call).
+  `deliver`, so it follows the table. `Recover` skips an undeliverable
+  message and never sends to a `waiting` or `uncertain` recipient, so it
+  neither fails nor retries on one; the message appears as "not read" in
+  the notice.
+- Crash tests: before send, after send, after delivery, "delivered, call
+  not settled, turn resumed" (the resumed turn reruns the call), and
+  "steered into a running child that then stops `waiting` before reading
+  it" (`Recover` completes, sends nothing, and the notice says "not read").
 - A message the in-memory queue held when the process died is rebuilt this
   way, so the child sessions' `memory_only` warnings do not apply to mail.
 

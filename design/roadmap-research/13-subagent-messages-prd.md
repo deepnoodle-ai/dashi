@@ -203,6 +203,9 @@ child turn, as reminders; `Config.Session`; `MaxTaskTurns`.
   next turn; a queue message to a running child runs after its answer.
 - `task_send` to a `waiting` and to an `uncertain` child: a tool error, and
   `Tasks.Wait` returns.
+- A steer accepted by a running child whose turn then stops `waiting` before
+  reading it is undeliverable: after a crash, `Recover` completes without
+  sending it, and the notice says "your message was not read".
 - UC-6 crash tests for `task_send`.
 
 **Track 4: child to parent and waits (M).** `message_parent`, `MaxMessages`,
