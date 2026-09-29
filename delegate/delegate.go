@@ -9,12 +9,12 @@
 // starts a second one. Report adds the children's spend to the parent's
 // without mixing child model cost into tool cost.
 //
-// The package depends only on the core dashi package and on tool. Hosts wire
-// it in one line:
+// A child inherits from the runner that runs the task call, at call time: the
+// client, recorder, hooks, and cancel behavior, and the parent's current
+// model unless the Subagent sets its own. The host therefore changes any of
+// them for the parent and the children follow. Hosts wire it in one line:
 //
-//	tools := tool.Join(base, delegate.New(delegate.Config{
-//		Runner: dashi.Runner{Client: client, Recorder: rec, Hooks: hooks},
-//	}, base))
+//	tools = tool.Join(tools, delegate.New(delegate.Config{OnChild: draw}))
 package delegate
 
 import (
@@ -27,6 +27,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -104,18 +105,20 @@ type Config struct {
 	// Subagents is the catalog the model chooses from. Empty means Explore
 	// and General.
 	Subagents []Subagent
-	// Runner is the template for child turns. Client, Recorder, Hooks,
-	// OnContextDone, and Observer are used; Agent and Tools are replaced
-	// for each child. Pass the parent's Hooks so the host's approval prompt
-	// covers child tool calls. The Recorder should implement dashi.Loader:
+	// Runner holds optional overrides for child turns. Each child inherits
+	// from the runner that runs the task call. Set Client, Recorder,
+	// OnContextDone, or Observer here only to make children differ from the
+	// parent; a nonzero field replaces the inherited value. Hooks are always
+	// inherited, so the host's approval prompt covers child tool calls. Agent
+	// and Tools are ignored. A Recorder should implement dashi.Loader:
 	// without it a crash can lead to a second child (see New).
 	Runner dashi.Runner
 	// MaxAnswer caps the bytes of the child's answer that reach the parent.
 	// Zero means 16 KiB; a negative value means no cap.
 	MaxAnswer int
 	// OnChild receives every child event for live display: committed steps,
-	// model deltas, and tool progress. It is the only event path. The
-	// template Runner's Observer also receives each event, after OnChild.
+	// model deltas, and tool progress. The Observer in Runner, if set, also
+	// receives each event, after OnChild. The parent's Observer does not.
 	// It runs on the child's observer goroutine and must return promptly.
 	OnChild func(ChildEvent)
 }
@@ -186,41 +189,45 @@ func Report(
 	return report, nil
 }
 
-// New returns the toolset that holds the task tool. parentTools is the
-// toolset that children draw from, filtered by each Subagent; pass the
-// toolset without this one, since a child never receives the task tool.
+// New returns the toolset that holds the task tool. Join it with the tools
+// the parent already has. Children draw from the tools of the runner that runs
+// the call, filtered by each Subagent; they never receive the task tool.
 //
-// The tool is marked idempotent only when cfg.Runner.Recorder implements
-// dashi.Loader. Then, after a crash, the runner runs the call again, and the
-// same child continues from its record. Without a Loader, New logs one
-// warning and leaves the mark off: the runner does not run the call again
-// blindly, and a host that reconciles it by hand can start a second child.
-func New(cfg Config, parentTools tool.Toolset) tool.Toolset {
+// The tool is marked idempotent. After a crash the runner runs the call
+// again, and the same child continues from its record. This needs a recorder
+// that implements dashi.Loader. The recorder is known only at call time, so
+// when it is not a Loader the tool logs one warning on first use, and a
+// crash can then lead to a second child. When cfg.Runner.Recorder is set and
+// is not a Loader, New knows this at once, warns, and leaves the mark off.
+func New(cfg Config) tool.Toolset {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
 		catalog = []Subagent{Explore(), General()}
 	}
-	_, resumable := cfg.Runner.Recorder.(dashi.Loader)
-	if !resumable {
-		slog.Warn(
-			"delegate: recorder is not a dashi.Loader; a retry after a " +
-				"crash can start a second child, so the task tool is not " +
-				"marked idempotent",
-		)
+	t := &taskTools{cfg: cfg, catalog: slices.Clone(catalog), resumable: true}
+	if cfg.Runner.Recorder != nil {
+		if _, ok := cfg.Runner.Recorder.(dashi.Loader); !ok {
+			t.resumable = false
+			t.warnNoLoader()
+		}
 	}
-	return &taskTools{
-		cfg:       cfg,
-		catalog:   slices.Clone(catalog),
-		parent:    parentTools,
-		resumable: resumable,
-	}
+	return t
 }
 
 type taskTools struct {
 	cfg       Config
 	catalog   []Subagent
-	parent    tool.Toolset
 	resumable bool
+	warn      sync.Once
+}
+
+func (t *taskTools) warnNoLoader() {
+	t.warn.Do(func() {
+		slog.Warn(
+			"delegate: recorder is not a dashi.Loader; a retry after a " +
+				"crash can start a second child",
+		)
+	})
 }
 
 // Tools returns the task tool.
@@ -307,8 +314,12 @@ func (t *taskTools) Execute(
 			"delegate: the task tool must run under a dashi.Runner",
 		))
 	}
+	parent, _ := dashi.CurrentRunner(ctx)
 	id := ChildID(ref.TurnID, ref.CallID)
-	runner := t.childRunner(sub, ref)
+	runner := t.childRunner(sub, ref, parent)
+	if _, ok := runner.Recorder.(dashi.Loader); !ok {
+		t.warnNoLoader()
+	}
 	turn, command, saved, err := t.plan(ctx, runner, id, ref, args.Prompt)
 	if err != nil {
 		return tool.Outcome{}, t.failure(ctx, err)
@@ -361,14 +372,37 @@ func (t *taskTools) plan(
 	return turn, dashi.Continue{}, dashi.Outcome{}, nil
 }
 
-// childRunner builds the runner for one child from the template.
-func (t *taskTools) childRunner(sub Subagent, ref dashi.CallRef) dashi.Runner {
-	runner := t.cfg.Runner
-	runner.Agent = sub.Agent
-	runner.Agent.ID = cmp.Or(runner.Agent.ID, sub.Name)
-	runner.Tools = filtered{parent: t.parent, sub: sub}
-	template := t.cfg.Runner.Observer
+// childRunner builds the runner for one child. It starts from the runner that
+// runs the task call, applies the host's overrides, and replaces the agent and
+// tools. A Subagent that sets no model uses the parent's current model.
+func (t *taskTools) childRunner(
+	sub Subagent,
+	ref dashi.CallRef,
+	parent dashi.Runner,
+) dashi.Runner {
+	over := t.cfg.Runner
+	runner := parent
+	if over.Client != nil {
+		runner.Client = over.Client
+	}
+	if over.Recorder != nil {
+		runner.Recorder = over.Recorder
+	}
+	if over.OnContextDone != "" {
+		runner.OnContextDone = over.OnContextDone
+	}
+	agent := sub.Agent
+	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
+		agent.Provider = parent.Agent.Provider
+		agent.API = parent.Agent.API
+		agent.Model = parent.Agent.Model
+	}
+	agent.ID = cmp.Or(agent.ID, sub.Name)
+	runner.Agent = agent
+	runner.Tools = filtered{parent: parent.Tools, sub: sub}
+	template := over.Observer
 	onChild := t.cfg.OnChild
+	runner.Observer = nil
 	if onChild != nil || template != nil {
 		runner.Observer = func(e dashi.Event) {
 			if onChild != nil {

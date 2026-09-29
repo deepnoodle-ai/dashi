@@ -47,17 +47,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("delegate: %w", err)
 	}
-	base := tool.List{search}
-
-	// The recorder implements dashi.Loader, so a retry after a crash finds
-	// the same child. The child uses the same client, recorder, and hooks as
-	// the parent; OnChild draws its steps.
-	recorder := dashi.NewMemoryRecorder()
-	task := delegate.New(delegate.Config{
-		Runner:  dashi.Runner{Client: client, Recorder: recorder},
+	tools := tool.Join(tool.List{search}, delegate.New(delegate.Config{
+		// Children inherit the client, recorder, hooks, cancel behavior,
+		// and model of the runner below. OnChild draws their steps.
 		OnChild: printChild,
-	}, base)
+	}))
 
+	recorder := dashi.NewMemoryRecorder()
 	runner := dashi.Runner{
 		Agent: dashi.Agent{
 			Model: os.Getenv("ANTHROPIC_MODEL"),
@@ -66,7 +62,7 @@ func run(ctx context.Context) error {
 		},
 		Client:   client,
 		Recorder: recorder,
-		Tools:    tool.Join(base, task),
+		Tools:    tools,
 	}
 	out, err := runner.Run(
 		ctx,
@@ -85,9 +81,9 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("delegate: report: %w", err)
 	}
 	fmt.Printf(
-		"total %v (child agents %v)\n",
-		report.Inclusive.Cost,
-		report.Children.Cost,
+		"total %s (child agents %s)\n",
+		formatCost(report.Inclusive),
+		formatCost(report.Children),
 	)
 	return nil
 }
@@ -125,4 +121,16 @@ func newSearchTool() (tool.Tool, error) {
 	}
 	search.Definition.Annotations.ReadOnly = new(true)
 	return search, nil
+}
+
+// formatCost prints the cost of a spend as "$0.41". It sums the amounts of
+// every currency in the spend, which is correct for the single currency this
+// example uses.
+func formatCost(s dashi.Spend) string {
+	total := 0.0
+	for _, amount := range s.Cost {
+		f := amount.Float64()
+		total += f
+	}
+	return fmt.Sprintf("$%.2f", total)
 }

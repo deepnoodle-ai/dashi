@@ -30,15 +30,41 @@ func (c CallRef) Validate() error {
 
 type currentCallKey struct{}
 
+// callContext is what the runner puts in an executor's context.
+type callContext struct {
+	ref    CallRef
+	runner Runner
+}
+
 // CurrentCall returns the turn and tool call that the executor running under
 // ctx is serving. It reports false outside an executor that the runner
 // started. A tool that starts other work for the call, such as a child turn,
 // uses it to derive stable identities, so a retry finds the same work.
 func CurrentCall(ctx context.Context) (CallRef, bool) {
-	ref, ok := ctx.Value(currentCallKey{}).(CallRef)
-	return ref, ok
+	c, ok := ctx.Value(currentCallKey{}).(callContext)
+	return c.ref, ok
 }
 
-func withCurrentCall(ctx context.Context, ref CallRef) context.Context {
-	return context.WithValue(ctx, currentCallKey{}, ref)
+// CurrentRunner returns a copy of the runner that runs the call CurrentCall
+// names, at call time. Its Agent is the turn's resolved agent, so Model shows
+// the model in use now. Its Hooks are the runner's followed by the hooks of
+// the current command. A tool that starts a child turn uses it to inherit the
+// client, recorder, hooks, and cancel behavior of its parent, so the child
+// follows the host when the host changes any of them. It reports false
+// outside an executor that the runner started.
+func CurrentRunner(ctx context.Context) (Runner, bool) {
+	c, ok := ctx.Value(currentCallKey{}).(callContext)
+	return c.runner, ok
+}
+
+func withCurrentCall(ctx context.Context, ref CallRef, r Runner) context.Context {
+	return context.WithValue(ctx, currentCallKey{}, callContext{ref, r})
+}
+
+// callRunner returns the runner as a child turn should inherit it.
+func (r *runtime) callRunner() Runner {
+	out := r.runner
+	out.Agent = r.agent
+	out.Hooks = r.hooks
+	return out
 }

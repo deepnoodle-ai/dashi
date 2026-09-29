@@ -1,6 +1,6 @@
 # PRD: child turns and a delegate tool
 
-**Roadmap item 13 · Status: first slice built (2026-09-28); see decisions 15 to 19 for changes made while building.** Based on [source research](13-child-turns-research.md). Program deadline: demo on 2026-09-30. Ship the first slice by Tuesday night.
+**Roadmap item 13 · Status: first slice built (2026-09-28); see decisions 15 to 24 for changes made while building and after implementation review.** Based on [source research](13-child-turns-research.md). Program deadline: demo on 2026-09-30. Ship the first slice by Tuesday night.
 
 ## User problem
 
@@ -55,12 +55,12 @@ type Subagent struct {
 
 type Config struct {
     Subagents []Subagent   // empty = Explore and General
-    Runner    dashi.Runner // child template: Client, Recorder, Hooks
+    Runner    dashi.Runner // optional overrides: Client, Recorder, OnContextDone, Observer
     MaxAnswer int          // bytes returned to the parent; zero = 16 KiB, negative = no cap
     OnChild   func(ChildEvent) // live display; the only event path
 }
 
-func New(cfg Config, parentTools tool.Toolset) tool.Toolset // the "task" tool
+func New(cfg Config) tool.Toolset // the "task" tool; join it with the host tools
 func ChildID(parentTurnID, callID string) string
 func Report(ctx context.Context, r dashi.Loader, parent dashi.TurnView) (SpendReport, error)
 
@@ -95,7 +95,9 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 **Cancel and interrupt.** The child runs under the tool's context. When the parent context ends under `ContextCancel`, the child records `StopCanceled`, and the tool settles the call as an error that says "canceled". Under `ContextInterrupt` (the default), the child records an interrupt and the tool does not settle the call. The parent call stays open and the parent stops as interrupted. On resume, the runner runs `task` again and the same child continues.
 
-**Live display.** The tool sets the child's `Observer` itself and sends every child event to `OnChild`: committed steps, model deltas, and tool progress. There is no other path. If the template `Runner` has an `Observer`, the tool calls it too, after `OnChild`.
+**Live display.** The tool sets the child's `Observer` itself and sends every child event to `OnChild`: committed steps, model deltas, and tool progress. If `Config.Runner` has an `Observer`, the tool calls it too, after `OnChild`. The parent's `Observer` gets no child events.
+
+**Wiring.** A host adds one line, `tools = tool.Join(tools, delegate.New(delegate.Config{OnChild: draw}))`, and calls `delegate.Report` for the spend line. The child inherits from the runner that runs the call, at call time (decision 20).
 
 ## Functional requirements
 
@@ -107,13 +109,14 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 - FR-6: The `task` tool schema has `subagent` (enum of catalog names), `prompt`, and `description` (short label for display).
 - FR-7: The child sees only `prompt` and its own instructions. It never sees the parent transcript.
 - FR-8: The child toolset is the parent toolset filtered by `Subagent.Tools`. It never includes `task`. A child cannot start a child.
-- FR-9: The child uses `Config.Runner`. The host passes the same `Hooks` it gives the parent, so the host's inline approval prompt covers every child tool call. The hook sees the child's `TurnView`. `TurnView.Parent` is set, and the agent name identifies the subagent, so the prompt can say "explore wants to run: go test". Two parallel children can prompt at once; the host serializes its prompts.
+- FR-9: The child uses the parent runner's `Hooks`, so the host's inline approval prompt covers every child tool call. The hook sees the child's `TurnView`. `TurnView.Parent` is set, and the agent name identifies the subagent, so the prompt can say "explore wants to run: go test". Two parallel children can prompt at once; the host serializes its prompts.
 - FR-10: The tool returns the child's final answer as text, cut to `MaxAnswer`. The tool says when it cut the text.
 - FR-11: The tool settles the call as an error only when the child stops `failed`, `limited`, `refused`, or `canceled`. The error text names the stop reason. An interrupted child never settles the call (see Cancel and interrupt).
 - FR-11a: If the child stops `waiting` for a deferred approval, the tool settles the call as an error that says: "subagent needs approval that was deferred; this host cannot answer it inline". The child stays resumable by its ID.
 - FR-12: Parent calls to `task` can run in parallel. Each has its own child ID.
 - FR-13: Zero `Config` works: `Explore` (only tools with `Annotations.ReadOnly` set, so MCP tools filter correctly) and `General` (all tools). `Subagent.Agent.Limits` bounds the child's work; no new timeout setting exists.
-- FR-15: The tool needs a `Config.Runner.Recorder` that implements `dashi.Loader`. If it does not, `New` still works. It logs one warning, does not mark `task` idempotent, and documents the weaker guarantee: after a crash the runner does not re-run the call blindly, and a host can start a second child.
+- FR-15: The tool needs a recorder that implements `dashi.Loader`. If the recorder is not one, the tool still works. It logs one warning and documents the weaker guarantee: after a crash a host can start a second child. See decision 21.
+- FR-16: The child inherits Client, Recorder, Hooks, and `OnContextDone` from the runner that runs the call, and the model from the parent's resolved agent when the `Subagent` sets none. `Config.Runner` overrides Client, Recorder, `OnContextDone`, and Observer.
 - FR-14: `Spend.Add` keeps `Cost`, `ToolCost`, `Estimated`, `CostUnknown`, `CostPartial`, and `UnpricedRequests` separate. `Report` never writes child cost into `ToolCost`.
 
 ## User stories and acceptance
@@ -161,24 +164,30 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 
 1. **Ship the synchronous `task` tool first, not the external-settle flow.** The CLI needs a blocking tool by Wednesday. The link and ID rule serve both paths.
 2. **Child ID is derived from `(parent turn ID, call ID)`.** The host stores nothing. A host that wants its own ID can call `Start` itself.
-3. **Mark `task` idempotent, only with a `Loader` recorder.** The re-run resumes the same child. Without a `Loader` the tool warns once and stays non-idempotent (review finding 2, accepted). Dashi warns and adjusts; it does not fail.
+3. **Mark `task` idempotent (see decision 21 for the recorder rule).** The re-run resumes the same child. Without a `Loader` the tool warns once (review finding 2, accepted). Dashi warns and adjusts; it does not fail.
 4. **An interrupted child does not settle the call.** The parent call stays open, the parent stops interrupted, and resume continues the same child. Only `failed`, `limited`, `refused`, and `canceled` children settle an error (finding 1, accepted).
 5. **One type, `CallRef`, and `CurrentCall(ctx)`.** "Origin" already means who supplied content, so it is not reused (finding 4, accepted). `Start.Parent` is a `*CallRef`.
 6. **The user-facing word is "subagent".** The type is `delegate.Subagent`. It wraps a `dashi.Agent`, so `Agent` keeps one meaning and each subagent gets its own model and limits at no cost (finding 3, accepted; per-agent model leaves "out of scope").
 7. **The tool is named `task`.** Correction: Dive names its tool `Agent`, not `task`. `task` is the name coding-agent users know for launching a subagent, and models see it often. `agent` would also clash with the `dashi.Agent` type in prompts and docs. The parameter is `subagent` (finding 7, accepted).
 8. **Child cost stays out of `Outcome.Cost`.** `Report` sums `Spend` and keeps every flag.
 9. **No child inheritance.** The child gets a prompt, instructions, and a filtered toolset, and no transcript. Dive also hides its `Agent` tool from children.
-10. **One event path: `OnChild`.** `delegate` owns the child `Observer`, chains the template's, and drops `tool.Report`. `OnChild` gets steps, deltas, and progress (finding 5, accepted).
-11. **Child tool calls use the host's hooks.** The host passes the parent's `Hooks` to the child template. The CLI's inline prompt names the subagent. The CLI track must run its prompt inside `BeforeTool`, not as a deferred approval. A deferred approval in a child fails the call with a clear message (finding 6, accepted; the coordinator confirms the CLI side).
+10. **One event path: `OnChild`.** `delegate` owns the child `Observer`, chains the optional `Config.Runner.Observer`, and drops `tool.Report`. `OnChild` gets steps, deltas, and progress (finding 5, accepted).
+11. **Child tool calls use the host's hooks.** The child inherits the parent runner's `Hooks`. The CLI's inline prompt names the subagent. The CLI track must run its prompt inside `BeforeTool`, not as a deferred approval. A deferred approval in a child fails the call with a clear message (finding 6, accepted; the coordinator confirms the CLI side).
 12. **`Explore` means tools with `Annotations.ReadOnly`.** MCP tools then filter correctly (finding 7, accepted).
 13. **Host-started children stay out of `Report`; no child index; no timeout setting.** The guide states the limit. `Subagent.Agent.Limits` bounds the child (open decisions, accepted).
-14. **Cancel follows the child runner's `OnContextDone`.** The CLI sets `ContextCancel`. Library hosts keep the default.
+14. **Cancel follows the inherited `OnContextDone`.** The CLI sets `ContextCancel` on the parent runner. Library hosts keep the default.
 
 15. **`Subagent.ReadOnly` field.** `Tools` names tools, and "only read-only tools" needs its own switch, so `Subagent` has a `ReadOnly bool`. `Explore()` and `General()` are functions, not variables, because `Agent` holds maps.
 16. **A child with no recorded stop resumes.** A crash after `Start` but before any run step leaves a child whose stop is empty. The retry continues it. Only `failed`, `limited`, `refused`, `canceled`, `waiting`, `uncertain`, and `completed` children use their saved result.
 17. **A saved failed child is not run again.** After a crash between the child's end and the parent's settle, the retry returns the saved error and makes no model call.
 18. **Cancel needs no settle.** The runner never records a tool result once the parent context has ended, so under both `OnContextDone` values the `task` call stays open. Under `ContextCancel` the parent stops canceled with the call unsettled, not settled as an error.
 19. **Record and client faults stop the parent.** A load, commit, or client error from the child run returns `tool.Fatal`, because the model cannot fix it. The child stays resumable by its ID.
+
+20. **A child inherits from the running runner, at call time (implementation review 1 to 3, accepted).** A fixed copy made at `New` sent children to the old recorder after a session reopened, started a second paid child, and used a different model from the one the user chose. The runner now puts a copy of itself in the executor context (`dashi.CurrentRunner`), and the tool builds the child from it. The copy has the turn's resolved agent and the command's hooks. `New` takes only `Config`; children draw tools from the running runner. `Config.Runner` overrides only what a host sets.
+21. **Idempotent by default.** The recorder is not known at `New`, so `task` is always marked idempotent. A recorder that is not a `Loader` gets one warning at the first call. A `Config.Runner.Recorder` that is not a `Loader` is known at once: `New` warns and leaves the mark off.
+22. **The parent's model applies to children (review 2, accepted).** A `Subagent` with no provider, API, or model takes all three from the parent's resolved agent.
+23. **Ctrl-C cancels the child with the parent (review 3, accepted).** `OnContextDone` is inherited, so one setting on the parent runner is enough. Tests cover cancel with only the parent set.
+24. **Other review findings.** Accepted: a crash test during a child tool call (no repeated model call), a reopen test with a new recorder (same child, no second start, correct spend), and a cost format helper in the example. Rejected for now: sending child events to the parent `Observer`. `OnChild` stays, because it names the subagent and links the parent call, and a second path would let a host draw a child twice. It is a possible later change.
 
 ## Open questions
 

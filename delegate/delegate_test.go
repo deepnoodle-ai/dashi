@@ -73,7 +73,10 @@ func (c *fakeClient) Send(
 	c.inputs = append(c.inputs, in)
 	c.mu.Unlock()
 	result, err := c.handle(ctx, in)
-	result.Requested = llm.ModelRef{Provider: "test", Model: "fixture"}
+	result.Requested = llm.ModelRef{
+		Provider: "test",
+		Model:    call.Request.Snapshot().Origin.Model,
+	}
 	return result, err
 }
 
@@ -243,8 +246,6 @@ func newHarness(
 		probe("write", nil, &ran),
 	}
 	cfg.Subagents = cmpSubagents(cfg.Subagents)
-	cfg.Runner.Client = h.client
-	cfg.Runner.Recorder = recorder
 	cfg.Runner.Observer = func(dashi.Event) {
 		h.observed.Add(1)
 	}
@@ -255,7 +256,7 @@ func newHarness(
 		Agent:    agent("parent"),
 		Client:   h.client,
 		Recorder: recorder,
-		Tools:    tool.Join(h.base, delegate.New(cfg, h.base)),
+		Tools:    tool.Join(h.base, delegate.New(cfg)),
 	}
 	return h
 }
@@ -564,12 +565,8 @@ func blockingChild(started chan<- struct{}, release *atomic.Bool) modelFunc {
 func TestCancelReachesRunningChild(t *testing.T) {
 	started := make(chan struct{}, 1)
 	var release atomic.Bool
-	// The child template decides what an ended context means for the child.
-	cfg := delegate.Config{
-		Runner:    dashi.Runner{OnContextDone: dashi.ContextCancel},
-		Subagents: []delegate.Subagent{scout()},
-	}
-	h := newHarness(t, blockingChild(started, &release), cfg, nil)
+	// Only the parent sets OnContextDone. The child inherits it.
+	h := newHarness(t, blockingChild(started, &release), delegate.Config{}, nil)
 	h.runner.OnContextDone = dashi.ContextCancel
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -661,22 +658,42 @@ func TestTaskWithoutLoaderWarnsAndIsNotIdempotent(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 
-	h := newHarness(t, script("x"), delegate.Config{},
-		func(m *dashi.MemoryRecorder) dashi.Recorder {
-			return bareRecorder{m}
-		})
-	if n := strings.Count(logs.String(), "not a dashi.Loader"); n != 1 {
-		t.Fatalf("warnings=%d, want 1: %q", n, logs.String())
-	}
-	tools, err := h.runner.Tools.Tools(t.Context())
+	// An override Recorder that is not a Loader is known at New.
+	tools := delegate.New(delegate.Config{
+		Runner: dashi.Runner{Recorder: bareRecorder{dashi.NewMemoryRecorder()}},
+	})
+	list, err := tools.Tools(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tl := range tools {
+	for _, tl := range list {
 		if tl.Definition.Name == delegate.ToolName &&
 			tl.Definition.Annotations.Idempotent != nil {
 			t.Fatal("task is marked idempotent without a Loader")
 		}
+	}
+	// An inherited Recorder that is not a Loader is known at the first call.
+	h := newHarness(t, script("x"), delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			return bareRecorder{m}
+		})
+	for range 2 {
+		h.rec = dashi.NewMemoryRecorder()
+		h.runner.Recorder = bareRecorder{h.rec}
+		if _, err := h.runner.Run(
+			t.Context(),
+			dashi.Turn{ID: parentTurn},
+			dashi.Start{
+				CommandID: "start",
+				Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := strings.Count(logs.String(), "not a dashi.Loader"); n != 2 {
+		t.Fatalf("warnings=%d, want 2 (one from New, one from the tool): %q",
+			n, logs.String())
 	}
 }
 
@@ -727,8 +744,7 @@ func TestChildToolCallsPassHostHooks(t *testing.T) {
 			return dashi.ToolDecision{}, nil
 		},
 	}
-	cfg := delegate.Config{Runner: dashi.Runner{Hooks: hook.Hooks()}}
-	h := newHarness(t, childCallsProbe, cfg, nil)
+	h := newHarness(t, childCallsProbe, delegate.Config{}, nil)
 	h.runner.Hooks = hook.Hooks()
 	out, err := h.start(t.Context())
 	if err != nil {
@@ -770,8 +786,8 @@ func TestDeferredApprovalInChildFailsTheCall(t *testing.T) {
 			return dashi.ToolDecision{}, nil
 		},
 	}
-	cfg := delegate.Config{Runner: dashi.Runner{Hooks: hook.Hooks()}}
-	h := newHarness(t, childCallsProbe, cfg, nil)
+	h := newHarness(t, childCallsProbe, delegate.Config{}, nil)
+	h.runner.Hooks = hook.Hooks()
 	out, err := h.start(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -991,7 +1007,7 @@ func TestChildIDIsPureAndCollisionFree(t *testing.T) {
 }
 
 func TestDefaultCatalogHasExploreAndGeneral(t *testing.T) {
-	tools := delegate.New(delegate.Config{}, nil)
+	tools := delegate.New(delegate.Config{})
 	list, err := tools.Tools(t.Context())
 	if err != nil || len(list) != 1 {
 		t.Fatalf("tools=%d err=%v", len(list), err)
@@ -999,5 +1015,170 @@ func TestDefaultCatalogHasExploreAndGeneral(t *testing.T) {
 	schema := string(list[0].Definition.Schema)
 	if !strings.Contains(schema, `"explore","general"`) {
 		t.Fatalf("schema=%s", schema)
+	}
+}
+
+// countingRecorder counts the child turns it starts.
+type countingRecorder struct {
+	dashi.Recorder
+	starts atomic.Int32
+}
+
+func (c *countingRecorder) Load(
+	ctx context.Context,
+	id string,
+) (dashi.Turn, error) {
+	return c.Recorder.(dashi.Loader).Load(ctx, id)
+}
+
+func (c *countingRecorder) Commit(
+	ctx context.Context,
+	req dashi.CommitRequest,
+) error {
+	if req.Step.Kind == dashi.StepStarted &&
+		strings.HasPrefix(req.Step.TurnID, "child-") {
+		c.starts.Add(1)
+	}
+	return c.Recorder.Commit(ctx, req)
+}
+
+// A host that reopens a session gives the runner a new recorder. The task
+// tool was built earlier, yet the child must use the new recorder, find the
+// child the first run started, and continue it.
+func TestReopenedSessionResumesSameChild(t *testing.T) {
+	started := make(chan struct{}, 1)
+	var release atomic.Bool
+	first := &countingRecorder{}
+	h := newHarness(
+		t,
+		blockingChild(started, &release),
+		delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			first.Recorder = m
+			return first
+		},
+	)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan dashi.Outcome, 1)
+	go func() {
+		out, _ := h.start(ctx)
+		done <- out
+	}()
+	<-started
+	cancel()
+	if out := <-done; out.Stop.Kind != dashi.StopInterrupted {
+		t.Fatalf("parent stop=%+v", out.Stop)
+	}
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+	if first.starts.Load() != 1 {
+		t.Fatalf("first run started %d children", first.starts.Load())
+	}
+
+	// Reopen: the same store behind a new recorder object.
+	second := &countingRecorder{Recorder: h.rec}
+	h.runner.Recorder = second
+	release.Store(true)
+	resumed, err := h.resume(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("resumed parent stop=%+v", resumed.Stop)
+	}
+	if n := second.starts.Load(); n != 0 {
+		t.Fatalf("reopened session started %d new children, want 0", n)
+	}
+	if got := toolResult(t, resumed.TurnView); got != "finished after resume" {
+		t.Fatalf("task result=%q", got)
+	}
+	child := h.view(t, childID())
+	if child.ModelAttempts != 1 || child.Interruptions != 1 {
+		t.Fatalf("child attempts=%d interruptions=%d",
+			child.ModelAttempts, child.Interruptions)
+	}
+
+	// Parent: two settled calls at 1 each. Child: one settled call at 0.25.
+	report, err := delegate.Report(t.Context(), second, resumed.TurnView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := report.Children.Cost["USD"].String(); got != "0.25" {
+		t.Fatalf("children cost=%s, want 0.25", got)
+	}
+	if got := report.Inclusive.Cost["USD"].String(); got != "2.25" {
+		t.Fatalf("inclusive cost=%s, want 2.25", got)
+	}
+}
+
+// A child uses the parent's current model unless its Subagent sets one.
+func TestChildInheritsParentModel(t *testing.T) {
+	sub := scout()
+	sub.Agent.Provider, sub.Agent.API, sub.Agent.Model = "", "", ""
+	h := newHarness(t, script("x"),
+		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
+	h.runner.Agent.Model = "chosen-by-user"
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.view(t, childID()).Agent.Model; got != "chosen-by-user" {
+		t.Fatalf("recorded child model=%q", got)
+	}
+}
+
+func TestSubagentModelOverridesParent(t *testing.T) {
+	sub := scout()
+	sub.Agent.Model = "cheap"
+	h := newHarness(t, script("x"),
+		delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
+	h.runner.Agent.Model = "chosen-by-user"
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.view(t, childID()).Agent.Model; got != "cheap" {
+		t.Fatalf("child model=%q, want cheap", got)
+	}
+}
+
+// A crash during a child tool call, after the child's first model call
+// settled, must not repeat that model call.
+func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
+	handle := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if role(in) != "child" {
+			return script("")(ctx, in)
+		}
+		if len(in.Messages) == 1 {
+			return costed(toolCall("c1", "read", `{}`), "0.25"), nil
+		}
+		return costed(text("child finished"), "0.25"), nil
+	}
+	var crash *crashRecorder
+	h := newHarness(t, handle, delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			crash = &crashRecorder{Recorder: m, trigger: func(
+				r dashi.CommitRequest,
+			) bool {
+				return strings.HasPrefix(r.Step.TurnID, "child-") &&
+					r.Step.Kind == dashi.StepToolSettled
+			}}
+			return crash
+		})
+	if _, err := h.start(t.Context()); err == nil {
+		t.Fatal("the crash did not stop the run")
+	}
+	crash.trigger = nil
+	crash.dead.Store(false)
+	out, err := h.resume(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := toolResult(t, out.TurnView); got != "child finished" {
+		t.Fatalf("task result=%q", got)
+	}
+	// One call asked for the tool and one answered. Neither ran twice.
+	if got := h.client.sends("child"); got != 2 {
+		t.Fatalf("child model calls=%d, want 2", got)
+	}
+	if got := crash.starts.Load(); got != 1 {
+		t.Fatalf("child turns started=%d, want 1", got)
 	}
 }

@@ -420,6 +420,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		callCtx := withCurrentCall(
 			ctx,
 			CallRef{TurnID: r.turn.ID, CallID: call.ID},
+			r.callRunner(),
 		)
 		go func() {
 			results <- execute(callCtx, boundExecutor, call, slot)
