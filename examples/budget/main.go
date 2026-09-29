@@ -46,9 +46,6 @@ func run(ctx context.Context) error {
 		func(_ context.Context, _ tool.Call, in stockArgs) (tool.Outcome, error) {
 			return tool.Succeeded("42 units"), nil
 		})
-	if err != nil {
-		return err
-	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{stock}}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		// A call's worst case counts its full output allowance, so MaxTokens
@@ -62,6 +59,9 @@ func run(ctx context.Context) error {
 		))},
 		Budget: &dashi.Budget{MaxCost: usd("0.001")},
 	})
+	if err != nil {
+		return err
+	}
 	report(out)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Terminal {
 		return nil

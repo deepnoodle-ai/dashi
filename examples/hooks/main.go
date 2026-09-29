@@ -49,9 +49,6 @@ func run(ctx context.Context) error {
 			fmt.Printf("   run_shell: %s\n", in.Command)
 			return tool.Succeeded("Filesystem  Use%\n/dev/sda1   91%"), nil
 		})
-	if err != nil {
-		return err
-	}
 
 	// BeforeModel runs before every model call. SeedContext delivers the
 	// on-call note only when the turn does not hold it yet; the note is
@@ -111,6 +108,9 @@ func run(ctx context.Context) error {
 			"Check disk usage with `df -h` on staging, then on prod-db-1.",
 		))},
 	})
+	if err != nil {
+		return err
+	}
 	fmt.Printf("\nStop: %s\n%s\n", out.Stop.Kind, out.Answer)
 	return nil
 }
