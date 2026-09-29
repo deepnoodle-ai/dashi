@@ -2002,3 +2002,80 @@ func TestRecoverResumesWithTheRecordedAgent(t *testing.T) {
 		t.Fatal("resumed child did not run with the recorded agent")
 	}
 }
+
+type tenantKey struct{}
+
+// TestTaskKeepsCallerContextValuesButNotCancellation checks that a child
+// sees the values on the context of the task call, and that canceling the
+// parent does not stop the child.
+func TestTaskKeepsCallerContextValuesButNotCancellation(t *testing.T) {
+	g := newGate()
+	parentHeld := newGate()
+	seen := make(chan any, 4)
+	handle := scripted(gated(g, "done"))
+	h := newHarness(t, func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		switch {
+		case role(in) == "child":
+			seen <- ctx.Value(tenantKey{})
+		case len(in.Messages) == 3:
+			if err := parentHeld.wait(ctx); err != nil {
+				return llm.Result{}, err
+			}
+		}
+		return handle(ctx, in)
+	}, delegate.Config{}, nil)
+	parent, cancel := context.WithCancel(
+		context.WithValue(t.Context(), tenantKey{}, "acme"))
+	done := make(chan dashi.Outcome, 1)
+	go func() {
+		out, _ := h.start(parent)
+		done <- out
+	}()
+	parentHeld.waitStarted(t)
+	if got := <-seen; got != "acme" {
+		t.Fatalf("child saw tenant=%v, want acme", got)
+	}
+	cancel()
+	<-done
+	if !h.tasks.List()[0].Running() {
+		t.Fatal("canceling the parent stopped the task")
+	}
+	g.open()
+	if h.next(t, delegate.TaskEnded).Task.Answer != "done" {
+		t.Fatal("the task did not finish after the parent ended")
+	}
+}
+
+func TestRecoverKeepsHostContextValues(t *testing.T) {
+	g := newGate()
+	seen := make(chan any, 4)
+	h := newHarness(t, scripted(gated(g, "done")), delegate.Config{}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.close(t)
+	h.waitStop(t, childID(), dashi.StopInterrupted)
+	g2 := newGate()
+	g2.open()
+	inner := scripted(gated(g2, "done"))
+	h.client.handle = func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if role(in) == "child" {
+			seen <- ctx.Value(tenantKey{})
+		}
+		return inner(ctx, in)
+	}
+	h.newTasks(t)
+	turn, err := h.rec.Load(t.Context(), parentTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(t.Context(), tenantKey{}, "acme")
+	if err := h.tasks.Recover(ctx, h.runner, []dashi.Turn{turn}); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-seen; got != "acme" {
+		t.Fatalf("recovered child saw tenant=%v, want acme", got)
+	}
+	h.next(t, delegate.TaskEnded)
+}

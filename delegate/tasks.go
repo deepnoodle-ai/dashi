@@ -377,7 +377,7 @@ func (ts *Tasks) adopt(
 			TaskID(childID), args.Subagent,
 		)
 	}
-	t, added, err := ts.register(sub, ref, args.Description, parent, child, view)
+	t, added, err := ts.register(ctx, sub, ref, args.Description, parent, child, view)
 	if err != nil {
 		return err
 	}
@@ -396,6 +396,7 @@ func (ts *Tasks) adopt(
 // resumable child it also starts the goroutine. It reports whether the task
 // is new. An ended child is registered as ended.
 func (ts *Tasks) register(
+	ctx context.Context,
 	sub Subagent,
 	ref dashi.CallRef,
 	description string,
@@ -426,7 +427,7 @@ func (ts *Tasks) register(
 	// subagent since then cannot make the record and the runner disagree.
 	// startTask does the same.
 	runner.Agent = view.Agent
-	ts.launchLocked(t, runner, child, dashi.Continue{})
+	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
 
@@ -500,14 +501,17 @@ func (ts *Tasks) addLocked(t *task) {
 }
 
 // launchLocked runs the child in a goroutine that Tasks owns. The caller
-// holds ts.mu and has checked that ts is not closed.
+// holds ts.mu and has checked that ts is not closed. The child keeps the
+// values of base but not its cancellation or deadline, so canceling the
+// parent turn does not stop the task.
 func (ts *Tasks) launchLocked(
+	base context.Context,
 	t *task,
 	runner dashi.Runner,
 	turn dashi.Turn,
 	cmd dashi.Command,
 ) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithoutCancel(base))
 	t.cancel = cancel
 	ts.wg.Add(1)
 	go ts.run(ctx, t, runner, turn, cmd)
@@ -781,11 +785,11 @@ func (ts *Tasks) startTask(
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
 		}
-		ts.launchLocked(t, runner, dashi.Turn{ID: t.childID}, start)
+		ts.launchLocked(ctx, t, runner, dashi.Turn{ID: t.childID}, start)
 	case t.resumable(saved):
 		t.steps = slices.Clone(saved.Steps)
 		runner.Agent = view.Agent
-		ts.launchLocked(t, runner, saved, dashi.Continue{})
+		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
 		// result does not depend on whether the host called Recover first.
