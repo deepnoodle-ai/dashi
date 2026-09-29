@@ -60,12 +60,12 @@ type Subagent struct {
 	// the parent's Runner.Tools that the child may use, whether or not the
 	// parent agent selected them; empty means every tool the parent agent
 	// may use. The child never receives the task tool, so a child cannot
-	// start a child.
+	// start a child. At child start, delegate records the resolved names in
+	// the child's Agent.Tools, so a resumed child keeps them.
 	Agent dashi.Agent
 	// ReadOnly limits the child to tools annotated read-only. It applies
 	// with Agent.Tools. A tool without the annotation is excluded, because
-	// an unknown effect is not a safe one. The child's record keeps the
-	// value, so a resumed child keeps the limit it started with.
+	// an unknown effect is not a safe one.
 	ReadOnly bool
 }
 
@@ -203,38 +203,25 @@ func Report(
 	return report, nil
 }
 
-// filtered is the child's view of the parent toolset, less the task tools,
-// and only read-only ones for a ReadOnly subagent. When the host named the
-// subagent's tools (explicit), those names select from the whole toolset.
-// Otherwise the child is limited to the tools the parent agent may use. The
-// child's own Agent.Tools selects from these. It resolves the parent on every
-// model call, so a dynamic toolset such as an MCP server keeps its live
-// behavior inside the child.
-type filtered struct {
-	parent      tool.Toolset
-	parentAgent dashi.Agent
-	explicit    bool
-	readOnly    bool
+// withoutTaskTools is the parent toolset less the task tools, so a child
+// cannot start a child. It resolves the parent on every model call, so a
+// dynamic toolset such as an MCP server keeps its live behavior inside the
+// child; the child's recorded Agent.Tools decides which tools it offers.
+type withoutTaskTools struct {
+	parent tool.Toolset
 }
 
-func (f filtered) Tools(ctx context.Context) ([]tool.Tool, error) {
-	if f.parent == nil || (!f.explicit && f.parentAgent.NoTools) {
+func (w withoutTaskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
+	if w.parent == nil {
 		return nil, nil
 	}
-	all, err := f.parent.Tools(ctx)
+	all, err := w.parent.Tools(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []tool.Tool
 	for _, t := range all {
-		name := t.Definition.Name
-		readOnly := t.Definition.Annotations.ReadOnly
-		switch {
-		case name == ToolName || name == StatusToolName || name == StopToolName:
-		case !f.explicit && len(f.parentAgent.Tools) > 0 &&
-			!slices.Contains(f.parentAgent.Tools, name):
-		case f.readOnly && (readOnly == nil || !*readOnly):
-		default:
+		if !isTaskTool(t.Definition.Name) {
 			out = append(out, t)
 		}
 	}

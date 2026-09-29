@@ -1581,6 +1581,78 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 	}
 }
 
+// TestChildRecordsItsResolvedTools checks that the child's recorded
+// Agent.Tools names exactly the tools it may use, and that an empty set is
+// recorded as NoTools.
+func TestChildRecordsItsResolvedTools(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sub     func(*delegate.Subagent)
+		parent  []string
+		want    []string
+		offered []string
+	}{
+		{
+			name:    "every parent tool",
+			want:    []string{"read", "write"},
+			offered: []string{"read", "write"},
+		},
+		{
+			name:    "the parent's selection",
+			parent:  []string{"read", "task"},
+			want:    []string{"read"},
+			offered: []string{"read"},
+		},
+		{
+			name:    "read-only",
+			sub:     func(s *delegate.Subagent) { s.ReadOnly = true },
+			want:    []string{"read"},
+			offered: []string{"read"},
+		},
+		{
+			// A named tool the runner lacks stays, so the child warns.
+			name: "named tools",
+			sub: func(s *delegate.Subagent) {
+				s.Agent.Tools = []string{"write", "task", "missing"}
+			},
+			parent:  []string{"task"},
+			want:    []string{"missing", "write"},
+			offered: []string{"write"},
+		},
+		{
+			name: "nothing left",
+			sub: func(s *delegate.Subagent) {
+				s.Agent.Tools = []string{"write"}
+				s.ReadOnly = true
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := scout()
+			if tc.sub != nil {
+				tc.sub(&sub)
+			}
+			cfg := delegate.Config{Subagents: []delegate.Subagent{sub}}
+			h := newHarness(t, script("x"), cfg, nil)
+			h.agent.Tools = tc.parent
+			if _, err := h.start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			h.next(t, delegate.TaskEnded)
+			got := h.view(t, childID()).Agent
+			if strings.Join(got.Tools, ",") != strings.Join(tc.want, ",") ||
+				got.NoTools != (len(tc.want) == 0) {
+				t.Fatalf("recorded tools=%v no_tools=%v, want %v",
+					got.Tools, got.NoTools, tc.want)
+			}
+			offered := toolNames(h.client.last("child"))
+			if strings.Join(offered, ",") != strings.Join(tc.offered, ",") {
+				t.Fatalf("offered=%v, want %v", offered, tc.offered)
+			}
+		})
+	}
+}
+
 func TestChildSeesOnlyItsPrompt(t *testing.T) {
 	h := newHarness(t, script("x"), delegate.Config{}, nil)
 	if _, err := h.start(t.Context()); err != nil {

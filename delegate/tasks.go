@@ -341,8 +341,7 @@ func (ts *Tasks) Recover(
 				continue
 			}
 			ref := dashi.CallRef{TurnID: turn.ID, CallID: callID}
-			err := ts.adopt(ctx, r, view.Agent, loader, ref, call.Args, delivered)
-			if err != nil {
+			if err := ts.adopt(ctx, r, loader, ref, call.Args, delivered); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -353,7 +352,6 @@ func (ts *Tasks) Recover(
 func (ts *Tasks) adopt(
 	ctx context.Context,
 	parent dashi.Runner,
-	parentAgent dashi.Agent,
 	loader dashi.Loader,
 	ref dashi.CallRef,
 	rawArgs []byte,
@@ -379,9 +377,7 @@ func (ts *Tasks) adopt(
 			TaskID(childID), args.Subagent,
 		)
 	}
-	t, added, err := ts.register(
-		ctx, sub, ref, args.Description, parent, parentAgent, child, view,
-	)
+	t, added, err := ts.register(ctx, sub, ref, args.Description, parent, child, view)
 	if err != nil {
 		return err
 	}
@@ -405,7 +401,6 @@ func (ts *Tasks) register(
 	ref dashi.CallRef,
 	description string,
 	parent dashi.Runner,
-	parentAgent dashi.Agent,
 	child dashi.Turn,
 	view dashi.TurnView,
 ) (*task, bool, error) {
@@ -427,12 +422,10 @@ func (ts *Tasks) register(
 		return t, true, nil
 	}
 	t.steps = slices.Clone(child.Steps)
-	// Continue runs with the agent the child recorded, and its tools follow
-	// that record too, so a change to the subagent since then does not reach
+	// Continue runs with the agent the child recorded, whose Tools name the
+	// tools it may use, so a change to the subagent since then does not reach
 	// it. startTask does the same.
-	runner := ts.childRunner(
-		sub, ref, parent, parentAgent, view.Agent, readOnlyAtStart(child), t,
-	)
+	runner := ts.childRunner(sub, ref, parent, t)
 	ts.launchLocked(ctx, t, runner, child, dashi.Continue{})
 	return t, true, nil
 }
@@ -749,10 +742,7 @@ func (ts *Tasks) startTask(
 	parentAgent dashi.Agent,
 ) (TaskView, error) {
 	t := newTask(sub, ref, args.Description)
-	agent := childAgent(sub, parentAgent)
-	runner := ts.childRunner(
-		sub, ref, parent, parentAgent, agent, sub.ReadOnly, t,
-	)
+	runner := ts.childRunner(sub, ref, parent, t)
 	if !loads(runner.Recorder) {
 		ts.warnNoLoader()
 	}
@@ -774,6 +764,14 @@ func (ts *Tasks) startTask(
 			saved, found = turn, true
 		}
 	}
+	var agent dashi.Agent
+	if !found {
+		var err error
+		agent, err = childAgent(ctx, sub, parentAgent, parent.Tools)
+		if err != nil {
+			return TaskView{}, fmt.Errorf("delegate: resolve child tools: %w", err)
+		}
+	}
 	ts.mu.Lock()
 	if old, err := ts.existingLocked(t); old != nil || err != nil {
 		defer ts.mu.Unlock()
@@ -791,7 +789,7 @@ func (ts *Tasks) startTask(
 	switch {
 	case !found:
 		start := dashi.Start{
-			CommandID: startCommandID(t.childID, sub.ReadOnly),
+			CommandID: t.childID + "/start",
 			Agent:     agent,
 			Parent:    &ref,
 			Input:     []llm.Message{llm.UserMessage(llm.Text(args.Prompt))},
@@ -799,9 +797,6 @@ func (ts *Tasks) startTask(
 		ts.launchLocked(ctx, t, runner, dashi.Turn{ID: t.childID}, start)
 	case t.resumable(saved):
 		t.steps = slices.Clone(saved.Steps)
-		runner.Tools = childTools(
-			parent.Tools, parentAgent, view.Agent, readOnlyAtStart(saved),
-		)
 		ts.launchLocked(ctx, t, runner, saved, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
@@ -844,68 +839,79 @@ func mustStop(t dashi.Turn) dashi.Stop {
 }
 
 // childAgent returns the child's Start.Agent. A Subagent that sets no model
-// uses the parent turn's current model.
-func childAgent(sub Subagent, parent dashi.Agent) dashi.Agent {
+// uses the parent turn's current model. Its Tools name every tool the child
+// may use, resolved now from parent, the runner's tools: the Subagent's named
+// tools, or else the tools the parent agent may use, less the task tools, and
+// only read-only ones for a ReadOnly subagent. The record then bounds the
+// child, so a resume needs no rule and a change to the Subagent cannot widen
+// a running child. A named tool that parent lacks now stays in the list, so
+// the child warns that it is not offered, unless ReadOnly makes its effect
+// unknown. An empty result sets NoTools, since empty Tools means every tool.
+func childAgent(
+	ctx context.Context,
+	sub Subagent,
+	parentAgent dashi.Agent,
+	parent tool.Toolset,
+) (dashi.Agent, error) {
 	agent := sub.Agent
 	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
-		agent.Provider = parent.Provider
-		agent.API = parent.API
-		agent.Model = parent.Model
+		agent.Provider = parentAgent.Provider
+		agent.API = parentAgent.API
+		agent.Model = parentAgent.Model
 	}
 	agent.ID = cmp.Or(agent.ID, sub.Name)
-	return agent
-}
-
-// childTools returns the child's view of the parent's tools. Whether the
-// child's tools are named comes from child, the agent the child starts or
-// started with, and readOnly from its Start too, never from the current
-// Subagent: a child recorded with no
-// names stays inside the parent agent's selection after the host names tools
-// for the subagent.
-func childTools(
-	parent tool.Toolset,
-	parentAgent dashi.Agent,
-	child dashi.Agent,
-	readOnly bool,
-) filtered {
-	return filtered{
-		parent:      parent,
-		parentAgent: parentAgent,
-		explicit:    len(child.Tools) > 0,
-		readOnly:    readOnly,
+	if agent.NoTools {
+		agent.Tools = nil
+		return agent, nil
 	}
-}
-
-// startCommandID is the CommandID of a child's Start. It records whether the
-// subagent was read-only when the child started, so a resumed child keeps
-// that limit after the host changes the subagent (see readOnlyAtStart).
-func startCommandID(childID string, readOnly bool) string {
-	if readOnly {
-		return childID + readOnlyStartSuffix
+	named := len(sub.Agent.Tools) > 0
+	var all []tool.Tool
+	if parent != nil && (named || !parentAgent.NoTools) {
+		var err error
+		if all, err = parent.Tools(ctx); err != nil {
+			return dashi.Agent{}, err
+		}
 	}
-	return childID + "/start"
+	var names []string
+	for _, t := range all {
+		name := t.Definition.Name
+		readOnly := t.Definition.Annotations.ReadOnly
+		switch {
+		case isTaskTool(name):
+		case named && !slices.Contains(sub.Agent.Tools, name):
+		case !named && len(parentAgent.Tools) > 0 &&
+			!slices.Contains(parentAgent.Tools, name):
+		case sub.ReadOnly && (readOnly == nil || !*readOnly):
+		default:
+			names = append(names, name)
+		}
+	}
+	if !sub.ReadOnly {
+		for _, name := range sub.Agent.Tools {
+			if !isTaskTool(name) && !slices.ContainsFunc(all, func(t tool.Tool) bool {
+				return t.Definition.Name == name
+			}) {
+				names = append(names, name)
+			}
+		}
+	}
+	agent.Tools = names
+	agent.NoTools = len(names) == 0
+	return agent, nil
 }
 
-const readOnlyStartSuffix = "/start/read-only"
-
-// readOnlyAtStart reports whether child started as a read-only subagent,
-// from the CommandID of its Start step.
-func readOnlyAtStart(child dashi.Turn) bool {
-	return len(child.Steps) > 0 &&
-		strings.HasSuffix(child.Steps[0].CommandID, readOnlyStartSuffix)
+func isTaskTool(name string) bool {
+	return name == ToolName || name == StatusToolName || name == StopToolName
 }
 
 // childRunner builds the runner for one child. It starts from the runner that
 // runs the task call, applies the host's overrides, and replaces the tools
-// with the child's view of them (see childTools). child and readOnly are the
-// agent and read-only limit the child starts with or recorded.
+// with the parent's less the task tools. The child's recorded Agent.Tools
+// selects from them.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
 	parent dashi.Runner,
-	parentAgent dashi.Agent,
-	child dashi.Agent,
-	readOnly bool,
 	t *task,
 ) dashi.Runner {
 	over := ts.cfg.Runner
@@ -919,7 +925,7 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
-	runner.Tools = childTools(parent.Tools, parentAgent, child, readOnly)
+	runner.Tools = withoutTaskTools{parent.Tools}
 	template := over.Observer
 	onChild := ts.cfg.OnChild
 	runner.Observer = func(e dashi.Event) {

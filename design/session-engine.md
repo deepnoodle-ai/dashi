@@ -230,11 +230,10 @@ turn's selection applies before the child's. A subagent whose `Agent.Tools` the
 host named draws from `Runner.Tools`, so a parent that only delegates can still
 give a worker `write`. Either way the task tools are removed and `ReadOnly`
 applies. `Recover` and resume no longer set `runner.Agent`:
-`Continue` uses the recorded agent, and the child's recorded `Agent.Tools`,
-with the parent turn's recorded selection, picks the rule, so a later change
-to the subagent cannot widen a resumed child's tools. `ReadOnly` is recorded
-in the child Start's command ID (`<child ID>/start/read-only`) for the same
-reason. `FollowUp(agent, notices)` takes the agent
+`Continue` uses the recorded agent. At child start, `delegate` resolves the
+rules above, including `ReadOnly`, into explicit names in the child's
+`Agent.Tools` (`NoTools` when none are left), so the record is the child's
+permission and a later change to the subagent cannot widen a resumed child. `FollowUp(agent, notices)` takes the agent
 as a required argument, so a host cannot run a follow-up with the defaults by
 omission.
 
