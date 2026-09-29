@@ -50,14 +50,14 @@ and record their effective values in prepared requests.
 
 ### 3. Prompt-cache controls
 
-**Status:** Open. Dashi measures and prices cache usage but cannot request
-breakpoints, TTL, or cache keys. **Size:** M. **Difficulty:** High.
-**Reference:** [provider gaps](gaps/E-providers-cost-budgets.md) and
-[model catalog](model-catalog.md); no approved cache-control design.
-**Next:** Design provider-specific cache placement and 5-minute versus 1-hour accounting
-together; test that later-turn reminders do not defeat the reusable prefix.
+**Status:** Designed, 2026-09-29; not built. One `llm.Settings.PromptCache`
+setting (`Disable`, `TTL`, `Key`); Anthropic cache points on by default; OpenAI
+key and retention; a one-hour write bucket and rate; decision 41 keeps the
+prefix stable. **Size:** M. **Difficulty:** High. **Spec:**
+[prompt-cache.md](prompt-cache.md). **Next:** accounting PR, then requests PR,
+then live qualification.
 
-**Packet:** [source research](roadmap-research/03-prompt-cache-research.md) · [draft PRD](roadmap-research/03-prompt-cache-prd.md).
+**Packet:** [source research](roadmap-research/03-prompt-cache-research.md) · [PRD](roadmap-research/03-prompt-cache-prd.md).
 
 ### 4. Provider dialect conformance
 

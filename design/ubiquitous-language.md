@@ -113,6 +113,18 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
   content and display text. Uncertainty remains distinct from known failure.
 - **Usage and limits**: Accumulated token and call counts, and bounds on calls,
   concurrency, and time.
+- **Prompt cache**: The provider's store of a request's leading part (tools,
+  system prompt, earlier messages), reused by a later request that starts with
+  exactly the same content. A reuse is a **cache read**; storing is a **cache
+  write**. (Proposed; see [prompt-cache.md](prompt-cache.md).)
+- **Cache point**: A place in a request where the provider writes the prefix up
+  to it (Anthropic's `cache_control`). Dashi places them; callers do not.
+- **Cache lifetime (TTL)**: How long the provider keeps an unused entry. The
+  caller asks for a minimum; Dashi picks the shortest lifetime the route offers
+  that meets it.
+- **Cache key**: An application label, such as a session ID, that groups calls
+  sharing a prefix so the provider can route them to the same cache. Dashi sends
+  it as given, hashed only when too long for the API.
 
 ## Guide execution and follow progress
 

@@ -24,7 +24,7 @@ No paid live probes were run for this packet.
 | --- | --- | --- | --- |
 | 1 | [Native structured output for model calls](../remaining-work.md#1-native-structured-output-for-model-calls) | [Research](01-native-structured-output-research.md) | [First-slice PRD](01-native-structured-output-prd.md) |
 | 2 | [Generation controls and provider options](../remaining-work.md#2-generation-controls-and-provider-options) | [Research](02-generation-controls-research.md) | [Draft PRD](02-generation-controls-prd.md) |
-| 3 | [Prompt-cache controls](../remaining-work.md#3-prompt-cache-controls) | [Research](03-prompt-cache-research.md) | [Draft PRD](03-prompt-cache-prd.md) |
+| 3 | [Prompt-cache controls](../remaining-work.md#3-prompt-cache-controls) | [Research](03-prompt-cache-research.md) | [PRD](03-prompt-cache-prd.md) |
 | 4 | [Provider dialect conformance](../remaining-work.md#4-provider-dialect-conformance) | [Research](04-provider-dialect-research.md) | [First-slice PRD](04-provider-dialect-prd.md) |
 | 5 | [Live provider qualification](../remaining-work.md#5-live-provider-qualification) | [Research](05-live-qualification-research.md) | [Draft PRD](05-live-qualification-prd.md) |
 | 6 | [Local MCP client](../remaining-work.md#6-local-mcp-client) | [Research](06-local-mcp-research.md) | [Draft PRD](06-local-mcp-prd.md) |

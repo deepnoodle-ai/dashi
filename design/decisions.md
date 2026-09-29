@@ -426,3 +426,17 @@ that grow with the conversation would store what the session already has; a
 projected history built from immutable earlier turns and compaction turns is
 exact without being copied; and hosts that keep conversations in their own
 tables can still supply the projected history through the engine.
+
+**41. Every feature keeps the prompt prefix stable.** Proposed
+([prompt-cache.md](prompt-cache.md)). So that prompt caching pays, a feature
+that adds per-call context appends it at the end of the messages, as a
+reminder or context item, never in the system prompt or tool definitions;
+the projection keeps sent messages in place, so a replaced `Snapshot` item
+stays and its successor is appended; and
+toolsets return a stable order. A feature that must change the prefix (the
+reserved final-answer call, compaction, a hook that hides tools, a spent
+`NextCallOnly` item, and on Anthropic a system message in the history, which
+the codec moves into the top-level system) documents the miss. Rationale: a
+single stray timestamp in instructions, or one removed message far back in
+the history, silently undoes the saving on every later call. Whether caching
+is on by default is the prompt-cache spec's own decision.
