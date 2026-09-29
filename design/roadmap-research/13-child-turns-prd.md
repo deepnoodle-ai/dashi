@@ -148,7 +148,7 @@ func (s Spend) Add(o Spend) Spend // sums usage, cost, tool cost, and counters
 - **Family budget cap.** `Budget` stays per turn. A cap over parent plus child needs a host ledger (`Hooks.BeforeSend` with `SendDecision.Admission`). A later slice adds a reference ledger.
 - **Child index.** The `Recorder` loads by ID only. A "list children of X" query waits for a proven need.
 - **Subagent files.** Loading `explore`-style subagents from `.dashi/agents/*.md` belongs in the CLI or the skills track.
-- **Background children, grandchildren, resume by task ID from the model, worktree isolation.**
+- **Background children, grandchildren, resume by task ID from the model, worktree isolation.** (Background children shipped in the second slice. Resume by task ID is superseded by [decision 42](../decisions.md): a task is a child session that `task_send` resumes; see the [subagent messages PRD](13-subagent-messages-prd.md).)
 - **Approval that waits.** A child that stops for a deferred approval fails the call (FR-11a). Durable approval inside children comes with the external-settle slice.
 - **Host-started children in `Report`.** `Report` finds children only through `task` calls. A child that a host starts with its own ID does not appear. The guide states this.
 

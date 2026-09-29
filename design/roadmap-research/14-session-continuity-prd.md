@@ -85,8 +85,9 @@ when the recorder is durable.
 **Non-goals.** A session store or session-owned log; a session lease or lock;
 guessing between steer, queue, and replace on `Start`; driving anything on open;
 mixing a session with provider-side conversation state; session metadata such as
-titles and owners (the application keeps it). Forks, rewind, child sessions,
-deletion, the durable queue, and mid-turn compaction come later.
+titles and owners (the application keeps it). Forks, rewind, child sessions (now
+in the [subagent messages PRD](13-subagent-messages-prd.md)), deletion, the
+durable queue, and mid-turn compaction come later.
 
 ## User flows
 
@@ -335,9 +336,10 @@ Each gets its own note. **Durable queue** first, with the requirements in the
 spec. **Mid-turn compaction** in the engine, before the CLI relies on sessions
 for long turns. **Fork** (a new session whose first start records the parent and
 the cut; stopped turns copied as closed). **Rewind** (a recorded marker with an
-expected-last-turn check; conversation only). **Child sessions** (a parent link,
-resumable by task ID). **Deletion and retention** (an optional deleter; turns
-before the newest compaction turn; the host's explicit choice). **Replacing a
+expected-last-turn check; conversation only). **Child sessions** moved to the
+[subagent messages PRD](13-subagent-messages-prd.md) (decision 42): a task is a
+child session, resumable by task ID. **Deletion and retention** (an optional
+deleter; turns before the newest compaction turn; the host's explicit choice). **Replacing a
 running turn across processes** (a durable stop request). **An optional
 `SessionIndex` lookup by `CommandID`**, for a longer dedup window. **The ACP
 adapter** (item 23). **An opt-in accept policy** if chat hosts all enqueue on

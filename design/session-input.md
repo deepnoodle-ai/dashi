@@ -156,6 +156,16 @@ with anything but `NextNone`. The host's `OnTask` enqueues
 `e.Task.Notice().Steer().Item`, or sends `e.Task.Notice().Steer()` with
 `SteerItem` so a running turn reads it at once.
 
+**Agent messages** ([spec](subagent-messages.md), decisions 42–44) extend this.
+Each task runs in a child session. Mail to the parent uses the same two calls:
+`SteerItem` for a steer, `EnqueueItem` for a queued message. Mail to a running
+child is a `SteerItem`; mail to an idle or ended child starts its next turn
+with a plain `Start` whose command ID is the message ID, which closes a
+stopped turn as any `Start` does. With `delegate.Config.Session` set, `Tasks`
+puts notices and messages on the parent session itself, and `OnTask` is for
+display only. `Tasks.Wait` and `RunUntilQuiet` wake on messages as on
+notices. `Session` gains no field.
+
 ## Streams and transcripts
 
 **`Session.Stream`** yields the events of every turn the call runs, including a

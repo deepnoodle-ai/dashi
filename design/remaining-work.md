@@ -179,10 +179,14 @@ namespaced commands, and `load_skill` arguments.
 **Difficulty:** High. **Guide:**
 [Delegating to subagents](../docs/guides/delegation.md). **Next:** the CLI
 wiring (`/tasks`, follow-up rule, approval prompt that names the subagent,
-`-p` waiting), durable external settle, a family budget cap over a host
-ledger, and a child index.
+`-p` waiting); then the third slice, messages between a parent and its tasks
+([PRD](roadmap-research/13-subagent-messages-prd.md),
+[spec](subagent-messages.md), decisions 42–44): each task becomes a child
+session, `task_send` and `message_parent` steer or queue, and mail is
+delivered once from the sender's record, in four tracks. Later: durable
+external settle, a family budget cap over a host ledger, and a child index.
 
-**Packet:** [source research](roadmap-research/13-child-turns-research.md) · [PRD](roadmap-research/13-child-turns-prd.md).
+**Packet:** [source research](roadmap-research/13-child-turns-research.md) · [PRD](roadmap-research/13-child-turns-prd.md) · [messages PRD](roadmap-research/13-subagent-messages-prd.md).
 
 ## Context and record health
 
@@ -215,9 +219,10 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
    `feat/compaction-turns`.
 
 Later, each with its own note: the durable queue (first), mid-turn compaction,
-fork, rewind, child sessions, deletion and retention, replacing a running turn
+fork, rewind, deletion and retention, replacing a running turn
 across processes, and a `SessionIndex` lookup by `CommandID`. When a caller
-needs them: `KeepStopped`, `Withdraw`, and `FollowSession`.
+needs them: `KeepStopped`, `Withdraw`, and `FollowSession`. Child sessions
+moved to item 13's third slice.
 
 **Packet:** [source
 research](roadmap-research/14-session-continuity-research.md) ·
