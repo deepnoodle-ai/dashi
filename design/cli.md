@@ -24,7 +24,8 @@ Without this work, the demo has no product. Dashi's features stay in examples.
 
 ## Goals and metrics
 
-Primary metric: demo steps 1 to 4, 6, and 7 run end to end in a scratch Git
+The user is a developer who wants a terminal coding agent they can trust and
+inspect. Primary metric: demo steps 1 to 4, 6, and 7 run end to end in a scratch Git
 repository with the real coding tools. Step 5 (MCP) passes when the `mcp`
 track wires in. The CLI PR does not wait for it.
 
@@ -38,12 +39,6 @@ Secondary metrics:
 
 Guardrails: the library module gains no CLI dependency. The CLI never loses a
 committed step. A zero-value setup works: `OPENAI_API_KEY` set, no settings.
-
-## Users
-
-Primary: a developer who wants a terminal coding agent they can trust and
-inspect. Secondary: a Go developer who reads the CLI as the reference
-application for Dashi.
 
 ## The screens and commands the user meets
 
@@ -207,10 +202,9 @@ holds the fields above. Turn records live in `filerecorder` files beside it.
 
 ## Requirements
 
-- FR-1: Assistant text appears as it streams.
-- FR-2: Each tool call shows name, main argument, state, and duration.
-- FR-3: Each stop kind shows its reason in plain words.
-- FR-4: The footer shows model, calls, tokens, and cost for each turn.
+- FR-1: The screen shows streamed text, each tool call (name, argument,
+  state, duration), each stop reason, and a footer with model, calls, tokens,
+  and cost.
 - FR-5: The screen, line mode, and `-p` use one event-to-text renderer.
 - FR-6: The store saves sessions and lists them by directory.
 - FR-7: `-c` and `--resume` reopen a session with full scrollback.
