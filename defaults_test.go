@@ -489,7 +489,7 @@ func TestAgentRevisionIsPinned(t *testing.T) {
 		Model:        "claude-sonnet-5",
 		Instructions: "Be brief.",
 	}.resolved()
-	if got := agentRevision(agent); got != "auto:730adb85021b2479" {
+	if got := agentRevision(agent); got != "auto:9abf96dec04e55a6" {
 		t.Fatalf("agentRevision = %q", got)
 	}
 }

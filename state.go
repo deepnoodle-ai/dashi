@@ -52,16 +52,27 @@ type ToolView struct {
 	// Approval is the host's answer to a deferred call, recorded by Settle.
 	// Verdict remains the hooks' deferral.
 	Approval *ApprovalFact
-	// result is what AfterTool hooks showed the model instead of the
-	// outcome; see Result.
-	result *llm.ToolResult
+	// result is what the model sees instead of the outcome; see Result.
+	result    *llm.ToolResult
+	shortened *Shortened
 	// steered marks a call an urgent steer kept from starting.
 	steered bool
 }
 
+// Shortened returns how the result limit shortened the model view, as
+// recorded when the call settled, or nil when the view is complete. It reads
+// the record, never the current limit.
+func (v ToolView) Shortened() *Shortened {
+	if v.shortened == nil {
+		return nil
+	}
+	s := *v.shortened
+	return &s
+}
+
 // Result is what the model sees for a settled call: the outcome's output,
-// or what an AfterTool hook replaced it with. It is the zero value before
-// the call settles.
+// or what an AfterTool hook or the result limit replaced it with. It is the
+// zero value before the call settles.
 func (v ToolView) Result() llm.ToolResult {
 	if v.result != nil {
 		return cloneToolResult(*v.result)
@@ -200,6 +211,9 @@ func snapshotView(v TurnView) TurnView {
 		if tv.result != nil {
 			copied := out.Tools[id]
 			copied.result = new(cloneToolResult(*tv.result))
+			if tv.shortened != nil {
+				copied.shortened = new(*tv.shortened)
+			}
 			out.Tools[id] = copied
 		}
 	}
@@ -901,6 +915,15 @@ func (s *replayState) apply(step Step) error {
 					return err
 				}
 				v.result = new(cloneToolResult(*step.Tool.Result))
+				if sh := step.Tool.Shortened; sh != nil {
+					if sh.Limit <= 0 || sh.ShownBytes < 0 ||
+						sh.OriginalBytes <= sh.ShownBytes {
+						return errors.New("invalid shortened record")
+					}
+					v.shortened = new(*sh)
+				}
+			} else if step.Tool.Shortened != nil {
+				return errors.New("shortened without a result")
 			}
 			v.steered = (v.Status == ToolRequested || v.Status == ToolAllowed) &&
 				step.Tool.Outcome.State == tool.StateNotExecuted &&
@@ -1648,6 +1671,8 @@ func validateStepPayload(step Step) error {
 		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
 			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored:
 			valid = true
+		case WarningLimitAdjusted:
+			valid = step.Kind == StepStarted
 		}
 		if !valid || warning.Message == "" {
 			return errors.New("invalid warning")

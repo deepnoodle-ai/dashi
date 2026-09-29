@@ -65,6 +65,11 @@ type Limits struct {
 	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
 	// It must not be negative.
 	ToolConcurrency int `json:"tool_concurrency"`
+	// ToolResultBytes limits the text of one tool result in the model view.
+	// Zero means 64 KiB. A negative value turns the limit off. A value below
+	// 1 KiB is raised to 1 KiB, with a warning at Start. Dashi keeps the
+	// full result in the record; see ToolFact.Shortened.
+	ToolResultBytes int `json:"tool_result_bytes"`
 	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
 	// the last allowed model attempt, after earlier attempts, asks for an
 	// answer without advertising application tools.
@@ -110,6 +115,7 @@ func (a Agent) resolved() Agent {
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
 	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
 	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
+	l.ToolResultBytes = resolveToolResultBytes(l.ToolResultBytes)
 	return a
 }
 
@@ -268,6 +274,9 @@ const (
 	// hidden. A name that does not match exactly hides nothing. With a
 	// dynamic toolset, a tool absent from this call warns as unknown too.
 	WarningHideIgnored WarningCode = "hide_ignored"
+	// WarningLimitAdjusted means Start raised a limit that was too low to
+	// work, so the turn runs with the raised value.
+	WarningLimitAdjusted WarningCode = "limit_adjusted"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -435,10 +444,14 @@ type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
 	Verdict    ToolVerdict     `json:"verdict,omitzero"`
-	// Result is what AfterTool hooks showed the model instead of Outcome's
-	// output. It is set only when a hook changed it; Outcome stays the
-	// record of what happened.
+	// Result is what the model sees instead of Outcome's output. It is set
+	// only when an AfterTool hook or Limits.ToolResultBytes changed it;
+	// Outcome stays the record of what happened.
 	Result *llm.ToolResult `json:"result,omitempty"`
+	// Shortened is set, with Result, when the result limit shortened the
+	// view. Dashi records it so a later change of the limit does not
+	// change an old turn.
+	Shortened *Shortened `json:"shortened,omitempty"`
 	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
 	// veto. Until a new model result arrives, the text of the message that
 	// made the call never reaches the host through TurnView.Answer.

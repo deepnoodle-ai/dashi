@@ -364,6 +364,17 @@ func (r Runner) apply(
 		if origin == "" {
 			origin = StartUser
 		}
+		if n := r.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
+			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
+				Code: WarningLimitAdjusted,
+				Message: fmt.Sprintf(
+					"Limits.ToolResultBytes %d is below the minimum; "+
+						"the turn uses %d",
+					n,
+					minToolResultBytes,
+				),
+			})
+		}
 		if o := rt.commit(Step{
 			Kind:          StepStarted,
 			CommandID:     c.CommandID,

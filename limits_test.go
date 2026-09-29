@@ -18,6 +18,7 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 		Interruptions:   10,
 		ProviderPauses:  3,
 		ToolConcurrency: 1,
+		ToolResultBytes: 64 << 10,
 	}
 	if got := def.resolved().Limits; got != want {
 		t.Fatalf("zero limits resolved to %+v, want %+v", got, want)
@@ -34,6 +35,7 @@ func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 		Interruptions:         4,
 		ProviderPauses:        5,
 		ToolConcurrency:       6,
+		ToolResultBytes:       2048,
 		NoReservedFinalAnswer: true,
 	}
 	if got := def.resolved().Limits; got != def.Limits {

@@ -885,17 +885,42 @@ func estimatedItemTokens(items []ContextItem) int {
 	return n
 }
 
-// afterTool runs the AfterTool chain on a tool or host result about to be
-// recorded, and sets fact.Result when the hooks changed what the model sees.
+// afterTool settles what the model sees of a tool or host result about to be
+// recorded. It runs the AfterTool chain, then applies the result limit, and
+// sets fact.Result when either changed the view. The limit runs last, so a
+// hook sees the full text and cannot bring the flood back.
+func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
+	if fact.Outcome == nil {
+		return
+	}
+	base := modelToolResult(fact.Call.ID, fact.Outcome)
+	current := base
+	if len(r.hooks.AfterTool) > 0 {
+		current = r.afterToolHooks(ctx, fact, base)
+	}
+	if limited, facts, ok := shortenResult(
+		current,
+		r.agent.Limits.ToolResultBytes,
+	); ok {
+		current = limited
+		fact.Shortened = &facts
+	}
+	if !sameJSONValue(current, base) {
+		current.CallID = fact.Call.ID
+		fact.Result = &current
+	}
+}
+
+// afterToolHooks runs the AfterTool chain and returns the view it leaves.
 // It fails closed: a failing hook, or a run context that ends during the
 // chain while a hook still to run fails closed, withholds the result from
 // the model. The outcome and its cost are recorded either way, since the
 // call already finished.
-func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
-	if len(r.hooks.AfterTool) == 0 || fact.Outcome == nil {
-		return
-	}
-	base := modelToolResult(fact.Call.ID, fact.Outcome)
+func (r *runtime) afterToolHooks(
+	ctx context.Context,
+	fact *ToolFact,
+	base llm.ToolResult,
+) llm.ToolResult {
 	current := cloneToolResult(base)
 	view := TurnView{}
 	if s, err := replay(r.turn); err == nil {
@@ -966,10 +991,7 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 			Verdict: VerdictReplace,
 		})
 	}
-	if !sameJSONValue(current, base) {
-		current.CallID = fact.Call.ID
-		fact.Result = &current
-	}
+	return current
 }
 
 // withheldResult is what the model sees when a result hook failed. It is not
