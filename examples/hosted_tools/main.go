@@ -93,18 +93,9 @@ func run(ctx context.Context, prompt string) error {
 	// for, such as web searches. Anthropic bills code execution by container
 	// time, which responses do not report, so it stays unpriced: the cost
 	// printed is then the known part, and the rest is listed.
-	if spend.CostUnknown > 0 {
-		fmt.Printf("Cost: unknown for %d model call(s)\n", spend.CostUnknown)
-	}
-	for currency, amount := range spend.Cost {
-		fmt.Printf("Cost: %s %s\n", amount, currency)
-	}
+	fmt.Printf("Cost: %s\n", spend)
 	if spend.CostPartial > 0 {
-		fmt.Printf(
-			"  a lower bound: %d call(s) had unpriced hosted requests %v\n",
-			spend.CostPartial,
-			spend.UnpricedRequests,
-		)
+		fmt.Printf("  Unpriced hosted requests: %v\n", spend.UnpricedRequests)
 	}
 	return nil
 }

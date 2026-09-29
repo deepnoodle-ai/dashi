@@ -1,7 +1,7 @@
 # Print a readable cost summary from Spend
 
 Status: Approved  
-PRD PR: #112 · Implementation PR: Pending · Updated: 2026-09-29
+PRD PR: [#112](https://github.com/deepnoodle-ai/dashi/pull/112) (merged) · Implementation PR: [#118](https://github.com/deepnoodle-ai/dashi/pull/118) · Updated: 2026-09-29
 
 ## Problem
 
@@ -16,7 +16,7 @@ The primary user is an application developer who wants `fmt.Println(out.Spend)` 
 The CLI footer rounds amounts and marks lower bounds. Its compact presentation serves a different job and stays unchanged.
 
 `Spend.Cost` contains model charges, including priced hosted requests. `Spend.ToolCost` contains local tool charges outside `MaxCost`.
-`CostPartial` counts calls with unpriced hosted requests. `CostUnknown` also includes charges incompatible with a cap and aggregation overflow.
+`CostPartial` counts calls with unpriced hosted requests. `CostUnknown` also includes charges incompatible with a cap and cost or usage aggregation overflow.
 These counters can overlap. They must retain separate labels and must never become a combined count of calls.
 
 ## Use cases and acceptance
@@ -38,6 +38,7 @@ The developer prints spend with unknown or partial costs.
 - [ ] Known model amounts have the prefix `at least` when either counter is positive.
 - [ ] Known tool amounts have the prefix `at least` when `CostUnknown` is positive. `CostPartial` alone does not qualify tool amounts.
 - [ ] A real `Spend.Add` tool-cost overflow qualifies both present cost sections and retains the unknown counter.
+- [ ] A real usage-only overflow retains exact model/tool sums but qualifies both sections and prints the existing unknown counter.
 - [ ] Unknown-only and partial-only spend remain explicit without an invented amount or currency.
 - [ ] Hosted request details remain available through fields and the hosted-tools example's separate diagnostics.
 
@@ -70,6 +71,10 @@ The counters describe recorded accounting conditions. `unknown: N` does not asse
 `CostUnknown` does not identify the affected category. Qualify both present cost sections because aggregation can omit either model or tool charges.
 `CostPartial` alone identifies model charges, so it qualifies only that section.
 
+`Usage.Add` overflow also increments `CostUnknown`, even when both monetary sums remain exact.
+Persisted Spend cannot identify the cause, so the formatter conservatively qualifies both present cost sections in this case.
+Separating usage failure from cost uncertainty is deferred to [#116](https://github.com/deepnoodle-ai/dashi/issues/116).
+
 An actual tool overflow supplies the acceptance case:
 
 ```go
@@ -101,7 +106,7 @@ Accounting, budget enforcement, JSON, records, the CLI footer, and the delegate 
 - Print exact decimals and recorded currencies. Small model charges need nano precision. Rejected: dollar symbols, fixed precision, or conversion.
 - Say `no recorded cost` for absent amounts. Absence cannot prove free execution. Rejected: `0`, `free`, or `no cost`.
 - Preserve separate partial and unknown counters. Their meanings overlap. Rejected: total unpriced calls or missing-cost guesses.
-- Qualify both cost sections for unknown accounting. The counter carries no category. Rejected: attribute every unknown condition to model cost.
+- Qualify both cost sections for unknown accounting, including usage-only overflow. The counter carries no cause. Rejected: infer missing causes or change accounting here.
 - Exclude usage and meter details. Existing fields support detailed reports. Rejected: a full Spend dump in every log message.
 
 ## Risk

@@ -33,7 +33,10 @@ Prefix tool amounts with `at least` only when `CostUnknown` is positive.
 `Spend.Add` can omit an overflowing sum from either map and increment `CostUnknown`.
 That counter does not identify the affected category. Qualifying both categories avoids displaying an incomplete tool subtotal as complete.
 `CostPartial` alone represents unpriced model requests, so it does not qualify tools.
-Do not introduce fields or reconstruct the counter's cause.
+`Usage.Add` overflow also increments this counter, even when model and tool sums remain exact.
+The formatter conservatively qualifies both present categories because persisted Spend does not identify the cause.
+Do not introduce fields, alter `Spend.Add`, or reconstruct the counter's cause.
+Separating usage failure from cost uncertainty belongs to [#116](https://github.com/deepnoodle-ai/dashi/issues/116).
 
 Replace cost loops in `examples/tools/main.go` and `examples/hosted_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
 The hosted example keeps its token, hosted-request, and unpriced-meter diagnostics. Remove duplicate unknown and partial counter prose.
@@ -47,6 +50,8 @@ Cover nil and empty maps, explicit zeros, tool-only cost, multiple currencies, n
 Cover unknown-only, partial-only, overlapping counters, and both category qualification rules.
 Construct an actual tool-cost overflow through `Spend.Add`, rather than setting its counter manually.
 Assert retained exact amounts, the unknown flag, and lower-bound text on both categories.
+Construct an actual usage-only overflow through `Spend.Add`, with otherwise exact model and tool sums.
+Assert both exact monetary sums, unchanged retained usage, `CostUnknown == 1`, and conservative `at least` text on both categories.
 Check repeated formatting remains stable and preserves Spend maps and usage.
 The runnable example prints mixed model/tool charges and incomplete model costs without provider requests.
 
@@ -60,7 +65,7 @@ Verify changed Go files with `gofmt`. The implementation reviewer also runs the 
 - Print every Spend field. That preserves detail but defeats the short cost-summary job. Structured fields remain available.
 
 The method allocates sorted key slices and output strings. Cost maps are small, and deterministic human display warrants that cost.
-An unknown counter conservatively qualifies both categories, even if only one is incomplete. Existing accounting cannot distinguish them.
+An unknown counter conservatively qualifies both categories, even if one or neither cost sum is incomplete. Existing accounting cannot distinguish the cause.
 Default `%v` display changes through `fmt.Stringer`. JSON and stored records retain their existing forms.
 The docs must state that this human-readable text is not a machine format.
 
