@@ -517,9 +517,10 @@ type Stop struct {
 	// Terminal means the turn has ended: no command can run it again,
 	// whatever the host settles or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline or its
-	// interruptions limit; for any limited turn that has used all its model
-	// attempts; and for a turn limited by cost whose spend includes a cost
-	// that cannot be priced. The runner sets it when it records the stop.
+	// interruptions limit; and for a turn limited by cost whose spend
+	// includes a cost that cannot be priced. A turn stopped at its model
+	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
+	// The runner sets it when it records the stop.
 	//
 	// After a terminal stop the record accepts only late results of work
 	// that had already started, and other commands give ErrTurnEnded. A
