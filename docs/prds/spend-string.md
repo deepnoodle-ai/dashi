@@ -1,7 +1,7 @@
 # Print a readable cost summary from Spend
 
 Status: Approved  
-PRD PR: Pending · Implementation PR: Pending · Updated: 2026-09-29
+PRD PR: #112 · Implementation PR: Pending · Updated: 2026-09-29
 
 ## Problem
 
