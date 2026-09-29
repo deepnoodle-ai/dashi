@@ -107,9 +107,64 @@ func TestMissingSelectedToolWarnsOncePerTurn(t *testing.T) {
 	if len(warned) != 1 || !strings.Contains(warned[0].Message, `"missing"`) {
 		t.Fatalf("warnings=%+v, want one tool_not_offered for missing", warned)
 	}
-	// The warning is recorded, so a resumed turn does not repeat it.
-	if _, err := Replay(out.Turn); err != nil {
-		t.Fatal(err)
+}
+
+// The tool_not_offered warning is recorded, so a turn that is interrupted and
+// continued does not repeat it.
+func TestMissingSelectedToolWarnsOnceAcrossContinue(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// Interrupt the turn before its second model call.
+	calls := 0
+	interrupt := ModelHook{Name: "interrupt", Func: func(
+		ctx context.Context, _ ModelPlan,
+	) (ModelDecision, error) {
+		calls++
+		if calls == 2 {
+			cancel()
+			return ModelDecision{}, ctx.Err()
+		}
+		return ModelDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "a"),
+		callResult("call-2", "a"),
+		final("done"),
+	}}
+	runner := Runner{
+		Client: client,
+		Tools:  selectionTools(t, map[string]int{}),
+		Hooks:  interrupt.Hooks(),
+	}
+	agent := testAgent()
+	agent.Tools = []string{"a", "missing"}
+	// The interrupted attempt counts toward the limit.
+	agent.Limits.ModelAttempts = 5
+	out, err := runner.Run(ctx, Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     userInput("go"),
+	})
+	if err != nil || out.Stop.Kind != StopInterrupted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "go-on"})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if len(client.inputs) != 3 {
+		t.Fatalf("model calls=%d, want 3", len(client.inputs))
+	}
+	warned := 0
+	for _, step := range out.Turn.Steps {
+		for _, w := range step.Warnings {
+			if w.Code == WarningToolNotOffered {
+				warned++
+			}
+		}
+	}
+	if warned != 1 {
+		t.Fatalf("recorded %d tool_not_offered warnings, want 1", warned)
 	}
 }
 
