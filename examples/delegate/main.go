@@ -108,8 +108,7 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("delegate: %w", err)
 		}
 		history = append(history, turn...)
-		start := delegate.FollowUp(notices)
-		start.Agent = agent
+		start := delegate.FollowUp(agent, notices)
 		start.History = history
 		out, err = runner.Run(
 			ctx,

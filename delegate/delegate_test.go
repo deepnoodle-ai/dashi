@@ -812,11 +812,13 @@ func TestNoticesWithNoRunningTurnMakeOneFollowUp(t *testing.T) {
 	if id != delegate.FollowUpTurnID([]dashi.Steer{notices[1], notices[0]}) {
 		t.Fatal("follow-up turn ID depends on notice order")
 	}
-	start := delegate.FollowUp(notices)
+	start := delegate.FollowUp(h.agent, notices)
 	if start.Origin != dashi.StartScheduled {
 		t.Fatalf("origin=%q, want scheduled", start.Origin)
 	}
-	start.Agent = h.agent
+	if start.Agent.Instructions != h.agent.Instructions {
+		t.Fatalf("agent=%+v, want the one passed", start.Agent)
+	}
 	followUp, err := h.runner.Run(t.Context(), dashi.Turn{ID: id}, start)
 	if err != nil {
 		t.Fatal(err)
@@ -882,8 +884,7 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 
 	// The host delivers the notice in a follow-up turn.
 	notices := []dashi.Steer{ended.Task.Notice().Steer()}
-	start := delegate.FollowUp(notices)
-	start.Agent = h.agent
+	start := delegate.FollowUp(h.agent, notices)
 	followUp, err := h.runner.Run(t.Context(),
 		dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
 	if err != nil {

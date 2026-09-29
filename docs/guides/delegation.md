@@ -86,9 +86,10 @@ gets the notice. Two cases:
 - **No turn runs.** The steer waits in the inbox. Read it with
   `Inbox.Leftovers(turn)` and split the list with `delegate.IsNotice`: user
   steers keep the [steering](steering.md) rule, and notices go to a follow-up
-  turn. `delegate.FollowUp(notices)` returns the `Start` for one turn that
-  carries all waiting notices, and `delegate.FollowUpTurnID(notices)` its
-  turn ID. Set `Agent` and `History` on the start. The start is scheduled
+  turn. `delegate.FollowUp(agent, notices)` returns the `Start` for one turn
+  that carries all waiting notices, with the agent you pass, usually the
+  conversation's. `delegate.FollowUpTurnID(notices)` gives its turn ID. Set
+  `History` on the start. The start is scheduled
   work and claims no user authority. Interactive hosts should raise
   `Limits.ModelAttempts`.
 

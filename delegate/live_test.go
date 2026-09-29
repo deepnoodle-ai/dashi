@@ -103,8 +103,7 @@ func TestLiveBackgroundTask(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		start := delegate.FollowUp(notices)
-		start.Agent = agent
+		start := delegate.FollowUp(agent, notices)
 		start.History = history
 		out, err = runner.Run(ctx, dashi.Turn{ID: delegate.FollowUpTurnID(notices)}, start)
 		if err != nil {

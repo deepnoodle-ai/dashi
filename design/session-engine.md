@@ -226,8 +226,9 @@ turn's selection applies before the child's. A subagent whose `Agent.Tools` the
 host named draws from `Runner.Tools`, so a parent that only delegates can still
 give a worker `write`. Either way the task tools are removed and `ReadOnly`
 applies. `Recover` and resume no longer set `runner.Agent`:
-`Continue` uses the recorded agent. `FollowUp` returns a `Start` with no agent;
-the host sets it.
+`Continue` uses the recorded agent. `FollowUp(agent, notices)` takes the agent
+as a required argument, so a host cannot run a follow-up with the defaults by
+omission.
 
 ## Record changes
 
