@@ -1,6 +1,6 @@
 # Print a readable cost summary from Spend
 
-Status: Draft  
+Status: Approved  
 PRD PR: Pending · Implementation PR: Pending · Updated: 2026-09-29
 
 ## Problem
@@ -36,6 +36,8 @@ The developer prints spend with unknown or partial costs.
 
 - [ ] Positive `CostPartial` and `CostUnknown` values appear independently as `partial: N` and `unknown: N`.
 - [ ] Known model amounts have the prefix `at least` when either counter is positive.
+- [ ] Known tool amounts have the prefix `at least` when `CostUnknown` is positive. `CostPartial` alone does not qualify tool amounts.
+- [ ] A real `Spend.Add` tool-cost overflow qualifies both present cost sections and retains the unknown counter.
 - [ ] Unknown-only and partial-only spend remain explicit without an invented amount or currency.
 - [ ] Hosted request details remain available through fields and the hosted-tools example's separate diagnostics.
 
@@ -61,8 +63,26 @@ Amounts within a cost section use `, ` separators.
 | Unknown counter 1, no known amount | `no recorded cost; unknown: 1` |
 | Partial counter 1, no known amount | `no recorded cost; partial: 1` |
 | Model USD 0.5, partial 1, unknown 1 | `model: at least 0.5 USD; partial: 1; unknown: 1` |
+| Model USD 0.5, tools USD 2, partial 1 | `model: at least 0.5 USD; tools: 2 USD; partial: 1` |
+| Model USD 0.5, tools USD 2, unknown 1 | `model: at least 0.5 USD; tools: at least 2 USD; unknown: 1` |
 
 The counters describe recorded accounting conditions. `unknown: N` does not assert that exactly N model calls lack any known price.
+`CostUnknown` does not identify the affected category. Qualify both present cost sections because aggregation can omit either model or tool charges.
+`CostPartial` alone identifies model charges, so it qualifies only that section.
+
+An actual tool overflow supplies the acceptance case:
+
+```go
+spend := dashi.Spend{
+    Cost: map[string]money.Amount{"USD": money.MustParseAmount("0.5")},
+    ToolCost: map[string]money.Amount{
+        "USD": money.MustParseAmount("9223372036.854775807"),
+    },
+}.Add(dashi.Spend{ToolCost: map[string]money.Amount{"USD": money.Amount(1)}})
+fmt.Println(spend)
+// model: at least 0.5 USD; tools: at least 9223372036.854775807 USD; unknown: 1
+```
+
 Usage totals, estimated usage counts, and unpriced meter details are outside this cost summary.
 The text serves human display. JSON and Spend fields remain the interfaces for storage and machine processing.
 
@@ -81,6 +101,7 @@ Accounting, budget enforcement, JSON, records, the CLI footer, and the delegate 
 - Print exact decimals and recorded currencies. Small model charges need nano precision. Rejected: dollar symbols, fixed precision, or conversion.
 - Say `no recorded cost` for absent amounts. Absence cannot prove free execution. Rejected: `0`, `free`, or `no cost`.
 - Preserve separate partial and unknown counters. Their meanings overlap. Rejected: total unpriced calls or missing-cost guesses.
+- Qualify both cost sections for unknown accounting. The counter carries no category. Rejected: attribute every unknown condition to model cost.
 - Exclude usage and meter details. Existing fields support detailed reports. Rejected: a full Spend dump in every log message.
 
 ## Risk
