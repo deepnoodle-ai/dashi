@@ -1,0 +1,3 @@
+- State the start and end time.
+- State who was affected.
+- Do not guess a cause that the lookup does not show.
