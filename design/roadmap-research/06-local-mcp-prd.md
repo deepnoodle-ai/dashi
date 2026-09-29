@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft, revised 2026-09-28 after independent review |
+| Status | Implemented 2026-09-28 (branch `mcp/local-client`) |
 | Roadmap | [Item 6](../remaining-work.md), size M |
 | Evidence | [Source review](06-local-mcp-research.md) |
 
@@ -253,3 +253,11 @@ status screen (below).
    `Status`. `ToolInfo` drops the read-only hint (`Definition.Annotations` holds
    it). Connect timeout is 10 seconds. No background connect. MCP hints never
    grant permission.
+9. **Implementation calls.** Servers keep raw text; `Open` expands variables
+   when it starts a server, so the prompt shows variable names and the
+   fingerprint ignores changed variable values. The loaders add no unset
+   variable warning; `Open` adds it. `Definition.Annotations` gets the
+   destructive, idempotent, and open-world hints, never read-only. A server that
+   exits keeps its tools in the snapshot until `Refresh`, so a pending call gets
+   a clear error. The loaders return an error for a missing file. Session
+   errors that are not JSON-RPC replies count as a lost connection.

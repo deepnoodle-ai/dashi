@@ -88,15 +88,15 @@ are available; label fixture-only support separately.
 
 ### 6. Local MCP client
 
-**Status:** Open. Provider-hosted MCP works without authentication; Dashi cannot
-connect to a local or app-managed MCP server and expose its tools. **Size:** M.
-**Difficulty:** High. **Reference:** [example-port gaps](gaps/F-example-ports.md)
-and Dive's `experimental/mcp`; no approved Dashi design.
-**Next:** Specify discovery, name stability, credential scope, tool results,
-and transport ownership around
-the existing `tool.Toolset` boundary. Use `BeforeTool` hooks for approval.
+**Status:** Implemented in the `mcp` module (PR pending): config loading and
+merge, stdio and streamable HTTP, fingerprinted approval of project servers,
+stable tool names, result mapping, `Refresh`, and `Close`. See the
+[guide](../docs/guides/mcp.md). **Size:** M.
+**Next:** The CLI wires `Open`, the approval prompt, and a `/mcp` status screen.
+Deferred: OAuth and token store, an `OnChange` callback, legacy SSE, and a
+runner marker for calls of uncertain effect.
 
-**Packet:** [source research](roadmap-research/06-local-mcp-research.md) · [draft PRD](roadmap-research/06-local-mcp-prd.md).
+**Packet:** [source research](roadmap-research/06-local-mcp-research.md) · [PRD](roadmap-research/06-local-mcp-prd.md).
 
 ### 7. Authenticated provider-hosted MCP
 
