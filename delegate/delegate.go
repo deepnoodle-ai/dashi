@@ -1,49 +1,49 @@
-// Package delegate lets one turn hand a focused task to a child turn. It
-// provides the "task" tool: the model names a subagent and gives a prompt,
-// the tool runs a child turn to the end, and the child's final answer
-// becomes the tool result.
+// Package delegate lets an agent hand focused work to subagents that run in
+// the background. The model calls the "task" tool with a subagent name and a
+// prompt. The call returns at once with a task ID, and the agent keeps
+// working. The model can later call "task_status" to read the state or the
+// answer, and "task_stop" to end a task. When a task ends, the host gets an
+// event and can send the result to the agent as a message.
 //
-// The child is a full Dashi turn with its own record. The record names the
+// A Tasks value owns the running children. The host creates one for each
+// conversation, so a child does not depend on one tool call or one Turn.
+//
+// Each child is a full Dashi turn with its own record. The record names the
 // parent tool call (dashi.Start.Parent), and the child's ID comes from that
-// call (ChildID). If the recorder can load turns (a dashi.Loader), a retry
-// after a crash finds the same child and never starts a second one. If it
-// cannot, the resumed call is uncertain and no child restarts. Report adds
-// the children's spend to the parent's without mixing child model cost into
-// tool cost.
+// call (ChildID). If the recorder can load turns (a dashi.Loader), Tasks.Recover
+// finds the unfinished children of a reopened conversation and resumes them.
+// Report adds the children's spend to the parent's.
 //
 // A child inherits from the runner that runs the task call, at call time: the
-// client, recorder, hooks, and cancel behavior, and the parent's current
-// model unless the Subagent sets its own. The host therefore changes any of
-// them for the parent and the children follow. Hosts wire it in one line:
+// client, recorder, hooks, and the parent's current model unless the Subagent
+// sets its own. Hosts wire it in a few lines:
 //
-//	tools = tool.Join(tools, delegate.New(delegate.Config{OnChild: draw}))
+//	tasks := delegate.NewTasks(delegate.Config{OnTask: onTask})
+//	runner.Tools = tool.Join(runner.Tools, tasks.Tools())
+//	err := tasks.Recover(ctx, runner, turns) // after a reopen
+//	defer tasks.Close(ctx)
 package delegate
 
 import (
-	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"slices"
-	"strings"
-	"sync"
-	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// ToolName is the name of the tool that New provides.
-const ToolName = "task"
-
-// defaultMaxAnswer is the byte cap on an answer returned to the parent when
-// Config.MaxAnswer is zero. A longer answer would refill the context the
-// parent delegated to protect.
-const defaultMaxAnswer = 16 << 10
+// Names of the tools that Tasks.Tools provides.
+const (
+	// ToolName starts a task.
+	ToolName = "task"
+	// StatusToolName reads the state or the answer of a task.
+	StatusToolName = "task_status"
+	// StopToolName stops a task.
+	StopToolName = "task_stop"
+)
 
 // Subagent is a kind of child that the model can choose.
 type Subagent struct {
@@ -102,28 +102,35 @@ func General() Subagent {
 	}
 }
 
-// Config configures the task tool. The zero value works.
+// Config configures the tasks. The zero value works.
 type Config struct {
 	// Subagents is the catalog the model chooses from. Empty means Explore
 	// and General.
 	Subagents []Subagent
 	// Runner holds optional overrides for child turns. Each child inherits
-	// from the runner that runs the task call. Set Client, Recorder,
-	// OnContextDone, or Observer here only to make children differ from the
-	// parent; a nonzero field replaces the inherited value. Hooks are always
-	// inherited, so the host's approval prompt covers child tool calls. Agent
-	// and Tools are ignored. A Recorder should implement dashi.Loader.
-	// Without one, the child still runs, but a resumed parent reports the
-	// task call as uncertain and starts no second child (see New).
+	// from the runner that runs the task call. Set Client, Recorder, or
+	// Observer here only to make children differ from the parent; a nonzero
+	// field replaces the inherited value. Hooks are always inherited, so the
+	// host's approval prompt covers child tool calls. OnContextDone is
+	// ignored: Tasks interrupts a child on Close and cancels it on Stop.
+	// Agent and Tools are ignored. A Recorder should implement dashi.Loader.
+	// Without one, children run but do not survive a restart.
 	Runner dashi.Runner
-	// MaxAnswer caps the bytes of the child's answer that reach the parent.
-	// Zero means 16 KiB; a negative value means no cap.
+	// MaxAnswer caps the bytes of a child's answer that reach the model,
+	// in a notice or a status result. Zero means 16 KiB; a negative value
+	// means no cap.
 	MaxAnswer int
 	// OnChild receives every child event for live display: committed steps,
 	// model deltas, and tool progress. The Observer in Runner, if set, also
-	// receives each event, after OnChild. The parent's Observer does not.
-	// It runs on the child's observer goroutine and must return promptly.
+	// receives each event, after OnChild. It runs on the child's observer
+	// goroutine and must return promptly.
 	OnChild func(ChildEvent)
+	// OnTask receives a TaskStarted event when a task starts or resumes and
+	// a TaskEnded event when it ends. The host decides how a result reaches
+	// the agent (see Notice). It runs on the task's goroutine and must
+	// return promptly. TaskEnded fires once for each task in one process.
+	// It does not fire when Close interrupts a task.
+	OnTask func(TaskEvent)
 }
 
 // ChildEvent is one event of a child turn, with the link to its parent.
@@ -193,339 +200,6 @@ func Report(
 	return report, nil
 }
 
-// New returns the toolset that holds the task tool. Join it with the tools
-// the parent already has. Children draw from the tools of the runner that runs
-// the call, filtered by each Subagent; they never receive the task tool.
-//
-// The tool is marked idempotent when the recorder can load turns. After a
-// crash, the runner then runs the call again, and the same child continues
-// from its record. Without a recorder that loads turns (a nil recorder, or
-// one that is not a dashi.Loader), the child still runs, but the tool is not
-// marked idempotent. A resume then reports the call as uncertain and starts
-// no second child. The tool logs one warning at its first call. When
-// cfg.Runner.Recorder is set and is not a Loader, New warns at once.
-func New(cfg Config) tool.Toolset {
-	catalog := cfg.Subagents
-	if len(catalog) == 0 {
-		catalog = []Subagent{Explore(), General()}
-	}
-	t := &taskTools{cfg: cfg, catalog: slices.Clone(catalog)}
-	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
-		t.warnNoLoader()
-	}
-	return t
-}
-
-type taskTools struct {
-	cfg     Config
-	catalog []Subagent
-	warn    sync.Once
-}
-
-// loads reports whether the recorder can load turns. A nil recorder cannot.
-func loads(r dashi.Recorder) bool {
-	if r == nil {
-		return false
-	}
-	_, ok := r.(dashi.Loader)
-	return ok
-}
-
-// resumable reports whether a retry can find the child. It uses the override
-// recorder, else the recorder of the runner that asks for tools. Outside a
-// runner it assumes the host will set a recorder that loads turns.
-func (t *taskTools) resumable(ctx context.Context) bool {
-	if r := t.cfg.Runner.Recorder; r != nil {
-		return loads(r)
-	}
-	if parent, ok := dashi.CurrentRunner(ctx); ok {
-		return loads(parent.Recorder)
-	}
-	return true
-}
-
-func (t *taskTools) warnNoLoader() {
-	t.warn.Do(func() {
-		slog.Warn(
-			"delegate: subagents cannot resume without a host recorder " +
-				"that implements dashi.Loader; after an interruption the " +
-				"task call is reported as uncertain",
-		)
-	})
-}
-
-// Tools returns the task tool.
-func (t *taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
-	names := make([]string, len(t.catalog))
-	var list strings.Builder
-	for i, s := range t.catalog {
-		if s.Name == "" {
-			return nil, errors.New("delegate: subagent requires a name")
-		}
-		if slices.Contains(names[:i], s.Name) {
-			return nil, fmt.Errorf("delegate: subagent %q is listed twice", s.Name)
-		}
-		names[i] = s.Name
-		fmt.Fprintf(&list, "\n- %s: %s", s.Name, s.Description)
-	}
-	schema, err := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"subagent": map[string]any{
-				"type":        "string",
-				"enum":        names,
-				"description": "Which subagent runs the task.",
-			},
-			"prompt": map[string]any{
-				"type": "string",
-				"description": "The complete task. The subagent cannot see " +
-					"this conversation, so include every fact it needs.",
-			},
-			"description": map[string]any{
-				"type":        "string",
-				"description": "A label of a few words for display.",
-			},
-		},
-		"required": []string{"subagent", "prompt", "description"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	def := tool.Definition{
-		Name: ToolName,
-		Description: "Hand a focused task to a subagent. The subagent starts " +
-			"with no memory of this conversation and returns one answer. " +
-			"Use it to keep long searches out of your own context. " +
-			"Subagents:" + list.String(),
-		Schema: schema,
-		Kind:   tool.KindLocal,
-	}
-	if t.resumable(ctx) {
-		def.Annotations.Idempotent = new(true)
-	}
-	return []tool.Tool{{Definition: def, Executor: t}}, nil
-}
-
-type taskArgs struct {
-	Subagent    string `json:"subagent"`
-	Prompt      string `json:"prompt"`
-	Description string `json:"description"`
-}
-
-// Execute runs the child turn for one task call and returns its answer.
-func (t *taskTools) Execute(
-	ctx context.Context,
-	call tool.Call,
-) (tool.Outcome, error) {
-	var args taskArgs
-	if err := json.Unmarshal(call.Args, &args); err != nil {
-		return tool.Outcome{}, fmt.Errorf("delegate: read arguments: %w", err)
-	}
-	if strings.TrimSpace(args.Prompt) == "" {
-		return tool.Outcome{}, errors.New("delegate: prompt is required")
-	}
-	sub, ok := t.find(args.Subagent)
-	if !ok {
-		return tool.Outcome{}, fmt.Errorf(
-			"delegate: unknown subagent %q; choose one of: %s",
-			args.Subagent,
-			strings.Join(t.names(), ", "),
-		)
-	}
-	ref, ok := dashi.CurrentCall(ctx)
-	if !ok {
-		return tool.Outcome{}, tool.Fatal(errors.New(
-			"delegate: the task tool must run under a dashi.Runner",
-		))
-	}
-	parent, _ := dashi.CurrentRunner(ctx)
-	id := ChildID(ref.TurnID, ref.CallID)
-	runner := t.childRunner(sub, ref, parent)
-	if !loads(runner.Recorder) {
-		t.warnNoLoader()
-	}
-	turn, command, saved, err := t.plan(ctx, runner, id, ref, args.Prompt)
-	if err != nil {
-		return tool.Outcome{}, t.failure(ctx, err)
-	}
-	out := saved
-	if command != nil {
-		out, err = runner.Run(ctx, turn, command)
-		if err != nil {
-			return tool.Outcome{}, t.failure(ctx, err)
-		}
-	}
-	return t.answer(sub.Name, out)
-}
-
-// plan decides what the call does about the child: start it, continue it, or
-// use its saved result. A saved child that stopped for a reason other than an
-// interruption or a crash is not run again, because a retry after a crash must not pay
-// for the same failed work twice.
-func (t *taskTools) plan(
-	ctx context.Context,
-	runner dashi.Runner,
-	id string,
-	ref dashi.CallRef,
-	prompt string,
-) (dashi.Turn, dashi.Command, dashi.Outcome, error) {
-	start := dashi.Start{
-		CommandID: id + "/start",
-		Parent:    &ref,
-		Input:     []llm.Message{llm.UserMessage(llm.Text(prompt))},
-	}
-	loader, ok := runner.Recorder.(dashi.Loader)
-	if !ok {
-		return dashi.Turn{ID: id}, start, dashi.Outcome{}, nil
-	}
-	turn, err := loader.Load(ctx, id)
-	if errors.Is(err, dashi.ErrTurnNotFound) {
-		return dashi.Turn{ID: id}, start, dashi.Outcome{}, nil
-	}
-	if err != nil {
-		return dashi.Turn{}, nil, dashi.Outcome{}, err
-	}
-	view, err := dashi.Replay(turn)
-	if err != nil {
-		return dashi.Turn{}, nil, dashi.Outcome{}, err
-	}
-	// A child with no stop yet was cut off before its first run recorded one.
-	if view.Stop.Kind != "" && view.Stop.Kind != dashi.StopInterrupted {
-		return turn, nil, dashi.Outcome{Turn: turn, TurnView: view}, nil
-	}
-	return turn, dashi.Continue{}, dashi.Outcome{}, nil
-}
-
-// childRunner builds the runner for one child. It starts from the runner that
-// runs the task call, applies the host's overrides, and replaces the agent and
-// tools. A Subagent that sets no model uses the parent's current model.
-func (t *taskTools) childRunner(
-	sub Subagent,
-	ref dashi.CallRef,
-	parent dashi.Runner,
-) dashi.Runner {
-	over := t.cfg.Runner
-	runner := parent
-	if over.Client != nil {
-		runner.Client = over.Client
-	}
-	if over.Recorder != nil {
-		runner.Recorder = over.Recorder
-	}
-	if over.OnContextDone != "" {
-		runner.OnContextDone = over.OnContextDone
-	}
-	agent := sub.Agent
-	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
-		agent.Provider = parent.Agent.Provider
-		agent.API = parent.Agent.API
-		agent.Model = parent.Agent.Model
-	}
-	agent.ID = cmp.Or(agent.ID, sub.Name)
-	runner.Agent = agent
-	runner.Tools = filtered{parent: parent.Tools, sub: sub}
-	template := over.Observer
-	onChild := t.cfg.OnChild
-	runner.Observer = nil
-	if onChild != nil || template != nil {
-		runner.Observer = func(e dashi.Event) {
-			if onChild != nil {
-				onChild(ChildEvent{Parent: ref, Subagent: sub.Name, Event: e})
-			}
-			if template != nil {
-				template(e)
-			}
-		}
-	}
-	return runner
-}
-
-// failure turns an error from loading or running the child into the call's
-// error. A context that ended is not a fault; the runner records that stop
-// itself. Any other error is a record or client fault the model cannot fix,
-// so it stops the parent turn. With a Loader recorder, the child is
-// resumable by its ID.
-func (t *taskTools) failure(ctx context.Context, err error) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return tool.Fatal(fmt.Errorf("delegate: run subagent: %w", err))
-}
-
-// answer maps a child's stop to the parent call's result. Only a completed
-// child gives an answer. An interrupted child gives an error the runner
-// discards when the parent's context has ended, which leaves the call open
-// so a resume continues the same child when the recorder is a Loader.
-// Without a Loader, the resumed call is uncertain and no child restarts.
-func (t *taskTools) answer(
-	name string,
-	out dashi.Outcome,
-) (tool.Outcome, error) {
-	switch stop := out.Stop; stop.Kind {
-	case dashi.StopCompleted:
-		text := out.Answer
-		if out.Output != nil && len(out.Output.Value) > 0 {
-			text = string(out.Output.Value)
-		}
-		if strings.TrimSpace(text) == "" {
-			text = "The subagent finished without a written answer."
-		}
-		return tool.Outcome{
-			State:  tool.StateSucceeded,
-			Output: new(tool.TextOutput(t.capAnswer(text))),
-		}, nil
-	case dashi.StopWaiting:
-		return tool.Outcome{}, errors.New(
-			"subagent needs approval that was deferred; " +
-				"this host cannot answer it inline",
-		)
-	default:
-		return tool.Outcome{}, fmt.Errorf(
-			"subagent %s stopped: %s%s",
-			name,
-			stop.Kind,
-			reasonSuffix(stop.Reason),
-		)
-	}
-}
-
-func (t *taskTools) capAnswer(text string) string {
-	limit := cmp.Or(t.cfg.MaxAnswer, defaultMaxAnswer)
-	if limit < 0 || len(text) <= limit {
-		return text
-	}
-	cut := text[:limit]
-	for !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
-	return fmt.Sprintf("%s\n[answer cut at %d bytes]", cut, len(cut))
-}
-
-func (t *taskTools) find(name string) (Subagent, bool) {
-	i := slices.IndexFunc(t.catalog, func(s Subagent) bool {
-		return s.Name == name
-	})
-	if i < 0 {
-		return Subagent{}, false
-	}
-	return t.catalog[i], true
-}
-
-func (t *taskTools) names() []string {
-	names := make([]string, len(t.catalog))
-	for i, s := range t.catalog {
-		names[i] = s.Name
-	}
-	return names
-}
-
-func reasonSuffix(reason string) string {
-	if reason == "" {
-		return ""
-	}
-	return ": " + reason
-}
-
 // filtered is the child's view of the parent toolset. It resolves the parent
 // on every model call, so a dynamic toolset such as an MCP server keeps its
 // live behavior inside the child.
@@ -547,7 +221,7 @@ func (f filtered) Tools(ctx context.Context) ([]tool.Tool, error) {
 		name := t.Definition.Name
 		readOnly := t.Definition.Annotations.ReadOnly
 		switch {
-		case name == ToolName:
+		case name == ToolName || name == StatusToolName || name == StopToolName:
 		case len(f.sub.Tools) > 0 && !slices.Contains(f.sub.Tools, name):
 		case f.sub.ReadOnly && (readOnly == nil || !*readOnly):
 		default:

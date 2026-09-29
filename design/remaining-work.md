@@ -169,14 +169,18 @@ namespaced commands, and `load_skill` arguments.
 
 ### 13. Child turns and delegation
 
-**Status:** First slice built on branch `turns/child-delegation`. It adds an
-immutable parent link (`Start.Parent`, `TurnView.Parent`), `CurrentCall`,
-`Spend.Add`, and the `delegate` package: a synchronous `task` tool with a
-stable child ID, retry and resume safety, cancel that reaches the child, and a
-spend report. **Size:** L. **Difficulty:** High. **Guide:**
-[Delegating to subagents](../docs/guides/delegation.md). **Next:** Durable
-external settle, a family budget cap over a host ledger, and a child index
-wait for a host that needs them.
+**Status:** First slice merged in PR #77: immutable parent link
+(`Start.Parent`, `TurnView.Parent`), `CurrentCall`, `Spend.Add`, and the
+`delegate` package. Second slice built on branch `turns/background-subagents`
+([PRD](background-subagents.md)): background is the only mode. A host-owned
+`delegate.Tasks` runs the children; the tools are `task`, `task_status`, and
+`task_stop`; results reach the agent as notices with one delivery rule; and
+`Recover` resumes unfinished children after a reopen. **Size:** L.
+**Difficulty:** High. **Guide:**
+[Delegating to subagents](../docs/guides/delegation.md). **Next:** the CLI
+wiring (`/tasks`, follow-up rule, approval prompt that names the subagent,
+`-p` waiting), durable external settle, a family budget cap over a host
+ledger, and a child index.
 
 **Packet:** [source research](roadmap-research/13-child-turns-research.md) · [PRD](roadmap-research/13-child-turns-prd.md).
 

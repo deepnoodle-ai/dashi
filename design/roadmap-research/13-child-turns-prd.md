@@ -2,6 +2,8 @@
 
 **Roadmap item 13 · Status: first slice built (2026-09-28); see decisions 15 to 24 for changes made while building and after implementation review.** Based on [source research](13-child-turns-research.md). Program deadline: demo on 2026-09-30. Ship the first slice by Tuesday night.
 
+> **Second slice (2026-09-28): background subagents.** The blocking `task` tool described below is replaced. Background is the only mode. See [background-subagents.md](../background-subagents.md). Parent link, child ID, `CurrentCall`, `CurrentRunner`, `Report`, and `OnChild` stay. Decision 1 and the "Delegate" and "Cancel and interrupt" flows are superseded where they say the tool waits for the child.
+
 ## User problem
 
 A developer wants a parent agent to hand a focused task to a sub-agent, show that work live, and use the answer. Two people feel the gap.

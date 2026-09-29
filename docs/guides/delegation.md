@@ -1,28 +1,43 @@
 # Delegating to subagents
 
 A parent agent can hand a focused task to a child agent. The child does its
-own model calls and tool calls in a separate turn. The parent gets only the
-child's final answer, so a long search does not fill the parent's context.
+own model calls and tool calls in a separate turn. The task runs in the
+background: the parent gets a task ID at once and keeps working. The result
+comes later, as a message, or when the parent asks for it. A long search does
+not stop the parent, and it does not fill the parent's context.
 
-The `delegate` package provides one ready tool, `task`. The model calls it
-with a subagent name and a prompt. The tool runs a child turn to its end and
-returns the child's answer as the tool result.
+The `delegate` package provides three tools:
+
+| Tool | What it does |
+| --- | --- |
+| `task` | Starts a subagent. Returns `Started task t_k3f2 ...` at once. |
+| `task_status` | Gives the state of a task, or its answer when it ended. `wait_seconds` (0 to 60) waits for the end. Without `task_id`, it lists all tasks. |
+| `task_stop` | Stops a running task. |
+
+A `Tasks` value owns the running children. The host makes one for each
+conversation. The wiring is short:
 
 ```go
-tools = tool.Join(tools, delegate.New(delegate.Config{OnChild: draw}))
-runner := dashi.Runner{Client: client, Recorder: recorder, Hooks: hooks, Tools: tools}
+inbox := dashi.NewInbox()
+tasks := delegate.NewTasks(delegate.Config{
+	OnTask: func(e delegate.TaskEvent) {
+		if e.Kind == delegate.TaskEnded {
+			inbox.Send(e.Task.Notice().Steer()) // the result reaches the agent
+		}
+	},
+})
+defer tasks.Close(ctx)
+runner.Tools = tool.Join(runner.Tools, tasks.Tools())
+out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 ```
 
+[`examples/delegate`](../../examples/delegate) is a complete program. It also
+shows the follow-up turn (see "When a result arrives").
+
 A child inherits from the runner that runs the `task` call, at the time of the
-call: the client, recorder, hooks, and `OnContextDone` value. The host can
-change any of them for the parent, for example a new recorder when a user
-reopens a session, and the children follow. `Config.Runner` is an optional
-override for the rare host that wants a child to differ.
-
-A child also uses the parent's current model, unless its `Subagent` sets a
-model. If the user changes the model, the next child uses the new one.
-
-[`examples/delegate`](../../examples/delegate) is a complete program.
+call: the client, recorder, hooks, and the parent's current model, unless the
+`Subagent` sets its own. `Config.Runner` overrides the client, recorder, or
+observer for the rare host that wants a child to differ.
 
 ## Subagents
 
@@ -30,116 +45,116 @@ model. If the user changes the model, the next child uses the new one.
 tool offers two:
 
 - `Explore` reads and searches. It uses only tools whose `ReadOnly` annotation
-  is true. A tool with no annotation is left out, so an MCP tool is available
-  only when its server declares it read-only.
+  is true. A tool with no annotation is left out.
 - `General` can use every parent tool.
 
-A `Subagent` holds a name, a description for the model, a `dashi.Agent` (its
-instructions, model, and limits), and an optional list of allowed tool names.
-Set `Agent.Limits` to bound the child; the package has no timeout setting of
-its own. The child never receives the `task` tool, so a child cannot start a
-child. It sees only the prompt and its own instructions, not the parent's
-conversation, so the model must put every fact in the prompt.
+A `Subagent` holds a name, a description for the model, a `dashi.Agent`
+(instructions, model, and limits), and an optional list of allowed tool names.
+A child never receives the three task tools, so a child cannot start a child.
+It sees only its prompt, so the model must put every fact in the prompt.
 
 ## The link between parent and child
 
 Each child has its own record. `dashi.Start.Parent` names the parent turn and
-tool call, and `TurnView.Parent` shows it on every read. The link cannot
-change after `Start`: a second `Start` with another parent is a command
-conflict. Dashi does not check that the parent call exists.
+tool call, and `TurnView.Parent` shows it. The child's turn ID comes from
+`delegate.ChildID(parentTurnID, callID)`. The task ID (`delegate.TaskID`) is
+a fixed function of the child ID, so it is the same after a reopen.
 
-The child's turn ID comes from `delegate.ChildID(parentTurnID, callID)`. The
-host stores nothing. To find a child, load it by that ID.
+## When a result arrives
 
-## Retries and crashes
+A finished task calls `Config.OnTask` once with `TaskEnded`. The host decides
+what to do. `TaskView.Notice()` gives the message: `Text()` for display and
+`Steer()` for delivery. The steer has origin `ContextTool`, so it is never
+user or operator text.
 
-If the recorder implements `dashi.Loader` (`MemoryRecorder` and `filerecorder`
-do), `task` is marked idempotent. After a crash, the runner runs the call
-again, and the tool finds the child by its ID:
+There is one delivery rule: **a result is delivered when the conversation's
+record holds the notice** (the context item `task-done:<child ID>`). A
+`task_status` read is not delivery, so the model that reads a result still
+gets the notice. Two cases:
 
-| Child record | The retry |
+- **A turn runs.** Send the steer to the turn's `dashi.Inbox`. The next model
+  call sees it. A turn records an ID once, so a repeat cannot double.
+- **No turn runs.** The steer waits in the inbox. Read it with
+  `Inbox.Leftovers(turn)` and split the list with `delegate.IsNotice`: user
+  steers keep the [steering](steering.md) rule, and notices go to a follow-up
+  turn. `delegate.FollowUp(notices)` returns the `Start` for one turn that
+  carries all waiting notices, and `delegate.FollowUpTurnID(notices)` its
+  turn ID. Set `History` on the start. The start is scheduled work and claims
+  no user authority. Interactive hosts should raise `Limits.ModelAttempts`.
+
+## Waiting for results
+
+`tasks.Wait(ctx)` blocks until a task has been reported through `OnTask`
+(it returns false) or nothing is pending (it returns true). A task is pending
+until `OnTask` returns for its end, so a notice that `OnTask` sends is in the
+inbox when `Wait` returns. Loop: read `Leftovers`; run a follow-up turn if a
+notice waits; otherwise call `Wait`; stop when `Wait` returns true and no
+notice waits. One goroutine calls `Wait`.
+
+Cost read while tasks run is a lower bound. It grows until each task ends.
+Read the cost of each task from its `TaskEnded` event.
+
+## Crash, quit, and reopen
+
+`Tasks.Close(ctx)` interrupts the running children and waits for their
+records. It does not call `OnTask`. To reopen, make a new `Tasks` and call
+`Recover(ctx, runner, turns)` with the turns of the conversation:
+
+| Child record | `Recover` |
 | --- | --- |
-| Not found | Starts the child. |
-| Started or interrupted | Continues the same child. Settled model calls do not run again. |
-| Completed | Returns the saved answer. No model call runs. |
-| Failed, limited, refused, or canceled | Returns the saved error. The child does not run again. |
+| No stop, or interrupted | Resumes the same child. Settled model calls do not run again. `OnTask` gets `TaskStarted`. |
+| Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once. |
+| Ended, and the record holds the notice | Nothing. |
+| Canceled | Not resumed. |
 
-Without a `Loader` recorder, `task` still runs the child on the first call.
-This includes a nil host recorder. `task` is not marked idempotent. When the
-parent resumes, the runner reports the `task` call as uncertain. No second
-child starts. The host must then reconcile the call with `Settle`.
+`Recover` needs a recorder that implements `dashi.Loader` (`MemoryRecorder`
+and `filerecorder` do). Without one it returns an error, and the tool logs a
+warning: tasks then run but do not survive a restart, and a resumed parent
+reports the `task` call as uncertain.
 
-The tool learns the recorder only when it runs. Without a `Loader`, it logs
-one warning at its first call. If `Config.Runner.Recorder` is set and is not a
-`Loader`, `New` warns at once. Use a `Loader` recorder that the host keeps
-between runs, so that a crash resumes the same child.
+Call `Recover` on reopen. The order against resuming the parent does not
+matter: a rerun `task` call that finds an ended child reports it too, once.
 
-## Structured output
+The `task` call returns only after the record holds the child. A parent that
+crashes inside the call finds the same child when the runner runs the call
+again, so a rerun starts no second child.
 
-If a subagent's agent has an `OutputSchema`, `task` returns the child's
-structured value as JSON text.
+## Stop and cancel
 
-A child tool with side effects can still run twice after a crash, under the
-runner's usual rule for a tool that has started and has no result.
+Ctrl-C on a running turn leaves tasks running. Stop one with the `task_stop`
+tool or `Tasks.Stop(ctx, id)`. The child records `canceled`, and `Recover` does not
+resume it. The states of a task are `running` and the Dashi stop words:
+`completed`, `failed`, `limited`, `refused`, `canceled`, `interrupted`,
+`waiting`, and `uncertain`. `Tasks.List()` returns a `TaskView` for each task
+with state, tool calls, cost, and the answer.
 
-## Cancel and interrupt
-
-The child runs under the tool's context. When the parent's context ends, the
-child stops too. What its record shows follows the `OnContextDone` value of
-the parent runner, which the child inherits:
-
-- `ContextCancel`: the child records `canceled`.
-- `ContextInterrupt` (default): the child records an interruption, and the
-  `task` call stays open. The parent stops as interrupted. When the host
-  continues the parent, the same child continues only when the recorder is a
-  `dashi.Loader`. Without a `Loader`, the resumed `task` call is uncertain and
-  no child restarts (see "Retries and crashes").
-
-For an interactive program where Ctrl-C ends the session, set `ContextCancel`
-on the parent runner. The child follows.
-
-## Answers and errors
+## Answers, budgets, and spend
 
 `MaxAnswer` caps the answer in bytes (default 16 KiB; negative means no cap).
-A cut answer ends with a note that says so. The call settles as an error, with
-the stop reason in its text, when the child stops `failed`, `limited`,
-`refused`, or `canceled`. The model sees the error and can decide what to do.
+A child keeps its own `Limits` and `Budget`. A parent `Budget` does not cap a
+child, and the end of the parent turn does not stop it.
 
-## Approvals for child tool calls
-
-Child tool calls pass through the hooks of the parent runner, so one approval
-prompt covers both. The hook sees the child's `TurnView`: `Parent` is set, and
-`Agent.ID` is the subagent name, so a prompt can say "explore wants to run: go
-test". Two children can run at once, so the prompt must handle parallel calls.
-
-The prompt must answer inline, inside the hook. If a hook defers a child's
-call, the child stops `waiting`. This host cannot answer it, so the `task`
-call settles as an error. With a `Loader` recorder, the child stays
-resumable by its ID.
-
-## Showing the child's work
-
-`Config.OnChild` receives every child event: committed steps, model deltas,
-and tool progress. Each `ChildEvent` carries the parent link and the subagent
-name. The parent's `Observer` does not receive child events. An `Observer` on
-`Config.Runner` also gets each event, after `OnChild`. The callback runs on
-the child's observer goroutine, so it must return quickly.
-
-## Spend
-
-Each turn's `Spend` covers its own model calls. A parent's `TurnView.Spend`
-does not include its children. `delegate.Report` adds them:
+Each turn's `Spend` covers its own model calls. `delegate.Report` adds the
+children of a parent turn:
 
 ```go
 report, err := delegate.Report(ctx, recorder, out.TurnView)
 fmt.Println(report.Inclusive.Cost, report.Children.Cost) // maps by currency
 ```
 
-`SpendReport` has `Parent`, `Children`, and `Inclusive`. `Spend.Add` keeps
-`Cost` and `ToolCost` separate, and keeps the counts of estimated, unknown,
-and partly unpriced calls. A resumed child counts once. `Report` finds
-children through the parent's `task` calls. A child that a host started under
-its own ID is not counted.
+`Spend.Add` keeps `Cost` and `ToolCost` separate, and a resumed child counts
+once. A follow-up turn is an ordinary turn with its own spend.
 
-`Budget` still applies to one turn. A cap over parent plus children needs a
-host ledger; see [Turn budgets](budgets.md).
+## Approvals for child tool calls
+
+Child tool calls pass through the hooks of the parent runner, also while no
+turn runs. The hook sees the child's `TurnView`: `Parent` is set, and
+`Agent.ID` is the subagent name. Several children can run at once, so the
+prompt must handle parallel calls, and it must answer inline. A hook that
+defers a child's call ends the task in state `waiting`.
+
+## Showing the child's work
+
+`Config.OnChild` receives every child event: committed steps, model deltas,
+and tool progress, with the parent link and the subagent name. It runs on the
+child's observer goroutine and must return quickly.
