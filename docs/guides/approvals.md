@@ -74,3 +74,9 @@ approved calls and returns `ErrNotReady` while any call is unanswered. Once
 every call is answered, `out.Pending` is empty and `out.ReadyToContinue` is
 true, but `out.Stop` still says waiting until `Continue` runs.
 
+
+## Approving coding tools
+
+[Coding tools](coding-tools.md) includes a ready-made hook. It runs read-only
+tools without a prompt and asks your callback for writes, edits, and shell
+commands, with a diff or the exact command. With a nil callback it defers.

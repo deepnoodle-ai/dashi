@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft for review |
+| Status | Implemented (first slice) |
 | Date | 2026-09-28 |
 | Roadmap | None. Track of the terminal coding agent program |
 | Package | `github.com/deepnoodle-ai/dashi/workspace` |
@@ -136,7 +136,12 @@ The request for `write_file` and `edit_file` carries a unified diff in `Preview`
 13. **`bash` takes a `timeout` argument.** Long test runs need it. The tool clamps it and says so.
 14. **`ShellProgress` is an exported type.** The CLI must parse `Data` to show live lines.
 15. **No test for the symlink check-then-write race.** The test is unreliable. The tool opens the resolved path, and the guide documents the remaining gap.
-16. **`ask_user` is absent without `WithAsker`.** A tool that cannot ask would only confuse the model. This warns and adjusts instead of failing.
+. **`InDir` policy option.** The policy reads files to build diffs and must know the workspace. The PRD API had no way to say so. `InDir(dir)` sets it; the default is the current directory. A path outside the workspace gets no preview.
+18. **Only an allow is remembered.** A remembered refusal of `edit_file` would block the tool for the whole session. `Remember` on a refusal is ignored.
+19. **Rules for other tools match the exact arguments.** A tool that is not `write_file`, `edit_file`, or `bash` is remembered by name and exact argument text.
+20. **The shell runs in its own session.** It has no terminal, so a command such as `git push` cannot prompt on `/dev/tty`. The process-group kill still works.
+21. **grep and glob limits.** `grep` returns at most 250 lines by default (`head_limit`). `glob` returns at most 1000 files. Both say when they cut the result. Both skip `.git`, `node_modules`, and similar directories. The Go search also skips hidden files, as `rg` does. The tool `grep` output mode is `files`, not `files_with_matches`.
+22. **Glob patterns.** A pattern with no `/` matches at any depth. `{a,b}` groups work.
 
 ## First slice (ship by Tuesday night)
 

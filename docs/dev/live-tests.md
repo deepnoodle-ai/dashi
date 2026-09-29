@@ -171,3 +171,15 @@ media tests use `-tags live` with `DASHI_LIVE_MEDIA_TEST=1` and
 `GEMINI_IMAGE_MODEL`, or `DASHI_LIVE_VIDEO_TEST=1` and the selected
 `GEMINI_VIDEO_MODEL`/`GEMINI_OMNI_MODEL`. Filter one test to control paid
 calls.
+
+## Coding tools
+
+`workspace/live_test.go` runs an OpenAI agent that fixes a failing test in a
+temporary Go module, using only the `workspace` tools and policy. Set
+`OPENAI_API_KEY`; `OPENAI_MODEL` defaults to `gpt-6-luna`:
+
+```sh
+go test -tags live ./workspace -run Live -v
+```
+
+On 2026-09-28 the test passed with `gpt-6-luna`: two approvals, about 8 seconds.

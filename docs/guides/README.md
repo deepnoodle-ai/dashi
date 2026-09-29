@@ -15,6 +15,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
   progress, and adding provider-hosted tools.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final
   answers.
+- [Coding tools](coding-tools.md): read, search, edit, and shell tools for one
+  directory, with an approval policy.
 - [Approving tool calls](approvals.md): asking a person inline, or deferring
   calls and answering them later.
 - [Recovering turns](recovering-turns.md): IDs, recorders, crash recovery,
