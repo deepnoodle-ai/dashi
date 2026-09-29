@@ -120,7 +120,10 @@ same way, but only the queue waits on it: `Open` and new commands run without
 the reserved items, each outcome warns `queue_blocked`, and `RunQueue` returns
 the error. A retried queue turn reuses its deterministic `queue:` key, and the
 session scans the idempotency window for it before starting one; a match means
-the items were delivered, so it consumes them and starts nothing.
+the items were delivered, so it consumes them and starts nothing. A turn in the
+window that cannot be read fails the scan, even an unreadable last turn under
+`Exclusive`, since it may hold the key: `RunQueue` returns the error and the
+items wait until a caller's `Start` moves past that turn.
 
 **Missed steers move to the queue.** After a turn ends `NextNone`, and when a
 new `Start` closes a stopped turn, the session calls `Inbox.Leftovers` on the

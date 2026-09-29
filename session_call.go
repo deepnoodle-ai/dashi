@@ -58,7 +58,9 @@ func (s *Session) Stream(
 // user and StartScheduled otherwise, and the items' messages as Input, in
 // queue order. A queue turn whose key a turn in the idempotency window
 // already started is a duplicate: its items were delivered, so they leave
-// the queue and nothing runs. While queued items stay reserved for a turn
+// the queue and nothing runs. A last turn that cannot be read fails the
+// check, even under Exclusive, since it may hold the key: RunQueue returns
+// the error and runs nothing. While queued items stay reserved for a turn
 // the session cannot read, RunQueue returns that error and runs nothing;
 // the outcomes of other commands warn WarningQueueBlocked meanwhile.
 func (s *Session) RunQueue(

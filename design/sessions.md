@@ -139,10 +139,10 @@ projection is final. The handle reloads the last turn before each command.
 **Unreadable turns.** Building projected or conversation history skips a turn
 that fails to load or replay, and adds a `turn_unreadable` warning naming it, as
 the CLI does today. An unreadable *last* turn is an error, since its liveness is
-unknown, except under `Exclusive`, where it has no worker: a new `Start` or
-queue turn leaves it out of the history with `turn_unreadable` and starts
-`S-(n+1)`. A keyed `Start` still fails, since the idempotency check cannot rule
-out that the turn holds its key.
+unknown, except under `Exclusive`, where it has no worker: a new `Start` leaves
+it out of the history with `turn_unreadable` and starts `S-(n+1)`. A keyed
+`Start` and a queue turn still fail, since the idempotency check cannot rule
+out that the turn holds their key.
 
 ## Concurrency and liveness
 

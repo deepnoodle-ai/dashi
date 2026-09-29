@@ -126,9 +126,9 @@ Scheduled and operator turns do not pass their agent on.
 `memory_only`, `queue_blocked` (below), and `turn_unreadable`, for a turn left
 out of the history because it could not be loaded or projected. An unreadable
 last turn is an error, since its worker may still run it, unless the handle
-sets `Exclusive`: then no worker does, so a new turn or queue turn leaves it
-out with `turn_unreadable` and starts after it. A keyed `Start` still fails,
-since that turn may hold its key.
+sets `Exclusive`: then no worker does, so a new turn leaves it out with
+`turn_unreadable` and starts after it. A keyed `Start` and `RunQueue` still
+fail, since that turn may hold their key.
 
 ## Steering and queued input
 

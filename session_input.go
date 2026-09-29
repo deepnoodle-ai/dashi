@@ -439,7 +439,8 @@ func notStarted(err error) bool {
 // since items that turn may have taken would otherwise run out of order.
 // When a turn in the idempotency window already started with the same
 // queue: key, the items were delivered: it consumes them and starts
-// nothing. The caller holds mu.
+// nothing. An unreadable last turn is an error, even under Exclusive,
+// since it may hold that key. The caller holds mu.
 func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 	s.ready()
 	if err := s.settleReserved(ctx); err != nil {
@@ -461,16 +462,23 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 		return startPlan{}, false, err
 	}
 	var p startPlan
-	upTo := last // the turns the history holds
 	if last > 0 {
-		t, skip, err := s.readLast(ctx, last)
+		// An unreadable last turn fails even under Exclusive: it may have
+		// started with this queue key, and starting another queue turn
+		// could deliver the items twice. A caller's Start moves past it.
+		t, err := s.load(ctx, last)
 		if err != nil {
+			if s.Exclusive && ctx.Err() == nil {
+				err = fmt.Errorf(
+					"dashi: queued input waits: turn %s may hold its queue "+
+						"key and cannot be read; a new Start moves past it: %w",
+					TurnID(s.ID, last),
+					err,
+				)
+			}
 			return startPlan{}, false, err
 		}
-		if skip != nil {
-			p.warnings = append(p.warnings, *skip)
-			upTo = last - 1
-		} else if s.refine(ctx, t).next != NextNone {
+		if s.refine(ctx, t).next != NextNone {
 			return startPlan{}, false, nil
 		}
 	}
@@ -490,7 +498,7 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 		Origin:    origin,
 		Input:     itemMessages(items),
 	}
-	used, err := s.usedKey(ctx, c.CommandID, upTo)
+	used, err := s.usedKey(ctx, c.CommandID, last)
 	if err != nil {
 		return startPlan{}, false, err
 	}
@@ -498,7 +506,7 @@ func (s *Session) planQueue(ctx context.Context) (startPlan, bool, error) {
 		s.release(s.reserve(items, c.CommandID, 0), true)
 		return startPlan{}, false, nil
 	}
-	history, unreadable := s.history(ctx, upTo)
+	history, unreadable := s.history(ctx, last)
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
 	c.Agent = s.agentFor(ctx, Agent{}, last)

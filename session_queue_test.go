@@ -480,3 +480,30 @@ func TestSessionQueueUsedKey(t *testing.T) {
 	}
 	requireTurns(t, rec, 1)
 }
+
+// An unreadable last turn may hold a queue key, so under Exclusive a
+// repeated item fails RunQueue and starts no turn, rather than risk a
+// second delivery.
+func TestSessionQueueUsedKeyUnreadable(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(dashitest.Reply("ok"), dashitest.Reply("again"))
+	s := handle(rec, client)
+	s.New = true
+	note := dashi.ContextItem{ID: "n1", Message: llm.UserMessage(llm.Text("note"))}
+	if _, err := s.EnqueueItem(t.Context(), note); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || !ran {
+		t.Fatalf("run queue: %v, %v", ran, err)
+	}
+	broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
+	other := handle(broken, client)
+	other.Exclusive = true
+	if _, err := other.EnqueueItem(t.Context(), note); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := other.RunQueue(t.Context()); err == nil || ran {
+		t.Fatalf("second run queue: %v, %v", ran, err)
+	}
+	requireTurns(t, rec, 1)
+}
