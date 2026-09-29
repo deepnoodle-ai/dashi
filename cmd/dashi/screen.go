@@ -286,7 +286,8 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 			s.vp.ScrollToBottom()
 		}
 	}
-	if e.Ctrl && (e.Rune == 'd' || e.Rune == 'D') && s.input == "" {
+	isD := e.Key == tui.KeyCtrlD || e.Ctrl && (e.Rune == 'd' || e.Rune == 'D')
+	if isD && s.input == "" {
 		return s.requestQuit()
 	}
 	return nil

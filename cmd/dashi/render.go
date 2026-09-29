@@ -351,7 +351,11 @@ func costText(sp dashi.Spend) string {
 	for _, c := range cur {
 		v := sp.Cost[c].Float64()
 		if c == "USD" {
-			out = append(out, fmt.Sprintf("$%.3f", v))
+			if v < 0.01 {
+				out = append(out, fmt.Sprintf("$%.4f", v))
+			} else {
+				out = append(out, fmt.Sprintf("$%.3f", v))
+			}
 		} else {
 			out = append(out, fmt.Sprintf("%.3f %s", v, c))
 		}

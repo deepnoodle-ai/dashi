@@ -2,7 +2,7 @@
 
 | Field | Content |
 | --- | --- |
-| Status | Revised after review, 2026-09-28 |
+| Status | Implemented through the stand-in tools, 2026-09-28 |
 | Author | CLI track lead |
 | Roadmap | Consumer of [item 14](remaining-work.md); see Decision 1 |
 | Reviewers | Curtis (sign-off pending) |
@@ -142,8 +142,9 @@ The `codetools` track (package `workspace`) merges first. The CLI uses it
 directly:
 
 ```go
-tools, err := workspace.Tools(dir, workspace.WithAsker(ui.ask))
-hooks := workspace.NewPolicy(ui.approve).Hooks()
+ws, err := workspace.New(dir)
+tools, err := ws.Tools(workspace.WithAsker(ask))
+hooks := ws.Policy(approve).Hooks()
 ```
 
 Library packages export plain `tool.Toolset` or `tool.List` and
@@ -183,8 +184,10 @@ func (s *Store) Create(dir, model string) (*Session, error)
 func (s *Store) Save(*Session) error
 func (s *Store) Latest(dir string) (*Session, error)
 func (s *Store) List(dir string) ([]Session, error) // this directory only
-func (s *Store) Recorder() dashi.Recorder           // a filerecorder
-func (s *Store) History(ctx context.Context, sess *Session) (History, error)
+func (s *Store) Recorder(*Session) (*filerecorder.Recorder, error)
+func (s *Store) Lock(*Session) (unlock func(), err error)
+func (s *Store) History(ctx, rec, sess) (History, error)
+func (s *Store) HistoryBefore(ctx, rec, sess, n) (History, error)
 
 type History struct {
 	Messages []llm.Message
@@ -198,7 +201,9 @@ skipped and named in `Notices`, and the session goes on. The screen shows each
 notice as a warning. The `compaction` track later hands the CLI a summary
 record. It applies inside `History`, over the projected messages, so that
 wiring is one change. Turn IDs are `<session ID>-<n>`. A `session.json` file
-holds the fields above. Turn records live in `filerecorder` files beside it.
+holds the fields above. Turn records live in a `filerecorder` under
+`<session>/turns`. `HistoryBefore` builds the history for a `Continue`, which
+must exclude the turn it continues.
 
 ## Requirements
 
@@ -304,3 +309,16 @@ mode and `-p` still run the loop.
 ## Open questions
 
 None block the first slice.
+14. **Controller and UI split.** `Controller` holds the input modes, slash
+    commands, and run goroutine. The Wonton screen, line mode, and `-p` are
+    thin `UI` values, so tests drive every mode without a terminal.
+15. **Line mode and `--plain`.** Line mode runs when stdout or stdin is not a
+    terminal, or with `--plain`. Piped input runs one line at a time, so a
+    script does not steer its own turns. `-p` denies approvals unless
+    `--yes` is set.
+16. **The CLI defines `ApprovalRequest`, `Approval`, and `Question`.** Their
+    fields match `workspace`, so its adapter converts field by field. The
+    `workspace` API changed to `New`, `Tools`, and `Policy` before merge.
+17. **`/continue` doubles the limit** (40, 80, 160). The full screen prints
+    the plain transcript and the resume line on exit, since the alternate
+    screen leaves no scrollback.
