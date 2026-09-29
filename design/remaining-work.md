@@ -190,12 +190,14 @@ store.
 
 ### 15. Context compaction
 
-**Status:** Open. No built-in compaction or overflow-recovery policy. **Size:** L.
-**Difficulty:** High. **Reference:** [history storage](history-storage.md),
-[runtime reminders](runtime-reminders.md), and Dive's compaction package; no
-Dashi implementation. **Next:** Settle the history ownership boundary in item
-14, then define a versioned summary with coverage, provenance, and replay
-behavior.
+**Status:** Helper package done. Package `compaction` shortens a host-owned
+history with a recorded summary, a coverage digest, and a pure projection. It
+is not a Session layer, and nothing wires it into `cmd/dashi` yet. **Size:** L.
+**Difficulty:** High. **Reference:** [guide](../docs/guides/compaction.md),
+[history storage](history-storage.md), and [runtime reminders](runtime-reminders.md).
+**Next:** Wire `/compact` and the 80% check into the CLI. Later: compaction
+inside a Turn, compact-and-retry on overflow, and a Session-layer home for the
+record (item 14).
 
 **Packet:** [source research](roadmap-research/15-context-compaction-research.md) · [draft PRD](roadmap-research/15-context-compaction-prd.md).
 

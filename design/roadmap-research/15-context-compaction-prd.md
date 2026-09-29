@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Roadmap item | 15 |
-| Status | Revised after independent review, 2026-09-28 |
+| Status | Implemented, 2026-09-28. Decisions 8 to 13 record changes made during implementation. |
 | Owner | Compaction track |
 | Evidence | [Comparative research](15-context-compaction-research.md) |
 | Demo | Wednesday 2026-09-30. First slice ships Tuesday night. |
@@ -20,7 +20,7 @@ A Dashi host owns its conversation history. It can pass a shorter `History` slic
 - pay for the summarizer call and count its cost;
 - rebuild the same shortened history after a restart.
 
-If you do nothing, each host writes this code and gets one of the parts wrong. The CLI user sees a crash at the moment the session has the most value.
+If nothing changes, each host writes this code and gets a part wrong. The `dashi` CLI user, or any host developer's user, sees a crash when the session has the most value.
 
 ## Decision on ownership
 
@@ -31,14 +31,9 @@ Roadmap item 14 (a Session layer) stays open. The application owns the history. 
 - **Primary:** A session at 80% of the window compacts and saves tokens, even when it has only a few large turns. Test: 4 large turns at 80% shrink the projected history by at least 50%.
 - **Continuity:** After compaction, the agent answers a follow-up that needs a fact from the covered part. Scripted test, plus one live run on `gpt-6-luna` recorded in the PR.
 - **Reopen:** After a restart, `Project` returns byte-equal messages from the stored record.
-- **Validity:** The projected history never has an orphaned tool call or result.
+- **Validity:** The projected history has no orphaned tool call or result.
 - **Cost visibility:** Every record shows the summarizer's model, tokens, and cost.
-- **Guardrails:** A failed compaction never changes the history or ends the session. A session below the threshold adds zero model calls.
-
-## Users
-
-- **Primary:** the `dashi` CLI user in a long session.
-- **Secondary:** a Go developer who owns the message history in a host built on Dashi.
+- **Guardrails:** A failed compaction never changes the history or ends the session. Below the threshold, it adds no model calls.
 
 ## User experience
 
@@ -82,9 +77,11 @@ type Coverage struct {
 
 // Policy knows the model, so it knows the context window.
 type Policy struct {
-    Model    llm.ModelInfo // window from Capabilities.ContextWindow; unknown means 128000
+    Model    llm.ModelInfo // window from Capabilities.ContextWindow
     Fraction float64       // zero means 0.8; negative turns automatic compaction off
 }
+// Window returns the window. Unknown gives 128000 and known == false.
+func (p Policy) Window() (tokens int, known bool)
 // Due reports whether the last model call of the last Turn used at least
 // Fraction of the window. It counts TotalInputTokens (cached input included)
 // plus OutputTokens.
@@ -93,7 +90,7 @@ func (p Policy) Due(last llm.Usage) bool
 type Options struct {
     Policy       Policy
     TurnStarts   []int     // history index where each Turn's messages begin
-    Last         llm.Usage // last model call of the last Turn; sets TokensBefore
+    Last         llm.Usage // LastUsage of the last Turn; sets TokensBefore
     TailFraction float64   // share of the window kept verbatim; zero means 0.25
 }
 
@@ -119,12 +116,16 @@ type Summary struct {
 // NewSummarizer runs one Dashi turn with no tools and the ported Dive prompt.
 // It bounds its own input by the model's window and reads the <summary> tag.
 func NewSummarizer(client llm.Client, cfg SummarizerConfig) Summarizer
+
+// LastUsage returns the usage of the last model call of a Turn.
+func LastUsage(t dashi.Turn) llm.Usage
 ```
 
 CLI wiring is one call and one check:
 
 ```go
 view, err := compaction.Project(history, rec)          // on ErrCoverageMismatch: warn, rec = nil
+last := compaction.LastUsage(turn)
 if opts.Policy.Due(last) || manual {
     if r, err := compaction.Compact(ctx, sum, history, rec, opts); err == nil { rec = r; save(rec) }
 }
@@ -138,7 +139,7 @@ if opts.Policy.Due(last) || manual {
 4. **Chaining.** Each record covers from message 0. The summarizer receives the previous summary plus the raw messages after it. `Project` reads only the newest record.
 5. **Summary message.** A user-role message with a fixed frame: "Your conversation history was compacted. Treat the notes below as a record of earlier work." It is derived history and never has operator authority.
 6. **Reminders.** Reminder content stays out of the summarizer input and the summary. The host supplies reminders again through `ContextItem`.
-7. **Summarizer input.** The default summarizer truncates any oversized message (for example a large tool result) to fit its model's window minus a reserve for output. It truncates and does not drop, so pairs stay valid. The caller's `ctx` sets the deadline.
+7. **Summarizer input.** The default summarizer writes the messages as a labeled text transcript, so its request needs no tool definitions and carries no provider replay data. It cuts the middle of any oversized item (for example a large tool result) to fit its model's window minus a reserve for output. It shortens and does not drop. If the smallest form still does not fit, it returns an error. The caller's `ctx` sets the deadline.
 8. **Failure.** A provider error, an empty summary, or a missing `<summary>` tag returns an error and no record. A summary that does not shrink the estimate returns `ErrNoSavings`. The host keeps its old view.
 9. **Cost.** `Record.Usage` and `Record.Cost` come from the summarizer Turn's spend. The CLI adds them to the session total.
 
@@ -162,26 +163,20 @@ if opts.Policy.Due(last) || manual {
 
 ## Tests (done when)
 
-- Tool-pair validity: parallel calls in one message, cut at every Turn start. No orphan.
-- Steer: a steer message inside a Turn is never a cut point.
-- Budget tail: 4 large Turns at 80% compact and save tokens. A single oversized Turn gives an all-history summary.
-- Threshold: `Due` counts cached input. A warm-cache usage crosses the threshold.
-- Coverage: an edited, dropped, or swapped covered message returns `ErrCoverageMismatch` and the raw history.
-- Idempotent projection: equal messages twice, and after a JSON round trip. Chained records project correctly.
-- Failure paths: empty summary, no tag, and no savings leave history unchanged.
-- Continuity: a scripted agent answers a follow-up from a fact in the covered part.
-- Opaque provider content in the tail passes through unchanged. Summarizer cost lands in `Record.Cost`.
-
-## In scope for Tuesday night
-
-The `compaction` package above, the tests, `examples/compaction`, `docs/guides/compaction.md`, and the roadmap update.
+- Tool-pair validity: parallel calls, a cut at every Turn start, no orphan. A steer is never a cut point.
+- Budget tail: 4 large Turns save tokens. An oversized newest Turn gives an all-history summary.
+- `Due` counts cached input.
+- Coverage: an edited, dropped, or swapped message returns `ErrCoverageMismatch` and the raw history.
+- Projection is idempotent, also after a JSON round trip, and chained records work.
+- Failures (error, empty summary, no tag, no savings) leave history unchanged.
+- Continuity: a scripted agent answers from a fact that only the summary holds.
+- Opaque content in the tail passes through. Summarizer cost lands in `Record.Cost`.
 
 ## Out of scope, later work
 
 - Mid-turn compaction and compact-and-retry on overflow. Both change model-call count and need a recorded coverage fact in the Turn.
 - Wiring into `cmd/dashi` (`/compact`, the 80% check, storing the newest record next to `session.json`, the scrollback line). The CLI track does this after its PR merges.
-- Records for failed attempts and a Session-layer home (item 14).
-- Erasure policy, branch-aware ranges, other strategies (tool-result clearing is item 11).
+- Failed-attempt records and a Session-layer home (item 14). Erasure policy, branch-aware ranges, and other strategies (tool-result clearing is item 11).
 - Tuning the prompt, tail share, and threshold on real long sessions.
 
 ## Risks
@@ -192,25 +187,26 @@ The `compaction` package above, the tests, `examples/compaction`, `docs/guides/c
 | Transcript text injects instructions | Summary carries hostile text | User-role message, never operator tier. |
 | Summarizer input overflows | Compaction fails | Truncate to the summarizer model's window. Error keeps the old view. |
 | Size estimate is wrong | Wrong tail or "saved" number | Label it approximate. `TokensBefore` uses provider usage. |
-| One Turn fills the window | Between-Turn compaction cannot help | Documented. Mid-turn work is a follow-up. |
 
 ## Decisions
 
-Review findings:
+From independent review:
 
-1. **Accept: tail by token budget.** A fixed count of Turns fails when few Turns are large. The tail is 25% of the window. If the newest Turn does not fit, summarize all history before the current request.
-2. **Accept: `Due` counts total input plus output.** `InputTokens` excludes cache reads and hides a warm session. `Policy` holds `llm.ModelInfo`, so it reads the window. "Last usage" is the last model call of the last Turn. `Options.Last` sets `TokensBefore`.
-3. **Accept: cut points are Turn starts the host supplies.** This keeps "turn" one meaning and keeps steers out of the count.
-4. **Accept: mismatch falls back.** `Project` returns raw history with the error. The digest covers the raw projection, so item 11 cannot break it. The session never fails.
-5. **Accept: drop `Timeout` and `MaxInputTokens`.** `ctx` sets the deadline. The summarizer derives its limit from its model window. The tag check moves into `NewSummarizer`.
-6. **Accept: continuity check.** A scripted test and one live run prove the agent keeps earlier facts.
-7. **Accept: store only the newest record; show a scrollback line.** Each record covers from message 0, so older records have no use. Both are CLI work.
+1. **Tail by token budget (25% of the window).** A fixed Turn count fails when Turns are large. If the newest Turn does not fit, summarize all history before the current request.
+2. **`Due` counts total input plus output.** `InputTokens` excludes cache reads and hides a warm session. `Policy` holds `llm.ModelInfo`, so it reads the window.
+3. **Cut points are host-supplied Turn starts.** "Turn" keeps one meaning, and steers stay out of the count.
+4. **A mismatch falls back.** `Project` returns raw history with the error. The digest covers the raw projection, so item 11 cannot break it.
+5. **No `Timeout` or `MaxInputTokens`.** `ctx` sets the deadline. The summarizer reads its limit from its model window.
+6. **Continuity check:** a scripted test and one live run.
+7. **Store only the newest record.** Each record covers from message 0. The CLI shows a scrollback line.
 
-Kept from the first draft:
+From the first draft: a helper package, not a Session layer (the program says the application owns history); coverage is a count plus a digest, since a host slice has no stable IDs; the summary is a user-role message with a fixed frame, below operator authority; the default summarizer runs a Dashi Turn for accounting and provider preparation, on the session model; a failure returns an error and no record; the host re-supplies reminders.
 
-8. **Helper package, not a Session layer.** The program says the application owns history.
-9. **Coverage is a count plus a digest.** A host slice has no stable entry IDs.
-10. **Summary is a user-role message with a fixed frame.** Providers need a user message first, and it stays below operator authority.
-11. **The default summarizer runs a Dashi Turn** for accounting and provider preparation. It uses the session model, which the user already chose.
-12. **Failure returns an error and no record.** Failed-attempt records wait for a Session layer.
-13. **Reminders stay out of summaries.** The host re-supplies them.
+Changes made during implementation:
+
+8. **The summarizer sends a text transcript, not structured messages.** Some providers reject tool calls in a request that defines no tools, and replay data (signed reasoning, opaque items) belongs to the original model. Reasoning and opaque content stay out; media becomes a marker.
+9. **Cut rule.** Compact picks the smallest cut after the previous record whose tail fits the budget. It skips a cut that would leave a tool result without its call, even if the host supplied it. Fewer than two Turns, or no Turn beyond the previous record, gives `ErrNothingToCompact`. Bad `TurnStarts` return an error.
+10. **`LastUsage(turn)` is part of the API.** `Spend.Usage` sums every call, and each call in a tool loop resends the history. Only the last call shows the context size.
+11. **`TokensAfter` scales the real count** by the estimated after/before ratio, because the estimate counts JSON bytes and can exceed the provider count. Without provider usage, both numbers are estimates.
+12. **Unknown window.** The package has no logger. `Policy.Window` returns `known == false` and the host warns once.
+13. **Example and live test.** `examples/compaction` is a paid example, like the others. The offline check of the wiring is `Example` in the package tests. A summarizer input that cannot fit returns an error and no record.

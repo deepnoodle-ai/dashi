@@ -97,6 +97,18 @@ per provider:
 DASHI_LIVE_AGENT_TEST=1 go test -tags live . -run '^TestLiveReservedFinalAnswer$' -v
 ```
 
+## Compaction
+
+On 2026-09-28, `TestLiveCompactionContinuity` passed on OpenAI Responses
+(`gpt-6-luna`). Three turns, one with a tool call, were compacted into a
+summary alone. The agent then answered a follow-up from the summary. The test
+makes about six paid calls:
+
+```sh
+DASHI_LIVE_AGENT_TEST=1 OPENAI_MODEL=gpt-6-luna \
+  go test -tags live ./compaction -run '^TestLiveCompactionContinuity$' -v
+```
+
 ## Iterator streaming
 
 On 2026-09-27, the turn iterator (now `Runner.Stream`) also passed one live

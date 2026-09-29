@@ -26,6 +26,8 @@ Task-oriented guides for building with Dashi. To build an agent, start with
 - [Steering](steering.md): messages from people while a turn runs.
 - [Skills](skills.md): loading skills from folders, giving the catalog to a
   model, and starting a skill by name.
+- [Compaction](compaction.md): shortening a long history with a recorded
+  summary.
 - [Turn budgets](budgets.md): setting caps, accounting, raises, and host credit
   reservations.
 

@@ -210,10 +210,10 @@ func Compact(
 	before := viewBefore
 	after := viewAfter
 	if last := usedTokens(opts.Last); last > 0 {
-		// The provider count includes the system prompt and tools, which the
-		// estimate leaves out. Apply the estimated change to the real count.
+		// The estimate counts JSON bytes and is often larger than the real
+		// count. Keep the real count and scale it by the estimated ratio.
 		before = last
-		after = max(last-(viewBefore-viewAfter), 0)
+		after = int(float64(last) * float64(viewAfter) / float64(viewBefore))
 	}
 	return &Record{
 		Version: recordVersion,

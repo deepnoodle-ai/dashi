@@ -70,7 +70,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		}
 		starts = append(starts, len(history))
 		history = append(history, msgs...)
-		last = out.Spend.Usage
+		last = LastUsage(out.Turn)
 		return out
 	}
 	ask("Call read_note, then tell me in one sentence what it says.")
