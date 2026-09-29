@@ -18,7 +18,7 @@ go to the last turn. `Answer` settles each answer and continues, in one call:
 
 ```go
 if out.Next() == dashi.NextAnswer {
-	out, err = s.Answer(ctx, out.Pending[0].Approve())
+	out, err = s.Answer(ctx, []dashi.Settle{out.Pending[0].Approve()})
 }
 ```
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -351,13 +352,64 @@ func TestSessionAnswer(t *testing.T) {
 	if err != nil || out.Next() != dashi.NextAnswer {
 		t.Fatalf("send: %v, next %s", err, out.Next())
 	}
-	out, err = s.Answer(t.Context(), out.Pending[0].Deny("the user said no"))
+	out, err = s.Answer(t.Context(), []dashi.Settle{out.Pending[0].Deny("the user said no")})
 	if err != nil || out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
 	}
 	if got := texts(client.Inputs()[1].Messages); !strings.Contains(got, "the user said no") {
 		t.Fatalf("the model did not see the denial: %q", got)
 	}
+}
+
+// TestSessionAnswerOptions passes Answer's options to the runs it makes: a
+// leasing worker's WithOwner reaches the recorder on the Settle and on the
+// Continue.
+func TestSessionAnswerOptions(t *testing.T) {
+	client := dashitest.NewClient(
+		dashitest.CallTool("call-1", "charge", `{}`),
+		dashitest.Reply("I did not charge the card."),
+	)
+	rec := &ownerRecorder{MemoryRecorder: dashi.NewMemoryRecorder()}
+	s := handle(rec, client)
+	s.New = true
+	s.Runner.Tools = (&chargeTool{}).tools()
+	s.Runner.Hooks = dashi.RequireApproval("charge")
+	out, err := s.Send(t.Context(), "pay")
+	if err != nil || out.Next() != dashi.NextAnswer {
+		t.Fatalf("send: %v, next %s", err, out.Next())
+	}
+	// Worker w1 leases the turn; a commit without its owner is rejected.
+	if err := rec.Claim(t.Context(), out.Turn.ID, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	rec.owners = nil
+	deny := []dashi.Settle{out.Pending[0].Deny("no")}
+	out, err = s.Answer(t.Context(), deny, dashi.WithOwner("w1"))
+	if err != nil || out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
+	}
+	if len(rec.owners) < 2 {
+		t.Fatalf("commits = %d; want the settle and the continue", len(rec.owners))
+	}
+	for i, owner := range rec.owners {
+		if owner != "w1" {
+			t.Fatalf("commit %d owner = %q; want w1", i, owner)
+		}
+	}
+}
+
+// ownerRecorder notes the owner of each commit.
+type ownerRecorder struct {
+	*dashi.MemoryRecorder
+	mu     sync.Mutex
+	owners []string
+}
+
+func (r *ownerRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	r.mu.Lock()
+	r.owners = append(r.owners, req.Owner)
+	r.mu.Unlock()
+	return r.MemoryRecorder.Commit(ctx, req)
 }
 
 // texts joins the text of each message, in order.

@@ -50,7 +50,7 @@ type Session struct {
 func (s *Session) Run(ctx context.Context, c Command, opts ...RunOption) (Outcome, error)
 func (s *Session) Stream(ctx context.Context, c Command, opts ...RunOption) iter.Seq2[Event, error]
 func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (Outcome, error)
-func (s *Session) Answer(ctx context.Context, answers ...Settle) (Outcome, error)
+func (s *Session) Answer(ctx context.Context, answers []Settle, opts ...RunOption) (Outcome, error)
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
 func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, error)
@@ -79,7 +79,9 @@ wrapper; drifting entry points made one peer's streaming path ignore its session
 **`Answer`** runs `Settle` for each answer, then one `Continue`. The user makes
 one call; the record has separate steps, so decision 18 holds. It stops at the
 first `Settle` error. The `Continue`'s command ID is `answer:` and the settles'
-IDs, so a retried `Answer` is recognized.
+IDs, so a retried `Answer` is recognized. It takes `RunOption`s, as `Run` does,
+and passes them to each run, so a leasing host gives `WithOwner` and a live UI
+`WithObserver` the one way it gives them elsewhere.
 
 **`RunQueue`** starts the next turn from queued input when the session is idle,
 and reports false when nothing was queued; `delegate.RunUntilQuiet` needs it.

@@ -90,7 +90,7 @@ func run(ctx context.Context) error {
 		if out.Next() == dashi.NextAnswer {
 			p := out.Pending[0]
 			fmt.Printf("  %s %s? no\n", p.Name, p.Args)
-			out, err = s.Answer(ctx, p.Deny("the user declined"))
+			out, err = s.Answer(ctx, []dashi.Settle{p.Deny("the user declined")})
 			if err != nil {
 				return err
 			}

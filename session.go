@@ -173,15 +173,18 @@ func (s *Session) Send(
 // Answer records each answer with Settle, then runs one Continue, so a
 // host answers a waiting turn in one call; the record keeps a step per
 // answer. It stops at the first Settle error. The Continue's command ID
-// derives from the answers', so a retried Answer is recognized.
+// derives from the answers', so a retried Answer is recognized. Each run
+// gets opts, as Run's would: WithOwner for a leasing host, WithObserver for
+// a live view of the Continue.
 func (s *Session) Answer(
 	ctx context.Context,
-	answers ...Settle,
+	answers []Settle,
+	opts ...RunOption,
 ) (Outcome, error) {
 	ids := make([]string, 0, len(answers))
 	for _, answer := range answers {
 		answer = withCommandID(answer).(Settle)
-		if out, err := s.Run(ctx, answer); err != nil {
+		if out, err := s.Run(ctx, answer, opts...); err != nil {
 			return out, err
 		}
 		ids = append(ids, answer.CommandID)
@@ -190,7 +193,7 @@ func (s *Session) Answer(
 	if len(ids) > 0 {
 		next.CommandID = "answer:" + strings.Join(ids, ",")
 	}
-	return s.Run(ctx, next)
+	return s.Run(ctx, next, opts...)
 }
 
 // Run applies one command to the session. A Start opens the next turn,
