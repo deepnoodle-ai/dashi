@@ -51,20 +51,27 @@ type Choice struct{ Label, Description string }
 type Answer struct{ Text string }
 
 // Approval policy for Runner.Hooks.
-func NewPolicy(ask ApprovalFunc) *Policy
+func NewPolicy(ask ApprovalFunc, opts ...PolicyOption) *Policy
 func (p *Policy) Hooks() dashi.Hooks
+func TrustTools(names ...string) PolicyOption // tools that skip the prompt
 
-type ApprovalFunc func(ctx context.Context, r Request) (Verdict, error)
-type Request struct {
+type ApprovalFunc func(ctx context.Context, r ApprovalRequest) (Approval, error)
+type ApprovalRequest struct {
 	Tool    string
 	Summary string          // "edit main.go", "run: go test ./..."
+	Preview string          // unified diff for write_file and edit_file
+	Dir     string          // working directory, for bash
+	Command string          // exact command text, for bash
 	Args    json.RawMessage // the exact arguments
 }
-type Verdict struct {
-	Allow  bool
-	Always bool   // remember for the rest of this session
-	Reason string // shown to the model when Allow is false
+type Approval struct {
+	Allow    bool
+	Remember bool   // remember this answer while the Policy exists
+	Reason   string // shown to the model when Allow is false
 }
+
+// ShellProgress is the Data of each bash progress report.
+type ShellProgress struct{ Lines []string } // last 20 output lines
 ```
 
 The agent uses it like this:
@@ -88,7 +95,7 @@ runner := dashi.Runner{Agent: agent, Client: client, Tools: tools,
 | `bash` | mutating | Runs a command in the workspace. Reports progress. |
 | `ask_user` | read-only | Asks the person a question through `AskFunc`. |
 
-Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because the question is the prompt.
+Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because the question is the prompt. `bash` takes an optional `timeout` argument in milliseconds. The tool clamps it to the maximum and adds a note to the result when it does.
 
 ## Behavior
 
@@ -98,36 +105,44 @@ Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because th
 
 **Shell.** The command runs under `bash -c`, or `sh -c` when bash is absent. The working directory is the workspace. Standard input is empty. The tool merges standard output and error in order. The default timeout is 2 minutes. The maximum is 10 minutes. On timeout or cancel, the tool kills the whole process group and returns the output so far. A non-zero exit returns a failed outcome with the output and the exit code, so the screen shows a failing test as a failure.
 
-**Progress.** While `bash` runs, it calls `tool.Report` at most four times a second. `Message` is the last output line. `Data` holds the last 20 lines as JSON. The report is live only, as `tool/progress.go` defines.
+**Progress.** While `bash` runs, it calls `tool.Report` at most four times a second. `Message` is the last output line. `Data` holds a `ShellProgress` value. The report is live only, as `tool/progress.go` defines.
 
 **Policy.** For each call, the policy decides as follows:
 
-1. A tool with `ReadOnly` true runs with no prompt.
+1. A read-only tool from this package runs with no prompt. So does a tool that the host names with `TrustTools`.
 2. A remembered rule for the call allows it.
-3. Any other tool calls `ApprovalFunc`. This includes tools from other packages, such as MCP tools.
-4. `Allow` returns `dashi.Allow`. A refusal returns `dashi.Deny` with the reason. The default reason tells the model not to retry the same call.
+3. Any other tool calls `ApprovalFunc`. This includes MCP tools, even when they carry a `ReadOnly` annotation. An annotation is a hint from the tool's author, so the policy does not trust it.
+4. `Approval.Allow` returns `dashi.Allow`. A refusal returns `dashi.Deny` with the reason. The default reason tells the model not to retry the same call.
 5. When `ask` is nil, the policy returns `dashi.Defer`. This supports the durable approval flow with no extra code.
 
-`Always` stores a rule for the session. The rule for `write_file` and `edit_file` is the tool name. The rule for `bash` is the exact command text. A prefix rule for `bash` is unsafe, because `go test ./... && rm -rf ~` starts with `go test`. The policy asks one person at a time: a mutex serializes prompts from parallel calls.
+The request for `write_file` and `edit_file` carries a unified diff in `Preview`. For `edit_file` the diff comes from the file and the replacement. For `write_file` it compares the old file, or an empty file, with the new content. The request for `bash` carries the exact command and the working directory. The diff that the demo shows after a command is `git diff`, run by the CLI. It is not a library feature.
+
+`Remember` stores a rule in the `Policy` value. The rule lives as long as the `Policy` lives, and the host decides that. A new `Policy` starts with no rules, so a reopened CLI session forgets them. The rule for `write_file` and `edit_file` is the tool name. The rule for `bash` is the exact command text. A prefix rule for `bash` is unsafe, because `go test ./... && rm -rf ~` starts with `go test`. The policy asks one person at a time: a mutex serializes prompts from parallel calls.
 
 ## Decisions
 
 1. **Package name `workspace`.** It names the boundary that the tools enforce. `Tools(dir)` reads well at the call site.
 2. **`Tools` returns an error.** A missing directory is not safe to adjust. The brief showed one return value. The error is the cost of failing early.
-3. **Policy uses the `ReadOnly` annotation, not tool names.** It then covers MCP and custom tools with no list to maintain. An unannotated tool asks. Unknown means risky.
+3. **The policy trusts only this package and a host list.** The review found that a `ReadOnly` hint from an MCP server could skip every prompt. The policy now skips the prompt for this package's read-only tools and for names in `TrustTools`. Every other tool asks. The MCP PRD must keep `ReadOnly` unset unless the host trusts the server.
 4. **Snake-case tool names, `bash` for the shell.** Models know `read_file`, `edit_file`, and `bash`. The names carry no version or product prefix.
 5. **Non-zero exit is a failed outcome.** The tool ran, but the command failed. The person and the model both need to see that.
 6. **The shell is not sandboxed.** The path checks cover the file tools only. A shell command can reach any path the user can. The approval prompt is the guard, and the guide says so. An OS sandbox is later work.
 7. **`allow always` for the shell is exact-match.** This trades convenience for safety. Prefix rules wait for a parser that rejects operators.
 8. **The read limit is the only size bound.** The tool-output track owns generic bounding.
 9. **No read-before-edit rule.** The unique-match check already stops blind edits. A staleness check adds state and gives little in a first slice.
-10. **`ask_user` is absent without `WithAsker`.** A tool that cannot ask would only confuse the model. This warns and adjusts instead of failing.
+10. **Approval requests carry a diff.** The person must see the change that they approve. `Preview` is in the first slice. The CLI shows it.
+11. **"Remember", not "session".** Dashi keeps "session" for a future concept. The rule lives as long as the `Policy` value. Persistence waits for the settings-file work.
+12. **Distinct type names.** Dashi already has `HookVerdict`, `ToolDecision`, `Allow` and `Deny`. This package uses `ApprovalRequest` and `Approval`, and the callback's `Allow` field maps onto `dashi.Allow`. `Approval` adds `Remember`, so it is not a copy of `ToolDecision`.
+13. **`bash` takes a `timeout` argument.** Long test runs need it. The tool clamps it and says so.
+14. **`ShellProgress` is an exported type.** The CLI must parse `Data` to show live lines.
+15. **No test for the symlink check-then-write race.** The test is unreliable. The tool opens the resolved path, and the guide documents the remaining gap.
+16. **`ask_user` is absent without `WithAsker`.** A tool that cannot ask would only confuse the model. This warns and adjusts instead of failing.
 
 ## First slice (ship by Tuesday night)
 
 - Package `workspace` with all eight tools, path scope, `Tools`, `NewPolicy`, and the options above.
 - Unix process-group kill. Other platforms build with a plain kill of the child.
-- Tests: each tool; a table of path-escape cases (`..`, absolute path, symlink to outside, symlink to a new file, symlinked parent); edit uniqueness; shell timeout and kill; progress; policy decisions, including `Always` and deferral.
+- Tests: each tool; a table of path-escape cases (`..`, absolute path, symlink to outside, symlink to a new file, symlinked parent); edit uniqueness; shell timeout and kill; progress; policy decisions, including `Remember` and deferral.
 - Example `examples/coding`. Guide `docs/guides/coding-tools.md`, linked from `tools.md` and `approvals.md`.
 - One live test, skipped without a key, that fixes a failing test in a temporary repository.
 - Update `design/remaining-work.md` when the PR is ready.
@@ -152,7 +167,7 @@ Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because th
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Symlink race between check and write | A write escapes the workspace | Resolve at use time. Open files with the resolved path. Test the race case. Accept a remaining time-of-check gap and document it. |
+| Symlink race between check and write | A write escapes the workspace | Resolve at use time. Open files with the resolved path. Accept a remaining time-of-check gap and document it. |
 | Shell reaches outside the workspace | File tools no longer set the boundary | Approve every command. State the limit in the guide. |
 | `rg` output differs from the Go fallback | The model sees two formats | Share one formatter. Test both against the same fixture. |
 | Prompt blocks a parallel batch | Slow turns | Document that the hook holds the batch. The CLI shows one prompt at a time. |
@@ -160,4 +175,8 @@ Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because th
 
 ## Open questions
 
-None block the first slice. The CLI track may ask for a diff preview in `Request`. Add a `Preview string` field when it does.
+None block the first slice.
+
+## Review outcome
+
+The independent review found seven items. Accepted: 1 (trust), 2 (preview), 3 (lifetime and wording), 4 (type names), 5 (`ShellProgress`), 6 (`timeout`), 7 (drop the race test). Rejected: none. Decisions 3 and 10 to 15 record the reasons.
