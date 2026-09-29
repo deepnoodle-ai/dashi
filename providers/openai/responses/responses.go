@@ -191,7 +191,11 @@ func (p *Client) Prepare(
 	if err != nil {
 		return llm.Request{}, err
 	}
-	r, adjustments, err := p.client.Fit(r, apiLimits, nil)
+	limits := apiLimits
+	if !p.sendsPromptCache(r.Model) {
+		limits = uncachedLimits
+	}
+	r, adjustments, err := p.client.Fit(r, limits, nil)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -341,12 +345,11 @@ const maxCacheKey = 64
 // endpoint whose ModelInfo states prompt cache support; a key is a hint and
 // is dropped silently elsewhere.
 func (p *Client) encodePromptCache(r llm.Input, body map[string]any) {
-	cache := r.Settings.PromptCache
-	info, _ := p.client.ModelInfo(r.Model)
-	if p.client.Endpoint != openAIEndpoint &&
-		info.Capabilities.Features[llm.FeaturePromptCache] != llm.SupportSupported {
+	if !p.sendsPromptCache(r.Model) {
 		return
 	}
+	cache := r.Settings.PromptCache
+	info, _ := p.client.ModelInfo(r.Model)
 	if cache.Key != "" {
 		body["prompt_cache_key"] = wireCacheKey(cache.Key)
 	}
@@ -357,6 +360,16 @@ func (p *Client) encodePromptCache(r llm.Input, body map[string]any) {
 		llm.CacheLifetime(cache.TTL, offered) == 24*time.Hour {
 		body["prompt_cache_retention"] = "24h"
 	}
+}
+
+// sendsPromptCache reports whether cache fields go to this model: always on
+// OpenAI's endpoint, elsewhere only when its ModelInfo states support.
+func (p *Client) sendsPromptCache(model string) bool {
+	if p.client.Endpoint == openAIEndpoint {
+		return true
+	}
+	info, _ := p.client.ModelInfo(model)
+	return info.Capabilities.Features[llm.FeaturePromptCache] == llm.SupportSupported
 }
 
 // wireCacheKey returns key as given, or a deterministic hash when it is too
@@ -388,6 +401,15 @@ var apiLimits = llm.Capabilities{
 	},
 	MaxTemperature: 2,
 }
+
+// uncachedLimits are apiLimits for a model that gets no cache fields, so a
+// lifetime is omitted with a warning, as on Chat Completions.
+var uncachedLimits = func() llm.Capabilities {
+	limits := apiLimits
+	limits.Features = maps.Clone(apiLimits.Features)
+	limits.Features[llm.FeaturePromptCache] = llm.SupportUnsupported
+	return limits
+}()
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.

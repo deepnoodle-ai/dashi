@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/grok"
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -255,6 +256,30 @@ func TestResponsesCacheKeyAndRetention(t *testing.T) {
 	})
 	if _, err := strict.Prepare(t.Context(), cacheInput("gpt-5.6", time.Hour)); err == nil {
 		t.Fatal("strict clamped a cache lifetime")
+	}
+
+	// Grok's ModelInfo states no prompt cache support, so no field is sent,
+	// the lifetime is omitted with a warning, and the cost stays bounded.
+	g, err := grok.New(grok.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := g.Prepare(t.Context(), cacheInput("grok-4.7", time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := ttlAdjustment(r)
+	if !ok || a.Action != llm.AdjustmentOmit || len(r.Warnings()) != 1 ||
+		strings.Contains(string(r.Body()), "prompt_cache") ||
+		r.Effective().PromptCache.TTL != 0 {
+		t.Fatalf("grok: %s, %+v", r.Body(), r.Adjustments())
+	}
+	info := r.Snapshot().ModelInfo
+	if info == nil || info.Pricing == nil {
+		t.Fatal("grok-4.7 has no catalog pricing")
+	}
+	if _, ok := llm.MaxCostAtRisk(r, *info.Pricing); !ok {
+		t.Fatal("grok cost risk was not bounded")
 	}
 }
 

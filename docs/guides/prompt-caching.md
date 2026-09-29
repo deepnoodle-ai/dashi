@@ -37,8 +37,10 @@ agent := dashi.Agent{
   the route offers that is at least `TTL`: 1 hour on Claude, 24 hours on the
   OpenAI models that offer it. Above the longest it sends the longest, with a
   `setting_clamped` warning (GPT-5.6 offers only 30 minutes). Where no
-  lifetime can be requested (Gemini, Chat Completions) it is omitted with a
-  `setting_omitted` warning. Under `CapabilityStrict` both are errors.
+  lifetime can be requested (Gemini, Chat Completions, and Responses routes
+  such as Grok's whose model info does not state `prompt_cache` support) it
+  is omitted with a `setting_omitted` warning. Under `CapabilityStrict` both
+  are errors.
 - `Key` groups calls that share a prefix, such as one conversation's. OpenAI
   Responses receives it as `prompt_cache_key`, as given, so OpenAI's per-key
   accounting shows your label; a key over 64 characters is sent as a hash.
@@ -67,7 +69,9 @@ turn, reminders are added at the end, and a `Snapshot` context item that
 replaces an older one is added after it rather than in its place. Your part:
 
 - Put per-call facts (the time, remaining budget) in reminders or `Snapshot`
-  items, never in `Instructions`.
+  items, never in `Instructions`. Each replaced snapshot copy stays in the
+  session history, since removing it would break the cached prefix, so keep
+  snapshot items small and change them rarely.
 - Keep the toolset's order stable. Hiding tools in a `BeforeModel` hook, or a
   different tool selection, resets the whole cache.
 - Changing `ToolChoice`, reasoning, or `Citations` resets Anthropic's message
