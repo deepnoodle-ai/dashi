@@ -1,6 +1,6 @@
 # Keep failed usage aggregation separate from uncertain cost
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending  Implementation PR: pending  Updated: 2026-09-29
 
 ## Problem and users
@@ -98,6 +98,6 @@ Do not rename existing Outcome or Stop types, change `llm.Usage.Add`, or relax v
 Older binaries can ignore the additive JSON field. They cannot be trusted to interpret new incomplete-usage snapshots correctly.
 Support new readers of old records. Do not promise old-reader budget safety for new accounting states.
 
-The technical spec must implement this terminal-stop contract and cover admission timing, reconciliation, and legacy-record compatibility before implementation.
+The [technical spec](../design/spend-usage-accounting.md) defines this terminal-stop contract, admission timing, reconciliation, and legacy-record compatibility.
 Focused overflow and round-trip tests must meet every criterion without provider requests.
 Existing budget, recovery, replay, and delegation checks must pass. Independent implementation and billing-security reviews remain required.
