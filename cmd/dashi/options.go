@@ -20,6 +20,7 @@ type Options struct {
 	APIEndpoint     string
 	Workspace       string
 	EnvFiles        []string
+	MCPFiles        []string
 	SystemPrompt    string
 	SystemPromptSet bool
 	Models          bool
@@ -85,12 +86,12 @@ func parseArgs(args []string) (Options, error) {
 			o.Models = true
 		case "--available":
 			o.Available = true
-		case "--provider", "--api-endpoint", "--workspace", "--env-file", "--system-prompt", "--thinking-effort", "--temperature", "--max-tokens":
+		case "--provider", "--api-endpoint", "--workspace", "--env-file", "--mcp-config", "--system-prompt", "--thinking-effort", "--temperature", "--max-tokens":
 			v, err := value()
 			if err != nil {
 				return o, err
 			}
-			if (name == "--provider" || name == "--api-endpoint" || name == "--workspace" || name == "--env-file") && strings.TrimSpace(v) == "" {
+			if (name == "--provider" || name == "--api-endpoint" || name == "--workspace" || name == "--env-file" || name == "--mcp-config") && strings.TrimSpace(v) == "" {
 				return o, fmt.Errorf("%s needs a nonempty value", name)
 			}
 			switch name {
@@ -102,6 +103,8 @@ func parseArgs(args []string) (Options, error) {
 				o.Workspace = v
 			case "--env-file":
 				o.EnvFiles = append(o.EnvFiles, v)
+			case "--mcp-config":
+				o.MCPFiles = append(o.MCPFiles, v)
 			case "--system-prompt":
 				if strings.TrimSpace(v) == "" {
 					return o, fmt.Errorf("--system-prompt needs nonempty text")
@@ -176,6 +179,7 @@ Flags:
       --provider ID    choose a configured destination
       --model NAME     choose an exact registered model ID
       --api-endpoint URL  override a custom destination endpoint
+      --mcp-config FILE  add a trusted MCP configuration (repeatable)
       --workspace DIR  use an existing workspace directory
       --env-file PATH  load an explicit literal environment file
       --system-prompt TEXT  replace built-in coding guidance

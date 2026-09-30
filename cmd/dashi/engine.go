@@ -32,6 +32,7 @@ type EngineConfig struct {
 	Wiring      wiring
 	Preferences *cliPreferences
 	Resources   *resourceManager
+	MCP         *mcpRuntime
 	// ModelAttempts is the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 	// Emit receives every block the engine produces. It may run on any
@@ -342,6 +343,9 @@ type Result struct {
 // the last turn did not end, the session closes it first, and the screen
 // says so; while a command of that turn may still be running, it refuses.
 func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
+	if !e.cfg.MCP.Ready() {
+		return Result{}, errors.New("MCP startup has not completed; no work was started")
+	}
 	e.inputMu.Lock()
 	if e.pending != nil {
 		e.holdLineLocked(text)
@@ -372,6 +376,9 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 // Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
 // or the model-call limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
+	if !e.cfg.MCP.Ready() {
+		return Result{}, errors.New("MCP startup has not completed; no work was started")
+	}
 	if e.HasPending() {
 		return e.resumePending(ctx)
 	}
@@ -477,6 +484,9 @@ func (e *Engine) Steer(text string, urgent bool) error {
 // Queue holds text as the next prompt. It runs when the running turn ends,
 // or goes ahead of the next prompt if that turn stops first.
 func (e *Engine) Queue(text string) error {
+	if !e.cfg.MCP.Ready() {
+		return errors.New("MCP startup has not completed; no input was queued")
+	}
 	e.inputMu.Lock()
 	defer e.inputMu.Unlock()
 	if e.pending != nil {
