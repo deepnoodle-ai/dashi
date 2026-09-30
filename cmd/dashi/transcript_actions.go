@@ -42,7 +42,12 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 	if isCtrlC(e) {
 		return false
 	}
-	consume := (s.approval != nil && !s.approval.denying) || s.asking != nil && !s.asking.own || s.picker != nil || isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL ||
+	s.exitGuard.reset()
+	// Main Escape must reach native completion before application handling.
+	if e.Key == tui.KeyEscape && !s.promptActive {
+		return false
+	}
+	consume := (s.approval != nil && !s.approval.denying) || s.asking != nil && !s.asking.own || s.picker != nil || isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL || e.Key == tui.KeyCtrlG ||
 		e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
 		(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && (e.Ctrl || s.input == "")
 	if consume {

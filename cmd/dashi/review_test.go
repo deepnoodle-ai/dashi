@@ -132,7 +132,10 @@ func TestSlashCommandDuringTurnIsNotSteer(t *testing.T) {
 	if strings.Contains(text, "steer queued: /model") {
 		t.Fatalf("a command became a steer:\n%s", text)
 	}
-	mustHave(t, text, "steer queued: /etc/hosts looks wrong")
+	mustHave(t, text, "Unknown command /etc/hosts")
+	if strings.Contains(text, "steer queued: /etc/hosts") {
+		t.Fatal("unknown slash command became a steer")
+	}
 	if h.app.eng.Model() != "fixture" {
 		t.Fatalf("model changed to %s", h.app.eng.Model())
 	}

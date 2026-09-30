@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -298,9 +299,6 @@ func (c *Controller) CancelWork() {
 // Input handles one submitted line.
 func (c *Controller) Input(line string) {
 	line = strings.TrimSpace(line)
-	if c.Mode() != ModeApproval && c.displayCommand(line) {
-		return
-	}
 	switch c.Mode() {
 	case ModeApproval:
 		pending := c.answerPending.Swap(true)
@@ -316,8 +314,17 @@ func (c *Controller) Input(line string) {
 		c.steer(line)
 		return
 	}
+	name, _ := splitCommand(line)
+	if strings.HasPrefix(name, "/") {
+		for _, entry := range c.commands() {
+			if strings.EqualFold(entry.name, name) || slices.Contains(entry.aliases, name) {
+				name = entry.name
+				break
+			}
+		}
+	}
 	c.mu.Lock()
-	if name, _, _ := strings.Cut(line, " "); name != c.dropping {
+	if name != c.dropping {
 		c.dropping = ""
 	}
 	c.mu.Unlock()
@@ -331,27 +338,8 @@ func (c *Controller) Input(line string) {
 	}
 }
 
-func (c *Controller) displayCommand(line string) bool {
-	name, arg, _ := strings.Cut(line, " ")
-	name = strings.ToLower(name)
-	switch name {
-	case "/copy", "/scrollback", "/mouse":
-		if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
-			ui.TranscriptCommand(name, strings.TrimSpace(arg))
-		} else {
-			c.notice("%s is available in interactive terminal mode.", name)
-		}
-		return true
-	}
-	return false
-}
-
 func (c *Controller) steer(line string) {
 	if line == "" {
-		return
-	}
-	if command := strings.ToLower(line); command == "/quit" || command == "/exit" {
-		c.QuitDuringRun(command)
 		return
 	}
 	if c.duringTurnCommand(line) {
@@ -377,37 +365,6 @@ func (c *Controller) QuitDuringRun(action string) {
 	if c.cancel != nil {
 		c.cancel()
 	}
-}
-
-// duringTurnCommand handles a line that names a slash command while a turn
-// runs. The line is not a steer. /help and /queue run now; other commands
-// require resubmission after the turn ends. It reports whether the line was a command.
-func (c *Controller) duringTurnCommand(line string) bool {
-	name, arg, _ := strings.Cut(line, " ")
-	name = strings.ToLower(name)
-	switch name {
-	case "/settings":
-		c.notice("/settings must wait until the turn ends. Submit it again then.")
-	case "/effort", "/thinking", "/temperature", "/max-tokens":
-		c.notice("%s must wait until the turn ends. Submit it again then.", name)
-	case "/resources":
-		c.goWork(func() { c.resources(c.base) })
-	case "/help":
-		c.command(line)
-	case "/queue":
-		c.queue(arg)
-	case "/compact":
-		c.notice("/compact must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.")
-	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
-		c.notice("%s must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.", name)
-	default:
-		if strings.HasPrefix(name, "/") && !strings.Contains(strings.TrimPrefix(name, "/"), "/") && c.eng.cfg.Resources != nil {
-			c.skillCommand(line, true)
-			return true
-		}
-		return false
-	}
-	return true
 }
 
 // queue holds text as the next prompt.
@@ -490,102 +447,6 @@ func busyText(err error) string {
 	}
 	return err.Error()
 }
-
-func (c *Controller) command(line string) {
-	name, arg, _ := strings.Cut(line, " ")
-	arg = strings.TrimSpace(arg)
-	switch strings.ToLower(name) {
-	case "/compact":
-		if arg != "" {
-			c.notice("Usage: /compact")
-			return
-		}
-		c.startRun(func(ctx context.Context) (Result, error) {
-			res, err := c.eng.Compact(ctx)
-			if errors.Is(err, dashi.ErrNothingToCompact) {
-				c.notice("Nothing needs compaction.")
-				return res, nil
-			}
-			return res, err
-		})
-	case "/quit", "/exit":
-		if c.keepQueued(name) {
-			return
-		}
-		c.ui.Quit()
-	case "/continue":
-		if !c.eng.Last(c.base).LimitStopped() {
-			c.emit(Block{
-				Kind: KindNotice,
-				Text: "/continue works after a model-call limit stop.",
-				Done: true,
-			})
-			return
-		}
-		c.startRun(c.eng.ContinueLimit)
-	case "/done":
-		if id, _ := c.eng.Last(c.base).OpenCall(); id == "" {
-			c.notice("/done marks a command done after dashi stopped while it ran.")
-			return
-		}
-		c.startRun(c.eng.MarkDone)
-	case "/discard":
-		if !c.eng.Last(c.base).Open() {
-			c.notice("There is no open turn to discard.")
-			return
-		}
-		c.startRun(c.eng.Discard)
-	case "/queue":
-		c.prompt(arg)
-	case "/new":
-		if c.keepQueued(name) {
-			return
-		}
-		c.async(c.newSession)
-	case "/model":
-		c.async(func(ctx context.Context) { c.model(ctx, arg) })
-	case "/sessions":
-		if c.keepQueued(name) {
-			return
-		}
-		c.async(c.sessions)
-	case "/effort", "/thinking", "/temperature", "/max-tokens":
-		c.async(func(ctx context.Context) { c.generationControl(ctx, name, arg) })
-	case "/settings":
-		c.async(func(ctx context.Context) { c.settings(ctx, arg) })
-	case "/resources":
-		if arg != "" {
-			c.notice("Usage: /resources")
-			return
-		}
-		c.async(c.resources)
-	case "/help":
-		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
-	default:
-		c.skillCommand(line, false)
-	}
-}
-
-const helpText = `Commands:
-  /copy [N|all]  copy selection or list/copy code blocks
-  /scrollback [raw]  inspect complete output in native scrollback
-  /mouse         toggle application mouse capture
-  /compact       summarize history before the next turn
-  /model [destination] [model]  choose the next-turn destination/model
-  /resources     inspect instruction, skill, and tool sources/scopes
-  /settings [--json]  inspect next-turn and recorded settings
-  /effort LEVEL|omit  set next-turn reasoning effort
-  /thinking on|off  request and display public reasoning summaries
-  /temperature N|omit  set or omit sampling temperature
-  /max-tokens N|default  set the next-turn output limit
-  /new           start a new session
-  /sessions      list sessions for this directory
-  /continue      go on after a model-call limit stop
-  /done          mark a command done that ran when dashi stopped
-  /discard       discard the open turn
-  /quit          save and exit
-While a turn runs, a line is a steer. Start it with ! to cut the model call.
-/queue <text> holds text as the next prompt, to run when the turn ends.`
 
 // async runs fn in the command mode.
 func (c *Controller) async(fn func(context.Context)) {

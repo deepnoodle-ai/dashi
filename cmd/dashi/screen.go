@@ -41,6 +41,10 @@ type screen struct {
 	tr               Transcript
 	vp               tui.ViewportState
 	input            string
+	historyStore     *inputHistory
+	pathCompletion   *workspaceCompletion
+	exitGuard        idleExitGuard
+	handoff          func(func() error) (error, error)
 	history          []string
 	frame            uint64
 	approval         *approvalPrompt
@@ -135,6 +139,7 @@ func isCtrlC(e tui.KeyEvent) bool {
 // SetRuntime implements tui.RuntimeAware.
 func (s *screen) SetRuntime(rt *tui.Runtime) {
 	s.runtime, s.clipboardOut = rt, rt.Terminal()
+	s.handoff = rt.Handoff
 	s.pendMu.Lock()
 	s.send = rt.SendEvent
 	s.pendMu.Unlock()
@@ -313,6 +318,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.frame = e.Frame
 		s.vp.DragAutoScroll()
 	case tui.MouseEvent:
+		s.exitGuard.reset()
 		s.handleTranscriptMouse(e)
 	case focusEvent:
 		if e.prompt != s.promptID {
@@ -365,6 +371,9 @@ func (s *screen) clearPrompts() {
 }
 
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
+	if !isCtrlC(e) {
+		s.exitGuard.reset()
+	}
 	if isCtrlC(e) {
 		return s.interrupt()
 	}
@@ -397,6 +406,8 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		} else {
 			s.vp.ScrollToBottom()
 		}
+	case tui.KeyCtrlG:
+		return s.editDraft()
 	case tui.KeyCtrlL:
 		if s.runtime != nil {
 			s.runtime.Terminal().Invalidate()
@@ -416,6 +427,10 @@ func (s *screen) interrupt() []tui.Cmd {
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
+	if !s.promptActive && s.ctrl.Mode() == ModeIdle && s.protectIdleExit() {
+		return nil
+	}
+	s.exitGuard.reset()
 	if s.ctrl.Interrupt() {
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
@@ -469,6 +484,7 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 
 func (s *screen) submit(value string) {
 	s.input = ""
+	raw := value
 	value = strings.TrimSpace(value)
 	if s.asking != nil {
 		p := s.asking
@@ -481,9 +497,7 @@ func (s *screen) submit(value string) {
 		p.reply <- a
 		return
 	}
-	if value != "" && (len(s.history) == 0 || s.history[len(s.history)-1] != value) {
-		s.history = append(s.history, value)
-	}
+	s.recordSubmittedInput(raw)
 	s.vp.ScrollToBottom()
 	s.ctrl.Input(value)
 }
@@ -544,6 +558,8 @@ func (s *screen) inputView(mode Mode) tui.View {
 		Multiline(true).
 		MaxHeight(8).
 		OnKey(s.inputKey).
+		OnChange(func(string) { s.exitGuard.reset() }).
+		OnComplete(s.completeDraft).
 		OnSubmit(s.inputSubmit(s.promptID))
 }
 

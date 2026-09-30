@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	github.com/deepnoodle-ai/dashi v0.0.0
-	github.com/deepnoodle-ai/wonton v0.2.2-0.20260930084911-9f248f44717a
+	github.com/deepnoodle-ai/wonton v0.2.2-0.20260930153446-06c5ba9d6ec3
 	golang.org/x/term v0.46.0
 )
 
@@ -45,7 +45,7 @@ require (
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0 // indirect
 )
 
