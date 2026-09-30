@@ -559,7 +559,7 @@ func (p *Client) Send(
 		live := sdkStream{sink: sink}
 		for chunk, err := range client.Models.GenerateContentStream(
 			ctx,
-			model,
+			sdkModel(model),
 			contents,
 			config,
 		) {
@@ -580,7 +580,7 @@ func (p *Client) Send(
 		}
 		return partial, parseErr
 	}
-	_, err = client.Models.GenerateContent(ctx, model, contents, config)
+	_, err = client.Models.GenerateContent(ctx, sdkModel(model), contents, config)
 	if err != nil {
 		return result, sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
 	}
