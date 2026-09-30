@@ -1,7 +1,7 @@
 # Supply screenshots, PDFs, and selected files
 
 Status: Approved\
-PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#145](https://github.com/deepnoodle-ai/dashi/pull/145) · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
