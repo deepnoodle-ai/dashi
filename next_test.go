@@ -134,6 +134,8 @@ func nextRows() []nextRow {
 			stop:   limited(LimitHost),
 			want:   NextResolve,
 		},
+		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextResolve},
+		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextResolve},
 		{
 			name:   "one call hit its output or context window",
 			covers: []string{"limited/output", "limited/context"},

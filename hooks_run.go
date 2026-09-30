@@ -37,6 +37,7 @@ func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
 	finalAnswerOnly bool,
+	purpose ModelPurpose,
 ) ([]ContextItem, []string, *Stop, *Outcome) {
 	var deliver []ContextItem
 	var hidden []string
@@ -48,8 +49,9 @@ func (r *runtime) beforeModel(
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeModel {
 		d, err := callHook(hookContext(r.ctx, s.TurnView), h, ModelPlan{
-			Input: cloneInput(*input),
-			Turn:  snapshotView(s.TurnView),
+			Purpose: purpose,
+			Input:   cloneInput(*input),
+			Turn:    snapshotView(s.TurnView),
 		})
 		// The candidate input is this hook's settings and hides applied on
 		// top of every earlier hook's, so validation sees what the call
@@ -270,12 +272,13 @@ func (r *runtime) beforeSend(
 	req llm.Request,
 	atRisk *llm.Cost,
 	remaining *Money,
+	purpose ModelPurpose,
 ) (map[string]json.RawMessage, *Stop, *Outcome) {
 	var admission map[string]json.RawMessage
 	total := 0
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeSend {
-		plan := SendPlan{Request: req, Turn: snapshotView(s.TurnView)}
+		plan := SendPlan{Purpose: purpose, Request: req, Turn: snapshotView(s.TurnView)}
 		if atRisk != nil {
 			plan.AtRisk = new(*atRisk)
 		}
