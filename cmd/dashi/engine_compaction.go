@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 )
@@ -40,7 +39,7 @@ func (e *Engine) configureChat() *dashi.Session {
 	if p := e.cfg.Preferences; p != nil {
 		agent := p.agent()
 		d := p.routes.registry[agent.Provider]
-		info, _ = catalog.Lookup(d.Definition.API, d.Definition.Endpoint, agent.Model)
+		info, _ = d.modelInfo(agent.Model)
 	}
 	policy := compaction.Policy{Model: info}
 	chat.Compactor = compaction.New(policy)

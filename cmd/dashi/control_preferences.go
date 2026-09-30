@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -23,13 +24,21 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 		var index int
 		var ok bool
 		if chooser, detailed := c.ui.(interface {
-			ChooseDetailed(context.Context, string, []string, []string) (int, bool)
+			ChooseDetailed(context.Context, string, []string, []string, int) (int, bool)
 		}); detailed {
 			details := make([]string, len(choices))
 			for i, choice := range choices {
 				details[i] = choice.detail
 			}
-			index, ok = chooser.ChooseDetailed(ctx, "Destination and model", labels, details)
+			current := p.agent()
+			selected := 0
+			for i, choice := range choices {
+				if choice.provider == current.Provider && choice.model == current.Model {
+					selected = i
+					break
+				}
+			}
+			index, ok = chooser.ChooseDetailed(ctx, "Destination and model", labels, details, selected)
 		} else {
 			for i, choice := range choices {
 				labels[i] += " — " + strings.ReplaceAll(choice.detail, "\n", "; ")
@@ -57,8 +66,8 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 	p.mu.Unlock()
 	c.eng.SetModel(selection.Model)
 	c.notice("Next turn: %s %s.", selection.Destination.ID, selection.Model)
-	for _, warning := range request.Warnings() {
-		c.notice("%s", warning.Message)
+	for _, block := range modelPreparationBlocks(dashi.Step{Model: &dashi.ModelFact{Adjustments: request.Adjustments(), Unverified: request.Snapshot().Unverified}}) {
+		c.notice("%s", block.Text)
 	}
 	if err := c.eng.saveNextPreferences(); err != nil {
 		c.emit(warnBlock("Selection is active, but session preferences were not saved: %v.", err))
@@ -144,9 +153,10 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 	p.mu.Lock()
 	p.launch.Controls = controls
 	p.mu.Unlock()
-	c.notice("%s set for the next turn.", field)
-	for _, warning := range request.Warnings() {
-		c.notice("%s", warning.Message)
+	label, accepted := controlPreferenceValue(field, controls.Settings)
+	c.notice("Next-turn %s: %s.", label, accepted)
+	for _, block := range modelPreparationBlocks(dashi.Step{Model: &dashi.ModelFact{Adjustments: request.Adjustments(), Unverified: request.Snapshot().Unverified}}) {
+		c.notice("%s", block.Text)
 	}
 	if err := c.eng.saveNextPreferences(); err != nil {
 		c.emit(warnBlock("Preference is active, but session preferences were not saved: %v.", err))

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -73,7 +72,7 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 func (e *Engine) routeCompactor(agent dashi.Agent) *routedCompactor {
 	p := e.cfg.Preferences
 	d := p.routes.registry[agent.Provider]
-	info, _ := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, agent.Model)
+	info, _ := d.modelInfo(agent.Model)
 	return &routedCompactor{dashiCompactor: compaction.New(compaction.Policy{Model: info}), agent: agent}
 }
 

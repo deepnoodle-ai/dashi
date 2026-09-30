@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -42,7 +41,7 @@ func modelInventory(registry, user map[string]configuredDestination, lookup func
 			fmt.Fprintf(w, "%s\t—\t%s\tunknown\tunknown\tunknown\tunknown\tunknown\tunknown\n", id, availability)
 		}
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
-			info, known := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, model)
+			info, known := d.modelInfo(model)
 			context, output, tools, reasoning, summary, evidence := "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"
 			if known {
 				context, output = knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens)

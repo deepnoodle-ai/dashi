@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -77,7 +76,7 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 	for _, overridden := range launch.Selection.Overridden {
 		view.OverriddenSelectionSources = append(view.OverriddenSelectionSources, overridden.Source)
 	}
-	if info, known := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, view.Model); known {
+	if info, known := d.modelInfo(view.Model); known {
 		view.Knowledge = &inspectedKnowledge{ContextWindow: info.Capabilities.ContextWindow, MaxOutputTokens: info.Capabilities.MaxOutputTokens, Features: map[llm.Feature]llm.Support{}, Source: info.Evidence.Source, QualifiedAt: info.Evidence.QualifiedAt.Format("2006-01-02")}
 		for _, feature := range []llm.Feature{llm.FeatureTools, llm.FeatureStreaming, llm.FeatureReasoningEffort, llm.FeatureReasoningSummary} {
 			support := info.Capabilities.Features[feature]
@@ -182,23 +181,25 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 	} else {
 		text.WriteString("\nModel facts: unknown")
 	}
-	requested, _ := json.Marshal(view.Requested)
-	fmt.Fprintf(&text, "\nRequested controls: %s", requested)
-	if view.Effective != nil {
-		effective, _ := json.Marshal(view.Effective)
-		fmt.Fprintf(&text, "\nPreparation preview (not dispatched): %s", effective)
-	}
+
+	text.WriteString("\nPreparation preview (not dispatched):")
 	for _, field := range []string{"thinking_effort", "show_thinking", "temperature", "max_tokens"} {
+		label, requested := inspectedControlValue(field, view.Requested)
+		effective := "unavailable"
+		if view.Effective != nil {
+			_, effective = inspectedControlValue(field, *view.Effective)
+		}
 		source := view.Sources[field]
 		winning := source.Winning
 		if winning == "" {
 			winning = "default"
 		}
-		fmt.Fprintf(&text, "\n%s source: %s", field, winning)
-		if len(source.Overridden) != 0 {
+		fmt.Fprintf(&text, "\n%s: %s → %s · %s", label, requested, effective, winning)
+		if len(source.Overridden) > 0 {
 			fmt.Fprintf(&text, " (overrides %s)", strings.Join(source.Overridden, ", "))
 		}
 	}
+
 	for _, warning := range view.Warnings {
 		fmt.Fprintf(&text, "\nWarning: %s", warning.Message)
 	}
@@ -209,8 +210,11 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 		fmt.Fprintf(&text, "\nCannot prepare preview: %s", view.PreviewError)
 	}
 	if view.Recorded != nil {
-		effective, _ := json.Marshal(view.Recorded.Effective)
-		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s\nRecorded effective controls: %s", view.Recorded.AttemptID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary, effective)
+		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s", view.Recorded.AttemptID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)
+		for _, field := range []string{"thinking_effort", "show_thinking", "temperature", "max_tokens"} {
+			label, value := inspectedControlValue(field, view.Recorded.Effective)
+			fmt.Fprintf(&text, "\nRecorded %s: %s", label, value)
+		}
 	}
 	c.notice("%s", text.String())
 }

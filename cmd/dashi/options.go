@@ -74,6 +74,9 @@ func parseArgs(args []string) (Options, error) {
 			if err != nil {
 				return o, err
 			}
+			if strings.TrimSpace(v) == "" {
+				return o, fmt.Errorf("--model needs a nonempty exact model ID")
+			}
 			o.Model = v
 		case "models":
 			if i != 0 {
@@ -86,6 +89,9 @@ func parseArgs(args []string) (Options, error) {
 			v, err := value()
 			if err != nil {
 				return o, err
+			}
+			if (name == "--provider" || name == "--api-endpoint" || name == "--workspace" || name == "--env-file") && strings.TrimSpace(v) == "" {
+				return o, fmt.Errorf("%s needs a nonempty value", name)
 			}
 			switch name {
 			case "--provider":

@@ -219,13 +219,13 @@ func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 
 // Choose implements Chooser.
 func (s *screen) Choose(ctx context.Context, title string, options []string) (int, bool) {
-	return s.ChooseDetailed(ctx, title, options, nil)
+	return s.ChooseDetailed(ctx, title, options, nil, 0)
 }
 
 // ChooseDetailed keeps model facts readable separately from the option list.
-func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string) (int, bool) {
+func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string, selected int) (int, bool) {
 	id := s.promptSeq.Add(1)
-	p := &pickerState{title: title, options: options, details: details, reply: make(chan int, 1)}
+	p := &pickerState{title: title, options: options, details: details, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
@@ -447,6 +447,14 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 		p.index = max(p.index-1, 0)
 	case tui.KeyArrowDown:
 		p.index = min(p.index+1, len(p.options)-1)
+	case tui.KeyHome:
+		p.index = 0
+	case tui.KeyEnd:
+		p.index = max(0, len(p.options)-1)
+	case tui.KeyPageUp:
+		p.index = max(0, p.index-5)
+	case tui.KeyPageDown:
+		p.index = min(len(p.options)-1, p.index+5)
 	case tui.KeyEnter:
 		s.clearPrompts()
 		p.reply <- p.index

@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
@@ -151,7 +150,10 @@ func (p *cliPreferences) choose(ctx context.Context, provider, model string) (re
 	return selection, request, err
 }
 
-type modelChoice struct{ provider, model, label, detail string }
+type modelChoice struct {
+	provider, model, label, detail string
+	available                      bool
+}
 
 func (p *cliPreferences) modelChoices() []modelChoice {
 	var choices []modelChoice
@@ -167,12 +169,21 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 		}
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			limits := "context unknown; output unknown; tools unknown; summary unknown; evidence unknown"
-			if info, known := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, model); known {
+			if info, known := d.modelInfo(model); known {
 				limits = fmt.Sprintf("context %s; output %s; tools %s; summary %s; %s (%s)", knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens), knownSupport(info.Capabilities.Features[llm.FeatureTools]), knownSupport(info.Capabilities.Features[llm.FeatureReasoningSummary]), info.Evidence.Source, info.Evidence.QualifiedAt.Format("2006-01-02"))
 			}
-			choices = append(choices, modelChoice{provider: id, model: model, label: id + " " + model, detail: status + "\n" + strings.ReplaceAll(limits, "; ", "\n")})
+			choices = append(choices, modelChoice{provider: id, model: model, label: id + " " + model, detail: status + "\n" + strings.ReplaceAll(limits, "; ", "\n"), available: status == "configured"})
 		}
 	}
+	slices.SortFunc(choices, func(a, b modelChoice) int {
+		if a.available != b.available {
+			if a.available {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.label, b.label)
+	})
 	return choices
 }
 func mustFingerprint(d configuredDestination) string {
