@@ -43,7 +43,7 @@ While idle, press Ctrl+G. Edit the draft in a terminal editor. Return to Dashi a
 - [ ] The editor opens the current draft, including an empty draft, using `$VISUAL`, then `$EDITOR`, then `vi`. Editor arguments are supported without shell expansion or execution of prompt text.
 - [ ] Successful editor exit replaces the draft with the saved UTF-8 text. Exit without saving retains the original text. Nonzero exit, launch/read failure, or invalid edited text retains the original draft and shows the cause. No return path submits automatically.
 - [ ] Terminal modes, focus, transcript position, and draft editing return correctly after success, cancellation, or failure. Temporary draft files are private and removed after return.
-- [ ] Ctrl+G during a turn requests an idle retry and preserves the draft. Dialog input uses the existing dialog controls.
+- [ ] Ctrl+G during a turn preserves the draft and says to press Ctrl+G again after the turn ends. It never queues an editor action. Dialog input uses the existing dialog controls.
 - [ ] A real terminal editor receives sole keyboard ownership. This requires the Wonton handoff dependency below; simulated or noninteractive editing cannot close this acceptance criterion.
 
 ### UC-4: Exit without losing a draft accidentally
