@@ -2,6 +2,7 @@
 
 Status: Accepted · Author: Codex · Date: 2026-09-30\
 Workflow: spec, orchestrator checkpoint, then build. Independent PRD review is ready.
+Implementation: [#142](https://github.com/deepnoodle-ai/dashi/pull/142).
 
 ## Context and boundaries
 
