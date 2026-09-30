@@ -1,7 +1,7 @@
 # Load and inspect workspace instructions and skills
 
 Status: Approved\
-PRD PR: [#129](https://github.com/deepnoodle-ai/dashi/pull/129) · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#129](https://github.com/deepnoodle-ai/dashi/pull/129) · Implementation PR: [#141](https://github.com/deepnoodle-ai/dashi/pull/141) · Updated: 2026-09-30
 
 ## Problem and context
 
