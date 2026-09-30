@@ -82,13 +82,31 @@ and keeps model and local tool costs separate. Empty cost maps produce
 `unknown: N`. Either counter prefixes model amounts with `at least`.
 `CostUnknown` also qualifies tool amounts because it can include aggregation
 overflow in either category. `CostPartial` alone qualifies only model amounts.
-The unknown counter can also include usage-counter overflow when both cost
-sums remain exact. The summary conservatively qualifies both categories because
-the counter does not identify its cause.
+Usage aggregation failure instead sets `Spend.UsageIncomplete` and appends
+`usage incomplete`. Independent monetary sums remain exact unless a cost
+uncertainty counter also applies. Old positive `CostUnknown` values remain
+conservative; their original cause cannot be inferred.
 Counters can overlap and do not form a combined count of unpriced calls.
 Use `Usage` and `UnpricedRequests` for detailed diagnostics. This summary
 controls default `fmt` display, including `%v`. Use fields or JSON for machine
 processing and storage.
+
+Usage derivation or aggregation can exceed the integer range even when each
+reported fact is valid. `UsageIncomplete` then marks retained usage as partial;
+it differs from `Estimated`, which describes fallback usage. Exact independent
+charges still accumulate. Actual monetary overflow retains the prior subtotal
+and marks `CostUnknown`. Diagnostic counts saturate at `math.MaxInt` and then
+represent lower bounds. Old Spend JSON without the new field reads it as false.
+
+An active token cap fails closed on incomplete usage. The runner records a
+terminal `limited` stop before new execution, even if retained counts are below
+the cap. A cost-only budget can still admit work when its monetary bound is
+exact. Before stopping, reconciliation can restore complete usage. `Continue`
+can recover recorded work or record a stop after a crash; readiness for that
+recovery does not permit new execution. After the terminal stop, late results
+can correct Spend but cannot revive the turn. Resolve outstanding effects as
+required, then start a new turn carrying prior history. Raising a cap alone
+cannot repair incomplete accounting.
 
 To raise a cap, authorize the increase in the application and pass the full
 new budget to `Continue`. It can raise existing caps but cannot lower them or

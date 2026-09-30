@@ -16,6 +16,9 @@ func checkSendBudget(
 	request llm.Request,
 	model string,
 ) (*llm.Cost, *Money, *Stop) {
+	if stop := incompleteUsageStop(s); stop != nil {
+		return nil, nil, stop
+	}
 	snapshot := request.Snapshot()
 	var atRisk *llm.Cost
 	if snapshot.ModelInfo != nil && snapshot.ModelInfo.Pricing != nil {
@@ -212,6 +215,9 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 	if s.Budget == nil {
 		return nil
 	}
+	if stop := incompleteUsageStop(s); stop != nil {
+		return stop
+	}
 	b := s.Budget
 	output := s.Spend.Usage.OutputTokens
 	if b.MaxOutputTokens > 0 &&
@@ -270,4 +276,32 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		}
 	}
 	return nil
+}
+
+func tokenCapped(b *Budget) bool {
+	return b != nil && (b.MaxOutputTokens > 0 || b.MaxTotalTokens > 0)
+}
+
+func incompleteUsageStop(s *replayState) *Stop {
+	if !s.Spend.UsageIncomplete || !tokenCapped(s.Budget) {
+		return nil
+	}
+	limit := &LimitDetail{
+		Kind:  LimitTotalTokens,
+		Limit: int64(s.Budget.MaxTotalTokens),
+		Used: int64(s.Spend.Usage.TotalInputTokens() +
+			s.Spend.Usage.OutputTokens),
+	}
+	if s.Budget.MaxOutputTokens > 0 {
+		limit.Kind = LimitOutputTokens
+		limit.Limit = int64(s.Budget.MaxOutputTokens)
+		limit.Used = int64(s.Spend.Usage.OutputTokens)
+	}
+	return &Stop{
+		Kind: StopLimited,
+		Reason: "usage aggregation is incomplete; this token cap cannot " +
+			"be enforced; resolve outstanding effects as required, then " +
+			"start a new turn with prior history",
+		Limit: limit,
+	}
 }

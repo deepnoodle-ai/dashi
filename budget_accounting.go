@@ -11,10 +11,10 @@ import (
 func attemptSpend(
 	intent *ModelFact,
 	settlement *ModelFact,
-) (*llm.Usage, *llm.Cost, bool, bool) {
+) (*llm.Usage, *llm.Cost, bool, bool, bool) {
 	if settlement != nil && (settlement.Failure == llm.FailureRejected ||
 		settlement.Failure == llm.FailureNotDispatched || settlement.NoDispatch) {
-		return nil, nil, false, false
+		return nil, nil, false, false, false
 	}
 	var usage *llm.Usage
 	var reported *llm.Cost
@@ -22,46 +22,58 @@ func attemptSpend(
 		usage = settlement.Result.Usage
 		reported = settlement.Result.Cost
 	}
-	estimated := usage == nil
+	hasReportedUsage := usage != nil
+	estimated := !hasReportedUsage
 	if estimated {
-		guess := &llm.Usage{InputTokens: intent.EstimatedInputTokens}
-		if settlement != nil && settlement.Result != nil {
-			guess.OutputTokens = cappedOutputEstimate(intent, settlement.Result)
-		}
-		usage = guess
+		usage = &llm.Usage{InputTokens: intent.EstimatedInputTokens}
 	} else {
 		usage = usage.Copy()
+	}
+	next := usage.Copy()
+	if estimated && settlement != nil && settlement.Result != nil {
+		next.OutputTokens = cappedOutputEstimate(intent, settlement.Result)
 	}
 	if modelUsageMayBePartial(settlement) {
 		// Streamed usage may describe only the input or an earlier output
 		// frame. Keep reported counts and include later visible output only
 		// when the model result is incomplete or uncertain.
 		estimated = true
-		if usage.TotalInputTokens() == 0 {
-			usage.InputTokens = intent.EstimatedInputTokens
+		if next.TotalInputTokens() == 0 {
+			next.InputTokens = intent.EstimatedInputTokens
 		}
 		if settlement.Result != nil {
-			usage.OutputTokens = max(
-				usage.OutputTokens,
+			next.OutputTokens = max(
+				next.OutputTokens,
 				cappedOutputEstimate(intent, settlement.Result),
 			)
 		}
 	}
-	if settlement != nil && !usage.RequestsFinal {
-		addUnreportedRequests(usage, intent, settlement.Result)
+	incomplete := false
+	if settlement != nil && !next.RequestsFinal {
+		incomplete = !addUnreportedRequests(next, intent, settlement.Result)
+	}
+	if err := next.Validate(); err != nil {
+		incomplete = true
+	}
+	// Enrichment of valid recorded facts can overflow too. Preserve the
+	// original usage atomically, and never price its omitted contribution.
+	if !incomplete {
+		usage = next
+	} else if !hasReportedUsage {
+		usage = nil
 	}
 	if settlement != nil && settlement.Charge != nil {
-		return usage, settlement.Charge, estimated, true
+		return usage, settlement.Charge, estimated, true, incomplete
 	}
 	if reported != nil {
-		return usage, reported, estimated, true
+		return usage, reported, estimated, true, incomplete
 	}
-	if intent.ModelInfo != nil && intent.ModelInfo.Pricing != nil {
+	if !incomplete && intent.ModelInfo != nil && intent.ModelInfo.Pricing != nil {
 		if charge, ok := intent.ModelInfo.Pricing.Estimate(usage); ok {
-			return usage, &charge, estimated, true
+			return usage, &charge, estimated, true, false
 		}
 	}
-	return usage, nil, estimated, true
+	return usage, nil, estimated, true, incomplete
 }
 
 func modelUsageMayBePartial(settlement *ModelFact) bool {
@@ -101,7 +113,7 @@ func addUnreportedRequests(
 	usage *llm.Usage,
 	intent *ModelFact,
 	result *llm.Result,
-) {
+) bool {
 	uses := 0
 	if result != nil {
 		failed := map[string]bool{}
@@ -120,15 +132,21 @@ func addUnreportedRequests(
 	}
 	counted := 0
 	for _, count := range usage.Requests {
-		counted += max(count, 0)
+		counted = cappedCount(counted, max(count, 0))
 	}
 	if uses == 0 && counted == 0 && !declaresHostedTool(intent) {
-		return
+		return true
+	}
+	count, ok := sumCounts(usage.Requests[llm.MeterUnreported],
+		max(uses-counted, 1))
+	if !ok {
+		return false
 	}
 	if usage.Requests == nil {
 		usage.Requests = map[string]int{}
 	}
-	usage.Requests[llm.MeterUnreported] += max(uses-counted, 1)
+	usage.Requests[llm.MeterUnreported] = count
+	return true
 }
 
 func declaresHostedTool(intent *ModelFact) bool {
@@ -164,7 +182,7 @@ func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
 	if intent == nil || settlement == nil {
 		return
 	}
-	_, charge, estimated, counted := attemptSpend(intent, settlement)
+	_, charge, estimated, counted, _ := attemptSpend(intent, settlement)
 	if counted {
 		settlement.Charge = charge
 		settlement.EstimatedUsage = estimated
@@ -177,4 +195,13 @@ func sumCounts(a, b int) (int, bool) {
 		return 0, false
 	}
 	return a + b, true
+}
+
+// cappedCount keeps diagnostic counts conservative, including malformed
+// negative operands supplied through a manually constructed Spend.
+func cappedCount(a, b int) int {
+	if sum, ok := sumCounts(a, b); ok {
+		return sum
+	}
+	return math.MaxInt
 }

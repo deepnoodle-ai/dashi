@@ -59,6 +59,19 @@ func TestRenderTextDeltasGrowOneBlock(t *testing.T) {
 	}
 }
 
+func TestFooterShowsIncompleteUsageWithoutQualifyingExactCost(t *testing.T) {
+	view := dashi.TurnView{Spend: dashi.Spend{
+		Usage:           llm.Usage{InputTokens: 1},
+		UsageIncomplete: true,
+		Cost:            map[string]money.Amount{"USD": money.MustParseAmount("0.5")},
+	}}
+	got := FooterText(1, "fixture", view)
+	want := "[turn 1 | fixture | 0 model calls | usage incomplete | $0.500]"
+	if got != want {
+		t.Fatalf("footer presented incomplete counts or uncertain money: %q", got)
+	}
+}
+
 func toolStep(kind dashi.StepKind, at time.Time, out *tl.Outcome) dashi.Step {
 	return dashi.Step{
 		Kind: kind,

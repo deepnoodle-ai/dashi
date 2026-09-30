@@ -55,12 +55,14 @@ Spend.Add retains caller order and never mutates either operand. Do not promise 
 Choose `LimitOutputTokens` when that cap exists; otherwise choose `LimitTotalTokens`.
 Use the reason: `usage aggregation is incomplete; this token cap cannot be enforced; resolve outstanding effects as required, then start a new turn with prior history`.
 Retained counts in `LimitDetail.Used` are lower bounds, not complete consumption. Do not derive remaining allowance or FitTokens from them.
-Apply this check to both spent and overshot checks, preparation clamping, continuation eligibility, and steering admission.
+Apply this check to both spent and overshot checks, preparation clamping, and steering admission.
 Unknown cumulative usage with only MaxCost does not block independently exact monetary admission.
 Keep current monetary risk bounds and uncertainty checks.
 
 The run loop preserves unresolved-model recovery and uncertain stops before a terminal budget stop.
 This permits valid reconciliation to repair usage before the terminal stop is recorded.
+Continue may recover an existing intent or record the terminal stop after a crash following settlement.
+Readiness for this recovery does not admit new execution; dispatch guards still prevent new work with incomplete usage.
 After a valid settlement, check budgets before executing further tools, classifying output, or dispatching another model call.
 A token stop caused by UsageIncomplete records `Terminal: true` even if its retained count is below the cap.
 

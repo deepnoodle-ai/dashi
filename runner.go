@@ -824,6 +824,25 @@ func (r *runtime) commit(step Step) *Outcome {
 		stop.Terminal = r.terminalAfter(stop)
 		step.Stop = &stop
 	}
+	if step.Kind == StepModelIntent {
+		// The fallback usage joins accounting before dispatch. Refuse an
+		// intent that would invalidate a token cap with either recorder.
+		candidate := r.turn
+		candidate.Steps = append(slices.Clone(r.turn.Steps), step)
+		state, err := replay(candidate)
+		if err == nil && incompleteUsageStop(state) != nil {
+			err = errors.New("dashi: model intent usage aggregation overflows")
+		}
+		if err != nil {
+			r.err = &CommitError{
+				Persistence: PersistenceRejected,
+				Step:        &step,
+				Err:         err,
+			}
+			o := r.current()
+			return &o
+		}
+	}
 	if _, err := json.Marshal(step); err != nil {
 		r.err = &CommitError{
 			Persistence: PersistenceRejected,
@@ -875,8 +894,7 @@ func (r *runtime) terminalAfter(stop Stop) bool {
 		// The commit's own replay check reports the broken record.
 		return false
 	}
-	state.Stop = stop
-	return state.terminal()
+	return state.stopTerminal(stop)
 }
 
 // emit stamps event.Seq with the number of recorded steps, so a step event
@@ -1278,6 +1296,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, "native output_schema is not supported in agent turns"), false
 	}
 	var budgetWarnings []Warning
+	if stop := incompleteUsageStop(s); stop != nil {
+		return r.stopWith(stop), false
+	}
 	if s.Budget != nil && s.Budget.MaxOutputTokens > 0 {
 		remaining := s.Budget.MaxOutputTokens - s.Spend.Usage.OutputTokens
 		if remaining <= 0 {

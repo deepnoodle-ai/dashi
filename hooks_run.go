@@ -788,7 +788,7 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 		return nil, false
 	}
 	counted := money.Amount(0)
-	if _, cost, _, _ := attemptSpend(intent, nil); cost != nil {
+	if _, cost, _, _, _ := attemptSpend(intent, nil); cost != nil {
 		if cost.Currency != limit.Currency {
 			return nil, false
 		}

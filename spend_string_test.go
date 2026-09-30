@@ -178,10 +178,11 @@ func TestSpendStringUsageOverflow(t *testing.T) {
 	if !reflect.DeepEqual(spend.Usage, initial.Usage) {
 		t.Fatal("usage overflow must retain the original usage")
 	}
-	if spend.CostUnknown != 1 || spend.CostPartial != 0 {
-		t.Fatal("usage overflow must mark unknown accounting without marking partial cost")
+	if !spend.UsageIncomplete || spend.CostUnknown != 0 ||
+		spend.CostPartial != 0 {
+		t.Fatal("usage overflow must be distinct from monetary uncertainty")
 	}
-	want := "model: at least 0.75 USD; tools: at least 5 USD; unknown: 1"
+	want := "model: 0.75 USD; tools: 5 USD; usage incomplete"
 	if got := spend.String(); got != want {
 		t.Fatalf("String() = %q, want %q", got, want)
 	}

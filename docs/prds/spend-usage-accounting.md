@@ -74,6 +74,7 @@ A developer runs or continues a turn whose recorded usage aggregation is incompl
 - [ ] The ended view has `ReadyToContinue == false` and `Next() == NextNone`, including after storage and replay.
 - [ ] `Continue`, including a budget raise, returns `ErrTurnEnded`. Raising a cap alone cannot repair incomplete usage.
 - [ ] Before that stop is recorded, valid reconciliation can restore complete usage and ordinary admission if every applicable limit permits execution.
+- [ ] After a crash before stopping, `Continue` can recover recorded work or record the terminal token stop, but cannot dispatch new work while usage remains incomplete.
 - [ ] Permitted late settlements can update reported Spend, including clearing `UsageIncomplete`, but never revive the ended turn.
   Its recorded terminal stop, fixed answer, `NextNone`, and rejection of `Continue` remain unchanged.
 - [ ] Guidance tells the host to resolve outstanding effects as required, then start a new turn carrying prior history.
