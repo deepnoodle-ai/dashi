@@ -1388,7 +1388,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			"prepared request changed original model input",
 		), false
 	}
-	if purpose == "" {
+	if r.activeMediaEstimateUnavailable(s, snapshot.Input) {
+		// Content preparation and provider acceptance govern this candidate.
+		// Financial admission still uses the unchanged conservative risk estimate.
+	} else if purpose == "" {
 		if o, again, handled := r.guardActiveContext(s, input, req); handled {
 			return o, again
 		}
