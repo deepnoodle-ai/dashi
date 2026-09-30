@@ -152,6 +152,102 @@ func TestSessionManualCompactionSlotRace(t *testing.T) {
 	}
 }
 
+func TestSessionManualCompactionPreservesPendingApproval(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(dashitest.CallTool("call-1", "charge", `{}`))
+	s := handle(rec, client)
+	s.New = true
+	s.Compactor = keepLast{limit: 10000}
+	s.Runner.Tools = (&chargeTool{}).tools()
+	s.Runner.Hooks = dashi.RequireApproval("charge")
+	out := sendAll(t, s, "pay")
+	before := loadTurn(t, rec, out.Turn.ID)
+	var busy *dashi.TurnBusyError
+	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextAnswer {
+		t.Fatalf("pending approval: %+v, %v", busy, err)
+	}
+	if !reflect.DeepEqual(before, loadTurn(t, rec, out.Turn.ID)) || len(client.Inputs()) != 1 {
+		t.Fatal("manual compaction changed a waiting turn")
+	}
+}
+
+func TestSessionManualCompactionConcurrentAndCanceled(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := held(2, dashitest.Reply("first answer"), dashitest.Reply("summary"))
+	s := handle(rec, client)
+	s.New = true
+	s.Compactor = keepLast{limit: 10000}
+	sendAll(t, s, "first")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan result, 1)
+	go func() {
+		out, err := s.Compact(ctx, nil)
+		done <- result{out, err}
+	}()
+	entered(t, client)
+	for _, other := range []*dashi.Session{s, handle(rec, client)} {
+		other.Compactor = keepLast{limit: 10000}
+		var busy *dashi.TurnBusyError
+		if _, err := other.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
+			t.Fatalf("active summary: %+v, %v", busy, err)
+		}
+	}
+	cancel()
+	r := <-done
+	if !errors.Is(r.err, context.Canceled) || r.out.Origin != dashi.StartCompaction || r.out.Next() != dashi.NextContinue {
+		t.Fatalf("cancellation outcome=%+v err=%v", r.out, r.err)
+	}
+	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "first answer"}) {
+		t.Fatalf("canceled history=%q err=%v", textsOf(projected), err)
+	}
+}
+
+func TestSessionManualCompactionRecorderFailures(t *testing.T) {
+	for _, fault := range []dashitest.Fault{dashitest.Reject, dashitest.LoseWrite, dashitest.LoseAck} {
+		t.Run(string(fault), func(t *testing.T) {
+			rec := dashi.NewMemoryRecorder()
+			client := dashitest.NewClient(dashitest.Reply("answer"), dashitest.Reply("summary"))
+			s := handle(rec, client)
+			s.New = true
+			sendAll(t, s, "first")
+			s.Compactor = keepLast{limit: 10000}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			if _, err := s.Compact(t.Context(), nil); !errors.Is(err, dashitest.ErrInjected) {
+				t.Fatalf("recorder error=%v", err)
+			}
+			if len(client.Inputs()) != 1 {
+				t.Fatal("summary dispatched without acknowledged admission")
+			}
+			projected, err := handle(rec, client).ProjectedHistory(t.Context())
+			if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
+				t.Fatalf("history=%q err=%v", textsOf(projected), err)
+			}
+		})
+	}
+}
+
+func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(dashitest.Reply("answer"), llm.Result{
+		Message: llm.AssistantMessage(llm.Text("<summary>Untrusted replacement</summary>")),
+		Stop:    llm.Stop{Kind: llm.StopRefusal},
+	})
+	s := handle(rec, client)
+	s.New = true
+	sendAll(t, s, "first")
+	s.Compactor = keepLast{limit: 10000}
+	out, err := s.Compact(t.Context(), nil)
+	if err != nil || !slices.Contains(codes(out.SessionWarnings), dashi.WarningCompactionFailed) {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
+		t.Fatalf("failed history=%q err=%v", textsOf(projected), err)
+	}
+}
+
 func ExampleSession_Compact() {
 	client := dashitest.NewClient(dashitest.Reply("The port is 8443."), dashitest.Reply("<summary>Port 8443.</summary>"), dashitest.Reply("<summary>Port 8443.</summary>"))
 	s := &dashi.Session{ID: "example", New: true, Runner: dashi.Runner{Client: client, Recorder: dashi.NewMemoryRecorder()}, Agent: dashi.Agent{Model: "fixture"}, Compactor: &compaction.Compactor{TailFraction: -1}}
