@@ -1,6 +1,6 @@
 # Supply screenshots, PDFs, and selected files
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -142,4 +142,4 @@ Required implementation, acceptance, security, and taste reviews must pass befor
 
 Stored snapshots consume disk and contain user-selected evidence. Keep them private and session-scoped; retention/deletion commands remain outside this slice.
 The technical spec must settle atomic blob publication, reference authorization, draft/input integration, and bounded cleanup without deleting submitted content.
-Named independent PRD review precedes that spec and implementation. No remaining product question blocks this draft.
+Named independent PRD re-review returned ready. The [technical spec](../design/cli-attachments.md) precedes implementation; root must approve its checkpoint. No product question remains open.
