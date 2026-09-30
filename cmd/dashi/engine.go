@@ -548,6 +548,7 @@ func (e *Engine) stream(
 					e.pending.summary = true
 				}
 				e.inputMu.Unlock()
+				e.showPending()
 			}
 			if err := e.acknowledgePrompt(ev.Step); err != nil {
 				e.warn("%v.", err)

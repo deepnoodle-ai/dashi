@@ -146,7 +146,9 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 	}
 	rt.SendEvent(tui.KeyEvent{Key: tui.KeyEnter})
 	wait(started)
-	probe(func(s runtimeScreenState) bool { return strings.Contains(s.text, "new text is queued") })
+	probe(func(s runtimeScreenState) bool {
+		return strings.Contains(s.text, "new text is queued") && strings.Contains(s.text, "pending prompt: original prompt")
+	})
 	rt.SendEvent(tui.KeyEvent{Key: tui.KeyCtrlC})
 	probe(func(s runtimeScreenState) bool {
 		return s.mode == ModeIdle && s.pending && strings.Contains(s.text, "Press Enter to continue")

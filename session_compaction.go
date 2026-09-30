@@ -63,10 +63,10 @@ func (cl *call) manualCompact(ctx context.Context, budget *Budget) (Outcome, err
 		out, err = s.compactionSlot(ctx, *p)
 		s.mu.Unlock()
 	}
-	if cl.yield != nil && !cl.stopped && out.Turn.ID != "" {
-		if !cl.yield(Event{TurnID: out.Turn.ID, Outcome: &out}, err) {
-			cl.stopped = true
-		}
+	// A CommitError names the attempted Start even when its write was
+	// rejected or unacknowledged. That identity alone is not a turn record.
+	if len(out.Turn.Steps) == 0 {
+		cl.fail(err)
 	} else {
 		cl.report(out, err)
 	}

@@ -228,6 +228,30 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 	}
 }
 
+func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
+	for _, fault := range []dashitest.Fault{dashitest.Reject, dashitest.LoseWrite, dashitest.LoseAck} {
+		t.Run(string(fault), func(t *testing.T) {
+			rec := dashi.NewMemoryRecorder()
+			client := dashitest.NewClient(dashitest.Reply("answer"))
+			s := handle(rec, client)
+			s.New = true
+			sendAll(t, s, "first")
+			s.Compactor = keepLast{limit: 10000}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			var gotErr error
+			for ev, err := range s.StreamCompact(t.Context(), nil) {
+				if ev.Outcome != nil || ev.Step != nil {
+					t.Fatalf("unacknowledged admission emitted record facts: %+v", ev)
+				}
+				gotErr = errors.Join(gotErr, err)
+			}
+			if !errors.Is(gotErr, dashitest.ErrInjected) || len(client.Inputs()) != 1 {
+				t.Fatalf("error=%v dispatches=%d", gotErr, len(client.Inputs()))
+			}
+		})
+	}
+}
+
 func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(dashitest.Reply("answer"), llm.Result{

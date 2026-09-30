@@ -3,10 +3,38 @@ package main
 import (
 	"bytes"
 	"context"
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/wonton/tui"
 	"strings"
 	"testing"
 )
+
+func TestCompactBusyRecoveryInstructions(t *testing.T) {
+	for _, tc := range []struct {
+		next dashi.Next
+		want string
+	}{
+		{dashi.NextContinue, "Press Enter to continue"},
+		{dashi.NextResume, "Press Enter to continue"},
+		{dashi.NextRaiseAttempts, "Type /continue"},
+	} {
+		got := busyText(&dashi.TurnBusyError{TurnID: "session-2", Next: tc.next})
+		compactionMustHave(t, got, tc.want, "/discard")
+	}
+	started := make(chan struct{})
+	h := newScreenHarness(t, 0, blockUntilDone(started), say("Resumed."))
+	h.submit("ordinary prompt")
+	<-started
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	h.app.ctrl.Wait()
+	h.submit("/compact")
+	h.app.ctrl.Wait()
+	compactionMustHave(t, h.render(), "Press Enter to continue", "/discard")
+	if h.turns() != 1 {
+		t.Fatal("busy compaction replaced the open ordinary turn")
+	}
+}
 
 func TestModelSwitchRefreshesAutomaticCompactionWindow(t *testing.T) {
 	selected := func(r reply) reply {
