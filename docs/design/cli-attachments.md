@@ -2,7 +2,7 @@
 
 Status: Accepted · Author: Attachment track · Date: 2026-09-30\
 Workflow: Spec checkpoint accepted by root, then implementation. Named PRD re-review returned ready.\
-Requirements: [Supply screenshots, PDFs, and selected files](../prds/cli-attachments.md)\
+Requirements: [Supply screenshots, PDFs, and selected files](../prds/cli-attachments.md) · [PRD PR #145](https://github.com/deepnoodle-ai/dashi/pull/145)\
 Dependency: Active-context requirements [#144](https://github.com/deepnoodle-ai/dashi/pull/144). Its implementation is underway.
 
 ## Shape and ownership
