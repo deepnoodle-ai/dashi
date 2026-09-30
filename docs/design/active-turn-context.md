@@ -1,14 +1,14 @@
 # Recorded context for an active Turn
 
-Status: Accepted · Author: Active-context track · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then implementation. Named PRD re-review returned ready; root checkpoint approved.\
+Status: In Review · Author: Active-context track · Date: 2026-09-30\
+Workflow: Media-estimate amendment, named PRD re-review, root checkpoint, then code. Prior scope was accepted.\
 Requirements: [Finish a long coding request](../prds/active-turn-context.md)
 
 ## Shape and public API
 
 One Turn owns its ordinary work, summary attempts, and applied context replacements.
 Caller history remains caller-owned. Existing `Session.Compactor` remains between-Turn compaction.
-The root package uses private helpers in `internal/compactiontext`; it never imports the optional `compaction` package.
+The root uses private `internal/compactiontext` helpers, not the optional `compaction` package.
 
 ```go
 type ActiveCompactionPolicy struct {
@@ -47,12 +47,21 @@ No changing catalog can alter an accepted Turn's selected window.
 ## Request sizing and safe coverage
 
 Construct the ordinary candidate through existing tool selection, steering, `BeforeModel`, reference verification, and provider preparation.
-Use `llm.EstimatedInputTokens(request)`, currently wire-body bytes plus 1024, and `request.Snapshot().Effective.MaxTokens` as output reserve.
+For text-only candidates, use `llm.EstimatedInputTokens(request)` (wire-body bytes plus 1024) and effective `MaxTokens` as output reserve.
 Saturating arithmetic computes allowance `max(0, Window - reserve)`.
 Trigger proactive compaction when estimated input reaches `Fraction * allowance`.
 The hard fit limit remains the allowance: reject ordinary dispatch only when input exceeds it.
-The conservative body estimate includes tools, hooks, encoded media, and provider replay fields. It is not a provider-tokenizer guarantee.
+The text-only estimate includes tools, hooks, and provider replay fields; it is not a provider-tokenizer guarantee.
 Do not substitute cumulative usage or cached-token discounts. Catalog uncertainty never becomes a fabricated 128k window.
+
+After reference hydration and provider preparation, inspect the candidate's resolved structured content, including caller/Turn history, hook deliveries, and nested tool-result content.
+Image, PDF, audio, or video content makes its active context estimate unavailable.
+Record `active_compaction_media_estimate_unavailable` once per Turn using existing warnings; replay/continuation does not duplicate it.
+Skip proactive compaction and byte-based `LimitContextWindow` for that candidate, including mixed text/media, even with a known window or cap.
+Do not disable the recorded policy: later text-only candidates use ordinary checks, and applied replacements remain valid.
+Provider content/capability preparation and actual window acceptance govern media requests; overflow keeps existing failure semantics with no compaction retry.
+`llm.EstimatedInputTokens`, `MaxCostAtRisk`, monetary admission, limits, and settlement remain unchanged.
+This separates unavailable context sizing from conservative financial risk; an insufficient cost budget can still refuse the media request.
 
 The private projector annotates messages with `TurnMessageRef` before cloning them for public callers.
 Ordinary sources use their step sequence and message index. An applied summary uses its `context_compacted` sequence and index zero.
@@ -68,7 +77,7 @@ The fixed summary prompt asks for objective, findings, changes, verification, an
 Summary text uses the existing tagged-summary interpretation and user-role frame. It acquires no operator authority.
 
 If no eligible coverage exists and estimated input plus output reserve fits the pinned window, dispatch the ordinary candidate without a summary.
-If the candidate exceeds allowance and no legal compaction can make it fit, stop without summary dispatch.
+If a text-only candidate exceeds allowance and no legal compaction can make it fit, stop without summary dispatch.
 This no-fit result is `StopLimited` with new `LimitContextWindow`, `Limit=Window`, and `Used=estimated input + reserve`.
 `Stop.Reason` is `context_window`; a bounded warning distinguishes fixed input, prior history, replay dependency, or retained exchange.
 The chosen window remains immutable. A larger model or smaller original input requires a new Turn; preserve settled work before starting it.
@@ -103,7 +112,7 @@ At a settled boundary, the candidate may trigger one summary attempt during its 
 Discard the unsent ordinary prepared request. Preparation is not a dispatch or billing identity.
 Generate a bounded summary request through the same client's preparation/send path, with `Purpose=compaction`, no tools, and no output schema.
 Start from recorded agent settings, replacing `MaxTokens` with the smaller summary allowance and clearing forced tool selection.
-Reapply normal output/cost admission and enforce the summary's own context allowance before intent commit.
+Reapply normal output/cost admission and text-only summary context checks before intent commit; hook-added media uses the same warning/exception.
 
 `BeforeModel` and `BeforeSend` receive the purpose and run in registration order.
 Record hook deliveries as ordinary Turn context, never as summary conversation messages.
@@ -116,7 +125,7 @@ The shared sender owns stream collection, intent/settlement, admission, and acco
 After application, rebuild the ordinary candidate from recorded context and re-run normal preparation/hooks.
 Hooks already permit repeated preparation passes; durable delivery IDs and `HookActed` retain their existing meaning.
 A second sizing pass cannot start another summary in that cycle, even when hooks add context.
-If it fits, dispatch ordinary work. Otherwise stop with `LimitContextWindow`.
+Reapply media detection after preparation; if unavailable, dispatch subject to ordinary admission. Otherwise enforce text-only fit.
 New ordinary model/tool work permits the next compaction cycle; explicit continuation permits a new attempt after failure.
 
 Summary attempts use existing `ModelAttempts`, interruption, and cumulative budget rules.
@@ -148,7 +157,8 @@ Cancel ends foreground and summary work; interruption preserves resumability. Pr
 
 Enable `Agent.ActiveCompaction=&dashi.ActiveCompactionPolicy{}` in the CLI's agent configuration.
 Purpose on each intent identifies following deltas and settlement as summary progress, never ordinary answer text.
-Emit markers for start, application, failure, and unavailable window in screen and line modes.
+Emit markers for start, application, failure, and unavailable window/media estimate in screen and line modes.
+A known pinned window must not imply media protection; explain that provider acceptance governs those requests.
 Reload derives applied markers from facts. Estimated savings and actual summary spend remain separate.
 Keep Wonton, existing `/compact`, and the between-Turn workflow.
 
@@ -157,7 +167,9 @@ Root schedules shared CLI integration after MCP completes.
 The publication chain is composer → MCP → active context → attachments; no implementation starts before the root checkpoint.
 Old records keep ordinary purpose and identical projections. New step kinds require an updated reader; document that compatibility boundary.
 
-Keyless evidence covers two compactions, both Session views after JSON reload, objective/evidence retention, hooks/media sizing, and replay-artifact groups.
+Keyless evidence covers two compactions, both Session views after JSON reload, objective/evidence retention, hook sizing, and replay-artifact groups.
+Prepare a generated valid ~1 MiB PNG with actual wire encoding at known 128k/200k windows: sufficient budget permits ordinary `Send`, no summary or false context limit, one recorded/replayed warning.
+Repeat with historical/hydrated-reference/tool-result media; repeat/reload candidates without warning duplication. Verify text-only checks and unchanged cost-risk/cost-budget refusal separately.
 Fault fixtures cover crashes after intent, settlement, and application, ambiguous writes, cancellation, concurrent continuation, and counting tools with no repeated effects.
 Accounting fixtures cover exhausted attempts, summary failures, partial usage, token/cost caps, and unchanged between-Turn behavior.
 Ship an `Example*`, guide, CLI transcript, Wonton recordings, and required independent reviews.
@@ -169,7 +181,8 @@ An unrecorded hook rewrite is smaller but cannot reconstruct applied context aft
 A separate summary Turn fits Session compaction but changes ownership and permits a separate budget during one request.
 Rewriting caller history would reduce more context but violates the accepted continuation contract.
 
-The chosen approach adds record kinds, conservative early compaction, and billed summary attempts.
+The chosen approach adds record kinds, conservative early text compaction, and billed summary attempts.
+Media context protection is unavailable; encoded-byte formulas would reject usable inputs, while a qualified provider estimator is separate work.
 It can stop when protected input dominates. Summaries can lose evidence despite preserving source facts.
 Provider overflow after a conservative estimate remains ordinary failure, without compact-and-retry.
-No product decision remains open. Root must confirm the API/record shape and integration checkpoint before implementation.
+The media-estimate amendment awaits named PRD re-review and root checkpoint before code or publication.

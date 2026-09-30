@@ -1,6 +1,6 @@
 # Finish a long coding request before context fills
 
-Status: Approved\
+Status: Draft\
 PRD PR: #144 · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -28,7 +28,8 @@ The secondary user embeds Dashi in a Go application and wants the same protectio
 **Active-Turn compaction** replaces older, settled work from the current Turn with a recorded summary in the model's context.
 It preserves the Turn's identity, original request, full execution record, and pending work.
 **Context allowance** is the declared model window minus the next request's output reserve and other input.
-An estimate predicts this allowance. It does not guarantee acceptance by every provider tokenizer.
+For text-only requests, an estimate predicts this allowance without guaranteeing provider acceptance.
+Requests containing non-text media have no qualified context estimate in this slice.
 
 The current Turn owns the replacement of its own messages.
 Caller-owned prior history remains unchanged, including its `Start`/`Continue` fingerprint contract.
@@ -44,8 +45,8 @@ The same request continues to its answer.
 
 - [ ] A small-window keyless fixture completes one read/test/fix Turn after at least two compactions.
   The final answer retains the original objective and an earlier diagnostic fact available only through the summary.
-- [ ] The library checks each candidate request, including current tools, instructions, verified attachment sizes, and effective output allowance.
-  Hook-delivered context cannot bypass this check.
+- [ ] The library prepares each candidate, including tools, instructions, verified references, hooks, and output allowance.
+  Text-only candidates receive active context checks; media candidates follow the explicit limitation below.
 - [ ] Compaction runs only after every dispatched model and tool call settles.
   Waiting approval, uncertain effects, or uncommitted results prevent it.
 - [ ] Compaction preserves the original request, system/developer instructions, and operator steering with their roles and order.
@@ -74,10 +75,17 @@ The CLI enables it for supported models without asking the user to manage a seco
   When both are known, the smaller window applies.
   An unknown window without a cap disables protection and produces one actionable warning.
   The CLI identifies this state without displaying a fabricated percentage or safety claim.
-- [ ] Default triggering uses an estimated 80% of the context allowance.
+- [ ] Text-only candidates trigger at an estimated 80% of the context allowance.
   If no eligible coverage exists, dispatch the ordinary candidate while estimated input plus output reserve fits the selected window.
   Measurements from completed calls can inform the estimate.
-  Every shortened request is checked again before dispatch.
+  Every shortened text-only request is checked again before dispatch.
+- [ ] A prepared request containing image, PDF, audio, or video content skips proactive compaction and the byte-based hard context check.
+  Dashi records one `active_compaction_media_estimate_unavailable` warning per Turn, retained on replay without duplication on continuation.
+  Provider preparation and acceptance govern these requests; no context-fit or tokenizer guarantee is claimed.
+- [ ] A keyless fixture prepares a generated valid PNG of about 1 MiB with its actual encoded payload at known 128k and 200k windows.
+  With sufficient admission budget, ordinary `Send` runs without false `LimitContextWindow` or summary dispatch.
+  Historical media, hydrated references, and tool-result media receive the same treatment.
+  Repeated candidates/reload retain one warning; text-only behavior and existing cost-risk/budget checks remain unchanged.
 - [ ] Summary generation uses the active Turn's model in the first slice, with no tools.
   Its request also has bounded input and output.
   Summary attempts use normal model admission, deadline, hooks, and recorder guarantees.
@@ -86,7 +94,7 @@ The CLI enables it for supported models without asking the user to manage a seco
   Compaction cannot reset limits, hide charges, or consume the reserved final-answer attempt.
   Leaving an ordinary attempt available permits a final response; it does not guarantee completion if the model requests another tool.
 - [ ] A runnable `Example*` configures protection and completes the long-loop fixture.
-  The guide explains estimates, summary loss, prior-history ownership, and accounting.
+  The guide explains text-only estimates, unavailable media protection, summary loss, prior-history ownership, and accounting.
 
 ### UC-3: Interrupt and return to the same work
 
@@ -119,8 +127,8 @@ Dashi stops with the work already performed visible and an actionable explanatio
   The failure remains recorded with any incurred usage and charge.
 - [ ] Dashi makes at most one summary attempt for the same candidate request during one run.
   Failure stops further ordinary dispatch. An explicit continuation may make a new admitted attempt.
-- [ ] If fixed instructions, caller history, the original request, or an indivisible retained exchange prevent a fit, stop before dispatch.
-  Return `LimitContextWindow` only when the estimate exceeds the allowance and no legal compaction can make it fit.
+- [ ] For text-only candidates, stop before dispatch when protected input or an indivisible exchange exceeds allowance and no legal compaction can make it fit.
+  Return `LimitContextWindow` for this case.
   Identify the cause and suggest a smaller input, a larger window, or between-Turn compaction where applicable.
 - [ ] Context limitations, summary failure, budget refusal, cancellation, and uncertainty remain distinguishable in public outcomes.
   Provider overflow despite an estimate follows existing failure/recovery rules.
@@ -138,6 +146,8 @@ Dashi stops with the work already performed visible and an actionable explanatio
   Reject removing covered messages from `Session.History` or exposing summary work as conversation messages.
 - Preserve instructions verbatim and summarize evidence at complete exchanges.
   Reject arbitrary truncation, silent provider-artifact stripping, and transcript repair.
+- Use active context estimates only for text-only requests. Encoded media bytes do not establish provider context tokens.
+  Keep conservative money-risk estimates and cost admission unchanged; reject an invented media formula.
 - Ship proactive protection first. Provider overflow does not establish safe retry.
   Compact-and-retry after overflow, model fallback, custom summary models, manual active compaction, and tool retries are separate work.
 
@@ -150,5 +160,5 @@ No paid probe is required to claim this fixture-backed behavior.
 
 Summaries can omit useful details. Preserve source facts and document that limitation.
 Provider estimates and private replay bundles can differ from text sizes.
-The named independent PRD re-review returned ready with no remaining findings.
-The technical design requires the root checkpoint before publication or implementation.
+Non-text media currently lacks active context protection; a provider can still reject its context.
+The prior scope passed named re-review. This media-estimate amendment awaits named re-review and the root checkpoint.
