@@ -1,0 +1,139 @@
+# Finish a long coding request before context fills
+
+Status: Draft\
+PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
+
+## Problem and context
+
+A developer asks Dashi to investigate a failure, read files, change code, and run checks.
+Repeated file reads and test output grow the next model request during that single Turn.
+An individual tool-result limit cannot bound the combined request.
+The request can exhaust context before the developer receives a usable answer.
+
+[`Session.Compactor`](../guides/compaction.md) summarizes between ended Turns.
+It cannot protect an active Turn.
+[`Project`](../../project.go) currently combines all settled Turn messages with caller-owned history.
+CLI parity [O07](../research/cli-parity-operations.md) explicitly leaves this workflow incomplete.
+
+[ADK Go #298](https://github.com/google/adk-go/issues/298) requests proactive compaction and retained original history.
+[Dive](https://github.com/deepnoodle-ai/dive/blob/da15e916148fcc93f248c08648d22dfab1a4b73a/experimental/compaction/mid_turn.go) rewrites messages before another tool-loop iteration.
+The [comparative research](../../design/roadmap-research/15-context-compaction-research.md) describes pi and OpenHands retaining source events beside recorded summaries.
+These precedents support the workflow. Dashi must preserve its own Turn, recovery, and accounting contracts.
+
+## Users, job, and concepts
+
+The primary user develops software with the terminal agent.
+The secondary user embeds Dashi in a Go application and wants the same protection without a separate transcript-repair loop.
+
+**Active-Turn compaction** replaces older, settled work from the current Turn with a recorded summary in the model's context.
+It preserves the Turn's identity, original request, full execution record, and pending work.
+**Context allowance** is the declared model window minus the next request's output reserve and other input.
+An estimate predicts this allowance. It does not guarantee acceptance by every provider tokenizer.
+
+The current Turn owns the replacement of its own messages.
+Caller-owned prior history remains unchanged, including its `Start`/`Continue` fingerprint contract.
+Between-Turn compaction keeps its existing behavior and name.
+
+## Use cases and acceptance
+
+### UC-1: Complete a long investigation
+
+The developer sends one request: “Read the failing code, fix it, and run the checks.”
+During repeated reads and checks, Dashi compacts settled work before another ordinary model call.
+The same request continues to its answer.
+
+- [ ] A small-window keyless fixture completes one read/test/fix Turn after at least two compactions.
+  The final answer retains the original objective and an earlier diagnostic fact available only through the summary.
+- [ ] The library checks each candidate request, including current tools, instructions, verified attachment sizes, and effective output allowance.
+  Hook-delivered context cannot bypass this check.
+- [ ] Compaction runs only after every dispatched model and tool call settles.
+  Waiting approval, uncertain effects, or uncommitted results prevent it.
+- [ ] Compaction preserves the original request, system/developer instructions, and operator steering with their roles and order.
+  It retains a recent complete tool exchange when it fits.
+  A cut never splits tool calls from results or required provider replay content.
+- [ ] Older tool output becomes labeled evidence in a summary with no operator authority.
+  Retained context preserves origin and slot identity.
+  Summary prose cannot satisfy an approval, establish verification, or impersonate an operator instruction.
+- [ ] Every applied summary identifies its exact covered facts and records the replacement.
+  Model preparation, replay, subsequent Session context, and resumed execution apply the same replacement.
+  The full inputs, outputs, calls, and results remain in the Turn record for inspection.
+
+### UC-2: Configure protection in a Go application
+
+The developer enables one active-Turn policy for the agent, then uses ordinary `Run` or `Session.Send`.
+The policy becomes part of the accepted Turn configuration.
+The CLI enables it for supported models without asking the user to manage a second conversation.
+
+- [ ] One optional configuration selects active compaction. No configuration preserves today's library behavior.
+  The technical spec defines public names and defaults before implementation.
+- [ ] The policy uses the declared model window or an explicit caller cap.
+  An unknown window without a cap disables protection and produces one actionable warning.
+  The CLI identifies this state without displaying a fabricated percentage or safety claim.
+- [ ] Default triggering uses an estimated 80% of the context allowance.
+  Measurements from completed calls can inform the estimate.
+  Every shortened request is checked again before dispatch.
+- [ ] Summary generation uses the active Turn's model in the first slice, with no tools.
+  Its request also has bounded input and output.
+  Summary attempts use normal model admission, deadline, hooks, and recorder guarantees.
+- [ ] All summary attempts count toward the same model-attempt limit and cumulative budget as ordinary attempts.
+  Their recorded purpose distinguishes summarization from the user's answer.
+  Compaction cannot reset limits, hide charges, or consume the reserved final-answer attempt.
+- [ ] A runnable `Example*` configures protection and completes the long-loop fixture.
+  The guide explains estimates, summary loss, prior-history ownership, and accounting.
+
+### UC-3: Interrupt and return to the same work
+
+The developer interrupts during summary generation or after its application.
+A worker reloads the Turn and continues with the original prior history.
+
+- [ ] Reload preserves the original request, settled effects, summary attempts, and applied replacement.
+  Continuing never reruns a completed file edit or command merely because its messages were summarized.
+- [ ] An acknowledged summary result survives a crash before application.
+  Recovery applies that result once without generating it again.
+  An unknown summary dispatch or commit follows ordinary reconciliation and never triggers an automatic retry.
+- [ ] Explicit cancellation ends the foreground Turn and summary work.
+  An interruption preserves resumable work under existing rules.
+  Applied summaries remain applied. Partial summary previews never replace context.
+- [ ] Repeated or concurrent continuation commands retain existing identity and fencing guarantees.
+  Readers without a compactor reconstruct an applied replacement without model work.
+
+### UC-4: Explain a request that cannot continue
+
+The summary fails, saves no context, or cannot leave room for the next request.
+Dashi stops with the work already performed visible and an actionable explanation.
+
+- [ ] Empty, failed, or non-shrinking summaries leave the previous model context unchanged.
+  They do not erase evidence or create an applied-compaction marker.
+  The failure remains recorded with any incurred usage and charge.
+- [ ] Dashi makes at most one summary attempt for the same candidate request during one run.
+  Failure stops further ordinary dispatch. An explicit continuation may make a new admitted attempt.
+- [ ] If fixed instructions, caller history, the original request, or an indivisible retained exchange prevent a fit, stop before dispatch.
+  Identify the cause and suggest a smaller input, a larger window, or between-Turn compaction where applicable.
+- [ ] Context limitations, summary failure, budget refusal, cancellation, and uncertainty remain distinguishable in public outcomes.
+  Provider overflow despite an estimate follows existing failure/recovery rules.
+- [ ] Screen and line modes show compacting, applied, failed, and unavailable states.
+  Applied status reports estimated savings separately from settled usage and cost.
+  Reopen shows applied markers from recorded facts without presenting summaries as user prompts or final answers.
+
+## Decisions and scope
+
+- Compact only settled current-Turn work. This solves repeated reads and checks while preserving caller-owned history.
+  Reject silent rewriting of `Continue.History` or a new foreground Turn for the same request.
+- Record summary attempts and applied coverage. Recovery needs facts, and budgets need all charges.
+  Reject an unrecorded middleware rewrite or a separate unbounded summarizer.
+- Preserve instructions verbatim and summarize evidence at complete exchanges.
+  Reject arbitrary truncation, silent provider-artifact stripping, and transcript repair.
+- Ship proactive protection first. Provider overflow does not establish safe retry.
+  Compact-and-retry after overflow, model fallback, custom summary models, manual active compaction, and tool retries are separate work.
+
+## Success and risks
+
+Success requires the keyless long-loop, crash, cancellation, no-fit, and budget scenarios above.
+Independent acceptance must try the actual CLI flow and the public Go example.
+Recovery/accounting, replay, provider-content, hooks, and between-Turn compaction checks must remain valid.
+No paid probe is required to claim this fixture-backed behavior.
+
+Summaries can omit useful details. Preserve source facts and document that limitation.
+Provider estimates and private replay bundles can differ from text sizes.
+The technical spec must define safe cut groups, accounting purpose, recorded coverage, and request-size measurement before code starts.
+Those design choices require named independent PRD review. This draft approves no public API or implementation.
