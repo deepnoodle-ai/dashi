@@ -62,7 +62,7 @@ func (e *Engine) configureChat() *dashi.Session {
 	model := e.model
 	e.mu.Unlock()
 	if warn {
-		e.warn("Model %s has no known context window; compaction uses 128,000 tokens.", model)
+		e.warn("Model %s has no known context window; between-Turn history compaction uses 128,000 tokens. Active-Turn protection needs a known window.", model)
 	}
 	return chat
 }
