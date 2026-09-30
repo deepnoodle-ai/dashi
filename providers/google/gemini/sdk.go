@@ -112,6 +112,13 @@ func (p *Client) newSDKClient(
 		HTTPClient:  httpClient,
 		HTTPOptions: genai.HTTPOptions{BaseURL: baseURL, APIVersion: version},
 	}
+	// The SDK treats an empty APIKey as permission to read the process
+	// environment. Resolve keys only in New; a custom keyless route must not
+	// acquire Google's credentials here. The guard removes this placeholder
+	// before real dispatch, so keyless custom transports remain supported.
+	if !p.config.Vertex && config.APIKey == "" {
+		config.APIKey = "dashi-sdk-keyless"
+	}
 	if p.config.Vertex {
 		config.Backend = genai.BackendVertexAI
 		config.Project = p.config.Project
@@ -195,9 +202,11 @@ func (p *Client) sdkClient(
 		base = p.config.Client.Transport
 	}
 	guard := &sdkGuard{
-		url:  p.sdkURL(model, stream),
-		body: bytes.Clone(body),
-		base: base,
+		url:       p.sdkURL(model, stream),
+		body:      bytes.Clone(body),
+		base:      base,
+		pinAPIKey: !p.config.Vertex,
+		apiKey:    p.config.APIKey,
 	}
 	client, err := p.newSDKClient(ctx, guard, true)
 	return client, guard, err
@@ -206,13 +215,15 @@ func (p *Client) sdkClient(
 // sdkGuard rejects URL or body drift before the real RoundTrip. The response
 // copy retains raw fields the SDK's typed response may not yet represent.
 type sdkGuard struct {
-	url    string
-	body   []byte
-	base   http.RoundTripper
-	dryRun bool
-	seen   bool
-	mu     sync.Mutex
-	resp   bytes.Buffer
+	url       string
+	body      []byte
+	base      http.RoundTripper
+	dryRun    bool
+	pinAPIKey bool
+	apiKey    string
+	seen      bool
+	mu        sync.Mutex
+	resp      bytes.Buffer
 }
 
 // RoundTrip dispatches only when the SDK request matches the prepared request.
@@ -247,6 +258,12 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 		}, nil
 	}
 	r.Body = io.NopCloser(bytes.NewReader(actual))
+	if g.pinAPIKey {
+		r.Header.Del("X-Goog-Api-Key")
+		if g.apiKey != "" {
+			r.Header.Set("X-Goog-Api-Key", g.apiKey)
+		}
+	}
 	response, err := g.base.RoundTrip(r)
 	if err != nil {
 		return nil, err
