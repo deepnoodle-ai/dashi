@@ -19,7 +19,11 @@ Use concrete structs/functions, not a resource framework or transport implementa
 
 ## Configuration and preflight
 
-Parse repeatable `--mcp-config FILE`; reject empty values. Resolve explicit paths against invocation cwd before selecting the workspace. Load user settings, workspace `.mcp.json`, and explicit files in order with `LoadFile`/`LoadProjectFile`. Keep raw per-source metadata beside `mcp.Merge` for selected/ignored-source inspection. Do not treat project `.dashi/settings.json` as a trusted MCP source. Default absence is quiet; other file failures warn and exclude the whole file. Preserve valid files and servers.
+Parse repeatable `--mcp-config FILE`; reject empty values. Resolve explicit paths against invocation cwd before selecting the workspace. Select user settings, workspace `.mcp.json`, and explicit files in order. Read each configuration file exactly once into immutable bytes. Both raw preflight and `mcp.ParseConfig` consume those same bytes. Do not reread paths through `LoadFile`/`LoadProjectFile` or before `Open`.
+
+Attach the absolute source path as `Server.Source`. Set `Server.Untrusted` true for the default project file and false for user/explicit selections. An explicit selection remains trusted when it names the project file. Keep raw per-source metadata beside `mcp.Merge` for selected/ignored-source inspection. Do not treat project `.dashi/settings.json` as a trusted MCP source.
+
+Default absence is quiet; other file failures warn and exclude the whole file. Preserve valid files and servers.
 
 Inspect the same input bytes for unsupported entry metadata before the module parser discards unknown fields. A non-null `oauth` entry and recognized `headersHelper` credential helpers are unsupported, not anonymous configurations. Legacy `type: sse` is unsupported. Unknown transport/missing command or URL gets a bounded failed status. Disabled entries stay disabled without expansion or startup. Carry these decisions through source selection so a later trusted definition can replace an unavailable candidate correctly.
 
@@ -68,6 +72,6 @@ Costs include startup prompts, waiting for bounded discovery, and restarting aft
 
 ## Verification and integration
 
-Keyless stdio/HTTP fixtures cover all PRD groups, sorted pre-start consent, binding redaction/defaults, fingerprint/source changes, trusted-source collisions, failed/unknown tools, denial/cancellation, cleanup rollback, and fixed catalogs. Assert credential lookup/request counters stay zero for rejected remote HTTP and `localhost` entries, even with unset/empty header variables. Exercise literal `127/8`, `::1`, header-free HTTP, HTTPS, and redirects 301/302/303/307/308 to same/different origin or HTTP: one initial request, zero target requests. A project-header fixture verifies binding review precedes requests.
+Keyless stdio/HTTP fixtures cover all PRD groups, sorted pre-start consent, binding redaction/defaults, fingerprint/source changes, trusted-source collisions, failed/unknown tools, denial/cancellation, cleanup rollback, and fixed catalogs. A fixture changes the file after its sole read. Assert preflight and `mcp.ParseConfig` receive identical captured bytes, and `Open` receives only eligible parsed entries with correct source/trust metadata. Assert credential lookup/request counters stay zero for rejected remote HTTP and `localhost` entries, even with unset/empty header variables. Exercise literal `127/8`, `::1`, header-free HTTP, HTTPS, and redirects 301/302/303/307/308 to same/different origin or HTTP: one initial request, zero target requests. A project-header fixture verifies binding review precedes requests.
 
 Run root, MCP, and CLI formatting/vet/build/race checks. Run the working-directory `Example*` and CLI transcript. Record actual Wonton startup and empty/loading/error/success inventory states at 80×24. Independent implementation/acceptance, security, and taste reviews remain implementation gates. Schedule shared integration with provider/resources and #103/#116. No unresolved design question blocks the root checkpoint.
