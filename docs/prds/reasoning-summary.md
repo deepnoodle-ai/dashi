@@ -1,7 +1,7 @@
 # Request public reasoning summaries
 
 Status: Approved\
-PRD PR: Pending · Implementation PR: Pending · Updated: 2026-09-30
+PRD PR: [#134](https://github.com/deepnoodle-ai/dashi/pull/134) · Implementation PR: Pending · Updated: 2026-09-30
 
 ## Problem and context
 
