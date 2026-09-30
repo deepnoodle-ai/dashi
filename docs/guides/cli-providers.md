@@ -120,7 +120,9 @@ and OpenRouter explicitly.
 
 Interactive changes win until exit and save next-turn session and user
 preferences. Writes preserve unrelated user fields and never edit workspace
-settings. A save failure reports that the live choice remains active.
+settings. A save failure reports that the live choice remains active. Selecting a session
+through `/sessions` resolves its saved next-turn preferences through the same
+tiers. Flags, environment settings, and live interactive changes retain priority.
 
 Continuing an open turn uses its recorded destination, controls, and instructions.
 Changing preferences cannot change that work. Removing a destination or changing

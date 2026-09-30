@@ -682,9 +682,34 @@ func (c *Controller) openSession(id string) {
 		c.emit(warnBlock("%v.", err))
 		return
 	}
+	var restored *launchPreferences
+	if p := c.eng.cfg.Preferences; p != nil {
+		saved, err := reopenedPreferences(s.NextTurn, s.Model)
+		if err != nil {
+			c.emit(warnBlock("Session preferences cannot be read: %v.", err))
+			return
+		}
+		candidate, err := p.selectedSessionPreferences(saved)
+		if err != nil {
+			c.emit(warnBlock("Session preferences cannot be selected: %v.", err))
+			return
+		}
+		restored = &candidate
+	}
 	if err := c.eng.Open(s); err != nil {
 		c.emit(warnBlock("%v.", err))
 		return
+	}
+	if restored != nil {
+		p := c.eng.cfg.Preferences
+		p.mu.Lock()
+		p.launch = *restored
+		p.mu.Unlock()
+		// Opening a session changes the displayed next-turn model without writing
+		// user settings or rewriting the selected session's saved defaults.
+		c.eng.mu.Lock()
+		c.eng.model = restored.Selection.Model
+		c.eng.mu.Unlock()
 	}
 	if s.Model != "" && c.eng.cfg.Preferences == nil {
 		c.eng.SetModel(s.Model)

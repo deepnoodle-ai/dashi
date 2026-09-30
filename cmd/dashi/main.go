@@ -80,6 +80,9 @@ func run(
 	}
 	registry[launch.Selection.Destination.ID] = launch.Selection.Destination
 	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
+	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
+		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
+	}
 	cfg := appConfig{Dir: dir, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
 	if o.PrintSet {
 		return runPrint(ctx, cfg, o, stdout, stderr)

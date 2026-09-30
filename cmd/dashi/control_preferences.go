@@ -62,6 +62,7 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 		return
 	}
 	p.mu.Lock()
+	selection.Overridden = append([]selectionTier{selectionSourceTier(p.launch.Selection)}, p.launch.Selection.Overridden...)
 	p.launch.Selection = selection
 	p.mu.Unlock()
 	c.eng.SetModel(selection.Model)

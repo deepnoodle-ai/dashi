@@ -28,6 +28,7 @@ type cliPreferences struct {
 	guidanceSet        bool
 	environmentOrigins map[string]string
 	environmentFiles   []string
+	resolveSession     func(preferenceFile) (launchPreferences, error)
 }
 
 func (p *cliPreferences) agent() dashi.Agent {
