@@ -4,8 +4,8 @@ github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r
 github.com/alecthomas/chroma/v2 v2.27.0/go.mod h1:NjJ3ciIgrqBNeIkWZ4e46nseoLDslxU1LmfCoL+wcY8=
 github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs=
 github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
-github.com/deepnoodle-ai/wonton v0.2.2-0.20260930081332-16c0f52d0d68 h1:VQrp1aXbkRO7A5a11nq8dj83zWz4JJ5Z7Yn3Tnw1MbE=
-github.com/deepnoodle-ai/wonton v0.2.2-0.20260930081332-16c0f52d0d68/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
+github.com/deepnoodle-ai/wonton v0.2.2-0.20260930084911-9f248f44717a h1:56zls+D5EhULlfxoak4sMU8Nwh28UNne+Szf1XeBfVM=
+github.com/deepnoodle-ai/wonton v0.2.2-0.20260930084911-9f248f44717a/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
 github.com/dlclark/regexp2 v1.11.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dlclark/regexp2/v2 v2.7.1 h1:yqDtwI1ptXXvEUNpYTk2lad4jLtAcKqkzepn4savSk4=
