@@ -1,7 +1,7 @@
 # Choose a provider and control the next turn
 
 Status: Approved\
-PRD PR: [#130](https://github.com/deepnoodle-ai/dashi/pull/130) · Implementation PR: Pending · Updated: 2026-09-30
+PRD PR: [#130](https://github.com/deepnoodle-ai/dashi/pull/130) · Implementation PR: [#140](https://github.com/deepnoodle-ai/dashi/pull/140) · Updated: 2026-09-30
 
 ## Problem and context
 
