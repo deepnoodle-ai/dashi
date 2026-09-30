@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -30,12 +31,14 @@ type mcpRuntime struct {
 	done                   chan struct{}
 	cancel                 context.CancelFunc
 	initErr                error
+	startupStates          map[string]string
+	startupFailed          map[string]bool
 	set                    *dashimcp.Toolset
 	tools                  []tool.Tool
 }
 
 func newMCPRuntime(dir string, selection mcpSelection) *mcpRuntime {
-	return &mcpRuntime{dir: dir, selection: selection, ready: len(selection.entries) == 0, done: make(chan struct{})}
+	return &mcpRuntime{dir: dir, selection: selection, ready: len(selection.entries) == 0, done: make(chan struct{}), startupStates: map[string]string{}, startupFailed: map[string]bool{}}
 }
 func (m *mcpRuntime) Initialize(ctx context.Context, approve mcpStartupFunc) error {
 	m.mu.Lock()
@@ -65,10 +68,17 @@ func (m *mcpRuntime) Initialize(ctx context.Context, approve mcpStartupFunc) err
 			return &http.Client{Transport: &mcpRedirectTransport{next: http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		},
 		Approve: func(ctx context.Context, name string, s dashimcp.Server, fingerprint string) (bool, error) {
-			if approve == nil {
-				return false, nil
+			allowed := false
+			var err error
+			if approve != nil {
+				allowed, err = approve(ctx, mcpStartupRequest{Name: name, Fingerprint: fingerprint, Workspace: m.dir, Review: m.startupReview(name, s)})
 			}
-			return approve(ctx, mcpStartupRequest{Name: name, Fingerprint: fingerprint, Workspace: m.dir, Review: m.startupReview(name, s)})
+			m.mu.Lock()
+			if !allowed || err != nil {
+				m.startupStates[name] = "blocked"
+			}
+			m.mu.Unlock()
+			return allowed, err
 		},
 	})
 	var entries []tool.Tool
@@ -84,6 +94,11 @@ func (m *mcpRuntime) Initialize(ctx context.Context, approve mcpStartupFunc) err
 	}
 	if err == nil {
 		m.set = set
+		for _, status := range set.Status() {
+			if status.State == dashimcp.StateFailed {
+				m.startupFailed[status.Name] = true
+			}
+		}
 		for _, entry := range entries {
 			entry.Definition = entry.Definition.Clone()
 			entry.Executor = mcpSafeExecutor{next: entry.Executor, name: entry.Definition.Name}
@@ -140,7 +155,7 @@ func (m *mcpRuntime) Close() error {
 func (m *mcpRuntime) startupReview(name string, s dashimcp.Server) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "MCP server %s\nSource: %s (project)\n", workspace.PrintableText(name), workspace.PrintableText(s.Source))
-	if s.Command != "" {
+	if mcpServerTransport(s) == "stdio" {
 		fmt.Fprintf(&b, "Transport: stdio\nCommand: %s\n", mcpSafeCommand(s, s.Command))
 		for _, arg := range s.Args {
 			fmt.Fprintf(&b, "Argument: %s\n", mcpSafeCommand(s, arg))
@@ -174,6 +189,7 @@ func (m *mcpRuntime) Inventory() string {
 	m.mu.Lock()
 	set, started, ready := m.set, m.started, m.ready
 	tools := slices.Clone(m.tools)
+	startupStates, startupFailed := maps.Clone(m.startupStates), maps.Clone(m.startupFailed)
 	m.mu.Unlock()
 	statuses := map[string]dashimcp.ServerStatus{}
 	if set != nil {
@@ -190,6 +206,9 @@ func (m *mcpRuntime) Inventory() string {
 		e := m.selection.entries[name]
 		s := e.server
 		state, reason := e.state, e.reason
+		if state == "" && startupStates[name] == "blocked" {
+			state, reason = "blocked", "project startup was not approved"
+		}
 		status := statuses[name]
 		if state == "" {
 			if status.State != "" {
@@ -200,6 +219,9 @@ func (m *mcpRuntime) Inventory() string {
 				}
 				if status.Err != nil {
 					reason = mcpDiagnostic(status.Err)
+					if startupFailed[name] {
+						reason = mcpStartupDiagnostic(status.Err)
+					}
 				}
 			} else if started && !ready {
 				state = "starting"
@@ -207,19 +229,13 @@ func (m *mcpRuntime) Inventory() string {
 				state = "starting"
 			}
 		}
-		transport := s.Type
-		if transport == "" {
-			transport = "http"
-			if s.Command != "" {
-				transport = "stdio"
-			}
-		}
+		transport := mcpServerTransport(s)
 		scope := "trusted"
 		if s.Untrusted {
 			scope = "project"
 		}
 		fmt.Fprintf(&b, "  %s: %s; %s; %s; %d tools\n    Source: %s\n", workspace.PrintableText(name), state, scope, workspace.PrintableText(transport), status.Tools, workspace.PrintableText(s.Source))
-		if s.Command != "" {
+		if transport == "stdio" {
 			fmt.Fprintf(&b, "    Directory: %s\n", workspace.PrintableText(m.dir))
 		} else if s.URL != "" && e.state == "" {
 			fmt.Fprintf(&b, "    Destination: %s\n", mcpEndpoint(s.URL))
@@ -231,10 +247,8 @@ func (m *mcpRuntime) Inventory() string {
 			fmt.Fprintf(&b, "    Ignored conflicting source: %s\n", workspace.PrintableText(source))
 		}
 		for _, warning := range status.Warnings {
-			if mcpMissingVariable.MatchString(warning) {
-				fmt.Fprintf(&b, "    %s\n", warning)
-			} else {
-				fmt.Fprintln(&b, "    Catalog/configuration warning: a tool or result was omitted or degraded.")
+			if safe := mcpWarning(set, warning); safe != "" {
+				fmt.Fprintf(&b, "    %s\n", safe)
 			}
 		}
 		if status.Changed {
@@ -266,7 +280,7 @@ func mcpDiagnostic(err error) string {
 	}
 	// Match known protocol/status terms, never print the underlying exception.
 	text := strings.ToLower(err.Error())
-	if strings.Contains(text, "401") || strings.Contains(text, "403") {
+	if strings.Contains(text, "401") || strings.Contains(text, "403") || strings.Contains(text, "unauthorized") || strings.Contains(text, "forbidden") {
 		return "authentication required or refused; OAuth is unsupported; use caller-supplied headers"
 	}
 	if strings.Contains(text, "timed out") || strings.Contains(text, "timeout") {
@@ -322,4 +336,53 @@ func (t *mcpRedirectTransport) RoundTrip(r *http.Request) (*http.Response, error
 		t.mu.Unlock()
 	}
 	return response, err
+}
+
+func mcpStartupDiagnostic(err error) string {
+	diagnostic := mcpDiagnostic(err)
+	if diagnostic == "connection closed; the call may have run" {
+		return "server exited during startup; check server configuration"
+	}
+	return diagnostic
+}
+
+func mcpServerTransport(s dashimcp.Server) string {
+	switch strings.ToLower(s.Type) {
+	case "http", "streamable-http":
+		return "http"
+	case "stdio":
+		return "stdio"
+	case "":
+		if s.Command != "" {
+			return "stdio"
+		}
+		return "http"
+	default:
+		return s.Type
+	}
+}
+
+var mcpDroppedTool = regexp.MustCompile(`^dropped tool ("(?:[^"\\]|\\.)*"):`)
+var mcpCollision = regexp.MustCompile(`^dropped tool ("(?:[^"\\]|\\.)*"): name ([A-Za-z0-9_-]+) is taken by `)
+
+func mcpWarning(set *dashimcp.Toolset, raw string) string {
+	if mcpMissingVariable.MatchString(raw) {
+		return raw
+	}
+	if strings.HasPrefix(raw, "ignored server ") {
+		return ""
+	} // Source selection is already shown.
+	if match := mcpCollision.FindStringSubmatch(raw); len(match) > 0 {
+		remote, _ := strconv.Unquote(match[1])
+		if set != nil {
+			if winner, ok := set.Info(match[2]); ok {
+				return fmt.Sprintf("Dropped remote tool %s: %s already belongs to %s.%s", workspace.PrintableText(remote), match[2], workspace.PrintableText(winner.Server), workspace.PrintableText(winner.Remote))
+			}
+		}
+	}
+	if match := mcpDroppedTool.FindStringSubmatch(raw); len(match) > 0 {
+		remote, _ := strconv.Unquote(match[1])
+		return "Dropped remote tool " + workspace.PrintableText(remote) + ": invalid or colliding definition"
+	}
+	return "Catalog warning: a tool result was omitted or degraded."
 }

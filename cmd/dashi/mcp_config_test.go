@@ -121,3 +121,22 @@ func TestMCPStartupReviewRedactsValuesDefaultsAndArgDuplicates(t *testing.T) {
 		t.Fatal(review)
 	}
 }
+
+func TestMCPReviewUsesEffectiveTransportInsteadOfUnusedFields(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	raw := `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.com/mcp","command":"unused-command","args":["unused-argument"]}}}`
+	selected := selectMCP(home, dir, dir, nil, func(path string) ([]byte, error) {
+		if strings.HasSuffix(path, ".mcp.json") {
+			return []byte(raw), nil
+		}
+		return nil, os.ErrNotExist
+	}, func(string) (string, bool) { return "", false })
+	m := newMCPRuntime(dir, selected)
+	review := m.startupReview("docs", selected.entries["docs"].server)
+	if !strings.Contains(review, "Destination: https://docs.example.com") || strings.Contains(review, "Command: unused-command") || strings.Contains(review, "Transport: stdio") {
+		t.Fatal(review)
+	}
+	if strings.Contains(m.Inventory(), "Directory:") {
+		t.Fatal("HTTP inventory claimed a stdio directory")
+	}
+}

@@ -277,7 +277,7 @@ func TestComposerCommandHelpMatchesAvailableHandlers(t *testing.T) {
 			t.Fatalf("help missing %s", want)
 		}
 	}
-	for _, unavailable := range []string{"/copy", "/mouse", "/scrollback", "/mcp", "/tasks", "/attach"} {
+	for _, unavailable := range []string{"/copy", "/mouse", "/scrollback", "/tasks", "/attach"} {
 		if strings.Contains(text, unavailable) {
 			t.Fatalf("advertised unavailable %s", unavailable)
 		}

@@ -299,6 +299,9 @@ func (c *Controller) CancelWork() {
 // Input handles one submitted line.
 func (c *Controller) Input(line string) {
 	line = strings.TrimSpace(line)
+	if c.mcpInput(line) {
+		return
+	}
 	switch c.Mode() {
 	case ModeApproval:
 		pending := c.answerPending.Swap(true)

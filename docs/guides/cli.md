@@ -71,6 +71,7 @@ for keyboard behavior, private history, editor selection, and exit protection.
 | `/model [destination model\|model]` | Pick or set a destination/model for the next turn |
 | `/settings [--json]` | Inspect safe next-turn settings and a preparation preview |
 | `/resources` | Inspect selected instructions, skills, and tool access scopes |
+| `/mcp` | Inspect MCP server sources, status, and exposed tools |
 | `/effort LEVEL\|omit` | Set or omit next-turn reasoning effort |
 | `/thinking on\|off` | Request and display public summaries for new turns |
 | `/temperature N\|omit` | Set or omit next-turn temperature |
@@ -91,6 +92,12 @@ Dashi does not queue command execution from a retry notice.
 Workspace AGENTS.md takes precedence over CLAUDE.md. Project and home skills
 support `/skill arguments` and progressive model loading. See
 [instructions and skills](cli-resources.md) for discovery, approval, and recovery.
+
+Configure MCP servers in user settings, workspace `.mcp.json`, or repeatable
+`--mcp-config FILE` selections. Project servers require startup consent before
+work; each tool call still uses normal approval. `/mcp` and `/resources` show
+the same safe inventory. See [MCP tools](cli-mcp.md) for trust, HTTP,
+unsupported authentication, and cleanup.
 
 ## Sessions
 

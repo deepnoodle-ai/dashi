@@ -443,6 +443,9 @@ func (e *Engine) Discard(ctx context.Context) (Result, error) {
 // Steer sends text to the running turn. An urgent steer also cuts the model
 // call in flight. With no turn running, the text waits for the next turn.
 func (e *Engine) Steer(text string, urgent bool) error {
+	if !e.cfg.MCP.Ready() {
+		return errors.New("MCP startup has not completed; no input was queued")
+	}
 	if strings.TrimSpace(text) == "" {
 		return errors.New("the steer is empty")
 	}
@@ -528,6 +531,9 @@ func (e *Engine) agent() dashi.Agent {
 
 // run streams one command, and the turns it leads to, as blocks.
 func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
+	if !e.cfg.MCP.Ready() {
+		return Result{}, errors.New("MCP startup has not completed; no work was started")
+	}
 	chat := e.configureChat()
 	if err := e.bindCommand(ctx, cmd); err != nil {
 		return Result{}, err

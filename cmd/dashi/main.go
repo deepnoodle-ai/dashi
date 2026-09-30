@@ -83,7 +83,7 @@ func run(
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
 	}
-	cfg := appConfig{Dir: dir, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
 	if o.PrintSet {
 		return runPrint(ctx, cfg, o, stdout, stderr)
 	}
@@ -123,6 +123,10 @@ func runPrint(
 	}
 	if notice != "" {
 		fmt.Fprintln(stderr, workspace.PrintableText(notice))
+	}
+	if err := a.initializeMCP(ctx, false); err != nil {
+		fmt.Fprintln(stderr, "dashi: MCP initialization canceled or failed; no work was started.")
+		return 1
 	}
 	res, err := a.eng.Prompt(ctx, o.Print)
 	if err != nil {
@@ -199,7 +203,14 @@ func runLines(
 			}
 		}
 	}()
-	if err := ui.serveLines(stdin, !isTerminal(os.Stdin)); err != nil {
+	interactive := isTerminal(os.Stdin)
+	if interactive {
+		a.startMCP(true)
+	} else if err := a.initializeMCP(ctx, false); err != nil {
+		fmt.Fprintln(stderr, "dashi: MCP initialization canceled or failed; no work was started.")
+		return 1
+	}
+	if err := ui.serveLines(stdin, !interactive); err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}

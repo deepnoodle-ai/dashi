@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/tui"
+	"time"
 )
 
 type mcpStartupUI interface {
@@ -14,11 +16,17 @@ type mcpStartupUI interface {
 }
 
 func (s *screen) ApproveMCP(ctx context.Context, r mcpStartupRequest) (bool, error) {
-	index, ok := s.ChooseDetailed(ctx, "Start MCP server "+workspace.PrintableText(r.Name)+"?", []string{"Start for this Dashi run", "Do not start"}, []string{r.Review, r.Review}, 1)
-	if ctx.Err() != nil {
+	id := s.promptSeq.Add(1)
+	p := &pickerState{title: "Start MCP server " + workspace.PrintableText(r.Name) + "?", options: []string{"Start for this Dashi run", "Do not start"}, index: 1, reply: make(chan int, 1), startupReview: detailLines(strings.Split(strings.TrimSpace(r.Review), "\n"))}
+	s.post(promptEvent{at: time.Now(), id: id, picker: p})
+	select {
+	case index := <-p.reply:
+		return index == 0, ctx.Err()
+	case <-ctx.Done():
+		s.post(endPromptEvent{at: time.Now(), id: id})
 		return false, ctx.Err()
 	}
-	return ok && index == 0, nil
+
 }
 func (u *lineUI) ApproveMCP(ctx context.Context, r mcpStartupRequest) (bool, error) {
 	u.mu.Lock()
@@ -105,6 +113,9 @@ func (a *app) startMCP(interactive bool) {
 	if a.eng.cfg.MCP == nil {
 		return
 	}
+	if len(a.eng.cfg.MCP.selection.entries) == 0 && len(a.eng.cfg.MCP.selection.warnings) == 0 {
+		return
+	}
 	c := a.ctrl
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
@@ -131,15 +142,16 @@ func (c *Controller) mcpInput(line string) bool {
 	if c.Mode() == ModeApproval {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(line), "/mcp") {
-		c.mcpInventory()
+	name, arg := splitCommand(line)
+	if name == "/mcp" {
+		c.mcpCommand(arg)
 		return true
 	}
 	m := c.eng.cfg.MCP
 	if m == nil || m.Ready() {
 		return false
 	}
-	if line == "/quit" || line == "/exit" {
+	if name == "/quit" || name == "/exit" || name == "/q" {
 		c.QuitDuringRun(line)
 		return true
 	}
@@ -148,4 +160,30 @@ func (c *Controller) mcpInput(line string) bool {
 }
 func (c *Controller) mcpInventory() {
 	c.emit(Block{Kind: KindNotice, Text: c.eng.cfg.MCP.Inventory(), Done: true})
+}
+
+func (c *Controller) mcpCommand(arg string) {
+	if arg != "" {
+		c.notice("Usage: /mcp")
+		return
+	}
+	c.mcpInventory()
+}
+
+// The review viewport keeps all configuration details inspectable while the
+// two startup-only choices remain visible on an 80x24 terminal.
+func mcpStartupView(p *pickerState) tui.View {
+	views := []tui.View{tui.Divider(), tui.MaxHeight(2, tui.Text(" %s", p.title).Wrap().Bold()), tui.Height(8, tui.Viewport(&p.startupVP, p.startupReview).Gap(0)), tui.Text(" Page Up/Down inspect · ↑/↓ choose · Enter confirms · Esc declines").Wrap().Hint()}
+	for index, option := range p.options {
+		prefix := "   "
+		if index == p.index {
+			prefix = " ❯ "
+		}
+		view := tui.Text("%s%s", prefix, option)
+		if index == p.index {
+			view = view.Fg(tui.ColorCyan).Bold()
+		}
+		views = append(views, view)
+	}
+	return tui.Stack(views...).Gap(0)
 }
