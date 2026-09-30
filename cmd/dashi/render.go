@@ -67,6 +67,10 @@ type Block struct {
 	// Lines holds detail lines: the last output of a running tool, the
 	// first error line of a failed tool, or the lines of a diff.
 	Lines []string
+	// Detail retains complete tool output for expansion and native scrollback.
+	Detail string
+	// Expanded is a display projection; the stored transcript keeps its excerpt.
+	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
 }
@@ -342,8 +346,11 @@ func (r *Renderer) toolSettled(s dashi.Step) []Block {
 		}
 	}
 	b := r.toolBlock(id, c, state)
+	if s.Tool.Outcome != nil {
+		b.Detail = outputText(s.Tool.Outcome)
+	}
 	b.Lines = lines
-	b.Done = true
+	b.Done = state != StateWaiting
 	if !c.started.IsZero() && !s.At.IsZero() {
 		b.Elapsed = s.At.Sub(c.started)
 	}
@@ -634,6 +641,7 @@ func fitArg(arg string, width int) string {
 // the model controls could otherwise carry escape sequences or carriage
 // returns that rewrite the screen. Every UI receives blocks through this.
 func printable(b Block) Block {
+	b.Detail = workspace.PrintableText(b.Detail)
 	b.Text = workspace.PrintableText(b.Text)
 	b.Name = workspace.PrintableText(b.Name)
 	b.Arg = workspace.PrintableText(b.Arg)

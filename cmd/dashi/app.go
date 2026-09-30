@@ -42,8 +42,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 			return ctrl.Approve(ctx, r)
 		},
 		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
-			text, err := ctrl.Ask(ctx, q)
-			return workspace.Answer{Text: text}, err
+			return ctrl.Ask(ctx, q)
 		},
 	})
 	if err != nil {
@@ -56,7 +55,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Store:         cfg.Store,
 		Wiring:        w,
 		ModelAttempts: cfg.ModelAttempts,
-		Emit:          func(b Block) { ui.Emit(printable(b)) },
+		Emit:          func(b Block) { emitToUI(ui, b) },
 		recorder:      cfg.recorder,
 	})
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)

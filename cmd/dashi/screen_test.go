@@ -56,6 +56,8 @@ func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarnes
 		}
 	}()
 	t.Cleanup(func() {
+		a.ctrl.CancelWork()
+		a.ctrl.Wait()
 		close(events)
 		<-done
 	})
@@ -135,7 +137,7 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("write a note")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	shown := h.render()
-	for _, want := range []string{"write_note", "allow once", "always", "deny"} {
+	for _, want := range []string{"write_note", "allow once", "this Dashi run", "deny"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("missing %q in:\n%s", want, shown)
 		}
@@ -157,6 +159,9 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("again")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	h.key(tui.KeyEvent{Rune: 'n'})
+	h.mu.Lock()
+	h.scr.finishApproval(Approval{Reason: declinedReason})
+	h.mu.Unlock()
 	h.app.ctrl.Wait()
 	if runs.Load() != 1 {
 		t.Fatalf("a denied call ran: runs=%d", runs.Load())
@@ -265,5 +270,27 @@ func TestScreenResetClearsTranscript(t *testing.T) {
 	got := h.render()
 	if strings.Contains(got, "Hi.") || !strings.Contains(got, "New session") {
 		t.Fatalf("transcript not reset:\n%s", got)
+	}
+}
+
+func TestPromptCancellationCannotClearNewQuestion(t *testing.T) {
+	s := newScreen("fixture")
+	s.input = "existing draft"
+	first := &askPrompt{q: Question{Prompt: "Old question"}, reply: make(chan questionAnswer, 1)}
+	second := &askPrompt{q: Question{Prompt: "New question"}, reply: make(chan questionAnswer, 1)}
+	s.HandleEvent(promptEvent{id: 1, asking: first})
+	s.input = "old answer draft"
+	s.HandleEvent(promptEvent{id: 2, asking: second})
+	s.HandleEvent(endPromptEvent{id: 1})
+	if s.asking != second || s.input != "" {
+		t.Fatal("old cancellation changed the new prompt")
+	}
+	s.HandleEvent(endPromptEvent{id: 2})
+	if s.asking != nil || s.input != "existing draft" {
+		t.Fatalf("original draft not restored: %q", s.input)
+	}
+	s.HandleEvent(promptEvent{id: 1, asking: first})
+	if s.asking != nil || s.input != "existing draft" {
+		t.Fatal("stale question was redisplayed")
 	}
 }

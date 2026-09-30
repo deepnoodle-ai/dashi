@@ -170,8 +170,8 @@ func (u *recorderUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, 
 	return answer(ctx, r)
 }
 
-func (u *recorderUI) Ask(context.Context, Question) (string, error) {
-	return "", errors.New("not used")
+func (u *recorderUI) Ask(context.Context, Question) (questionAnswer, error) {
+	return questionAnswer{}, errors.New("not used")
 }
 
 func (u *recorderUI) Quit() {

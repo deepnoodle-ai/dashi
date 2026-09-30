@@ -41,7 +41,7 @@ type UI interface {
 	// Approve asks the user about a tool call and blocks until the answer.
 	Approve(ctx context.Context, r ApprovalRequest) (Approval, error)
 	// Ask asks the user a question for the model.
-	Ask(ctx context.Context, q Question) (string, error)
+	Ask(ctx context.Context, q Question) (questionAnswer, error)
 	// Quit ends the program.
 	Quit()
 }
@@ -103,9 +103,9 @@ func (c *Controller) Mode() Mode {
 	return c.mode
 }
 
-// emit shows b on the UI. Every block goes through printable first.
+// emit preserves source for transcript selection and sanitizes direct output.
 func (c *Controller) emit(b Block) {
-	c.ui.Emit(printable(b))
+	emitToUI(c.ui, b)
 }
 
 func (c *Controller) setMode(m Mode) {
@@ -169,9 +169,10 @@ func (c *Controller) Approve(
 }
 
 // Ask is the AskFunc the wiring uses.
-func (c *Controller) Ask(ctx context.Context, q Question) (string, error) {
+func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
 	defer c.setMode(ModeRunning)
+	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
 	for i, ch := range q.Choices {
@@ -181,7 +182,27 @@ func (c *Controller) Ask(ctx context.Context, q Question) (string, error) {
 		}
 	}
 	q.Choices = choices
-	return c.ui.Ask(ctx, q)
+	a, err := c.ui.Ask(ctx, q)
+	if err != nil {
+		return workspace.Answer{}, err
+	}
+	if len(a.choices) == 0 {
+		return workspace.Answer{Text: a.text}, nil
+	}
+	labels := make([]string, len(a.choices))
+	for i, index := range a.choices {
+		if index < 0 || index >= len(original) {
+			return workspace.Answer{}, fmt.Errorf("answer choice is out of range")
+		}
+		labels[i] = original[index].Label
+	}
+	if !q.Multiple {
+		if len(labels) != 1 {
+			return workspace.Answer{}, fmt.Errorf("question accepts one choice")
+		}
+		return workspace.Answer{Text: labels[0]}, nil
+	}
+	return workspace.Answer{Selections: labels}, nil
 }
 
 // Answers is the channel that line mode reads an approval answer from.
@@ -260,9 +281,21 @@ func (c *Controller) Interrupt() bool {
 	return true
 }
 
+// CancelWork interrupts a turn or dialog without requesting process exit.
+func (c *Controller) CancelWork() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
 // Input handles one submitted line.
 func (c *Controller) Input(line string) {
 	line = strings.TrimSpace(line)
+	if c.Mode() != ModeApproval && c.displayCommand(line) {
+		return
+	}
 	switch c.Mode() {
 	case ModeApproval:
 		select {
@@ -289,6 +322,20 @@ func (c *Controller) Input(line string) {
 	default:
 		c.prompt(line)
 	}
+}
+
+func (c *Controller) displayCommand(line string) bool {
+	name, arg, _ := strings.Cut(line, " ")
+	switch name {
+	case "/copy", "/scrollback", "/mouse":
+		if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
+			ui.TranscriptCommand(name, strings.TrimSpace(arg))
+		} else {
+			c.notice("%s is available in interactive terminal mode.", name)
+		}
+		return true
+	}
+	return false
 }
 
 func (c *Controller) steer(line string) {
@@ -491,6 +538,9 @@ func (c *Controller) command(line string) {
 }
 
 const helpText = `Commands:
+  /copy [N|all]  copy selection or list/copy code blocks
+  /scrollback [raw]  inspect complete output in native scrollback
+  /mouse         toggle application mouse capture
   /compact       summarize history before the next turn
   /model [name]  set the model, or pick one
   /new           start a new session
@@ -637,4 +687,13 @@ func modelNames() []string {
 func knownModel(name string) bool {
 	_, ok := catalog.Find("openai", name)
 	return ok
+}
+
+// Source-preserving screens sanitize at rendering and native-output boundaries.
+// Other UIs receive display text, including test recorders and line/print mode.
+func emitToUI(ui UI, b Block) {
+	if _, retains := ui.(interface{ retainSourceBlocks() }); !retains {
+		b = printable(b)
+	}
+	ui.Emit(b)
 }

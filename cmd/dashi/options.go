@@ -19,7 +19,9 @@ type Options struct {
 	Yes bool
 	// Plain turns off the full screen and uses line mode.
 	Plain bool
-	Help  bool
+	// Inline uses Wonton in the terminal's native scrollback.
+	Inline bool
+	Help   bool
 }
 
 // parseArgs reads the flags. --resume takes an optional session ID, which the
@@ -66,11 +68,16 @@ func parseArgs(args []string) (Options, error) {
 			o.Yes = true
 		case "--plain":
 			o.Plain = true
+		case "--inline":
+			o.Inline = true
 		case "-h", "--help":
 			o.Help = true
 		default:
 			return o, fmt.Errorf("unknown flag %s", a)
 		}
+	}
+	if o.Plain && o.Inline {
+		return o, fmt.Errorf("--plain and --inline cannot be combined")
 	}
 	return o, nil
 }
@@ -85,6 +92,7 @@ Flags:
       --model NAME     set the model (default gpt-6-luna)
       --yes            approve every tool call (for -p)
       --plain          use line mode instead of the full screen
+      --inline         use interactive controls in native terminal scrollback
   -h, --help           show this help
 
 Settings: DASHI_MODEL, ~/.dashi/settings.json, .dashi/settings.json.

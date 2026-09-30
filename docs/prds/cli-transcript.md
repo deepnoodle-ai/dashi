@@ -1,7 +1,7 @@
 # Read, copy, and answer in the terminal
 
 Status: Approved\
-PRD PR: [#127](https://github.com/deepnoodle-ai/dashi/pull/127) · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#127](https://github.com/deepnoodle-ai/dashi/pull/127) · Implementation PR: [#133](https://github.com/deepnoodle-ai/dashi/pull/133) · Updated: 2026-09-30
 
 ## Problem and context
 

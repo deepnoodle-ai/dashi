@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -33,19 +35,30 @@ type screen struct {
 	pendMu    sync.Mutex
 	pending   []queued
 	scheduled bool
+	promptSeq atomic.Uint64
 
 	// loop state
-	tr       Transcript
-	vp       tui.ViewportState
-	input    string
-	history  []string
-	frame    uint64
-	approval *approvalPrompt
-	asking   *askPrompt
-	picker   *pickerState
-	quitting bool
-	width    int
-	height   int
+	tr               Transcript
+	vp               tui.ViewportState
+	input            string
+	history          []string
+	frame            uint64
+	approval         *approvalPrompt
+	asking           *askPrompt
+	picker           *pickerState
+	quitting         bool
+	width            int
+	height           int
+	promptID         uint64
+	promptActive     bool
+	savedDraft       string
+	expanded         map[int]bool
+	runtime          *tui.Runtime
+	mouseEnabled     bool
+	generation       uint64
+	nativeScrollback func(bool)
+	clipboardOut     io.Writer
+	clipboardWrite   func(context.Context, string) (string, error)
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -55,13 +68,22 @@ type queued struct {
 }
 
 type approvalPrompt struct {
-	req   ApprovalRequest
-	reply chan Approval
+	req     ApprovalRequest
+	reply   chan Approval
+	vp      tui.ViewportState
+	denying bool
+	reason  string
 }
 
 type askPrompt struct {
-	q     Question
-	reply chan string
+	q        Question
+	reply    chan questionAnswer
+	vp       tui.ViewportState
+	index    int
+	selected map[int]bool
+	own      bool
+	text     string
+	err      string
 }
 
 type pickerState struct {
@@ -77,12 +99,16 @@ type (
 	quitEvent   struct{ at time.Time }
 	promptEvent struct {
 		at       time.Time
+		id       uint64
 		approval *approvalPrompt
 		asking   *askPrompt
 		picker   *pickerState
 	}
 	// endPromptEvent removes a prompt that ended without an answer.
-	endPromptEvent struct{ at time.Time }
+	endPromptEvent struct {
+		at time.Time
+		id uint64
+	}
 )
 
 func (e flushEvent) Timestamp() time.Time     { return e.at }
@@ -91,7 +117,7 @@ func (e promptEvent) Timestamp() time.Time    { return e.at }
 func (e endPromptEvent) Timestamp() time.Time { return e.at }
 
 func newScreen(dir string) *screen {
-	s := &screen{dir: dir}
+	s := &screen{dir: dir, mouseEnabled: true, clipboardWrite: writeClipboard}
 	s.vp.Follow = true
 	return s
 }
@@ -107,6 +133,7 @@ func isCtrlC(e tui.KeyEvent) bool {
 
 // SetRuntime implements tui.RuntimeAware.
 func (s *screen) SetRuntime(rt *tui.Runtime) {
+	s.runtime, s.clipboardOut = rt, rt.Terminal()
 	s.pendMu.Lock()
 	s.send = rt.SendEvent
 	s.pendMu.Unlock()
@@ -136,6 +163,8 @@ func (s *screen) enqueue(q queued) {
 }
 
 // Emit implements UI.
+func (*screen) retainSourceBlocks() {}
+
 func (s *screen) Emit(b Block) {
 	s.enqueue(queued{block: b})
 }
@@ -161,39 +190,42 @@ func (s *screen) post(e tui.Event) {
 
 // Approve implements UI. It blocks until the user answers or ctx ends.
 func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+	id := s.promptSeq.Add(1)
 	p := &approvalPrompt{req: r, reply: make(chan Approval, 1)}
-	s.post(promptEvent{at: time.Now(), approval: p})
+	s.post(promptEvent{at: time.Now(), id: id, approval: p})
 	select {
 	case a := <-p.reply:
 		return a, nil
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
+		s.post(endPromptEvent{at: time.Now(), id: id})
 		return Approval{}, ctx.Err()
 	}
 }
 
 // Ask implements UI.
-func (s *screen) Ask(ctx context.Context, q Question) (string, error) {
-	p := &askPrompt{q: q, reply: make(chan string, 1)}
-	s.post(promptEvent{at: time.Now(), asking: p})
+func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+	id := s.promptSeq.Add(1)
+	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
+	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:
 		return a, nil
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
-		return "", ctx.Err()
+		s.post(endPromptEvent{at: time.Now(), id: id})
+		return questionAnswer{}, ctx.Err()
 	}
 }
 
 // Choose implements Chooser.
 func (s *screen) Choose(ctx context.Context, title string, options []string) (int, bool) {
+	id := s.promptSeq.Add(1)
 	p := &pickerState{title: title, options: options, reply: make(chan int, 1)}
-	s.post(promptEvent{at: time.Now(), picker: p})
+	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
 		return i, i >= 0
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
+		s.post(endPromptEvent{at: time.Now(), id: id})
 		return 0, false
 	}
 }
@@ -208,7 +240,38 @@ func (s *screen) Item(i int) tui.View {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return nil
 	}
-	return blockView(s.tr.Blocks[i])
+	b := s.tr.Blocks[i]
+	if b.Kind == KindTool && b.Detail != "" {
+		if s.expanded[i] {
+			b.Expanded = true
+		} else {
+			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
+				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Hint())).Gap(0)
+		}
+	}
+	return blockView(b)
+}
+
+// Source implements tui.ViewportSourceItems. Labels and controls are decorations.
+func (s *screen) Source(i int) (string, bool) {
+	if i < 0 || i >= len(s.tr.Blocks) {
+		return "", true
+	}
+	b := s.tr.Blocks[i]
+	switch b.Kind {
+	case KindTool:
+		if s.expanded[i] && b.Detail != "" {
+			return b.Detail, true
+		}
+		return strings.Join(b.Lines, "\n"), true
+	case KindDiff:
+		return strings.Join(b.Lines, "\n"), true
+	case KindPending:
+		if b.Done {
+			return "", true
+		}
+	}
+	return b.Text, true
 }
 
 func (s *screen) drain() {
@@ -220,6 +283,8 @@ func (s *screen) drain() {
 	for _, q := range items {
 		if q.reset {
 			s.tr = Transcript{}
+			s.generation++
+			s.expanded = nil
 			s.vp.InvalidateAll()
 			s.vp.Follow = true
 			continue
@@ -240,6 +305,23 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.width, s.height = e.Width, e.Height
 	case tui.TickEvent:
 		s.frame = e.Frame
+		s.vp.DragAutoScroll()
+	case tui.MouseEvent:
+		s.handleTranscriptMouse(e)
+	case focusEvent:
+		if e.prompt != s.promptID {
+			return nil
+		}
+		return []tui.Cmd{tui.Focus(e.id)}
+	case inputActionEvent:
+		if e.prompt == 0 && s.promptActive || e.prompt != 0 && (!s.promptActive || e.prompt != s.promptID) {
+			return nil
+		}
+		return s.key(e.key)
+	case transcriptCommandEvent:
+		s.transcriptCommand(e.name, e.arg)
+	case clipboardResultEvent:
+		s.clipboardResult(e)
 	case flushEvent:
 		s.drain()
 	case quitEvent:
@@ -248,8 +330,19 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		return []tui.Cmd{tui.Quit()}
 	case promptEvent:
 		s.drain()
+		if e.id != 0 && e.id <= s.promptID {
+			return nil
+		}
+		if !s.promptActive {
+			s.savedDraft = s.input
+		}
+		s.promptActive, s.promptID, s.input = true, e.id, ""
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
+		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
+		if e.id != s.promptID {
+			return nil
+		}
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
@@ -260,6 +353,9 @@ const inputID = "main-input"
 
 func (s *screen) clearPrompts() {
 	s.approval, s.asking, s.picker = nil, nil, nil
+	if s.promptActive {
+		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
+	}
 }
 
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
@@ -271,6 +367,8 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		return s.approvalKey(e)
 	case s.picker != nil:
 		return s.pickerKey(e)
+	case s.asking != nil:
+		return s.questionKey(e)
 	}
 	switch e.Key {
 	case tui.KeyPageUp:
@@ -285,6 +383,18 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		if e.Ctrl || s.input == "" {
 			s.vp.ScrollToBottom()
 		}
+	case tui.KeyEscape:
+		if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
+			s.ctrl.CancelWork()
+		} else if s.vp.HasSelection() {
+			s.vp.ClearSelection()
+		} else {
+			s.vp.ScrollToBottom()
+		}
+	case tui.KeyCtrlL:
+		if s.runtime != nil {
+			s.runtime.Terminal().Invalidate()
+		}
 	}
 	isD := e.Key == tui.KeyCtrlD || e.Ctrl && (e.Rune == 'd' || e.Rune == 'D')
 	if isD && s.input == "" {
@@ -297,7 +407,7 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 func (s *screen) interrupt() []tui.Cmd {
 	if s.picker != nil {
 		s.picker.reply <- -1
-		s.picker = nil
+		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
 	if s.ctrl.Interrupt() {
@@ -324,24 +434,6 @@ func (s *screen) requestQuit() []tui.Cmd {
 	return nil
 }
 
-func (s *screen) approvalKey(e tui.KeyEvent) []tui.Cmd {
-	var a Approval
-	switch {
-	case e.Rune == 'y' || e.Rune == 'Y':
-		a = Approval{Allow: true}
-	case e.Rune == 'a' || e.Rune == 'A':
-		a = Approval{Allow: true, Remember: true}
-	case e.Rune == 'n' || e.Rune == 'N' || e.Key == tui.KeyEscape:
-		a = Approval{Reason: declinedReason}
-	default:
-		return nil
-	}
-	p := s.approval
-	s.approval = nil
-	p.reply <- a
-	return []tui.Cmd{tui.Focus(inputID)}
-}
-
 func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	p := s.picker
 	switch e.Key {
@@ -350,11 +442,11 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	case tui.KeyArrowDown:
 		p.index = min(p.index+1, len(p.options)-1)
 	case tui.KeyEnter:
-		s.picker = nil
+		s.clearPrompts()
 		p.reply <- p.index
 		return []tui.Cmd{tui.Focus(inputID)}
 	case tui.KeyEscape:
-		s.picker = nil
+		s.clearPrompts()
 		p.reply <- -1
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
@@ -366,8 +458,13 @@ func (s *screen) submit(value string) {
 	value = strings.TrimSpace(value)
 	if s.asking != nil {
 		p := s.asking
-		s.asking = nil
-		p.reply <- value
+		a, err := parseQuestionAnswer(p.q, value)
+		if err != nil {
+			s.Emit(warnBlock("%v", err))
+			return
+		}
+		s.clearPrompts()
+		p.reply <- a
 		return
 	}
 	if value != "" && (len(s.history) == 0 || s.history[len(s.history)-1] != value) {
@@ -375,6 +472,15 @@ func (s *screen) submit(value string) {
 	}
 	s.vp.ScrollToBottom()
 	s.ctrl.Input(value)
+}
+
+// A retained field callback must not submit into a replacement dialog.
+func (s *screen) inputSubmit(id uint64) func(string) {
+	return func(value string) {
+		if !s.promptActive && s.promptID == id {
+			s.submit(value)
+		}
+	}
 }
 
 // --- views ---
@@ -389,18 +495,20 @@ func (s *screen) View() tui.View {
 
 func (s *screen) footer() tui.View {
 	views := make([]tui.View, 0, 10)
+	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
+		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Hint())
+	}
 	switch {
 	case s.approval != nil:
-		views = append(views, approvalView(s.approval.req))
+		views = append(views, s.approvalView())
 	case s.picker != nil:
 		views = append(views, pickerView(s.picker))
+	case s.asking != nil:
+		views = append(views, s.questionView())
 	default:
 		mode := s.ctrl.Mode()
 		if mode == ModeRunning {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
-		}
-		if s.asking != nil {
-			views = append(views, askView(s.asking.q))
 		}
 		views = append(views,
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
@@ -421,7 +529,8 @@ func (s *screen) inputView(mode Mode) tui.View {
 		History(s.history).
 		Multiline(true).
 		MaxHeight(8).
-		OnSubmit(s.submit)
+		OnKey(s.inputKey).
+		OnSubmit(s.inputSubmit(s.promptID))
 }
 
 func (s *screen) inputHint(mode Mode) string {
@@ -472,46 +581,6 @@ func shortDir(dir string) string {
 	return filepath.Join(filepath.Base(parent), base)
 }
 
-func askView(q Question) tui.View {
-	views := []tui.View{tui.Text(" %s", q.Prompt).Bold()}
-	for i, c := range q.Choices {
-		views = append(views, tui.Text("   %d. %s", i+1, c.Label))
-	}
-	return tui.Stack(views...).Gap(0)
-}
-
-func approvalView(r ApprovalRequest) tui.View {
-	views := []tui.View{
-		tui.Divider(),
-		tui.Text(" %s", r.Summary).Bold().Fg(tui.ColorYellow),
-	}
-	if r.Command != "" {
-		views = append(views, tui.Text("   $ %s", r.Command).Wrap())
-	}
-	if r.Preview != "" {
-		lines := strings.Split(strings.TrimRight(r.Preview, "\n"), "\n")
-		if len(lines) > 30 {
-			hidden := len(lines) - 30
-			lines = append(lines[:30], fmt.Sprintf("... %d more lines", hidden))
-		}
-		for _, l := range lines {
-			views = append(views, diffLineView("   ", l))
-		}
-	}
-	views = append(views,
-		tui.Text(""),
-		tui.Group(
-			tui.Text(" y").Bold().Fg(tui.ColorGreen),
-			tui.Text(" allow once   ").Hint(),
-			tui.Text("a").Bold().Fg(tui.ColorGreen),
-			tui.Text(" always   ").Hint(),
-			tui.Text("n").Bold().Fg(tui.ColorRed),
-			tui.Text(" deny").Hint(),
-		),
-	)
-	return tui.Stack(views...).Gap(0)
-}
-
 func pickerView(p *pickerState) tui.View {
 	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
 	// Show a window of ten options around the cursor.
@@ -534,23 +603,25 @@ func blockView(b Block) tui.View {
 	case KindUser:
 		return tui.Group(
 			tui.Text("❯ ").Fg(tui.ColorCyan).Bold(),
-			tui.Text("%s", b.Text).Wrap().Bold().Flex(1),
+			tui.Text("%s", b.Text).SourceOffset(0).Wrap().Bold().Flex(1),
 		)
 	case KindAssistant:
-		text := strings.TrimSpace(b.Text)
-		if text == "" {
+		text := b.Text
+		if strings.TrimSpace(text) == "" {
 			return nil
 		}
 		return tui.ZStack(
-			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil)),
+			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).SourceOffset(0)),
 			tui.Text("⏺").Fg(tui.ColorCyan),
 		).Align(tui.AlignLeft)
 	case KindTool:
 		return toolView(b)
 	case KindDiff:
 		views := make([]tui.View, 0, len(b.Lines))
+		offset := 0
 		for _, l := range b.Lines {
-			views = append(views, diffLineView("  ", l))
+			views = append(views, tui.PaddingLTRB(2, 0, 0, 0, diffSourceLineView(l, offset)))
+			offset += len(l) + 1
 		}
 		return tui.Stack(views...).Gap(0)
 	case KindSteer:
@@ -561,7 +632,7 @@ func blockView(b Block) tui.View {
 		case SteerNext:
 			label = "queued for the next turn"
 		}
-		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("  ↳ "+label+": ", b.Text, tui.ColorYellow)
 	case KindCompaction:
 		color := tui.ColorCyan
 		if b.State == StateFailed {
@@ -569,20 +640,20 @@ func blockView(b Block) tui.View {
 		} else if b.State == "interrupted" {
 			color = tui.ColorYellow
 		}
-		return tui.Text("  %s", b.Text).Wrap().Fg(color)
+		return sourceLabel("  ", b.Text, color)
 	case KindPending:
 		if b.Done {
 			return nil
 		}
-		return tui.Text("  ↳ pending prompt: %s", b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("  ↳ pending prompt: ", b.Text, tui.ColorYellow)
 	case KindStop:
-		return tui.Text("■ %s", b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return tui.Text("%s", b.Text).Hint()
+		return tui.Text("%s", b.Text).SourceOffset(0).Hint()
 	case KindWarning:
-		return tui.Text("! %s", b.Text).Wrap().Warning()
+		return sourceLabel("! ", b.Text, tui.ColorYellow)
 	}
-	return tui.Text("%s", b.Text).Wrap().Hint()
+	return tui.Text("%s", b.Text).SourceOffset(0).Wrap().Hint()
 }
 
 func toolView(b Block) tui.View {
@@ -607,23 +678,39 @@ func toolView(b Block) tui.View {
 	}
 	head := tui.Group(
 		icon,
-		tui.Text(" %s", b.Name).Bold(),
-		tui.Text("  %s", fitArg(b.Arg, 70)).Hint(),
+		tui.Text(" %s", workspace.PrintableText(b.Name)).Bold(),
+		tui.Text("  %s", fitArg(workspace.PrintableText(b.Arg), 70)).Hint(),
 		tui.Spacer(),
 		state,
 	)
+	if b.Expanded && b.Detail != "" {
+		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", b.Detail).SourceOffset(0).Wrap().Hint())).Gap(0)
+	}
 	if len(b.Lines) == 0 {
 		return head
 	}
 	views := []tui.View{head}
+	offset := 0
 	for _, l := range b.Lines {
-		views = append(views, tui.Text("      %s", l).Hint())
+		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", l).SourceOffset(offset).Wrap().Hint()))
+		offset += len(l) + 1
 	}
 	return tui.Stack(views...).Gap(0)
 }
 
+func sourceLabel(label, source string, color tui.Color) tui.View {
+	return tui.Group(tui.Text("%s", label).Fg(color),
+		tui.Text("%s", source).SourceOffset(0).Wrap().Fg(color).Flex(1))
+}
+
 func diffLineView(indent, line string) tui.View {
-	t := tui.Text("%s%s", indent, line)
+	return tui.PaddingLTRB(len(indent), 0, 0, 0, diffSourceLineView(line, 0))
+}
+
+func diffSourceLineView(line string, offset int) tui.View {
+	t := tui.Text("%s", line).SourceOffset(offset).Wrap()
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return t.Bold()
@@ -641,6 +728,6 @@ func diffLineView(indent, line string) tui.View {
 // screen leaves no scrollback, so the program prints this on exit.
 func (s *screen) dumpTranscript(w io.Writer) {
 	for _, b := range s.tr.Blocks {
-		fmt.Fprintln(w, FormatBlock(b))
+		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
 	}
 }

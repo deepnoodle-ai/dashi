@@ -56,6 +56,9 @@ before discarding them. Recorded summaries can be reopened and continued.
 
 | Input | Result |
 | --- | --- |
+| `/copy [N|all]` | Copy selection, list code blocks, or copy their original source |
+| `/scrollback [raw]` | Inspect complete output in native terminal scrollback |
+| `/mouse` | Toggle application mouse capture for native selection |
 | `/compact` | Summarize history while idle; leave queued input waiting |
 | `/model [name]` | Pick a model, or set it for the next turn |
 | `/new` | Start a new session |
@@ -67,8 +70,7 @@ before discarding them. Recorded summaries can be reopened and continued.
 | `/quit` | Save and exit (Ctrl-D does the same) |
 | `/help` | Show the commands |
 
-A command typed during a turn, other than `/queue` and `/help`, waits until
-the turn ends.
+Display commands work during a turn. Mutating commands may request that you retry after the turn ends.
 
 ## Sessions
 
@@ -92,16 +94,49 @@ to stdout. Steps go to stderr. The session is saved. Use `dashi -c -p "..."`
 to add a turn to the last session, for example
 `dashi -c -p "what did you change?"`.
 
+## Read and copy output
+
+Page Up/Down and the wheel scroll without following new output. End returns
+an empty draft to live output; Ctrl+Home/End navigate with a draft. The
+indicator shows lines below. Drag selects; double/triple clicks select a word
+or original logical line, including its whitespace and Markdown syntax. Copying
+selection excludes role labels, display indentation, and wrapped row breaks.
+Escape clears a selection or returns to live output when idle.
+Ctrl+L repaints. Click a tool header to expand its full retained output.
+
+`/copy` copies selected text or lists fenced blocks in the latest answer.
+`/copy N` copies one code block; `/copy all` copies all, without fences or
+prose. Code copying retains original source lines, even when wrapped on screen.
+A newer prompt ends the previous answer's copy window. OSC52 and tmux
+terminal requests report unconfirmed receipt; local clipboard process success
+is reported separately. `/scrollback raw` provides complete printable text.
+Enter/Escape return from inspection with the draft intact.
+
+Start `dashi --inline` to keep completed output in native scrollback and
+interactive streaming, prompts, and dialogs below it. `--plain` and `--inline`
+cannot be combined. Nonterminal input/output still uses line mode.
+
 ## Approvals
 
 The tools that read files run at once. A tool that changes files or runs a
-command asks first. The prompt shows the diff, or the exact command.
+command asks first. The bounded pane shows the full command, directory,
+arguments, and diff. Arrow/Page keys scroll the details; decisions stay visible.
 
 | Key | Result |
 | --- | --- |
 | `y` | Allow this call once |
-| `a` | Allow this call, and the same call again, until you exit |
-| `n` or Esc | Refuse. The model reads the refusal and tries another way |
+| `a` | Allow for this Dashi run; the displayed rule survives session switches |
+| `n` | Enter an optional denial reason, then press Enter |
+| Esc | Interrupt without granting permission; Enter can resume |
+
+Remembered rules cover all calls to the owned write/edit tool, the exact Bash
+command, or exact external-tool arguments. They last until the process exits;
+they are not permanent grants.
+
+Questions support choices or own words. Multiple questions use checkboxes:
+arrows move, Space selects, Tab moves to Submit, and Enter submits. Press `o`
+for own words. Escape interrupts without submitting an empty answer. Dialogs
+restore the draft when they end.
 
 If you quit during a prompt, the call does not run. After `dashi -c`, press
 Enter to continue the turn. The prompt shows again.
@@ -117,3 +152,6 @@ can restore.
 
 Line mode runs when stdin or stdout is not a terminal, or with `--plain`. It
 prints plain text and reads approval answers as lines.
+
+For multiple-choice questions, line mode accepts `1,2` or `other: YOUR ANSWER`
+and reprompts on invalid input. `n REASON` supplies an approval denial reason.

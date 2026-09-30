@@ -112,7 +112,16 @@ func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 	if r.Preview != "" {
 		fmt.Fprintln(u.out, r.Preview)
 	}
-	fmt.Fprint(u.out, "Allow once / always / deny? [y/a/n] ")
+	if r.Dir != "" {
+		fmt.Fprintf(u.out, "Directory: %s\n", r.Dir)
+	}
+	if r.Arguments != "" {
+		fmt.Fprintf(u.out, "Arguments:\n%s\n", r.Arguments)
+	}
+	if r.RememberScope != "" {
+		fmt.Fprintf(u.out, "Remembered rule: %s\n", r.RememberScope)
+	}
+	fmt.Fprint(u.out, "Allow once / allow for this Dashi run / deny? [y/a/n or n REASON] ")
 	u.mu.Unlock()
 	for {
 		select {
@@ -122,13 +131,20 @@ func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 			if a, ok := parseAnswer(line); ok {
 				return a, nil
 			}
-			fmt.Fprint(u.out, "Type y, a, or n: ")
+			u.mu.Lock()
+			fmt.Fprint(u.out, "Type y, a, or n REASON: ")
+			u.mu.Unlock()
 		}
 	}
 }
 
 // parseAnswer maps an approval answer to an Approval.
 func parseAnswer(line string) (Approval, bool) {
+	if name, reason, ok := strings.Cut(strings.TrimSpace(line), " "); ok && (strings.EqualFold(name, "n") || strings.EqualFold(name, "deny")) {
+		if strings.TrimSpace(reason) != "" {
+			return Approval{Reason: strings.TrimSpace(reason)}, true
+		}
+	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes", "once":
 		return Approval{Allow: true}, true
@@ -140,19 +156,33 @@ func parseAnswer(line string) (Approval, bool) {
 	return Approval{}, false
 }
 
-func (u *lineUI) Ask(ctx context.Context, q Question) (string, error) {
+func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 	u.mu.Lock()
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
 	for i, c := range q.Choices {
 		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c.Label)
+		if c.Description != "" {
+			fmt.Fprintf(u.out, "     %s\n", c.Description)
+		}
 	}
 	fmt.Fprint(u.out, "> ")
+	if q.Multiple {
+		fmt.Fprintln(u.out, "Choose numbers separated by commas, or other: YOUR ANSWER.")
+	}
 	u.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case line := <-u.ctrl.Answers():
-		return line, nil
+	for {
+		select {
+		case <-ctx.Done():
+			return questionAnswer{}, ctx.Err()
+		case line := <-u.ctrl.Answers():
+			a, err := parseQuestionAnswer(q, line)
+			if err == nil {
+				return a, nil
+			}
+			u.mu.Lock()
+			fmt.Fprintf(u.out, "%v\n> ", err)
+			u.mu.Unlock()
+		}
 	}
 }
 
@@ -241,6 +271,6 @@ func (u *printUI) Approve(context.Context, ApprovalRequest) (Approval, error) {
 		"with --yes, or to use the interactive screen."}, nil
 }
 
-func (u *printUI) Ask(context.Context, Question) (string, error) {
-	return "", errNoApprover
+func (u *printUI) Ask(context.Context, Question) (questionAnswer, error) {
+	return questionAnswer{}, errNoApprover
 }

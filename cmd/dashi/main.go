@@ -226,12 +226,22 @@ func runScreen(
 		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 	}
 	a.ctrl.Open()
-	err = tui.Run(scr, tui.WithBracketedPaste(true))
+	var inline *inlineScreen
+	if o.Inline {
+		inline = newInlineScreen(scr, stdout)
+		err = inline.runner.Run(inline)
+	} else {
+		err = tui.Run(scr, tui.WithBracketedPaste(true), tui.WithMouseDrag(true), tui.WithFPS(30))
+	}
 	// Stop work that is still running, so the turn records an interruption.
 	a.ctrl.Interrupt()
 	a.ctrl.Wait()
 	scr.drain()
-	scr.dumpTranscript(stdout)
+	if inline != nil {
+		inline.flushExit(stdout)
+	} else {
+		scr.dumpTranscript(stdout)
+	}
 	if s := a.eng.Session(); a.eng.Saved() {
 		fmt.Fprintf(stdout, "\nSession %s saved. Resume with: dashi --resume %s\n",
 			s.ID, s.ID)
