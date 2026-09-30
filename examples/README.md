@@ -10,9 +10,9 @@ optional. Every example but those two needs a provider key.
 | ------------------- | --------- | -------------------------------------------------------------- |
 | `chat`              | None      | A session: two messages, a tool call, and a denied call        |
 | `compaction`        | None      | A session that runs a compaction turn when its window fills    |
+| `agent`             | OpenAI    | One recorded agent turn                                        |
 | `basic`             | OpenAI    | One streamed model call, without an agent                      |
 | `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the answer    |
-| `agent`             | OpenAI    | One recorded agent turn                                        |
 | `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
 | `hooks`             | Anthropic | Hooks that deliver context, deny a call, and nudge an answer   |
 | `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
