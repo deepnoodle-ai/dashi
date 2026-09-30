@@ -96,6 +96,8 @@ method, including a single hook and a `Hooks` value, as in
 `dashi.JoinHooks(onCall, guard, runner.Hooks)`. For a hook that defers every
 tool not marked read-only, see
 [deferring for later](approvals.md#deferring-for-later).
+For advisory model review, use a separately recorded turn and required host
+approval. See [using a model's advice](approvals.md#using-a-models-advice).
 
 ## Delivering context and vetoing answers
 
