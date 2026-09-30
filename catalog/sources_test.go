@@ -640,7 +640,7 @@ func grokModelPage(model string) string {
 // allClaimSources expands the per-model OpenAI tables and the API-wide
 // output limit claim into rows.
 func allClaimSources() []claimSource {
-	sources := slices.Concat(claimSources, promptCacheClaims())
+	sources := slices.Concat(claimSources, promptCacheClaims(), summaryClaims())
 	for _, provider := range Providers() {
 		var models []string
 		for _, e := range Entries(provider) {

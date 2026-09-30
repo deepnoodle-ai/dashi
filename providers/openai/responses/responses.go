@@ -195,6 +195,14 @@ func (p *Client) Prepare(
 	if !p.sendsCacheLifetime(r.Model) {
 		limits = uncachedLimits
 	}
+	// These public compatible APIs have no qualified summary opt-in mapping.
+	// Custom Responses routes retain the documented protocol with unknown
+	// support unless the application supplies exact destination evidence.
+	if p.client.Endpoint == "https://api.x.ai/v1/responses" ||
+		p.client.Endpoint == "https://api.meta.ai/v1/responses" {
+		limits.Features = maps.Clone(limits.Features)
+		limits.Features[llm.FeatureReasoningSummary] = llm.SupportUnsupported
+	}
 	r, adjustments, err := p.client.Fit(r, limits, nil)
 	if err != nil {
 		return llm.Request{}, err
@@ -443,6 +451,10 @@ func (p *Client) Send(
 		origin:      p.client.Origin(prepared.Input().Model),
 		media:       providerhttp.HasMedia(prepared.Input()),
 		hostedTypes: hostedTypes(prepared.Input().Tools),
+		// xAI explicitly documents this exact route/model event as public
+		// summarized reasoning. Neither a provider name nor the event name
+		// grants other destinations that classification.
+		publicReasoningText: p.client.Endpoint == "https://api.x.ai/v1/responses" && prepared.Input().Model == "grok-4.7",
 	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
@@ -581,7 +593,8 @@ func nativeOutputActivity(part llm.Content) bool {
 
 // codec carries call-specific provenance through encoding and decoding.
 type codec struct {
-	origin content.Origin
+	origin              content.Origin
+	publicReasoningText bool
 	// media reports whether the request being sent carries media, so errors
 	// reported in its response body can be classified as media rejections.
 	media bool

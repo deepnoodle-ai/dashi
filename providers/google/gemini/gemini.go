@@ -296,6 +296,13 @@ func (p *Client) Prepare(
 	if t := input.Settings.Temperature; t != nil {
 		config["temperature"] = *t
 	}
+	thinking := map[string]any{}
+	if summary := input.Settings.ReasoningSummary; summary != nil {
+		info, _ := p.ModelInfo(input.Model)
+		if *summary || info.Capabilities.Features[llm.FeatureReasoningSummary] == llm.SupportSupported {
+			thinking["includeThoughts"] = *summary
+		}
+	}
 	if reasoning := input.Settings.Reasoning; reasoning != nil {
 		if reasoning.Effort != "" {
 			return llm.Request{}, wire.unsupported(
@@ -303,10 +310,10 @@ func (p *Client) Prepare(
 					"use a reasoning budget",
 			)
 		}
-		config["thinkingConfig"] = map[string]any{
-			"thinkingBudget":  reasoning.BudgetTokens,
-			"includeThoughts": true,
-		}
+		thinking["thinkingBudget"] = reasoning.BudgetTokens
+	}
+	if len(thinking) > 0 {
+		config["thinkingConfig"] = thinking
 	}
 	if len(config) > 0 {
 		body["generationConfig"] = config

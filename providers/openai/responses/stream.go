@@ -192,6 +192,15 @@ func (wire codec) readStream(
 				item["arguments"] = e.Arguments
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			if e.Type == "response.reasoning_text.delta" && !wire.publicReasoningText {
+				// Unmodeled reasoning is private. Its final provider artifact,
+				// when present, remains opaque replay data.
+				continue
+			}
+			contentIndex := e.SummaryIndex
+			if e.Type == "response.reasoning_text.delta" {
+				contentIndex = e.ContentIndex
+			}
 			if items[e.OutputIndex] == nil {
 				return build(), providerhttp.Failure(
 					wire.origin.Provider,
@@ -202,13 +211,13 @@ func (wire codec) readStream(
 			if summaries[e.OutputIndex] == nil {
 				summaries[e.OutputIndex] = map[int]string{}
 			}
-			summaries[e.OutputIndex][e.SummaryIndex] += e.Delta
+			summaries[e.OutputIndex][contentIndex] += e.Delta
 			providerhttp.Emit(
 				sink,
 				llm.Delta{
 					Kind:         llm.DeltaReasoning,
 					Index:        e.OutputIndex,
-					ContentIndex: e.ContentIndex,
+					ContentIndex: contentIndex,
 					Text:         e.Delta,
 				},
 			)

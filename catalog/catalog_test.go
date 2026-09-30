@@ -65,7 +65,7 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 }
 
 func TestEntriesDateEveryClaim(t *testing.T) {
-	today := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
+	today := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {
@@ -454,5 +454,26 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestSummaryFactsStayAtQualifiedDestinations(t *testing.T) {
+	for _, test := range []struct {
+		api, endpoint, model string
+		want                 llm.Support
+	}{
+		{"openai.responses", "https://api.openai.com/v1/responses", "gpt-6-astra", llm.SupportSupported},
+		{"openai.responses", "https://api.openai.com/v1/responses", "o4-mini", llm.SupportSupported},
+		{"openai.completions", "https://api.openai.com/v1/chat/completions", "o4-mini", llm.SupportUnknown},
+		{"openai.responses", "https://proxy.test/responses", "gpt-6-astra", llm.SupportUnknown},
+		{"openai.responses", "https://api.openai.com/v1/responses", "gpt-6-luna", llm.SupportUnknown},
+		{"google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", "gemini-3.8-flash", llm.SupportSupported},
+		{"google.generate_content", "https://proxy.test/v1beta/models/gemini-3.8-flash:generateContent", "gemini-3.8-flash", llm.SupportUnknown},
+		{"anthropic.messages", "https://api.anthropic.com/v1/messages", "claude-opus-4-6", llm.SupportSupported},
+	} {
+		info, _ := Lookup(test.api, test.endpoint, test.model)
+		if got := info.Capabilities.Features[llm.FeatureReasoningSummary]; got != test.want {
+			t.Fatalf("%s %s %s = %s, want %s", test.api, test.endpoint, test.model, got, test.want)
+		}
 	}
 }

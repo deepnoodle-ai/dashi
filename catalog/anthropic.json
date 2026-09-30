@@ -16,8 +16,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown.",
-      "qualified_at": "2026-09-27",
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -29,7 +29,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -63,8 +64,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model. Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown.",
-      "qualified_at": "2026-09-27",
+      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model. Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -76,7 +77,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -110,7 +112,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -122,7 +124,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -149,15 +152,16 @@
           "web_fetch": "0",
           "web_search": "0.01"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display."
     },
     {
       "model": "claude-mythos-5",
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model.",
-      "qualified_at": "2026-09-27",
+      "note": "Served only through Anthropic's limited-access program; claims mirror the matching Fable model. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -169,7 +173,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -203,8 +208,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
-      "qualified_at": "2026-09-27",
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Fast-mode prices are omitted: Dashi's Messages client does not request fast mode. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -216,7 +221,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -250,8 +256,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
-      "qualified_at": "2026-09-27",
+      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -264,7 +270,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -298,8 +305,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "$2/$10 per MTok launched as introductory pricing through 2026-08-31 and is now the standard price; Anthropic cancelled the scheduled increase to $3/$15.",
-      "qualified_at": "2026-09-27",
+      "note": "$2/$10 per MTok launched as introductory pricing through 2026-08-31 and is now the standard price; Anthropic cancelled the scheduled increase to $3/$15. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -312,7 +319,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -346,8 +354,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode.",
-      "qualified_at": "2026-09-27",
+      "note": "Fast-mode prices are omitted: Dashi's Messages client does not request fast mode. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -360,7 +368,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -394,7 +403,7 @@
       "apis": [
         "anthropic.messages"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -407,7 +416,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "unsupported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -434,14 +444,15 @@
           "web_fetch": "0",
           "web_search": "0.01"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display."
     },
     {
       "model": "claude-opus-4-6",
       "apis": [
         "anthropic.messages"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -453,7 +464,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -479,14 +491,15 @@
           "web_fetch": "0",
           "web_search": "0.01"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display."
     },
     {
       "model": "claude-sonnet-4-6",
       "apis": [
         "anthropic.messages"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -498,7 +511,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1000000,
@@ -524,7 +538,8 @@
           "web_fetch": "0",
           "web_search": "0.01"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display."
     },
     {
       "model": "claude-opus-4-5",
@@ -532,8 +547,8 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-opus-4-5-20251101",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -545,7 +560,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -577,8 +593,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -590,7 +606,8 @@
           "reasoning_effort": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000,
@@ -623,8 +640,8 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-sonnet-4-5-20250929",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -636,7 +653,8 @@
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -663,8 +681,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -676,7 +694,8 @@
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -704,8 +723,8 @@
         "anthropic.messages"
       ],
       "snapshot": "claude-haiku-4-5-20251001",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -717,7 +736,8 @@
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
@@ -744,8 +764,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send.",
-      "qualified_at": "2026-09-27",
+      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -757,7 +777,8 @@
           "reasoning_effort": "unsupported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 64000,
         "context_window": 200000
