@@ -1,6 +1,6 @@
 # Run one coding request from a script
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -141,5 +141,6 @@ Keep machine formatting separate from model JSON-schema output. RPC, daemons, re
 
 Success is a keyless shell transcript piping a multiline log into one recorded request and parsing both formats with `jq`.
 It also proves stops/exit codes, accounting completeness, child quiet/result delivery, and interrupt/reopen without repeated effects.
-Independent PRD review precedes the technical spec. The spec freezes framing, presentation fields, bounded writing, and preceding-track integration before code.
+Named independent PRD re-review returned ready with no remaining findings.
+The [technical spec](../design/cli-automation.md) freezes framing, presentation fields, bounded writing, and preceding-track integration before code.
 No paid qualification or product question blocks this draft. Preceding task/report and attachment APIs must settle before implementation.
