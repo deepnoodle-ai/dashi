@@ -1,6 +1,6 @@
 # Finish a long coding request before context fills
 
-Status: Draft\
+Status: Approved\
 PRD PR: #144 · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -161,4 +161,4 @@ No paid probe is required to claim this fixture-backed behavior.
 Summaries can omit useful details. Preserve source facts and document that limitation.
 Provider estimates and private replay bundles can differ from text sizes.
 Non-text media currently lacks active context protection; a provider can still reject its context.
-The prior scope passed named re-review. This media-estimate amendment awaits named re-review and the root checkpoint.
+The media-estimate amendment passed named re-review at `0811b0d`; root approved the checkpoint.
