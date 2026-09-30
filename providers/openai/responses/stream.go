@@ -49,28 +49,10 @@ func (wire codec) readStream(
 		output := make([]any, 0, len(items))
 		for _, i := range slices.Sorted(maps.Keys(items)) {
 			item := items[i]
-			combined := maps.Clone(summaryParts[i])
-			if combined == nil {
-				combined = map[int]map[string]any{}
+			if summary, ok := mergedReasoningSummary(item, summaryParts[i], summaries[i]); ok {
+				item["summary"] = summary
 			}
-			for j, text := range summaries[i] {
-				part := maps.Clone(combined[j])
-				if part == nil {
-					part = map[string]any{"type": "summary_text"}
-				}
-				if part["type"] == "summary_text" {
-					part["text"] = text
-				}
-				combined[j] = part
-			}
-			if len(combined) > 0 {
-				values := make([]any, 0, len(combined))
-				for _, j := range slices.Sorted(maps.Keys(combined)) {
-					values = append(values, combined[j])
-				}
-				item["summary"] = values
-			}
-			if ps := parts[i]; len(ps) > 0 {
+			if ps := parts[i]; len(ps) > 0 && !(item["type"] == "reasoning" && item["content"] != nil) {
 				cs := make([]any, 0, len(ps))
 				for _, j := range slices.Sorted(maps.Keys(ps)) {
 					cs = append(cs, ps[j])
@@ -156,10 +138,21 @@ func (wire codec) readStream(
 					"text for missing item",
 				)
 			}
+			item := items[e.OutputIndex]
+			if item["type"] != "message" || item["role"] != "assistant" {
+				continue // text labels cannot publish private reasoning items
+			}
 			if parts[e.OutputIndex] == nil {
 				parts[e.OutputIndex] = map[int]map[string]any{}
 			}
 			part := parts[e.OutputIndex][e.ContentIndex]
+			wantType := "output_text"
+			if e.Type == "response.refusal.delta" {
+				wantType = "refusal"
+			}
+			if part != nil && part["type"] != wantType {
+				continue
+			}
 			if part == nil {
 				part = map[string]any{"type": "output_text"}
 				parts[e.OutputIndex][e.ContentIndex] = part
@@ -234,22 +227,17 @@ func (wire codec) readStream(
 			// A public event must also belong to a recognized public reasoning
 			// item. Unmodeled content stays opaque under the settled decoder
 			// and must not leak through its provisional projection.
+			if !recognizedReasoningItem(items[e.OutputIndex]) {
+				continue // later part updates cannot relabel an opaque parent
+			}
 			item := maps.Clone(items[e.OutputIndex])
 			if len(parts[e.OutputIndex]) > 0 {
 				continue // all unmodeled reasoning content remains private
 			}
-			if ps := summaryParts[e.OutputIndex]; len(ps) > 0 {
-				values := make([]any, 0, len(ps))
-				for _, j := range slices.Sorted(maps.Keys(ps)) {
-					values = append(values, ps[j])
-				}
-				item["summary"] = values
+			if summary, ok := mergedReasoningSummary(item, summaryParts[e.OutputIndex], nil); ok {
+				item["summary"] = summary
 			}
-			rawItem, err := json.Marshal(item)
-			if item["type"] != "reasoning" || err != nil {
-				continue
-			}
-			if _, recognized := reasoningSummary(rawItem); !recognized {
+			if !recognizedReasoningItem(item) {
 				continue
 			}
 			if summaries[e.OutputIndex] == nil {
@@ -297,4 +285,68 @@ func (wire codec) readStream(
 func appendString(m map[string]any, key, s string) {
 	old, _ := m[key].(string)
 	m[key] = old + s
+}
+
+// recognizedReasoningItem uses the settled decoder's public classification.
+// A subsequent streamed part cannot erase unknown original item semantics.
+func recognizedReasoningItem(item map[string]any) bool {
+	if item["type"] != "reasoning" {
+		return false
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return false
+	}
+	_, ok := reasoningSummary(raw)
+	return ok
+}
+
+// mergedReasoningSummary retains original parts by index. Stream updates can
+// replace recognized public parts, but cannot erase an unknown original part.
+func mergedReasoningSummary(item map[string]any, parts map[int]map[string]any, texts map[int]string) ([]any, bool) {
+	if item["type"] != "reasoning" || len(parts) == 0 && len(texts) == 0 {
+		return nil, false
+	}
+	combined := map[int]any{}
+	if original := item["summary"]; original != nil {
+		values, ok := original.([]any)
+		if !ok {
+			return nil, false
+		}
+		for i, value := range values {
+			combined[i] = value
+		}
+	}
+	publicPart := func(value any) bool {
+		part, ok := value.(map[string]any)
+		if !ok || part["type"] != "summary_text" {
+			return false
+		}
+		_, ok = part["text"].(string)
+		return ok
+	}
+	for i, part := range parts {
+		if original, exists := combined[i]; exists && !publicPart(original) {
+			continue
+		}
+		combined[i] = maps.Clone(part)
+	}
+	for i, text := range texts {
+		original, exists := combined[i]
+		if exists && !publicPart(original) {
+			continue
+		}
+		part, _ := original.(map[string]any)
+		part = maps.Clone(part)
+		if part == nil {
+			part = map[string]any{"type": "summary_text"}
+		}
+		part["text"] = text
+		combined[i] = part
+	}
+	values := make([]any, 0, len(combined))
+	for _, i := range slices.Sorted(maps.Keys(combined)) {
+		values = append(values, combined[i])
+	}
+	return values, true
 }

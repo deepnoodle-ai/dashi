@@ -179,3 +179,44 @@ func TestCompletedSummaryPartReplacesPreview(t *testing.T) {
 		t.Fatalf("part replacement: %+v %+v %v", result, deltas, err)
 	}
 }
+
+func TestLaterPublicPartCannotRelabelOpaqueParent(t *testing.T) {
+	for _, parent := range []string{
+		`{"type":"reasoning","summary":[{"type":"future_summary","text":"ORIGINAL_PRIVATE"}]}`,
+		`{"type":"reasoning","content":[{"type":"reasoning_text","text":"ORIGINAL_PRIVATE"}],"summary":[]}`,
+	} {
+		for _, terminal := range []bool{false, true} {
+			wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}}
+			stream := "data: " + `{"type":"response.output_item.added","output_index":0,"item":` + parent + "}\n\n" + "data: " + `{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}` + "\n\n" + "data: " + `{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"UNMODELED_PRIVATE"}` + "\n\n" + "data: " + `{"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"PUBLIC_LABEL"}}` + "\n\n"
+			if terminal {
+				stream += "data: " + `{"type":"response.completed","response":{"object":"response","status":"completed","output":[` + parent + "]}}\n\n"
+			}
+			var deltas []llm.Delta
+			result, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+			if terminal && err != nil || !terminal && !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("terminal=%v err=%v", terminal, err)
+			}
+			if len(deltas) != 0 || len(result.Message.Content) != 1 || result.Message.Content[0].Kind != llm.ContentOpaque || !strings.Contains(string(result.Message.Content[0].Opaque.Raw), "ORIGINAL_PRIVATE") {
+				t.Fatalf("opaque parent changed: %+v %+v", deltas, result.Message.Content)
+			}
+		}
+	}
+}
+
+func TestAnswerLabelCannotPublishPrivateReasoning(t *testing.T) {
+	wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}}
+	events := []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","content":[{"type":"reasoning_text","text":"ORIGINAL_PRIVATE"}],"summary":[]}}`,
+		`{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}`,
+		`{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"UNMODELED_PRIVATE"}`,
+	}
+	stream := ""
+	for _, event := range events {
+		stream += "data: " + event + "\n\n"
+	}
+	var deltas []llm.Delta
+	result, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+	if !errors.Is(err, io.ErrUnexpectedEOF) || len(deltas) != 0 || len(result.Message.Content) != 1 || result.Message.Content[0].Kind != llm.ContentOpaque || !strings.Contains(string(result.Message.Content[0].Opaque.Raw), "ORIGINAL_PRIVATE") {
+		t.Fatalf("private reasoning published/lost: %+v %+v %v", deltas, result.Message.Content, err)
+	}
+}
