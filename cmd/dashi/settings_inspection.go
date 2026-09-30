@@ -113,6 +113,10 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 			view.CredentialSource = "built-in placeholder"
 		}
 	}
+	if launch.SelectionError != "" {
+		view.PreviewError = launch.SelectionError
+		return view
+	}
 	client, err := p.routes.factory(d, p.routes.lookup, d.trustedBy(p.routes.user) || p.routes.grants[fingerprint])
 	if err == nil {
 		var request llm.Request

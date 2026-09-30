@@ -93,6 +93,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	return &app{eng: eng, ctrl: ctrl, wiring: w}, nil
 }
 
+func (a *app) modelLabel() string {
+	if a.eng.cfg.Preferences.selectionReady() != nil {
+		return "destination required"
+	}
+	return a.eng.Model()
+}
+
 // openSession opens the session the flags name, or a new one. Resuming a
 // directory with no session starts a new one and says so.
 func (a *app) openSession(

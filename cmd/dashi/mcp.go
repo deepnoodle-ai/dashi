@@ -280,6 +280,11 @@ func mcpDiagnostic(err error) string {
 	}
 	// Match known protocol/status terms, never print the underlying exception.
 	text := strings.ToLower(err.Error())
+	// The module marks a lost response explicitly. Preserve that uncertainty
+	// before classifying incidental status words from the wrapped exception.
+	if strings.Contains(text, "the call may have run") {
+		return "connection closed; the call may have run"
+	}
 	if strings.Contains(text, "401") || strings.Contains(text, "403") || strings.Contains(text, "unauthorized") || strings.Contains(text, "forbidden") {
 		return "authentication required or refused; OAuth is unsupported; use caller-supplied headers"
 	}

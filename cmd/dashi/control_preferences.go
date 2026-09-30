@@ -65,6 +65,7 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 	p.mu.Lock()
 	selection.Overridden = append([]selectionTier{selectionSourceTier(p.launch.Selection)}, p.launch.Selection.Overridden...)
 	p.launch.Selection = selection
+	p.launch.SelectionError = ""
 	p.mu.Unlock()
 	c.eng.SetModel(selection.Model)
 	c.notice("Next turn: %s %s.", selection.Destination.ID, selection.Model)

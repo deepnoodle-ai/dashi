@@ -254,7 +254,7 @@ func TestMCPDisconnectedDiagnosticsAndCancellationCauses(t *testing.T) {
 		t.Fatal(e)
 	}
 	_, e := mcpExecute(t.Context(), mcpFind(t, m, "mcp__docs__exit"))
-	if e == nil || strings.Contains(e.Error(), "SECRET_CONFIG_TOKEN") {
+	if e == nil || !strings.Contains(e.Error(), "may have run") || strings.Contains(e.Error(), "SECRET_CONFIG_TOKEN") || strings.Contains(e.Error(), "EOF") || strings.Contains(e.Error(), "check server configuration") {
 		t.Fatalf("e=%v", e)
 	}
 	_, e = mcpExecute(t.Context(), mcpFind(t, m, "mcp__docs__fetch"))

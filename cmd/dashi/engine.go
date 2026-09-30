@@ -343,6 +343,9 @@ type Result struct {
 // the last turn did not end, the session closes it first, and the screen
 // says so; while a command of that turn may still be running, it refuses.
 func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		return Result{}, err
+	}
 	if !e.cfg.MCP.Ready() {
 		return Result{}, errors.New("MCP startup has not completed; no work was started")
 	}
@@ -376,6 +379,9 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 // Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
 // or the model-call limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		return Result{}, err
+	}
 	if !e.cfg.MCP.Ready() {
 		return Result{}, errors.New("MCP startup has not completed; no work was started")
 	}
@@ -443,6 +449,9 @@ func (e *Engine) Discard(ctx context.Context) (Result, error) {
 // Steer sends text to the running turn. An urgent steer also cuts the model
 // call in flight. With no turn running, the text waits for the next turn.
 func (e *Engine) Steer(text string, urgent bool) error {
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		return err
+	}
 	if !e.cfg.MCP.Ready() {
 		return errors.New("MCP startup has not completed; no input was queued")
 	}
@@ -487,6 +496,9 @@ func (e *Engine) Steer(text string, urgent bool) error {
 // Queue holds text as the next prompt. It runs when the running turn ends,
 // or goes ahead of the next prompt if that turn stops first.
 func (e *Engine) Queue(text string) error {
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		return err
+	}
 	if !e.cfg.MCP.Ready() {
 		return errors.New("MCP startup has not completed; no input was queued")
 	}
