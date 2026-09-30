@@ -1,7 +1,7 @@
 # Find yesterday's work and know how to continue
 
 Status: Approved\
-PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: #146 · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
