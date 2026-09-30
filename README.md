@@ -54,9 +54,9 @@ out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
 
 Requires Go 1.26. `go run ./examples/chat` runs a session with no API key, on
-a scripted client. Set `OPENAI_API_KEY`, then run `go run ./examples/basic`
-for one model call or `go run ./examples/agent` for a recorded agent turn;
-both make paid requests. See [examples](examples/) for tools, approvals,
+a scripted client. Set `OPENAI_API_KEY`, then run `go run ./examples/agent`
+for a recorded agent turn or `go run ./examples/basic` for one model call.
+Both make paid requests. See [examples](examples/) for tools, approvals,
 resuming a turn, and more, and [sessions](docs/guides/sessions.md) for
 conversations.
 
