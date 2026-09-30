@@ -1,6 +1,6 @@
 # Choose a provider and control the next turn
 
-Status: Draft\
+Status: Approved\
 PRD PR: Pending · Implementation PR: Pending · Updated: 2026-09-30
 
 ## Problem and context
@@ -102,4 +102,4 @@ Compaction (#103), accounting (#116), richer `/status`, usage reports, JSONL tur
 
 All I01–I08 outcomes have keyless acceptance evidence, including custom prompts and the reasoning-summary dependency. A runnable example covers registration, selection, preparation, and rejection without payment. Wonton recordings at 80×24 cover empty, preparing, error, and success states. Independent review exercises selection, persistence, resume, and secret-free export. Existing recovery, session-lock, approval, and queue behavior passes unchanged.
 
-Fixture support does not establish live-provider qualification. No paid probe is required. No unresolved product decision blocks the draft review.
+Fixture support does not establish live-provider qualification. No paid probe is required. The [accepted technical spec](../design/cli-providers.md) defines implementation boundaries. Reasoning-summary completion remains dependency-gated.
