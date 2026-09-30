@@ -22,8 +22,9 @@ These examples support direct evidence in a coding request. Dashi must additiona
 
 The primary user codes in Dashi's interactive terminal. Script users need the same explicit file selection and failure guarantees.
 
-**Selected attachment** means a bounded snapshot of one file chosen by the user, with a visible name, type, size, and draft-local number.
-**Attachment preview** means the selected list before submission. It supports removal without sending a request.
+**Attachment entry** means one numbered draft selection in loading, ready, or error state; an error entry has no usable snapshot.
+**Selected attachment** means a ready entry's bounded snapshot, with a visible name, type, and size.
+**Attachment preview** means these entries before submission. It supports removal without sending a request.
 **Submitted attachment** means the snapshot referenced by a recorded request and retained in that session's storage.
 Changing the source path never changes that snapshot.
 
@@ -35,8 +36,8 @@ Run `/attach ~/Desktop/broken.png`, then `/attach "requirements v2.pdf"`.
 Inspect `/attachments`, remove a mistaken selection with `/detach 2`, and send “Fix the screen shown here.”
 
 - [ ] `/attach PATH` stages one regular file without starting a Turn or model call.
-  `/attachments` lists selected numbers, filenames, types, byte counts, and source locations.
-  `/detach NUMBER` removes only that selected attachment. Invalid arguments preserve the draft and selection.
+  `/attachments` lists entry numbers, states, filenames, source locations, and available type/size or error details.
+  `/detach NUMBER` removes that entry, including a failed selection. Invalid arguments preserve the draft and entries.
 - [ ] Screen and inline modes show removable attachment labels beside the draft.
   Plain mode prints equivalent numbered metadata and removal instructions.
   All modes retain the request text while files load, inspection runs, or a selected file is removed.
@@ -45,6 +46,8 @@ Inspect `/attachments`, remove a mistaken selection with `/detach 2`, and send �
   Duplicate selection of the same canonical path retains one snapshot and identifies that existing selection.
 - [ ] Selection reads bytes once within limits and reports loading, ready, or failure.
   A changed source is not reread on send. Detach and attach again explicitly selects its current bytes.
+- [ ] A failed `/attach missing.pdf` creates a visible numbered error entry and blocks dispatch.
+  Detaching it permits the remaining request and successful selections to submit; no evidence is silently omitted.
 - [ ] Relative paths resolve from the selected `--workspace`, even when Dashi launches elsewhere.
   Absolute paths, `~/`, quoted spaces, shell-style escapes, and local `file://` paths use mention's path rules without shell execution.
   Show when a selected file resolves outside the workspace, including through a symlink.
@@ -61,6 +64,9 @@ Review the selected evidence before submitting the request.
 - [ ] A fresh `@file` submission first stages its snapshot, displays the attachment preview, and preserves the request without starting work.
   The notice explains that Enter sends the prepared request after review.
   Edits or removals preserve the remaining selections and recheck new mentions before sending.
+- [ ] A failed mention creates a numbered error entry linked to its source span in the draft.
+  Detaching it removes its associated failed mention spans, including path/line suffix, while preserving all other request text and successful entries.
+  The next Enter sends the remaining request without reselecting the removed mention; only newly entered mentions can select it again.
 - [ ] Recognize a terminal drop only when the inserted segment consists entirely of existing, supported file paths.
   Accept quoted/escaped path runs and local file URLs.
   Mixed prose, logs, stack traces, and ordinary path references remain text and cause no automatic file reads.
@@ -95,6 +101,12 @@ Submit a screenshot and PDF, edit or delete their source files, then reopen the 
 
 - [ ] Before a request can record its attachment references, persist the bounded selected snapshots durably in that session's private storage.
   The Turn stores `content.Ref` identities with digest and size, not source paths as resolver instructions or repeated inline bytes.
+- [ ] Acknowledged recorded submission consumes the submitted draft and attachment entries once, even if later execution fails.
+  A later plain prompt adds no new attachment blocks; earlier references remain in recorded history.
+  Failure known to precede recording preserves the request and entries for correction.
+- [ ] An unknown recording outcome preserves the pending submission and blocks resubmission until reloading its record establishes whether it was recorded.
+  If recorded, consume the submitted draft once; if established absent, retain it for resubmission under existing recovery rules.
+  Continue uses recorded references, never resubmits or consumes an independent draft, and retains snapshots whose recording outcome is unknown.
 - [ ] The session-bound resolver authorizes references from earlier Turns in the same session.
   It rejects another session's reference, traversal, unexpected files, and storage symlinks.
   It never follows the original source path or falls back to a URL.
