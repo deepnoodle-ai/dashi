@@ -1,7 +1,7 @@
 # Request public reasoning summaries
 
 Status: Approved\
-PRD PR: [#134](https://github.com/deepnoodle-ai/dashi/pull/134) · Implementation PR: Pending · Updated: 2026-09-30
+PRD PR: [#134](https://github.com/deepnoodle-ai/dashi/pull/134) · Implementation PR: [#136](https://github.com/deepnoodle-ai/dashi/pull/136) · Updated: 2026-09-30
 
 ## Problem and context
 
@@ -39,32 +39,32 @@ result, err := client.Send(ctx, llm.Call{Request: request})
 
 For Anthropic, first set `input.Settings.Reasoning` to a supported effort or budget. For example, a qualified effort route uses `&llm.ReasoningSettings{Effort: "low"}` before `Prepare`.
 
-- [ ] `Settings.ReasoningSummary *bool`, JSON `reasoning_summary`, provides one independent control. `nil` adds no opt-in; `true` requests a native public summary; `false` stops requesting summaries for new calls.
-- [ ] Qualified OpenAI Responses and Gemini summary-only calls are valid without `Settings.Reasoning`. Existing effort/budget validation remains unchanged. Preparation never invents an effort or budget to satisfy a summary request.
-- [ ] Keyless fixtures prove native request encoding on qualified OpenAI Responses and Gemini routes, plus Anthropic with an existing compatible reasoning configuration.
-- [ ] Input, effective settings, exact dispatched bytes, and recorded attempts agree. Caller mutation after preparation cannot change the request.
-- [ ] A successful response with no public summary remains successful. Empty reasoning blocks and private replay data do not count as returned public text.
+- [x] `Settings.ReasoningSummary *bool`, JSON `reasoning_summary`, provides one independent control. `nil` adds no opt-in; `true` requests a native public summary; `false` stops requesting summaries for new calls.
+- [x] Qualified OpenAI Responses and Gemini summary-only calls are valid without `Settings.Reasoning`. Existing effort/budget validation remains unchanged. Preparation never invents an effort or budget to satisfy a summary request.
+- [x] Keyless fixtures prove native request encoding on qualified OpenAI Responses and Gemini routes, plus Anthropic with an existing compatible reasoning configuration.
+- [x] Input, effective settings, exact dispatched bytes, and recorded attempts agree. Caller mutation after preparation cannot change the request.
+- [x] A successful response with no public summary remains successful. Empty reasoning blocks and private replay data do not count as returned public text.
 
 ### UC-2: Adjust or reject an unsupported request
 
 Prepare the same input on a known unsupported route, then an unknown compatible route. Inspect the decision before dispatch.
 
-- [ ] `FeatureReasoningSummary` describes native opt-in support, independently of effort/budget support, with supported/unsupported/unknown facts scoped to model, API, and endpoint.
-- [ ] Under `CapabilityAdjust`, known unsupported `true` becomes omission with `SettingReasoningSummary`, `AdjustmentOmit`, and a warning. Under `CapabilityStrict`, it fails before dispatch with an actionable unsupported error.
-- [ ] Unknown support on a wire-capable route stays requested and appears in `Unverified` under adjust. Strict rejects it. A route with no supported wire representation cannot silently retain an effective `true`.
-- [ ] Missing provider prerequisites fail under both policies: Anthropic without configured reasoning must explain how to add a supported effort/budget or choose another route. It must not enable reasoning implicitly.
-- [ ] Receiving unsolicited text does not establish summary-request support. A custom endpoint does not inherit a native endpoint's evidence.
+- [x] `FeatureReasoningSummary` describes native opt-in support, independently of effort/budget support, with supported/unsupported/unknown facts scoped to model, API, and endpoint.
+- [x] Under `CapabilityAdjust`, known unsupported `true` becomes omission with `SettingReasoningSummary`, `AdjustmentOmit`, and a warning. Under `CapabilityStrict`, it fails before dispatch with an actionable unsupported error.
+- [x] Unknown support on a wire-capable route stays requested and appears in `Unverified` under adjust. Strict rejects it. A route with no supported wire representation cannot silently retain an effective `true`.
+- [x] Missing provider prerequisites fail under both policies: Anthropic without configured reasoning must explain how to add a supported effort/budget or choose another route. It must not enable reasoning implicitly.
+- [x] Receiving unsolicited text does not establish summary-request support. A custom endpoint does not inherit a native endpoint's evidence.
 
 ### UC-3: Record, reopen, and stop requesting summaries
 
 Run a turn with summary previews and a settled summary. Reopen its record, then set the next turn's summary preference to `new(false)`.
 
-- [ ] Public previews use `DeltaReasoning`; settled text uses `ContentReasoning`. Both remain distinct from answer text. Their existing attempt/content identity lets consumers reconcile previews with settled content.
-- [ ] Recorded settled messages restore public text after reopen. Signed, encrypted, redacted, opaque, and unmodeled reasoning data never become public text by inspection or decoding assumptions.
-- [ ] Editing display text does not alter replay bytes. Compatible replay preserves original provider artifacts; existing incompatible/partial replay rejection and explicit omission policy remain intact.
-- [ ] Explicit false overrides inherited true for a new turn, including after a model switch. It does not delete prior summaries or alter an open turn's recorded controls.
-- [ ] False sends native suppression only with supported model/API/endpoint evidence and a documented mapping. Unsupported and unknown routes omit summary fields and retain the explicit false preference, including under strict policy. Fixtures cover both cases after inherited true.
-- [ ] False governs requests, not provider compliance or unsolicited-output filtering. Applications control display separately.
+- [x] Public previews use `DeltaReasoning`; settled text uses `ContentReasoning`. Both remain distinct from answer text. Their existing attempt/content identity lets consumers reconcile previews with settled content.
+- [x] Recorded settled messages restore public text after reopen. Signed, encrypted, redacted, opaque, and unmodeled reasoning data never become public text by inspection or decoding assumptions.
+- [x] Editing display text does not alter replay bytes. Compatible replay preserves original provider artifacts; existing incompatible/partial replay rejection and explicit omission policy remain intact.
+- [x] Explicit false overrides inherited true for a new turn, including after a model switch. It does not delete prior summaries or alter an open turn's recorded controls.
+- [x] False sends native suppression only with supported model/API/endpoint evidence and a documented mapping. Unsupported and unknown routes omit summary fields and retain the explicit false preference, including under strict policy. Fixtures cover both cases after inherited true.
+- [x] False governs requests, not provider compliance or unsolicited-output filtering. Applications control display separately.
 
 ## Decisions and boundaries
 
