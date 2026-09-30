@@ -301,3 +301,22 @@ func TestResourceSupportingFileApprovalAndReplacement(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceLineStartupPrintsPathsSafely(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Dir = filepath.Join(t.TempDir(), "workspace-\x1b[2J")
+	if err := os.Mkdir(cfg.Dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	putResource(t, filepath.Join(cfg.Dir, "AGENTS.md"), "private-body")
+	var out, errOut bytes.Buffer
+	if code := runLines(t.Context(), cfg, Options{}, strings.NewReader("/quit\n"), &out, &errOut); code != 0 {
+		t.Fatal(errOut.String())
+	}
+	if strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "private-body") {
+		t.Fatalf("unsafe startup output: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Instructions:") {
+		t.Fatal("missing resource summary")
+	}
+}

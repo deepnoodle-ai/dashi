@@ -180,9 +180,9 @@ func runLines(
 		}
 		return 1
 	}
-	fmt.Fprintf(stdout, "dashi  %s  %s\n", a.eng.Model(), cfg.Dir)
+	fmt.Fprintf(stdout, "dashi  %s  %s\n", workspace.PrintableText(a.eng.Model()), workspace.PrintableText(cfg.Dir))
 	if notice != "" {
-		fmt.Fprintln(stdout, notice)
+		fmt.Fprintln(stdout, workspace.PrintableText(notice))
 	}
 	a.ctrl.Open()
 	ui.SetLive()
@@ -236,7 +236,7 @@ func runScreen(
 	}
 	scr.Emit(Block{
 		Kind: KindNotice,
-		Text: fmt.Sprintf("dashi  %s  %s", a.eng.Model(), cfg.Dir),
+		Text: fmt.Sprintf("dashi  %s  %s", workspace.PrintableText(a.eng.Model()), workspace.PrintableText(cfg.Dir)),
 		Done: true,
 	})
 	if notice != "" {
