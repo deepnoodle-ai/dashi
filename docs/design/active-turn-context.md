@@ -1,7 +1,7 @@
 # Recorded context for an active Turn
 
-Status: In Review · Author: Active-context track · Date: 2026-09-30\
-Workflow: Media-estimate amendment, named PRD re-review, root checkpoint, then code. Prior scope was accepted.\
+Status: Accepted · Author: Active-context track · Date: 2026-09-30\
+Workflow: Media-estimate amendment passed named PRD re-review at `0811b0d` and root checkpoint; implementation follows.\
 Requirements: [Finish a long coding request](../prds/active-turn-context.md)
 
 ## Shape and public API
@@ -185,4 +185,4 @@ The chosen approach adds record kinds, conservative early text compaction, and b
 Media context protection is unavailable; encoded-byte formulas would reject usable inputs, while a qualified provider estimator is separate work.
 It can stop when protected input dominates. Summaries can lose evidence despite preserving source facts.
 Provider overflow after a conservative estimate remains ordinary failure, without compact-and-retry.
-The media-estimate amendment awaits named PRD re-review and root checkpoint before code or publication.
+Named PRD re-review returned ready for the media amendment; root approved its implementation checkpoint.
