@@ -1,8 +1,8 @@
 # Workspace session inspection
 
-**Status:** In Review · root checkpoint pending\
+**Status:** Accepted · root checkpoint approved\
 **Author:** Codex · **Date:** 2026-09-30\
-**Workflow:** Spec → wait for feedback → build. Named PRD review is ready; root approves technical direction before implementation.\
+**Workflow:** Spec → wait for feedback → build. Named PRD review is ready; root accepted the technical direction before implementation.\
 **Reviewers:** Root delivery lead; implementation, security, and taste reviewers.
 
 ## Context and boundaries
@@ -66,6 +66,6 @@ Implement `/sessions [QUERY]`, `/rename TITLE`, `/status [ID]` with common repor
 
 A persisted full-text index would improve large-history latency but adds invalidation/migration authority beside append-only facts. Direct `filerecorder.New` avoids a small Reader type but can create/sync missing storage. Reusing `Engine.Last` for external status is concise but imports an exclusive-worker claim. The scoped scan and explicit ownership adapter avoid those costs while retaining linear scan latency and one-Turn decoder memory; concurrent reports can lag newly appended facts.
 
-Ship additively with no metadata migration. Root rebases documents onto attachment implementation before publication and grants shared CLI edits. Add Reader/store/report modules first, then integrate commands and guide examples. No flag is required; existing `/sessions`, `-c`, and `--resume` keep their meanings. Technical checkpoint remains the only unresolved gate.
+Ship additively with no metadata migration. This documentation PR stacks on remote attachments PRD #145 as a provisional dependency. Root rebases implementation onto the final reviewed attachment feature and grants shared CLI edits. Add Reader/store/report modules first, then integrate commands and guide examples. No flag is required; existing `/sessions`, `-c`, and `--resume` keep their meanings. Implementation authorization and final attachment integration remain separate gates.
 
 Proof is keyless: fixtures verify no writes/claims/connections from search/status; scoping/traversal/symlink rejection; literal and steering matches with excluded summaries/tools/attachments; malformed/latest unreadable logs; cancellation/50-result truncation; rename rollback/restart; multi-currency/incomplete/cache/summary accounting; owner A inspecting B and externally owned B; exact unknown-call guidance; and reopening with changed defaults/busy lock. Record real focused Wonton search/name/status/reopen at 80×24 in both modes plus line transcripts. Run root and affected-module formatting, vet, build, race tests, then required named implementation/security/taste reviews. No paid-provider proof is claimed.
