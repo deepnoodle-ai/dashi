@@ -379,7 +379,7 @@ func (e *Engine) Resume(ctx context.Context) (Result, error) {
 	if !last.CanGoOn() {
 		return Result{}, errors.New("there is no turn to continue")
 	}
-	return e.run(ctx, dashi.Continue{})
+	return e.continueLast(ctx, dashi.Continue{}, last)
 }
 
 // ContinueLimit runs the last turn on after its model-call limit stop. The
@@ -389,8 +389,21 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 	if !last.LimitStopped() {
 		return Result{}, errors.New("the last turn did not stop at the model-call limit")
 	}
+	if e.HasPending() {
+		return e.resumePending(ctx)
+	}
 	raised := int(last.View.Stop.Limit.Limit) * 2
-	return e.run(ctx, dashi.Continue{ModelAttempts: raised})
+	return e.continueLast(ctx, dashi.Continue{ModelAttempts: raised}, last)
+}
+
+// Continuing a summary authorizes only that summary. Stop at its Outcome
+// before Session dispatches any queued user turn, including after reopening.
+func (e *Engine) continueLast(ctx context.Context, cmd dashi.Continue, last *LastTurn) (Result, error) {
+	if last != nil && last.View.Origin == dashi.StartCompaction {
+		chat := e.configureChat()
+		return e.stream(ctx, chat.Stream(ctx, cmd), true)
+	}
+	return e.run(ctx, cmd)
 }
 
 // MarkDone records the open command of the last turn as finished, after the

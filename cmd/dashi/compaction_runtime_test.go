@@ -91,6 +91,7 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 	if _, err := a.eng.Prompt(t.Context(), compactionSeed()); err != nil {
 		t.Fatal(err)
 	}
+	scr.Reset() // Keep the durable seed while showing the recovery workflow.
 	rt := tui.NewRuntime(tui.NewTestTerminal(80, 24, io.Discard), scr, 60)
 	input := &idleRuntimeInput{done: make(chan struct{})}
 	rt.SetInputSource(input)

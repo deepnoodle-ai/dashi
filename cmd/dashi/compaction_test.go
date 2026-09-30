@@ -181,6 +181,32 @@ func TestCompactionFailureAndExitWarning(t *testing.T) {
 	saveCompactionScreen(t, pending, "exit-warning")
 }
 
+func TestManualCompactionEnterLeavesQueuedPromptPending(t *testing.T) {
+	started := make(chan struct{})
+	h := newScreenHarness(t, 0, fullWindow, blockUntilDone(started), say("<summary>Remembered fact.</summary>"), say("Queued answered."))
+	compactWindow(h.client)
+	h.submit(compactionSeed())
+	h.app.ctrl.Wait()
+	if err := h.app.eng.Queue("queued before summary"); err != nil {
+		t.Fatal(err)
+	}
+	h.submit("/compact")
+	<-started
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	h.app.ctrl.Wait()
+	h.submit("")
+	h.app.ctrl.Wait()
+	if h.turns() != 2 || h.app.eng.Queued() != 1 || len(h.client.inputs) != 3 {
+		t.Fatalf("manual Enter dispatched input: turns=%d queued=%d calls=%d", h.turns(), h.app.eng.Queued(), len(h.client.inputs))
+	}
+	compactionMustHave(t, h.render(), "Compaction completed.", "1 queued message")
+	h.submit("new prompt")
+	h.app.ctrl.Wait()
+	if h.turns() != 3 || h.app.eng.Queued() != 0 || joinMessages(h.turn(3).Steps[0].Started.Input) != "queued before summary\nnew prompt" {
+		t.Fatal("explicit new prompt did not deliver the retained queue")
+	}
+}
+
 type lostAdmission struct {
 	*filerecorder.Recorder
 	mu         sync.Mutex
