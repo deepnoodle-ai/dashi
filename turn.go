@@ -40,6 +40,11 @@ type Agent struct {
 	// that model; otherwise it is required.
 	Model    string       `json:"model"`
 	Settings llm.Settings `json:"settings"`
+	// NoInheritedSettings makes Settings a complete set during Session
+	// inheritance. Nil and zero fields do not inherit lower-priority Agent
+	// values. Higher-priority partial settings may still override this set.
+	// Other Agent fields retain their ordinary inheritance rules.
+	NoInheritedSettings bool `json:"no_inherited_settings,omitempty"`
 	// OutputSchema is the default final-result schema for turns using this
 	// agent. Start.OutputSchema may override it for one turn.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`

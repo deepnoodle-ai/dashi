@@ -1,7 +1,7 @@
 # Keep omitted settings omitted in new session turns
 
 Status: Approved\
-PRD PR: #137  Implementation PR: pending  Updated: 2026-09-30
+PRD PR: #137  Implementation PR: #139  Updated: 2026-09-30
 
 ## Problem and users
 
@@ -28,32 +28,32 @@ out, err := s.Send(ctx, "Continue with these settings.")
 // out.Agent.Settings has no inherited temperature or reasoning.
 ```
 
-- [ ] After a user turn records temperature, reasoning, and a token limit, a marked empty Settings set leaves Temperature and Reasoning nil and MaxTokens zero.
-- [ ] Provider preparation applies the existing MaxTokens default and model output limit. It does not restore the earlier token limit.
-- [ ] A marked nonempty set preserves supplied fields and clears every omitted Settings field, including booleans and nested PromptCache fields.
-- [ ] Explicit pointer zero and false values retain their existing meanings. Validation, provider adjustments, and budget enforcement remain unchanged.
-- [ ] The rule survives JSON record storage and reopening with a fresh Session handle.
+- [x] After a user turn records temperature, reasoning, and a token limit, a marked empty Settings set leaves Temperature and Reasoning nil and MaxTokens zero.
+- [x] Provider preparation applies the existing MaxTokens default and model output limit. It does not restore the earlier token limit.
+- [x] A marked nonempty set preserves supplied fields and clears every omitted Settings field, including booleans and nested PromptCache fields.
+- [x] Explicit pointer zero and false values retain their existing meanings. Validation, provider adjustments, and budget enforcement remain unchanged.
+- [x] The rule survives JSON record storage and reopening with a fresh Session handle.
 
 ### UC-2: Combine layers deliberately
 
 A developer marks `Start.Agent` to replace both Session and historical Settings. Alternatively, they mark `Session.Agent` and use a partial Start override.
 
-- [ ] Marked Start.Settings blocks both lower layers, even when the set is empty.
-- [ ] A partial Start inherits missing fields from marked Session.Settings. Any remaining nil or zero stays nil or zero.
-- [ ] When both layers are marked, Start.Settings wins as a complete set.
-- [ ] With no boundary, existing per-field merging remains unchanged.
-- [ ] An empty Session handle can carry the last user turn's complete Settings and marker. A later partial Start overrides supplied fields under the same priority rules.
-- [ ] The effective marker appears in TurnView.Agent and Outcome.Agent. False remains the zero value and is omitted from Agent JSON.
+- [x] Marked Start.Settings blocks both lower layers, even when the set is empty.
+- [x] A partial Start inherits missing fields from marked Session.Settings. Any remaining nil or zero stays nil or zero.
+- [x] When both layers are marked, Start.Settings wins as a complete set.
+- [x] With no boundary, existing per-field merging remains unchanged.
+- [x] An empty Session handle can carry the last user turn's complete Settings and marker. A later partial Start overrides supplied fields under the same priority rules.
+- [x] The effective marker appears in TurnView.Agent and Outcome.Agent. False remains the zero value and is omitted from Agent JSON.
 
 ### UC-3: Queue, compact, and resume
 
 A host changes Session.Agent for future work while a recorded turn or queued input exists.
 
-- [ ] Queue turns use the current Session boundary. User queue turns can carry their Agent forward. Scheduled, operator, and compaction turns remain excluded as carry sources.
-- [ ] Automatic and manual compaction retain the Compactor's settings. Only the existing model-identity fallback reads Session's merged Agent.
-- [ ] The ordinary turn after compaction uses the requested boundary and the replacement history.
-- [ ] Continue, Settle, Deliver, and Cancel use the already recorded Agent, regardless of later Session changes.
-- [ ] Earlier Start facts, model intents, prepared requests, and revisions remain unchanged. Existing retry and agent-change checks still apply.
+- [x] Queue turns use the current Session boundary. User queue turns can carry their Agent forward. Scheduled, operator, and compaction turns remain excluded as carry sources.
+- [x] Automatic and manual compaction retain the Compactor's settings. Only the existing model-identity fallback reads Session's merged Agent.
+- [x] The ordinary turn after compaction uses the requested boundary and the replacement history.
+- [x] Continue, Settle, Deliver, and Cancel use the already recorded Agent, regardless of later Session changes.
+- [x] Earlier Start facts, model intents, prepared requests, and revisions remain unchanged. Existing retry and agent-change checks still apply.
 
 ## Requirements and decisions
 
