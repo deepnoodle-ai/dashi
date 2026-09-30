@@ -65,6 +65,8 @@ const (
 	// FeatureReasoningBudget describes support for reasoning controlled by
 	// token budget.
 	FeatureReasoningBudget Feature = "reasoning_budget"
+	// FeatureReasoningSummary describes native opt-in to public reasoning summaries.
+	FeatureReasoningSummary Feature = "reasoning_summary"
 	// FeatureStreaming describes support for streamed responses.
 	FeatureStreaming Feature = "streaming"
 	// FeatureCitations describes support for citing request documents. It is
@@ -255,7 +257,7 @@ func knownFeature(f Feature) bool {
 	switch f {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
-		FeatureReasoningEffort, FeatureReasoningBudget, FeatureStreaming,
+		FeatureReasoningEffort, FeatureReasoningBudget, FeatureReasoningSummary, FeatureStreaming,
 		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache:
 		return true
 	}
@@ -315,6 +317,9 @@ func requestedFeatures(r Input) []Feature {
 	}
 	if r.Settings.PromptCache.TTL > 0 {
 		add(FeaturePromptCache)
+	}
+	if s := r.Settings.ReasoningSummary; s != nil && *s {
+		add(FeatureReasoningSummary)
 	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.Effort != "" {

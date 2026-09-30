@@ -229,6 +229,10 @@ func (p *Client) Prepare(
 		}
 		body["temperature"] = *t
 	}
+	reasoning := map[string]any{}
+	if summary := r.Settings.ReasoningSummary; summary != nil && *summary {
+		reasoning["summary"] = "auto"
+	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.BudgetTokens > 0 {
 			return llm.Request{}, wire.unsupported("reasoning token budget; use a reasoning effort")
@@ -238,7 +242,10 @@ func (p *Client) Prepare(
 		default:
 			return llm.Request{}, wire.unsupported("reasoning effort %q", s.Effort)
 		}
-		body["reasoning"] = map[string]any{"effort": s.Effort}
+		reasoning["effort"] = s.Effort
+	}
+	if len(reasoning) > 0 {
+		body["reasoning"] = reasoning
 	}
 	if p := r.Settings.ParallelTools; p != nil {
 		body["parallel_tool_calls"] = *p
