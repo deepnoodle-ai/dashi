@@ -36,6 +36,8 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 
 Running the example makes a paid request.
 
+For independent public reasoning-summary requests, see [reasoning summaries](reasoning-summaries.md).
+
 ## Native structured output on OpenAI Responses
 
 For a direct call that needs one JSON object, set `llm.Input.OutputSchema`.

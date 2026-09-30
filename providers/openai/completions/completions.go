@@ -272,9 +272,10 @@ func (p *Client) Prepare(
 // services define their own.
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
-		llm.FeatureCitations:       llm.SupportUnsupported,
-		llm.FeatureMaxTokens:       llm.SupportSupported,
-		llm.FeatureReasoningBudget: llm.SupportUnsupported,
+		llm.FeatureReasoningSummary: llm.SupportUnsupported,
+		llm.FeatureCitations:        llm.SupportUnsupported,
+		llm.FeatureMaxTokens:        llm.SupportSupported,
+		llm.FeatureReasoningBudget:  llm.SupportUnsupported,
 		// No cache lifetime is sent; the service's own caching applies.
 		llm.FeaturePromptCache: llm.SupportUnsupported,
 	},

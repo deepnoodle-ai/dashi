@@ -31,8 +31,10 @@ func (wire codec) readStream(
 	}()
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	items := map[int]map[string]any{}
+	completed := map[int]bool{}
 	parts := map[int]map[int]map[string]any{}
 	summaries := map[int]map[int]string{}
+	summaryParts := map[int]map[int]map[string]any{}
 	var envelope map[string]any
 
 	// build reassembles the accumulated items into a response object and
@@ -46,34 +48,26 @@ func (wire codec) readStream(
 			envelope = map[string]any{"object": "response", "status": "incomplete"}
 		}
 		output := make([]any, 0, len(items))
+		partial := map[int]bool{}
 		for _, i := range slices.Sorted(maps.Keys(items)) {
 			item := items[i]
-			if ps := summaries[i]; len(ps) > 0 {
-				values := make([]any, 0, len(ps))
-				for _, j := range slices.Sorted(maps.Keys(ps)) {
-					values = append(
-						values,
-						map[string]any{
-							"type": "summary_text",
-							"text": ps[j],
-						},
-					)
-				}
-				item["summary"] = values
+			if summary, ok := mergedReasoningSummary(item, summaryParts[i], summaries[i]); ok {
+				item["summary"] = summary
 			}
-			if ps := parts[i]; len(ps) > 0 {
+			if ps := parts[i]; len(ps) > 0 && !(item["type"] == "reasoning" && item["content"] != nil) {
 				cs := make([]any, 0, len(ps))
 				for _, j := range slices.Sorted(maps.Keys(ps)) {
 					cs = append(cs, ps[j])
 				}
 				item["content"] = cs
 			}
+			partial[len(output)] = !completed[i]
 			output = append(output, item)
 		}
 		envelope["output"] = output
 		envelope["status"] = "incomplete"
 		raw, _ := json.Marshal(envelope)
-		decoded, _ := wire.decode(raw, result.Requested)
+		decoded, _ := wire.decodeWithPartial(raw, result.Requested, partial)
 		return decoded
 	}
 
@@ -116,11 +110,13 @@ func (wire codec) readStream(
 				)
 			}
 			items[e.OutputIndex] = item
+			completed[e.OutputIndex] = e.Type == "response.output_item.done"
 			// A finished item carries its complete content and summary, which
 			// supersede the parts accumulated from deltas.
 			if e.Type == "response.output_item.done" {
 				delete(parts, e.OutputIndex)
 				delete(summaries, e.OutputIndex)
+				delete(summaryParts, e.OutputIndex)
 			}
 		case "response.content_part.added", "response.content_part.done":
 			var p map[string]any
@@ -146,10 +142,23 @@ func (wire codec) readStream(
 					"text for missing item",
 				)
 			}
+			item := items[e.OutputIndex]
+			if item["type"] != "message" || item["role"] != nil && item["role"] != "assistant" {
+				// Partial message envelopes can omit role. A reasoning or other
+				// opaque item still cannot be relabeled as answer text.
+				continue
+			}
 			if parts[e.OutputIndex] == nil {
 				parts[e.OutputIndex] = map[int]map[string]any{}
 			}
 			part := parts[e.OutputIndex][e.ContentIndex]
+			wantType := "output_text"
+			if e.Type == "response.refusal.delta" {
+				wantType = "refusal"
+			}
+			if part != nil && part["type"] != wantType {
+				continue
+			}
 			if part == nil {
 				part = map[string]any{"type": "output_text"}
 				parts[e.OutputIndex][e.ContentIndex] = part
@@ -191,7 +200,29 @@ func (wire codec) readStream(
 			if item := items[e.OutputIndex]; item != nil {
 				item["arguments"] = e.Arguments
 			}
+		case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+			var part map[string]any
+			if json.Unmarshal(e.Part, &part) != nil || part == nil || items[e.OutputIndex] == nil {
+				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid reasoning summary part")
+			}
+			if summaryParts[e.OutputIndex] == nil {
+				summaryParts[e.OutputIndex] = map[int]map[string]any{}
+			}
+			summaryParts[e.OutputIndex][e.SummaryIndex] = part
+			if e.Type == "response.reasoning_summary_part.done" {
+				// Completed parts, like completed items, replace previews.
+				delete(summaries[e.OutputIndex], e.SummaryIndex)
+			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			if e.Type == "response.reasoning_text.delta" && !wire.publicReasoningText {
+				// Unmodeled reasoning is private. Its final provider artifact,
+				// when present, remains opaque replay data.
+				continue
+			}
+			contentIndex := e.SummaryIndex
+			if e.Type == "response.reasoning_text.delta" {
+				contentIndex = e.ContentIndex
+			}
 			if items[e.OutputIndex] == nil {
 				return build(), providerhttp.Failure(
 					wire.origin.Provider,
@@ -199,16 +230,32 @@ func (wire codec) readStream(
 					"reasoning for missing item",
 				)
 			}
+			// A public event must also belong to a recognized public reasoning
+			// item. Unmodeled content stays opaque under the settled decoder
+			// and must not leak through its provisional projection.
+			if !recognizedReasoningItem(items[e.OutputIndex]) {
+				continue // later part updates cannot relabel an opaque parent
+			}
+			item := maps.Clone(items[e.OutputIndex])
+			if len(parts[e.OutputIndex]) > 0 {
+				continue // all unmodeled reasoning content remains private
+			}
+			if summary, ok := mergedReasoningSummary(item, summaryParts[e.OutputIndex], nil); ok {
+				item["summary"] = summary
+			}
+			if !recognizedReasoningItem(item) {
+				continue
+			}
 			if summaries[e.OutputIndex] == nil {
 				summaries[e.OutputIndex] = map[int]string{}
 			}
-			summaries[e.OutputIndex][e.SummaryIndex] += e.Delta
+			summaries[e.OutputIndex][contentIndex] += e.Delta
 			providerhttp.Emit(
 				sink,
 				llm.Delta{
 					Kind:         llm.DeltaReasoning,
 					Index:        e.OutputIndex,
-					ContentIndex: e.ContentIndex,
+					ContentIndex: contentIndex,
 					Text:         e.Delta,
 				},
 			)
@@ -244,4 +291,68 @@ func (wire codec) readStream(
 func appendString(m map[string]any, key, s string) {
 	old, _ := m[key].(string)
 	m[key] = old + s
+}
+
+// recognizedReasoningItem uses the settled decoder's public classification.
+// A subsequent streamed part cannot erase unknown original item semantics.
+func recognizedReasoningItem(item map[string]any) bool {
+	if item["type"] != "reasoning" {
+		return false
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return false
+	}
+	_, ok := reasoningSummary(raw)
+	return ok
+}
+
+// mergedReasoningSummary retains original parts by index. Stream updates can
+// replace recognized public parts, but cannot erase an unknown original part.
+func mergedReasoningSummary(item map[string]any, parts map[int]map[string]any, texts map[int]string) ([]any, bool) {
+	if item["type"] != "reasoning" || len(parts) == 0 && len(texts) == 0 {
+		return nil, false
+	}
+	combined := map[int]any{}
+	if original := item["summary"]; original != nil {
+		values, ok := original.([]any)
+		if !ok {
+			return nil, false
+		}
+		for i, value := range values {
+			combined[i] = value
+		}
+	}
+	publicPart := func(value any) bool {
+		part, ok := value.(map[string]any)
+		if !ok || part["type"] != "summary_text" {
+			return false
+		}
+		_, ok = part["text"].(string)
+		return ok
+	}
+	for i, part := range parts {
+		if original, exists := combined[i]; exists && !publicPart(original) {
+			continue
+		}
+		combined[i] = maps.Clone(part)
+	}
+	for i, text := range texts {
+		original, exists := combined[i]
+		if exists && !publicPart(original) {
+			continue
+		}
+		part, _ := original.(map[string]any)
+		part = maps.Clone(part)
+		if part == nil {
+			part = map[string]any{"type": "summary_text"}
+		}
+		part["text"] = text
+		combined[i] = part
+	}
+	values := make([]any, 0, len(combined))
+	for _, i := range slices.Sorted(maps.Keys(combined)) {
+		values = append(values, combined[i])
+	}
+	return values, true
 }

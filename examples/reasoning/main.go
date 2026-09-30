@@ -1,8 +1,8 @@
 // Command reasoning makes one streamed model call with a reasoning effort
-// set, printing the model's thinking apart from its answer. Set
+// set and a public summary request, printing summaries apart from the answer. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the model. It defaults to claude-sonnet-4-6 because newer Claude models
-// return their thinking signed but without readable text.
+// the model. It defaults to claude-sonnet-4-6. A successful response may
+// contain no summary; private signatures and replay data are not display text.
 package main
 
 import (
@@ -39,9 +39,12 @@ func run(ctx context.Context) error {
 	// effort the model lacks is fitted to the nearest one, with a warning.
 	// BudgetTokens is the alternative, on models that accept a token budget.
 	request, err := client.Prepare(ctx, llm.Input{
-		Model:    cmp.Or(os.Getenv("ANTHROPIC_MODEL"), "claude-sonnet-4-6"),
-		Stream:   true,
-		Settings: llm.Settings{Reasoning: &llm.ReasoningSettings{Effort: "medium"}},
+		Model:  cmp.Or(os.Getenv("ANTHROPIC_MODEL"), "claude-sonnet-4-6"),
+		Stream: true,
+		Settings: llm.Settings{
+			Reasoning:        &llm.ReasoningSettings{Effort: "medium"},
+			ReasoningSummary: new(true),
+		},
 		Messages: []llm.Message{
 			llm.UserMessage(llm.Text("Is 391 prime? Answer in one sentence.")),
 		},

@@ -405,6 +405,11 @@ type Settings struct {
 	// Reasoning optionally selects an effort level or token budget.
 	Reasoning *ReasoningSettings `json:"reasoning,omitempty"`
 
+	// ReasoningSummary optionally requests a public reasoning summary, independently
+	// of effort or budget. False clears inherited opt-in; it does not filter
+	// unsolicited output or remove earlier summaries and replay data.
+	ReasoningSummary *bool `json:"reasoning_summary,omitempty"`
+
 	// ToolChoice optionally constrains which tool the model may call.
 	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
 

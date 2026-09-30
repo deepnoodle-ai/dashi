@@ -15,12 +15,13 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
-      "qualified_at": "2026-09-27",
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -49,12 +50,13 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
-      "qualified_at": "2026-09-27",
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -83,12 +85,13 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then.",
-      "qualified_at": "2026-09-27",
+      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -117,11 +120,12 @@
       "apis": [
         "google.generate_content"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -143,18 +147,20 @@
           "url_context": "0",
           "web_search": "0.014"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     },
     {
       "model": "gemini-3.5-flash-lite",
       "apis": [
         "google.generate_content"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -176,7 +182,8 @@
           "url_context": "0",
           "web_search": "0.014"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     },
     {
       "model": "gemini-3.1-pro-preview",
@@ -184,12 +191,13 @@
         "google.generate_content"
       ],
       "lifecycle": "preview",
-      "note": "Input $2.00 up to 200K tokens, $4.00 above; output $12.00 up to 200K tokens, $18.00 above.",
-      "qualified_at": "2026-09-27",
+      "note": "Input $2.00 up to 200K tokens, $4.00 above; output $12.00 up to 200K tokens, $18.00 above. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -230,12 +238,13 @@
         "google.generate_content"
       ],
       "lifecycle": "preview",
-      "note": "Up to 200K tokens ($4.00 over 200K) $18.00 over 200K tokens",
-      "qualified_at": "2026-09-27",
+      "note": "Up to 200K tokens ($4.00 over 200K) $18.00 over 200K tokens Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -275,12 +284,13 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "text/image/video ($0.50 audio)",
-      "qualified_at": "2026-09-27",
+      "note": "text/image/video ($0.50 audio) Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -318,11 +328,12 @@
         "google.generate_content"
       ],
       "lifecycle": "preview",
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -352,19 +363,21 @@
           "url_context": "0",
           "web_search": "0.014"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     },
     {
       "model": "gemini-2.5-pro",
       "apis": [
         "google.generate_content"
       ],
-      "note": "Input $1.25 up to 200K tokens, $2.50 above; output $10.00 up to 200K tokens, $15.00 above.",
-      "qualified_at": "2026-09-27",
+      "note": "Input $1.25 up to 200K tokens, $2.50 above; output $10.00 up to 200K tokens, $15.00 above. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -404,11 +417,12 @@
       "apis": [
         "google.generate_content"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -438,18 +452,20 @@
           "url_context": "0",
           "web_search": "0"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     },
     {
       "model": "gemini-2.5-flash-lite",
       "apis": [
         "google.generate_content"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
-          "max_tokens": "supported"
+          "max_tokens": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -479,7 +495,8 @@
           "url_context": "0",
           "web_search": "0"
         }
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     }
   ]
 }

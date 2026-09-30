@@ -195,6 +195,14 @@ func (p *Client) Prepare(
 	if !p.sendsCacheLifetime(r.Model) {
 		limits = uncachedLimits
 	}
+	// These public compatible APIs have no qualified summary opt-in mapping.
+	// Custom Responses routes retain the documented protocol with unknown
+	// support unless the application supplies exact destination evidence.
+	if p.client.Endpoint == "https://api.x.ai/v1/responses" ||
+		p.client.Endpoint == "https://api.meta.ai/v1/responses" {
+		limits.Features = maps.Clone(limits.Features)
+		limits.Features[llm.FeatureReasoningSummary] = llm.SupportUnsupported
+	}
 	r, adjustments, err := p.client.Fit(r, limits, nil)
 	if err != nil {
 		return llm.Request{}, err
@@ -229,6 +237,10 @@ func (p *Client) Prepare(
 		}
 		body["temperature"] = *t
 	}
+	reasoning := map[string]any{}
+	if summary := r.Settings.ReasoningSummary; summary != nil && *summary {
+		reasoning["summary"] = "auto"
+	}
 	if s := r.Settings.Reasoning; s != nil {
 		if s.BudgetTokens > 0 {
 			return llm.Request{}, wire.unsupported("reasoning token budget; use a reasoning effort")
@@ -238,7 +250,10 @@ func (p *Client) Prepare(
 		default:
 			return llm.Request{}, wire.unsupported("reasoning effort %q", s.Effort)
 		}
-		body["reasoning"] = map[string]any{"effort": s.Effort}
+		reasoning["effort"] = s.Effort
+	}
+	if len(reasoning) > 0 {
+		body["reasoning"] = reasoning
 	}
 	if p := r.Settings.ParallelTools; p != nil {
 		body["parallel_tool_calls"] = *p
@@ -436,6 +451,10 @@ func (p *Client) Send(
 		origin:      p.client.Origin(prepared.Input().Model),
 		media:       providerhttp.HasMedia(prepared.Input()),
 		hostedTypes: hostedTypes(prepared.Input().Tools),
+		// xAI explicitly documents this exact route/model event as public
+		// summarized reasoning. Neither a provider name nor the event name
+		// grants other destinations that classification.
+		publicReasoningText: p.client.Endpoint == "https://api.x.ai/v1/responses" && prepared.Input().Model == "grok-4.7",
 	}
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
@@ -574,7 +593,8 @@ func nativeOutputActivity(part llm.Content) bool {
 
 // codec carries call-specific provenance through encoding and decoding.
 type codec struct {
-	origin content.Origin
+	origin              content.Origin
+	publicReasoningText bool
 	// media reports whether the request being sent carries media, so errors
 	// reported in its response body can be classified as media rejections.
 	media bool
@@ -824,6 +844,12 @@ func (wire codec) decode(
 	raw []byte,
 	requested llm.ModelRef,
 ) (llm.Result, error) {
+	return wire.decodeWithPartial(raw, requested, nil)
+}
+
+// decodeWithPartial marks replay reconstructed from unfinished stream items.
+// A completed item remains replayable when a later item is interrupted.
+func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial map[int]bool) (llm.Result, error) {
 	r := llm.Result{
 		Requested: requested,
 		Raw:       slices.Clone(raw),
@@ -899,10 +925,20 @@ func (wire codec) decode(
 	if stop == "max_output_tokens" {
 		stop = "max_tokens"
 	}
-	for _, item := range v.Output {
+	for i, item := range v.Output {
 		cs, err := wire.decodeItem(item)
 		if err != nil {
 			return r, err
+		}
+		if partial[i] {
+			for _, c := range cs {
+				if c.Replay != nil {
+					c.Replay.Partial = true
+				}
+				if c.Opaque != nil {
+					c.Opaque.Partial = true
+				}
+			}
 		}
 		r.Message.Content = append(r.Message.Content, cs...)
 		if v.Status != "completed" {

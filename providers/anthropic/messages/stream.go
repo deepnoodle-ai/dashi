@@ -86,6 +86,18 @@ func (wire codec) readStream(
 		if decoded.Usage != nil {
 			decoded.Usage.Absorb(result.Usage)
 		}
+		for position, index := range indices {
+			if stopped[index] || position >= len(decoded.Message.Content) {
+				continue
+			}
+			c := decoded.Message.Content[position]
+			if c.Replay != nil {
+				c.Replay.Partial = true
+			}
+			if c.Opaque != nil {
+				c.Opaque.Partial = true
+			}
+		}
 		for position, replay := range partial {
 			if position < len(decoded.Message.Content) {
 				decoded.Message.Content[position] = llm.Content{
@@ -207,10 +219,18 @@ func (wire codec) readStream(
 				appendString(b, "text", e.Delta.Text)
 				d.Kind = "text"
 				d.Text = e.Delta.Text
+				if b["type"] != "text" {
+					d.Kind = ""
+					d.Text = ""
+				}
 			case "thinking_delta":
 				appendString(b, "thinking", e.Delta.Thinking)
 				d.Kind = "reasoning"
 				d.Text = e.Delta.Thinking
+				if b["type"] != "thinking" {
+					d.Kind = ""
+					d.Text = ""
+				}
 			case "signature_delta":
 				// Signatures are accumulated for replay but not emitted.
 				appendString(b, "signature", e.Delta.Signature)
@@ -218,6 +238,10 @@ func (wire codec) readStream(
 				arguments[e.Index] += e.Delta.PartialJSON
 				d.Kind = "tool_arguments"
 				d.Text = e.Delta.PartialJSON
+				if b["type"] != "tool_use" && b["type"] != "server_tool_use" && b["type"] != "mcp_tool_use" {
+					d.Kind = ""
+					d.Text = ""
+				}
 			case "citations_delta":
 				var c any
 				if err := providerhttp.Decode(e.Delta.Citation, &c); err != nil {

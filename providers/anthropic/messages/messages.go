@@ -170,6 +170,11 @@ func (p *Client) Prepare(
 			err,
 		)
 	}
+	if summary := r.Settings.ReasoningSummary; summary != nil && *summary && r.Settings.Reasoning == nil {
+		return llm.Request{}, wire.unsupported(
+			"reasoning_summary requires configured reasoning; add a supported Reasoning effort or budget, or choose another route",
+		)
+	}
 	if len(r.OutputSchema) > 0 {
 		return llm.Request{}, wire.unsupported("output_schema is not supported by this route")
 	}
@@ -239,6 +244,14 @@ func (p *Client) Prepare(
 			}
 			body["thinking"] = map[string]any{"type": "adaptive"}
 			body["output_config"] = map[string]any{"effort": s.Effort}
+		}
+	}
+	if summary := r.Settings.ReasoningSummary; summary != nil && r.Settings.Reasoning != nil {
+		info, _ := p.client.ModelInfo(r.Model)
+		if *summary {
+			body["thinking"].(map[string]any)["display"] = "summarized"
+		} else if info.Capabilities.Features[llm.FeatureReasoningSummary] == llm.SupportSupported {
+			body["thinking"].(map[string]any)["display"] = "omitted"
 		}
 	}
 	var defs []any

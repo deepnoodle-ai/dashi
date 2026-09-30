@@ -18,6 +18,8 @@ const (
 	SettingTemperature Setting = "temperature"
 	// SettingReasoning identifies the effort or budget selection as one value.
 	SettingReasoning Setting = "reasoning"
+	// SettingReasoningSummary identifies the public-summary request.
+	SettingReasoningSummary Setting = "reasoning_summary"
 	// SettingToolChoice identifies the tool selection constraint.
 	SettingToolChoice Setting = "tool_choice"
 	// SettingParallelTools identifies the parallel tool call setting.
@@ -101,6 +103,7 @@ func (a Adjustment) Validate() error {
 	case SettingMaxTokens,
 		SettingTemperature,
 		SettingReasoning,
+		SettingReasoningSummary,
 		SettingToolChoice,
 		SettingParallelTools,
 		SettingCitations,

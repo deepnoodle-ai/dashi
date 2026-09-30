@@ -138,6 +138,18 @@ func (c Capabilities) Fit(
 			s.Temperature = &limit
 		}
 	}
+	if summary := s.ReasoningSummary; summary != nil && *summary &&
+		c.Features[FeatureReasoningSummary] == SupportUnsupported {
+		err := f.omit(
+			SettingReasoningSummary, true,
+			"reasoning_summary is not supported here; remove the request or use a supporting route",
+			unsupportedError(r.Model, FeatureReasoningSummary),
+		)
+		if err != nil {
+			return Input{}, nil, err
+		}
+		s.ReasoningSummary = nil
+	}
 	if reasoning := s.Reasoning; reasoning != nil {
 		fitted, err := c.fitReasoning(&f, *reasoning)
 		if err != nil {

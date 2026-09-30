@@ -19,14 +19,15 @@
       "apis": [
         "openai.responses"
       ],
-      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
-      "qualified_at": "2026-09-27",
+      "note": "Standard tier. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x. Public summary request documented 2026-09-30: https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries.",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 128000,
         "context_window": 1050000,
@@ -1361,12 +1362,13 @@
       "apis": [
         "openai.responses"
       ],
-      "qualified_at": "2026-09-27",
+      "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
           "text": "supported",
           "max_tokens": "supported",
-          "prompt_cache": "supported"
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
         },
         "max_output_tokens": 100000,
         "context_window": 200000,
@@ -1374,7 +1376,8 @@
           "5m"
         ],
         "cache_key_default": true
-      }
+      },
+      "note": "Public summary request documented 2026-09-30: https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries."
     },
     {
       "model": "gpt-5.3-codex",
