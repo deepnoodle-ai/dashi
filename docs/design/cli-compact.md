@@ -1,6 +1,6 @@
 # Session compaction and CLI input recovery
 
-Status: In Review  Author: Codex  Date: 2026-09-29\
+Status: Accepted  Author: Codex  Date: 2026-09-29\
 Workflow: spec, orchestrator checkpoint, then build. Named PRD review is ready.
 
 ## Context and boundaries
