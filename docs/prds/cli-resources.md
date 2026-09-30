@@ -49,21 +49,23 @@ Invoke a home skill that references `checklist.md`. Read the file through the sk
 - [ ] Denial, cancellation, and an unanswered unattended approval read no bytes. A changed target cannot reuse a previous target's approval. Inventory shows eligible scope separately from remembered approval scope.
 - [ ] Workspace write/edit roots remain unchanged. Skill metadata, including `allowed-tools`, grants no action. Shell work uses the existing explicitly approved shell tool.
 
-### UC-4: Reopen and inspect current resources
+### UC-4: Refresh between prompts and resume pinned resources
 
-Send two turns, exit, reopen the session, and send another. Repeat with changed instructions or skills and with a stopped open turn.
+Complete a prompt, edit instructions and skills, then send another prompt in the same process. Repeat with slash invocation, a queued successor, and a stopped open turn. Exit and reopen the session.
 
 - [ ] Unchanged instructions and catalogs keep their context identity and occur once in proposed requests, including after reopen. Existing provider-facing prompt prefixes remain unchanged.
+- [ ] Each new prompt rediscovers resources before turn admission. Edits between prompts affect the next turn without inspection or restart. An idle slash skill refreshes before expansion and uses the same selection for its turn. A queued successor rediscovers at its own admission.
 - [ ] Changed resources append the new contextual value for subsequent turns without editing earlier messages. Compaction retention follows [#117](session-context-dedup.md); this CLI introduces no deduplication or compaction engine.
 - [ ] Open-turn continuation reuses its selected instruction and skill content. Changed files cannot silently rebind that turn's skill loader. Missing recovery content causes a clear stop before dispatch.
-- [ ] `/resources` distinguishes the active turn's resources from newly discovered resources awaiting the next turn. It never infers execution or successful model use from catalog presence.
+- [ ] `/resources` rediscovers inventory metadata and distinguishes open-turn resources from the selection pending the next turn. It never replaces an open pin or delivers changed context. The next admission rediscovers again. Inspection never infers execution or successful model use from catalog presence.
+- [ ] Refresh read errors warn with the failing path and omit failed content, without stale-byte reuse or partial content. Instruction errors select empty instructions without enabling fallback. Skill errors preserve valid candidates and existing precedence. Snapshot read/write failures stop before dispatch; supporting-file read errors return failed outcomes.
 
 ## Requirements, decisions, and limits
 
 - Show a compact startup summary and a complete `/resources` inventory in screen and line modes. Print-mode notices use stderr. List currently registered tool sources and effective scopes alongside instructions and skills. MCP contributes its own source/status facts when its slice lands.
 - Cover empty, loading, partial-error, and success states at 80×24. Loading cannot appear as an empty success. Paths, descriptions, warnings, and arguments render as printable text. Show no credentials, instruction bodies, or file contents.
 - Bound workspace instructions to 64 KiB, matching the existing skill-body limit. Reject partial truncation because it can change a requirement's meaning.
-- Use the selected workspace root for discovery. Reject ancestor walking, nested instruction stacks, `.dive` paths, and automatic source reload during a running turn.
+- Use the selected workspace root for discovery. Reject ancestor walking, nested instruction stacks, `.dive` paths, and replacing an open turn's selected resources during discovery.
 - Reuse `LoadDirs`, `Bundle`, `Expand`, and ContextItem delivery. Reject file instructions in `Agent.Instructions`, shell expansion, and file digests in `Agent.Revision`. The [technical spec](../design/cli-resources.md) defines the host's recovery pin for selected skill bodies.
 
 Custom system prompts and provider settings belong to slice 3. Composer completion belongs to slice 2 and consumes the eligible command catalog. MCP lifecycle belongs to slice 5. Attachment bytes, general context inspection, skill editing/installing, scripts, trigger matching, marketplaces, and compaction are outside this slice. Shared dispatch/wiring edits require scheduled integration ownership.
