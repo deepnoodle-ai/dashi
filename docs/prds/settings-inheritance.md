@@ -1,7 +1,7 @@
 # Keep omitted settings omitted in new session turns
 
 Status: Approved\
-PRD PR: #137  Implementation PR: pending  Updated: 2026-09-30
+PRD PR: #137  Implementation PR: #139  Updated: 2026-09-30
 
 ## Problem and users
 
