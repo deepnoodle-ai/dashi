@@ -236,7 +236,7 @@ func TestResourceSlashRestrictionsBuiltinsAndLiteralArguments(t *testing.T) {
 	fixtureResourceSkill(t, h.dir, "help", "never-shadow-help", "")
 	h.input("/hidden")
 	h.input("/missing")
-	h.input("/help")
+	h.input("/HELP")
 	if h.turns() != 0 {
 		t.Fatal("invalid/builtin slash commands started a turn")
 	}

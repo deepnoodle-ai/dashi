@@ -350,8 +350,8 @@ func (c *Controller) steer(line string) {
 	if line == "" {
 		return
 	}
-	if line == "/quit" || line == "/exit" {
-		c.QuitDuringRun(line)
+	if command := strings.ToLower(line); command == "/quit" || command == "/exit" {
+		c.QuitDuringRun(command)
 		return
 	}
 	if c.duringTurnCommand(line) {
