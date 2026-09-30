@@ -1,7 +1,7 @@
 # CLI task hosting and recovery
 
-Status: In Review · Author: Task track · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then implementation. Named PRD re-review returned ready.\
+Status: Accepted · Author: Task track · Date: 2026-09-30\
+Workflow: Spec, root checkpoint, then implementation. Named PRD re-review and root technical checkpoint approved.\
 Requirements: [See and control delegated work](../prds/cli-tasks.md)
 
 ## Ownership and narrow library seams
@@ -81,7 +81,8 @@ Record/replay the result into the existing task view, retaining recorded agent a
 Register command work under Tasks' cancel/done lifecycle so Stop/Close still govern it; do not create an independent child worker.
 
 The CLI captures target revision/details when beginning each action and revalidates after operator confirmation.
-Use `cli-task:` plus SHA-256 of canonical JSON `{turn, revision, action, call}` as CommandID; fixed content includes the exact limit raise or settlement.
+Use `cli-task:` plus SHA-256 of canonical JSON `{turn, revision, action, call, payload}` as CommandID.
+Payload contains the complete recorded command content, including settlement/approval facts, cancel reason, or exact limit raise; it excludes CommandID itself.
 Pending approval responses use existing Pending builders and their bound deterministic IDs.
 An unknown write retains that exact command and blocks other actions until reload confirms its matching digest, absence, or conflict.
 Absence permits only the same command retry against its unchanged target; changed state requires a new inspection/action.
@@ -151,4 +152,4 @@ Rebase/publish after session inspection under root scheduling. Existing Go calle
 Keyless fixtures cover child copies around Start crashes, immutable routes/resources, targeted command retries/fencing, concurrent/stale approvals, waiting/limited/uncertain resolution, and one final notice with one write execution.
 Also prove historical acknowledged notice preservation, enqueue failure/unknown queue Start, truthful quiet/error exits, spend once after reopen, special-file/symlink/cross-session rejection, and effective media sizing.
 Capture both Wonton modes at 80×24 and plain/print states. Run formatting, vet, build, and root/CLI race tests; required implementation, acceptance, security, and taste reviews remain gates.
-No product question remains. Root must approve these API and ownership seams before code/publication.
+No product question remains. Root approved these API and ownership seams; code/publication waits for the scheduled dependency checkpoint.
