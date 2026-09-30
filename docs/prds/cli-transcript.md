@@ -11,7 +11,7 @@ This delivers terminal rows T03–T15 and T20 in the [parity matrix](../research
 
 ## Concepts and use cases
 
-**Transcript** is the conversation and tool output shown to the person. Display expansion and selection do not change recorded history. **Scrollback** is a copy shown in the terminal's own history. **Allow for this session** reuses the current policy's existing matching-call rule; it grants no wider authority.
+**Transcript** is the conversation and tool output shown to the person. Display expansion and selection do not change recorded history. **Scrollback** is a copy shown in the terminal's own history. **Allow for this Dashi run** remembers the displayed matching rule until the process exits, including across `/new` and session switches.
 
 ### UC-1: Read and copy earlier output
 
@@ -20,19 +20,21 @@ While a 200-line answer streams, scroll away using wheel or Page Up. New output 
 Acceptance:
 
 - [ ] Navigation works through the actual focused Wonton input and leaves the draft intact. The view shows a new-output indicator and a way to jump back.
-- [ ] Drag selection auto-scrolls. Word/line selection and copy preserve Unicode and source lines. `/copy [N|all]` copies the latest, numbered, or all assistant answers; fenced source is not copied from wrapped screen cells.
+- [ ] Drag selection auto-scrolls. Word/line selection and copy preserve Unicode and source lines. `/copy` copies the selection or lists fenced code blocks in the latest answer. `/copy N` copies one block; `/copy all` copies all those blocks without prose or fences.
+- [ ] Copy uses source lines rather than wrapped cells. Cover multiple blocks, long lines, Unicode, an unfinished fence, and no available block. A newer user prompt ends the previous answer's copy window.
 - [ ] `/mouse` toggles application mouse capture so native terminal selection remains available. Copy reports success or an honest fallback; it does not claim an OSC52 transport proved receipt.
 - [ ] Expand and collapse a tool result without losing its full retained output. `/scrollback [raw]` shows the complete transcript, then returns with the draft and display state intact. Raw means plain transcript text, never executable terminal controls.
 - [ ] Ctrl+L repaints. Narrow, empty, streaming, failed-tool, and completed states remain usable at 80×24.
 
 ### UC-2: Inspect and decide a proposed effect
 
-Read the complete command, working directory, arguments, or diff in a bounded scrollable approval pane. Choose allow once, allow for this session, or deny. A denial may include a reason.
+Read the complete command, working directory, arguments, or diff in a bounded scrollable approval pane. Choose allow once, allow for this Dashi run, or deny. A denial may include a reason.
 
 Acceptance:
 
 - [ ] Long previews remain fully reachable while actions and the pending state stay visible at 80×24. Navigating or resizing cannot approve a call.
-- [ ] The decision refers to the original exact request. Rendering cannot alter its identity or widen the existing policy rule. Labels state the actual scope.
+- [ ] The one-call decision refers to the original exact request. Rendering cannot alter its identity or widen policy. The remembered action shows its actual rule: all calls to the owned write/edit tool, the exact Bash command, or exact external-tool arguments.
+- [ ] Test remembered file-tool permission across different paths and session switches, and Bash permission for the exact command. The UI cannot describe either rule as limited to the displayed file or current session.
 - [ ] A denial reason reaches the model. Canceling the dialog does not grant permission. Interruption records the existing resumable stop and does not dispatch another effect.
 - [ ] Incoming events cannot answer a newer dialog with an older response. Ending a prompt restores the prior draft and focus.
 
@@ -43,8 +45,10 @@ Answer free text, choose an offered option, or enter your own words. A question 
 Acceptance:
 
 - [ ] Choices and descriptions are reachable, with keyboard navigation, selection, cancellation, and an explicit submit action. Own words remain available as the existing answer contract permits.
-- [ ] `workspace.Question` adds an optional multiple-choice mode. Its zero value preserves existing single-choice/free-text behavior. The AskUser tool exposes the optional mode and documents its returned answer representation.
-- [ ] Multiple labels remain distinguishable, including commas and newlines. Line mode has an equivalent deterministic input syntax. Print mode continues to refuse unanswered questions.
+- [ ] `workspace.Question.Multiple` defaults to false. `workspace.Answer.Selections` contains exact selected labels; `Text` contains own words instead. Existing single-choice/free-text answers keep using `Text`. Multiple mode accepts a nonempty distinct selection or nonempty own words, never both.
+- [ ] The AskUser tool adds optional `multiple`. Its multiple-mode result is a JSON object with either `selections` or `text`. Labels containing commas and newlines remain distinct. Duplicate offered labels are rejected in multiple mode.
+- [ ] Line mode accepts comma-separated option numbers or `other: TEXT`, rejects an empty selection, and prompts again. Print mode continues to refuse unanswered questions. Cancellation never becomes an empty submitted answer.
+- [ ] A keyless example shows question `{Multiple: true, Choices: ["a,b", "c"]}`, line input `1,2`, host answer `{Selections: ["a,b", "c"]}`, and model result `{"selections":["a,b","c"]}`. An own-words alternative yields `{"text":"my answer"}`.
 - [ ] Cancellation returns no fabricated answer; context cancellation promptly releases the waiting tool. Draft text is preserved around the question.
 
 ### UC-4: Use an inline terminal agent
