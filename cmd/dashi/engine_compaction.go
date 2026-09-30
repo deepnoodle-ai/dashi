@@ -1,0 +1,239 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/compaction"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+)
+
+type pendingPrompt struct {
+	start dashi.Start
+	// uncertain names an ordinary Start whose recording acknowledgment was
+	// lost. No later caller Start can evict its idempotency window.
+	uncertain string
+	attempted bool
+	summary   bool
+}
+
+type pendingLine struct {
+	id   string
+	text string
+}
+
+// configureChat follows the selected model only for new work. Continued
+// turns keep their recorded model, input, and limits.
+func (e *Engine) configureChat() *dashi.Session {
+	e.mu.Lock()
+	chat := e.chat
+	if chat == nil {
+		e.mu.Unlock()
+		return nil
+	}
+	chat.Agent = e.agent()
+	info, _ := e.cfg.Client.ModelInfo(e.model)
+	policy := compaction.Policy{Model: info}
+	chat.Compactor = compaction.New(policy)
+	_, known := policy.Window()
+	warn := !known && !e.windowWarned[e.model]
+	if warn {
+		if e.windowWarned == nil {
+			e.windowWarned = map[string]bool{}
+		}
+		e.windowWarned[e.model] = true
+	}
+	model := e.model
+	e.mu.Unlock()
+	if warn {
+		e.warn("Model %s has no known context window; compaction uses 128,000 tokens.", model)
+	}
+	return chat
+}
+
+// Compact summarizes only. It cannot authorize execution of queued prompts.
+func (e *Engine) Compact(ctx context.Context) (Result, error) {
+	chat := e.configureChat()
+	return e.stream(ctx, chat.StreamCompact(ctx, nil), false)
+}
+
+func (e *Engine) HasPending() bool {
+	e.inputMu.Lock()
+	defer e.inputMu.Unlock()
+	return e.pending != nil
+}
+
+func (e *Engine) runPending(ctx context.Context) (Result, error) {
+	e.inputMu.Lock()
+	p := e.pending
+	e.inputMu.Unlock()
+	if p == nil {
+		return Result{}, errors.New("there is no pending prompt")
+	}
+	if err := e.reconcilePrompt(ctx, p); err != nil {
+		return Result{}, err
+	}
+	res, err := e.run(ctx, p.start)
+	// Ordinary refusals still require the user to resubmit after recovery.
+	// Retain only a summary interruption or an uncertain admission.
+	e.inputMu.Lock()
+	if e.pending == p && p.uncertain == "" && !p.attempted && !p.summary &&
+		res.Outcome.Origin != dashi.StartCompaction {
+		e.pending = nil
+		e.cfg.Emit(Block{ID: "pending:" + p.start.CommandID, Kind: KindPending, Done: true})
+	}
+	e.inputMu.Unlock()
+	return res, err
+}
+
+func (e *Engine) resumePending(ctx context.Context) (Result, error) {
+	e.inputMu.Lock()
+	p := e.pending
+	e.inputMu.Unlock()
+	if p == nil {
+		return Result{}, errors.New("there is no pending prompt")
+	}
+	if err := e.reconcilePrompt(ctx, p); err != nil {
+		return Result{}, err
+	}
+	last := e.Last(ctx)
+	if !e.HasPending() {
+		if last.CanGoOn() {
+			return e.Resume(ctx)
+		}
+		return e.run(ctx, p.start)
+	}
+	if last == nil || last.View.Origin != dashi.StartCompaction {
+		return e.runPending(ctx)
+	}
+	if !last.CanGoOn() {
+		if !last.Open() {
+			return e.runPending(ctx)
+		}
+		return Result{}, errors.New("continue or discard the open compaction before sending the pending prompt")
+	}
+	var cmd dashi.Command = dashi.Continue{}
+	if last.LimitStopped() {
+		cmd = dashi.Continue{ModelAttempts: int(last.View.Stop.Limit.Limit) * 2}
+	}
+	chat := e.configureChat()
+	// The Outcome is yielded after Session.finish. Breaking here prevents
+	// Continue's queue dispatch from putting older queued items ahead of the
+	// caller's retained Start in a different turn.
+	res, err := e.stream(ctx, chat.Stream(ctx, cmd), true)
+	if err != nil || res.Outcome.Stop.Kind != dashi.StopCompleted ||
+		compactiontext.Summary(res.Outcome.Answer) == "" {
+		return res, err
+	}
+	return e.runPending(ctx)
+}
+
+func (e *Engine) rememberPromptError(err error) {
+	var ce *dashi.CommitError
+	if !errors.As(err, &ce) || ce.Step == nil ||
+		ce.Step.Kind != dashi.StepStarted || ce.Step.Started == nil {
+		return
+	}
+	e.inputMu.Lock()
+	defer e.inputMu.Unlock()
+	if e.pending != nil && (e.pending.start.CommandID == "" || ce.Step.CommandID == e.pending.start.CommandID) {
+		e.pending.start.CommandID = ce.Step.CommandID
+		e.pending.attempted = true
+		if ce.Persistence == dashi.PersistenceUnknown {
+			e.pending.uncertain = ce.Step.TurnID
+		}
+	}
+}
+
+func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
+	e.inputMu.Lock()
+	id := p.uncertain
+	e.inputMu.Unlock()
+	if id == "" {
+		return nil
+	}
+	loader, ok := e.handle().Runner.Recorder.(dashi.Loader)
+	if !ok {
+		return errors.New("pending prompt cannot be reconciled: recorder cannot load turns")
+	}
+	turn, err := loader.Load(ctx, id)
+	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
+		e.inputMu.Lock()
+		p.uncertain = ""
+		e.inputMu.Unlock()
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("pending prompt waits until turn %s can be read: %w", id, err)
+	}
+	step := turn.Steps[0]
+	if step.Kind != dashi.StepStarted || step.Started == nil ||
+		step.CommandID != p.start.CommandID ||
+		len(step.Started.Input) < len(p.start.Input) ||
+		!reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(p.start.Input):], p.start.Input) {
+		return fmt.Errorf("pending prompt conflicts with recorded turn %s: %w", id, dashi.ErrCommandConflict)
+	}
+	if err := e.acknowledgePrompt(&step); err != nil {
+		return err
+	}
+	if err := e.record(&step); err != nil {
+		e.warn("The session file was not saved: %v.", err)
+	}
+	return nil
+}
+
+// acknowledgePrompt moves later input only after the ordinary Start commits.
+// Admission uses the same lock, so a new queue write cannot overtake the FIFO.
+func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
+	if step == nil || step.Kind != dashi.StepStarted || step.Started == nil ||
+		step.Started.Origin == dashi.StartCompaction {
+		return nil
+	}
+	e.inputMu.Lock()
+	defer e.inputMu.Unlock()
+	if e.pending == nil || e.pending.start.CommandID != "" && step.CommandID != e.pending.start.CommandID {
+		return nil
+	}
+	key := e.pending.start.CommandID
+	e.pending = nil
+	e.cfg.Emit(Block{ID: "pending:" + key, Kind: KindPending, Done: true})
+	return e.flushLaterLocked()
+}
+
+func (e *Engine) flushLaterLocked() error {
+	for len(e.later) > 0 {
+		line := e.later[0]
+		_, err := e.handle().EnqueueItem(context.Background(), dashi.ContextItem{
+			ID:      line.id,
+			Origin:  dashi.ContextUser,
+			Message: dashi.Say(line.text).Input[0],
+		})
+		if err != nil {
+			return fmt.Errorf("queued input %q was retained: %w", line.text, err)
+		}
+		e.later = e.later[1:]
+	}
+	return nil
+}
+
+func (e *Engine) holdLineLocked(text string) {
+	id := dashi.NewID()
+	e.later = append(e.later, pendingLine{id: id, text: text})
+	e.cfg.Emit(Block{ID: "s:" + id, Kind: KindSteer, Text: text, State: SteerNext})
+}
+
+func (e *Engine) showPending() {
+	e.inputMu.Lock()
+	defer e.inputMu.Unlock()
+	if e.pending == nil {
+		return
+	}
+	e.cfg.Emit(Block{
+		ID:   "pending:" + e.pending.start.CommandID,
+		Kind: KindPending,
+		Text: joinMessages(e.pending.start.Input),
+	})
+}

@@ -26,14 +26,21 @@ type fakeClient struct {
 	script []reply
 	inputs []llm.Input
 	sends  int
+	window int
 }
 
 func (*fakeClient) Provider() string { return "test" }
 
 func (*fakeClient) API() string { return "test.chat" }
 
-func (*fakeClient) ModelInfo(string) (llm.ModelInfo, bool) {
-	return llm.ModelInfo{}, false
+func (c *fakeClient) ModelInfo(string) (llm.ModelInfo, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	window := c.window
+	if window == 0 {
+		window = 128000
+	}
+	return llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: window}}, window > 0
 }
 
 func (c *fakeClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {

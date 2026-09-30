@@ -1,7 +1,7 @@
 # Compact a CLI conversation without losing its record
 
 Status: Approved\
-PRD PR: #124  Implementation PR: pending  Updated: 2026-09-29
+PRD PR: #124  Implementation PR: pending  Updated: 2026-09-30
 
 ## Problem and users
 
@@ -94,6 +94,7 @@ The user submits a prompt, then presses Ctrl-C while automatic compaction runs b
 - [ ] Enter continues the recorded compaction. After successful completion, the CLI sends the original prompt once, before text submitted later.
 - [ ] Pre-existing queued input keeps its order before the triggering prompt. Later queued lines retain submission order after it.
 - [ ] The CLI clears retained input only after recording acknowledgment for its ordinary Start. A recorder error or unknown acknowledgment retains it for reconciliation.
+- [ ] A brand-new prompt may use existing Exclusive damaged-history skipping before any admission attempt. The first acknowledgment or CommitError freezes its generated identity. This exception never bypasses reconciliation of an attempted Start. Ordinary pre-admission refusals require resubmission after recovery.
 - [ ] Reconciliation uses the original command identity before resending. Recorded input is never delivered twice, including after a lost acknowledgment.
 - [ ] If continuation stops again, the prompt stays pending. An ordinary new prompt follows existing close rules and preserves pending input order.
 - [ ] Exit and session-switch actions warn about both pending prompts and queued lines held only in memory. Repeating the action accepts their loss.

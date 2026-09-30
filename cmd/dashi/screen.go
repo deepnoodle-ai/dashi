@@ -402,29 +402,50 @@ func (s *screen) footer() tui.View {
 		if s.asking != nil {
 			views = append(views, askView(s.asking.q))
 		}
-		views = append(views, tui.Divider(), s.inputView(mode), tui.Divider())
+		views = append(views,
+			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
+			tui.Divider(), s.inputView(mode), tui.Divider())
 	}
 	views = append(views, s.statusView())
 	return tui.Stack(views...).Gap(0)
 }
 
 func (s *screen) inputView(mode Mode) tui.View {
-	placeholder := "Ask anything. /help lists commands."
-	switch {
-	case s.asking != nil:
-		placeholder = "Type your answer."
-	case mode == ModeRunning:
-		placeholder = "Type to steer. Start with ! to cut the model call."
-	}
+	// Wonton v0.2.1 retains a field's initial placeholder. Keep it neutral;
+	// the ordinary text view above it updates the current input meaning.
 	return tui.InputField(&s.input).
 		ID(inputID).
 		Prompt("❯").
 		PromptStyle(tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()).
-		Placeholder(placeholder).
+		Placeholder("Type a message...").
 		History(s.history).
 		Multiline(true).
 		MaxHeight(8).
 		OnSubmit(s.submit)
+}
+
+func (s *screen) inputHint(mode Mode) string {
+	switch {
+	case s.asking != nil:
+		return "Type your answer."
+	case mode == ModeRunning:
+		for i := len(s.tr.Blocks) - 1; i >= 0; i-- {
+			b := s.tr.Blocks[i]
+			if b.Kind == KindUser {
+				break
+			}
+			if b.Kind == KindCompaction {
+				if b.State == StateRunning {
+					return "Compacting: new text is queued. Ctrl-C interrupts."
+				}
+				break
+			}
+		}
+		return "Type to steer. Start with ! to cut the model call."
+	case s.eng.HasPending():
+		return "Press Enter to continue and deliver the pending prompt."
+	}
+	return "Ask anything. /help lists commands."
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -541,6 +562,19 @@ func blockView(b Block) tui.View {
 			label = "queued for the next turn"
 		}
 		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
+	case KindCompaction:
+		color := tui.ColorCyan
+		if b.State == StateFailed {
+			color = tui.ColorRed
+		} else if b.State == "interrupted" {
+			color = tui.ColorYellow
+		}
+		return tui.Text("  %s", b.Text).Wrap().Fg(color)
+	case KindPending:
+		if b.Done {
+			return nil
+		}
+		return tui.Text("  ↳ pending prompt: %s", b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindStop:
 		return tui.Text("■ %s", b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindFooter:

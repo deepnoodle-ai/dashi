@@ -38,6 +38,10 @@ func (u *lineUI) Emit(b Block) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	switch b.Kind {
+	case KindPending:
+		if b.Done {
+			return
+		}
 	case KindUser:
 		if u.live {
 			return
@@ -208,6 +212,10 @@ type printUI struct {
 
 func (u *printUI) Emit(b Block) {
 	switch b.Kind {
+	case KindPending:
+		if b.Done {
+			return
+		}
 	case KindUser, KindAssistant:
 		return
 	case KindTool:
