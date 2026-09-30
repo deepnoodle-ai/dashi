@@ -348,7 +348,7 @@ func (r *Renderer) toolSettled(s dashi.Step) []Block {
 		b.Detail = outputText(s.Tool.Outcome)
 	}
 	b.Lines = lines
-	b.Done = true
+	b.Done = state != StateWaiting
 	if !c.started.IsZero() && !s.At.IsZero() {
 		b.Elapsed = s.At.Sub(c.started)
 	}

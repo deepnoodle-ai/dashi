@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/clipboard"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -37,7 +36,12 @@ func (s *screen) TranscriptCommand(name, arg string) {
 }
 
 func (s *screen) inputKey(e tui.KeyEvent) bool {
-	consume := isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL ||
+	// Wonton always forwards Ctrl-C to the app, even if the field consumes it.
+	// Posting a second event would interrupt twice and could exit the process.
+	if isCtrlC(e) {
+		return false
+	}
+	consume := (s.approval != nil && !s.approval.denying) || s.asking != nil && !s.asking.own || s.picker != nil || isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL ||
 		e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
 		(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && (e.Ctrl || s.input == "")
 	if consume {
@@ -103,7 +107,7 @@ func (s *screen) clipboardResult(e clipboardResultEvent) {
 }
 
 func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
-	if !s.mouseEnabled || s.approval != nil || s.asking != nil || s.picker != nil {
+	if !s.mouseEnabled || (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
 		return
 	}
 	local := e
@@ -145,18 +149,26 @@ func fullBlock(b Block) Block {
 }
 
 func (s *screen) showNativeScrollback(raw bool) {
+	if s.nativeScrollback != nil {
+		s.nativeScrollback(raw)
+		return
+	}
 	if s.runtime == nil {
 		s.Emit(warnBlock("Native scrollback is not connected."))
 		return
 	}
 	err := s.runtime.Suspend(func(keys <-chan tui.Event) {
 		for _, b := range s.tr.Blocks {
-			b = fullBlock(b)
+			b = printable(fullBlock(b))
 			text := FormatBlock(b)
 			if !raw {
-				text = tui.Sprint(blockView(b), tui.WithWidth(max(1, s.width)))
+				view := blockView(b)
+				if view == nil {
+					continue
+				}
+				text = tui.Sprint(view, tui.WithWidth(max(1, s.width)))
 			}
-			fmt.Fprintln(s.clipboardOut, workspace.PrintableText(text))
+			fmt.Fprintln(s.clipboardOut, text)
 		}
 		fmt.Fprintln(s.clipboardOut, "Press Enter or Escape to return.")
 		for {

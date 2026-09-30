@@ -36,6 +36,10 @@ type ApprovalRequest struct {
 	// Args holds the exact arguments of the call.
 	Args json.RawMessage
 
+	// Arguments is printable argument text, populated by Printable.
+	// It is for display only and does not identify or authorize a call.
+	Arguments string
+
 	// RememberScope describes which later calls a remembered allow covers.
 	// Its lifetime is the Policy's lifetime; it does not persist a grant.
 	RememberScope string

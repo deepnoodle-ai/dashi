@@ -233,6 +233,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"-p", "hi there", "--yes"}, Options{Print: "hi there", PrintSet: true, Yes: true}},
 		{[]string{"--model=gpt-6-luna"}, Options{Model: "gpt-6-luna"}},
 		{[]string{"--plain", "-h"}, Options{Plain: true, Help: true}},
+		{[]string{"--inline"}, Options{Inline: true}},
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args)
@@ -240,7 +241,7 @@ func TestParseArgs(t *testing.T) {
 			t.Errorf("parseArgs(%v)=%+v, %v; want %+v", tt.args, got, err, tt.want)
 		}
 	}
-	for _, bad := range [][]string{{"--nope"}, {"-p"}, {"--model"}} {
+	for _, bad := range [][]string{{"--nope"}, {"-p"}, {"--model"}, {"--plain", "--inline"}} {
 		if _, err := parseArgs(bad); err == nil {
 			t.Errorf("parseArgs(%v) succeeded", bad)
 		}

@@ -25,17 +25,21 @@ func TestPrintableTextEscapesControls(t *testing.T) {
 
 func TestApprovalRequestPrintable(t *testing.T) {
 	r := ApprovalRequest{
-		Tool:    ToolBash,
-		Summary: "run\x1b[H",
-		Preview: "+a\r-b",
-		Dir:     "/w\x1b",
-		Command: "echo hi\x1b[2J\rrm -rf x",
-		Args:    []byte(`{}`),
+		Tool:          ToolBash,
+		Summary:       "run\x1b[H",
+		Preview:       "+a\r-b",
+		Dir:           "/w\x1b",
+		Command:       "echo hi\x1b[2J\rrm -rf x",
+		Args:          []byte(`{"message":"日本\u001b[2J"}`),
+		RememberScope: "Exact command\x1b",
 	}.Printable()
-	for _, f := range []string{r.Summary, r.Preview, r.Dir, r.Command} {
+	for _, f := range []string{r.Summary, r.Preview, r.Dir, r.Command, r.Arguments, r.RememberScope} {
 		if strings.ContainsAny(f, "\x1b\r") {
 			t.Fatalf("raw control in %q", f)
 		}
+	}
+	if !strings.Contains(r.Arguments, "日本") {
+		t.Fatal("full arguments lost")
 	}
 	if !strings.Contains(r.Command, "rm -rf x") || r.Args != nil {
 		t.Fatalf("command lost or args kept: %+v", r)

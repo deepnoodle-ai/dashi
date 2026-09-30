@@ -538,6 +538,9 @@ func (c *Controller) command(line string) {
 }
 
 const helpText = `Commands:
+  /copy [N|all]  copy selection or list/copy code blocks
+  /scrollback [raw]  inspect complete output in native scrollback
+  /mouse         toggle application mouse capture
   /compact       summarize history before the next turn
   /model [name]  set the model, or pick one
   /new           start a new session

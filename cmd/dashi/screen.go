@@ -37,25 +37,27 @@ type screen struct {
 	promptSeq atomic.Uint64
 
 	// loop state
-	tr             Transcript
-	vp             tui.ViewportState
-	input          string
-	history        []string
-	frame          uint64
-	approval       *approvalPrompt
-	asking         *askPrompt
-	picker         *pickerState
-	quitting       bool
-	width          int
-	height         int
-	promptID       uint64
-	promptActive   bool
-	savedDraft     string
-	expanded       map[int]bool
-	runtime        *tui.Runtime
-	mouseEnabled   bool
-	clipboardOut   io.Writer
-	clipboardWrite func(context.Context, string) (string, error)
+	tr               Transcript
+	vp               tui.ViewportState
+	input            string
+	history          []string
+	frame            uint64
+	approval         *approvalPrompt
+	asking           *askPrompt
+	picker           *pickerState
+	quitting         bool
+	width            int
+	height           int
+	promptID         uint64
+	promptActive     bool
+	savedDraft       string
+	expanded         map[int]bool
+	runtime          *tui.Runtime
+	mouseEnabled     bool
+	generation       uint64
+	nativeScrollback func(bool)
+	clipboardOut     io.Writer
+	clipboardWrite   func(context.Context, string) (string, error)
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -65,13 +67,22 @@ type queued struct {
 }
 
 type approvalPrompt struct {
-	req   ApprovalRequest
-	reply chan Approval
+	req     ApprovalRequest
+	reply   chan Approval
+	vp      tui.ViewportState
+	denying bool
+	reason  string
 }
 
 type askPrompt struct {
-	q     Question
-	reply chan questionAnswer
+	q        Question
+	reply    chan questionAnswer
+	vp       tui.ViewportState
+	index    int
+	selected map[int]bool
+	own      bool
+	text     string
+	err      string
 }
 
 type pickerState struct {
@@ -191,7 +202,7 @@ func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 // Ask implements UI.
 func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 	id := s.promptSeq.Add(1)
-	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1)}
+	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
 	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:
@@ -246,6 +257,7 @@ func (s *screen) drain() {
 	for _, q := range items {
 		if q.reset {
 			s.tr = Transcript{}
+			s.generation++
 			s.expanded = nil
 			s.vp.InvalidateAll()
 			s.vp.Follow = true
@@ -270,6 +282,11 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.vp.DragAutoScroll()
 	case tui.MouseEvent:
 		s.handleTranscriptMouse(e)
+	case focusEvent:
+		if e.prompt != s.promptID {
+			return nil
+		}
+		return []tui.Cmd{tui.Focus(e.id)}
 	case inputActionEvent:
 		return s.key(e.key)
 	case transcriptCommandEvent:
@@ -284,7 +301,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		return []tui.Cmd{tui.Quit()}
 	case promptEvent:
 		s.drain()
-		if e.id < s.promptID {
+		if e.id != 0 && e.id <= s.promptID {
 			return nil
 		}
 		if !s.promptActive {
@@ -292,6 +309,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		}
 		s.promptActive, s.promptID, s.input = true, e.id, ""
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
+		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
 		if e.id != s.promptID {
 			return nil
@@ -320,6 +338,8 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		return s.approvalKey(e)
 	case s.picker != nil:
 		return s.pickerKey(e)
+	case s.asking != nil:
+		return s.questionKey(e)
 	}
 	switch e.Key {
 	case tui.KeyPageUp:
@@ -358,7 +378,7 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 func (s *screen) interrupt() []tui.Cmd {
 	if s.picker != nil {
 		s.picker.reply <- -1
-		s.picker = nil
+		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
 	if s.ctrl.Interrupt() {
@@ -383,24 +403,6 @@ func (s *screen) requestQuit() []tui.Cmd {
 		s.ctrl.Interrupt()
 	}
 	return nil
-}
-
-func (s *screen) approvalKey(e tui.KeyEvent) []tui.Cmd {
-	var a Approval
-	switch {
-	case e.Rune == 'y' || e.Rune == 'Y':
-		a = Approval{Allow: true}
-	case e.Rune == 'a' || e.Rune == 'A':
-		a = Approval{Allow: true, Remember: true}
-	case e.Rune == 'n' || e.Rune == 'N' || e.Key == tui.KeyEscape:
-		a = Approval{Reason: declinedReason}
-	default:
-		return nil
-	}
-	p := s.approval
-	s.clearPrompts()
-	p.reply <- a
-	return []tui.Cmd{tui.Focus(inputID)}
 }
 
 func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
@@ -460,16 +462,15 @@ func (s *screen) footer() tui.View {
 	}
 	switch {
 	case s.approval != nil:
-		views = append(views, approvalView(s.approval.req))
+		views = append(views, s.approvalView())
 	case s.picker != nil:
 		views = append(views, pickerView(s.picker))
+	case s.asking != nil:
+		views = append(views, s.questionView())
 	default:
 		mode := s.ctrl.Mode()
 		if mode == ModeRunning {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
-		}
-		if s.asking != nil {
-			views = append(views, askView(s.asking.q))
 		}
 		views = append(views,
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
@@ -540,46 +541,6 @@ func (s *screen) statusView() tui.View {
 func shortDir(dir string) string {
 	parent, base := filepath.Split(filepath.Clean(dir))
 	return filepath.Join(filepath.Base(parent), base)
-}
-
-func askView(q Question) tui.View {
-	views := []tui.View{tui.Text(" %s", q.Prompt).Bold()}
-	for i, c := range q.Choices {
-		views = append(views, tui.Text("   %d. %s", i+1, c.Label))
-	}
-	return tui.Stack(views...).Gap(0)
-}
-
-func approvalView(r ApprovalRequest) tui.View {
-	views := []tui.View{
-		tui.Divider(),
-		tui.Text(" %s", r.Summary).Bold().Fg(tui.ColorYellow),
-	}
-	if r.Command != "" {
-		views = append(views, tui.Text("   $ %s", r.Command).Wrap())
-	}
-	if r.Preview != "" {
-		lines := strings.Split(strings.TrimRight(r.Preview, "\n"), "\n")
-		if len(lines) > 30 {
-			hidden := len(lines) - 30
-			lines = append(lines[:30], fmt.Sprintf("... %d more lines", hidden))
-		}
-		for _, l := range lines {
-			views = append(views, diffLineView("   ", l))
-		}
-	}
-	views = append(views,
-		tui.Text(""),
-		tui.Group(
-			tui.Text(" y").Bold().Fg(tui.ColorGreen),
-			tui.Text(" allow once   ").Hint(),
-			tui.Text("a").Bold().Fg(tui.ColorGreen),
-			tui.Text(" always   ").Hint(),
-			tui.Text("n").Bold().Fg(tui.ColorRed),
-			tui.Text(" deny").Hint(),
-		),
-	)
-	return tui.Stack(views...).Gap(0)
 }
 
 func pickerView(p *pickerState) tui.View {

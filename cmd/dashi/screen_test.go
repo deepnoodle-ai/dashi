@@ -56,6 +56,8 @@ func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarnes
 		}
 	}()
 	t.Cleanup(func() {
+		a.ctrl.CancelWork()
+		a.ctrl.Wait()
 		close(events)
 		<-done
 	})
@@ -135,7 +137,7 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("write a note")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	shown := h.render()
-	for _, want := range []string{"write_note", "allow once", "always", "deny"} {
+	for _, want := range []string{"write_note", "allow once", "this Dashi run", "deny"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("missing %q in:\n%s", want, shown)
 		}
@@ -157,6 +159,9 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("again")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	h.key(tui.KeyEvent{Rune: 'n'})
+	h.mu.Lock()
+	h.scr.finishApproval(Approval{Reason: declinedReason})
+	h.mu.Unlock()
 	h.app.ctrl.Wait()
 	if runs.Load() != 1 {
 		t.Fatalf("a denied call ran: runs=%d", runs.Load())

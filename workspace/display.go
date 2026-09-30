@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -14,6 +16,15 @@ import (
 // raw lets the model clear or rewrite the approval prompt with escape
 // sequences or carriage returns. A host must show this form, not r.
 func (r ApprovalRequest) Printable() ApprovalRequest {
+	arguments := r.Arguments
+	if len(r.Args) > 0 {
+		var b bytes.Buffer
+		if json.Indent(&b, r.Args, "", "  ") == nil {
+			arguments = b.String()
+		} else {
+			arguments = string(r.Args)
+		}
+	}
 	return ApprovalRequest{
 		Tool:          PrintableText(r.Tool),
 		Summary:       PrintableText(r.Summary),
@@ -21,6 +32,7 @@ func (r ApprovalRequest) Printable() ApprovalRequest {
 		Dir:           PrintableText(r.Dir),
 		Command:       PrintableText(r.Command),
 		RememberScope: PrintableText(r.RememberScope),
+		Arguments:     PrintableText(arguments),
 	}
 }
 
