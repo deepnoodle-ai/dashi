@@ -114,3 +114,68 @@ func TestReasoningTextPublicOnlyOnDocumentedXAIModelRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryLabelCannotPublishOpaqueItem(t *testing.T) {
+	for _, item := range []string{
+		`{"type":"reasoning","content":[{"type":"reasoning_text","text":"PRIVATE"}],"encrypted_content":"CIPHER","summary":[]}`,
+		`{"type":"future_reasoning","summary":[]}`,
+		`{"type":"message","role":"assistant","content":[],"summary":[]}`,
+	} {
+		for _, allowReasoningText := range []bool{false, true} {
+			for _, terminal := range []bool{false, true} {
+				wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}, publicReasoningText: allowReasoningText}
+				stream := "data: " + `{"type":"response.output_item.added","output_index":0,"item":` + item + "}\n\n" + "data: " + `{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"UNMODELED_PRIVATE"}` + "\n\n" + "data: " + `{"type":"response.reasoning_text.delta","output_index":0,"content_index":0,"delta":"UNMODELED_PRIVATE"}` + "\n\n"
+				if terminal {
+					stream += "data: " + `{"type":"response.completed","response":{"object":"response","status":"completed","output":[` + item + "]}}\n\n"
+				}
+				var deltas []llm.Delta
+				result, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+				if terminal && err != nil || !terminal && !errors.Is(err, io.ErrUnexpectedEOF) {
+					t.Fatalf("terminal=%v error=%v", terminal, err)
+				}
+				if len(deltas) != 0 || result.Message.Text() != "" {
+					t.Fatalf("opaque preview leaked: %+v %+v", deltas, result)
+				}
+				for _, part := range result.Message.Content {
+					if part.Reasoning != nil && strings.Contains(part.Reasoning.Text, "UNMODELED_PRIVATE") {
+						t.Fatal("synthesized opaque summary")
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestUnmodeledStreamPartCannotPublishSummary(t *testing.T) {
+	for _, partEvent := range []string{
+		`{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"reasoning_text","text":"PRIVATE"}}`,
+		`{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"future_summary","text":"PRIVATE"}}`,
+	} {
+		wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}}
+		stream := "data: " + `{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","summary":[]}}` + "\n\n" + "data: " + partEvent + "\n\n" + "data: " + `{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"UNMODELED_PRIVATE"}` + "\n\n"
+		var deltas []llm.Delta
+		result, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+		if !errors.Is(err, io.ErrUnexpectedEOF) || len(deltas) != 0 || len(result.Message.Content) != 1 || result.Message.Content[0].Kind != llm.ContentOpaque {
+			t.Fatalf("unmodeled part leaked: %+v %+v %v", deltas, result, err)
+		}
+	}
+}
+
+func TestCompletedSummaryPartReplacesPreview(t *testing.T) {
+	wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}}
+	events := []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","summary":[]}}`,
+		`{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}`,
+		`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"preview"}`,
+		`{"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"authoritative part"}}`,
+	}
+	stream := ""
+	for _, event := range events {
+		stream += "data: " + event + "\n\n"
+	}
+	var deltas []llm.Delta
+	result, err := wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+	if !errors.Is(err, io.ErrUnexpectedEOF) || len(deltas) != 1 || deltas[0].Text != "preview" || result.Message.Content[0].Reasoning.Text != "authoritative part" {
+		t.Fatalf("part replacement: %+v %+v %v", result, deltas, err)
+	}
+}

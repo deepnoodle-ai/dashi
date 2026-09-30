@@ -33,6 +33,7 @@ func (wire codec) readStream(
 	items := map[int]map[string]any{}
 	parts := map[int]map[int]map[string]any{}
 	summaries := map[int]map[int]string{}
+	summaryParts := map[int]map[int]map[string]any{}
 	var envelope map[string]any
 
 	// build reassembles the accumulated items into a response object and
@@ -48,16 +49,24 @@ func (wire codec) readStream(
 		output := make([]any, 0, len(items))
 		for _, i := range slices.Sorted(maps.Keys(items)) {
 			item := items[i]
-			if ps := summaries[i]; len(ps) > 0 {
-				values := make([]any, 0, len(ps))
-				for _, j := range slices.Sorted(maps.Keys(ps)) {
-					values = append(
-						values,
-						map[string]any{
-							"type": "summary_text",
-							"text": ps[j],
-						},
-					)
+			combined := maps.Clone(summaryParts[i])
+			if combined == nil {
+				combined = map[int]map[string]any{}
+			}
+			for j, text := range summaries[i] {
+				part := maps.Clone(combined[j])
+				if part == nil {
+					part = map[string]any{"type": "summary_text"}
+				}
+				if part["type"] == "summary_text" {
+					part["text"] = text
+				}
+				combined[j] = part
+			}
+			if len(combined) > 0 {
+				values := make([]any, 0, len(combined))
+				for _, j := range slices.Sorted(maps.Keys(combined)) {
+					values = append(values, combined[j])
 				}
 				item["summary"] = values
 			}
@@ -121,6 +130,7 @@ func (wire codec) readStream(
 			if e.Type == "response.output_item.done" {
 				delete(parts, e.OutputIndex)
 				delete(summaries, e.OutputIndex)
+				delete(summaryParts, e.OutputIndex)
 			}
 		case "response.content_part.added", "response.content_part.done":
 			var p map[string]any
@@ -191,6 +201,19 @@ func (wire codec) readStream(
 			if item := items[e.OutputIndex]; item != nil {
 				item["arguments"] = e.Arguments
 			}
+		case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+			var part map[string]any
+			if json.Unmarshal(e.Part, &part) != nil || part == nil || items[e.OutputIndex] == nil {
+				return build(), providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "invalid reasoning summary part")
+			}
+			if summaryParts[e.OutputIndex] == nil {
+				summaryParts[e.OutputIndex] = map[int]map[string]any{}
+			}
+			summaryParts[e.OutputIndex][e.SummaryIndex] = part
+			if e.Type == "response.reasoning_summary_part.done" {
+				// Completed parts, like completed items, replace previews.
+				delete(summaries[e.OutputIndex], e.SummaryIndex)
+			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if e.Type == "response.reasoning_text.delta" && !wire.publicReasoningText {
 				// Unmodeled reasoning is private. Its final provider artifact,
@@ -207,6 +230,27 @@ func (wire codec) readStream(
 					llm.ErrorProtocol,
 					"reasoning for missing item",
 				)
+			}
+			// A public event must also belong to a recognized public reasoning
+			// item. Unmodeled content stays opaque under the settled decoder
+			// and must not leak through its provisional projection.
+			item := maps.Clone(items[e.OutputIndex])
+			if len(parts[e.OutputIndex]) > 0 {
+				continue // all unmodeled reasoning content remains private
+			}
+			if ps := summaryParts[e.OutputIndex]; len(ps) > 0 {
+				values := make([]any, 0, len(ps))
+				for _, j := range slices.Sorted(maps.Keys(ps)) {
+					values = append(values, ps[j])
+				}
+				item["summary"] = values
+			}
+			rawItem, err := json.Marshal(item)
+			if item["type"] != "reasoning" || err != nil {
+				continue
+			}
+			if _, recognized := reasoningSummary(rawItem); !recognized {
+				continue
 			}
 			if summaries[e.OutputIndex] == nil {
 				summaries[e.OutputIndex] = map[int]string{}
