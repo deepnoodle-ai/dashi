@@ -5,7 +5,7 @@ Workflow: Spec before implementation; incorporate independent requirements revie
 
 ## Context and boundaries
 
-The [PRD](../prds/cli-transcript.md) restores the useful Dive terminal workflows without a separate execution store. Existing `Transcript` blocks remain the display projection. Turn facts remain the authority. Wonton v0.2.1 supplies the viewport, selection, focused input hooks, fullscreen runtime, and inline runtime.
+The [PRD](../prds/cli-transcript.md) restores the useful Dive terminal workflows without a separate execution store. Existing `Transcript` blocks remain the display projection. Turn facts remain the authority. Wonton supplies the viewport, focused input hooks, fullscreen runtime, and inline runtime. Its reviewed source-selection foundation ([Wonton #61](https://github.com/deepnoodle-ai/wonton/pull/61)) carries original byte positions through Text and Markdown layouts.
 
 New helpers live in `cmd/dashi`: transcript actions/copy parsing, clipboard transport, bounded dialog views, and inline runtime adaptation. Screen integration follows #103. Do not edit accounting's `FooterText` or retain competing compaction logic. No new module or database format.
 
@@ -13,7 +13,7 @@ New helpers live in `cmd/dashi`: transcript actions/copy parsing, clipboard tran
 
 Keep expansion state keyed by a block's stable identity or transcript index, reset on a transcript reset. `screen.Item` selects expanded rendering; the underlying block retains complete text. The renderer must stop discarding tool result lines before this point. Default collapsed output stays concise and shows how many lines are hidden. Invalidated block sizes update the Wonton viewport without forcing follow mode.
 
-Route viewport shortcuts from `InputField.OnKey` before Wonton consumes them. Return false for ordinary editing keys. Empty-draft Home/End and Ctrl+Home/End navigate; Page Up/Down always navigate outside a dialog. Handle Escape in this order: active dialog, running work, active selection, transcript bottom. Ctrl+L invalidates the terminal from the event loop. Mouse handlers use Wonton hit testing and selection APIs; tool-header clicks toggle expansion without confusing a completed drag with a click. Selected output is copied only by an explicit user gesture or command. Disable capture for native selection with `/mouse`.
+Route viewport shortcuts from `InputField.OnKey` before Wonton consumes them. Return false for ordinary editing keys. Empty-draft Home/End and Ctrl+Home/End navigate; Page Up/Down always navigate outside a dialog. Handle Escape in this order: active dialog, running work, active selection, transcript bottom. Ctrl+L invalidates the terminal from the event loop. Mouse handlers use Wonton hit testing and selection APIs; tool-header clicks toggle expansion without confusing a completed drag with a click. Screen and inline items implement `ViewportSourceItems`; source leaves declare `SourceOffset`, while labels and expansion controls stay unmarked. Selection copies raw original bytes as data. Native output uses printable text. Selected output is copied only by an explicit user gesture or command. Disable capture for native selection with `/mouse`.
 
 Display the viewport's away-from-bottom/new-output state without making incoming blocks jump the position. Test Unicode selection and anchoring with the runtime, not merely `screen.key` calls.
 

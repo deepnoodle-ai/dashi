@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -240,12 +241,35 @@ func (s *screen) Item(i int) tui.View {
 	b := s.tr.Blocks[i]
 	if b.Kind == KindTool && b.Detail != "" {
 		if s.expanded[i] {
-			b.Lines = strings.Split(strings.TrimRight(b.Detail, "\n"), "\n")
+			b.Expanded = true
 		} else {
-			b.Lines = append(append([]string(nil), b.Lines...), fmt.Sprintf("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1))
+			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
+				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Hint())).Gap(0)
 		}
 	}
 	return blockView(b)
+}
+
+// Source implements tui.ViewportSourceItems. Labels and controls are decorations.
+func (s *screen) Source(i int) (string, bool) {
+	if i < 0 || i >= len(s.tr.Blocks) {
+		return "", true
+	}
+	b := s.tr.Blocks[i]
+	switch b.Kind {
+	case KindTool:
+		if s.expanded[i] && b.Detail != "" {
+			return b.Detail, true
+		}
+		return strings.Join(b.Lines, "\n"), true
+	case KindDiff:
+		return strings.Join(b.Lines, "\n"), true
+	case KindPending:
+		if b.Done {
+			return "", true
+		}
+	}
+	return b.Text, true
 }
 
 func (s *screen) drain() {
@@ -577,23 +601,25 @@ func blockView(b Block) tui.View {
 	case KindUser:
 		return tui.Group(
 			tui.Text("❯ ").Fg(tui.ColorCyan).Bold(),
-			tui.Text("%s", b.Text).Wrap().Bold().Flex(1),
+			tui.Text("%s", b.Text).SourceOffset(0).Wrap().Bold().Flex(1),
 		)
 	case KindAssistant:
-		text := strings.TrimSpace(b.Text)
-		if text == "" {
+		text := b.Text
+		if strings.TrimSpace(text) == "" {
 			return nil
 		}
 		return tui.ZStack(
-			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil)),
+			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).SourceOffset(0)),
 			tui.Text("⏺").Fg(tui.ColorCyan),
 		).Align(tui.AlignLeft)
 	case KindTool:
 		return toolView(b)
 	case KindDiff:
 		views := make([]tui.View, 0, len(b.Lines))
+		offset := 0
 		for _, l := range b.Lines {
-			views = append(views, diffLineView("  ", l))
+			views = append(views, tui.PaddingLTRB(2, 0, 0, 0, diffSourceLineView(l, offset)))
+			offset += len(l) + 1
 		}
 		return tui.Stack(views...).Gap(0)
 	case KindSteer:
@@ -604,7 +630,7 @@ func blockView(b Block) tui.View {
 		case SteerNext:
 			label = "queued for the next turn"
 		}
-		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("  ↳ "+label+": ", b.Text, tui.ColorYellow)
 	case KindCompaction:
 		color := tui.ColorCyan
 		if b.State == StateFailed {
@@ -612,20 +638,20 @@ func blockView(b Block) tui.View {
 		} else if b.State == "interrupted" {
 			color = tui.ColorYellow
 		}
-		return tui.Text("  %s", b.Text).Wrap().Fg(color)
+		return sourceLabel("  ", b.Text, color)
 	case KindPending:
 		if b.Done {
 			return nil
 		}
-		return tui.Text("  ↳ pending prompt: %s", b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("  ↳ pending prompt: ", b.Text, tui.ColorYellow)
 	case KindStop:
-		return tui.Text("■ %s", b.Text).Wrap().Fg(tui.ColorYellow)
+		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return tui.Text("%s", b.Text).Hint()
+		return tui.Text("%s", b.Text).SourceOffset(0).Hint()
 	case KindWarning:
-		return tui.Text("! %s", b.Text).Wrap().Warning()
+		return sourceLabel("! ", b.Text, tui.ColorYellow)
 	}
-	return tui.Text("%s", b.Text).Wrap().Hint()
+	return tui.Text("%s", b.Text).SourceOffset(0).Wrap().Hint()
 }
 
 func toolView(b Block) tui.View {
@@ -650,23 +676,39 @@ func toolView(b Block) tui.View {
 	}
 	head := tui.Group(
 		icon,
-		tui.Text(" %s", b.Name).Bold(),
-		tui.Text("  %s", fitArg(b.Arg, 70)).Hint(),
+		tui.Text(" %s", workspace.PrintableText(b.Name)).Bold(),
+		tui.Text("  %s", fitArg(workspace.PrintableText(b.Arg), 70)).Hint(),
 		tui.Spacer(),
 		state,
 	)
+	if b.Expanded && b.Detail != "" {
+		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", b.Detail).SourceOffset(0).Wrap().Hint())).Gap(0)
+	}
 	if len(b.Lines) == 0 {
 		return head
 	}
 	views := []tui.View{head}
+	offset := 0
 	for _, l := range b.Lines {
-		views = append(views, tui.Text("      %s", l).Wrap().Hint())
+		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", l).SourceOffset(offset).Wrap().Hint()))
+		offset += len(l) + 1
 	}
 	return tui.Stack(views...).Gap(0)
 }
 
+func sourceLabel(label, source string, color tui.Color) tui.View {
+	return tui.Group(tui.Text("%s", label).Fg(color),
+		tui.Text("%s", source).SourceOffset(0).Wrap().Fg(color).Flex(1))
+}
+
 func diffLineView(indent, line string) tui.View {
-	t := tui.Text("%s%s", indent, line).Wrap()
+	return tui.PaddingLTRB(len(indent), 0, 0, 0, diffSourceLineView(line, 0))
+}
+
+func diffSourceLineView(line string, offset int) tui.View {
+	t := tui.Text("%s", line).SourceOffset(offset).Wrap()
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return t.Bold()

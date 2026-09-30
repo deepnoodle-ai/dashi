@@ -153,7 +153,8 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 
 func fullBlock(b Block) Block {
 	if b.Kind == KindTool && b.Detail != "" {
-		b.Lines = strings.Split(strings.TrimRight(b.Detail, "\n"), "\n")
+		b.Expanded = true
+		b.Lines = strings.Split(b.Detail, "\n")
 	}
 	return b
 }
@@ -176,7 +177,7 @@ func (s *screen) showNativeScrollback(raw bool) {
 				if view == nil {
 					continue
 				}
-				text = tui.Sprint(view, tui.WithWidth(max(1, s.width)))
+				text, _ = nativeBlockText(b, max(1, s.width))
 			}
 			fmt.Fprintln(s.clipboardOut, text)
 		}

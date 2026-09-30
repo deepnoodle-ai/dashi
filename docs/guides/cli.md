@@ -99,7 +99,9 @@ to add a turn to the last session, for example
 Page Up/Down and the wheel scroll without following new output. End returns
 an empty draft to live output; Ctrl+Home/End navigate with a draft. The
 indicator shows lines below. Drag selects; double/triple clicks select a word
-or line. Escape clears a selection or returns to live output when idle.
+or original logical line, including its whitespace and Markdown syntax. Copying
+selection excludes role labels, display indentation, and wrapped row breaks.
+Escape clears a selection or returns to live output when idle.
 Ctrl+L repaints. Click a tool header to expand its full retained output.
 
 `/copy` copies selected text or lists fenced blocks in the latest answer.

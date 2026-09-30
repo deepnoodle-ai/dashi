@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,7 +19,10 @@ import (
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
-type transcriptCapture struct{ out io.Writer }
+type transcriptCapture struct {
+	out  io.Writer
+	copy func(context.Context, string) (string, error)
+}
 
 func (transcriptCapture) Timestamp() time.Time { return time.Now() }
 
@@ -61,7 +65,12 @@ func (s *transcriptRuntime) View() tui.View {
 }
 func (s *transcriptRuntime) HandleEvent(e tui.Event) []tui.Cmd {
 	if capture, ok := e.(transcriptCapture); ok {
-		s.clipboardOut = capture.out
+		if capture.out != nil {
+			s.clipboardOut = capture.out
+		}
+		if capture.copy != nil {
+			s.clipboardWrite = capture.copy
+		}
 		return nil
 	}
 	if p, ok := e.(transcriptProbe); ok {

@@ -69,6 +69,8 @@ type Block struct {
 	Lines []string
 	// Detail retains complete tool output for expansion and native scrollback.
 	Detail string
+	// Expanded is a display projection; the stored transcript keeps its excerpt.
+	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
 }

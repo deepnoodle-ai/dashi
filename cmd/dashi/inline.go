@@ -73,10 +73,10 @@ func (i *inlineScreen) flushCompleted() {
 		i.generation, i.printed = i.screen.generation, 0
 	}
 	for i.printed < len(i.tr.Blocks) && i.tr.Blocks[i.printed].Done {
-		b := printable(i.tr.Blocks[i.printed])
+		b := printable(fullBlock(i.tr.Blocks[i.printed]))
 		i.printed++ // Print re-renders LiveView synchronously.
-		if view := blockView(b); view != nil {
-			i.runner.Print(view)
+		if text, ok := nativeBlockText(b, max(80, i.width)); ok {
+			i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 		}
 	}
 }
@@ -100,8 +100,8 @@ func (i *inlineScreen) showScrollback(raw bool) {
 		if raw {
 			i.runner.PrintRaw([]byte(strings.ReplaceAll(FormatBlock(b), "\n", "\r\n") + "\r\n"))
 		} else {
-			if view := blockView(b); view != nil {
-				i.runner.Print(view)
+			if text, ok := nativeBlockText(b, max(80, i.width)); ok {
+				i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 			}
 		}
 	}
@@ -126,3 +126,5 @@ func (v inlineItems) Len() int {
 	return len(v.app.tr.Blocks) - min(v.app.printed, len(v.app.tr.Blocks))
 }
 func (v inlineItems) Item(n int) tui.View { return v.app.screen.Item(v.app.printed + n) }
+
+func (v inlineItems) Source(n int) (string, bool) { return v.app.screen.Source(v.app.printed + n) }
