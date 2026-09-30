@@ -36,6 +36,8 @@ type Warning struct {
 // Info describes one loaded skill for a host that lists skills or explains
 // why a name did not run.
 type Info struct {
+	// Path is the defining SKILL.md or command file.
+	Path         string
 	Name         string
 	Description  string
 	ArgumentHint string
@@ -51,7 +53,8 @@ type Info struct {
 // including skills that only a user can invoke. Use Bundle for the model
 // and Expand for the user.
 type Set struct {
-	entries []entry
+	entries    []entry
+	candidates []Info
 }
 
 type entry struct {
@@ -91,6 +94,7 @@ func LoadDirs(dirs ...string) (*Set, []Warning) {
 		found, more := loadDir(dir)
 		warnings = append(warnings, more...)
 		for _, e := range found {
+			set.candidates = append(set.candidates, e.info)
 			key := strings.ToLower(e.info.Name)
 			if seen[key] {
 				continue
@@ -106,6 +110,20 @@ func LoadDirs(dirs ...string) (*Set, []Warning) {
 		)
 	})
 	warnings = append(warnings, set.fitCatalog()...)
+	// Catalog fitting can change the selected skill's model access. Preserve
+	// original shadowed metadata; update only the winning discovery occurrence.
+	updated := map[string]bool{}
+	selected := map[string]Info{}
+	for _, e := range set.entries {
+		selected[strings.ToLower(e.info.Name)] = e.info
+	}
+	for i, candidate := range set.candidates {
+		key := strings.ToLower(candidate.Name)
+		if !updated[key] {
+			set.candidates[i] = selected[key]
+			updated[key] = true
+		}
+	}
 	return set, warnings
 }
 
@@ -144,6 +162,16 @@ func (s *Set) Skills() []Info {
 		infos[i] = e.info
 	}
 	return infos
+}
+
+// Candidates returns valid selected and shadowed definitions in discovery order.
+// The first candidate with each case-insensitive name is selected. The caller
+// owns the returned slice. Instruction bodies are not included.
+func (s *Set) Candidates() []Info {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.candidates)
 }
 
 // Bundle builds the model-facing catalog and load tool from the skills that
@@ -271,9 +299,10 @@ func loadDir(dir string) ([]entry, []Warning) {
 					first,
 				),
 			})
-			continue
+
+		} else {
+			names[key] = path
 		}
-		names[key] = path
 		found = append(found, e)
 	}
 	return found, warnings
@@ -349,6 +378,7 @@ func loadFile(path, base, dir string) (entry, bool, []Warning) {
 	userOK := fm.UserInvocable == nil || *fm.UserInvocable
 	return entry{
 		info: Info{
+			Path:           path,
 			Name:           name,
 			Description:    description,
 			ArgumentHint:   strings.Join(strings.Fields(fm.ArgumentHint), " "),

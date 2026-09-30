@@ -207,6 +207,15 @@ type loadInput struct {
 	Name string `json:"name" description:"Name of the available skill to load"`
 }
 
+// Definitions returns the selected model-eligible definitions in catalog order.
+// The caller owns the slice; modifying it does not change the frozen bundle.
+func (b *Bundle) Definitions() []Definition {
+	if b == nil {
+		return nil
+	}
+	return slices.Clone(b.definitions)
+}
+
 // Catalog returns the short model-facing list. It contains no instruction
 // bodies. The host chooses its context origin and where to place it.
 func (b *Bundle) Catalog() string {
