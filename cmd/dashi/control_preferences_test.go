@@ -78,6 +78,7 @@ func TestChangingControlDoesNotInventUnsetThinking(t *testing.T) {
 
 func TestFailedPreferenceSaveKeepsActiveSelection(t *testing.T) {
 	e, p := routedTestEngine(t, func(string) (int, string) { t.Fatal("selection preview dispatched"); return 0, "" })
+	p.routes.user = p.routes.registry
 	if err := os.WriteFile(p.writer.path, []byte(`{broken`), 0o600); err != nil {
 		t.Fatal(err)
 	}

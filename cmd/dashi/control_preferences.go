@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -72,6 +73,10 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 	}
 	if err := c.eng.saveNextPreferences(); err != nil {
 		c.emit(warnBlock("Selection is active, but session preferences were not saved: %v.", err))
+	}
+	if !selection.persistable(p.routes.user) {
+		c.notice("Selection is saved for this session. Register the same destination binding in user settings to use it across workspaces.")
+		return
 	}
 	if err := p.writer.update(map[string]json.RawMessage{"provider": preferenceJSON(selection.Destination.ID), "model": preferenceJSON(selection.Model)}); err != nil {
 		c.emit(warnBlock("Selection is active, but user preferences were not saved: %v.", err))
@@ -178,4 +183,18 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 	if err := p.writer.update(map[string]json.RawMessage{field: preferenceJSON(saved)}); err != nil {
 		c.emit(warnBlock("Preference is active, but user preferences were not saved: %v.", err))
 	}
+}
+
+// Persist only a binding that another workspace can resolve from user defaults.
+func (s resolvedSelection) persistable(user map[string]configuredDestination) bool {
+	d, ok := user[s.Destination.ID]
+	if !ok || !slices.Contains(d.Definition.Models, s.Model) {
+		return false
+	}
+	wanted, err := s.Destination.fingerprint()
+	if err != nil {
+		return false
+	}
+	known, err := d.fingerprint()
+	return err == nil && wanted == known
 }

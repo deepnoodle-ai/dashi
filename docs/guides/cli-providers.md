@@ -203,3 +203,5 @@ or `::1`. `localhost` and DNS names do not qualify, even when their key variable
 is absent or empty. Trust cannot override transport checks. URLs with userinfo,
 query strings, or fragments are rejected. Credential-bearing custom calls never
 follow redirects.
+
+A successful `/model` switch saves the session's next-turn preferences. It also saves the destination/model pair globally when the identical binding is available from user or built-in settings. Project-only and changed project bindings stay in that session; register their complete binding in user settings for use across workspaces. Missing required credentials stop setup before adapter construction or dispatch. Explicitly keyless custom routes and Ollama remain available without a key.

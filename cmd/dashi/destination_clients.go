@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -90,6 +91,15 @@ func newDestinationClient(d configuredDestination, lookup func(string) (string, 
 	key, err := d.credential(lookup, trusted)
 	if err != nil {
 		return nil, err
+	}
+	// Listing can inspect missing credentials, but a required-key route cannot
+	// construct a dispatch client. Validation and project trust ran first.
+	names := d.BuiltinAliases
+	if len(names) == 0 && d.Definition.CredentialEnv != "" {
+		names = []string{d.Definition.CredentialEnv}
+	}
+	if key == "" && len(names) != 0 && !(d.ID == "ollama" && len(d.BuiltinAliases) != 0) {
+		return nil, fmt.Errorf("destination %q needs a credential in %s", d.ID, strings.Join(names, " or "))
 	}
 	transport := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	var client llm.Client
