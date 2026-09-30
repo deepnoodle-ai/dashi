@@ -574,7 +574,8 @@ type Stop struct {
 	// whatever the host settles or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline or its
 	// interruptions limit; and for a turn limited by cost whose spend
-	// includes a cost that cannot be priced. A turn stopped at its model
+	// includes a cost that cannot be priced; or a token-capped turn whose
+	// usage aggregation is incomplete. A turn stopped at its model
 	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
 	// The runner sets it when it records the stop.
 	//

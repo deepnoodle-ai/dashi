@@ -364,44 +364,44 @@ func (s *replayState) calculateSpend() error {
 		ToolCost: map[string]money.Amount{},
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
-		usage, charge, estimated, counted := attemptSpend(
+		usage, charge, estimated, counted, incomplete := attemptSpend(
 			s.modelIntents[id],
 			s.modelSettlements[id],
 		)
 		if !counted {
 			continue
 		}
+		s.Spend.UsageIncomplete = s.Spend.UsageIncomplete || incomplete
 		if usage != nil {
-			if err := s.Spend.Usage.Add(usage); err != nil {
+			if err := usage.Validate(); err != nil {
 				return err
 			}
+			s.Spend.addUsage(usage)
 		}
 		if estimated {
-			s.Spend.Estimated++
+			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
 		}
 		if charge == nil {
-			s.Spend.CostUnknown++
+			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			continue
 		}
-		if err := addCurrencyCost(
+		s.Spend.Cost = addSpendCost(
+			&s.Spend,
 			s.Spend.Cost,
 			charge.Currency,
 			charge.Total,
-		); err != nil {
-			return err
-		}
+		)
 		capped := s.Budget != nil && s.Budget.MaxCost != nil
 		if charge.Partial() {
-			s.Spend.CostPartial++
+			s.Spend.CostPartial = cappedCount(s.Spend.CostPartial, 1)
 			if s.Spend.UnpricedRequests == nil {
 				s.Spend.UnpricedRequests = map[string]int{}
 			}
 			for key, count := range charge.UnpricedRequests {
-				total, ok := sumCounts(s.Spend.UnpricedRequests[key], count)
-				if !ok {
-					return errors.New("dashi: unpriced request count overflows")
-				}
-				s.Spend.UnpricedRequests[key] = total
+				s.Spend.UnpricedRequests[key] = cappedCount(
+					s.Spend.UnpricedRequests[key],
+					count,
+				)
 			}
 		}
 		// A partial total is a lower bound, so it cannot show that a cap
@@ -409,7 +409,7 @@ func (s *replayState) calculateSpend() error {
 		// charge there is hosted work nothing foresaw.
 		if capped && (charge.Currency != s.Budget.MaxCost.Currency ||
 			charge.Partial()) {
-			s.Spend.CostUnknown++
+			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.Tools)) {
@@ -417,13 +417,12 @@ func (s *replayState) calculateSpend() error {
 		if view.Status == ToolSettled && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
-			if err := addCurrencyCost(
+			s.Spend.ToolCost = addSpendCost(
+				&s.Spend,
 				s.Spend.ToolCost,
 				cost.Currency,
 				cost.Amount,
-			); err != nil {
-				return err
-			}
+			)
 		}
 	}
 	return nil
@@ -1002,6 +1001,9 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("result replacement without an outcome")
 		}
 		s.Tools[v.Call.ID] = v
+		if err := s.checkStillOpen(); err != nil {
+			return err
+		}
 	case StepApprovalSettled:
 		s.awaitingClassification = false
 		if step.Approval == nil {
@@ -1123,16 +1125,16 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.Stop = *step.Stop
 		if step.Stop.Kind == StopLimited {
-			// A cost stop is terminal when spend includes an unknown cost.
+			// Cost and usage completeness determine prefix terminality.
 			if err := s.calculateSpend(); err != nil {
 				return err
 			}
 		}
-		if s.terminal() != step.Stop.Terminal {
+		if s.stopTerminal(*step.Stop) != step.Stop.Terminal {
 			return fmt.Errorf(
 				"stop terminal=%t, but the turn's state gives %t",
 				step.Stop.Terminal,
-				s.terminal(),
+				s.stopTerminal(*step.Stop),
 			)
 		}
 		if step.Stop.Terminal {
@@ -1326,6 +1328,12 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 		len(s.hosted) > 0 {
 		return false
 	}
+	budget := s.Budget
+	if raise != nil {
+		budget = raise
+	}
+	// Continue can reconcile recorded work or record a terminal stop after
+	// a crash. Dispatch guards prevent fresh work with incomplete usage.
 	if s.Interruptions > max(s.Agent.Limits.Interruptions, 0) {
 		return false
 	}
@@ -1347,10 +1355,6 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
 		limit := s.Stop.Limit
-		budget := s.Budget
-		if raise != nil {
-			budget = raise
-		}
 		spent := s.ModelAttempts >= max(s.attemptCap, attempts)
 		switch limit.Kind {
 		case LimitCost, LimitOutputTokens, LimitTotalTokens:
@@ -1407,29 +1411,36 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	return true
 }
 
-// terminal reports whether the current stop ends the turn for good: no
-// settlement or raise lets Continue run it again. It reads only the stop,
-// the agent's fixed limits, and counts that never shrink (model attempts
-// and unknown costs), so a recorded true stays true. A recorded false stays
-// accurate because only model results raise those counts, and replay
-// rejects one that would flip a limited stop (checkStillOpen). Cost stops
-// read Spend, which the caller must have calculated.
+// terminal preserves an accepted ended stop even when late reconciliation
+// corrects its accounting. New stops validate their flag with stopTerminal.
 func (s *replayState) terminal() bool {
-	switch s.Stop.Kind {
+	return s.Stop.Terminal || s.stopTerminal(s.Stop)
+}
+
+// stopTerminal derives terminality from the facts at the proposed stop's
+// prefix. It deliberately ignores the supplied Terminal flag.
+func (s *replayState) stopTerminal(stop Stop) bool {
+	switch stop.Kind {
 	case StopCompleted, StopCanceled:
 		return true
 	case StopLimited:
 	default:
 		return false
 	}
-	if s.Stop.Limit == nil {
+	if stop.Limit == nil {
 		return false
 	}
-	switch s.Stop.Limit.Kind {
+	switch stop.Limit.Kind {
 	case LimitDeadline, LimitInterruptions:
 		return true
 	case LimitCost:
 		return s.Spend.CostUnknown > 0
+	case LimitOutputTokens:
+		return s.Spend.UsageIncomplete && s.Budget != nil &&
+			s.Budget.MaxOutputTokens > 0
+	case LimitTotalTokens:
+		return s.Spend.UsageIncomplete && s.Budget != nil &&
+			s.Budget.MaxTotalTokens > 0
 	}
 	return false
 }
@@ -1459,12 +1470,12 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 	return fmt.Errorf("%w: %s", ErrTurnEnded, s.Stop.Kind)
 }
 
-// checkLateModelStep refuses, before anything is saved, a late model result
+// checkLateResultStep refuses, before anything is saved, a late result
 // that replay would reject because it makes an open limited stop terminal
 // (checkStillOpen). A host recorder need not replay what it commits, so
 // without this the step would be stored and the turn would fail replay from
 // then on. It replays only when the turn rests at an open limited stop.
-func checkLateModelStep(turn Turn, s *replayState, step Step) error {
+func checkLateResultStep(turn Turn, s *replayState, step Step) error {
 	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
 		return nil
 	}
@@ -1474,13 +1485,13 @@ func checkLateModelStep(turn Turn, s *replayState, step Step) error {
 	candidate := turn
 	candidate.Steps = append(slices.Clone(turn.Steps), step)
 	if _, err := replay(candidate); err != nil {
-		return fmt.Errorf("dashi: late model result refused: %w", err)
+		return fmt.Errorf("dashi: late result refused: %w", err)
 	}
 	return nil
 }
 
 // checkStillOpen enforces that a turn becomes non-continuable only through
-// a recorded stop: a late model result after a limited stop that was not
+// a recorded stop: a late result after a limited stop that was not
 // terminal must not make it terminal, or the recorded Terminal would be
 // stale. The runner records uncertain before any budget stop while a model
 // call is unresolved, so no record it writes fails this.
@@ -1491,8 +1502,8 @@ func (s *replayState) checkStillOpen() error {
 	if err := s.calculateSpend(); err != nil {
 		return err
 	}
-	if s.terminal() {
-		return errors.New("late model result ended the turn without a stop")
+	if s.terminal() || incompleteUsageStop(s) != nil {
+		return errors.New("late result ended the turn without a stop")
 	}
 	return nil
 }

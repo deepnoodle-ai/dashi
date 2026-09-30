@@ -106,7 +106,8 @@ type LimitDetail struct {
 	// Limit is the ceiling for a counted kind: tokens, model attempts,
 	// interruptions, or provider pauses, or Unix seconds for a deadline.
 	Limit int64 `json:"limit,omitempty"`
-	// Used is the count already consumed, or the current Unix time.
+	// Used is the count already consumed, or the current Unix time. A token
+	// count is only a lower bound when Spend.UsageIncomplete is true.
 	Used int64 `json:"used,omitempty"`
 	// CostLimit is the cost cap for LimitCost, or a host's money ceiling or
 	// balance for LimitHost.
@@ -158,12 +159,16 @@ func (l LimitDetail) Validate() error {
 // Spend is reconstructed from committed model and tool settlements. MaxCost
 // applies to Cost, while ToolCost is reported separately for host admission.
 // Estimated counts calls without final usage, including partial streamed
-// frames; CostUnknown counts calls whose model charge is unknown, in another
-// currency, or (under a cost cap) partial. CostPartial counts calls whose
-// charge is known except for hosted requests without a price.
+// frames. UsageIncomplete marks failed usage aggregation, independently of
+// monetary uncertainty. Diagnostic counters saturate at math.MaxInt rather
+// than wrapping; saturated counts are lower bounds.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across attempted model calls.
 	Usage llm.Usage `json:"usage"`
+	// UsageIncomplete means derivation or aggregation failed, so Usage is
+	// incomplete. Retained counts cannot enforce a token cap. It does not
+	// mark money uncertain or missing provider reports (see Estimated).
+	UsageIncomplete bool `json:"usage_incomplete,omitempty"`
 	// Cost contains exact model-call charges by currency, without
 	// conversion. It is a lower bound when CostPartial or CostUnknown is
 	// nonzero: unpriced requests and unknown charges are not in it.
@@ -172,15 +177,16 @@ type Spend struct {
 	ToolCost map[string]money.Amount `json:"tool_cost,omitempty"`
 	// Estimated counts calls without complete provider-reported usage.
 	Estimated int `json:"estimated,omitempty"`
-	// CostUnknown counts attempts whose charge cannot enforce a cost cap:
-	// no charge, a charge in another currency than the cap, or, under a cost
-	// cap, a partial charge, whose full amount is unknown.
+	// CostUnknown counts unknown or cap-incompatible charges and monetary
+	// aggregation failures in either category. Old serialized values can
+	// also include unidentified usage failures and remain conservative.
 	CostUnknown int `json:"cost_unknown,omitempty"`
 	// CostPartial counts calls whose known charge is in Cost but whose hosted
 	// requests were partly unpriced.
 	CostPartial int `json:"cost_partial,omitempty"`
 	// UnpricedRequests sums, by meter key, the hosted requests of partial
-	// charges that had no price.
+	// charges that had no price. Counts saturate at math.MaxInt and then give
+	// a lower bound, while CostPartial retains the missing-price evidence.
 	UnpricedRequests map[string]int `json:"unpriced_requests,omitempty"`
 }
 
@@ -196,24 +202,25 @@ func (s Spend) Clone() Spend {
 // Add returns the sum of s and o for reports that cover several turns, such
 // as a parent and its children. Model Cost and ToolCost stay in separate
 // maps, and every counter keeps its own meaning, so a total never hides
-// which part was estimated, unpriced, or unknown. A sum that overflows is
-// not stored; it adds one to CostUnknown instead.
+// which part was estimated, unpriced, or unknown. Failed usage addition
+// retains the prior Usage and sets UsageIncomplete. Monetary overflow keeps
+// the prior currency subtotal and adds one to CostUnknown. Later additions
+// can still fit, so retained subtotals depend on addition order after failure.
 func (s Spend) Add(o Spend) Spend {
 	sum := s.Clone()
 	o = o.Clone()
-	if err := sum.Usage.Add(&o.Usage); err != nil {
-		sum.CostUnknown++
-	}
+	sum.UsageIncomplete = sum.UsageIncomplete || o.UsageIncomplete
+	sum.addUsage(&o.Usage)
 	sum.Cost = addCosts(&sum, sum.Cost, o.Cost)
 	sum.ToolCost = addCosts(&sum, sum.ToolCost, o.ToolCost)
-	sum.Estimated += o.Estimated
-	sum.CostUnknown += o.CostUnknown
-	sum.CostPartial += o.CostPartial
+	sum.Estimated = cappedCount(sum.Estimated, o.Estimated)
+	sum.CostUnknown = cappedCount(sum.CostUnknown, o.CostUnknown)
+	sum.CostPartial = cappedCount(sum.CostPartial, o.CostPartial)
 	for meter, n := range o.UnpricedRequests {
 		if sum.UnpricedRequests == nil {
 			sum.UnpricedRequests = map[string]int{}
 		}
-		sum.UnpricedRequests[meter] += n
+		sum.UnpricedRequests[meter] = cappedCount(sum.UnpricedRequests[meter], n)
 	}
 	return sum
 }
@@ -222,13 +229,29 @@ func addCosts(
 	sum *Spend,
 	into, from map[string]money.Amount,
 ) map[string]money.Amount {
-	if len(from) > 0 && into == nil {
+	for currency, amount := range from {
+		into = addSpendCost(sum, into, currency, amount)
+	}
+	return into
+}
+
+func (s *Spend) addUsage(usage *llm.Usage) {
+	if err := s.Usage.Add(usage); err != nil {
+		s.UsageIncomplete = true
+	}
+}
+
+func addSpendCost(
+	sum *Spend,
+	into map[string]money.Amount,
+	currency string,
+	amount money.Amount,
+) map[string]money.Amount {
+	if into == nil {
 		into = map[string]money.Amount{}
 	}
-	for currency, amount := range from {
-		if err := addCurrencyCost(into, currency, amount); err != nil {
-			sum.CostUnknown++
-		}
+	if err := addCurrencyCost(into, currency, amount); err != nil {
+		sum.CostUnknown = cappedCount(sum.CostUnknown, 1)
 	}
 	return into
 }

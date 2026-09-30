@@ -352,8 +352,12 @@ func FooterText(turn int, model string, v dashi.TurnView) string {
 	}
 	calls := v.ModelAttempts
 	parts = append(parts, fmt.Sprintf("%d model %s", calls, plural(calls, "call")))
-	tokens := v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens
-	parts = append(parts, groupDigits(tokens)+" tokens")
+	if v.Spend.UsageIncomplete {
+		parts = append(parts, "usage incomplete")
+	} else {
+		tokens := v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens
+		parts = append(parts, groupDigits(tokens)+" tokens")
+	}
 	if cost := costText(v.Spend); cost != "" {
 		parts = append(parts, cost)
 	}

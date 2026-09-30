@@ -15,9 +15,10 @@ import (
 //
 // Positive CostPartial and CostUnknown counters appear separately. Either marks
 // model amounts as "at least". CostUnknown also marks tool amounts because it
-// does not identify the affected category or cause. It can include usage-counter
-// overflow even when both cost sums are exact. Usage and unpriced meter details
-// are omitted. Use Spend fields or JSON for machine processing.
+// does not identify the affected category. Old values can include unidentified
+// usage failures. UsageIncomplete appends "usage incomplete" without qualifying
+// money. Usage counts and unpriced meter details are omitted. Use Spend fields
+// or JSON for machine processing.
 func (s Spend) String() string {
 	var sections []string
 	if len(s.Cost) > 0 {
@@ -36,6 +37,9 @@ func (s Spend) String() string {
 	}
 	if s.CostUnknown > 0 {
 		sections = append(sections, "unknown: "+strconv.Itoa(s.CostUnknown))
+	}
+	if s.UsageIncomplete {
+		sections = append(sections, "usage incomplete")
 	}
 	return strings.Join(sections, "; ")
 }

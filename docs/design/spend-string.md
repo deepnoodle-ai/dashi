@@ -24,6 +24,7 @@ The method assembles these sections in order:
 2. `tools: <amounts>` when `ToolCost` has entries.
 3. `partial: N` when `CostPartial` is positive.
 4. `unknown: N` when `CostUnknown` is positive.
+5. `usage incomplete` when `UsageIncomplete` is true.
 
 When both maps lack entries, use `no recorded cost` before any counters.
 Keep explicit zero entries. Do not infer cost from token usage or currency names.
@@ -33,10 +34,9 @@ Prefix tool amounts with `at least` only when `CostUnknown` is positive.
 `Spend.Add` can omit an overflowing sum from either map and increment `CostUnknown`.
 That counter does not identify the affected category. Qualifying both categories avoids displaying an incomplete tool subtotal as complete.
 `CostPartial` alone represents unpriced model requests, so it does not qualify tools.
-`Usage.Add` overflow also increments this counter, even when model and tool sums remain exact.
-The formatter conservatively qualifies both present categories because persisted Spend does not identify the cause.
-Do not introduce fields, alter `Spend.Add`, or reconstruct the counter's cause.
-Separating usage failure from cost uncertainty belongs to [#116](https://github.com/deepnoodle-ai/dashi/issues/116).
+The [accounting spec](spend-usage-accounting.md) supersedes the original usage-overflow contract.
+New usage failures set `UsageIncomplete`; its marker never qualifies exact monetary sums.
+Old positive `CostUnknown` values retain conservative display because their cause cannot be inferred.
 
 Replace cost loops in `examples/tools/main.go` and `examples/hosted_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
 The hosted example keeps its token, hosted-request, and unpriced-meter diagnostics. Remove duplicate unknown and partial counter prose.
@@ -51,7 +51,7 @@ Cover unknown-only, partial-only, overlapping counters, and both category qualif
 Construct an actual tool-cost overflow through `Spend.Add`, rather than setting its counter manually.
 Assert retained exact amounts, the unknown flag, and lower-bound text on both categories.
 Construct an actual usage-only overflow through `Spend.Add`, with otherwise exact model and tool sums.
-Assert both exact monetary sums, unchanged retained usage, `CostUnknown == 1`, and conservative `at least` text on both categories.
+Assert exact monetary sums, unchanged retained usage, `CostUnknown == 0`, and the `usage incomplete` marker without `at least`.
 Check repeated formatting remains stable and preserves Spend maps and usage.
 The runnable example prints mixed model/tool charges and incomplete model costs without provider requests.
 

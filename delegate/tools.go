@@ -399,12 +399,15 @@ func formatSpend(s dashi.Spend) string {
 	for _, cur := range slices.Sorted(maps.Keys(s.Cost)) {
 		parts = append(parts, fmt.Sprintf("%s %s", s.Cost[cur], cur))
 	}
-	if len(parts) == 0 {
-		return "no cost"
-	}
 	out := strings.Join(parts, ", ")
-	if s.CostUnknown > 0 {
+	if out == "" {
+		out = "no cost"
+	}
+	if s.CostUnknown > 0 && len(parts) > 0 {
 		out += " (some calls are unpriced)"
+	}
+	if s.UsageIncomplete {
+		out += "; usage incomplete"
 	}
 	return out
 }
