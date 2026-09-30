@@ -55,8 +55,11 @@ The same request continues to its answer.
   Retained context preserves origin and slot identity.
   Summary prose cannot satisfy an approval, establish verification, or impersonate an operator instruction.
 - [ ] Every applied summary identifies its exact covered facts and records the replacement.
-  Model preparation, replay, subsequent Session context, and resumed execution apply the same replacement.
+  Model preparation, replay, `Session.ProjectedHistory`, and resumed execution apply the same replacement.
   The full inputs, outputs, calls, and results remain in the Turn record for inspection.
+- [ ] `Session.History` retains covered ordinary messages and excludes summary requests and results.
+  `Session.ProjectedHistory` uses the recorded replacements and excludes the summary-generation exchange.
+  After two compactions and reload, both views retain these distinctions and their original message order.
 
 ### UC-2: Configure protection in a Go application
 
@@ -90,7 +93,12 @@ A worker reloads the Turn and continues with the original prior history.
   Continuing never reruns a completed file edit or command merely because its messages were summarized.
 - [ ] An acknowledged summary result survives a crash before application.
   Recovery applies that result once without generating it again.
-  An unknown summary dispatch or commit follows ordinary reconciliation and never triggers an automatic retry.
+- [ ] After an ambiguous recorder acknowledgement, reload authoritative facts before any further dispatch.
+  Do not invent a summary result, application, or new attempt to resolve that write.
+- [ ] A crash after summary intent acknowledgement but before result acknowledgement follows existing model recovery on explicit `Continue`.
+  Since summaries offer no tools, existing safe-repeat rules may admit a new summary attempt.
+  Retain the interrupted attempt, its accounting evidence, and the new attempt's identity and admission checks.
+  The fixture never repeats settled file edits or commands and never treats unknown usage as zero.
 - [ ] Explicit cancellation ends the foreground Turn and summary work.
   An interruption preserves resumable work under existing rules.
   Applied summaries remain applied. Partial summary previews never replace context.
@@ -121,6 +129,8 @@ Dashi stops with the work already performed visible and an actionable explanatio
   Reject silent rewriting of `Continue.History` or a new foreground Turn for the same request.
 - Record summary attempts and applied coverage. Recovery needs facts, and budgets need all charges.
   Reject an unrecorded middleware rewrite or a separate unbounded summarizer.
+- Keep ordinary conversation history distinct from model context.
+  Reject removing covered messages from `Session.History` or exposing summary work as conversation messages.
 - Preserve instructions verbatim and summarize evidence at complete exchanges.
   Reject arbitrary truncation, silent provider-artifact stripping, and transcript repair.
 - Ship proactive protection first. Provider overflow does not establish safe retry.
