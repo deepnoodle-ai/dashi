@@ -53,7 +53,7 @@ Press Ctrl-C while idle with a draft. Read the warning, continue editing, or con
 - [ ] The first idle Ctrl-C preserves the draft and shows “press Ctrl-C again within 2 seconds to exit.” The second idle Ctrl-C within that interval exits. Editing or another action resets confirmation.
 - [ ] When draft, pending prompts, or queued input would be lost, the first notice identifies all affected memory-only input. Confirmation accepts that loss once. Input history is never described as recovery storage.
 - [ ] Ctrl-D deletes the character at the cursor in nonempty input; at the end it leaves the draft intact. With empty input it requests exit and retains existing pending/queued-loss protection. Explicit exit commands retain that protection too.
-- [ ] Running-turn Ctrl-C retains interruption and resumption semantics. It does not arm idle exit. Approval, question, selection, and transcript Escape controls retain slice 1's precedence and meaning.
+- [ ] Running-turn Ctrl-C retains interruption and resumption semantics. It does not arm idle exit. Main-composer Escape first cancels active completion. Otherwise, approval, question, selection, and transcript Escape controls retain slice 1's precedence and meaning.
 
 ## Decisions, boundaries, and dependency
 
