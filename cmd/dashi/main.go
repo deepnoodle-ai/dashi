@@ -113,9 +113,13 @@ func runPrint(
 	if a.wiring.Close != nil {
 		defer a.wiring.Close()
 	}
-	if _, err := a.openSession(cfg.Store, cfg.Dir, o); err != nil {
+	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
+	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
+	}
+	if notice != "" {
+		fmt.Fprintln(stderr, workspace.PrintableText(notice))
 	}
 	res, err := a.eng.Prompt(ctx, o.Print)
 	if err != nil {

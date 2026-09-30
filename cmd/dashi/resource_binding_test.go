@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -18,6 +19,95 @@ func fixtureResourceSkill(t *testing.T, dir, name, body, extra string) string {
 	path := filepath.Join(dir, ".dashi/skills", name, "SKILL.md")
 	putResource(t, path, "---\nname: "+name+"\ndescription: Fixture skill\n"+extra+"---\n"+body)
 	return path
+}
+
+func TestResourceLineApprovalsAllowFollowingCommands(t *testing.T) {
+	var script []reply
+	var input strings.Builder
+	for range 20 {
+		script = append(script, callTool("file", "read_skill_file", `{"skill":"reference","path":"guide.txt"}`), say("read complete"))
+		input.WriteString("read\ny\n/resources\n")
+	}
+	input.WriteString("/quit\n")
+	cfg := testConfig(t, script...)
+	path := fixtureResourceSkill(t, cfg.HomeDir, "reference", "Use guide.txt", "")
+	putResource(t, filepath.Join(filepath.Dir(path), "guide.txt"), "approved-line-body")
+	var out bytes.Buffer
+	ui := newLineUI(&out)
+	a, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.eng.Close()
+	ui.ctrl = a.ctrl
+	if _, err := a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	ui.SetLive()
+	if err := ui.serveLines(strings.NewReader(input.String()), true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "read complete") != 20 {
+		t.Fatalf("line workflow dropped work: %s", out.String())
+	}
+}
+
+func TestResourcePrintStartupNoticeUsesStderr(t *testing.T) {
+	cfg := testConfig(t, say("only answer"))
+	putResource(t, filepath.Join(cfg.Dir, "AGENTS.md"), "private-instruction-body")
+	var out, errOut bytes.Buffer
+	if code := runPrint(t.Context(), cfg, Options{Print: "start", PrintSet: true}, &out, &errOut); code != 0 {
+		t.Fatal(errOut.String())
+	}
+	if out.String() != "only answer\n" || !strings.Contains(errOut.String(), "AGENTS.md") || strings.Contains(errOut.String(), "private-instruction-body") {
+		t.Fatalf("notice boundary stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestResourceLegacyContinuationDoesNotAdoptCurrentHooks(t *testing.T) {
+	saved := adapters
+	adapters = []func(Env) (wiring, error){workspaceWiring}
+	h := newHarnessLimit(t, 1, callTool("list", "list_directory", `{}`), say("legacy continued"), say("new resources"))
+	adapters = saved
+	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "new-resource-instructions")
+	h.input("legacy start")
+	h.app.eng.Close()
+	h.build(Options{Resume: true})
+	h.input("")
+	if strings.Contains(latestWorkspaceInstructions(h.client.inputAt(1)), "new-resource-instructions") {
+		t.Fatal("legacy continuation injected resources")
+	}
+	if _, found, err := turnResourceReference(h.turn(1)); err != nil || found {
+		t.Fatalf("legacy pin=%v/%v", found, err)
+	}
+	h.input("new prompt")
+	if latestWorkspaceInstructions(h.client.inputAt(2)) != "new-resource-instructions" {
+		t.Fatal("new turn failed to adopt resources")
+	}
+}
+
+func TestResourceExternalDefinitionCannotLoadPrivateBytes(t *testing.T) {
+	h := newHarness(t, callTool("load", "load_skill", `{"name":"reference"}`), say("done"))
+	path := filepath.Join(h.dir, ".dashi/skills/reference/SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(t.TempDir(), "secret.md")
+	putResource(t, external, "external-private-canary")
+	if err := os.Symlink(external, path); err != nil {
+		t.Skip(err)
+	}
+	h.input("load reference")
+	if strings.Contains(inputText(h.client.inputAt(1)), "external-private-canary") {
+		t.Fatal("external defining file leaked")
+	}
+	h.ui.mu.Lock()
+	approvals := len(h.ui.approvals)
+	h.ui.mu.Unlock()
+	if approvals != 0 {
+		t.Fatal("invalid defining file reached approval instead of discovery warning")
+	}
+	mustHave(t, h.ui.text(), "cannot read")
 }
 
 func TestResourceApprovalLifetimeAndChangedTarget(t *testing.T) {

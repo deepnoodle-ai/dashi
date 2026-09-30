@@ -19,9 +19,11 @@ func (c *Controller) resources(ctx context.Context) {
 		c.notice("Resource discovery is unavailable.")
 		return
 	}
+	noticeID := "resources:" + dashi.NewID()
+	c.emit(Block{ID: noticeID, Kind: KindNotice, Text: "Loading resources..."})
 	found, err := manager.discover()
 	if err != nil {
-		c.notice("Resources cannot be inspected: %v.", err)
+		c.emit(Block{ID: noticeID, Kind: KindNotice, Text: fmt.Sprintf("Resources cannot be inspected: %v.", err), Done: true})
 		return
 	}
 	var out strings.Builder
@@ -39,10 +41,15 @@ func (c *Controller) resources(ctx context.Context) {
 			fmt.Fprintln(&out, "  This earlier turn has no CLI resource selection.")
 		default:
 			fmt.Fprintf(&out, "  Catalog %s; %d selected skills\n", binding.Reference.CatalogDigest, len(binding.Snapshot.Skills))
+			fmt.Fprintln(&out, "  Instructions are contextual; they grant no tool authority.")
 			for _, source := range binding.Snapshot.InstructionSources {
 				if source.Status == "loaded" {
 					fmt.Fprintf(&out, "  Instructions: %s\n", source.Path)
 				}
+			}
+			for _, source := range binding.Snapshot.Skills {
+				fmt.Fprintf(&out, "  Skill %s (user %t, model %t); source %s\n", source.Info.Name, source.Info.UserInvocable, source.Info.ModelInvocable, source.Info.Path)
+				writeSupportingScope(&out, source)
 			}
 		}
 		fmt.Fprintln(&out, "Discovered resources for the next turn (not applied):")
@@ -55,6 +62,7 @@ func (c *Controller) resources(ctx context.Context) {
 			fmt.Fprintf(&out, "    Target: %s\n", source.Target)
 		}
 	}
+	fmt.Fprintln(&out, "  Instructions are contextual; they grant no tool authority.")
 	fmt.Fprintf(&out, "Skills: %d selected, %d shadowed\n", len(found.Snapshot.Skills), len(found.Candidates)-len(found.Snapshot.Skills))
 	seen := map[string]bool{}
 	for _, info := range found.Candidates {
@@ -65,13 +73,16 @@ func (c *Controller) resources(ctx context.Context) {
 		}
 		seen[key] = true
 		fmt.Fprintf(&out, "  /%s (%s; user %t, model %t) — %s\n", info.Name, status, info.UserInvocable, info.ModelInvocable, resourceTier(manager.workspace, manager.home, info.Path))
+		if builtinCommand(info.Name) {
+			fmt.Fprintln(&out, "    Built-in command wins; custom slash invocation is unavailable.")
+		}
 		fmt.Fprintf(&out, "    Source: %s\n", info.Path)
 		if info.ArgumentHint != "" {
 			fmt.Fprintf(&out, "    Arguments: %s\n", info.ArgumentHint)
 		}
 		for _, source := range found.Snapshot.Skills {
-			if source.Info.Path == info.Path && source.Root != "" && source.Root != info.Dir {
-				fmt.Fprintf(&out, "    Folder target: %s\n", source.Root)
+			if source.Info.Path == info.Path {
+				writeSupportingScope(&out, source)
 			}
 		}
 	}
@@ -88,19 +99,31 @@ func (c *Controller) resources(ctx context.Context) {
 	} else {
 		slices.SortFunc(tools, func(a, b tool.Tool) int { return strings.Compare(a.Definition.Name, b.Definition.Name) })
 		for _, entry := range tools {
-			scope := "registered host tool; workspace approval policy"
-			switch entry.Definition.Name {
-			case "read_file", "list_directory", "glob", "grep", "write_file", "edit_file", "bash", "ask_user":
-				scope = "workspace tools; workspace approval policy"
-			case "load_skill":
-				scope = "CLI skill catalog; host-owned loader"
-			case "read_skill_file":
-				scope = "selected skill folders; exact-call approval"
+			scope := c.eng.cfg.Wiring.Scopes[entry.Definition.Name]
+			if scope == "" {
+				scope = "registered host tool; workspace approval policy"
 			}
 			fmt.Fprintf(&out, "  %s — %s\n", entry.Definition.Name, scope)
 		}
 	}
-	c.emit(Block{Kind: KindNotice, Text: strings.TrimSpace(out.String()), Done: true})
+	c.emit(Block{ID: noticeID, Kind: KindNotice, Text: strings.TrimSpace(out.String()), Done: true})
+}
+
+func writeSupportingScope(out *strings.Builder, source selectedSkillSource) {
+	if source.Root != "" {
+		fmt.Fprintf(out, "    Eligible supporting reads: %s; no write or shell grant\n", source.Root)
+		fmt.Fprintln(out, "    Approval: each call; this run may remember exact canonical arguments only.")
+	} else {
+		fmt.Fprintln(out, "    Supporting reads: unavailable (no selected folder).")
+	}
+}
+
+func builtinCommand(name string) bool {
+	switch strings.ToLower(name) {
+	case "copy", "scrollback", "mouse", "compact", "model", "settings", "effort", "thinking", "temperature", "max-tokens", "new", "sessions", "continue", "queue", "done", "discard", "quit", "exit", "help", "resources":
+		return true
+	}
+	return false
 }
 func resourceTier(dir, home, path string) string {
 	for _, level := range []struct{ base, label string }{{dir, "project"}, {home, "home"}} {
@@ -155,7 +178,7 @@ func (c *Controller) skillCommand(line string, running bool) {
 		return c.eng.promptWithResources(ctx, text, found)
 	}
 	if running {
-		c.wg.Go(func() { _, _ = invoke(c.base) })
+		c.goWork(func() { _, _ = invoke(c.base) })
 		return
 	}
 	c.startRun(invoke)

@@ -119,26 +119,7 @@ func (m *resourceBindingManager) bind(ctx context.Context, id string, create boo
 			return nil, true, err
 		}
 	} else {
-		active, started := false, false
-		for _, step := range turn.Steps {
-			if step.ActiveHooks != nil {
-				for _, name := range step.ActiveHooks.BeforeModel {
-					if name == "cli-resources" {
-						active = true
-					}
-				}
-			}
-			if step.Model != nil || step.Tool != nil {
-				started = true
-				if step.Model != nil {
-					for _, definition := range step.Model.Tools {
-						if definition.Name == "load_skill" || definition.Name == "read_skill_file" {
-							active = true
-						}
-					}
-				}
-			}
-		}
+		active, started := turnResourceActivity(turn)
 		if !active {
 			binding = &resourceBinding{Legacy: true}
 		} else if started {
@@ -345,9 +326,18 @@ func (m *resourceBindingManager) preflight(ctx context.Context, sess *session.Se
 	if found {
 		return m.read(ref, sess)
 	}
-	active, started := false, false
+	active, started := turnResourceActivity(turn)
+	if active && started {
+		return nil, errors.New("resource pin is missing from a started turn")
+	}
+	return nil, nil
+}
+
+func turnResourceActivity(turn dashi.Turn) (active, started bool) {
 	for _, step := range turn.Steps {
-		if step.ActiveHooks != nil {
+		// Continue records today's hooks even for a legacy turn. Only its
+		// original Start establishes resource selection before any intent.
+		if step.Kind == dashi.StepStarted && step.ActiveHooks != nil {
 			for _, name := range step.ActiveHooks.BeforeModel {
 				if name == "cli-resources" {
 					active = true
@@ -365,8 +355,5 @@ func (m *resourceBindingManager) preflight(ctx context.Context, sess *session.Se
 			}
 		}
 	}
-	if active && started {
-		return nil, errors.New("resource pin is missing from a started turn")
-	}
-	return nil, nil
+	return active, started
 }

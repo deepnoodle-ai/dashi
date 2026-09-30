@@ -150,6 +150,39 @@ func TestLoadDirsFollowsSymlinkedFolder(t *testing.T) {
 	}
 }
 
+func TestLoadDirsConfinesDefiningFileLinks(t *testing.T) {
+	for _, kind := range []string{"folder-external", "command-external", "folder-internal"} {
+		t.Run(kind, func(t *testing.T) {
+			root, outside := t.TempDir(), t.TempDir()
+			writeTree(t, outside, map[string]string{"private.md": "private-file-canary"})
+			path := filepath.Join(root, "linked.md")
+			target := filepath.Join(outside, "private.md")
+			if kind != "command-external" {
+				if err := os.Mkdir(filepath.Join(root, "linked"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				path = filepath.Join(root, "linked", "SKILL.md")
+			}
+			if kind == "folder-internal" {
+				writeTree(t, root, map[string]string{"linked/body.txt": "allowed-internal-body"})
+				target = "body.txt"
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Skip(err)
+			}
+			set, warnings := skill.LoadDirs(root)
+			if kind == "folder-internal" {
+				body, ok := set.Expand("linked", "")
+				if !ok || !strings.Contains(body, "allowed-internal-body") || len(warnings) != 0 {
+					t.Fatalf("internal link: %s/%v/%v", body, ok, warnings)
+				}
+			} else if len(set.Skills()) != 0 || len(warnings) == 0 {
+				t.Fatalf("external definition accepted: %v/%v", set.Skills(), warnings)
+			}
+		})
+	}
+}
+
 func TestLoadDirsFlagsControlModelAndUserUse(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{

@@ -138,6 +138,7 @@ func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 			u.mu.Lock()
 			fmt.Fprint(u.out, "Type y, a, or n REASON: ")
 			u.mu.Unlock()
+			u.ctrl.answerPending.Store(false)
 		}
 	}
 }
@@ -186,6 +187,7 @@ func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 			u.mu.Lock()
 			fmt.Fprintf(u.out, "%v\n> ", err)
 			u.mu.Unlock()
+			u.ctrl.answerPending.Store(false)
 		}
 	}
 }

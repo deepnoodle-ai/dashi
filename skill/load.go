@@ -537,11 +537,34 @@ func unquote(v string) string {
 }
 
 func readLimited(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	name := filepath.Base(path)
+	before, err := root.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() {
+		return nil, errors.New("skill definition is not a regular file")
+	}
+	if before.Size() > maxFileBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes", maxFileBytes)
+	}
+	f, err := openDefinition(root, name)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	current, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(before, current) {
+		return nil, errors.New("skill definition changed while opening")
+	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
 	if err != nil {
 		return nil, err
