@@ -1,7 +1,7 @@
 # Edit prompts and discover commands
 
 Status: Approved\
-PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#131](https://github.com/deepnoodle-ai/dashi/pull/131) · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
