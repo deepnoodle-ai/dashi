@@ -87,8 +87,13 @@ Interrupt a tool-using invocation, then run `dashi --resume SESSION_ID --output-
 
 - [ ] SIGINT and SIGTERM stop admission, propagate cancellation, settle owned parent/child work, and release resources.
   Emit the latest recorded result when stdout remains usable. Hard termination cannot promise a final result or effect completion.
-- [ ] Reopen acquires the existing session lock and validates recorded destination, tools, resources, and immutable attachment evidence.
-  Missing credentials, changed bindings, corrupt records, or another owner produce explicit errors. No destination fallback occurs.
+- [ ] Reopen first loads and validates the workspace-scoped records under existing ownership rules.
+  Reporting completed or resolution-required work uses those records only. It requires no current credential, tool binding, MCP startup, or attachment access.
+  Corrupt records or another owner produce explicit errors rather than invented results.
+  Only before continuing or admitting new work, validate its live destination, tools, resources, and immutable attachment evidence.
+  Missing credentials or changed bindings then produce explicit errors. No destination fallback occurs.
+- [ ] Fixture: report completed parent/child work with unavailable credentials, changed tool bindings, and inaccessible attachment storage.
+  JSON and JSONL retain recorded IDs, answers, stops, destinations, and spend. No provider call, MCP process, attachment read, or new Turn occurs.
 - [ ] With no payload, one-shot resume continues only work that existing recovery deems ready/interrupted.
   Already-completed work returns a read-only result without another Turn or call.
   Pending approval, questions, uncertain effects, limits, and terminal stops report their exact target and remedy.
@@ -107,6 +112,10 @@ Interrupt a tool-using invocation, then run `dashi --resume SESSION_ID --output-
 
 The result carries the process exit code separately from each Turn's recorded stop.
 Signal exit takes precedence, then output/persistence failure, then the affected recorded work.
+For mixed recorded stops, choose execution failure before required interaction, then limit, refusal, and cancellation.
+Waiting, uncertain effects, and interruption requiring continuation belong to required interaction when no invocation signal applies.
+For equal rank, prefer the original parent, then notice/child targets in lexical Turn ID, task ID, and call ID order.
+Report every affected stop, identity, and required action. The primary target never replaces or hides the others.
 
 | Code | Observable result |
 | --- | --- |
@@ -118,7 +127,10 @@ Signal exit takes precedence, then output/persistence failure, then the affected
 | 130 / 143 | Invocation interrupted by SIGINT / SIGTERM. Preserve the actual recorded stops and any uncertainty. |
 
 Completed work with a recorded denied call retains its completed stop. The report exposes the denial without inventing a waiting stop.
-Fixtures pin every code, empty input, no stdout contamination, child failure after parent completion, and interrupted reading.
+Fixtures pin every code, empty input, no stdout contamination, and interrupted reading.
+A completed parent with failed and waiting children selects the failed child and code 1 while reporting both children.
+A waiting parent with a failed child also selects the failed child. Equal-rank parent/notice/child stops follow the stable target order.
+Repeated record-only reports select the same primary target and preserve all stops without starting work.
 
 ## Decisions, limits, and success
 
