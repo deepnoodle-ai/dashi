@@ -1,7 +1,7 @@
 # Read, copy, and answer in the terminal
 
-Status: Draft\
-PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-29
+Status: Approved\
+PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
