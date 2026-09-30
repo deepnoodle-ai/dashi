@@ -251,8 +251,8 @@ func (r *Renderer) step(s dashi.Step) []Block {
 		out = append(out, r.activeContextApplied(s)...)
 	}
 	for _, w := range s.Warnings {
-		if w.Code == dashi.WarningActiveCompactionUnavailable {
-			out = append(out, Block{ID: "active-protection:" + s.TurnID, Kind: KindCompaction, State: "unavailable", Text: w.Message, Done: true})
+		if block, ok := activeContextUnavailable(s, w); ok {
+			out = append(out, block)
 			continue
 		}
 		out = append(out, Block{

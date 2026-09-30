@@ -21,7 +21,19 @@ func activeContextProtection(s dashi.Step) []Block {
 		return nil
 	}
 	return []Block{{ID: "active-protection:" + s.TurnID, Kind: KindNotice,
-		Text: fmt.Sprintf("Active-Turn protection: %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(s.Started.ActiveCompactionWindow)), Done: true}}
+		Text: fmt.Sprintf("Active-Turn protection (text-only): %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(s.Started.ActiveCompactionWindow)), Done: true}}
+}
+
+func activeContextUnavailable(s dashi.Step, w dashi.Warning) (Block, bool) {
+	text := w.Message
+	switch w.Code {
+	case dashi.WarningActiveCompactionMediaEstimateUnavailable:
+		text = "Active-Turn protection unavailable for media. Dashi cannot estimate this request's context size. The provider decides whether it fits; cost limits still apply."
+	case dashi.WarningActiveCompactionUnavailable:
+	default:
+		return Block{}, false
+	}
+	return Block{ID: "active-protection:" + s.TurnID, Kind: KindCompaction, State: "unavailable", Text: text, Done: true}, true
 }
 
 func (r *Renderer) isActiveSummary(id string) bool {
