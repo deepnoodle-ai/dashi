@@ -418,8 +418,12 @@ None is counted among the 24 items above.
 - **Hook helpers** (done, #90): `SeedContext` seeds context once per turn,
   `TurnView.HookActed` reads "have I acted in this turn?" from the record, and
   `JoinHooks` takes any `HookSet`, so `JoinHooks(onCall, guard)` works.
-- **LLM-judge tool gate:** investigate a helper like Dive's `PromptToolGate`.
-  #91
+- **LLM-judge tool gate** (#91): investigation resolved with
+  [composition guidance](../docs/guides/approvals.md#using-a-models-advice).
+  Use a separately recorded advisory judge turn and required host approval.
+  The host owns call/digest linkage and any shared budget ledger. No reusable
+  helper is planned without a concrete consumer and reviewed recovery,
+  accounting, and authorization contracts.
 - **MCP example with no setup:** a runnable variant that starts its own stdio
   server. #92
 - **`Spend.String()`**, so examples stop looping over currencies. #93
