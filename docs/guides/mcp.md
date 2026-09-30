@@ -40,6 +40,11 @@ unset variable becomes empty text and adds a warning to the server status.
 start gets the state `failed` in `Status`, and the agent runs without it.
 `Options.ConnectTimeout` limits each server (default 10 seconds).
 
+Set `Options.Dir` to the directory where stdio children should run. Relative
+arguments resolve there. An empty value inherits the host process directory.
+The option does not change the process directory or affect HTTP servers.
+`ExampleOptions_Dir` proves the selected directory with a real child process.
+
 ## Approve project servers
 
 A `.mcp.json` file arrives with a repository, and a stdio entry runs a program.

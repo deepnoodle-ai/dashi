@@ -54,6 +54,12 @@ func New(opts Options) *mcp.Server {
 	s := &state{log: opts.Log}
 	s.server = mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 	s.logf("start")
+	if os.Getenv("TESTSERVER_CWD_TOOL") != "" {
+		s.server.AddTool(&mcp.Tool{Name: "cwd", InputSchema: emptySchema()}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			dir, err := os.Getwd()
+			return text(dir), err
+		})
+	}
 
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name: "echo", Description: "Return the text.",
