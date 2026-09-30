@@ -25,7 +25,7 @@ Dive's unchecked addition supplies no overflow signal. Dashi must retain its str
 
 ## Concepts
 
-- **`Spend.UsageIncomplete`:** a boolean indicating that usage aggregation omitted a contribution because addition failed.
+- **`Spend.UsageIncomplete`:** a boolean indicating incomplete usage because derivation overflowed or aggregation omitted a contribution after addition failed.
   The retained Usage is not a complete total. This differs from `Estimated`, which identifies calls with incomplete provider reports.
 - **`CostUnknown`:** existing conservative monetary uncertainty, including missing charges, incompatible cap currencies, and monetary overflow.
   Older snapshots can also contain unidentified usage failures. Their positive counters remain conservative.
@@ -52,6 +52,11 @@ A developer serializes Spend or records valid settlements, reopens storage, and 
 - [ ] Old JSON with positive `cost_unknown` retains that counter. No reader subtracts, relabels, or infers its cause.
 - [ ] Memory and file recorders preserve individually valid settlement facts when their cumulative usage cannot fit.
 - [ ] Replay exposes incomplete usage and all representable model/tool amounts instead of rejecting solely for cumulative overflow.
+- [ ] Overflow while enriching valid reported usage with inferred hosted-request counts retains the settlement and independent charges.
+  For `Requests[llm.MeterUnreported] == math.MaxInt`, `RequestsFinal == false`, and a declared hosted tool, replay marks usage incomplete.
+  Enrichment discards failed mutations and retains the original reported Usage as a partial contribution. Both recorders preserve the raw fact.
+  Invalid recorded usage remains invalid.
+- [ ] Per-attempt pricing never consumes incomplete derived usage. Without an independent charge, derivation overflow keeps monetary cost unknown.
 - [ ] Monetary aggregation overflow stays conservative during replay. Invalid individual usage, charges, and record structure remain invalid.
 - [ ] Delegated reports carry the flag through child and inclusive totals. Repeated loading and reporting produce the same meanings.
 - [ ] `Spend.String()` appends `usage incomplete` when the flag is true. This flag alone does not qualify money as `at least`.
@@ -75,7 +80,7 @@ A developer runs or continues a turn whose recorded usage aggregation is incompl
   It never directs the host to resume the ended turn.
 - [ ] With only `MaxCost`, usage incompleteness alone does not prevent admission when recorded charges and the next monetary bound are exact.
 - [ ] Unknown, partial, incompatible-currency, and overflowing costs preserve conservative cost-cap behavior.
-- [ ] Uncapped execution can proceed while retaining the visible flag. Estimation and price selection retain their current rules.
+- [ ] Uncapped execution can proceed while retaining the visible flag. Price selection retains its current rules for complete derived usage.
 
 ## Requirements and decisions
 
@@ -86,7 +91,8 @@ A developer runs or continues a turn whose recorded usage aggregation is incompl
 - End a turn when incomplete usage prevents token-cap enforcement. Late settlements may update accounting but cannot revive execution.
   Preserve `NextNone` and existing ended-turn rules. Reject a resumable stop whose later accounting changes could revive an ended turn.
 - Preserve ambiguous `CostUnknown` values unchanged. Reject retroactive guesses that could make old amounts appear exact.
-- Deliberately broaden replay to accept individually valid facts with overflowing aggregates. Reject dropping valid settlements because totals cannot fit.
+- Deliberately broaden replay to accept individually valid facts with overflowing derivations or aggregates.
+  Reject dropping valid settlements because derived counts or totals cannot fit.
   Preserve recorded stop validity, terminal-state rules, nondispatch evidence, and reconciliation safeguards.
 - Update public comments, the budgets guide, affected report guidance, and the formatter's historical overflow description.
   Add a provider-free `Example` showing overflow, exact money, and the public flag.

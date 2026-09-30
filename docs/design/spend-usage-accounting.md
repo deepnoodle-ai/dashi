@@ -19,7 +19,18 @@ Directly constructed invalid usage also fails addition. This report signal never
 
 Replay keeps `validateModelAccounting` and existing tool/record validation before accumulation.
 Each reported Usage and Charge must be valid independently. Invalid individual facts still produce `ErrInvalidTurn`.
-Validate fallback usage before aggregation too. An invalid fallback is an accounting error, not a valid cumulative overflow.
+Validate complete fallback usage before aggregation too. Invalid fallback remains an accounting error. Derivation overflow follows the separate rule below.
+
+Distinguish invalid recorded Usage from overflow while deriving fallback usage, including inferred hosted-request counts in `addUnreportedRequests`.
+Use checked arithmetic throughout derivation. Return a distinct private incompleteness signal from `attemptSpend` rather than constructing wrapped, invalid Usage.
+
+Derive transactionally from a copy. On overflow, discard enrichment mutations and retain the original valid reported Usage as a partial contribution.
+Mark Spend.UsageIncomplete. Without reported Usage, omit the failed derived contribution. The valid recorded fact remains replayable and recordable.
+
+Preserve independent settlement Charge or reported Cost with existing precedence. Existing partial charges retain their monetary uncertainty and unpriced-request evidence.
+Skip fallback pricing when derivation is incomplete. Without an independent charge, preserve CostUnknown instead of estimating a falsely complete or zero charge.
+Do not erase hosted-cost uncertainty merely because its inferred request count cannot fit.
+
 After valid inputs pass, failed usage addition marks incompleteness instead of rejecting the turn.
 Reuse a private accumulation helper across Add and replay to keep arithmetic and flags consistent.
 Keep `attemptSpend` responsible for nondispatch, estimated usage, and per-attempt price selection.
@@ -77,7 +88,7 @@ No new stop field, reason parser, or step version is needed.
 
 Existing valid stops retain their prefix-based validation. Ordinary token-limit stops with complete usage remain resumable.
 Existing cost-terminal rules remain conservative. Never accept an invalid Terminal value merely because its record is old.
-The intentional compatibility expansion accepts individually valid records that previously failed only cumulative arithmetic.
+The intentional compatibility expansion accepts individually valid records that previously failed only derived or cumulative arithmetic.
 It does not reinterpret any recorded stop or repair malformed facts.
 
 Standalone Spend JSON gains one optional field. Missing fields decode false, including old zero values.
@@ -96,6 +107,10 @@ Update public comments, the budgets guide, and the formatter's earlier design/PR
 Use real overflow fixtures with independently valid inputs, including tokens, request meters, modality detail, and both monetary categories.
 Test operand independence, zero/clone propagation, counter saturation, and retained totals in deterministic replay order.
 Round-trip new and old Spend JSON. Round-trip turns through MemoryRecorder and reopened FileRecorder, then compare replayed signals and money.
+Add a valid report with `Requests[llm.MeterUnreported] == math.MaxInt`, `RequestsFinal == false`, and a declared hosted tool.
+Its inferred increment must not wrap or reject the settlement. Assert unchanged reported Usage and retained original counts after discarded enrichment mutations.
+Both recorders and replay retain the raw fact, signal incomplete usage, and preserve independent charges.
+Repeat without an independent charge and with pricing configured. Assert that incomplete derivation bypasses pricing and retains monetary uncertainty.
 Cover delegation totals, a rejected prospective intent, no dispatch under either token cap, and exact cost-only admission.
 Test prefix validation of old stops, reconciliation before stopping, terminal Next, rejected raises, and permitted late accounting correction without revival.
 Malformed individual usage and charges must still fail. Run a provider-free Example, then formatter, vet, build, and root race tests.
