@@ -320,6 +320,9 @@ const (
 	WarningToolNotOffered              WarningCode = "tool_not_offered"
 	WarningActiveCompactionUnavailable WarningCode = "active_compaction_unavailable"
 	WarningActiveCompactionBlocked     WarningCode = "active_compaction_blocked"
+	// WarningActiveCompactionMediaEstimateUnavailable means this request has
+	// prepared media, whose context size cannot be estimated from wire bytes.
+	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
 
 	// The warnings below are a Session's own. No turn records them; they
 	// arrive on Outcome.SessionWarnings.

@@ -181,8 +181,8 @@ agent := dashi.Agent{
 }
 ```
 
-Before ordinary dispatch, the Runner sizes the prepared provider body, including
-verified attachment bytes, tools, hooks, and replay data. At the default 80%
+Before a text-only ordinary dispatch, the Runner sizes the prepared provider body,
+including tools, hooks, and replay data. At the default 80%
 threshold it can summarize complete settled exchanges. It keeps the original
 request, caller-owned history, operator steering, and named context. A summary
 retains the objective, findings, changed files, verification, and remaining work.
@@ -201,6 +201,15 @@ window even after all eligible exchanges are replaced. Preserve the recorded
 work and start a new Turn with a larger model or smaller input. Estimates use
 prepared bytes plus a margin; they do not guarantee provider acceptance. Dashi
 does not compact and retry after a provider overflow.
+
+Prepared image, document, audio, or video content makes active context sizing
+unavailable for that request, including media in history, verified references,
+and tool results. The Turn records `active_compaction_media_estimate_unavailable`
+once. It skips proactive compaction and the byte-based context limit for that
+request. The recorded policy stays active for later text-only requests. Provider
+content preparation and actual window acceptance govern media requests; neither
+preparation nor a known window proves token fit. Cost-risk estimates and budget
+admission stay unchanged, so a cost cap can still refuse the request.
 
 Summary attempts use the same sender, hooks, billing identities, attempts,
 and cumulative budget as ordinary work. `ModelPlan.Purpose`,
@@ -234,3 +243,8 @@ compatible. `ExampleActiveCompactionPolicy` runs the workflow without keys.
 - The optional `compaction` package manages history between Turns. Enable
   `Agent.ActiveCompaction` separately for the current Turn.
 - Token counts for the kept tail and prepared-body sizing are estimates.
+
+A summary hook can add media too. Its request receives the same unavailable-size
+handling. Application still requires strict savings in the prepared replacement:
+large new hook content can reject the summary with `compaction_failed`. The raw
+result and accounting remain recorded, and no replacement is applied.

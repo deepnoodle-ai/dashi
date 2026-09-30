@@ -332,26 +332,14 @@ func TestActiveCompactionHookDeliveryReachesOrdinaryRequest(t *testing.T) {
 		t.Fatal("summary delivery expired before ordinary work")
 	}
 }
-func TestActiveCompactionPreparedHooksAndMediaLimit(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		media bool
-		extra int
-	}{{"provider bytes", false, 9000}, {"hydrated media", true, 0}} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := &activeClient{window: 8000, prepareExtra: tc.extra}
-			a := testAgent()
-			a.ActiveCompaction = &ActiveCompactionPolicy{}
-			a.Settings.MaxTokens = 256
-			start := activeStart(a)
-			if tc.media {
-				start.Input[0].Content = append(start.Input[0].Content, llm.Image(content.Source{Data: []byte(strings.Repeat("x", 9000)), MIMEType: "image/png"}))
-			}
-			out, err := (Runner{Client: c}).Run(t.Context(), Turn{}, start)
-			if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || c.sends != 0 {
-				t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, c.sends, err)
-			}
-		})
+func TestActiveCompactionPreparedBodyHardLimit(t *testing.T) {
+	c := &activeClient{window: 8000, prepareExtra: 9000}
+	a := testAgent()
+	a.ActiveCompaction = &ActiveCompactionPolicy{}
+	a.Settings.MaxTokens = 256
+	out, err := (Runner{Client: c}).Run(t.Context(), Turn{}, activeStart(a))
+	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || c.sends != 0 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, c.sends, err)
 	}
 }
 func TestActiveCompactionRejectsChangedCoverage(t *testing.T) {
@@ -584,14 +572,14 @@ func TestActiveCompactionHydratedReferenceSizing(t *testing.T) {
 	bytes := []byte(strings.Repeat("x", 10000))
 	ref := refFor("evidence", bytes)
 	resolver := &countingResolver{files: map[string][]byte{"evidence": bytes}}
-	c := &activeClient{window: 8000}
+	c := &activeClient{window: 8000, scriptedClient: scriptedClient{results: []llm.Result{final("inspected")}}}
 	a := testAgent()
 	a.Settings.MaxTokens = 256
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	start := activeStart(a)
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "evidence.pdf"))
 	out, err := (Runner{Client: c, ContentResolver: resolver}).Run(t.Context(), Turn{}, start)
-	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || resolver.count() != 1 || c.sends != 0 {
+	if err != nil || out.Stop.Kind != StopCompleted || resolver.count() != 1 || c.sends != 1 || activeMediaWarnings(out.Warnings) != 1 {
 		t.Fatalf("stop=%+v resolutions=%d sends=%d err=%v", out.Stop, resolver.count(), c.sends, err)
 	}
 	if out.Turn.Steps[0].Started.Input[0].Content[1].Block.Document.Source.Ref == nil {
