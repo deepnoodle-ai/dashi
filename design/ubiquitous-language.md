@@ -43,8 +43,12 @@ Session contracts remain proposed; see the
   one process or request, with its runner, steering, and cache. It holds no
   durable state: anything that must outlast it belongs in the turn records. Many
   handles, in many processes, can refer to one session over its life.
-- **Turn outcome**: The returned turn, its **stop** (why execution paused or
-  ended), and recording status.
+- **Turn outcome** (`dashi.Outcome`): The returned turn record and its current
+  view, including its stop, answer, spend, and pending work. The separate Go
+  error reports command and recording failures.
+- **Turn stop** (`dashi.Stop`): Why turn execution paused or ended. `Terminal`
+  says whether the turn can ever run again. `TurnView.Next()` gives the host's
+  next action.
 - **Next action**: What the host does next with a turn, read from its recorded
   stop (`TurnView.Next`): nothing, running (a hook's view), resume, answer,
   continue, raise a budget or the model-attempt limit, or resolve a cause
@@ -128,12 +132,16 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
   attempts; preparation and entering `Send` do not prove dispatch or receipt.
 - **Model capabilities**: Known support and limits, with evidence and a date;
   unknown support remains explicit. **Pricing** is separate cost information.
-- **Model result**: One attempt's message, stop reason, and usage, whether streamed
-  or returned whole.
+- **Model result** (`llm.Result`): One attempt's message, stop reason, and
+  usage, whether streamed or returned whole.
+- **Model stop** (`llm.Stop`): Why one model response ended, with its classified
+  kind and raw provider reason. A model stop alone does not end the turn.
 - **Tool call**: An identified request naming a tool and its requested and
   effective arguments.
-- **Tool outcome**: A call's execution state; **tool output** is its returned
-  content and display text. Uncertainty remains distinct from known failure.
+- **Tool outcome** (`tool.Outcome`): A tool call's execution state and permitted
+  payload. **Tool output** (`tool.Output`) is its returned content and display
+  text. `ToolView.Result()` gives the model-facing projection. An unobserved
+  effect remains uncertain in `ToolView.Status`.
 - **Usage and limits**: Accumulated token and call counts, and bounds on calls,
   concurrency, and time.
 - **Prompt cache**: The provider's store of a request's leading part (tools,
