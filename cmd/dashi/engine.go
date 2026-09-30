@@ -31,6 +31,7 @@ type EngineConfig struct {
 	Store       *session.Store
 	Wiring      wiring
 	Preferences *cliPreferences
+	Resources   *resourceBindingManager
 	// ModelAttempts is the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 	// Emit receives every block the engine produces. It may run on any
@@ -147,8 +148,22 @@ func (e *Engine) Open(s *session.Session) error {
 		Exclusive: true,
 	}
 	// A session with no turn yet is created by its first prompt.
-	if _, err := chat.Open(context.Background()); errors.Is(err, dashi.ErrSessionNotFound) {
+	state, openErr := chat.Open(context.Background())
+	if errors.Is(openErr, dashi.ErrSessionNotFound) {
 		chat.New = true
+	}
+	var resourceLoader dashi.Loader = rec
+	if loader, ok := recorder.(dashi.Loader); ok {
+		resourceLoader = loader
+	}
+	var recoveredResources *resourceBinding
+	if resources := e.cfg.Resources; resources != nil && openErr == nil && state.Last != nil && state.Next != dashi.NextNone {
+		var err error
+		recoveredResources, err = resources.preflight(context.Background(), s, resourceLoader, state.Last.ID)
+		if err != nil {
+			unlock()
+			return fmt.Errorf("open session resources: %w", err)
+		}
 	}
 	e.mu.Lock()
 	e.release()
@@ -160,6 +175,14 @@ func (e *Engine) Open(s *session.Session) error {
 	e.inputMu.Lock()
 	e.pending, e.later = nil, nil
 	e.inputMu.Unlock()
+	if resources := e.cfg.Resources; resources != nil {
+		resources.open(s, resourceLoader)
+		if recoveredResources != nil {
+			resources.mu.Lock()
+			resources.bound[state.Last.ID] = recoveredResources
+			resources.mu.Unlock()
+		}
+	}
 	e.configureChat()
 	return nil
 }
@@ -340,6 +363,9 @@ type Result struct {
 // the last turn did not end, the session closes it first, and the screen
 // says so; while a command of that turn may still be running, it refuses.
 func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
+	return e.promptWithResources(ctx, text, nil)
+}
+func (e *Engine) promptWithResources(ctx context.Context, text string, selection *discoveredResources) (Result, error) {
 	e.inputMu.Lock()
 	if e.pending != nil {
 		e.holdLineLocked(text)
@@ -360,6 +386,17 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 		// acknowledgment (or CommitError) before any retry.
 		if _, err := e.handle().Open(ctx); errors.Is(err, filerecorder.ErrCorrupt) {
 			start.CommandID = ""
+		}
+		if resources := e.cfg.Resources; resources != nil {
+			if selection == nil {
+				var err error
+				selection, err = resources.discover()
+				if err != nil {
+					e.inputMu.Unlock()
+					return Result{}, err
+				}
+			}
+			resources.stage(start.CommandID, selection)
 		}
 		e.pending = &pendingPrompt{start: start}
 	}

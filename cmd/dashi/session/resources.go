@@ -121,8 +121,8 @@ func (st *Store) resourceRoot(s *Session, create bool) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !privateResourceDirectory(before) {
-		return nil, errors.New("session: resource store must be private and cannot be a symlink")
+	if !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("session: resource store must be a directory and cannot be a symlink")
 	}
 	root, err := os.OpenRoot(st.root)
 	if err != nil {

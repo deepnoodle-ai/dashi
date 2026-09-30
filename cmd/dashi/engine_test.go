@@ -592,7 +592,9 @@ func TestDamagedLastTurnIsSkipped(t *testing.T) {
 	}
 	var sent []string
 	for _, m := range h.client.inputAt(2).Messages {
-		sent = append(sent, m.Text())
+		if text := m.Text(); text != "" {
+			sent = append(sent, text)
+		}
 	}
 	if got := strings.Join(sent, "|"); got != "first question|First answer.|third question" {
 		t.Fatalf("the model saw %q", got)

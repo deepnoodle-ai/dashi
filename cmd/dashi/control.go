@@ -382,6 +382,8 @@ func (c *Controller) duringTurnCommand(line string) bool {
 		c.notice("/settings must wait until the turn ends. Submit it again then.")
 	case "/effort", "/thinking", "/temperature", "/max-tokens":
 		c.notice("%s must wait until the turn ends. Submit it again then.", name)
+	case "/resources":
+		c.wg.Go(func() { c.resources(c.base) })
 	case "/help":
 		c.command(line)
 	case "/queue":
@@ -391,6 +393,10 @@ func (c *Controller) duringTurnCommand(line string) bool {
 	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
 		c.notice("%s must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.", name)
 	default:
+		if strings.HasPrefix(name, "/") && !strings.Contains(strings.TrimPrefix(name, "/"), "/") && c.eng.cfg.Resources != nil {
+			c.skillCommand(line, true)
+			return true
+		}
 		return false
 	}
 	return true
@@ -539,10 +545,16 @@ func (c *Controller) command(line string) {
 		c.async(func(ctx context.Context) { c.generationControl(ctx, name, arg) })
 	case "/settings":
 		c.async(func(ctx context.Context) { c.settings(ctx, arg) })
+	case "/resources":
+		if arg != "" {
+			c.notice("Usage: /resources")
+			return
+		}
+		c.async(c.resources)
 	case "/help":
 		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
 	default:
-		c.emit(warnBlock("Unknown command %s. Type /help.", name))
+		c.skillCommand(line, false)
 	}
 }
 
@@ -552,6 +564,7 @@ const helpText = `Commands:
   /mouse         toggle application mouse capture
   /compact       summarize history before the next turn
   /model [destination] [model]  choose the next-turn destination/model
+  /resources     inspect instruction, skill, and tool sources/scopes
   /settings [--json]  inspect next-turn and recorded settings
   /effort LEVEL|omit  set next-turn reasoning effort
   /thinking on|off  request and display public reasoning summaries

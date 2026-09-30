@@ -32,6 +32,7 @@ type selectedSkillSource struct {
 type resourceSnapshot struct {
 	Version            int                   `json:"version"`
 	Instructions       dashi.ContextItem     `json:"instructions"`
+	InstructionSource  dashi.ContextItem     `json:"instruction_source"`
 	InstructionSources []instructionSource   `json:"instruction_sources"`
 	Definitions        []skill.Definition    `json:"definitions"`
 	Skills             []selectedSkillSource `json:"skills"`
@@ -51,6 +52,15 @@ func discoverResources(workspace, home string) (*discoveredResources, error) {
 	selected.Snapshot.Version = 1
 	var warnings []skill.Warning
 	selected.Snapshot.Instructions, selected.Snapshot.InstructionSources, warnings = discoverInstructions(workspace)
+	sourceText := "No workspace instruction source selected."
+	for _, source := range selected.Snapshot.InstructionSources {
+		if source.Status == "loaded" {
+			sourceText = "Workspace instructions from " + source.Path + ":"
+		}
+	}
+	selected.Snapshot.InstructionSource = instructionItem(sourceText)
+	selected.Snapshot.InstructionSource.Name = "workspace-instructions-source"
+	selected.Snapshot.InstructionSource.Message.Content[0].Reminder.Name = "workspace-instructions-source"
 	selected.Warnings = append(selected.Warnings, warnings...)
 	set, warnings := skill.LoadDirs(skill.DefaultDirs(workspace, home)...)
 	selected.Set, selected.Candidates = set, set.Candidates()
@@ -110,22 +120,46 @@ func discoverInstructions(workspace string) (dashi.ContextItem, []instructionSou
 		sources[index].Status = "error"
 		return empty, sources, []skill.Warning{{Path: sources[index].Path, Message: "cannot inspect: " + err.Error()}}
 	}
-	data, err := readBoundedResource(root, name, instructionLimit)
+	before, err := root.Stat(name)
+	if err != nil {
+		sources[index].Status = "error"
+		return empty, sources, []skill.Warning{{Path: sources[index].Path, Message: "instructions omitted: " + err.Error()}}
+	}
+	data, err := readBoundedResource(root, name, instructionLimit, before)
 	if err != nil {
 		sources[index].Status = "error"
 		return empty, sources, []skill.Warning{{Path: sources[index].Path, Message: "instructions omitted: " + err.Error()}}
 	}
 	target, err := filepath.EvalSymlinks(sources[index].Path)
+	if err == nil {
+		var relative string
+		canonicalWorkspace, resolveErr := filepath.EvalSymlinks(workspace)
+		err = resolveErr
+		if err == nil {
+			relative, err = filepath.Rel(canonicalWorkspace, target)
+		}
+		if err == nil && (filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+			err = errors.New("instruction target escapes workspace")
+		}
+		if err == nil {
+			var after os.FileInfo
+			after, err = root.Stat(relative)
+			if err == nil && !os.SameFile(before, after) {
+				err = errors.New("instruction target changed")
+			}
+		}
+	}
 	if err != nil {
 		sources[index].Status = "error"
 		return empty, sources, []skill.Warning{{Path: sources[index].Path, Message: "source changed: " + err.Error()}}
 	}
 	sources[index].Status = "loaded"
 	sources[index].Target = target
-	item := instructionItem("Workspace instructions from " + sources[index].Path + ":")
-	if len(data) > 0 {
-		item.Message.Content = append(item.Message.Content, llm.ReminderMessage(llm.Reminder{Name: "workspace-instructions", Tier: llm.ReminderContextual, Content: string(data)}).Content...)
+	text := string(data)
+	if text == "" {
+		text = "Workspace instruction file is empty."
 	}
+	item := instructionItem(text)
 	sum := sha256.Sum256(append([]byte(sources[index].Path+"\x00"), data...))
 	item.ID = "workspace-instructions-" + hex.EncodeToString(sum[:])
 	return item, sources, nil
@@ -134,10 +168,16 @@ func instructionItem(text string) dashi.ContextItem {
 	sum := sha256.Sum256([]byte(text))
 	return dashi.ContextItem{ID: "workspace-instructions-" + hex.EncodeToString(sum[:]), Name: "workspace-instructions", Origin: dashi.ContextRuntime, Snapshot: true, Message: llm.ReminderMessage(llm.Reminder{Name: "workspace-instructions", Tier: llm.ReminderContextual, Content: text})}
 }
-func readBoundedResource(root *os.Root, path string, limit int) ([]byte, error) {
+func readBoundedResource(root *os.Root, path string, limit int, approved ...os.FileInfo) ([]byte, error) {
 	before, err := root.Stat(path)
 	if err != nil {
 		return nil, err
+	}
+	if len(approved) > 0 {
+		if !os.SameFile(before, approved[0]) {
+			return nil, errors.New("resource changed after approval")
+		}
+		before = approved[0]
 	}
 	if !before.Mode().IsRegular() {
 		return nil, errors.New("not a regular file")
@@ -185,9 +225,9 @@ func (s resourceSnapshot) encode() ([]byte, error) {
 	}
 	return json.Marshal(s)
 }
-func (s resourceSnapshot) validateContent() error {
-	item := s.Instructions
-	if item.ID == "" || item.Name != "workspace-instructions" || item.Origin != dashi.ContextRuntime || !item.Snapshot || item.NextCallOnly || item.Message.Role != llm.RoleUser || item.Message.Source != nil || item.Message.Context != nil || len(item.Message.Content) < 1 || len(item.Message.Content) > 2 {
+
+func validateInstructionItem(item dashi.ContextItem, name string) error {
+	if item.ID == "" || item.Name != name || item.Origin != dashi.ContextRuntime || !item.Snapshot || item.NextCallOnly || item.Message.Role != llm.RoleUser || item.Message.Source != nil || item.Message.Context != nil || len(item.Message.Content) != 1 {
 		return errors.New("invalid contextual workspace instructions")
 	}
 	for _, content := range item.Message.Content {
@@ -197,6 +237,15 @@ func (s resourceSnapshot) validateContent() error {
 		if err := content.Reminder.Validate(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+func (s resourceSnapshot) validateContent() error {
+	if err := validateInstructionItem(s.Instructions, "workspace-instructions"); err != nil {
+		return err
+	}
+	if err := validateInstructionItem(s.InstructionSource, "workspace-instructions-source"); err != nil {
+		return err
 	}
 	selected := map[string]selectedSkillSource{}
 	for _, source := range s.Skills {

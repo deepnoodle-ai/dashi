@@ -17,10 +17,11 @@ func testConfig(t *testing.T, script ...reply) appConfig {
 	store := session.NewStore(t.TempDir())
 	store.DisableSync()
 	return appConfig{
-		Dir:    t.TempDir(),
-		Model:  "fixture",
-		Client: &fakeClient{script: script},
-		Store:  store,
+		Dir:     t.TempDir(),
+		HomeDir: t.TempDir(),
+		Model:   "fixture",
+		Client:  &fakeClient{script: script},
+		Store:   store,
 	}
 }
 

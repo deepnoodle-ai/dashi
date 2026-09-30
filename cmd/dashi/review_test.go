@@ -14,7 +14,7 @@ import (
 )
 
 func (h *harness) config() appConfig {
-	return appConfig{Dir: h.dir, Model: "fixture", Client: h.client, Store: h.store}
+	return appConfig{Dir: h.dir, HomeDir: h.app.eng.cfg.Resources.home, Model: "fixture", Client: h.client, Store: h.store}
 }
 
 // Launching dashi and quitting at once, or running -p, must not hide the

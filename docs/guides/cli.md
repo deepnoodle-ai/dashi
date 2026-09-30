@@ -65,6 +65,7 @@ before discarding them. Recorded summaries can be reopened and continued.
 | `/compact` | Summarize history while idle; leave queued input waiting |
 | `/model [destination model\|model]` | Pick or set a destination/model for the next turn |
 | `/settings [--json]` | Inspect safe next-turn settings and a preparation preview |
+| `/resources` | Inspect selected instructions, skills, and tool access scopes |
 | `/effort LEVEL\|omit` | Set or omit next-turn reasoning effort |
 | `/thinking on\|off` | Request and display public summaries for new turns |
 | `/temperature N\|omit` | Set or omit next-turn temperature |
@@ -79,6 +80,10 @@ before discarding them. Recorded summaries can be reopened and continued.
 | `/help` | Show the commands |
 
 Display commands work during a turn. Mutating commands may request that you retry after the turn ends.
+
+Workspace AGENTS.md takes precedence over CLAUDE.md. Project and home skills
+support `/skill arguments` and progressive model loading. See
+[instructions and skills](cli-resources.md) for discovery, approval, and recovery.
 
 ## Sessions
 

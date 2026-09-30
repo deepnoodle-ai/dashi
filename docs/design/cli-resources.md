@@ -21,7 +21,7 @@ Dependencies flow from CLI adapters to `skill`, `workspace`, and Dashi contracts
 
 ## Discovery and inventory
 
-Load AGENTS.md, otherwise CLAUDE.md, from the selected canonical workspace root. Read at most 64 KiB plus one byte. Reject invalid UTF-8, excess size, and links outside that root. Only absence permits fallback. Return an instruction ContextItem with `Origin: ContextRuntime`, `Name: "workspace-instructions"`, and `Snapshot: true`. Its contextual reminder includes the selected source and body. An explicit “no workspace instructions selected” value clears a prior selection without rewriting history.
+Load AGENTS.md, otherwise CLAUDE.md, from the selected canonical workspace root. Read at most 64 KiB plus one byte. Reject invalid UTF-8, excess size, and links outside that root. Only absence permits fallback. Return separate contextual snapshots named `workspace-instructions-source` and `workspace-instructions`, with `Origin: ContextRuntime` and `Snapshot: true`. Each reminder must be a standalone message; separating source from body preserves the exact 64 KiB body limit. Explicit empty values clear a prior selection without rewriting history.
 
 Discover instructions and call `LoadDirs(DefaultDirs(workspace, home)...)` at startup and before admitting each new user prompt. Rediscover before expanding an idle user slash skill; use that same selection for expansion and turn admission. A queued successor rediscovers at its own admission, after its predecessor ends. Freeze the resulting selection for that turn. Keep the existing skill file/body/catalog bounds and invocation restrictions.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -24,7 +25,8 @@ type wiring struct {
 // Env is what an adapter needs to build its wiring.
 type Env struct {
 	// Dir is the workspace directory.
-	Dir string
+	Dir       string
+	Resources *resourceBindingManager
 	// Approve asks the user about a tool call.
 	Approve ApprovalFunc
 	// Ask asks the user a question in the model's name.
@@ -34,6 +36,7 @@ type Env struct {
 // adapters lists the features that plug into the runner. To wire a feature,
 // add one adapter here.
 var adapters = []func(Env) (wiring, error){
+	resourceWiring,
 	workspaceWiring,
 }
 
@@ -69,7 +72,7 @@ func workspaceWiring(env Env) (wiring, error) {
 	}
 	return wiring{
 		Tools: ws.Tools(opts...),
-		Hooks: ws.Policy(env.Approve).Hooks(),
+		Hooks: ws.Policy(env.Approve, resourcePolicyOptions(env.Resources)...).Hooks(),
 	}, nil
 }
 
@@ -102,6 +105,9 @@ func buildWiring(env Env) (wiring, error) {
 		}
 	}
 	out.Tools = tool.Join(sets...)
+	if _, err := out.Tools.Tools(context.Background()); err != nil {
+		return wiring{}, err
+	}
 	out.Hooks = dashi.JoinHooks(hooks...)
 	out.Close = func() error {
 		var errs []error
@@ -111,4 +117,21 @@ func buildWiring(env Env) (wiring, error) {
 		return errors.Join(errs...)
 	}
 	return out, nil
+}
+
+func resourceWiring(env Env) (wiring, error) {
+	if env.Resources == nil {
+		return wiring{}, nil
+	}
+	tools, err := env.Resources.tools()
+	if err != nil {
+		return wiring{}, err
+	}
+	return wiring{Tools: tools, Hooks: env.Resources.hooks()}, nil
+}
+func resourcePolicyOptions(resources *resourceBindingManager) []workspace.PolicyOption {
+	if resources == nil {
+		return nil
+	}
+	return []workspace.PolicyOption{workspace.TrustTools("load_skill")}
 }
