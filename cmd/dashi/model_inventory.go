@@ -17,7 +17,7 @@ import (
 // and probes no endpoint. Project bindings need trust before key lookup.
 func modelInventory(registry, user map[string]configuredDestination, lookup func(string) (string, bool), availableOnly bool, out io.Writer) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DESTINATION\tMODEL\tAVAILABILITY\tCONTEXT\tOUTPUT\tTOOLS\tREASONING\tEVIDENCE")
+	fmt.Fprintln(w, "DESTINATION\tMODEL\tAVAILABILITY\tCONTEXT\tOUTPUT\tTOOLS\tREASONING\tSUMMARY\tEVIDENCE")
 	for _, id := range slices.Sorted(slices.Values(mapKeys(registry))) {
 		d := registry[id]
 		availability := "needs model registration"
@@ -39,17 +39,18 @@ func modelInventory(registry, user map[string]configuredDestination, lookup func
 			continue
 		}
 		if len(d.Definition.Models) == 0 {
-			fmt.Fprintf(w, "%s\t—\t%s\tunknown\tunknown\tunknown\tunknown\tunknown\n", id, availability)
+			fmt.Fprintf(w, "%s\t—\t%s\tunknown\tunknown\tunknown\tunknown\tunknown\tunknown\n", id, availability)
 		}
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			info, known := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, model)
-			context, output, tools, reasoning, evidence := "unknown", "unknown", "unknown", "unknown", "unknown"
+			context, output, tools, reasoning, summary, evidence := "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"
 			if known {
 				context, output = knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens)
 				tools, reasoning = knownSupport(info.Capabilities.Features[llm.FeatureTools]), knownSupport(info.Capabilities.Features[llm.FeatureReasoningEffort])
+				summary = knownSupport(info.Capabilities.Features[llm.FeatureReasoningSummary])
 				evidence = info.Evidence.Source + " (" + info.Evidence.QualifiedAt.Format("2006-01-02") + ")"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id, model, availability, context, output, tools, reasoning, evidence)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id, model, availability, context, output, tools, reasoning, summary, evidence)
 		}
 	}
 	return w.Flush()

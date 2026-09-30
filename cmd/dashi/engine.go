@@ -535,6 +535,10 @@ func (e *Engine) stream(
 	stopCompaction bool,
 	admission ...*dashi.Agent,
 ) (Result, error) {
+	return e.streamBounded(ctx, events, stopCompaction, false, admission...)
+}
+
+func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, admission ...*dashi.Agent) (Result, error) {
 	renderers := map[string]*Renderer{}
 	renderer := func(id string) *Renderer {
 		r := renderers[id]
@@ -544,6 +548,7 @@ func (e *Engine) stream(
 				if turn, err := loader.Load(ctx, id); err == nil {
 					if view, err := dashi.Replay(turn); err == nil {
 						r.Origin, r.summary = view.Origin, view.Answer
+						r.showReasoning = view.Agent.Settings.ReasoningSummary != nil && *view.Agent.Settings.ReasoningSummary
 					}
 				}
 			}
@@ -569,6 +574,9 @@ func (e *Engine) stream(
 			}
 			res.Outcome, have = *ev.Outcome, true
 			e.settled(renderer(ev.TurnID), *ev.Outcome)
+			if stopOutcome {
+				break
+			}
 			if p := e.cfg.Preferences; p != nil && ev.Outcome.Next() == dashi.NextNone {
 				var next *dashi.Agent
 				if ev.Outcome.Origin == dashi.StartCompaction && len(admission) > 0 {

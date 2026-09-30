@@ -46,6 +46,10 @@ func (u *lineUI) Emit(b Block) {
 		if u.live {
 			return
 		}
+	case KindReasoning:
+		if !b.Done || b.Text == "" {
+			return
+		}
 	case KindAssistant:
 		prev := u.printed[b.ID]
 		switch {
@@ -244,6 +248,10 @@ func (u *printUI) Emit(b Block) {
 	switch b.Kind {
 	case KindPending:
 		if b.Done {
+			return
+		}
+	case KindReasoning:
+		if !b.Done || b.Text == "" {
 			return
 		}
 	case KindUser, KindAssistant:

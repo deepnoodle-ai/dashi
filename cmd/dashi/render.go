@@ -21,6 +21,7 @@ type BlockKind string
 const (
 	KindUser       BlockKind = "user"
 	KindAssistant  BlockKind = "assistant"
+	KindReasoning  BlockKind = "reasoning"
 	KindTool       BlockKind = "tool"
 	KindDiff       BlockKind = "diff"
 	KindSteer      BlockKind = "steer"
@@ -88,9 +89,11 @@ type Renderer struct {
 	// Origin distinguishes an internal summary from ordinary model text.
 	Origin dashi.StartOrigin
 
-	calls   map[string]*callState
-	text    map[string]string
-	summary string
+	calls         map[string]*callState
+	text          map[string]string
+	summary       string
+	showReasoning bool
+	reasoning     map[string]map[summaryPart]string
 }
 
 type callState struct {
@@ -104,11 +107,12 @@ type callState struct {
 // footer shows when the turn does not record its own.
 func NewRenderer(n int, model, dir string) *Renderer {
 	return &Renderer{
-		Turn:  n,
-		Model: model,
-		Dir:   dir,
-		calls: map[string]*callState{},
-		text:  map[string]string{},
+		Turn:      n,
+		Model:     model,
+		Dir:       dir,
+		calls:     map[string]*callState{},
+		text:      map[string]string{},
+		reasoning: map[string]map[summaryPart]string{},
 	}
 }
 
@@ -136,6 +140,9 @@ func (r *Renderer) Event(ev dashi.Event) []Block {
 func (r *Renderer) delta(ev dashi.Event) []Block {
 	if r.Origin == dashi.StartCompaction {
 		return nil
+	}
+	if ev.Delta.Kind == llm.DeltaReasoning && r.showReasoning {
+		return r.reasoningDelta(ev)
 	}
 	if ev.Delta.Kind != llm.DeltaText || ev.Delta.Text == "" {
 		return nil
@@ -185,6 +192,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	switch s.Kind {
 	case dashi.StepStarted:
 		r.Origin = s.Started.Origin
+		r.showReasoning = s.Started.Agent.Settings.ReasoningSummary != nil && *s.Started.Agent.Settings.ReasoningSummary
 		if m := s.Started.Agent.Model; m != "" {
 			r.Model = m
 		}
@@ -199,6 +207,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Done: true,
 		})
 	case dashi.StepModelSettled, dashi.StepModelReconciled:
+		out = append(out, r.reasoningSettled(s)...)
 		out = append(out, r.modelSettled(s)...)
 	case dashi.StepToolDecision:
 		out = append(out, r.toolDecision(s)...)
@@ -533,6 +542,8 @@ func FormatBlock(b Block) string {
 		return "> " + b.Text
 	case KindAssistant:
 		return b.Text
+	case KindReasoning:
+		return "[Reasoning]\n" + b.Text
 	case KindCompaction:
 		return "[" + b.Text + "]"
 	case KindPending:

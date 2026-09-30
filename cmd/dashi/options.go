@@ -160,17 +160,28 @@ func parseArgs(args []string) (Options, error) {
 }
 
 const usage = `Usage: dashi [flags]
+       dashi models [--available]
 
 A terminal coding agent.
 
 Flags:
   -p, --print PROMPT   run one turn without a screen and print the answer
   -c, --resume [ID]    reopen the last session of this directory, or session ID
-      --model NAME     set the model (default gpt-6-luna)
+      --provider ID    choose a configured destination
+      --model NAME     choose an exact registered model ID
+      --api-endpoint URL  override a custom destination endpoint
+      --workspace DIR  use an existing workspace directory
+      --env-file PATH  load an explicit literal environment file
+      --system-prompt TEXT  replace built-in coding guidance
+      --thinking-effort LEVEL|omit  set reasoning effort
+      --show-thinking[=false]  request and display public summaries
+      --temperature N|omit  set or omit sampling temperature
+      --max-tokens N|default  set the output limit
       --yes            approve every tool call (for -p)
       --plain          use line mode instead of the full screen
       --inline         use interactive controls in native terminal scrollback
   -h, --help           show this help
 
-Settings: DASHI_MODEL, ~/.dashi/settings.json, .dashi/settings.json.
+Settings: DASHI_PROVIDER, DASHI_MODEL, matching DASHI_* controls,
+~/.dashi/settings.json, and workspace .dashi/settings.json.
 `

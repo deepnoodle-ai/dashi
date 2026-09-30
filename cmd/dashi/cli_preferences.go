@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
@@ -17,15 +18,17 @@ import (
 // cliPreferences keeps new-turn intent separate from the client driving an
 // existing turn. The Controller changes it only while no turn is running.
 type cliPreferences struct {
-	mu          sync.RWMutex
-	launch      launchPreferences
-	routes      *routeClients
-	client      *turnClient
-	writer      userPreferenceWriter
-	interactive bool
-	ask         AskFunc
-	guidance    string
-	guidanceSet bool
+	mu                 sync.RWMutex
+	launch             launchPreferences
+	routes             *routeClients
+	client             *turnClient
+	writer             userPreferenceWriter
+	interactive        bool
+	ask                AskFunc
+	guidance           string
+	guidanceSet        bool
+	environmentOrigins map[string]string
+	environmentFiles   []string
 }
 
 func (p *cliPreferences) agent() dashi.Agent {
@@ -91,10 +94,21 @@ func (p *cliPreferences) metadata() json.RawMessage {
 		effort = p.launch.Controls.Settings.Reasoning.Effort
 	}
 	// Encode actual JSON values rather than the presence bookkeeping structs.
-	fields := map[string]any{"provider": p.launch.Selection.Destination.ID, "model": p.launch.Selection.Model,
-		"thinking_effort": effort, "show_thinking": p.launch.Controls.ShowThinking, "temperature": nil, "max_tokens": p.launch.Controls.Settings.MaxTokens}
-	if !temperature.Null {
-		fields["temperature"] = temperature.Value
+	fields := map[string]any{"provider": p.launch.Selection.Destination.ID, "model": p.launch.Selection.Model}
+	if p.launch.Controls.Settings.Reasoning != nil || p.launch.Controls.Sources["thinking_effort"].Winning != "" {
+		fields["thinking_effort"] = effort
+	}
+	if p.launch.Controls.Settings.ReasoningSummary != nil || p.launch.Controls.Sources["show_thinking"].Winning != "" {
+		fields["show_thinking"] = p.launch.Controls.ShowThinking
+	}
+	if !temperature.Null || p.launch.Controls.Sources["temperature"].Winning != "" {
+		fields["temperature"] = nil
+		if !temperature.Null {
+			fields["temperature"] = temperature.Value
+		}
+	}
+	if p.launch.Controls.Settings.MaxTokens != 0 || p.launch.Controls.Sources["max_tokens"].Winning != "" {
+		fields["max_tokens"] = p.launch.Controls.Settings.MaxTokens
 	}
 	raw, _ := json.Marshal(fields)
 	return raw
@@ -136,12 +150,32 @@ func (p *cliPreferences) choose(ctx context.Context, provider, model string) (re
 	request, err := client.Prepare(ctx, llm.Input{Model: agent.Model, Settings: settings, Stream: true, Messages: []llm.Message{llm.UserMessage(llm.Text("Preparation preview."))}})
 	return selection, request, err
 }
-func (p *cliPreferences) modelLabels() []string {
-	var labels []string
+
+type modelChoice struct{ provider, model, label, detail string }
+
+func (p *cliPreferences) modelChoices() []modelChoice {
+	var choices []modelChoice
 	for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
-		for _, model := range slices.Sorted(slices.Values(p.routes.registry[id].Definition.Models)) {
-			labels = append(labels, id+" "+model)
+		d := p.routes.registry[id]
+		status := "configured"
+		if !d.trustedBy(p.routes.user) && !p.routes.grants[mustFingerprint(d)] {
+			status = "needs project binding trust"
+		} else if key, err := d.credential(p.routes.lookup, true); err != nil {
+			status = "invalid configuration"
+		} else if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
+			status = "needs credential"
+		}
+		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
+			limits := "context unknown; output unknown; tools unknown; summary unknown; evidence unknown"
+			if info, known := catalog.Lookup(d.Definition.API, d.Definition.Endpoint, model); known {
+				limits = fmt.Sprintf("context %s; output %s; tools %s; summary %s; %s (%s)", knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens), knownSupport(info.Capabilities.Features[llm.FeatureTools]), knownSupport(info.Capabilities.Features[llm.FeatureReasoningSummary]), info.Evidence.Source, info.Evidence.QualifiedAt.Format("2006-01-02"))
+			}
+			choices = append(choices, modelChoice{provider: id, model: model, label: id + " " + model, detail: status + "\n" + strings.ReplaceAll(limits, "; ", "\n")})
 		}
 	}
-	return labels
+	return choices
+}
+func mustFingerprint(d configuredDestination) string {
+	fingerprint, _ := d.fingerprint()
+	return fingerprint
 }

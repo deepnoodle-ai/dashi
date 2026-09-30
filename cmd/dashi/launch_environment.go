@@ -64,3 +64,14 @@ func loadNamedEnvironment(invocationDir string, files []string, lookup func(stri
 	}
 	return origins, nil
 }
+
+func namedEnvironmentPaths(invocation string, files []string) []string {
+	paths := make([]string, len(files))
+	for i, path := range files {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(invocation, path)
+		}
+		paths[i] = filepath.Clean(path)
+	}
+	return paths
+}

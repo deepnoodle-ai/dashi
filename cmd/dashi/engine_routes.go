@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
@@ -48,10 +47,16 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 			if err := p.bind(ctx, last.View.Agent); err != nil {
 				return err
 			}
+			var closing dashi.Command = dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: dashi.CloseReason}
 			if last.View.Output != nil {
-				return errors.New("complete the recorded structured output before changing destinations")
+				cont := dashi.Continue{CommandID: "close:" + last.View.ID}
+				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelAttempts {
+					cont.ModelAttempts = int(limit.Limit) + 1
+				}
+				closing = cont
 			}
-			_, err := e.stream(ctx, e.handle().Stream(ctx, dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: dashi.CloseReason}), false)
+			// A close authorizes only this turn, never queued next-turn work.
+			_, err := e.streamBounded(ctx, e.handle().Stream(ctx, closing), false, true)
 			if err != nil {
 				return err
 			}

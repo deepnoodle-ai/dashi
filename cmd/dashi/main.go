@@ -51,12 +51,12 @@ func run(
 	if o.Models {
 		return runModels(o, home, dir, stdout, stderr)
 	}
+	invocation := dir
 	dir, err = canonicalWorkspace(dir, o.Workspace)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	invocation, _ := workDir()
 	origins, err := loadNamedEnvironment(invocation, o.EnvFiles, os.LookupEnv, os.Setenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -79,7 +79,7 @@ func run(
 		return 1
 	}
 	registry[launch.Selection.Destination.ID] = launch.Selection.Destination
-	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet}
+	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
 	cfg := appConfig{Dir: dir, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
 	if o.PrintSet {
 		return runPrint(ctx, cfg, o, stdout, stderr)

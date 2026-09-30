@@ -106,8 +106,8 @@ type generationTier struct {
 	Source string
 }
 type preferenceProvenance struct {
-	Winning    string
-	Overridden []string
+	Winning    string   `json:"winning"`
+	Overridden []string `json:"overridden,omitempty"`
 }
 type resolvedControls struct {
 	Settings     llm.Settings
@@ -147,6 +147,9 @@ func resolveControls(tiers []generationTier) (resolvedControls, error) {
 	thinking, source := resolveGenerationField(tiers, func(p generationPreferences) preferenceField[bool] { return p.ShowThinking })
 	result.Sources["show_thinking"] = source
 	result.ShowThinking = thinking.Value
+	if thinking.Set {
+		result.Settings.ReasoningSummary = new(thinking.Value)
+	}
 	temperature, source := resolveGenerationField(tiers, func(p generationPreferences) preferenceField[float64] { return p.Temperature })
 	result.Sources["temperature"] = source
 	if temperature.Set && !temperature.Null {

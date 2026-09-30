@@ -89,6 +89,7 @@ type askPrompt struct {
 type pickerState struct {
 	title   string
 	options []string
+	details []string
 	index   int
 	reply   chan int
 }
@@ -218,8 +219,13 @@ func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 
 // Choose implements Chooser.
 func (s *screen) Choose(ctx context.Context, title string, options []string) (int, bool) {
+	return s.ChooseDetailed(ctx, title, options, nil)
+}
+
+// ChooseDetailed keeps model facts readable separately from the option list.
+func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string) (int, bool) {
 	id := s.promptSeq.Add(1)
-	p := &pickerState{title: title, options: options, reply: make(chan int, 1)}
+	p := &pickerState{title: title, options: options, details: details, reply: make(chan int, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
@@ -583,15 +589,22 @@ func shortDir(dir string) string {
 
 func pickerView(p *pickerState) tui.View {
 	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
-	// Show a window of ten options around the cursor.
-	start := max(0, min(p.index-5, len(p.options)-10))
-	end := min(len(p.options), start+10)
+	// Keep room for the selected model's facts on an 80×24 terminal.
+	window := 10
+	if len(p.details) > 0 {
+		window = 5
+	}
+	start := max(0, min(p.index-window/2, len(p.options)-window))
+	end := min(len(p.options), start+window)
 	for i := start; i < end; i++ {
 		if i == p.index {
 			views = append(views, tui.Text(" ❯ %s", p.options[i]).Fg(tui.ColorCyan).Bold())
 		} else {
 			views = append(views, tui.Text("   %s", p.options[i]))
 		}
+	}
+	if p.index >= 0 && p.index < len(p.details) {
+		views = append(views, tui.Divider(), tui.Text("%s\n%s", p.options[p.index], p.details[p.index]).Wrap())
 	}
 	views = append(views, tui.Text(" Up and Down move. Enter picks. Esc cancels.").Hint())
 	return tui.Stack(views...).Gap(0)
@@ -614,6 +627,11 @@ func blockView(b Block) tui.View {
 			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).SourceOffset(0)),
 			tui.Text("⏺").Fg(tui.ColorCyan),
 		).Align(tui.AlignLeft)
+	case KindReasoning:
+		if strings.TrimSpace(b.Text) == "" {
+			return nil
+		}
+		return tui.Stack(tui.Text("  Reasoning").Fg(tui.ColorCyan), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
 	case KindTool:
 		return toolView(b)
 	case KindDiff:

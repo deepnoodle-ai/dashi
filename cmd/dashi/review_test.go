@@ -128,7 +128,7 @@ func TestSlashCommandDuringTurnIsNotSteer(t *testing.T) {
 	h.app.ctrl.Input("/model gpt-6-luna")
 	h.app.ctrl.Input("/etc/hosts looks wrong")
 	text := h.ui.text()
-	mustHave(t, text, "/model runs when the turn ends.")
+	mustHave(t, text, "/model must wait until the turn ends. Submit it again then")
 	if strings.Contains(text, "steer queued: /model") {
 		t.Fatalf("a command became a steer:\n%s", text)
 	}
