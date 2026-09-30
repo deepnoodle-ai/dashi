@@ -68,7 +68,7 @@ func selectionAgent(selection resolvedSelection, controls llm.Settings) (dashi.A
 	if err != nil {
 		return dashi.Agent{}, err
 	}
-	return dashi.Agent{ID: "dashi-cli", Revision: cliRouteRevision + fingerprint, Provider: selection.Destination.ID, API: selection.Destination.Definition.API, Model: selection.Model, Settings: controls}, nil
+	return dashi.Agent{ID: "dashi-cli", Revision: cliRouteRevision + fingerprint, Provider: selection.Destination.ID, API: selection.Destination.Definition.API, Model: selection.Model, Settings: controls, NoInheritedSettings: true}, nil
 }
 
 // turnClient forwards preparation to the bound turn. Each frozen request keeps
