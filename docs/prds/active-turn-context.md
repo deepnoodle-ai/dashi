@@ -70,6 +70,8 @@ The CLI enables it for supported models without asking the user to manage a seco
 - [ ] One optional configuration selects active compaction. No configuration preserves today's library behavior.
   The [technical spec](../design/active-turn-context.md) defines public names and defaults before implementation.
 - [ ] The policy uses the declared model window or an explicit caller cap.
+  A positive caller cap supplies the window when the declared window is unknown.
+  When both are known, the smaller window applies.
   An unknown window without a cap disables protection and produces one actionable warning.
   The CLI identifies this state without displaying a fabricated percentage or safety claim.
 - [ ] Default triggering uses an estimated 80% of the context allowance.

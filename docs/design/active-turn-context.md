@@ -35,11 +35,13 @@ type TurnMessageRef struct {
 ```
 
 Validate nonnegative integers and a finite fraction in `(0, 1]` after default resolution.
-Reject an explicit window below 1024. A positive caller window caps a known smaller model window.
+Reject an explicit window below 1024. Select a positive caller window when `Client.ModelInfo` has no known window.
+When both windows are positive, select the smaller caller cap or model window. Otherwise select the known model window.
 Pin resolved fraction/output defaults in `StartFact.Agent` and its derived revision. Clone the policy pointer on public boundaries.
 Pin the selected window separately in new `StartFact.ActiveCompactionWindow int`; expose it in `TurnView.ActiveCompactionWindow`.
 Preserve `Policy.Window` as the caller's cap, including zero, so inherited catalog windows resolve again for each new Turn.
-`Disabled` prevents inheritance without removing recorded intent. Unknown windows pin zero and warn once with `active_compaction_unavailable`.
+`Disabled` prevents inheritance without removing recorded intent.
+Only when neither window is positive, pin zero, disable protection, and warn once with `active_compaction_unavailable`.
 No changing catalog can alter an accepted Turn's selected window.
 
 ## Request sizing and safe coverage
