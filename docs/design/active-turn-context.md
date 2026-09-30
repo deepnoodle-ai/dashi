@@ -1,7 +1,7 @@
 # Recorded context for an active Turn
 
-Status: In Review · Author: Active-context track · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then implementation. Named PRD re-review returned ready.\
+Status: Accepted · Author: Active-context track · Date: 2026-09-30\
+Workflow: Spec, root checkpoint, then implementation. Named PRD re-review returned ready; root checkpoint approved.\
 Requirements: [Finish a long coding request](../prds/active-turn-context.md)
 
 ## Shape and public API
