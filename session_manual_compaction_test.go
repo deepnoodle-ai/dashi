@@ -252,6 +252,32 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 	}
 }
 
+func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(used("answer", 100), dashitest.Reply("next answer"))
+	s := handle(rec, client)
+	s.New = true
+	sendAll(t, s, "first")
+	s.Compactor = keepLast{limit: 100}
+	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: dashitest.Reject}
+	var outcomes []string
+	for ev, err := range s.Stream(t.Context(), dashi.Say("second")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Outcome != nil {
+			outcomes = append(outcomes, ev.TurnID)
+			if len(ev.Outcome.Turn.Steps) == 0 || ev.Outcome.Origin == dashi.StartCompaction ||
+				!slices.Contains(codes(ev.Outcome.SessionWarnings), dashi.WarningCompactionFailed) {
+				t.Fatalf("unrecorded summary outcome: %+v", ev.Outcome)
+			}
+		}
+	}
+	if !slices.Equal(outcomes, []string{"s-2"}) || len(client.Inputs()) != 2 {
+		t.Fatalf("outcomes=%q calls=%d", outcomes, len(client.Inputs()))
+	}
+}
+
 func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(dashitest.Reply("answer"), llm.Result{

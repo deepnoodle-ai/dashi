@@ -344,7 +344,11 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	if cl.stopped || ctx.Err() != nil {
 		reported = err
 	}
-	cl.report(out, reported)
+	if len(out.Turn.Steps) > 0 {
+		cl.report(out, reported)
+	} else if reported != nil {
+		cl.fail(reported)
+	}
 	cl.warnings = append(cl.warnings, out.SessionWarnings...)
 	if cl.stopped {
 		return false, context.Canceled

@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -116,6 +119,29 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 		}
 	}
 	wait(scr.ready)
+	var frames []string
+	t.Cleanup(func() {
+		if dir := os.Getenv("DASHI_COMPACTION_EVIDENCE"); dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Error(err)
+				return
+			}
+			var cast strings.Builder
+			cast.WriteString("{\"version\":2,\"width\":80,\"height\":24,\"title\":\"Dashi Wonton compaction fixture (slowed checkpoints)\"}\n")
+			for i, frame := range frames {
+				row, err := json.Marshal([]any{i * 3, "o", "\x1b[2J\x1b[H" + frame})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				cast.Write(row)
+				cast.WriteByte('\n')
+			}
+			if err := os.WriteFile(filepath.Join(dir, "runtime-enter.cast"), []byte(cast.String()), 0644); err != nil {
+				t.Error(err)
+			}
+		}
+	})
 	probe := func(want func(runtimeScreenState) bool) runtimeScreenState {
 		t.Helper()
 		deadline := time.NewTimer(3 * time.Second)
@@ -128,6 +154,7 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 			select {
 			case got := <-reply:
 				if want(got) {
+					frames = append(frames, got.text)
 					return got
 				}
 			case <-deadline.C:
