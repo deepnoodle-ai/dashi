@@ -288,6 +288,9 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		}
 		return []tui.Cmd{tui.Focus(e.id)}
 	case inputActionEvent:
+		if e.prompt == 0 && s.promptActive || e.prompt != 0 && (!s.promptActive || e.prompt != s.promptID) {
+			return nil
+		}
 		return s.key(e.key)
 	case transcriptCommandEvent:
 		s.transcriptCommand(e.name, e.arg)
@@ -445,6 +448,15 @@ func (s *screen) submit(value string) {
 	s.ctrl.Input(value)
 }
 
+// A retained field callback must not submit into a replacement dialog.
+func (s *screen) inputSubmit(id uint64) func(string) {
+	return func(value string) {
+		if !s.promptActive && s.promptID == id {
+			s.submit(value)
+		}
+	}
+}
+
 // --- views ---
 
 // View implements tui.Application.
@@ -458,7 +470,7 @@ func (s *screen) View() tui.View {
 func (s *screen) footer() tui.View {
 	views := make([]tui.View, 0, 10)
 	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
-		views = append(views, tui.Text(" %d lines below · End returns to live output", s.vp.LinesBelow).Hint())
+		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Hint())
 	}
 	switch {
 	case s.approval != nil:
@@ -492,7 +504,7 @@ func (s *screen) inputView(mode Mode) tui.View {
 		Multiline(true).
 		MaxHeight(8).
 		OnKey(s.inputKey).
-		OnSubmit(s.submit)
+		OnSubmit(s.inputSubmit(s.promptID))
 }
 
 func (s *screen) inputHint(mode Mode) string {
@@ -648,13 +660,13 @@ func toolView(b Block) tui.View {
 	}
 	views := []tui.View{head}
 	for _, l := range b.Lines {
-		views = append(views, tui.Text("      %s", l).Hint())
+		views = append(views, tui.Text("      %s", l).Wrap().Hint())
 	}
 	return tui.Stack(views...).Gap(0)
 }
 
 func diffLineView(indent, line string) tui.View {
-	t := tui.Text("%s%s", indent, line)
+	t := tui.Text("%s%s", indent, line).Wrap()
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return t.Bold()

@@ -10,8 +10,9 @@ import (
 )
 
 type inputActionEvent struct {
-	at  time.Time
-	key tui.KeyEvent
+	at     time.Time
+	key    tui.KeyEvent
+	prompt uint64
 }
 
 func (e inputActionEvent) Timestamp() time.Time { return e.at }
@@ -45,7 +46,11 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 		e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
 		(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && (e.Ctrl || s.input == "")
 	if consume {
-		s.post(inputActionEvent{at: time.Now(), key: e})
+		id := uint64(0)
+		if s.promptActive {
+			id = s.promptID
+		}
+		s.post(inputActionEvent{at: time.Now(), key: e, prompt: id})
 	}
 	return consume
 }
@@ -129,7 +134,12 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
 		i, line, ok := s.vp.ItemAt(local.X, local.Y)
-		if ok && line == 0 && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && s.tr.Blocks[i].Detail != "" {
+		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && s.tr.Blocks[i].Detail != "" {
+			b := s.tr.Blocks[i]
+			_, previewHeight := tui.Measure(toolView(b), s.vp.Width, 0)
+			if line != 0 && (s.expanded[i] || line < previewHeight) {
+				return
+			}
 			if s.expanded == nil {
 				s.expanded = map[int]bool{}
 			}
