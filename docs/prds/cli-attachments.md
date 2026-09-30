@@ -142,4 +142,4 @@ Required implementation, acceptance, security, and taste reviews must pass befor
 
 Stored snapshots consume disk and contain user-selected evidence. Keep them private and session-scoped; retention/deletion commands remain outside this slice.
 The technical spec must settle atomic blob publication, reference authorization, draft/input integration, and bounded cleanup without deleting submitted content.
-Named independent PRD re-review returned ready. The [technical spec](../design/cli-attachments.md) precedes implementation; root must approve its checkpoint. No product question remains open.
+Named independent PRD re-review returned ready. The [technical spec](../design/cli-attachments.md) checkpoint is approved. Active-context implementation follows requirements [#144](https://github.com/deepnoodle-ai/dashi/pull/144) and precedes shared CLI integration. No product question remains open.
