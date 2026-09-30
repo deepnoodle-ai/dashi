@@ -39,6 +39,7 @@ func (p *cliPreferences) agent() dashi.Agent {
 	raw, _ := json.Marshal(agent)
 	var owned dashi.Agent
 	_ = json.Unmarshal(raw, &owned)
+	owned.ActiveCompaction = &dashi.ActiveCompactionPolicy{}
 	return owned
 }
 func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.Client, error) {

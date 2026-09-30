@@ -534,10 +534,11 @@ func (e *Engine) agent() dashi.Agent {
 		return agent
 	}
 	return dashi.Agent{
-		ID:           "dashi-cli",
-		Model:        e.model,
-		Instructions: systemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions),
-		Limits:       dashi.Limits{ModelAttempts: e.cfg.ModelAttempts},
+		ID:               "dashi-cli",
+		Model:            e.model,
+		Instructions:     systemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions),
+		Limits:           dashi.Limits{ModelAttempts: e.cfg.ModelAttempts},
+		ActiveCompaction: &dashi.ActiveCompactionPolicy{},
 	}
 }
 
@@ -715,6 +716,9 @@ func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	}
 	if out.Origin == dashi.StartCompaction {
 		e.cfg.Emit(r.compactionOutcome(out.TurnView))
+	}
+	for _, b := range r.activeContextStopped(out.Stop) {
+		e.cfg.Emit(b)
 	}
 	r.Model = turnModel(out.Turn, r.Model)
 	e.cfg.Emit(r.Footer(out.TurnView))
