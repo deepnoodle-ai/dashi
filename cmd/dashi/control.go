@@ -170,8 +170,9 @@ func (c *Controller) Approve(
 
 // Ask is the AskFunc the wiring uses.
 func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {
+	previousMode := c.Mode()
 	c.setMode(ModeApproval)
-	defer c.setMode(ModeRunning)
+	defer c.setMode(previousMode)
 	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
@@ -263,7 +264,7 @@ func (c *Controller) Interrupt() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch c.mode {
-	case ModeRunning:
+	case ModeRunning, ModeCommand:
 		if c.cancel != nil {
 			c.cancel()
 		}
@@ -372,11 +373,15 @@ func (c *Controller) QuitDuringRun(action string) {
 }
 
 // duringTurnCommand handles a line that names a slash command while a turn
-// runs. The line is not a steer. /help and /queue run now; the others wait
-// for the end of the turn. It reports whether the line was a command.
+// runs. The line is not a steer. /help and /queue run now; other commands
+// require resubmission after the turn ends. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
 	switch name {
+	case "/settings":
+		c.notice("/settings must wait until the turn ends. Submit it again then.")
+	case "/effort", "/thinking", "/temperature", "/max-tokens":
+		c.notice("%s must wait until the turn ends. Submit it again then.", name)
 	case "/help":
 		c.command(line)
 	case "/queue":
@@ -384,7 +389,7 @@ func (c *Controller) duringTurnCommand(line string) bool {
 	case "/compact":
 		c.notice("/compact must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.")
 	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
-		c.notice("%s runs when the turn ends. Press Ctrl-C to stop the turn.", name)
+		c.notice("%s must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.", name)
 	default:
 		return false
 	}
@@ -530,6 +535,10 @@ func (c *Controller) command(line string) {
 			return
 		}
 		c.async(c.sessions)
+	case "/effort", "/thinking", "/temperature", "/max-tokens":
+		c.async(func(ctx context.Context) { c.generationControl(ctx, name, arg) })
+	case "/settings":
+		c.async(func(ctx context.Context) { c.settings(ctx, arg) })
 	case "/help":
 		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
 	default:
@@ -542,7 +551,12 @@ const helpText = `Commands:
   /scrollback [raw]  inspect complete output in native scrollback
   /mouse         toggle application mouse capture
   /compact       summarize history before the next turn
-  /model [name]  set the model, or pick one
+  /model [destination] [model]  choose the next-turn destination/model
+  /settings [--json]  inspect next-turn and recorded settings
+  /effort LEVEL|omit  set next-turn reasoning effort
+  /thinking on|off  request and display public reasoning summaries
+  /temperature N|omit  set or omit sampling temperature
+  /max-tokens N|default  set the next-turn output limit
   /new           start a new session
   /sessions      list sessions for this directory
   /continue      go on after a model-call limit stop
@@ -554,10 +568,23 @@ While a turn runs, a line is a steer. Start it with ! to cut the model call.
 
 // async runs fn in the command mode.
 func (c *Controller) async(fn func(context.Context)) {
-	c.setMode(ModeCommand)
+	ctx, cancel := context.WithCancel(c.base)
+	c.mu.Lock()
+	c.mode, c.cancel = ModeCommand, cancel
+	c.mu.Unlock()
 	c.wg.Go(func() {
-		defer c.setMode(ModeIdle)
-		fn(c.base)
+		defer func() {
+			cancel()
+			c.mu.Lock()
+			c.mode, c.cancel = ModeIdle, nil
+			quit, action := c.quit, c.quitAction
+			c.quit, c.quitAction = false, ""
+			c.mu.Unlock()
+			if quit && (action == "" || !c.keepQueued(action)) {
+				c.ui.Quit()
+			}
+		}()
+		fn(ctx)
 	})
 }
 
@@ -603,6 +630,10 @@ func (c *Controller) newSession(ctx context.Context) {
 }
 
 func (c *Controller) model(ctx context.Context, name string) {
+	if p := c.eng.cfg.Preferences; p != nil {
+		c.destinationModel(ctx, name, p)
+		return
+	}
 	models := modelNames()
 	if name == "" {
 		idx, ok := c.choose(ctx, "Model", models)
@@ -651,11 +682,36 @@ func (c *Controller) openSession(id string) {
 		c.emit(warnBlock("%v.", err))
 		return
 	}
+	var restored *launchPreferences
+	if p := c.eng.cfg.Preferences; p != nil {
+		saved, err := reopenedPreferences(s.NextTurn, s.Model)
+		if err != nil {
+			c.emit(warnBlock("Session preferences cannot be read: %v.", err))
+			return
+		}
+		candidate, err := p.selectedSessionPreferences(saved)
+		if err != nil {
+			c.emit(warnBlock("Session preferences cannot be selected: %v.", err))
+			return
+		}
+		restored = &candidate
+	}
 	if err := c.eng.Open(s); err != nil {
 		c.emit(warnBlock("%v.", err))
 		return
 	}
-	if s.Model != "" {
+	if restored != nil {
+		p := c.eng.cfg.Preferences
+		p.mu.Lock()
+		p.launch = *restored
+		p.mu.Unlock()
+		// Opening a session changes the displayed next-turn model without writing
+		// user settings or rewriting the selected session's saved defaults.
+		c.eng.mu.Lock()
+		c.eng.model = restored.Selection.Model
+		c.eng.mu.Unlock()
+	}
+	if s.Model != "" && c.eng.cfg.Preferences == nil {
 		c.eng.SetModel(s.Model)
 	}
 	c.ui.Reset()

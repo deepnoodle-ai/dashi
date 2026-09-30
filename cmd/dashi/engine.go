@@ -25,11 +25,12 @@ const defaultModelAttempts = 40
 // EngineConfig holds what an Engine needs.
 type EngineConfig struct {
 	// Dir is the workspace directory, absolute.
-	Dir    string
-	Client llm.Client
-	Model  string
-	Store  *session.Store
-	Wiring wiring
+	Dir         string
+	Client      llm.Client
+	Model       string
+	Store       *session.Store
+	Wiring      wiring
+	Preferences *cliPreferences
 	// ModelAttempts is the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 	// Emit receives every block the engine produces. It may run on any
@@ -401,6 +402,9 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 func (e *Engine) continueLast(ctx context.Context, cmd dashi.Continue, last *LastTurn) (Result, error) {
 	if last != nil && last.View.Origin == dashi.StartCompaction {
 		chat := e.configureChat()
+		if err := e.bindCommand(ctx, cmd); err != nil {
+			return Result{}, err
+		}
 		return e.stream(ctx, chat.Stream(ctx, cmd), true)
 	}
 	return e.run(ctx, cmd)
@@ -492,6 +496,16 @@ func (e *Engine) Queue(text string) error {
 // carries the rest forward. Continue and Cancel run with the agent the turn
 // recorded. The caller holds e.mu.
 func (e *Engine) agent() dashi.Agent {
+	if p := e.cfg.Preferences; p != nil {
+		agent := p.agent()
+		guidance := ""
+		if p.guidanceSet {
+			guidance = p.guidance
+		}
+		agent.Instructions = composedSystemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions, guidance, p.guidanceSet)
+		agent.Limits = dashi.Limits{ModelAttempts: e.cfg.ModelAttempts}
+		return agent
+	}
 	return dashi.Agent{
 		ID:           "dashi-cli",
 		Model:        e.model,
@@ -503,6 +517,15 @@ func (e *Engine) agent() dashi.Agent {
 // run streams one command, and the turns it leads to, as blocks.
 func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 	chat := e.configureChat()
+	if err := e.bindCommand(ctx, cmd); err != nil {
+		return Result{}, err
+	}
+	if start, ok := cmd.(dashi.Start); ok {
+		if e.cfg.Preferences != nil {
+			chat.Compactor = e.routeCompactor(start.Agent)
+		}
+		return e.stream(ctx, chat.Stream(ctx, cmd), false, &start.Agent)
+	}
 	return e.stream(ctx, chat.Stream(ctx, cmd), false)
 }
 
@@ -510,7 +533,12 @@ func (e *Engine) stream(
 	ctx context.Context,
 	events iter.Seq2[dashi.Event, error],
 	stopCompaction bool,
+	admission ...*dashi.Agent,
 ) (Result, error) {
+	return e.streamBounded(ctx, events, stopCompaction, false, admission...)
+}
+
+func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, admission ...*dashi.Agent) (Result, error) {
 	renderers := map[string]*Renderer{}
 	renderer := func(id string) *Renderer {
 		r := renderers[id]
@@ -520,6 +548,7 @@ func (e *Engine) stream(
 				if turn, err := loader.Load(ctx, id); err == nil {
 					if view, err := dashi.Replay(turn); err == nil {
 						r.Origin, r.summary = view.Origin, view.Answer
+						r.showReasoning = view.Agent.Settings.ReasoningSummary != nil && *view.Agent.Settings.ReasoningSummary
 					}
 				}
 			}
@@ -545,6 +574,25 @@ func (e *Engine) stream(
 			}
 			res.Outcome, have = *ev.Outcome, true
 			e.settled(renderer(ev.TurnID), *ev.Outcome)
+			if stopOutcome {
+				break
+			}
+			if p := e.cfg.Preferences; p != nil && ev.Outcome.Next() == dashi.NextNone {
+				var next *dashi.Agent
+				if ev.Outcome.Origin == dashi.StartCompaction && len(admission) > 0 {
+					next = admission[0]
+				}
+				if ev.Outcome.Origin != dashi.StartCompaction && e.Queued() > 0 {
+					agent := p.agent()
+					next = &agent
+				}
+				if next != nil {
+					if err := p.bind(ctx, *next); err != nil {
+						runErr = err
+						break
+					}
+				}
+			}
 			if stopCompaction && ev.Outcome.Origin == dashi.StartCompaction {
 				break
 			}
@@ -555,6 +603,12 @@ func (e *Engine) stream(
 		}
 		r := renderer(ev.TurnID)
 		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+			if p := e.cfg.Preferences; p != nil {
+				if err := p.bind(ctx, ev.Step.Started.Agent); err != nil {
+					runErr = err
+					break
+				}
+			}
 			if ev.Step.Started.Origin == dashi.StartCompaction {
 				e.inputMu.Lock()
 				if e.pending != nil {
@@ -702,6 +756,9 @@ func (e *Engine) record(s *dashi.Step) error {
 		)
 	}
 	e.sess.Model = e.model
+	if e.cfg.Preferences != nil {
+		e.sess.NextTurn = e.cfg.Preferences.metadata()
+	}
 	return e.cfg.Store.Save(e.sess)
 }
 
@@ -784,4 +841,15 @@ func systemPrompt(dir, extra string) string {
 		p += "\n\n" + extra
 	}
 	return p
+}
+
+func composedSystemPrompt(dir, extra, guidance string, custom bool) string {
+	if !custom {
+		return systemPrompt(dir, extra)
+	}
+	text := guidance + "\n\nWorkspace: " + dir
+	if extra != "" {
+		text += "\n\n" + extra
+	}
+	return text
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -237,7 +238,7 @@ func TestParseArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args)
-		if err != nil || got != tt.want {
+		if err != nil || !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("parseArgs(%v)=%+v, %v; want %+v", tt.args, got, err, tt.want)
 		}
 	}
@@ -265,7 +266,7 @@ func TestModelChoiceOrder(t *testing.T) {
 		{"", nil, Settings{}, "gpt-6-luna"},
 	}
 	for _, tt := range tests {
-		if got := chooseModel(tt.flag, env(tt.env), tt.s); got != tt.want {
+		if got := chooseModel(tt.flag, env(tt.env), tt.s); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("got %q, want %q", got, tt.want)
 		}
 	}

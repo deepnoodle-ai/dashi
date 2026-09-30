@@ -15,10 +15,11 @@ import (
 
 // appConfig holds what buildApp needs.
 type appConfig struct {
-	Dir    string
-	Model  string
-	Client llm.Client
-	Store  *session.Store
+	Dir         string
+	Model       string
+	Client      llm.Client
+	Store       *session.Store
+	Preferences *cliPreferences
 	// ModelAttempts overrides the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 
@@ -57,8 +58,12 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { emitToUI(ui, b) },
 		recorder:      cfg.recorder,
+		Preferences:   cfg.Preferences,
 	})
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
+	if cfg.Preferences != nil {
+		cfg.Preferences.ask = ctrl.Ask
+	}
 	return &app{eng: eng, ctrl: ctrl, wiring: w}, nil
 }
 
@@ -88,7 +93,7 @@ func (a *app) openSession(
 		if err != nil {
 			return "", err
 		}
-	} else if s.Model != "" && o.Model == "" && os.Getenv("DASHI_MODEL") == "" {
+	} else if a.eng.cfg.Preferences == nil && s.Model != "" && o.Model == "" && os.Getenv("DASHI_MODEL") == "" {
 		a.eng.SetModel(s.Model)
 	}
 	if err := a.eng.Open(s); err != nil {

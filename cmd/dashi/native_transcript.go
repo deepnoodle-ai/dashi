@@ -15,7 +15,7 @@ func nativeBlockText(b Block, width int) (string, bool) {
 	if view == nil {
 		return "", false
 	}
-	if b.Kind != KindAssistant {
+	if b.Kind != KindAssistant && b.Kind != KindReasoning {
 		return tui.Sprint(view, tui.WithWidth(max(1, width))), true
 	}
 	md, err := tui.NewMarkdownRenderer().WithMaxWidth(max(1, width-2)).Render(b.Text)
@@ -23,6 +23,9 @@ func nativeBlockText(b Block, width int) (string, bool) {
 		return tui.Sprint(view, tui.WithWidth(max(1, width))), true
 	}
 	var out strings.Builder
+	if b.Kind == KindReasoning {
+		out.WriteString("  Reasoning\n")
+	}
 	for n, line := range md.Lines {
 		if n > 0 {
 			out.WriteByte('\n')

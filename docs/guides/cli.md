@@ -15,10 +15,13 @@ cd ~/your/repo
 dashi
 ```
 
-The default model is `gpt-6-luna`. To change it, use `--model NAME`, the
-`DASHI_MODEL` variable, or `"model"` in `~/.dashi/settings.json`. A
-`.dashi/settings.json` file in the repository overrides the user file.
-`/model` changes the model for the next turn.
+Use `dashi models --available` to list configured destinations and exact model
+IDs. Choose a pair with `--provider ID --model NAME`, or use `/model` for the
+next turn. With no saved selection, Dashi detects configured vendor keys; its
+fallback is OpenAI's `gpt-6-luna`. See [providers and next-turn settings](cli-providers.md)
+for registration, precedence, generation controls, environment files, and trust.
+`--workspace DIR` selects an existing workspace without changing your shell's
+directory.
 
 ## What you can do
 
@@ -60,7 +63,12 @@ before discarding them. Recorded summaries can be reopened and continued.
 | `/scrollback [raw]` | Inspect complete output in native terminal scrollback |
 | `/mouse` | Toggle application mouse capture for native selection |
 | `/compact` | Summarize history while idle; leave queued input waiting |
-| `/model [name]` | Pick a model, or set it for the next turn |
+| `/model [destination model\|model]` | Pick or set a destination/model for the next turn |
+| `/settings [--json]` | Inspect safe next-turn settings and a preparation preview |
+| `/effort LEVEL\|omit` | Set or omit next-turn reasoning effort |
+| `/thinking on\|off` | Request and display public summaries for new turns |
+| `/temperature N\|omit` | Set or omit next-turn temperature |
+| `/max-tokens N\|default` | Set the next-turn output limit |
 | `/new` | Start a new session |
 | `/sessions` | List the sessions of this directory and reopen one |
 | `/continue` | Go on after a model-call limit stop (Enter does the same) |
@@ -75,7 +83,7 @@ Display commands work during a turn. Mutating commands may request that you retr
 ## Sessions
 
 Each session is a folder in `~/.dashi/sessions`. It holds one record for each
-turn, and a `session.json` with only the title, directory, and model. The
+turn, and a `session.json` with the title, directory, and next-turn preferences. The
 turns are a [`dashi.Session`](sessions.md). A session is saved when its first
 turn records, so a launch that you close at once leaves nothing behind.
 

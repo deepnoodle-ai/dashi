@@ -1,7 +1,7 @@
 # Choose a provider and control the next turn
 
 Status: Approved\
-PRD PR: [#130](https://github.com/deepnoodle-ai/dashi/pull/130) · Implementation PR: Pending · Updated: 2026-09-30
+PRD PR: [#130](https://github.com/deepnoodle-ai/dashi/pull/130) · Implementation PR: [#140](https://github.com/deepnoodle-ai/dashi/pull/140) · Updated: 2026-09-30
 
 ## Problem and context
 
@@ -38,59 +38,59 @@ From empty settings, write this to `~/.dashi/settings.json`. Entries register st
 
 Run `dashi models [--available]`. Open `/model`, type `/model team acme/code-v1`, or launch with `--provider team --model acme/code-v1`. `/model ID` follows the model-only rule below.
 
-- [ ] Keyless fixtures cover Anthropic Messages, OpenAI Responses and Chat Completions, Google Gemini, Grok, Mistral, Meta, DeepInfra, OpenRouter, and Ollama.
-- [ ] Custom destinations select an existing API adapter explicitly. Model IDs, including publisher slashes, reach that adapter unchanged.
-- [ ] A keyless example starts with empty settings, registers/selects both examples, inspects `/settings`, and exits without a prompt. `team` uses a fixture credential. Bad API/endpoint, absent default, or default outside `models` fails validation.
-- [ ] List and picker show destination, exact model ID, context/output limits, and relevant capabilities. Missing facts show `unknown`, with evidence source/date when available.
-- [ ] `--available` means configured for use: required credentials are present or the destination needs none. It performs no network probe or paid request.
-- [ ] An empty picker names the missing configuration. Cancellation preserves selection. A successful switch identifies the next-turn destination. Invalid or ambiguous IDs produce an actionable error and no fallback.
-- [ ] `--workspace DIR` establishes the canonical workspace for tools, project settings, and session filtering. Invalid directories fail before dispatch.
-- [ ] `--api-endpoint URL` requires an explicit destination identity and API configuration. It cannot silently repurpose a native vendor identity or credential.
-- [ ] Nonempty `credential_env` marks a credential-bearing route before value lookup. Reject remote HTTP before credential resolution, client construction, or dispatch, including endpoint overrides. HTTP credentials require literal `127.0.0.0/8` or `::1`; hostnames, including `localhost`, never qualify. Keyless local HTTP remains usable. Trust approval cannot bypass this rule; no insecure opt-in exists.
-- [ ] Built-in Ollama explicitly uses `http://127.0.0.1:11434/v1/messages` before transport validation. Its optional `OLLAMA_API_KEY` alias marks the route as credential-bearing even when absent/empty. After validation and required trust, bind the key or the adapter's `ollama` placeholder explicitly. Fixtures prove availability and successful preparation/dispatch with the variable absent, empty, and present, without constructor-side lookup. Configured HTTP hostnames still fail.
-- [ ] Credential-bearing custom destinations never follow HTTP redirects, including HTTPS downgrades or endpoint changes. Fixtures prove remote HTTP rejection, literal loopback acceptance, and zero requests or credentials reaching redirect targets.
-- [ ] Project credential use first prompts with source file, destination, API, endpoint, models, and credential variable name. Allow authorizes that binding for this invocation. Denial or changed binding prevents dispatch. Unattended use requires a matching reviewed user definition. Project overrides cannot inherit trust.
+- [x] Keyless fixtures cover Anthropic Messages, OpenAI Responses and Chat Completions, Google Gemini, Grok, Mistral, Meta, DeepInfra, OpenRouter, and Ollama.
+- [x] Custom destinations select an existing API adapter explicitly. Model IDs, including publisher slashes, reach that adapter unchanged.
+- [x] A keyless example starts with empty settings, registers/selects both examples, inspects `/settings`, and exits without a prompt. `team` uses a fixture credential. Bad API/endpoint, absent default, or default outside `models` fails validation.
+- [x] List and picker show destination, exact model ID, context/output limits, and relevant capabilities. Missing facts show `unknown`, with evidence source/date when available.
+- [x] `--available` means configured for use: required credentials are present or the destination needs none. It performs no network probe or paid request.
+- [x] An empty picker names the missing configuration. Cancellation preserves selection. A successful switch identifies the next-turn destination. Invalid or ambiguous IDs produce an actionable error and no fallback.
+- [x] `--workspace DIR` establishes the canonical workspace for tools, project settings, and session filtering. Invalid directories fail before dispatch.
+- [x] `--api-endpoint URL` requires an explicit destination identity and API configuration. It cannot silently repurpose a native vendor identity or credential.
+- [x] Nonempty `credential_env` marks a credential-bearing route before value lookup. Reject remote HTTP before credential resolution, client construction, or dispatch, including endpoint overrides. HTTP credentials require literal `127.0.0.0/8` or `::1`; hostnames, including `localhost`, never qualify. Keyless local HTTP remains usable. Trust approval cannot bypass this rule; no insecure opt-in exists.
+- [x] Built-in Ollama explicitly uses `http://127.0.0.1:11434/v1/messages` before transport validation. Its optional `OLLAMA_API_KEY` alias marks the route as credential-bearing even when absent/empty. After validation and required trust, bind the key or the adapter's `ollama` placeholder explicitly. Fixtures prove availability and successful preparation/dispatch with the variable absent, empty, and present, without constructor-side lookup. Configured HTTP hostnames still fail.
+- [x] Credential-bearing custom destinations never follow HTTP redirects, including HTTPS downgrades or endpoint changes. Fixtures prove remote HTTP rejection, literal loopback acceptance, and zero requests or credentials reaching redirect targets.
+- [x] Project credential use first prompts with source file, destination, API, endpoint, models, and credential variable name. Allow authorizes that binding for this invocation. Denial or changed binding prevents dispatch. Unattended use requires a matching reviewed user definition. Project overrides cannot inherit trust.
 
 ### UC-2: Persist preferences without changing recorded work (I05–I06)
 
 Set a model with `/model`, inspect `/settings`, reopen Dashi, then continue an interrupted turn recorded against another destination.
 
-- [ ] Startup selects the destination/model pair from one winning tier: explicit flags, `DASHI_PROVIDER`/`DASHI_MODEL`, reopened-session next-turn preferences, project settings, user settings, autodetection/default. A new session omits the reopened-session tier. Generation controls resolve per field through the same tiers.
-- [ ] Provider-only selection uses its configured default, ignoring lower-tier models. Model-only selection needs exactly one configured exact-ID match; zero/multiple matches fail. Pairs validate the ID within their destination. `--provider local` selects `qwen2.5-coder:7b` despite saved OpenAI preferences. `--model acme/code-v1` selects `team` unless another destination registers that ID.
-- [ ] With no model selection, vendor-key detection uses the documented Dive order: Anthropic, Google, OpenAI, Grok, Mistral, DeepInfra, Meta. Otherwise retain the OpenAI default and explain missing credentials. Local/custom routes require explicit selection.
-- [ ] `/model` saves the destination/model pair to user settings and changes this session's next turn. Saving preserves unrelated fields and never edits project settings. Save failure leaves the session selection active and reports that it was not saved.
-- [ ] `/settings` shows requested next-turn values and their exact winning sources. It distinguishes flag, process environment, explicit environment file, project file, user file, session change, and default.
-- [ ] Inspection identifies winning and overridden preferences using the specified precedence. Interactive changes win for the next turn until exit and save session preferences.
-- [ ] Continuing an open turn uses its recorded model, controls, API, and endpoint despite changed preferences. Removed destinations or changed endpoint/API bindings fail clearly before dispatch. Current credentials must satisfy existing replay rules.
-- [ ] Legacy OpenAI sessions remain readable. Session metadata cannot override destination facts in a Turn. Unknown provenance is reported instead of invented.
-- [ ] `/settings --json` exports the same safe inspection values without keys, authorization headers, environment values, or secret-bearing URLs.
+- [x] Startup selects the destination/model pair from one winning tier: explicit flags, `DASHI_PROVIDER`/`DASHI_MODEL`, reopened-session next-turn preferences, project settings, user settings, autodetection/default. A new session omits the reopened-session tier. Generation controls resolve per field through the same tiers.
+- [x] Provider-only selection uses its configured default, ignoring lower-tier models. Model-only selection needs exactly one configured exact-ID match; zero/multiple matches fail. Pairs validate the ID within their destination. `--provider local` selects `qwen2.5-coder:7b` despite saved OpenAI preferences. `--model acme/code-v1` selects `team` unless another destination registers that ID.
+- [x] With no model selection, vendor-key detection uses the documented Dive order: Anthropic, Google, OpenAI, Grok, Mistral, DeepInfra, Meta. Otherwise retain the OpenAI default and explain missing credentials. Local/custom routes require explicit selection.
+- [x] `/model` changes this session's next turn and saves its preferences. It saves the pair globally only when the identical binding exists in user/built-in settings. A project-only or changed binding stays session-scoped and explains how to register it globally. Saving preserves unrelated fields and never edits project settings. Save failure leaves the session selection active and reports that it was not saved.
+- [x] `/settings` shows requested next-turn values and their exact winning sources. It distinguishes flag, process environment, explicit environment file, project file, user file, session change, and default.
+- [x] Inspection identifies winning and overridden preferences using the specified precedence. Interactive changes win for the next turn until exit and save session preferences.
+- [x] Continuing an open turn uses its recorded model, controls, API, and endpoint despite changed preferences. Removed destinations or changed endpoint/API bindings fail clearly before dispatch. Current credentials must satisfy existing replay rules.
+- [x] Legacy OpenAI sessions remain readable. Session metadata cannot override destination facts in a Turn. Unknown provenance is reported instead of invented.
+- [x] `/settings --json` exports the same safe inspection values without keys, authorization headers, environment values, or secret-bearing URLs.
 
 ### UC-3: Control generation and inspect adjustments (I07)
 
 Launch with `--thinking-effort`, `--show-thinking`, `--temperature`, or `--max-tokens`. Change the next-turn values with `/effort`, `/thinking`, `/temperature`, and `/max-tokens`.
 
-- [ ] Flags, matching `DASHI_*` variables, and settings accept the same values. Explicit zero temperature, thinking off, and effort omission remain distinct from absence. Each slash command reports its value and persists the user preference.
-- [ ] Unset effort/thinking/temperature adds no CLI default. Unset output limit uses the library default. `/thinking on` and `--show-thinking` request and display provider-supported public reasoning summaries through the dependency below.
-- [ ] Invalid syntax or conflicting controls fail before dispatch and retain prior preferences. Validation uses the selected configured client's `Prepare`, not copied provider rules.
-- [ ] The default capability policy remains `CapabilityAdjust`. Known adjustments show requested/effective values and warnings before dispatch. Known unsupported controls with no safe substitute fail. Unknown support is labeled unverified.
-- [ ] Inspection separates the next-turn preparation preview from a recorded attempt's effective settings. A preview is not a recorded or dispatched call.
-- [ ] Switching models rechecks existing controls. An incompatible switch leaves the previous selection/preferences intact. A continued turn keeps its recorded controls.
-- [ ] During a running turn, mutating commands request a retry after it ends. They do not alter the turn or promise unqueued execution.
-- [ ] Fixtures prove summary encoding, capability rejection/adjustment, streaming/final display without duplication, and display after reopen. Summaries stay distinct from answers; private replay artifacts remain hidden. Absent summaries permit completion with inspection showing `no summary returned`. `/thinking off` stops requesting/showing summaries for new turns without deleting records.
+- [x] Flags, matching `DASHI_*` variables, and settings accept the same values. Explicit zero temperature, thinking off, and effort omission remain distinct from absence. Each slash command reports its value and persists the user preference.
+- [x] Unset effort/thinking/temperature adds no CLI default. Unset output limit uses the library default. `/thinking on` and `--show-thinking` request and display provider-supported public reasoning summaries through the dependency below.
+- [x] Invalid syntax or conflicting controls fail before dispatch and retain prior preferences. Validation uses the selected configured client's `Prepare`, not copied provider rules.
+- [x] The default capability policy remains `CapabilityAdjust`. Known adjustments show requested/effective values and warnings before dispatch. Known unsupported controls with no safe substitute fail. Unknown support is labeled unverified.
+- [x] Inspection separates the next-turn preparation preview from a recorded attempt's effective settings. A preview is not a recorded or dispatched call.
+- [x] Switching models rechecks existing controls. An incompatible switch leaves the previous selection/preferences intact. A continued turn keeps its recorded controls.
+- [x] During a running turn, mutating commands request a retry after it ends. They do not alter the turn or promise unqueued execution.
+- [x] Fixtures prove summary encoding, capability rejection/adjustment, streaming/final display without duplication, and display after reopen. Summaries stay distinct from answers; private replay artifacts remain hidden. Absent summaries permit completion with inspection showing `no summary returned`. `/thinking off` stops requesting/showing summaries for new turns without deleting records.
 
 ### UC-4: Use explicit environment and system instructions (I08)
 
 Run `dashi --workspace DIR --env-file PATH --system-prompt "Review changes before editing"`. Inspect settings and credential source names before starting work.
 
-- [ ] Dashi loads only explicitly named files. Relative environment-file paths resolve from the invocation directory. Existing process variables win, including explicit empty values.
-- [ ] Missing or unreadable named files fail clearly. No shell commands or variable substitutions execute from file content. Inspection shows the file path and selected variable name without its value.
-- [ ] A project `.env` is untouched without `--env-file`. A custom endpoint does not receive a native vendor key implicitly. Project configuration cannot silently redirect credentials to another endpoint.
-- [ ] `--system-prompt TEXT` replaces built-in coding guidance. Omission keeps the default; explicit empty text fails. Workspace facts and contextual instructions/skills retain their sources. Custom guidance grants no tool authority or wider roots.
-- [ ] A fixture records custom instructions alongside provider controls. Continue retains recorded instructions despite changed launch text. Inspection names the prompt source without exporting its text. This slice owns the flag, composition, provenance, and acceptance; `cli-resources` supplies contextual instructions/skills.
+- [x] Dashi loads only explicitly named files. Relative environment-file paths resolve from the invocation directory. Existing process variables win, including explicit empty values.
+- [x] Missing or unreadable named files fail clearly. No shell commands or variable substitutions execute from file content. Inspection shows the file path and selected variable name without its value.
+- [x] A project `.env` is untouched without `--env-file`. A custom endpoint does not receive a native vendor key implicitly. Project configuration cannot silently redirect credentials to another endpoint.
+- [x] `--system-prompt TEXT` replaces built-in coding guidance. Omission keeps the default; explicit empty text fails. Workspace facts and contextual instructions/skills retain their sources. Custom guidance grants no tool authority or wider roots.
+- [x] A fixture records custom instructions alongside provider controls. Continue retains recorded instructions despite changed launch text. Inspection names the prompt source without exporting its text. This slice owns the flag, composition, provenance, and acceptance; `cli-resources` supplies contextual instructions/skills.
 
 ## Foundation dependency: Reasoning summary requests
 
-`llm.ReasoningSettings` expresses effort/budget, not a summary request. CLI rendering discards reasoning deltas. A foundation change must define the request control, capability/effective facts, public text, and private replay boundaries. This slice owns UC-3 rendering/reopening acceptance, including unsupported routes and absent summaries. I07 and full slice parity remain incomplete until both land. Displaying unsolicited reasoning alone does not complete parity.
+`llm.ReasoningSettings` expresses effort/budget, not a summary request. CLI rendering discards reasoning deltas. A foundation change must define the request control, capability/effective facts, public text, and private replay boundaries. This slice owns UC-3 rendering/reopening acceptance, including unsupported routes and absent summaries. The foundation landed in [#136](https://github.com/deepnoodle-ai/dashi/pull/136); this implementation supplies request, display, and reopen integration. Displaying unsolicited reasoning alone does not complete parity.
 
 ## Decisions and boundaries
 
@@ -106,4 +106,4 @@ Compaction (#103), accounting (#116), richer `/status`, usage reports, JSONL tur
 
 All I01–I08 outcomes have keyless acceptance evidence, including custom prompts and the reasoning-summary dependency. A runnable example covers registration, selection, preparation, and rejection without payment. Wonton recordings at 80×24 cover empty, preparing, error, and success states. Independent review exercises selection, persistence, resume, and secret-free export. Existing recovery, session-lock, approval, and queue behavior passes unchanged.
 
-Fixture support does not establish live-provider qualification. No paid probe is required. The [accepted technical spec](../design/cli-providers.md) defines implementation boundaries. Reasoning-summary completion remains dependency-gated.
+Fixture support does not establish live-provider qualification. No paid probe is required. The [accepted technical spec](../design/cli-providers.md) defines implementation boundaries. Reasoning-summary integration uses the merged #136 contract.
