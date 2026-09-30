@@ -38,10 +38,25 @@ prompt, and the screen says how many wait. Queued prompts live only while
 dashi runs, so `/quit`, Ctrl-C, Ctrl-D, `/new`, and `/sessions` first warn that
 they would drop them; repeat the action to go ahead.
 
+The CLI summarizes history before new work when the last model call uses
+80% of the selected model's context window. `/compact` requests a summary
+while idle, without sending queued prompts. The transcript shows compaction
+states and its usage footer; it hides the summary request and text. Unknown
+windows use 128,000 tokens and warn once per selected model.
+
+Input submitted during compaction waits in order, including `!text`. The
+urgent prefix cannot interrupt a summary; use Ctrl-C. If automatic compaction
+is interrupted before your prompt starts, the screen keeps your original
+prompt pending. Enter continues the summary, then sends that prompt once.
+Previously queued input goes before it; later submitted lines go after it.
+Pending and queued input live only in memory. Exit or session changes warn
+before discarding them. Recorded summaries can be reopened and continued.
+
 ## Commands
 
 | Input | Result |
 | --- | --- |
+| `/compact` | Summarize history while idle; leave queued input waiting |
 | `/model [name]` | Pick a model, or set it for the next turn |
 | `/new` | Start a new session |
 | `/sessions` | List the sessions of this directory and reopen one |

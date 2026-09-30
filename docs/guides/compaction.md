@@ -150,9 +150,28 @@ A summary can leave out a detail that the agent needs later. The raw history
 stays in the record: compaction erases nothing. The summary call has a price,
 in the compaction turn's `Spend` (or `Record.Cost`).
 
+## Manual Session compaction
+
+Call `s.Compact(ctx, nil)` to request a summary before the automatic
+threshold. Nil retains the budget supplied by the configured Compactor.
+`s.Compact(ctx, &dashi.Budget{MaxOutputTokens: 1000})` caps that recorded
+summary. Later Run commands keep their own budget selection.
+`StreamCompact` accepts the same arguments and streams progress plus the
+compaction Outcome. Existing RunOption controls apply.
+
+Manual compaction requires an ended last turn. It refuses interrupted or
+waiting ordinary work with `*dashi.TurnBusyError`; continue or explicitly
+cancel that work first. It preserves queued input and starts no queue turn.
+No eligible history returns zero Outcome and `dashi.ErrNothingToCompact`,
+which is also `compaction.ErrNothingToCompact`. A recorded failed or empty
+summary returns its Outcome with `compaction_failed` and keeps the old
+projection. Preparation and recorder failures remain Go errors.
+
+The CLI enables automatic compaction and offers `/compact`. See the
+[CLI guide](cli.md) for markers, pending input, and recovery.
+
 ## Limits
 
 - Compaction does not run inside a Turn. One Turn that fills the window is not
   helped. Overflow recovery is a later feature.
 - Token counts for the kept tail are estimates.
-- The `dashi` CLI does not compact yet.

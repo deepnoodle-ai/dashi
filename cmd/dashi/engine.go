@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -56,7 +57,13 @@ type Engine struct {
 	unlock func()
 	// model is the model the next Start uses. Changing it does not touch
 	// turns already started.
-	model string
+	model        string
+	windowWarned map[string]bool
+
+	// inputMu orders later submissions behind a not-yet-recorded prompt.
+	inputMu sync.Mutex
+	pending *pendingPrompt
+	later   []pendingLine
 }
 
 // NewEngine returns an engine with no session. Call Open before any turn.
@@ -143,12 +150,16 @@ func (e *Engine) Open(s *session.Session) error {
 		chat.New = true
 	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.release()
 	e.sess, e.chat, e.inbox, e.unlock = s, chat, inbox, unlock
 	if s.Model != "" && e.model == "" {
 		e.model = s.Model
 	}
+	e.mu.Unlock()
+	e.inputMu.Lock()
+	e.pending, e.later = nil, nil
+	e.inputMu.Unlock()
+	e.configureChat()
 	return nil
 }
 
@@ -328,12 +339,39 @@ type Result struct {
 // the last turn did not end, the session closes it first, and the screen
 // says so; while a command of that turn may still be running, it refuses.
 func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
-	return e.run(ctx, dashi.Say(text))
+	e.inputMu.Lock()
+	if e.pending != nil {
+		e.holdLineLocked(text)
+	} else {
+		if err := e.flushLaterLocked(); err != nil {
+			e.holdLineLocked(text)
+			e.inputMu.Unlock()
+			return Result{}, err
+		}
+		e.mu.Lock()
+		start := dashi.Say(text)
+		start.CommandID = dashi.NewID()
+		start.Agent = e.agent()
+		e.mu.Unlock()
+		// A first admission may skip damaged history under Exclusive. A
+		// supplied key cannot bypass the library's idempotency scan. In
+		// this case retain the generated key from the first recording
+		// acknowledgment (or CommitError) before any retry.
+		if _, err := e.handle().Open(ctx); errors.Is(err, filerecorder.ErrCorrupt) {
+			start.CommandID = ""
+		}
+		e.pending = &pendingPrompt{start: start}
+	}
+	e.inputMu.Unlock()
+	return e.runPending(ctx)
 }
 
 // Resume runs the last turn on, after a quit, a Ctrl-C, a failure to retry,
 // or the model-call limit.
 func (e *Engine) Resume(ctx context.Context) (Result, error) {
+	if e.HasPending() {
+		return e.resumePending(ctx)
+	}
 	last := e.Last(ctx)
 	if last.LimitStopped() {
 		return e.ContinueLimit(ctx)
@@ -382,6 +420,16 @@ func (e *Engine) Steer(text string, urgent bool) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("the steer is empty")
 	}
+	e.inputMu.Lock()
+	if e.pending != nil {
+		e.holdLineLocked(text)
+		e.inputMu.Unlock()
+		if urgent {
+			e.notice("This input cannot interrupt compaction. It is queued; press Ctrl-C to interrupt.")
+		}
+		return nil
+	}
+	e.inputMu.Unlock()
 	q, err := e.handle().SteerItem(context.Background(), dashi.Steer{
 		Item: dashi.ContextItem{
 			Origin:  dashi.ContextUser,
@@ -390,6 +438,13 @@ func (e *Engine) Steer(text string, urgent bool) error {
 		Urgent: urgent,
 	})
 	if err != nil {
+		var busy *dashi.TurnBusyError
+		if errors.As(err, &busy) && busy.Origin == dashi.StartCompaction {
+			if urgent {
+				e.notice("This input cannot interrupt compaction. It is queued; press Ctrl-C to interrupt.")
+			}
+			return e.Queue(text)
+		}
 		return err
 	}
 	state := SteerQueued
@@ -403,6 +458,15 @@ func (e *Engine) Steer(text string, urgent bool) error {
 // Queue holds text as the next prompt. It runs when the running turn ends,
 // or goes ahead of the next prompt if that turn stops first.
 func (e *Engine) Queue(text string) error {
+	e.inputMu.Lock()
+	defer e.inputMu.Unlock()
+	if e.pending != nil {
+		e.holdLineLocked(text)
+		return nil
+	}
+	if err := e.flushLaterLocked(); err != nil {
+		return err
+	}
 	q, err := e.handle().Enqueue(context.Background(), text)
 	if err != nil {
 		return err
@@ -425,15 +489,27 @@ func (e *Engine) agent() dashi.Agent {
 
 // run streams one command, and the turns it leads to, as blocks.
 func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
-	e.mu.Lock()
-	chat := e.chat
-	chat.Agent = e.agent()
-	e.mu.Unlock()
+	chat := e.configureChat()
+	return e.stream(ctx, chat.Stream(ctx, cmd), false)
+}
+
+func (e *Engine) stream(
+	ctx context.Context,
+	events iter.Seq2[dashi.Event, error],
+	stopCompaction bool,
+) (Result, error) {
 	renderers := map[string]*Renderer{}
 	renderer := func(id string) *Renderer {
 		r := renderers[id]
 		if r == nil {
 			r = NewRenderer(turnNumber(id), e.Model(), e.cfg.Dir)
+			if loader, ok := e.handle().Runner.Recorder.(dashi.Loader); ok {
+				if turn, err := loader.Load(ctx, id); err == nil {
+					if view, err := dashi.Replay(turn); err == nil {
+						r.Origin, r.summary = view.Origin, view.Answer
+					}
+				}
+			}
 			renderers[id] = r
 		}
 		return r
@@ -443,13 +519,22 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 		have   bool
 		runErr error
 	)
-	for ev, err := range chat.Stream(ctx, cmd) {
+	for ev, err := range events {
 		if err != nil {
 			runErr = err
+			e.rememberPromptError(err)
 		}
 		if ev.Outcome != nil {
+			if len(ev.Outcome.Turn.Steps) > 0 {
+				if err := e.acknowledgePrompt(&ev.Outcome.Turn.Steps[0]); err != nil {
+					e.warn("%v.", err)
+				}
+			}
 			res.Outcome, have = *ev.Outcome, true
 			e.settled(renderer(ev.TurnID), *ev.Outcome)
+			if stopCompaction && ev.Outcome.Origin == dashi.StartCompaction {
+				break
+			}
 			continue
 		}
 		if err != nil || ev.TurnID == "" {
@@ -457,6 +542,16 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 		}
 		r := renderer(ev.TurnID)
 		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+			if ev.Step.Started.Origin == dashi.StartCompaction {
+				e.inputMu.Lock()
+				if e.pending != nil {
+					e.pending.summary = true
+				}
+				e.inputMu.Unlock()
+			}
+			if err := e.acknowledgePrompt(ev.Step); err != nil {
+				e.warn("%v.", err)
+			}
 			if err := e.record(ev.Step); err != nil {
 				e.warn("The session file was not saved: %v.", err)
 			}
@@ -473,6 +568,7 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 			}
 		}
 	}
+	e.showPending()
 	// Queued prompts that no turn took wait for the next prompt: after a
 	// turn that stopped without ending, a /discard or /done, or a refusal.
 	if n := e.Queued(); n > 0 {
@@ -489,27 +585,38 @@ func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
 // queue. They live in this process only, so quitting or leaving the
 // session drops them.
 func (e *Engine) Queued() int {
+	e.inputMu.Lock()
+	n := len(e.later)
+	if e.pending != nil {
+		n++
+	}
+	e.inputMu.Unlock()
 	chat := e.handle()
 	if chat == nil {
-		return 0
+		return n
 	}
 	st, err := chat.Open(context.Background())
 	if err != nil {
-		return 0
+		return n
 	}
-	return st.Queued
+	return n + st.Queued
 }
 
 // settled shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
 func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	for _, w := range out.SessionWarnings {
-		if w.Code == dashi.WarningTurnUnreadable {
+		if w.Code == dashi.WarningTurnUnreadable ||
+			w.Code == dashi.WarningCompactionFailed ||
+			w.Code == dashi.WarningCompactionMismatch {
 			e.warn("%s.", w.Message)
 		}
 	}
 	if out.Stop.Kind == "" {
 		return
+	}
+	if out.Origin == dashi.StartCompaction {
+		e.cfg.Emit(r.compactionOutcome(out.TurnView))
 	}
 	r.Model = turnModel(out.Turn, r.Model)
 	e.cfg.Emit(r.Footer(out.TurnView))
@@ -574,7 +681,7 @@ func turnModel(turn dashi.Turn, fallback string) string {
 func (e *Engine) record(s *dashi.Step) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.sess.Title == "" && s.Started != nil {
+	if e.sess.Title == "" && s.Started != nil && s.Started.Origin != dashi.StartCompaction {
 		e.sess.Title = truncate(
 			strings.Join(strings.Fields(joinMessages(s.Started.Input)), " "),
 			60,

@@ -43,7 +43,7 @@ Projection still uses the newest completed nonempty summary. Failed summaries re
 
 ## CLI input ownership and order
 
-The Engine owns one private pending Start and a FIFO of later submitted lines. The Start gets a command ID and frozen input/agent when submitted. This is memory-only delivery coordination, not another Session history. Existing Session queued items remain where they are.
+The Engine owns one private pending Start and a FIFO of later submitted lines. The Start gets a command ID and frozen input/agent when submitted. A brand-new prompt that first encounters unreadable history may use the existing Exclusive fresh-Start path. The library generates its identity; the first acknowledgment or CommitError freezes it before retry. This narrow exception preserves damaged-log skipping for new input. It never applies after an admission attempt. This is memory-only delivery coordination, not another Session history. Existing Session queued items remain where they are.
 
 While this Start lacks an ordinary StepStarted acknowledgment, later `/queue`, ordinary text, and `!text` enter the Engine FIFO. Acknowledge their queued state immediately. Strip the urgent prefix and explain that it cannot interrupt compaction. Ctrl-C still interrupts. Serialize admission and FIFO transfer under an input mutex, independently of screen events.
 
@@ -63,7 +63,7 @@ Without a pending original, Continue retains normal queue dispatch. After manual
 
 ## Recording acknowledgment and duplicate prevention
 
-Only an acknowledged ordinary StepStarted with the pending CommandID releases the prompt. Compaction events, deltas, metadata saves, and StopCompleted do not. Keep the pending key on rejected or unknown Start writes.
+Only an acknowledged ordinary StepStarted with the pending CommandID releases the prompt. Compaction events, deltas, metadata saves, and StopCompleted do not. Keep the pending key on rejected or unknown Start writes. Ordinary pre-admission refusals remain visible and require resubmission after recovery; /discard does not run a refused prompt.
 
 Before resending after an unknown acknowledgment, load the affected turn from CommitError.Step and reconcile its initial CommandID/input. Use the existing Session duplicate/reservation checks when retrying the same Start. A matching recorded Start proves delivery and consumes its reservations. Missing Start permits retry with the same key. Unreadable or conflicting records block resend and retain input with a warning. Never send a fresh key to bypass uncertainty. No later caller Start may evict the idempotency window before this check.
 

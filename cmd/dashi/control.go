@@ -307,7 +307,7 @@ func (c *Controller) steer(line string) {
 		line, urgent = strings.TrimSpace(text), true
 	}
 	if err := c.eng.Steer(line, urgent); err != nil {
-		c.emit(warnBlock("The steer was not sent: %v.", err))
+		c.emit(warnBlock("The input %q was not sent: %v.", line, err))
 	}
 }
 
@@ -334,6 +334,8 @@ func (c *Controller) duringTurnCommand(line string) bool {
 		c.command(line)
 	case "/queue":
 		c.queue(arg)
+	case "/compact":
+		c.notice("/compact must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.")
 	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
 		c.notice("%s runs when the turn ends. Press Ctrl-C to stop the turn.", name)
 	default:
@@ -360,7 +362,7 @@ func (c *Controller) prompt(text string) {
 }
 
 func (c *Controller) resume() {
-	if !c.eng.Last(c.base).CanGoOn() {
+	if !c.eng.HasPending() && !c.eng.Last(c.base).CanGoOn() {
 		return
 	}
 	c.startRun(c.eng.Resume)
@@ -421,6 +423,19 @@ func (c *Controller) command(line string) {
 	name, arg, _ := strings.Cut(line, " ")
 	arg = strings.TrimSpace(arg)
 	switch name {
+	case "/compact":
+		if arg != "" {
+			c.notice("Usage: /compact")
+			return
+		}
+		c.startRun(func(ctx context.Context) (Result, error) {
+			res, err := c.eng.Compact(ctx)
+			if errors.Is(err, dashi.ErrNothingToCompact) {
+				c.notice("Nothing needs compaction.")
+				return res, nil
+			}
+			return res, err
+		})
 	case "/quit", "/exit":
 		if c.keepQueued(name) {
 			return
@@ -470,6 +485,7 @@ func (c *Controller) command(line string) {
 }
 
 const helpText = `Commands:
+  /compact       summarize history before the next turn
   /model [name]  set the model, or pick one
   /new           start a new session
   /sessions      list sessions for this directory
@@ -506,6 +522,9 @@ func (c *Controller) keepQueued(action string) bool {
 	}
 	c.emit(warnBlock("%d queued %s will be lost. Repeat %s to go ahead.",
 		n, plural(n, "message"), action))
+	if c.eng.HasPending() {
+		c.notice("The pending prompt and later queued input are held only in memory and cannot be recovered after exit.")
+	}
 	return true
 }
 

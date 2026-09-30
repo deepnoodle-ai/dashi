@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
@@ -65,7 +66,7 @@ var (
 
 	// ErrNothingToCompact means the history has too few Turns to shorten.
 	// Compact made no model call.
-	ErrNothingToCompact = errors.New("compaction: nothing to compact")
+	ErrNothingToCompact = dashi.ErrNothingToCompact
 
 	// ErrNoSavings means the new summary and the kept messages are not
 	// smaller than the current view. Compact returns no Record.

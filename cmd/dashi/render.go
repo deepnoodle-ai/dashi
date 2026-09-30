@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/dashi/workspace"
@@ -18,15 +19,17 @@ import (
 type BlockKind string
 
 const (
-	KindUser      BlockKind = "user"
-	KindAssistant BlockKind = "assistant"
-	KindTool      BlockKind = "tool"
-	KindDiff      BlockKind = "diff"
-	KindSteer     BlockKind = "steer"
-	KindStop      BlockKind = "stop"
-	KindFooter    BlockKind = "footer"
-	KindNotice    BlockKind = "notice"
-	KindWarning   BlockKind = "warning"
+	KindUser       BlockKind = "user"
+	KindAssistant  BlockKind = "assistant"
+	KindTool       BlockKind = "tool"
+	KindDiff       BlockKind = "diff"
+	KindSteer      BlockKind = "steer"
+	KindStop       BlockKind = "stop"
+	KindFooter     BlockKind = "footer"
+	KindNotice     BlockKind = "notice"
+	KindWarning    BlockKind = "warning"
+	KindCompaction BlockKind = "compaction"
+	KindPending    BlockKind = "pending"
 )
 
 // Tool line states.
@@ -78,9 +81,12 @@ type Renderer struct {
 	Model string
 	// Dir is the workspace directory. Paths inside it show relative to it.
 	Dir string
+	// Origin distinguishes an internal summary from ordinary model text.
+	Origin dashi.StartOrigin
 
-	calls map[string]*callState
-	text  map[string]string
+	calls   map[string]*callState
+	text    map[string]string
+	summary string
 }
 
 type callState struct {
@@ -124,6 +130,9 @@ func (r *Renderer) Event(ev dashi.Event) []Block {
 }
 
 func (r *Renderer) delta(ev dashi.Event) []Block {
+	if r.Origin == dashi.StartCompaction {
+		return nil
+	}
 	if ev.Delta.Kind != llm.DeltaText || ev.Delta.Text == "" {
 		return nil
 	}
@@ -171,8 +180,13 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	var out []Block
 	switch s.Kind {
 	case dashi.StepStarted:
+		r.Origin = s.Started.Origin
 		if m := s.Started.Agent.Model; m != "" {
 			r.Model = m
+		}
+		if r.Origin == dashi.StartCompaction {
+			out = append(out, r.compactionBlock(s.TurnID, dashi.Stop{}))
+			break
 		}
 		out = append(out, Block{
 			ID:   "u:" + s.TurnID,
@@ -205,7 +219,11 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			}
 		}
 	case dashi.StepStopped:
-		out = append(out, r.stopped(s)...)
+		if r.Origin == dashi.StartCompaction {
+			out = append(out, r.compactionBlock(s.TurnID, *s.Stop))
+		} else {
+			out = append(out, r.stopped(s)...)
+		}
 	}
 	for _, w := range s.Warnings {
 		out = append(out, Block{
@@ -223,6 +241,10 @@ func (r *Renderer) modelSettled(s dashi.Step) []Block {
 		return nil
 	}
 	text := m.Result.Message.Text()
+	if r.Origin == dashi.StartCompaction {
+		r.summary = text
+		return nil
+	}
 	id := messageKey(m.MessageID, m.AttemptID)
 	if text == "" {
 		// A tool-only message has no text. If text streamed before it
@@ -235,6 +257,43 @@ func (r *Renderer) modelSettled(s dashi.Step) []Block {
 	}
 	r.text[id] = text
 	return []Block{{ID: id, Kind: KindAssistant, Text: text, Done: true}}
+}
+
+func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
+	b := Block{
+		ID:    "compaction:" + id,
+		Kind:  KindCompaction,
+		State: StateRunning,
+		Text:  "Compacting history...",
+	}
+	switch stop.Kind {
+	case "":
+		if !stop.Projected {
+			return b
+		}
+		b.State, b.Text = "interrupted", "Compaction interrupted. Press Enter to continue."
+	case dashi.StopCompleted:
+		if compactiontext.Summary(r.summary) != "" {
+			b.State, b.Text = StateOK, "Compaction completed."
+			break
+		}
+		b.State, b.Text = StateFailed, "Compaction failed: the summary was empty; previous history kept."
+	case dashi.StopInterrupted:
+		b.State, b.Text = "interrupted", "Compaction interrupted. Press Enter to continue."
+	default:
+		b.State = StateFailed
+		b.Text = "Compaction " + string(stop.Kind) + "; previous history kept."
+		if stop.Reason != "" {
+			b.Text = "Compaction " + string(stop.Kind) + ": " + stop.Reason + "; previous history kept."
+		}
+	}
+	b.Done = true
+	return b
+}
+
+func (r *Renderer) compactionOutcome(v dashi.TurnView) Block {
+	r.Origin, r.summary = v.Origin, v.Answer
+	return r.compactionBlock(v.ID, v.Stop)
 }
 
 func (r *Renderer) toolCall(s dashi.Step) *callState {
@@ -422,6 +481,15 @@ func RenderTurn(
 	if view.Stop.Kind != "" {
 		out = append(out, r.Footer(view))
 	}
+	if view.Origin == dashi.StartCompaction {
+		// Reopened output shows the current state, not historical progress.
+		out = nil
+		r.summary = view.Answer
+		out = append(out, r.compactionBlock(view.ID, view.Stop))
+		if view.Stop.Kind != "" {
+			out = append(out, r.Footer(view))
+		}
+	}
 	return out, nil
 }
 
@@ -458,6 +526,13 @@ func FormatBlock(b Block) string {
 		return "> " + b.Text
 	case KindAssistant:
 		return b.Text
+	case KindCompaction:
+		return "[" + b.Text + "]"
+	case KindPending:
+		if b.Done {
+			return ""
+		}
+		return "  pending prompt: " + b.Text
 	case KindTool:
 		return formatTool(b)
 	case KindDiff:

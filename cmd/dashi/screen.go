@@ -541,6 +541,19 @@ func blockView(b Block) tui.View {
 			label = "queued for the next turn"
 		}
 		return tui.Text("  ↳ %s: %s", label, b.Text).Wrap().Fg(tui.ColorYellow)
+	case KindCompaction:
+		color := tui.ColorCyan
+		if b.State == StateFailed {
+			color = tui.ColorRed
+		} else if b.State == "interrupted" {
+			color = tui.ColorYellow
+		}
+		return tui.Text("  %s", b.Text).Wrap().Fg(color)
+	case KindPending:
+		if b.Done {
+			return nil
+		}
+		return tui.Text("  ↳ pending prompt: %s", b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindStop:
 		return tui.Text("■ %s", b.Text).Wrap().Fg(tui.ColorYellow)
 	case KindFooter:

@@ -4,10 +4,151 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"iter"
+	"sync/atomic"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
+
+// ErrNothingToCompact reports an attempt with no eligible history. No turn
+// was recorded and no model call was made. Package compaction aliases it.
+var ErrNothingToCompact = errors.New("compaction: nothing to compact")
+
+// Compact runs one compaction turn without checking the automatic threshold.
+// It requires a Compactor and an ended last turn. A non-nil budget overrides
+// the compactor's budget. It never consumes queued input or dispatches it.
+// A recorded failed or empty summary warns WarningCompactionFailed and keeps
+// the previous history. No eligible history returns zero Outcome and
+// ErrNothingToCompact. Preparation and recorder failures remain Go errors.
+func (s *Session) Compact(
+	ctx context.Context,
+	budget *Budget,
+	opts ...RunOption,
+) (Outcome, error) {
+	return (&call{s: s, opts: opts}).manualCompact(ctx, budget)
+}
+
+// StreamCompact is Compact with events, including the compaction's final
+// Outcome. Breaking the range interrupts execution and preserves the record
+// for Continue. No queue turn follows it. Each iterator can be consumed once.
+func (s *Session) StreamCompact(
+	ctx context.Context,
+	budget *Budget,
+	opts ...RunOption,
+) iter.Seq2[Event, error] {
+	var started atomic.Bool
+	return func(yield func(Event, error) bool) {
+		if !started.CompareAndSwap(false, true) {
+			yield(Event{}, ErrStreamConsumed)
+			return
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		(&call{s: s, opts: opts, yield: yield}).manualCompact(ctx, budget)
+	}
+}
+
+func (cl *call) manualCompact(ctx context.Context, budget *Budget) (Outcome, error) {
+	s := cl.s
+	s.mu.Lock()
+	p, err := s.planManualCompaction(ctx, budget)
+	s.mu.Unlock()
+	if err != nil {
+		return Outcome{}, cl.fail(err)
+	}
+	out, lost, err := cl.runCompaction(ctx, *p)
+	if lost {
+		s.mu.Lock()
+		out, err = s.compactionSlot(ctx, *p)
+		s.mu.Unlock()
+	}
+	if cl.yield != nil && !cl.stopped && out.Turn.ID != "" {
+		if !cl.yield(Event{TurnID: out.Turn.ID, Outcome: &out}, err) {
+			cl.stopped = true
+		}
+	} else {
+		cl.report(out, err)
+	}
+	return out, err
+}
+
+func (s *Session) planManualCompaction(
+	ctx context.Context,
+	budget *Budget,
+) (*startPlan, error) {
+	s.ready()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.Compactor == nil {
+		return nil, errors.New("dashi: session compactor is required")
+	}
+	if s.ID == "" {
+		return nil, ErrNothingToCompact
+	}
+	last, err := s.findLast(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkExists(last); err != nil {
+		return nil, err
+	}
+	if last == 0 {
+		return nil, ErrNothingToCompact
+	}
+	if s.compacting != "" {
+		return nil, &TurnBusyError{
+			TurnID: s.compacting,
+			Origin: StartCompaction,
+			Next:   NextRunning,
+		}
+	}
+	t, err := s.load(ctx, last)
+	if err != nil {
+		return nil, err
+	}
+	if r := s.refine(ctx, t); r.next != NextNone {
+		return nil, &TurnBusyError{
+			TurnID: t.turn.ID,
+			Origin: t.view.Origin,
+			Next:   r.next,
+			CallID: uncertainCall(t),
+		}
+	}
+	projected, warnings := s.history(ctx, last)
+	p, err := s.buildCompaction(ctx, last, projected, budget)
+	if p != nil {
+		p.warnings = warnings
+	}
+	return p, err
+}
+
+// compactionSlot resolves a lost manual reservation without allocating a
+// second summary slot. The recorder remains the authority about the winner.
+func (s *Session) compactionSlot(ctx context.Context, p startPlan) (Outcome, error) {
+	t, err := s.load(ctx, p.n)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if t.view.Origin != StartCompaction ||
+		t.turn.Steps[0].CommandID != p.command.CommandID {
+		return Outcome{}, ErrRevisionConflict
+	}
+	r := s.refine(ctx, t)
+	if r.next == NextRunning || r.next == NextResume {
+		return Outcome{}, &TurnBusyError{
+			TurnID: t.turn.ID,
+			Origin: StartCompaction,
+			Next:   r.next,
+		}
+	}
+	out := Outcome{Turn: cloneTurn(t.turn), TurnView: t.view}
+	if _, ok := replacement(t.view); !ok {
+		out.SessionWarnings = append(out.SessionWarnings, closedWarning(t))
+	}
+	return out, nil
+}
 
 // Compactor decides when and how a Session compacts its projected history.
 // Package compaction implements it.
@@ -84,7 +225,7 @@ func validateCompaction(origin StartOrigin, f *CompactionFact) error {
 // replaces nothing.
 func replacement(v TurnView) ([]llm.Message, bool) {
 	f := v.Compaction
-	answer := summaryText(v.Answer)
+	answer := compactiontext.Summary(v.Answer)
 	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
 		return nil, false
 	}
@@ -96,23 +237,6 @@ func replacement(v TurnView) ([]llm.Message, bool) {
 	out = append(out, f.Keep[:f.SummaryAt]...)
 	out = append(out, llm.UserMessage(llm.Text(summary)))
 	return append(out, f.Keep[f.SummaryAt:]...), true
-}
-
-// summaryText returns the summary in a compaction turn's answer: the
-// trimmed text inside the last <summary> and </summary> tags when the
-// answer has them, else the whole trimmed answer. Empty tags give an empty
-// summary, which replaces nothing.
-func summaryText(answer string) string {
-	answer = strings.TrimSpace(answer)
-	end := strings.LastIndex(answer, "</summary>")
-	if end < 0 {
-		return answer
-	}
-	start := strings.LastIndex(answer[:end], "<summary>")
-	if start < 0 {
-		return answer
-	}
-	return strings.TrimSpace(answer[start+len("<summary>") : end])
 }
 
 // lastUsage returns the usage of the last model call of turn that reported
@@ -150,16 +274,28 @@ func (s *Session) planCompaction(
 		!s.Compactor.Needed(projected, lastUsage(t.turn)) {
 		return nil, nil
 	}
+	p, err := s.buildCompaction(ctx, last, projected, budget)
+	if err != nil {
+		return nil, []Warning{compactionFailed(fmt.Sprintf(
+			"the compaction turn could not start: %v", err,
+		))}
+	}
+	return p, nil
+}
+
+func (s *Session) buildCompaction(
+	ctx context.Context,
+	last int,
+	projected []llm.Message,
+	budget *Budget,
+) (*startPlan, error) {
 	c, err := s.Compactor.Start(cloneMessages(projected))
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}
 	digest, ferr := historyFingerprint(projected)
 	if err = errors.Join(err, ferr); err != nil {
-		return nil, []Warning{compactionFailed(fmt.Sprintf(
-			"the compaction turn could not start: %v",
-			err,
-		))}
+		return nil, err
 	}
 	id := TurnID(s.ID, last+1)
 	c.CommandID = "compact:" + id
@@ -198,26 +334,46 @@ func (s *Session) planCompaction(
 // returns an error only when the call must stop: the consumer broke the
 // range, or the context ended; the next Start then closes the turn.
 func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
-	s := cl.s
-	out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
-	out, err = s.finish(ctx, p.n, p.id, out, err, nil, nil, false)
-	if takenSlot(err) || err == nil && out.Stop.Projected {
+	out, lost, err := cl.runCompaction(ctx, p)
+	if lost {
 		return true, nil
 	}
-	if err == nil {
-		cl.report(out, nil)
-		if cl.yield == nil {
-			cl.warnings = append(cl.warnings, out.SessionWarnings...)
-		}
+	// A preparation or recording failure is a warning for the automatic
+	// path, which still attempts the caller's turn.
+	var reported error
+	if cl.stopped || ctx.Err() != nil {
+		reported = err
 	}
+	cl.report(out, reported)
+	cl.warnings = append(cl.warnings, out.SessionWarnings...)
 	if cl.stopped {
 		return false, context.Canceled
 	}
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	// Automatic compaction is best effort. Manual calls return the error.
+	return false, nil
+}
+
+func (cl *call) runCompaction(
+	ctx context.Context,
+	p startPlan,
+) (Outcome, bool, error) {
+	s := cl.s
+	out, err := cl.exec(ctx, p.runner, NewTurn(p.id), p.command)
+	out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, nil, false)
+	if takenSlot(err) || err == nil && out.Stop.Projected {
+		return out, true, nil
+	}
+	if cl.stopped {
+		return out, false, context.Canceled
+	}
 	if err := ctx.Err(); err != nil {
-		return false, err
+		return out, false, err
 	}
 	if _, ok := replacement(out.TurnView); ok && err == nil {
-		return false, nil
+		return out, false, nil
 	}
 	var warning Warning
 	switch {
@@ -234,23 +390,31 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	default:
 		// Close it now, so a queue turn, which closes nothing, can follow.
 		s.mu.Lock()
-		t, err := s.load(ctx, p.n)
+		t, closeErr := s.load(ctx, p.n)
 		var events []Event
-		if err == nil {
-			_, events, err = s.closeLast(ctx, p.n, t, cl.opts, cl.yield != nil)
+		if closeErr == nil {
+			_, events, closeErr = s.closeLast(ctx, p.n, t, cl.opts, cl.yield != nil)
+			if closeErr == nil {
+				var closed *sessionTurn
+				closed, closeErr = s.load(ctx, p.n)
+				if closeErr == nil {
+					out.Turn, out.TurnView = cloneTurn(closed.turn), closed.view
+				}
+			}
 		}
 		s.mu.Unlock()
 		if !cl.forward(events) {
-			return false, context.Canceled
+			return out, false, context.Canceled
 		}
-		if err != nil {
-			// The next Start closes it, with this warning.
-			return false, nil
+		if closeErr != nil {
+			out.SessionWarnings = append(out.SessionWarnings,
+				compactionFailed(fmt.Sprintf("compaction turn %s could not close: %v", p.id, closeErr)))
+			return out, false, closeErr
 		}
 		warning = closedWarning(t)
 	}
-	cl.warnings = append(cl.warnings, warning)
-	return false, nil
+	out.SessionWarnings = append(out.SessionWarnings, warning)
+	return out, false, err
 }
 
 // takenSlot reports whether a compaction turn failed because another
