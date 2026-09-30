@@ -844,6 +844,12 @@ func (wire codec) decode(
 	raw []byte,
 	requested llm.ModelRef,
 ) (llm.Result, error) {
+	return wire.decodeWithPartial(raw, requested, nil)
+}
+
+// decodeWithPartial marks replay reconstructed from unfinished stream items.
+// A completed item remains replayable when a later item is interrupted.
+func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial map[int]bool) (llm.Result, error) {
 	r := llm.Result{
 		Requested: requested,
 		Raw:       slices.Clone(raw),
@@ -919,10 +925,20 @@ func (wire codec) decode(
 	if stop == "max_output_tokens" {
 		stop = "max_tokens"
 	}
-	for _, item := range v.Output {
+	for i, item := range v.Output {
 		cs, err := wire.decodeItem(item)
 		if err != nil {
 			return r, err
+		}
+		if partial[i] {
+			for _, c := range cs {
+				if c.Replay != nil {
+					c.Replay.Partial = true
+				}
+				if c.Opaque != nil {
+					c.Opaque.Partial = true
+				}
+			}
 		}
 		r.Message.Content = append(r.Message.Content, cs...)
 		if v.Status != "completed" {

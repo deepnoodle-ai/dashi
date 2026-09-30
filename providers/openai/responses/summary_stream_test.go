@@ -220,3 +220,63 @@ func TestAnswerLabelCannotPublishPrivateReasoning(t *testing.T) {
 		t.Fatalf("private reasoning published/lost: %+v %+v %v", deltas, result.Message.Content, err)
 	}
 }
+
+func TestInterruptedStreamReplayRequiresCompletedItem(t *testing.T) {
+	for _, item := range []string{
+		`{"type":"reasoning","id":"r","status":"in_progress","summary":[{"type":"summary_text","text":"public preview"}],"encrypted_content":"PRIVATE"}`,
+		`{"type":"reasoning","id":"r","summary":[{"type":"future_summary","text":"PRIVATE"}]}`,
+		`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial answer"}]}`,
+	} {
+		for _, done := range []bool{false, true} {
+			stream := "data: " + `{"type":"response.output_item.added","output_index":7,"item":` + item + "}\n\n"
+			if done {
+				stream += "data: " + `{"type":"response.output_item.done","output_index":7,"item":` + item + "}\n\n"
+			}
+			// Another unfinished item must not make the earlier finished item partial.
+			stream += "data: " + `{"type":"response.output_item.added","output_index":9,"item":{"type":"reasoning","summary":[{"type":"summary_text","text":"later preview"}]}}` + "\n\n"
+			calls := 0
+			client, err := New(Config{Provider: "fixture", Endpoint: "https://fixture.test/responses", Client: &http.Client{Transport: summaryTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream)), Request: r}, nil
+			})}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := llm.Input{Model: "fixture", Stream: true, Messages: []llm.Message{llm.UserMessage(llm.Text("explain"))}, Settings: llm.Settings{ReasoningSummary: new(true)}}
+			request, err := client.Prepare(t.Context(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := client.Send(t.Context(), llm.Call{Request: request})
+			if err == nil || result.Stop.Kind != llm.StopIncomplete || len(result.Message.Content) != 2 {
+				t.Fatalf("interruption lost: %+v %v", result, err)
+			}
+			first := result.Message.Content[0]
+			replay := first.Replay
+			if replay == nil {
+				replay = first.Opaque
+			}
+			if replay == nil || replay.Partial == done {
+				t.Fatalf("done=%v replay=%+v", done, replay)
+			}
+			if first.Reasoning != nil && first.Reasoning.Text != "public preview" {
+				t.Fatal("partial display text lost")
+			}
+			for _, setting := range []*bool{nil, new(false), new(true)} {
+				input.Settings.ReasoningSummary = setting
+				input.Messages = []llm.Message{llm.UserMessage(llm.Text("explain")), result.Message, llm.UserMessage(llm.Text("continue"))}
+				if _, err := client.Prepare(t.Context(), input); err == nil {
+					t.Fatal("unfinished later item accepted for replay")
+				}
+				input.Messages[1].Content = []llm.Content{first}
+				_, err := client.Prepare(t.Context(), input)
+				if (err == nil) != done {
+					t.Fatalf("done=%v Prepare error=%v", done, err)
+				}
+			}
+			if calls != 1 {
+				t.Fatalf("Prepare dispatched: %d", calls)
+			}
+		}
+	}
+}

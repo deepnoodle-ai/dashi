@@ -31,6 +31,7 @@ func (wire codec) readStream(
 	}()
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	items := map[int]map[string]any{}
+	completed := map[int]bool{}
 	parts := map[int]map[int]map[string]any{}
 	summaries := map[int]map[int]string{}
 	summaryParts := map[int]map[int]map[string]any{}
@@ -47,6 +48,7 @@ func (wire codec) readStream(
 			envelope = map[string]any{"object": "response", "status": "incomplete"}
 		}
 		output := make([]any, 0, len(items))
+		partial := map[int]bool{}
 		for _, i := range slices.Sorted(maps.Keys(items)) {
 			item := items[i]
 			if summary, ok := mergedReasoningSummary(item, summaryParts[i], summaries[i]); ok {
@@ -59,12 +61,13 @@ func (wire codec) readStream(
 				}
 				item["content"] = cs
 			}
+			partial[len(output)] = !completed[i]
 			output = append(output, item)
 		}
 		envelope["output"] = output
 		envelope["status"] = "incomplete"
 		raw, _ := json.Marshal(envelope)
-		decoded, _ := wire.decode(raw, result.Requested)
+		decoded, _ := wire.decodeWithPartial(raw, result.Requested, partial)
 		return decoded
 	}
 
@@ -107,6 +110,7 @@ func (wire codec) readStream(
 				)
 			}
 			items[e.OutputIndex] = item
+			completed[e.OutputIndex] = e.Type == "response.output_item.done"
 			// A finished item carries its complete content and summary, which
 			// supersede the parts accumulated from deltas.
 			if e.Type == "response.output_item.done" {
