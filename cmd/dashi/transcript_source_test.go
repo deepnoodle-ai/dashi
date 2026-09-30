@@ -11,14 +11,14 @@ import (
 )
 
 func TestRuntimeCopySelectionUsesExactSource(t *testing.T) {
-	h := newTranscriptRuntime(t)
+	source := "  **bold**\t  世界  \r\nsecond line"
+	h := newTranscriptRuntime(t, say(source))
 	copied := make(chan string, 1)
 	h.scr.rt.SendEvent(transcriptCapture{copy: func(_ context.Context, text string) (string, error) {
 		copied <- text
 		return "Fixture copied.", nil
 	}})
-	source := "  **bold**\t  世界  \r\nsecond line"
-	h.scr.Emit(Block{Kind: KindAssistant, Text: source, Done: true})
+	h.app.ctrl.Input("show the source")
 	frame := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "bold") })
 	row := transcriptRow(t, frame.text, "bold")
 	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: 5, Y: row})

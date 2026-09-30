@@ -103,9 +103,9 @@ func (c *Controller) Mode() Mode {
 	return c.mode
 }
 
-// emit shows b on the UI. Every block goes through printable first.
+// emit preserves source for transcript selection and sanitizes direct output.
 func (c *Controller) emit(b Block) {
-	c.ui.Emit(printable(b))
+	emitToUI(c.ui, b)
 }
 
 func (c *Controller) setMode(m Mode) {
@@ -687,4 +687,13 @@ func modelNames() []string {
 func knownModel(name string) bool {
 	_, ok := catalog.Find("openai", name)
 	return ok
+}
+
+// Source-preserving screens sanitize at rendering and native-output boundaries.
+// Other UIs receive display text, including test recorders and line/print mode.
+func emitToUI(ui UI, b Block) {
+	if _, retains := ui.(interface{ retainSourceBlocks() }); !retains {
+		b = printable(b)
+	}
+	ui.Emit(b)
 }

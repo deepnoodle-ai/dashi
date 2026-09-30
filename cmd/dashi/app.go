@@ -55,7 +55,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Store:         cfg.Store,
 		Wiring:        w,
 		ModelAttempts: cfg.ModelAttempts,
-		Emit:          func(b Block) { ui.Emit(printable(b)) },
+		Emit:          func(b Block) { emitToUI(ui, b) },
 		recorder:      cfg.recorder,
 	})
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)

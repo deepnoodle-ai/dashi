@@ -77,7 +77,16 @@ func (s *transcriptRuntime) HandleEvent(e tui.Event) []tui.Cmd {
 		var b strings.Builder
 		for y := range 24 {
 			for x := range 80 {
-				b.WriteRune(s.rt.Terminal().Cell(x, y).Char)
+				cell := s.rt.Terminal().Cell(x, y)
+				if cell.Continuation {
+					continue
+				}
+				char := cell.Char
+				if char == 0 {
+					char = ' '
+				}
+				b.WriteRune(char)
+				b.WriteString(cell.Trailing)
 			}
 			b.WriteByte('\n')
 		}
@@ -411,7 +420,7 @@ func TestRuntimeRetainsCompleteToolOutputAndExpands(t *testing.T) {
 	}
 	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: 3, Y: row})
 	h.key(tui.KeyEvent{Key: tui.KeyEnd, Ctrl: true})
-	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "END OF COMPLETE TOOL OUTPUT␛[2J") })
+	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "END OF COMPLETE TOOL OUTPUT�[2J") })
 }
 
 func (h *runtimeFixture) exportFrames() {

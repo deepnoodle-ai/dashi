@@ -163,6 +163,8 @@ func (s *screen) enqueue(q queued) {
 }
 
 // Emit implements UI.
+func (*screen) retainSourceBlocks() {}
+
 func (s *screen) Emit(b Block) {
 	s.enqueue(queued{block: b})
 }
@@ -726,6 +728,6 @@ func diffSourceLineView(line string, offset int) tui.View {
 // screen leaves no scrollback, so the program prints this on exit.
 func (s *screen) dumpTranscript(w io.Writer) {
 	for _, b := range s.tr.Blocks {
-		fmt.Fprintln(w, FormatBlock(b))
+		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
 	}
 }
