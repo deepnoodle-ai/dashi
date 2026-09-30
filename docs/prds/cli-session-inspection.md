@@ -1,6 +1,6 @@
 # Find yesterday's work and know how to continue
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -77,4 +77,4 @@ Use literal scoped search over readable recorded conversation text. Reject tool-
 
 Consume the [approved accounting contract](spend-usage-accounting.md), existing replay/Next behavior, and compaction origin facts. Add no second ledger or recovery state. JSON/JSONL automation, exports, forks, rewind, deletion, durable queues, attachments, task inspection, and accounting repair remain separate.
 
-Success is a keyless recorded scenario: several sessions across two workspaces, text search, rename, interruption, changed default provider, status, and safe reopen. Fixtures also cover A inspecting B without switching, externally owned B, a busy current session, damaged metadata/logs, estimated/incomplete usage, multiple currencies, summary cost, and unknown effects. Record actual focused Wonton flows at 80×24. Independent requirements review precedes the technical spec; implementation/acceptance, security, and taste reviews precede completion. No unresolved product choice blocks that review.
+Success is a keyless recorded scenario: several sessions across two workspaces, text search, rename, interruption, changed default provider, status, and safe reopen. Fixtures also cover A inspecting B without switching, externally owned B, a busy current session, damaged metadata/logs, estimated/incomplete usage, multiple currencies, summary cost, and unknown effects. Record actual focused Wonton flows at 80×24. Named independent requirements re-review is ready. The [technical spec](../design/cli-session-inspection.md) awaits root checkpoint; implementation/acceptance, security, and taste reviews precede completion. No product scope changed after review.
