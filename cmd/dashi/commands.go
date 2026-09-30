@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 type commandEntry struct {
@@ -231,16 +232,16 @@ func (c *Controller) printCommand(line string, stdout, stderr io.Writer) (bool, 
 		}
 		switch entry.name {
 		case "/help":
-			fmt.Fprint(stdout, c.commandHelp())
-			fmt.Fprintln(stdout, "With -p, only /help and /quit aliases run. Use --plain or interactive mode for other commands.")
+			fmt.Fprint(stdout, workspace.PrintableText(c.commandHelp()))
+			fmt.Fprintln(stdout, workspace.PrintableText("With -p, only /help and /quit aliases run. Use --plain or interactive mode for other commands."))
 			return true, 0
 		case "/quit":
 			return true, 0
 		default:
-			fmt.Fprintf(stderr, "dashi: %s requires --plain or interactive mode; it was not sent.\n", entry.name)
+			fmt.Fprintln(stderr, workspace.PrintableText(fmt.Sprintf("dashi: %s requires --plain or interactive mode; it was not sent.", entry.name)))
 			return true, 2
 		}
 	}
-	fmt.Fprintf(stderr, "dashi: unknown command %s. Use -p /help for available commands.\n", name)
+	fmt.Fprintln(stderr, workspace.PrintableText(fmt.Sprintf("dashi: unknown command %s. Use -p /help for available commands.", name)))
 	return true, 2
 }

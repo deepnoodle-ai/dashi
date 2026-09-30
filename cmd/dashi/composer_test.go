@@ -320,3 +320,84 @@ func TestComposerPrintCommandsNeverStartProviderWork(t *testing.T) {
 		})
 	}
 }
+
+func TestComposerPrintSlashControlsStayPrintable(t *testing.T) {
+	cfg := testConfig(t)
+	var out, diag bytes.Buffer
+	code := runPrint(t.Context(), cfg, Options{Print: "/unknown\x1b]52;c;Y2xpcGJvYXJk\x07\x1b[2J", PrintSet: true}, &out, &diag)
+	if code != 2 || cfg.Client.(*fakeClient).sends != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if strings.ContainsAny(out.String()+diag.String(), "\x1b\x07") {
+		t.Fatalf("terminal controls reached direct output: %q", diag.String())
+	}
+	if !strings.Contains(diag.String(), "unknown command") {
+		t.Fatal(diag.String())
+	}
+}
+
+func TestInputHistoryLargeEntriesSurviveBoundedSaveAndRelaunch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := os.WriteFile(path, []byte(`{"entries":["previous"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var entries []string
+	for _, letter := range []string{"a", "b", "c", "d", "e"} {
+		entries = append(entries, strings.Repeat(letter, 14<<20)+"\n世界\t  ")
+	}
+	var warning error
+	history := &inputHistory{path: path, pending: entries, warn: func(err error) { warning = err }}
+	history.flush()
+	if warning != nil || len(history.pending) != 0 {
+		t.Fatalf("save failed: %v", warning)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > historyByteLimit {
+		t.Fatalf("unloadable file: %v %v", info, err)
+	}
+	reopened, recalled := openInputHistory(path, func(err error) { warning = err })
+	if warning != nil || !reflect.DeepEqual(recalled, entries[1:]) {
+		reopened.close()
+		t.Fatalf("relaunch lost exact latest entries: count=%d warning=%v", len(recalled), warning)
+	}
+	reopened.append("after relaunch")
+	reopened.close()
+	loaded, _, err := readInputHistory(path)
+	if err != nil || len(loaded) != 5 || loaded[4] != "after relaunch" || !reflect.DeepEqual(loaded[:4], entries[1:]) {
+		t.Fatalf("subsequent save failed: count=%d err=%v", len(loaded), err)
+	}
+}
+
+func TestInputHistoryOversizedEncodedEntryPreservesPreviousFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	previous := []byte(`{"entries":["previous exact text"]}`)
+	if err := os.WriteFile(path, previous, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// This 11 MiB draft fits the editor's raw-text limit. JSON HTML escaping
+	// requires more than 64 MiB, so encoded size must decide admission.
+	oversized := strings.Repeat("&", 11<<20)
+	var warnings []error
+	history := &inputHistory{path: path, warn: func(err error) { warnings = append(warnings, err) }}
+	composer := &screen{historyStore: history}
+	composer.recordSubmittedInput(oversized)
+	history.flush()
+	if len(warnings) != 1 || !errors.Is(warnings[0], errHistoryEntryTooLarge) || len(history.pending) != 0 || !reflect.DeepEqual(composer.history, []string{oversized}) {
+		t.Fatalf("permanent size rejection damaged recall or retries: warnings=%v", warnings)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, previous) {
+		t.Fatal("failed save replaced previous history")
+	}
+	// Unsupported text remains in local recall, but does not poison later saves.
+	composer.recordSubmittedInput("later supported input")
+	history.flush()
+	if len(warnings) != 1 || len(history.pending) != 0 || !reflect.DeepEqual(composer.history, []string{oversized, "later supported input"}) {
+		t.Fatal("rejected input poisoned supported save")
+	}
+	reopened, entries := openInputHistory(path, func(err error) { t.Error(err) })
+	reopened.close()
+	if !reflect.DeepEqual(entries, []string{"previous exact text", "later supported input"}) {
+		t.Fatal(entries)
+	}
+}

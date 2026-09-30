@@ -21,8 +21,8 @@ Write a multiline Unicode draft. Browse earlier input with Up/Down, return to th
 - [ ] Up/Down first move within wrapped or multiline text. At its first/last visual row, they browse history. Moving beyond the newest entry restores the original draft exactly.
 - [ ] Recall and editing never rewrite stored entries. History records submitted main-prompt text, including slash commands, ordinary steers, and urgent input. It excludes empty submissions, dialog answers, and automatic queue replay.
 - [ ] History preserves submitted draft text, including whitespace and newlines. Existing prompt/command interpretation remains unchanged. Consecutive identical entries appear once.
-- [ ] New and resumed sessions share the user's latest 1,000 input entries across launches. Missing storage starts empty. Load/save failures show a warning and keep composing usable.
-- [ ] History files are private to the user. A failed write preserves the previous valid file. History neither stores unsent drafts nor recovers pending or queued input.
+- [ ] New and resumed sessions share up to the user's latest 1,000 input entries within 64 MiB of serialized storage. Retention removes oldest whole entries, preserving retained text exactly. Missing storage starts empty. Load/save failures show a warning and keep composing usable.
+- [ ] History files are private to the user. A failed write preserves the previous valid file. An entry that cannot fit by itself warns and remains available in memory. History neither stores unsent drafts nor recovers pending or queued input.
 
 ### UC-2: Discover and complete available input
 

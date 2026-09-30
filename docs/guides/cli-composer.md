@@ -10,8 +10,12 @@ Up/Down first move through visual rows. At the first or last row, they recall
 submitted input. Moving beyond the newest entry restores the draft you were
 writing. Editing a recalled entry does not change its stored text.
 
-Dashi keeps your latest 1,000 submitted inputs across sessions and launches in
-`~/.dashi/history.json`. This includes slash commands, steers, and urgent input.
+Dashi keeps up to your latest 1,000 submitted inputs across sessions and launches in
+`~/.dashi/history.json`, within 64 MiB of serialized JSON. It removes oldest
+whole entries to fit both limits. An entry that cannot fit by itself warns
+and remains available only in local recall. Supported entries can still save.
+Retained text is never truncated. Failed file writes preserve the previous file.
+This includes slash commands, steers, and urgent input.
 It preserves their original whitespace. Consecutive identical inputs appear
 once. Empty submissions, dialog answers, and automatic queue replay are omitted.
 The directory is private and the history file has mode 0600. Storage failures

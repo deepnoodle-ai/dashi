@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,10 @@ import (
 )
 
 const historyLimit = 1000
+const historyByteLimit = 64 << 20
+
+var errHistoryEntryTooLarge = errors.New("input history: an entry exceeds the 64 MiB serialized size limit and was not saved; it remains in local recall")
+var errHistoryEntryInvalid = errors.New("input history: an entry is not valid UTF-8 and was not saved; it remains in local recall")
 
 // inputHistory persists only submitted text. The worker serializes this process's
 // pending additions; the advisory lock serializes concurrent CLI writers.
@@ -98,11 +103,11 @@ func readInputHistory(path string) ([]string, bool, error) {
 	if err = file.Chmod(0600); err != nil {
 		return nil, false, errors.New("input history permissions could not be secured")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, 64<<20+1))
+	data, err := io.ReadAll(io.LimitReader(file, historyByteLimit+1))
 	if err != nil {
 		return nil, false, errors.New("input history could not be read")
 	}
-	if len(data) > 64<<20 {
+	if len(data) > historyByteLimit {
 		return nil, false, errors.New("input history exceeds the 64 MiB load limit")
 	}
 	var saved struct {
@@ -125,16 +130,39 @@ func (h *inputHistory) flush() {
 	if len(additions) == 0 {
 		return
 	}
-	if err := h.save(additions, replaceCorrupt); err != nil {
-		if h.warn != nil {
-			h.warn(err)
+	// Permanent entry failures stay in composer recall but leave the persistence
+	// retry list. Filesystem and lock failures keep all supported additions.
+	var supported []string
+	var rejected []error
+	for _, value := range additions {
+		if _, err := encodeHistoryEntry(value, historyByteLimit); err != nil {
+			rejected = append(rejected, err)
+			continue
 		}
-		return
+		supported = append(supported, value)
+	}
+	var saveErr error
+	if len(supported) > 0 {
+		saveErr = h.save(supported, replaceCorrupt)
 	}
 	h.mu.Lock()
-	h.pending = h.pending[len(additions):]
-	h.replaceCorrupt = false
+	if saveErr != nil {
+		h.pending = append(supported, h.pending[len(additions):]...)
+	} else {
+		h.pending = h.pending[len(additions):]
+		if len(supported) > 0 {
+			h.replaceCorrupt = false
+		}
+	}
 	h.mu.Unlock()
+	if h.warn != nil {
+		for _, err := range rejected {
+			h.warn(err)
+		}
+		if saveErr != nil {
+			h.warn(saveErr)
+		}
+	}
 }
 func (h *inputHistory) save(additions []string, replaceCorrupt bool) error {
 	dir := filepath.Dir(h.path)
@@ -172,13 +200,17 @@ func (h *inputHistory) save(additions []string, replaceCorrupt bool) error {
 		return err
 	}
 	for _, value := range additions {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if _, err := encodeHistoryEntry(value, historyByteLimit); err != nil {
+			return err
+		}
 		entries = historyAppend(entries, value)
 	}
-	data, err := json.Marshal(struct {
-		Entries []string `json:"entries"`
-	}{entries})
+	data, err := encodeInputHistory(entries, historyByteLimit)
 	if err != nil {
-		return errors.New("input history could not be encoded")
+		return err
 	}
 	temp, err := os.CreateTemp(dir, ".history-*")
 	if err != nil {
@@ -200,4 +232,51 @@ func (h *inputHistory) save(additions []string, replaceCorrupt bool) error {
 		return errors.New("input history could not be replaced; previous history kept")
 	}
 	return nil
+}
+
+// The byte budget uses encoded size, including JSON escaping and delimiters.
+// Retention removes only oldest whole entries; retained text stays exact.
+func encodeInputHistory(entries []string, limit int) ([]byte, error) {
+	const empty = `{"entries":[]}`
+	size := len(empty)
+	var encoded [][]byte
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry, err := encodeHistoryEntry(entries[i], limit)
+		if err != nil {
+			return nil, err
+		}
+		extra := len(entry)
+		if len(encoded) > 0 {
+			extra++
+		}
+		if size+extra > limit {
+			break
+		}
+		encoded = append(encoded, entry)
+		size += extra
+	}
+	var out bytes.Buffer
+	out.Grow(size)
+	out.WriteString(`{"entries":[`)
+	for i := len(encoded) - 1; i >= 0; i-- {
+		if i != len(encoded)-1 {
+			out.WriteByte(',')
+		}
+		out.Write(encoded[i])
+	}
+	out.WriteString(`]}`)
+	return out.Bytes(), nil
+}
+func encodeHistoryEntry(value string, limit int) ([]byte, error) {
+	if !utf8.ValidString(value) {
+		return nil, errHistoryEntryInvalid
+	}
+	entry, err := json.Marshal(value)
+	if err != nil {
+		return nil, errors.New("input history could not be encoded; previous history kept")
+	}
+	if len(entry)+len(`{"entries":[]}`) > limit {
+		return nil, errHistoryEntryTooLarge
+	}
+	return entry, nil
 }
