@@ -1,7 +1,8 @@
 # CLI MCP startup and inventory
 
 Status: Accepted · Author: Codex · Updated: 2026-09-30\
-Workflow: Spec → root checkpoint → build, after addressing the named [PRD](../prds/cli-mcp.md) review.
+PRD: [#132](https://github.com/deepnoodle-ai/dashi/pull/132) · Implementation: [#143](https://github.com/deepnoodle-ai/dashi/pull/143)\
+Workflow: Named implementation, security, and taste reviews are ready. Implementation awaits merge after composer #142.
 
 ## Context and boundaries
 
