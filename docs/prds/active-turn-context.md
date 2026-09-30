@@ -81,6 +81,7 @@ The CLI enables it for supported models without asking the user to manage a seco
 - [ ] All summary attempts count toward the same model-attempt limit and cumulative budget as ordinary attempts.
   Their recorded purpose distinguishes summarization from the user's answer.
   Compaction cannot reset limits, hide charges, or consume the reserved final-answer attempt.
+  Leaving an ordinary attempt available permits a final response; it does not guarantee completion if the model requests another tool.
 - [ ] A runnable `Example*` configures protection and completes the long-loop fixture.
   The guide explains estimates, summary loss, prior-history ownership, and accounting.
 

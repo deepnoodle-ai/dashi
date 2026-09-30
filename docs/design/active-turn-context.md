@@ -116,7 +116,9 @@ If it fits, dispatch ordinary work. Otherwise stop with `LimitContextWindow`.
 New ordinary model/tool work permits the next compaction cycle; explicit continuation permits a new attempt after failure.
 
 Summary attempts use existing `ModelAttempts`, interruption, and cumulative budget rules.
-Do not dispatch a summary when fewer than two ordinary attempt slots remain: preserve one for the final answer.
+Do not dispatch a summary when fewer than two ordinary attempt slots remain: leave one ordinary response attempt available.
+This permits a final response but does not guarantee completion if the model selects another tool.
+The existing final-answer reserve applies only under its documented conditions; active compaction adds no forced-answer contract.
 Return the existing model-attempt limit instead. Interrupted attempts retain existing separate interruption counting.
 Unknown/partial summary usage keeps existing conservative accounting and capped-admission behavior.
 
