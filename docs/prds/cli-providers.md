@@ -46,6 +46,8 @@ Run `dashi models [--available]`. Open `/model`, type `/model team acme/code-v1`
 - [ ] An empty picker names the missing configuration. Cancellation preserves selection. A successful switch identifies the next-turn destination. Invalid or ambiguous IDs produce an actionable error and no fallback.
 - [ ] `--workspace DIR` establishes the canonical workspace for tools, project settings, and session filtering. Invalid directories fail before dispatch.
 - [ ] `--api-endpoint URL` requires an explicit destination identity and API configuration. It cannot silently repurpose a native vendor identity or credential.
+- [ ] Nonempty `credential_env` marks a credential-bearing route before value lookup. Reject remote HTTP before credential resolution, client construction, or dispatch, including endpoint overrides. HTTP credentials require literal `127.0.0.0/8` or `::1`; hostnames, including `localhost`, never qualify. Keyless local HTTP remains usable. Trust approval cannot bypass this rule; no insecure opt-in exists.
+- [ ] Credential-bearing custom destinations never follow HTTP redirects, including HTTPS downgrades or endpoint changes. Fixtures prove remote HTTP rejection, literal loopback acceptance, and zero requests or credentials reaching redirect targets.
 - [ ] Project credential use first prompts with source file, destination, API, endpoint, models, and credential variable name. Allow authorizes that binding for this invocation. Denial or changed binding prevents dispatch. Unattended use requires a matching reviewed user definition. Project overrides cannot inherit trust.
 
 ### UC-2: Persist preferences without changing recorded work (I05–I06)
@@ -94,6 +96,7 @@ Run `dashi --workspace DIR --env-file PATH --system-prompt "Review changes befor
 - Use explicit destination identities and exact-ID catalog lookup. Reject Dive's model-prefix routing and substring capability inference because model IDs overlap across endpoints.
 - Permit a catalog-unknown ID only when explicitly registered for its destination. Report unknown capability evidence. Reject unrestricted typo-prone bare IDs and copied public-endpoint facts.
 - Keep user persistence separate from recorded work. Reject changing an open turn or its facts when the user saves a next-turn preference.
+- Require HTTPS for credentials except literal loopback IPs. Reject an insecure-transport opt-in because binding trust does not encrypt credentials in transit.
 - Keep Wonton and offline catalogs. Reject provider discovery requests, stored credentials, subscription sign-in, and command-based credential loading in this slice.
 
 Compaction (#103), accounting (#116), richer `/status`, usage reports, JSONL turns, hosted/media tools, Vertex authentication, and other new provider capabilities remain separate. The technical spec must define safe destination trust, credential binding, settings writes, and resume resolution before implementation.

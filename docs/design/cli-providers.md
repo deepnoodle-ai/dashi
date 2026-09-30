@@ -13,7 +13,9 @@ Add private CLI helpers for destination definitions/factories, preference resolu
 
 User/project JSON keeps existing `model` and adds `provider`, `thinking_effort`, `show_thinking`, `temperature`, `max_tokens`, and the PRD's `providers` map. Decode presence separately from value. Zero temperature and false thinking override lower tiers. Empty effort means omission; `temperature: null` clears inherited temperature; zero max tokens selects the library default. Slash commands accept `omit` for effort/temperature and `default` for output limit. Preserve unrelated JSON keys for resources/MCP.
 
-Merge each destination definition as a whole, retaining its source. Never merge a project's endpoint with a user's credential binding. Validate stable nonempty identities, supported APIs, exact nonempty model IDs, membership of `default_model`, and credential variable names. Reject inline keys, command sources, URL userinfo/query/fragment, and invalid URLs. Permit HTTP(S) endpoints accepted by the selected adapter. Show the scheme in trust decisions; never rewrite it silently.
+Merge each destination definition as a whole, retaining its source. Never merge a project's endpoint with a user's credential binding. Validate stable nonempty identities, supported APIs, exact nonempty model IDs, membership of `default_model`, and credential variable names. Reject inline keys, command sources, URL userinfo/query/fragment, and invalid URLs. Show the scheme in trust decisions; never rewrite it silently.
+
+Treat nonempty `credential_env` as credential-bearing, even when its value is absent or empty. Validate transport before credential lookup or dispatch-client construction. Require HTTPS except HTTP with a parsed literal IP in `127.0.0.0/8` or exactly `::1`. Do not resolve DNS for exemptions: `localhost`, loopback-resolving names, and other host spellings do not qualify. Keyless HTTP remains permitted when accepted by the adapter. Apply this policy to resolved definitions and `--api-endpoint` overrides, including continued turns. Trust approval cannot bypass it. No insecure-transport opt-in exists.
 
 Built-in native routes use existing constructors and credential aliases. `openai` defaults to Responses; explicit API registration also reaches Chat Completions. Native model facts/defaults come from the catalog and existing destination metadata. Local/compatible models require explicit registration. A custom name uses only its named credential variable, never an implicitly inherited vendor key. Custom endpoints receive no public-endpoint capability or price facts unless separately qualified by the library contract.
 
@@ -23,9 +25,11 @@ Resolve `--workspace` to an existing canonical directory before settings/session
 
 ## Credential trust and inspection
 
-Treat project destination configuration as untrusted routing input. Before credential use, compare the entire resolved binding with a user-owned definition. Otherwise request interactive trust showing source, identity, API, endpoint, model list/default, and credential variable name. Approval covers the binding fingerprint for this invocation only. Denial, changed binding, or unattended use without a matching user definition fails before dispatch. This trust grants no tool permission. `--yes` cannot authorize it.
+Treat project destination configuration as untrusted routing input. After transport validation, compare the entire resolved binding with a user-owned definition. Otherwise request interactive trust showing source, identity, API, endpoint, model list/default, and credential variable name. Approval covers the binding fingerprint for this invocation only. Denial, changed binding, or unattended use without a matching user definition fails before dispatch. This trust grants no tool permission. `--yes` cannot authorize it.
 
-Fingerprint canonical destination, API, normalized endpoint, model IDs/default, and credential variable name. Exclude credential values. Validate CLI endpoint overrides against the selected custom identity/API; never allow an override to retain a native vendor identity. Include the override in the fingerprint and trust decision. Resolve actual credentials only inside factory construction after trust.
+Fingerprint canonical destination, API, normalized endpoint, model IDs/default, and credential variable name. Exclude credential values. Validate CLI endpoint overrides against the selected custom identity/API and transport policy; never allow an override to retain a native vendor identity. Include the override in the fingerprint and trust decision. Resolve actual credentials only inside factory construction after validation and trust.
+
+Preserve automatic-redirect refusal for credential-bearing custom destinations. Adapters expose `Config.Client`; any CLI-supplied `http.Client` must refuse redirects with `CheckRedirect` returning `http.ErrUseLastResponse`. The existing [shared dispatch](../../internal/providerhttp/http.go) and [Gemini SDK](../../providers/google/gemini/sdk.go) already force this policy. Treat 3xx as a failed call under existing error semantics; never follow `Location` manually. This blocks HTTPS downgrades and changed endpoints without a foundation change. Transports must not hide redirects or retries.
 
 `models`, `/model`, and `/settings` construct/prepare without sending. Availability means credentials/configuration exist, not authentication or server health. Inspection reports requested controls, source descriptors, preparation adjustments/warnings, unknown support, and evidence dates. JSON export uses a dedicated allowlisted projection, not marshaled config or environment. Exclude keys, headers, prompt text, and arbitrary environment values. Errors print field/source names without echoing rejected secret content.
 
@@ -65,5 +69,17 @@ Ship additive settings/session fields and updated CLI documentation. Existing fi
 ## Verification
 
 Run root/CLI vet, build, and race tests. Keyless fixtures cover every PRD route, exact IDs, provider-only/model-only selection, tier precedence, zero/omitted controls, route trust/denial/change, credential isolation, JSON redaction, atomic-write failure, custom prompts, and continuation before/after the first ModelFact. Continue-to-queue fixtures prove different recorded/next-turn routes, even with overlapping model IDs. Assert no dispatch on rejection or untrusted routes. Preserve recovery, queue, compaction, and approval tests.
+
+Transport fixtures use counters for credential lookup, factory construction, initial requests, and redirected requests:
+
+| Configuration | Required result |
+|---|---|
+| Remote HTTP + nonempty `credential_env` (present, absent, or empty value) | Reject before lookup/construction/dispatch, even with trusted binding |
+| HTTP `127.0.0.1`, another `127/8` IP, or `[::1]` + fixture credential | Accept transport; dispatch only after required trust |
+| HTTP `localhost` or a name resolving to loopback + credential | Reject without DNS-based exemption |
+| Keyless local HTTP | Preserve successful preparation/dispatch |
+| Credential-bearing HTTPS returns 301/302/303/307/308 to HTTP or another HTTPS endpoint | Fail call; one initial request, zero redirected requests/credentials |
+
+Repeat rejection and loopback cases through `--api-endpoint`; exercise redirect refusal across registered adapters, including Gemini's SDK path.
 
 Commit a runnable no-payment Example for registration/preparation. Capture Wonton empty/preparing/error/success states and interactive selection outside git. Independent implementation, security, and taste reviews exercise integrated workflows. Summary request/render/reopen/absence fixtures gate I07 once its foundation contract lands. No unresolved CLI architectural decision blocks implementation; the summary API remains the named foundation dependency.
