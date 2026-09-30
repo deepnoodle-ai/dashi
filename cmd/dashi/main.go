@@ -113,6 +113,9 @@ func runPrint(
 	if a.wiring.Close != nil {
 		defer a.wiring.Close()
 	}
+	if handled, code := a.ctrl.printCommand(o.Print, stdout, stderr); handled {
+		return code
+	}
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -120,9 +123,6 @@ func runPrint(
 	}
 	if notice != "" {
 		fmt.Fprintln(stderr, workspace.PrintableText(notice))
-	}
-	if handled, code := a.ctrl.printCommand(o.Print, stdout, stderr); handled {
-		return code
 	}
 	res, err := a.eng.Prompt(ctx, o.Print)
 	if err != nil {
