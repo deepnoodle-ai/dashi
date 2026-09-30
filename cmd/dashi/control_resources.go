@@ -27,43 +27,15 @@ func (c *Controller) resources(ctx context.Context) {
 		return
 	}
 	var out strings.Builder
-	last := c.eng.Last(ctx)
-	if last != nil && last.Open() {
-		fmt.Fprintln(&out, "Current turn resources (frozen):")
-		sess, loader := manager.environment()
-		binding, err := manager.preflight(ctx, sess, loader, last.View.ID)
-		switch {
-		case err != nil:
-			fmt.Fprintf(&out, "  Unavailable: %v\n", err)
-		case binding == nil:
-			fmt.Fprintln(&out, "  This turn has no recorded resource pin.")
-		case binding.Legacy:
-			fmt.Fprintln(&out, "  This earlier turn has no CLI resource selection.")
-		default:
-			fmt.Fprintf(&out, "  Catalog %s; %d selected skills\n", binding.Reference.CatalogDigest, len(binding.Snapshot.Skills))
-			fmt.Fprintln(&out, "  Instructions are contextual; they grant no tool authority.")
-			for _, source := range binding.Snapshot.InstructionSources {
-				if source.Status == "loaded" {
-					fmt.Fprintf(&out, "  Instructions: %s\n", source.Path)
-				}
-			}
-			for _, source := range binding.Snapshot.Skills {
-				fmt.Fprintf(&out, "  Skill %s (user %t, model %t); source %s\n", source.Info.Name, source.Info.UserInvocable, source.Info.ModelInvocable, source.Info.Path)
-				writeSupportingScope(&out, source)
-			}
-		}
-		fmt.Fprintln(&out, "Discovered resources for the next turn (not applied):")
-	} else {
-		fmt.Fprintln(&out, "Discovered resources for the next turn:")
-	}
-	for _, source := range found.Snapshot.InstructionSources {
+	fmt.Fprintln(&out, "Available instructions and skills:")
+	for _, source := range found.InstructionSources {
 		fmt.Fprintf(&out, "  %s: %s\n", source.Path, source.Status)
 		if source.Target != "" && source.Target != source.Path {
 			fmt.Fprintf(&out, "    Target: %s\n", source.Target)
 		}
 	}
 	fmt.Fprintln(&out, "  Instructions are contextual; they grant no tool authority.")
-	fmt.Fprintf(&out, "Skills: %d selected, %d shadowed\n", len(found.Snapshot.Skills), len(found.Candidates)-len(found.Snapshot.Skills))
+	fmt.Fprintf(&out, "Skills: %d selected, %d shadowed\n", len(found.Skills), len(found.Candidates)-len(found.Skills))
 	seen := map[string]bool{}
 	for _, info := range found.Candidates {
 		key := strings.ToLower(info.Name)
@@ -80,7 +52,7 @@ func (c *Controller) resources(ctx context.Context) {
 		if info.ArgumentHint != "" {
 			fmt.Fprintf(&out, "    Arguments: %s\n", info.ArgumentHint)
 		}
-		for _, source := range found.Snapshot.Skills {
+		for _, source := range found.Skills {
 			if source.Info.Path == info.Path {
 				writeSupportingScope(&out, source)
 			}
@@ -92,6 +64,15 @@ func (c *Controller) resources(ctx context.Context) {
 			fmt.Fprintf(&out, "  %s: %s\n", warning.Path, warning.Message)
 		}
 	}
+	fmt.Fprintln(&out, "Remembered supporting-file approvals for this Dashi run:")
+	remembered := manager.rememberedApprovals()
+	if len(remembered) == 0 {
+		fmt.Fprintln(&out, "  None.")
+	}
+	for _, args := range remembered {
+		fmt.Fprintf(&out, "  Skill %s: %s\n", args.Skill, args.Path)
+	}
+	fmt.Fprintln(&out, "  Exact read_skill_file arguments only; selected folder checks still apply.")
 	fmt.Fprintln(&out, "Registered tools:")
 	tools, err := c.eng.cfg.Wiring.Tools.Tools(ctx)
 	if err != nil {
@@ -112,7 +93,7 @@ func (c *Controller) resources(ctx context.Context) {
 func writeSupportingScope(out *strings.Builder, source selectedSkillSource) {
 	if source.Root != "" {
 		fmt.Fprintf(out, "    Eligible supporting reads: %s; no write or shell grant\n", source.Root)
-		fmt.Fprintln(out, "    Approval: each call; this run may remember exact canonical arguments only.")
+		fmt.Fprintln(out, "    Approval required unless these exact arguments are remembered below.")
 	} else {
 		fmt.Fprintln(out, "    Supporting reads: unavailable (no selected folder).")
 	}
@@ -175,7 +156,7 @@ func (c *Controller) skillCommand(line string, running bool) {
 		if !ok {
 			return Result{}, fmt.Errorf("skill /%s could not be expanded", name)
 		}
-		return c.eng.promptWithResources(ctx, text, found)
+		return c.eng.Prompt(ctx, text)
 	}
 	if running {
 		c.goWork(func() { _, _ = invoke(c.base) })
@@ -183,7 +164,7 @@ func (c *Controller) skillCommand(line string, running bool) {
 	}
 	c.startRun(invoke)
 }
-func (m *resourceBindingManager) approvalRequest(ctx context.Context, request ApprovalRequest) ApprovalRequest {
+func (m *resourceManager) approvalRequest(ctx context.Context, request ApprovalRequest) ApprovalRequest {
 	if request.Tool != "read_skill_file" {
 		return request
 	}
@@ -196,25 +177,31 @@ func (m *resourceBindingManager) approvalRequest(ctx context.Context, request Ap
 		return request
 	}
 	m.mu.Lock()
-	binding := m.bound[view.ID]
-	m.mu.Unlock()
-	if binding == nil {
-		return request
-	}
-	for _, source := range binding.Snapshot.Skills {
-		if source.Info.Name == args.Skill {
-			request.Summary = fmt.Sprintf("Read supporting file for skill %s (source %s): %s", args.Skill, source.Info.Path, args.Path)
+	for ref, file := range m.files {
+		if ref.TurnID == view.ID && file.Args == args {
+			request.Summary = fmt.Sprintf("Read supporting file for skill %s (source %s): %s", args.Skill, file.SourcePath, args.Path)
 			break
 		}
 	}
+	m.mu.Unlock()
 	return request
 }
 func resourceStartupSummary(found *discoveredResources) string {
 	instruction := "none"
-	for _, source := range found.Snapshot.InstructionSources {
+	for _, source := range found.InstructionSources {
 		if source.Status == "loaded" {
 			instruction = source.Path
 		}
 	}
-	return fmt.Sprintf("Instructions: %s; %d selected skills (%d model, %d shadowed). Use /resources for sources and access scopes.", instruction, len(found.Snapshot.Skills), len(found.Snapshot.Definitions), len(found.Candidates)-len(found.Snapshot.Skills))
+	return fmt.Sprintf("Instructions: %s; %d selected skills (%d model, %d shadowed). Use /resources for sources and access scopes.", instruction, len(found.Skills), modelSkillCount(found), len(found.Candidates)-len(found.Skills))
+}
+
+func modelSkillCount(found *discoveredResources) int {
+	count := 0
+	for _, source := range found.Skills {
+		if source.Info.ModelInvocable {
+			count++
+		}
+	}
+	return count
 }

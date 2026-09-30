@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func putResource(t *testing.T, path, text string) {
@@ -20,7 +16,7 @@ func putResource(t *testing.T, path, text string) {
 		t.Fatal(err)
 	}
 }
-func instructionText(item resourceSnapshot) string {
+func instructionText(item *discoveredResources) string {
 	var text strings.Builder
 	for _, c := range item.Instructions.Message.Content {
 		if c.Reminder != nil {
@@ -88,73 +84,38 @@ func TestResourceInstructionsFallbackAndFailures(t *testing.T) {
 					t.Fatal("missing warning")
 				}
 			}
-			text := instructionText(found.Snapshot)
+			text := instructionText(found)
 			if !strings.Contains(text, expected) || strings.Contains(text, "secret-outside") || (warnings && strings.Contains(text, "fallback-body")) {
 				t.Fatalf("wrong instruction selection, len=%d", len(text))
 			}
-			raw, err := found.Snapshot.encode()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, _, err := decodeResourceSnapshot(raw); err != nil {
-				t.Fatal(err)
-			}
+
 		})
 	}
 }
-func TestResourceSnapshotPinsBodiesAndInvocationRestrictions(t *testing.T) {
+func TestResourceDiscoveryRefreshesAndHonorsInvocationRestrictions(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
 	putResource(t, filepath.Join(dir, "AGENTS.md"), "old-instructions")
-	project := filepath.Join(dir, ".dashi/skills/review/SKILL.md")
-	putResource(t, project, "---\nname: review\ndescription: Review changes\n---\nold-skill-body")
-	putResource(t, filepath.Join(home, ".dashi/skills/review/SKILL.md"), "---\nname: REVIEW\n---\nshadow-body")
+	project := fixtureResourceSkill(t, dir, "review", "old-skill-body", "")
+	fixtureResourceSkill(t, home, "REVIEW", "shadow-body", "")
 	putResource(t, filepath.Join(dir, ".dashi/commands/private.md"), "---\nname: private\ndisable-model-invocation: true\n---\nprivate-user-body $ARGUMENTS")
 	found, err := discoverResources(dir, home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(found.Candidates) != 3 || len(found.Snapshot.Skills) != 2 || len(found.Snapshot.Definitions) != 1 {
-		t.Fatalf("selected metadata=%+v", found.Snapshot)
+	if len(found.Candidates) != 3 || len(found.Skills) != 2 || modelSkillCount(found) != 1 {
+		t.Fatalf("selected metadata=%+v", found.Skills)
 	}
-	raw, err := found.Snapshot.encode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(raw, []byte("private-user-body")) || bytes.Contains(raw, []byte("shadow-body")) {
-		t.Fatal("unselected bodies persisted")
-	}
-	putResource(t, project, "---\nname: review\ndescription: Review changes\n---\nnew-skill-body")
+	putResource(t, project, "---\nname: review\ndescription: Fixture skill\n---\nnew-skill-body")
 	putResource(t, filepath.Join(dir, "AGENTS.md"), "new-instructions")
-	snapshot, bundle, err := decodeResourceSnapshot(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(instructionText(snapshot), "old-instructions") || bundle.Definitions()[0].Instructions != "old-skill-body" {
-		t.Fatal("recovery rediscovered disk")
-	}
 	newer, err := discoverResources(dir, home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if newer.Bundle.Digest() == bundle.Digest() || !strings.Contains(instructionText(newer.Snapshot), "new-instructions") {
-		t.Fatal("refresh reused stale bytes")
+	if !strings.Contains(instructionText(newer), "new-instructions") {
+		t.Fatal("refresh reused stale instructions")
 	}
-}
-func TestResourceSnapshotRejectsMalformedRecovery(t *testing.T) {
-	found, err := discoverResources(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := found.Snapshot.encode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := decodeResourceSnapshot(append(raw, []byte(` {}`)...)); err == nil {
-		t.Fatal("trailing JSON accepted")
-	}
-	found.Snapshot.Instructions.Message.Content[0].Reminder.Tier = llm.ReminderOperator
-	unsafe, _ := json.Marshal(found.Snapshot)
-	if _, _, err := decodeResourceSnapshot(unsafe); err == nil {
-		t.Fatal("operator instruction accepted")
+	expanded, ok := newer.Set.Expand("review", "")
+	if !ok || !strings.Contains(expanded, "new-skill-body") {
+		t.Fatalf("refresh=%q/%v", expanded, ok)
 	}
 }

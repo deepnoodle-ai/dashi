@@ -46,12 +46,16 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 			return nil, err
 		}
 	}
-	resources := newResourceBindingManager(cfg.Dir, home, cfg.Store)
+	resources := newResourceManager(cfg.Dir, home)
 	w, err := buildWiring(Env{
 		Dir:       cfg.Dir,
 		Resources: resources,
 		Approve: func(ctx context.Context, r ApprovalRequest) (Approval, error) {
-			return ctrl.Approve(ctx, resources.approvalRequest(ctx, r))
+			answer, err := ctrl.Approve(ctx, resources.approvalRequest(ctx, r))
+			if err == nil {
+				resources.rememberApproval(r, answer)
+			}
+			return answer, err
 		},
 		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
 			return ctrl.Ask(ctx, q)

@@ -20,15 +20,16 @@ type skillFileArgs struct {
 }
 type validatedSkillFile struct {
 	Args               skillFileArgs
+	SourcePath         string
 	Root               string
 	RootInfo, FileInfo os.FileInfo
 }
 
-func resolveSkillFile(binding *resourceBinding, args skillFileArgs) (*validatedSkillFile, error) {
+func resolveSkillFile(resources *discoveredResources, args skillFileArgs) (*validatedSkillFile, error) {
 	var selected *selectedSkillSource
-	for i := range binding.Snapshot.Skills {
-		if strings.EqualFold(strings.TrimSpace(args.Skill), binding.Snapshot.Skills[i].Info.Name) {
-			selected = &binding.Snapshot.Skills[i]
+	for i := range resources.Skills {
+		if strings.EqualFold(strings.TrimSpace(args.Skill), resources.Skills[i].Info.Name) {
+			selected = &resources.Skills[i]
 			break
 		}
 	}
@@ -55,7 +56,7 @@ func resolveSkillFile(binding *resourceBinding, args skillFileArgs) (*validatedS
 		return nil, err
 	}
 	if currentRoot != selected.Root {
-		return nil, errors.New("selected skill folder changed; submit a new prompt to refresh resources")
+		return nil, errors.New("selected skill folder changed during discovery; request the read again")
 	}
 	path := args.Path
 	if !filepath.IsAbs(path) {
@@ -96,14 +97,14 @@ func resolveSkillFile(binding *resourceBinding, args skillFileArgs) (*validatedS
 	if info.Size() > instructionLimit {
 		return nil, fmt.Errorf("supporting file exceeds %d bytes", instructionLimit)
 	}
-	return &validatedSkillFile{Args: skillFileArgs{selected.Info.Name, target}, Root: selected.Root, RootInfo: current, FileInfo: info}, nil
+	return &validatedSkillFile{Args: skillFileArgs{selected.Info.Name, target}, Root: selected.Root, RootInfo: current, FileInfo: info, SourcePath: selected.Info.Path}, nil
 }
-func (m *resourceBindingManager) validateSkillFile(_ context.Context, plan dashi.ToolPlan, binding *resourceBinding) (dashi.ToolDecision, error) {
+func (m *resourceManager) validateSkillFile(_ context.Context, plan dashi.ToolPlan, resources *discoveredResources) (dashi.ToolDecision, error) {
 	var args skillFileArgs
 	if err := json.Unmarshal(plan.Call.Args, &args); err != nil {
 		return dashi.Deny("Invalid supporting-file arguments."), nil
 	}
-	selected, err := resolveSkillFile(binding, args)
+	selected, err := resolveSkillFile(resources, args)
 	if err != nil {
 		return dashi.Deny("Cannot read supporting file: " + err.Error()), nil
 	}
@@ -125,18 +126,11 @@ func (m *resourceBindingManager) validateSkillFile(_ context.Context, plan dashi
 	}
 	return dashi.ToolDecision{}, nil
 }
-func (m *resourceBindingManager) skillFileTool() (tool.Tool, error) {
+func (m *resourceManager) skillFileTool() (tool.Tool, error) {
 	return tool.Func("read_skill_file", "Read a UTF-8 supporting file of a selected folder skill (at most 64 KiB). Use this for supporting files outside the workspace; ordinary workspace files use read_file. The selected folder grants no write or shell authority.", func(ctx context.Context, call tool.Call, args skillFileArgs) (tool.Outcome, error) {
 		ref, ok := dashi.CurrentCall(ctx)
 		if !ok {
 			return tool.Outcome{}, tool.Fatal(errors.New("supporting-file reader requires a recorded turn"))
-		}
-		binding, _, err := m.bind(ctx, ref.TurnID, false)
-		if err != nil {
-			return tool.Outcome{}, tool.Fatal(fmt.Errorf("resource recovery: %w", err))
-		}
-		if binding.Legacy {
-			return tool.Failed("Supporting files were not selected for this turn."), nil
 		}
 		m.mu.Lock()
 		selected := m.files[ref]
@@ -144,7 +138,11 @@ func (m *resourceBindingManager) skillFileTool() (tool.Tool, error) {
 		// An acknowledged per-call decision can survive a process restart. Rebuild
 		// its canonical target, while remembered process grants remain absent.
 		if selected == nil {
-			selected, err = resolveSkillFile(binding, args)
+			found, err := m.discover()
+			if err != nil {
+				return tool.Failed("Skills unavailable: " + err.Error()), nil
+			}
+			selected, err = resolveSkillFile(found, args)
 			if err != nil {
 				return tool.Failed("Cannot read supporting file: " + err.Error()), nil
 			}

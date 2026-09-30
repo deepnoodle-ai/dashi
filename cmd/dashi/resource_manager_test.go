@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -61,28 +59,6 @@ func TestResourcePrintStartupNoticeUsesStderr(t *testing.T) {
 	}
 	if out.String() != "only answer\n" || !strings.Contains(errOut.String(), "AGENTS.md") || strings.Contains(errOut.String(), "private-instruction-body") {
 		t.Fatalf("notice boundary stdout=%q stderr=%q", out.String(), errOut.String())
-	}
-}
-
-func TestResourceLegacyContinuationDoesNotAdoptCurrentHooks(t *testing.T) {
-	saved := adapters
-	adapters = []func(Env) (wiring, error){workspaceWiring}
-	h := newHarnessLimit(t, 1, callTool("list", "list_directory", `{}`), say("legacy continued"), say("new resources"))
-	adapters = saved
-	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "new-resource-instructions")
-	h.input("legacy start")
-	h.app.eng.Close()
-	h.build(Options{Resume: true})
-	h.input("")
-	if strings.Contains(latestWorkspaceInstructions(h.client.inputAt(1)), "new-resource-instructions") {
-		t.Fatal("legacy continuation injected resources")
-	}
-	if _, found, err := turnResourceReference(h.turn(1)); err != nil || found {
-		t.Fatalf("legacy pin=%v/%v", found, err)
-	}
-	h.input("new prompt")
-	if latestWorkspaceInstructions(h.client.inputAt(2)) != "new-resource-instructions" {
-		t.Fatal("new turn failed to adopt resources")
 	}
 }
 
@@ -149,94 +125,6 @@ func TestResourceApprovalLifetimeAndChangedTarget(t *testing.T) {
 	}
 }
 
-type resourceFaultRecorder struct {
-	*filerecorder.Recorder
-	onStart func(dashi.Step) error
-}
-
-func (r *resourceFaultRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	if err := r.Recorder.Commit(ctx, req); err != nil {
-		return err
-	}
-	if req.Step.Kind == dashi.StepStarted {
-		return r.onStart(req.Step)
-	}
-	return nil
-}
-func TestResourcePublicationFailureStopsBeforePreparation(t *testing.T) {
-	h := newHarness(t, say("must not send"))
-	h.app.eng.Close()
-	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
-		return &resourceFaultRecorder{Recorder: rec, onStart: func(step dashi.Step) error {
-			id := step.TurnID[:strings.LastIndex(step.TurnID, "-")]
-			return os.WriteFile(filepath.Join(h.store.Root(), id, "resources"), []byte("not a directory"), 0600)
-		}}
-	}
-	h.build(Options{})
-	h.input("start")
-	h.client.mu.Lock()
-	prepares, sends := len(h.client.inputs), h.client.sends
-	h.client.mu.Unlock()
-	if prepares != 0 || sends != 0 {
-		t.Fatalf("publication failure dispatched: %d/%d", prepares, sends)
-	}
-	mustHave(t, h.ui.text(), "Resources unavailable")
-}
-
-func TestResourceReopenBeforeFirstIntentMayRediscover(t *testing.T) {
-	h := newHarness(t, say("recovered"))
-	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "old-before-start")
-	h.app.eng.Close()
-	ctx, cancel := context.WithCancel(t.Context())
-	h.recorder = func(rec *filerecorder.Recorder) dashi.Recorder {
-		return &resourceFaultRecorder{Recorder: rec, onStart: func(dashi.Step) error { cancel(); return nil }}
-	}
-	h.build(Options{})
-	_, _ = h.app.eng.Prompt(ctx, "recover first admission")
-	turn := h.turn(1)
-	if _, found, err := turnResourceReference(turn); err != nil || found {
-		t.Fatalf("unexpected pin before cancellation: %v/%v", found, err)
-	}
-	h.app.eng.Close()
-	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "new-before-first-intent")
-	h.recorder = nil
-	h.build(Options{Resume: true})
-	h.input("")
-	if latestWorkspaceInstructions(h.client.inputAt(0)) != "new-before-first-intent" {
-		t.Fatal("unstarted turn failed to rediscover")
-	}
-}
-
-type resourceTurnLoader struct{ turn dashi.Turn }
-
-func (l resourceTurnLoader) Load(context.Context, string) (dashi.Turn, error) { return l.turn, nil }
-func TestResourceMissingPinAfterIntentCannotRediscover(t *testing.T) {
-	h := newHarnessLimit(t, 1, callTool("load", "load_skill", `{"name":"review"}`))
-	fixtureResourceSkill(t, h.dir, "review", "pinned-body", "")
-	h.input("start")
-	turn := h.turn(1)
-	for i := range turn.Steps {
-		if fact := turn.Steps[i].Context; fact != nil {
-			var kept []dashi.ContextItem
-			for _, item := range fact.Items {
-				if item.Name != resourcePinName {
-					kept = append(kept, item)
-				}
-			}
-			fact.Items = kept
-		}
-	}
-	manager := h.app.eng.cfg.Resources
-	loader := resourceTurnLoader{turn}
-	if _, err := manager.preflight(t.Context(), h.app.eng.Session(), loader, turn.ID); err == nil {
-		t.Fatal("missing pin preflight succeeded")
-	}
-	manager.open(h.app.eng.Session(), loader)
-	if _, _, err := manager.bind(t.Context(), turn.ID, true); err == nil {
-		t.Fatal("started turn rediscovered resources")
-	}
-}
-
 func TestResourceUnchangedContextIsDeliveredOnce(t *testing.T) {
 	h := newHarness(t, say("first"), say("second"), say("third"))
 	fixtureResourceSkill(t, h.dir, "review", "private-body", "")
@@ -253,7 +141,7 @@ func TestResourceUnchangedContextIsDeliveredOnce(t *testing.T) {
 			counts[message.Context.Name]++
 		}
 	}
-	if counts["workspace-instructions"] != 1 || counts["workspace-instructions-source"] != 1 || counts["skills"] != 1 || counts[resourcePinName] != 3 {
+	if counts["workspace-instructions"] != 1 || counts["workspace-instructions-source"] != 1 || counts["skills"] != 1 {
 		t.Fatalf("context repetitions=%v", counts)
 	}
 	first := h.client.inputAt(0).Messages
@@ -289,72 +177,30 @@ func latestWorkspaceInstructions(in llm.Input) string {
 	}
 	return latest
 }
-func TestResourceTurnPinAndProgressiveLoadSurvivePhysicalReopen(t *testing.T) {
-	h := newHarnessLimit(t, 1, callTool("load", "load_skill", `{"name":"review"}`), say("finished"))
+func TestResourceLoadedToolResultSurvivesReopenAndNewLoadUsesCurrentFile(t *testing.T) {
+	h := newHarness(t, callTool("old-load", "load_skill", `{"name":"review"}`), say("first done"), callTool("new-load", "load_skill", `{"name":"review"}`), say("second done"))
 	path := fixtureResourceSkill(t, h.dir, "review", "old-private-skill-body", "")
-	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "old-workspace-instructions")
-	h.input("review these changes")
+	h.input("review first")
 	if strings.Contains(inputText(h.client.inputAt(0)), "old-private-skill-body") {
 		t.Fatal("skill body eagerly delivered")
 	}
-	turn := h.turn(1)
-	ref, found, err := turnResourceReference(turn)
-	if err != nil || !found {
-		t.Fatalf("pin=%+v %v %v", ref, found, err)
-	}
-	if len(turn.Steps) < 2 || turn.Steps[1].Kind != dashi.StepDelivered {
-		t.Fatalf("pin not before model: %+v", turn.Steps)
-	}
-	raw, err := h.store.ReadResources(h.app.eng.Session(), ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), "old-private-skill-body") {
-		t.Fatal("selected definition was not cached")
-	}
-	putResource(t, path, "---\nname: review\ndescription: Fixture skill\n---\nnew-private-skill-body")
-	putResource(t, filepath.Join(h.dir, "AGENTS.md"), "new-workspace-instructions")
-	h.ui.Reset()
-	h.input("/resources")
-	if strings.Contains(h.ui.text(), "old-private-skill-body") || strings.Contains(h.ui.text(), "new-private-skill-body") {
-		t.Fatal("inventory printed instruction body")
+	if !strings.Contains(inputText(h.client.inputAt(1)), "old-private-skill-body") {
+		t.Fatal("load result missing")
 	}
 	h.app.eng.Close()
+	putResource(t, path, "---\nname: review\ndescription: Fixture skill\n---\nnew-private-skill-body")
 	h.build(Options{Resume: true})
-	h.input("")
-	input := h.client.inputAt(1)
-	if latestWorkspaceInstructions(input) != "old-workspace-instructions" || !strings.Contains(inputText(input), "old-private-skill-body") || strings.Contains(inputText(input), "new-private-skill-body") {
-		t.Fatalf("recovery changed resources: %s", inputText(input))
+	h.input("/resources")
+	if strings.Contains(h.ui.text(), "private-skill-body") {
+		t.Fatal("inventory printed skill body")
 	}
-}
-func TestResourceCorruptionStopsBeforePreparation(t *testing.T) {
-	h := newHarnessLimit(t, 1, callTool("load", "load_skill", `{"name":"review"}`), say("must not send"))
-	fixtureResourceSkill(t, h.dir, "review", "original-body", "")
-	h.input("review")
-	ref, found, err := turnResourceReference(h.turn(1))
-	if err != nil || !found {
-		t.Fatal(err)
+	h.input("review again")
+	final := inputText(h.client.inputAt(3))
+	if !strings.Contains(final, "old-private-skill-body") || !strings.Contains(final, "new-private-skill-body") {
+		t.Fatalf("history or new load missing: %s", final)
 	}
-	// Same-size corruption retains valid JSON; content verification must catch it.
-	raw, err := h.store.ReadResources(h.app.eng.Session(), ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw[strings.Index(string(raw), "original-body")] = 'X'
-	directory := filepath.Join(h.store.Root(), h.app.eng.Session().ID)
-	path := filepath.Join(directory, "resources", ref.SHA256+".json")
-	if err := os.WriteFile(path, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
-	_, err = h.app.eng.Resume(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "hash mismatch") {
-		t.Fatalf("corruption=%v", err)
-	}
-	h.client.mu.Lock()
-	preparations, sends := len(h.client.inputs), h.client.sends
-	h.client.mu.Unlock()
-	if preparations != 1 || sends != 1 {
-		t.Fatalf("corrupt resources dispatched: prepare=%d send=%d", preparations, sends)
+	if _, err := os.Stat(filepath.Join(h.store.Root(), h.app.eng.Session().ID, "resources")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected resource store: %v", err)
 	}
 }
 func TestResourceRefreshAtEveryPromptAndQueuedSuccessor(t *testing.T) {
@@ -374,17 +220,6 @@ func TestResourceRefreshAtEveryPromptAndQueuedSuccessor(t *testing.T) {
 	h.app.ctrl.Wait()
 	if latestWorkspaceInstructions(h.client.inputAt(1)) != "queued-instructions" {
 		t.Fatal("queued successor reused earlier selection")
-	}
-	firstRef, _, err := turnResourceReference(h.turn(1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondRef, _, err := turnResourceReference(h.turn(2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstRef == secondRef {
-		t.Fatal("queued successor did not pin its own resources")
 	}
 	if err := os.Remove(filepath.Join(h.dir, "AGENTS.md")); err != nil {
 		t.Fatal(err)

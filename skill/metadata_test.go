@@ -32,18 +32,8 @@ func TestDiscoveryRetainsSelectedAndShadowedSources(t *testing.T) {
 	if candidates[0].Path != filepath.Join(project, "a", "SKILL.md") || candidates[2].Path != filepath.Join(home, "review.md") {
 		t.Fatalf("paths=%+v", candidates)
 	}
-	bundle, err := set.Bundle(Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	definitions := bundle.Definitions()
-	if len(definitions) != 1 || definitions[0].Instructions != "project body" {
-		t.Fatalf("definitions=%+v", definitions)
-	}
-	digest := bundle.Digest()
-	definitions[0].Instructions = "caller replacement"
 	candidates[0].Name = "caller replacement"
-	if bundle.Definitions()[0].Instructions != "project body" || set.Candidates()[0].Name != "review" || bundle.Digest() != digest {
-		t.Fatal("caller mutation changed frozen resources")
+	if set.Candidates()[0].Name != "review" {
+		t.Fatal("caller mutation changed discovery metadata")
 	}
 }

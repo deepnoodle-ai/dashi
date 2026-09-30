@@ -333,6 +333,7 @@ func (c *Controller) Input(line string) {
 
 func (c *Controller) displayCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
+	name = strings.ToLower(name)
 	switch name {
 	case "/copy", "/scrollback", "/mouse":
 		if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
@@ -383,6 +384,7 @@ func (c *Controller) QuitDuringRun(action string) {
 // require resubmission after the turn ends. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
+	name = strings.ToLower(name)
 	switch name {
 	case "/settings":
 		c.notice("/settings must wait until the turn ends. Submit it again then.")
@@ -492,7 +494,7 @@ func busyText(err error) string {
 func (c *Controller) command(line string) {
 	name, arg, _ := strings.Cut(line, " ")
 	arg = strings.TrimSpace(arg)
-	switch name {
+	switch strings.ToLower(name) {
 	case "/compact":
 		if arg != "" {
 			c.notice("Usage: /compact")

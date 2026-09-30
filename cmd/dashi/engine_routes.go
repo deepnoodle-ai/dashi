@@ -30,17 +30,6 @@ func (c *routedCompactor) Start(history []llm.Message) (dashi.Start, error) {
 }
 
 func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
-	if resources := e.cfg.Resources; resources != nil {
-		_, isStart := command.(dashi.Start)
-		_, isCancel := command.(dashi.Cancel)
-		if !isStart && !isCancel {
-			if last := e.Last(ctx); last != nil && last.View.Origin != dashi.StartCompaction {
-				if _, _, err := resources.bind(ctx, last.View.ID, true); err != nil {
-					return err
-				}
-			}
-		}
-	}
 	p := e.cfg.Preferences
 	if p == nil {
 		return nil

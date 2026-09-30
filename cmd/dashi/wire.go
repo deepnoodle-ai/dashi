@@ -28,7 +28,7 @@ type wiring struct {
 type Env struct {
 	// Dir is the workspace directory.
 	Dir       string
-	Resources *resourceBindingManager
+	Resources *resourceManager
 	// Approve asks the user about a tool call.
 	Approve ApprovalFunc
 	// Ask asks the user a question in the model's name.
@@ -155,7 +155,7 @@ func resourceWiring(env Env) (wiring, error) {
 		"read_skill_file": "selected canonical skill folders; approval required; remembers exact canonical arguments for this run",
 	}}, nil
 }
-func resourcePolicyOptions(resources *resourceBindingManager) []workspace.PolicyOption {
+func resourcePolicyOptions(resources *resourceManager) []workspace.PolicyOption {
 	if resources == nil {
 		return nil
 	}

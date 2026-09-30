@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,46 +19,39 @@ import (
 const instructionLimit = 64 << 10
 
 type instructionSource struct {
-	Path   string `json:"path"`
-	Target string `json:"target,omitempty"`
-	Status string `json:"status"`
+	Path   string
+	Target string
+	Status string
 }
 type selectedSkillSource struct {
-	Info skill.Info `json:"info"`
-	Root string     `json:"root,omitempty"`
-}
-type resourceSnapshot struct {
-	Version            int                   `json:"version"`
-	Instructions       dashi.ContextItem     `json:"instructions"`
-	InstructionSource  dashi.ContextItem     `json:"instruction_source"`
-	InstructionSources []instructionSource   `json:"instruction_sources"`
-	Definitions        []skill.Definition    `json:"definitions"`
-	Skills             []selectedSkillSource `json:"skills"`
-	CatalogDigest      string                `json:"catalog_digest"`
+	Info skill.Info
+	Root string
 }
 type discoveredResources struct {
-	Snapshot   resourceSnapshot
-	Set        *skill.Set
-	Bundle     *skill.Bundle
-	Candidates []skill.Info
-	Warnings   []skill.Warning
+	Instructions       dashi.ContextItem
+	InstructionSource  dashi.ContextItem
+	InstructionSources []instructionSource
+	Skills             []selectedSkillSource
+	Set                *skill.Set
+	Bundle             *skill.Bundle
+	Candidates         []skill.Info
+	Warnings           []skill.Warning
 }
 
 // Discovery selects contextual content only; it grants no tools or file access.
 func discoverResources(workspace, home string) (*discoveredResources, error) {
 	selected := &discoveredResources{}
-	selected.Snapshot.Version = 1
 	var warnings []skill.Warning
-	selected.Snapshot.Instructions, selected.Snapshot.InstructionSources, warnings = discoverInstructions(workspace)
+	selected.Instructions, selected.InstructionSources, warnings = discoverInstructions(workspace)
 	sourceText := "No workspace instruction source selected."
-	for _, source := range selected.Snapshot.InstructionSources {
+	for _, source := range selected.InstructionSources {
 		if source.Status == "loaded" {
 			sourceText = "Workspace instructions from " + source.Path + ":"
 		}
 	}
-	selected.Snapshot.InstructionSource = instructionItem(sourceText)
-	selected.Snapshot.InstructionSource.Name = "workspace-instructions-source"
-	selected.Snapshot.InstructionSource.Message.Content[0].Reminder.Name = "workspace-instructions-source"
+	selected.InstructionSource = instructionItem(sourceText)
+	selected.InstructionSource.Name = "workspace-instructions-source"
+	selected.InstructionSource.Message.Content[0].Reminder.Name = "workspace-instructions-source"
 	selected.Warnings = append(selected.Warnings, warnings...)
 	set, warnings := skill.LoadDirs(skill.DefaultDirs(workspace, home)...)
 	selected.Set, selected.Candidates = set, set.Candidates()
@@ -70,8 +61,6 @@ func discoverResources(workspace, home string) (*discoveredResources, error) {
 		return nil, fmt.Errorf("build skill catalog: %w", err)
 	}
 	selected.Bundle = bundle
-	selected.Snapshot.Definitions = bundle.Definitions()
-	selected.Snapshot.CatalogDigest = bundle.Digest()
 	for _, info := range set.Skills() {
 		source := selectedSkillSource{Info: info}
 		if info.Dir != "" {
@@ -92,7 +81,7 @@ func discoverResources(workspace, home string) (*discoveredResources, error) {
 				source.Root = target
 			}
 		}
-		selected.Snapshot.Skills = append(selected.Snapshot.Skills, source)
+		selected.Skills = append(selected.Skills, source)
 	}
 	return selected, nil
 }
@@ -208,84 +197,4 @@ func readBoundedResource(root *os.Root, path string, limit int, approved ...os.F
 		return nil, errors.New("file is not valid UTF-8")
 	}
 	return data, nil
-}
-func (s resourceSnapshot) encode() ([]byte, error) {
-	if s.Version != 1 {
-		return nil, errors.New("unsupported resource snapshot version")
-	}
-	bundle, err := skill.New(s.Definitions, skill.Options{})
-	if err != nil {
-		return nil, err
-	}
-	if bundle.Digest() != s.CatalogDigest {
-		return nil, errors.New("resource catalog digest mismatch")
-	}
-	if err := s.validateContent(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(s)
-}
-
-func validateInstructionItem(item dashi.ContextItem, name string) error {
-	if item.ID == "" || item.Name != name || item.Origin != dashi.ContextRuntime || !item.Snapshot || item.NextCallOnly || item.Message.Role != llm.RoleUser || item.Message.Source != nil || item.Message.Context != nil || len(item.Message.Content) != 1 {
-		return errors.New("invalid contextual workspace instructions")
-	}
-	for _, content := range item.Message.Content {
-		if content.Kind != llm.ContentReminder || content.Reminder == nil || content.Reminder.Name != item.Name || content.Reminder.Tier != llm.ReminderContextual || content.Reminder.From != "" {
-			return errors.New("invalid contextual workspace instructions")
-		}
-		if err := content.Reminder.Validate(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func (s resourceSnapshot) validateContent() error {
-	if err := validateInstructionItem(s.Instructions, "workspace-instructions"); err != nil {
-		return err
-	}
-	if err := validateInstructionItem(s.InstructionSource, "workspace-instructions-source"); err != nil {
-		return err
-	}
-	selected := map[string]selectedSkillSource{}
-	for _, source := range s.Skills {
-		key := strings.ToLower(source.Info.Name)
-		if key == "" {
-			return errors.New("empty selected skill name")
-		}
-		if _, duplicate := selected[key]; duplicate {
-			return errors.New("duplicate selected skill metadata")
-		}
-		if !filepath.IsAbs(source.Info.Path) || (source.Info.Dir != "" && !filepath.IsAbs(source.Info.Dir)) || (source.Root != "" && (!filepath.IsAbs(source.Root) || filepath.Clean(source.Root) != source.Root || source.Info.Dir == "")) {
-			return errors.New("invalid selected skill source")
-		}
-		selected[key] = source
-	}
-	for _, definition := range s.Definitions {
-		source, ok := selected[strings.ToLower(definition.Name)]
-		if !ok || !source.Info.ModelInvocable || source.Info.Name != definition.Name || source.Info.Dir != definition.Dir || source.Info.Description != definition.Description {
-			return errors.New("resource definition does not match selected source")
-		}
-	}
-	return nil
-}
-func decodeResourceSnapshot(raw []byte) (resourceSnapshot, *skill.Bundle, error) {
-	var snapshot resourceSnapshot
-	if !utf8.Valid(raw) {
-		return snapshot, nil, errors.New("invalid UTF-8 resource snapshot")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&snapshot); err != nil {
-		return snapshot, nil, err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return snapshot, nil, errors.New("trailing resource snapshot JSON")
-	}
-	if _, err := snapshot.encode(); err != nil {
-		return snapshot, nil, err
-	}
-
-	bundle, err := skill.New(snapshot.Definitions, skill.Options{})
-	return snapshot, bundle, err
 }

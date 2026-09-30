@@ -45,19 +45,16 @@ arguments, across session switches and `/new`. A changed canonical target
 requires approval again. Restarting Dashi forgets remembered answers.
 Skill folders do not expand workspace writes or shell permissions.
 
-## Refresh and recover
+## File changes and session history
 
-Every new prompt discovers resources again. Idle slash invocation uses the
-same selection for expansion and admission. A queued successor discovers its
-resources when it starts. Inspection does not apply a future selection.
+Dashi refreshes instructions and the skill catalog before model requests.
+Slash commands and new skill loads use current files. Queued work sees edits
+when it starts. `/resources` shows what is currently available.
 
-An open turn retains its selected instructions and model skill bodies, even
-after files change or Dashi restarts. `/resources` distinguishes that frozen
-selection from files discovered for the next turn. Unchanged contextual values
-are not repeated in requests; changed values append without rewriting history.
+A loaded skill's text is an ordinary recorded tool result. Reloading the
+session keeps that result in conversation history. A later load can return
+the updated file without changing the earlier result. No separate resource
+files are needed when moving a session.
 
-Private immutable snapshots live under the session's `resources` directory.
-Turn records contain their content hash and size. Missing or corrupt recovery
-content stops before a model request or tool dispatch. Keep these files with
-the session when moving its records. Older started turns without CLI resources
-continue without adding a new resource selection.
+Unchanged contextual values are not repeated in requests; changed values append
+without rewriting history. Normal session compaction rules apply.
