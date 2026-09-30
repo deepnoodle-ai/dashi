@@ -15,9 +15,13 @@ User/project JSON keeps existing `model` and adds `provider`, `thinking_effort`,
 
 Merge each destination definition as a whole, retaining its source. Never merge a project's endpoint with a user's credential binding. Validate stable nonempty identities, supported APIs, exact nonempty model IDs, membership of `default_model`, and credential variable names. Reject inline keys, command sources, URL userinfo/query/fragment, and invalid URLs. Show the scheme in trust decisions; never rewrite it silently.
 
-Treat nonempty `credential_env` as credential-bearing, even when its value is absent or empty. Validate transport before credential lookup or dispatch-client construction. Require HTTPS except HTTP with a parsed literal IP in `127.0.0.0/8` or exactly `::1`. Do not resolve DNS for exemptions: `localhost`, loopback-resolving names, and other host spellings do not qualify. Keyless HTTP remains permitted when accepted by the adapter. Apply this policy to resolved definitions and `--api-endpoint` overrides, including continued turns. Trust approval cannot bypass it. No insecure-transport opt-in exists.
+Treat nonempty `credential_env` and built-in credential aliases as credential-bearing, even when their values are absent or empty. Validate transport before credential lookup or dispatch-client construction. Require HTTPS except HTTP with a parsed literal IP in `127.0.0.0/8` or exactly `::1`. Do not resolve DNS for exemptions: `localhost`, loopback-resolving names, and other host spellings do not qualify. Keyless HTTP remains permitted when accepted by the adapter. Apply this policy to resolved definitions and `--api-endpoint` overrides, including continued turns. Trust approval cannot bypass it. No insecure-transport opt-in exists.
 
 Built-in native routes use existing constructors and credential aliases. `openai` defaults to Responses; explicit API registration also reaches Chat Completions. Native model facts/defaults come from the catalog and existing destination metadata. Local/compatible models require explicit registration. A custom name uses only its named credential variable, never an implicitly inherited vendor key. Custom endpoints receive no public-endpoint capability or price facts unless separately qualified by the library contract.
+
+The CLI defines built-in `ollama` with `http://127.0.0.1:11434/v1/messages` before validation, rather than inheriting the [constructor's localhost default](../../providers/ollama/ollama.go). Its optional credential alias is `OLLAMA_API_KEY`. Configured endpoints retain their spelling and receive the same transport checks.
+
+After validation and required trust, resolve that variable. Pass its nonempty value, or the adapter's `ollama` placeholder when absent/empty, explicitly as `Config.APIKey` together with `Config.Endpoint`. This prevents constructor-side credential lookup. The built-in remains available without a key. Its binding fingerprint includes the literal endpoint and alias, excluding credential values and the placeholder.
 
 Resolve the destination/model pair from one tier: flags, environment, reopened-session preferences, project, user, autodetection/default. Do not combine selectors across tiers. Provider-only selects its default; model-only needs one exact configured match; pairs validate membership. Generation controls resolve per field through the same tiers. Keep winning and overridden source descriptors. Session changes override startup values until exit. Use the PRD's vendor detection order, with no server probe.
 
@@ -76,6 +80,8 @@ Transport fixtures use counters for credential lookup, factory construction, ini
 |---|---|
 | Remote HTTP + nonempty `credential_env` (present, absent, or empty value) | Reject before lookup/construction/dispatch, even with trusted binding |
 | HTTP `127.0.0.1`, another `127/8` IP, or `[::1]` + fixture credential | Accept transport; dispatch only after required trust |
+| Built-in `ollama`, `OLLAMA_API_KEY` absent or empty | Validate explicit `127.0.0.1` endpoint before lookup. Construct with `APIKey: "ollama"`. Prepare/dispatch successfully without constructor-side lookup |
+| Built-in `ollama`, `OLLAMA_API_KEY` present | Validate the same literal endpoint before lookup. Construct with the fixture key. Prepare/dispatch successfully after required trust |
 | HTTP `localhost` or a name resolving to loopback + credential | Reject without DNS-based exemption |
 | Keyless local HTTP | Preserve successful preparation/dispatch |
 | Credential-bearing HTTPS returns 301/302/303/307/308 to HTTP or another HTTPS endpoint | Fail call; one initial request, zero redirected requests/credentials |
