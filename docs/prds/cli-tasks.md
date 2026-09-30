@@ -5,26 +5,25 @@ PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
-A developer asks for parallel investigation while fixing a bug. They need to know which task is working, what it found, and whether it needs approval.
-The CLI currently wires no task host, task inspection, or lifecycle recovery.
-Delegating through another terminal loses the parent request's evidence, approval context, and recorded relationship.
+A developer delegates investigation while fixing a bug. They need progress, results, and attributable approvals.
+The CLI has no task host, inspection, or recovery; another terminal loses the request's recorded relationship and evidence.
 
-[`delegate.Tasks`](../../delegate/tasks.go) already supplies background `task`, `task_status`, and `task_stop` tools, stable task IDs, child records, event callbacks, cancellation, and recovery.
-Its [guide](../guides/delegation.md) defines record-backed completion notices and separate parent/child spend.
+[`delegate.Tasks`](../../delegate/tasks.go) supplies the task tools, stable IDs, records, progress, cancellation, and recovery.
+Its [guide](../guides/delegation.md) defines recorded notices and separate parent/child spend.
 This track completes [O08 / slice 9](../research/cli-parity-operations.md) by hosting that foundation in the CLI.
 
 [Claude Code](https://code.claude.com/docs/en/sub-agents) surfaces a background child's approval in the main session and identifies the child.
-[Pi request #552](https://github.com/earendil-works/pi/issues/552) asks for observable, abortable delegation with persisted results; it is closed, not evidence of a shipped core feature.
-[OpenHands complaint #4537](https://github.com/OpenHands/software-agent-sdk/issues/4537), open when checked on September 30, reports a parent lock held during delegation that freezes its conversation UI.
-These sources support visible controls and responsiveness; they do not establish a defect in Dashi's existing library.
+[Pi #552](https://github.com/earendil-works/pi/issues/552) requests observable, abortable, persisted tasks; it is a closed request, not shipped-feature evidence.
+[OpenHands #4537](https://github.com/OpenHands/software-agent-sdk/issues/4537), open on September 30, reports delegation freezing the parent UI.
+These support responsive controls, not a claimed Dashi defect.
 
 ## Users and concepts
 
-The primary user works in an interactive coding session; print users need task results before the process exits.
-**Task** is focused work started by the agent's recorded `task` call, performed in a child session with a stable ID.
-**Child** is the agent doing that task, with its own Turn, tools, model calls, limits, and recorded effects.
-**Task notice** is the recorded contextual message that tells the parent a child Turn ended; it grants no user authority.
-**Parent spend** covers the parent Turn's own model calls. **Child spend** covers child Turns. **Inclusive spend** adds both once.
+Interactive users control delegated coding work; print users need results before exit.
+**Task** is focused work started by a recorded `task` call, with a stable ID.
+**Child** performs it in a separate recorded Turn with its own limits.
+**Task notice** is contextual result delivery, without user authority.
+**Parent spend** covers parent model calls; **child spend** covers child Turns; **inclusive spend** adds both once.
 
 ## Use cases and acceptance
 
@@ -61,13 +60,17 @@ Use `/tasks` while work runs, then `/task ID` to inspect that task's evidence, a
   Distinguish live progress from recorded facts, and approval pending from ordinary work.
   Listing/scrolling/input stay responsive when a child blocks on a model, tool, or approval.
 - [ ] `/task ID` shows parent link, current/last child Turn, supplied evidence/resources, destination, limits, stop reason, answer, and recorded tool results.
-  Bound and disclose displayed truncation; the existing transcript viewer can inspect recorded detail without resolving attachments or repeating effects.
-  Running tasks show progress rather than a fabricated answer; failed, limited, waiting, uncertain, refused, interrupted, and canceled states retain their actual reason.
+  Disclose truncation; the transcript viewer inspects records without resolving bytes or repeating effects.
+  Running tasks show progress, not answers; all stopped states retain their actual reason.
+  For stopped work, show the exact child Turn/call details and permitted task-targeted resolution commands.
 - [ ] Screen and inline modes show compact task progress without mixing child deltas into the parent's answer.
   Plain mode shows equivalent named task updates. Preserve draft, dialog focus, transcript position, and existing reasoning-visibility controls.
 - [ ] Each child Turn's result reaches the parent through the existing notice identity.
   Reading `/task` or `task_status` does not mark the notice delivered.
   Reopen or repeated callbacks do not append a duplicate completion announcement or duplicate recorded notice; historical display can restore the original entry.
+  Show unresolved/nonterminal stops as task progress; hold final result delivery until resolution or discard.
+  Never rewrite or redeliver an already recorded notice; inspection still shows the child's current recorded result.
+  This is an opt-in CLI host policy; existing Go consumers retain their notice behavior.
 - [ ] If the parent is idle, a notice uses the existing scheduled queue-Turn route, not a fabricated user prompt.
   Delivery waits behind existing pending admission, compaction, or stopped work requiring resolution.
   Show undelivered results and their blocked delivery state. Starting delivery preserves the independent composer draft.
@@ -101,6 +104,21 @@ Quit with a task running, reopen the session, inspect its progress, and receive 
   Missing/corrupt records identify the affected task and preserve uncertainty instead of inventing success or a new child.
 - [ ] Existing recovery resumes only unfinished/interrupted child Turns; canceled and ended Turns do not restart.
   Waiting/uncertain effects remain visible under existing reconciliation rules. Recovery does not replay a settled write/test merely to rebuild progress.
+- [ ] `/task ID continue` targets only that stopped child Turn using existing recorded continuation and fencing.
+  Resume ready/interrupted work; for a model-attempt limit, disclose and record the existing doubled attempt-cap continuation.
+  Other limits report their required remedy; no implicit budget raise or revived terminal Turn.
+  A waiting approval presents its original bound approval; unanswered external/uncertain effects block continuation rather than retrying them.
+- [ ] `/task ID done CALL_ID` shows the exact child Turn, original tool, and arguments, then requires affirmation that the operator verified this call finished.
+  Record the existing host-supplied settlement with output explicitly unavailable; invent no captured output and execute no tool.
+  It applies only to an already-started waiting/uncertain call, never an unexecuted approval or a model attempt.
+  Show `/task ID continue` once all required settlements make the child ready.
+- [ ] `/task ID discard` records cancellation of that stopped child Turn, acknowledging that its uncertain effects may have run.
+  Live cancellation remains `/task-stop ID`. Completed/terminal, wrong-call, stale-state, and concurrent-owner actions reject without dispatch.
+  Each action reloads and fences its displayed target; ambiguous command writes require reconciliation before another action.
+  Parent `/done`, `/discard`, and empty Enter always keep their parent target; inspection creates no hidden target selection.
+- [ ] Reopen an uncertain child write, inspect the original call, mark that exact call done, and continue to its result.
+  Count one write execution and one recorded result notice; repeat recovery/actions cannot add another effect or notice.
+  Separate fixtures exercise waiting approval/result resolution, model-attempt-limited continuation, unsupported limit remedies, discard, and wrong/stale IDs.
 - [ ] Fault fixtures cover crashes around child start, tool settlement, notice enqueue, and notice recording.
   Repeated recovery yields one child for the original parent call, one recorded completion notice per child Turn, and no repeated settled effects.
 - [ ] Task details and session inspection distinguish parent, child, and inclusive model spend, with tool money separate.
@@ -111,24 +129,25 @@ Quit with a task running, reopen the session, inspect its progress, and receive 
   Parent limits and budgets remain parent-only. Any `--budget` help, startup, and task detail must explicitly exclude child spend; never call it a family/session cap.
   No child budget is inferred from parent remaining money or inclusive reports.
 - [ ] Print mode waits for pending children and permitted notice queue work before successful exit, using the existing quiet/wait contract.
-  A parent stop that requires resolution interrupts remaining children before exit and preserves records for reopen.
+  A parent or child stop that requires resolution interrupts remaining children before exit, reports the exact action, and preserves records for reopen.
   Existing non-interactive approval/`--yes` behavior applies to each original child call; child progress/diagnostics add no unsolicited stdout output.
 
 ## Decisions and limits
 
-- Host existing task tools and built-in subagents; start through an actual parent agent tool call. Reject a new manual spawn protocol without a recorded parent call.
-- Supply admitted request evidence and resource snapshots, not a transcript fork. This makes screenshot/document tasks useful without filling each child with unrelated history.
-- Keep original call approval and one session task host. Reject global mutable child destination binding, display-only approval identity, and independent task notice journals.
-- Preserve separate per-Turn budgets and existing child limits. Family budget reservation, child-cost policy flags, and a family ledger require another contract.
-- Keep task controls immediate and read-only inspection free of model dispatch. Rich messaging, `task_send`, message-parent tools, custom agent catalogs, grandchildren, and tasks outliving the process are outside this slice.
+- Start existing built-in tasks through recorded parent calls; no manual spawn protocol.
+- Supply admitted evidence/resources without unrelated history; no transcript fork.
+- Keep original call approval and one session task host; no mutable child routing or notice journal.
+- Preserve per-Turn budgets and child limits; no family ledger, reservation, or child-cost policy flags.
+- Immediate inspection dispatches no model. Rich messaging, custom catalogs, grandchildren, and daemons are outside scope.
+- Resolve stopped children through explicit task IDs and original calls, using existing Continue/Settle/Cancel commands. A narrow host resolution/reporting seam is permitted; a new messaging protocol is not.
 
 ## Success and risks
 
-Keyless acceptance completes a parallel investigation, approval, targeted stop, and reopen with stable evidence and exactly one result delivery.
-Counting fixtures prove no repeated settled effects and accurate spend after recovery. Actual Wonton recordings cover both modes at 80×24, including empty/loading/error/approval states.
-Implementation, acceptance, security, and taste reviews must pass; preserve composer, attachment, MCP, provider, context, and session-inspection behavior.
+Keyless acceptance proves parallel work, approval, stop, resolution, and reopen with stable evidence, effects, spend, and one result delivery.
+Wonton recordings cover both modes at 80×24 and empty/loading/error/approval states.
+Required implementation, acceptance, security, and taste reviews preserve preceding CLI workflows.
 
 Children share the workspace and can conflict; delegation grants no isolation or rollback.
 Inherited runner fields are insufficient by themselves: CLI destination revision, child-scoped evidence storage, resource snapshots, and approval UI require explicit integration.
-The technical spec must settle those bindings and single-driver queue ownership before implementation.
+The technical spec must settle those bindings, task resolution/reporting, and single-driver queue ownership before implementation.
 No product question blocks the draft. Stop for named independent PRD review.
