@@ -12,7 +12,6 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
-	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -52,28 +51,36 @@ func run(
 	if o.Models {
 		return runModels(o, home, dir, stdout, stderr)
 	}
-	settings, warnings := loadSettings(home, dir)
-	for _, w := range warnings {
-		fmt.Fprintf(stderr, "dashi: warning: %s\n", w)
-	}
-	model := chooseModel(o.Model, os.Getenv, settings)
-	if !knownModel(model) {
-		fmt.Fprintf(stderr,
-			"dashi: warning: model %q is not in the catalog; using %s\n",
-			model, defaultModel)
-		model = defaultModel
-	}
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		fmt.Fprintln(stderr, "dashi: set OPENAI_API_KEY to talk to the model.")
+	dir, err = canonicalWorkspace(dir, o.Workspace)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	client, err := responses.New(responses.Config{})
+	invocation, _ := workDir()
+	origins, err := loadNamedEnvironment(invocation, o.EnvFiles, os.LookupEnv, os.Setenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	user, project, registry, trusted, err := loadDestinationFiles(home, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
 	store := session.NewStore(filepath.Join(home, ".dashi", "sessions"))
-	cfg := appConfig{Dir: dir, Model: model, Client: client, Store: store}
+	reopened, err := loadReopenedPreferences(store, dir, o)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	launch, err := resolveLaunchPreferences(o, registry, trusted, user, project, reopened, os.LookupEnv, origins)
+	if err != nil {
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	registry[launch.Selection.Destination.ID] = launch.Selection.Destination
+	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet}
+	cfg := appConfig{Dir: dir, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
 	if o.PrintSet {
 		return runPrint(ctx, cfg, o, stdout, stderr)
 	}

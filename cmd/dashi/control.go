@@ -170,8 +170,9 @@ func (c *Controller) Approve(
 
 // Ask is the AskFunc the wiring uses.
 func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {
+	previousMode := c.Mode()
 	c.setMode(ModeApproval)
-	defer c.setMode(ModeRunning)
+	defer c.setMode(previousMode)
 	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
@@ -603,6 +604,10 @@ func (c *Controller) newSession(ctx context.Context) {
 }
 
 func (c *Controller) model(ctx context.Context, name string) {
+	if p := c.eng.cfg.Preferences; p != nil {
+		c.destinationModel(ctx, name, p)
+		return
+	}
 	models := modelNames()
 	if name == "" {
 		idx, ok := c.choose(ctx, "Model", models)

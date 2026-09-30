@@ -31,9 +31,10 @@ type Session struct {
 	// Title is the first prompt, shortened.
 	Title string `json:"title"`
 	// Model is the model the next new turn uses.
-	Model   string    `json:"model"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	NextTurn json.RawMessage `json:"next_turn,omitempty"`
+	Model    string          `json:"model"`
+	Created  time.Time       `json:"created"`
+	Updated  time.Time       `json:"updated"`
 }
 
 // Store keeps sessions under one root directory, one subdirectory each.

@@ -53,6 +53,10 @@ func readPreferenceFile(path string, project bool) (preferenceFile, error) {
 	if err != nil {
 		return p, fmt.Errorf("%s: cannot read settings", path)
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil || fields == nil {
+		return p, fmt.Errorf("%s: settings must contain a JSON object", path)
+	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		return p, fmt.Errorf("%s: invalid settings JSON", path)
 	}

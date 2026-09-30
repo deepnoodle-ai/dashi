@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 )
@@ -36,8 +37,16 @@ func (e *Engine) configureChat() *dashi.Session {
 	}
 	chat.Agent = e.agent()
 	info, _ := e.cfg.Client.ModelInfo(e.model)
+	if p := e.cfg.Preferences; p != nil {
+		agent := p.agent()
+		d := p.routes.registry[agent.Provider]
+		info, _ = catalog.Lookup(d.Definition.API, d.Definition.Endpoint, agent.Model)
+	}
 	policy := compaction.Policy{Model: info}
 	chat.Compactor = compaction.New(policy)
+	if p := e.cfg.Preferences; p != nil {
+		chat.Compactor = &routedCompactor{dashiCompactor: compaction.New(policy), agent: p.agent()}
+	}
 	_, known := policy.Window()
 	warn := !known && !e.windowWarned[e.model]
 	if warn {
@@ -57,6 +66,11 @@ func (e *Engine) configureChat() *dashi.Session {
 // Compact summarizes only. It cannot authorize execution of queued prompts.
 func (e *Engine) Compact(ctx context.Context) (Result, error) {
 	chat := e.configureChat()
+	if p := e.cfg.Preferences; p != nil {
+		if err := p.bind(ctx, p.agent()); err != nil {
+			return Result{}, err
+		}
+	}
 	return e.stream(ctx, chat.StreamCompact(ctx, nil), false)
 }
 
@@ -123,6 +137,9 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	// The Outcome is yielded after Session.finish. Breaking here prevents
 	// Continue's queue dispatch from putting older queued items ahead of the
 	// caller's retained Start in a different turn.
+	if err := e.bindCommand(ctx, cmd); err != nil {
+		return Result{}, err
+	}
 	res, err := e.stream(ctx, chat.Stream(ctx, cmd), true)
 	if err != nil || res.Outcome.Stop.Kind != dashi.StopCompleted ||
 		compactiontext.Summary(res.Outcome.Answer) == "" {
