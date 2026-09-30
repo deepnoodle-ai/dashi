@@ -1,6 +1,6 @@
 # See and control delegated work
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -150,4 +150,4 @@ Required implementation, acceptance, security, and taste reviews preserve preced
 Children share the workspace and can conflict; delegation grants no isolation or rollback.
 Inherited runner fields are insufficient by themselves: CLI destination revision, child-scoped evidence storage, resource snapshots, and approval UI require explicit integration.
 The technical spec must settle those bindings, task resolution/reporting, and single-driver queue ownership before implementation.
-No product question blocks the draft. Stop for named independent PRD review.
+Named independent re-review returned ready. No product question remains; the [technical spec](../design/cli-tasks.md) requires root checkpoint before implementation.
