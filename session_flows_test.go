@@ -510,7 +510,7 @@ func TestSessionCarryForward(t *testing.T) {
 	// A scheduled turn's agent never carries.
 	scheduled := dashi.Say("three")
 	scheduled.Origin = dashi.StartScheduled
-	scheduled.Agent = dashi.Agent{Instructions: "Summarize.", NoTools: true}
+	scheduled.Agent = dashi.Agent{Instructions: "Summarize.", NoTools: true, NoInheritedSettings: true}
 	if _, err := next.Run(t.Context(), scheduled); err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestSessionCarryForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Agent.Instructions != "Be brief." || out.Agent.NoTools ||
+	if out.Agent.Instructions != "Be brief." || out.Agent.NoTools || out.Agent.NoInheritedSettings ||
 		out.Agent.Settings.MaxTokens != 100 {
 		t.Fatalf("agent after a scheduled turn = %+v", out.Agent)
 	}

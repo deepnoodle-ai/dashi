@@ -208,3 +208,15 @@ turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
 see [Compaction](compaction.md)). `s.Compact(ctx, nil)` requests a summary
 while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
 queued input and refuse an unended last turn.
+
+## Replace generation settings
+
+Session inherits missing Agent fields from its last user turn. Set
+`Agent.NoInheritedSettings: true` when your application has resolved a complete
+`Settings` set. Nil temperature or reasoning stays omitted, and zero MaxTokens
+uses the ordinary preparation default. Other Agent fields still inherit.
+
+A marked `Start.Agent` replaces both Session and historical Settings. A partial
+Start can override a marked `Session.Agent`; missing fields come from that
+complete set and never from older turns. The marker is recorded and carries
+with the user Agent. Continuing an existing turn always uses its recorded Agent.

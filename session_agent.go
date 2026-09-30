@@ -45,11 +45,15 @@ func (s *Session) carried(a Agent) Agent {
 // Limits: a nil pointer, empty string, slice, or map, zero number, or false
 // falls through, so a setting is turned off with its negative or No… form.
 // Tools and NoTools are one selection and move together: a layer that sets
-// either replaces both.
+// either replaces both. NoInheritedSettings makes Settings a complete set
+// at that layer; nil and zero fields cannot fall through to older layers.
 //
 // It walks the fields by reflection so that a field added to Agent, Limits,
 // or llm.Settings carries forward without a change here.
 func mergeAgent(a, b Agent) Agent {
+	if a.NoInheritedSettings {
+		b.Settings = a.Settings
+	}
 	if len(a.Tools) > 0 || a.NoTools {
 		b.Tools, b.NoTools = a.Tools, a.NoTools
 	}

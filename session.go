@@ -41,7 +41,8 @@ type Session struct {
 	Runner Runner
 	// Agent overrides fields of the carried agent for new turns: a nonzero
 	// field here wins over the last user turn's, and Start.Agent wins over
-	// both. It does not change turns already started.
+	// both. NoInheritedSettings preserves omitted Settings at this layer.
+	// It does not change turns already started.
 	Agent Agent
 	// Steering reaches the turns this handle runs. Nil means the handle's
 	// own *Inbox, which Steer and SteerItem send to. A host with its own
