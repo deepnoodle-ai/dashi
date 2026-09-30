@@ -49,7 +49,8 @@ No changing catalog can alter an accepted Turn's selected window.
 Construct the ordinary candidate through existing tool selection, steering, `BeforeModel`, reference verification, and provider preparation.
 Use `llm.EstimatedInputTokens(request)`, currently wire-body bytes plus 1024, and `request.Snapshot().Effective.MaxTokens` as output reserve.
 Saturating arithmetic computes allowance `max(0, Window - reserve)`.
-Trigger when estimated input reaches `Fraction * allowance`; reject dispatch when input exceeds allowance.
+Trigger proactive compaction when estimated input reaches `Fraction * allowance`.
+The hard fit limit remains the allowance: reject ordinary dispatch only when input exceeds it.
 The conservative body estimate includes tools, hooks, encoded media, and provider replay fields. It is not a provider-tokenizer guarantee.
 Do not substitute cumulative usage or cached-token discounts. Catalog uncertainty never becomes a fabricated 128k window.
 
@@ -66,8 +67,9 @@ Build labeled evidence with the existing bounded-transcript rules: exclude priva
 The fixed summary prompt asks for objective, findings, changes, verification, and remaining work.
 Summary text uses the existing tagged-summary interpretation and user-role frame. It acquires no operator authority.
 
-If no eligible coverage can create room, stop without summary dispatch.
-The public result is `StopLimited` with new `LimitContextWindow`, `Limit=Window`, and `Used=estimated input + reserve`.
+If no eligible coverage exists and estimated input plus output reserve fits the pinned window, dispatch the ordinary candidate without a summary.
+If the candidate exceeds allowance and no legal compaction can make it fit, stop without summary dispatch.
+This no-fit result is `StopLimited` with new `LimitContextWindow`, `Limit=Window`, and `Used=estimated input + reserve`.
 `Stop.Reason` is `context_window`; a bounded warning distinguishes fixed input, prior history, replay dependency, or retained exchange.
 The chosen window remains immutable. A larger model or smaller original input requires a new Turn; preserve settled work before starting it.
 

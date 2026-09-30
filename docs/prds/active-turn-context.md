@@ -75,6 +75,7 @@ The CLI enables it for supported models without asking the user to manage a seco
   An unknown window without a cap disables protection and produces one actionable warning.
   The CLI identifies this state without displaying a fabricated percentage or safety claim.
 - [ ] Default triggering uses an estimated 80% of the context allowance.
+  If no eligible coverage exists, dispatch the ordinary candidate while estimated input plus output reserve fits the selected window.
   Measurements from completed calls can inform the estimate.
   Every shortened request is checked again before dispatch.
 - [ ] Summary generation uses the active Turn's model in the first slice, with no tools.
@@ -119,6 +120,7 @@ Dashi stops with the work already performed visible and an actionable explanatio
 - [ ] Dashi makes at most one summary attempt for the same candidate request during one run.
   Failure stops further ordinary dispatch. An explicit continuation may make a new admitted attempt.
 - [ ] If fixed instructions, caller history, the original request, or an indivisible retained exchange prevent a fit, stop before dispatch.
+  Return `LimitContextWindow` only when the estimate exceeds the allowance and no legal compaction can make it fit.
   Identify the cause and suggest a smaller input, a larger window, or between-Turn compaction where applicable.
 - [ ] Context limitations, summary failure, budget refusal, cancellation, and uncertainty remain distinguishable in public outcomes.
   Provider overflow despite an estimate follows existing failure/recovery rules.
