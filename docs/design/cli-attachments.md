@@ -1,8 +1,9 @@
 # CLI attachment snapshots
 
-Status: In Review · Author: Attachment track · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then implementation. Named PRD re-review returned ready.\
-Requirements: [Supply screenshots, PDFs, and selected files](../prds/cli-attachments.md)
+Status: Accepted · Author: Attachment track · Date: 2026-09-30\
+Workflow: Spec checkpoint accepted by root, then implementation. Named PRD re-review returned ready.\
+Requirements: [Supply screenshots, PDFs, and selected files](../prds/cli-attachments.md)\
+Dependency: Active-context requirements [#144](https://github.com/deepnoodle-ai/dashi/pull/144). Its implementation is underway.
 
 ## Shape and ownership
 
