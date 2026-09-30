@@ -1,6 +1,6 @@
 # Request public reasoning summaries
 
-Status: Draft\
+Status: Approved\
 PRD PR: Pending · Implementation PR: Pending · Updated: 2026-09-30
 
 ## Problem and context
@@ -37,8 +37,10 @@ result, err := client.Send(ctx, llm.Call{Request: request})
 // Read public text from result.Message.Content[i].Reasoning.Text.
 ```
 
+For Anthropic, first set `input.Settings.Reasoning` to a supported effort or budget. For example, a qualified effort route uses `&llm.ReasoningSettings{Effort: "low"}` before `Prepare`.
+
 - [ ] `Settings.ReasoningSummary *bool`, JSON `reasoning_summary`, provides one independent control. `nil` adds no opt-in; `true` requests a native public summary; `false` stops requesting summaries for new calls.
-- [ ] Summary-only calls are valid without `Settings.Reasoning`. Existing effort/budget validation remains unchanged. Preparation never invents an effort or budget to satisfy a summary request.
+- [ ] Qualified OpenAI Responses and Gemini summary-only calls are valid without `Settings.Reasoning`. Existing effort/budget validation remains unchanged. Preparation never invents an effort or budget to satisfy a summary request.
 - [ ] Keyless fixtures prove native request encoding on qualified OpenAI Responses and Gemini routes, plus Anthropic with an existing compatible reasoning configuration.
 - [ ] Input, effective settings, exact dispatched bytes, and recorded attempts agree. Caller mutation after preparation cannot change the request.
 - [ ] A successful response with no public summary remains successful. Empty reasoning blocks and private replay data do not count as returned public text.
@@ -60,7 +62,8 @@ Run a turn with summary previews and a settled summary. Reopen its record, then 
 - [ ] Public previews use `DeltaReasoning`; settled text uses `ContentReasoning`. Both remain distinct from answer text. Their existing attempt/content identity lets consumers reconcile previews with settled content.
 - [ ] Recorded settled messages restore public text after reopen. Signed, encrypted, redacted, opaque, and unmodeled reasoning data never become public text by inspection or decoding assumptions.
 - [ ] Editing display text does not alter replay bytes. Compatible replay preserves original provider artifacts; existing incompatible/partial replay rejection and explicit omission policy remain intact.
-- [ ] Explicit false overrides inherited true for a new turn. It does not delete prior summaries or alter an open turn's recorded controls. No opt-in field is sent on a route without summary control.
+- [ ] Explicit false overrides inherited true for a new turn, including after a model switch. It does not delete prior summaries or alter an open turn's recorded controls.
+- [ ] False sends native suppression only with supported model/API/endpoint evidence and a documented mapping. Unsupported and unknown routes omit summary fields and retain the explicit false preference, including under strict policy. Fixtures cover both cases after inherited true.
 - [ ] False governs requests, not provider compliance or unsolicited-output filtering. Applications control display separately.
 
 ## Decisions and boundaries
@@ -69,7 +72,7 @@ Run a turn with summary previews and a settled summary. Reopen its record, then 
 - Use native controls only. Reject prompt-based summaries, invented budgets, and treating unsolicited output as opt-in support.
 - Preserve the current public text/private replay split. Reject a new summary content kind or exposing `Replay.Raw` to finish presentation.
 - Allow warned omission of unsupported opt-in under adjust. Summaries are optional presentation; strict callers can require support before dispatch.
-- Require configured Anthropic reasoning in this slice. Reject silently adding adaptive thinking; a summary request must not introduce hidden reasoning spend.
+- Require configured Anthropic reasoning in this slice, including models with default adaptive thinking. Reject silently adding a thinking mode; CLI must report the prerequisite and remedy without inventing effort/budget.
 
 CLI rendering, commands, and persistence belong to `cli-providers`. Summary verbosity, enabling/disabling reasoning itself, new provider APIs, catalog-wide refreshes, migrations, and paid provider qualification are out of scope.
 
