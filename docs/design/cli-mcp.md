@@ -1,6 +1,6 @@
 # CLI MCP startup and inventory
 
-Status: In Review · Author: Codex · Updated: 2026-09-30\
+Status: Accepted · Author: Codex · Updated: 2026-09-30\
 Workflow: Spec → root checkpoint → build, after addressing the named [PRD](../prds/cli-mcp.md) review.
 
 ## Context and boundaries

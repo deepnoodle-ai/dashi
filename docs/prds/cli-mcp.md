@@ -1,6 +1,6 @@
 # Use and inspect MCP tools safely in the terminal
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
