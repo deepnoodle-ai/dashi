@@ -26,8 +26,8 @@ new processes ask again. The stdio child inherits the process environment.
 
 Trusted user/explicit entries need no startup prompt. Print mode and piped
 input cannot approve project startup. `--yes` approves tool calls only; it
-never supplies startup consent. New requests and continuations wait until
-startup finishes. Input submitted before then asks you to resubmit it.
+never supplies startup consent. Startup gates new requests and continuations. Input submitted before startup
+finishes asks you to resubmit it; interactive drafts remain available.
 
 Tool calls still need approval of the qualified name and exact arguments.
 Startup consent, trusted configuration, and remote read-only claims grant no
@@ -64,3 +64,10 @@ OAuth, credential helpers, and legacy SSE remain unsupported. Inventory
 identifies these gaps. Use streamable HTTP with caller-supplied headers where
 possible. No reconnect, refresh, server installation, or browser login is
 provided by this slice.
+
+## Try the keyless workflow
+
+Run `go test -run Example_mcpDocumentation -v` in `cmd/dashi`. The example
+uses the actual CLI wiring and a self-hosted stdio documentation server. It
+checks fetched guide bytes in the next model request and closes the child.
+Only model replies are scripted. It needs no provider key.

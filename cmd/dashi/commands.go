@@ -80,6 +80,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 		}},
 		{name: "/settings", usage: "[--json]", description: "inspect next-turn and recorded settings", run: run(c.settings)},
+		{name: "/mcp", description: "inspect MCP servers, sources, and tools", run: c.mcpCommand, during: c.mcpCommand},
 		{name: "/resources", description: "inspect instruction, skill, and tool sources/scopes", run: func(arg string) {
 			if arg != "" {
 				c.notice("Usage: /resources")

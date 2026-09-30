@@ -73,6 +73,9 @@ func (c *Controller) resources(ctx context.Context) {
 		fmt.Fprintf(&out, "  Skill %s: %s\n", args.Skill, args.Path)
 	}
 	fmt.Fprintln(&out, "  Exact read_skill_file arguments only; selected folder checks still apply.")
+	if c.eng.cfg.MCP != nil {
+		fmt.Fprintln(&out, c.eng.cfg.MCP.Inventory())
+	}
 	fmt.Fprintln(&out, "Registered tools:")
 	tools, err := c.eng.cfg.Wiring.Tools.Tools(ctx)
 	if err != nil {
@@ -81,6 +84,9 @@ func (c *Controller) resources(ctx context.Context) {
 		slices.SortFunc(tools, func(a, b tool.Tool) int { return strings.Compare(a.Definition.Name, b.Definition.Name) })
 		for _, entry := range tools {
 			scope := c.eng.cfg.Wiring.Scopes[entry.Definition.Name]
+			if strings.HasPrefix(entry.Definition.Name, "mcp__") {
+				scope = "external MCP server; exact-call approval required; no workspace grant"
+			}
 			if scope == "" {
 				scope = "registered host tool; workspace approval policy"
 			}
@@ -101,7 +107,7 @@ func writeSupportingScope(out *strings.Builder, source selectedSkillSource) {
 
 func builtinCommand(name string) bool {
 	switch strings.ToLower(name) {
-	case "copy", "scrollback", "mouse", "compact", "model", "settings", "effort", "thinking", "temperature", "max-tokens", "new", "sessions", "continue", "queue", "done", "discard", "quit", "exit", "help", "resources":
+	case "copy", "scrollback", "mouse", "compact", "model", "settings", "effort", "thinking", "temperature", "max-tokens", "new", "sessions", "continue", "queue", "done", "discard", "quit", "exit", "help", "resources", "mcp":
 		return true
 	}
 	return false

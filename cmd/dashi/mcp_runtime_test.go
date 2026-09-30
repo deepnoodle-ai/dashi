@@ -35,6 +35,9 @@ func TestMCPServerProcess(t *testing.T) {
 		}
 	}
 	log("pid " + strconv.Itoa(os.Getpid()))
+	if delay, err := strconv.Atoi(os.Getenv("DASHI_MCP_TEST_START_DELAY")); err == nil && delay > 0 {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+	}
 	if os.Getenv("DASHI_MCP_TEST_FAIL") == "1" {
 		fmt.Fprintln(os.Stderr, "SECRET_CONFIG_TOKEN provider setup failed")
 		os.Exit(1)
@@ -402,5 +405,98 @@ func TestMCPRejectedURLsDoNotApproveExpandHeadersOrRequest(t *testing.T) {
 			}
 			m.Close()
 		}
+	}
+}
+
+func TestMCPHTTPHeadersPathExpansionAndFixedCatalog(t *testing.T) {
+	t.Setenv("DASHI_MCP_HTTP_TOKEN", "SECRET_HTTP_TOKEN")
+	t.Setenv("DASHI_MCP_HTTP_PATH", "mcp")
+	server := sdk.NewServer(&sdk.Implementation{Name: "http-docs", Version: "1"}, nil)
+	server.AddTool(&sdk.Tool{Name: "read", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "HTTP documentation bytes"}}}, nil
+	})
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	var requests atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/mcp" || r.Header.Get("Authorization") != "Bearer SECRET_HTTP_TOKEN" {
+			t.Errorf("incorrect configured path/header")
+			w.WriteHeader(401)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	defer endpoint.Close()
+	home, dir := t.TempDir(), t.TempDir()
+	writeMCPConfig(t, filepath.Join(dir, ".mcp.json"), map[string]any{"docs": map[string]any{"url": endpoint.URL + "/${DASHI_MCP_HTTP_PATH}", "headers": map[string]string{"Authorization": "Bearer ${DASHI_MCP_HTTP_TOKEN}"}}})
+	m := newMCPRuntime(dir, selectMCP(home, dir, dir, nil, os.ReadFile, os.LookupEnv))
+	defer m.Close()
+	if err := m.Initialize(t.Context(), func(ctx context.Context, r mcpStartupRequest) (bool, error) {
+		if requests.Load() != 0 || !strings.Contains(r.Review, "${DASHI_MCP_HTTP_TOKEN}") || strings.Contains(r.Review, "SECRET_HTTP_TOKEN") {
+			t.Fatal(r.Review)
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.Inventory(), "docs: connected") {
+		t.Fatal(m.Inventory())
+	}
+	out, err := mcpExecute(t.Context(), mcpFind(t, m, "mcp__docs__read"))
+	if err != nil || out.Output.Content[0].Text.Text != "HTTP documentation bytes" {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	before, _ := m.Tools(t.Context())
+	server.AddTool(&sdk.Tool{Name: "later", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{}, nil
+	})
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(m.Inventory(), "Catalog changed") {
+		if time.Now().After(deadline) {
+			t.Fatal("missing catalog-change notice")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	after, _ := m.Tools(t.Context())
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatal("catalog mutated during run")
+	}
+	if strings.Contains(m.Inventory(), "SECRET_HTTP_TOKEN") {
+		t.Fatal("HTTP credential leaked")
+	}
+}
+func TestMCPHTTPAuthenticationGapHasSafeReason(t *testing.T) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "SECRET_AUTH_RESPONSE", 401) }))
+	defer endpoint.Close()
+	home, dir := t.TempDir(), t.TempDir()
+	writeMCPConfig(t, filepath.Join(home, ".dashi", "settings.json"), map[string]any{"docs": map[string]any{"url": endpoint.URL}})
+	m := newMCPRuntime(dir, selectMCP(home, dir, dir, nil, os.ReadFile, os.LookupEnv))
+	defer m.Close()
+	if err := m.Initialize(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	inventory := m.Inventory()
+	if !strings.Contains(inventory, "authentication required or refused") || strings.Contains(inventory, "SECRET_AUTH_RESPONSE") {
+		t.Fatal(inventory)
+	}
+}
+
+func TestMCPCollisionInventoryNamesDroppedToolAndWinner(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	a, _ := mcpTestEntry(t)
+	b, _ := mcpTestEntry(t)
+	writeMCPConfig(t, filepath.Join(home, ".dashi", "settings.json"), map[string]any{"a.b": a, "a_b": b})
+	m := newMCPRuntime(dir, selectMCP(home, dir, dir, nil, os.ReadFile, os.LookupEnv))
+	defer m.Close()
+	if err := m.Initialize(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	inventory := m.Inventory()
+	if !strings.Contains(inventory, "Dropped remote tool fetch: mcp__a_b__fetch already belongs to a.b.fetch") {
+		t.Fatal(inventory)
+	}
+	tools, _ := m.Tools(t.Context())
+	if len(tools) != 5 {
+		t.Fatalf("duplicate tools exposed: %d", len(tools))
 	}
 }

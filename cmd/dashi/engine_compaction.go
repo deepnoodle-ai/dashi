@@ -64,6 +64,9 @@ func (e *Engine) configureChat() *dashi.Session {
 
 // Compact summarizes only. It cannot authorize execution of queued prompts.
 func (e *Engine) Compact(ctx context.Context) (Result, error) {
+	if !e.cfg.MCP.Ready() {
+		return Result{}, errors.New("MCP startup has not completed; no work was started")
+	}
 	chat := e.configureChat()
 	if p := e.cfg.Preferences; p != nil {
 		if err := p.bind(ctx, p.agent()); err != nil {
