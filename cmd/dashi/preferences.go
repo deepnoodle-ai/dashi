@@ -42,7 +42,14 @@ type preferenceFile struct {
 	Providers map[string]destinationDefinition `json:"providers"`
 	Source    string                           `json:"-"`
 	Project   bool                             `json:"-"`
+	LoadError string                           `json:"-"`
 }
+
+// preferenceSourceError identifies a source whose bytes cannot be read or
+// decoded. Strict destination/control validation errors remain fatal.
+type preferenceSourceError struct{ message string }
+
+func (e *preferenceSourceError) Error() string { return e.message }
 
 func readPreferenceFile(path string, project bool) (preferenceFile, error) {
 	p := preferenceFile{Source: path, Project: project}
@@ -51,14 +58,14 @@ func readPreferenceFile(path string, project bool) (preferenceFile, error) {
 		return p, nil
 	}
 	if err != nil {
-		return p, fmt.Errorf("%s: cannot read settings", path)
+		return p, &preferenceSourceError{message: fmt.Sprintf("%s: cannot read settings", path)}
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(data, &fields) != nil || fields == nil {
-		return p, fmt.Errorf("%s: settings must contain a JSON object", path)
+		return p, &preferenceSourceError{message: fmt.Sprintf("%s: settings must contain a JSON object", path)}
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
-		return p, fmt.Errorf("%s: invalid settings JSON", path)
+		return p, &preferenceSourceError{message: fmt.Sprintf("%s: invalid settings JSON", path)}
 	}
 	// Validate registered definitions strictly so inline credentials and command
 	// sources are errors, rather than ignored fields that appear to work.
@@ -66,7 +73,7 @@ func readPreferenceFile(path string, project bool) (preferenceFile, error) {
 		Providers map[string]json.RawMessage `json:"providers"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return p, fmt.Errorf("%s: invalid settings JSON", path)
+		return p, &preferenceSourceError{message: fmt.Sprintf("%s: invalid settings JSON", path)}
 	}
 	for id, body := range raw.Providers {
 		var definition destinationDefinition

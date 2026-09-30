@@ -14,7 +14,12 @@ workspace, including when you launch with `--workspace` from elsewhere.
 The CLI reads configuration files once. Later definitions replace earlier
 ones, except a project entry cannot replace a trusted user/explicit entry.
 Explicitly naming the project file makes that selection trusted. Missing
-default files are quiet. Broken files warn and leave other files usable.
+default files are quiet. Broken files warn and leave other files usable. An unreadable or malformed
+shared settings file also removes its provider preferences. In that case,
+select a valid destination with `--provider`, an exact registered `--model`,
+or `/model DESTINATION MODEL` before work. Help, inspection, and valid MCP
+startup remain available; invalid provider definitions and unknown selectors
+still fail closed.
 
 ## Startup and calls
 
@@ -27,7 +32,9 @@ new processes ask again. The stdio child inherits the process environment.
 Trusted user/explicit entries need no startup prompt. Print mode and piped
 input cannot approve project startup. `--yes` approves tool calls only; it
 never supplies startup consent. Startup gates new requests and continuations. Input submitted before startup
-finishes asks you to resubmit it; interactive drafts remain available.
+finishes asks you to resubmit it; interactive drafts remain available. Ctrl-C
+during piped startup cancels discovery before input is read and closes the child.
+A stalled stdio child can require the existing shutdown grace period.
 
 Tool calls still need approval of the qualified name and exact arguments.
 Startup consent, trusted configuration, and remote read-only claims grant no

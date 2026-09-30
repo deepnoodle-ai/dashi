@@ -39,6 +39,7 @@ func (p *cliPreferences) selectedSessionPreferences(saved preferenceFile) (launc
 		selected := current.Selection
 		selected.Overridden = append(append([]selectionTier{selectionSourceTier(candidate.Selection)}, candidate.Selection.Overridden...), selected.Overridden...)
 		candidate.Selection = selected
+		candidate.SelectionError = ""
 	}
 	for _, field := range []string{"thinking_effort", "show_thinking", "temperature", "max_tokens"} {
 		source := current.Controls.Sources[field]

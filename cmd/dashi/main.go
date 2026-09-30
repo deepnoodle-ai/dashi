@@ -67,6 +67,7 @@ func run(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
+	warnPreferenceSources(stderr, user, project)
 	store := session.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
@@ -78,7 +79,9 @@ func run(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	registry[launch.Selection.Destination.ID] = launch.Selection.Destination
+	if launch.SelectionError == "" {
+		registry[launch.Selection.Destination.ID] = launch.Selection.Destination
+	}
 	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
@@ -187,27 +190,41 @@ func runLines(
 		}
 		return 1
 	}
-	fmt.Fprintf(stdout, "dashi  %s  %s\n", workspace.PrintableText(a.eng.Model()), workspace.PrintableText(cfg.Dir))
+	fmt.Fprintf(stdout, "dashi  %s  %s\n", workspace.PrintableText(a.modelLabel()), workspace.PrintableText(cfg.Dir))
 	if notice != "" {
 		fmt.Fprintln(stdout, workspace.PrintableText(notice))
 	}
 	a.ctrl.Open()
 	ui.SetLive()
+	startupCtx, cancelStartup := context.WithCancel(ctx)
+	defer cancelStartup()
+	signalDone := make(chan struct{})
+	defer close(signalDone)
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, os.Interrupt)
 	defer signal.Stop(sigc)
 	go func() {
-		for range sigc {
-			if a.ctrl.Interrupt() {
-				ui.Quit()
+		for {
+			select {
+			case <-signalDone:
+				return
+			case <-sigc:
+				cancelStartup()
+				if a.ctrl.Interrupt() {
+					ui.Quit()
+				}
 			}
 		}
 	}()
 	interactive := isTerminal(os.Stdin)
 	if interactive {
 		a.startMCP(true)
-	} else if err := a.initializeMCP(ctx, false); err != nil {
+	} else if err := a.initializeMCP(startupCtx, false); err != nil {
 		fmt.Fprintln(stderr, "dashi: MCP initialization canceled or failed; no work was started.")
+		return 1
+	}
+	if !interactive && startupCtx.Err() != nil {
+		fmt.Fprintln(stderr, "dashi: MCP initialization canceled; no work was started.")
 		return 1
 	}
 	if err := ui.serveLines(stdin, !interactive); err != nil {
@@ -258,7 +275,7 @@ func runScreen(
 	}
 	scr.Emit(Block{
 		Kind: KindNotice,
-		Text: fmt.Sprintf("dashi  %s  %s", workspace.PrintableText(a.eng.Model()), workspace.PrintableText(cfg.Dir)),
+		Text: fmt.Sprintf("dashi  %s  %s", workspace.PrintableText(a.modelLabel()), workspace.PrintableText(cfg.Dir)),
 		Done: true,
 	})
 	if notice != "" {

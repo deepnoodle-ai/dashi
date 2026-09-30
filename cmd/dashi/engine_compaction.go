@@ -34,6 +34,11 @@ func (e *Engine) configureChat() *dashi.Session {
 		e.mu.Unlock()
 		return nil
 	}
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		chat.Agent, chat.Compactor = dashi.Agent{}, nil
+		e.mu.Unlock()
+		return chat
+	}
 	chat.Agent = e.agent()
 	info, _ := e.cfg.Client.ModelInfo(e.model)
 	if p := e.cfg.Preferences; p != nil {
@@ -64,6 +69,9 @@ func (e *Engine) configureChat() *dashi.Session {
 
 // Compact summarizes only. It cannot authorize execution of queued prompts.
 func (e *Engine) Compact(ctx context.Context) (Result, error) {
+	if err := e.cfg.Preferences.selectionReady(); err != nil {
+		return Result{}, err
+	}
 	if !e.cfg.MCP.Ready() {
 		return Result{}, errors.New("MCP startup has not completed; no work was started")
 	}

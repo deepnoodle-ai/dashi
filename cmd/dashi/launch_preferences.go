@@ -10,8 +10,9 @@ import (
 // launchPreferences resolves convenience defaults only. Recorded Agent data
 // remains the authority for an open turn.
 type launchPreferences struct {
-	Selection resolvedSelection
-	Controls  resolvedControls
+	Selection      resolvedSelection
+	SelectionError string
+	Controls       resolvedControls
 }
 
 func resolveLaunchPreferences(o Options, registry, trusted map[string]configuredDestination, user, project, reopened preferenceFile, lookup func(string) (string, bool), origins map[string]string) (launchPreferences, error) {
@@ -46,10 +47,23 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 	for _, tier := range selectionTiers {
 		selected = selected || tier.Provider != "" || tier.Model != ""
 	}
-	if !selected {
+	selectionError := ""
+	if (user.LoadError != "" || project.LoadError != "") && o.Provider == "" && o.Model == "" && environment.Provider == "" && environment.Model == "" && reopened.Provider == "" && reopened.Model == "" {
+		selectionError = "settings source unavailable; select an explicit destination with --provider, --model, or /model DESTINATION MODEL before work"
+	}
+	if !selected && selectionError == "" {
 		selectionTiers = append(selectionTiers, detectedSelection(registry, trusted, lookup))
 	}
-	selection, err := resolveSelection(registry, selectionTiers)
+	var selection resolvedSelection
+	var err error
+	if selectionError == "" {
+		selection, err = resolveSelection(registry, selectionTiers)
+	} else {
+		if selected {
+			_, err = resolveSelection(registry, selectionTiers)
+		}
+		selection.Source = "explicit destination required (settings source unavailable)"
+	}
 	if err != nil {
 		return launchPreferences{}, err
 	}
@@ -94,7 +108,7 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 	if err != nil {
 		return launchPreferences{}, err
 	}
-	return launchPreferences{Selection: selection, Controls: controls}, nil
+	return launchPreferences{Selection: selection, Controls: controls, SelectionError: selectionError}, nil
 }
 
 func loadReopenedPreferences(store *session.Store, dir string, o Options) (preferenceFile, error) {
