@@ -281,9 +281,21 @@ func (c *Controller) Interrupt() bool {
 	return true
 }
 
+// CancelWork interrupts a turn or dialog without requesting process exit.
+func (c *Controller) CancelWork() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
 // Input handles one submitted line.
 func (c *Controller) Input(line string) {
 	line = strings.TrimSpace(line)
+	if c.Mode() != ModeApproval && c.displayCommand(line) {
+		return
+	}
 	switch c.Mode() {
 	case ModeApproval:
 		select {
@@ -310,6 +322,20 @@ func (c *Controller) Input(line string) {
 	default:
 		c.prompt(line)
 	}
+}
+
+func (c *Controller) displayCommand(line string) bool {
+	name, arg, _ := strings.Cut(line, " ")
+	switch name {
+	case "/copy", "/scrollback", "/mouse":
+		if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
+			ui.TranscriptCommand(name, strings.TrimSpace(arg))
+		} else {
+			c.notice("%s is available in interactive terminal mode.", name)
+		}
+		return true
+	}
+	return false
 }
 
 func (c *Controller) steer(line string) {

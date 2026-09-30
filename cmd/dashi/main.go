@@ -226,7 +226,7 @@ func runScreen(
 		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 	}
 	a.ctrl.Open()
-	err = tui.Run(scr, tui.WithBracketedPaste(true))
+	err = tui.Run(scr, tui.WithBracketedPaste(true), tui.WithMouseDrag(true), tui.WithFPS(30))
 	// Stop work that is still running, so the turn records an interruption.
 	a.ctrl.Interrupt()
 	a.ctrl.Wait()

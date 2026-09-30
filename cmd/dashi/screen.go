@@ -37,20 +37,25 @@ type screen struct {
 	promptSeq atomic.Uint64
 
 	// loop state
-	tr           Transcript
-	vp           tui.ViewportState
-	input        string
-	history      []string
-	frame        uint64
-	approval     *approvalPrompt
-	asking       *askPrompt
-	picker       *pickerState
-	quitting     bool
-	width        int
-	height       int
-	promptID     uint64
-	promptActive bool
-	savedDraft   string
+	tr             Transcript
+	vp             tui.ViewportState
+	input          string
+	history        []string
+	frame          uint64
+	approval       *approvalPrompt
+	asking         *askPrompt
+	picker         *pickerState
+	quitting       bool
+	width          int
+	height         int
+	promptID       uint64
+	promptActive   bool
+	savedDraft     string
+	expanded       map[int]bool
+	runtime        *tui.Runtime
+	mouseEnabled   bool
+	clipboardOut   io.Writer
+	clipboardWrite func(context.Context, string) (string, error)
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -100,7 +105,7 @@ func (e promptEvent) Timestamp() time.Time    { return e.at }
 func (e endPromptEvent) Timestamp() time.Time { return e.at }
 
 func newScreen(dir string) *screen {
-	s := &screen{dir: dir}
+	s := &screen{dir: dir, mouseEnabled: true, clipboardWrite: writeClipboard}
 	s.vp.Follow = true
 	return s
 }
@@ -116,6 +121,7 @@ func isCtrlC(e tui.KeyEvent) bool {
 
 // SetRuntime implements tui.RuntimeAware.
 func (s *screen) SetRuntime(rt *tui.Runtime) {
+	s.runtime, s.clipboardOut = rt, rt.Terminal()
 	s.pendMu.Lock()
 	s.send = rt.SendEvent
 	s.pendMu.Unlock()
@@ -220,7 +226,15 @@ func (s *screen) Item(i int) tui.View {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return nil
 	}
-	return blockView(s.tr.Blocks[i])
+	b := s.tr.Blocks[i]
+	if b.Kind == KindTool && b.Detail != "" {
+		if s.expanded[i] {
+			b.Lines = strings.Split(strings.TrimRight(b.Detail, "\n"), "\n")
+		} else {
+			b.Lines = append(append([]string(nil), b.Lines...), fmt.Sprintf("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1))
+		}
+	}
+	return blockView(b)
 }
 
 func (s *screen) drain() {
@@ -232,6 +246,7 @@ func (s *screen) drain() {
 	for _, q := range items {
 		if q.reset {
 			s.tr = Transcript{}
+			s.expanded = nil
 			s.vp.InvalidateAll()
 			s.vp.Follow = true
 			continue
@@ -252,6 +267,15 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.width, s.height = e.Width, e.Height
 	case tui.TickEvent:
 		s.frame = e.Frame
+		s.vp.DragAutoScroll()
+	case tui.MouseEvent:
+		s.handleTranscriptMouse(e)
+	case inputActionEvent:
+		return s.key(e.key)
+	case transcriptCommandEvent:
+		s.transcriptCommand(e.name, e.arg)
+	case clipboardResultEvent:
+		s.clipboardResult(e)
 	case flushEvent:
 		s.drain()
 	case quitEvent:
@@ -309,6 +333,18 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	case tui.KeyEnd:
 		if e.Ctrl || s.input == "" {
 			s.vp.ScrollToBottom()
+		}
+	case tui.KeyEscape:
+		if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
+			s.ctrl.CancelWork()
+		} else if s.vp.HasSelection() {
+			s.vp.ClearSelection()
+		} else {
+			s.vp.ScrollToBottom()
+		}
+	case tui.KeyCtrlL:
+		if s.runtime != nil {
+			s.runtime.Terminal().Invalidate()
 		}
 	}
 	isD := e.Key == tui.KeyCtrlD || e.Ctrl && (e.Rune == 'd' || e.Rune == 'D')
@@ -419,6 +455,9 @@ func (s *screen) View() tui.View {
 
 func (s *screen) footer() tui.View {
 	views := make([]tui.View, 0, 10)
+	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
+		views = append(views, tui.Text(" %d lines below · End returns to live output", s.vp.LinesBelow).Hint())
+	}
 	switch {
 	case s.approval != nil:
 		views = append(views, approvalView(s.approval.req))
@@ -451,6 +490,7 @@ func (s *screen) inputView(mode Mode) tui.View {
 		History(s.history).
 		Multiline(true).
 		MaxHeight(8).
+		OnKey(s.inputKey).
 		OnSubmit(s.submit)
 }
 
