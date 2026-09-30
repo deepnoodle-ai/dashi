@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -72,10 +73,12 @@ type Controller struct {
 	quitAction string
 	// dropping is the action (a slash command, or Ctrl-C) that was just
 	// warned about dropping queued prompts; repeating it goes ahead.
-	dropping string
-	answers  chan string
-	wg       sync.WaitGroup
-	base     context.Context
+	dropping      string
+	answers       chan string
+	wg            sync.WaitGroup
+	work          atomic.Int64
+	answerPending atomic.Bool
+	base          context.Context
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -111,6 +114,9 @@ func (c *Controller) emit(b Block) {
 func (c *Controller) setMode(m Mode) {
 	c.mu.Lock()
 	c.mode = m
+	if m != ModeApproval {
+		c.answerPending.Store(false)
+	}
 	c.mu.Unlock()
 }
 
@@ -122,23 +128,21 @@ func (c *Controller) Wait() {
 // WaitForInput blocks until every background action ends or a run waits for
 // an approval answer. Then the next input line is wanted.
 func (c *Controller) WaitForInput() {
-	done := make(chan struct{})
-	go func() {
-		c.wg.Wait()
-		close(done)
-	}()
 	tick := time.NewTicker(2 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		select {
-		case <-done:
+		if c.work.Load() == 0 || (c.Mode() == ModeApproval && !c.answerPending.Load() && len(c.answers) == 0) {
 			return
-		case <-tick.C:
-			if c.Mode() == ModeApproval {
-				return
-			}
 		}
+		<-tick.C
 	}
+}
+
+// goWork counts work before scheduling it. WaitForInput can stop at a dialog
+// without leaving a WaitGroup waiter behind when the next command begins.
+func (c *Controller) goWork(fn func()) {
+	c.work.Add(1)
+	c.wg.Go(func() { defer c.work.Add(-1); fn() })
 }
 
 // CancelUnanswered cancels the run when it waits for an approval answer that
@@ -299,9 +303,11 @@ func (c *Controller) Input(line string) {
 	}
 	switch c.Mode() {
 	case ModeApproval:
+		pending := c.answerPending.Swap(true)
 		select {
 		case c.answers <- line:
 		default:
+			c.answerPending.Store(pending)
 		}
 		return
 	case ModeCommand:
@@ -327,6 +333,7 @@ func (c *Controller) Input(line string) {
 
 func (c *Controller) displayCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
+	name = strings.ToLower(name)
 	switch name {
 	case "/copy", "/scrollback", "/mouse":
 		if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
@@ -343,8 +350,8 @@ func (c *Controller) steer(line string) {
 	if line == "" {
 		return
 	}
-	if line == "/quit" || line == "/exit" {
-		c.QuitDuringRun(line)
+	if command := strings.ToLower(line); command == "/quit" || command == "/exit" {
+		c.QuitDuringRun(command)
 		return
 	}
 	if c.duringTurnCommand(line) {
@@ -377,11 +384,14 @@ func (c *Controller) QuitDuringRun(action string) {
 // require resubmission after the turn ends. It reports whether the line was a command.
 func (c *Controller) duringTurnCommand(line string) bool {
 	name, arg, _ := strings.Cut(line, " ")
+	name = strings.ToLower(name)
 	switch name {
 	case "/settings":
 		c.notice("/settings must wait until the turn ends. Submit it again then.")
 	case "/effort", "/thinking", "/temperature", "/max-tokens":
 		c.notice("%s must wait until the turn ends. Submit it again then.", name)
+	case "/resources":
+		c.goWork(func() { c.resources(c.base) })
 	case "/help":
 		c.command(line)
 	case "/queue":
@@ -391,6 +401,10 @@ func (c *Controller) duringTurnCommand(line string) bool {
 	case "/continue", "/new", "/model", "/sessions", "/done", "/discard":
 		c.notice("%s must wait until the turn ends. Submit it again then, or press Ctrl-C to stop the turn.", name)
 	default:
+		if strings.HasPrefix(name, "/") && !strings.Contains(strings.TrimPrefix(name, "/"), "/") && c.eng.cfg.Resources != nil {
+			c.skillCommand(line, true)
+			return true
+		}
 		return false
 	}
 	return true
@@ -427,7 +441,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 	c.mu.Lock()
 	c.mode, c.cancel = ModeRunning, cancel
 	c.mu.Unlock()
-	c.wg.Go(func() {
+	c.goWork(func() {
 		_, err := fn(ctx)
 		cancel()
 		c.mu.Lock()
@@ -480,7 +494,7 @@ func busyText(err error) string {
 func (c *Controller) command(line string) {
 	name, arg, _ := strings.Cut(line, " ")
 	arg = strings.TrimSpace(arg)
-	switch name {
+	switch strings.ToLower(name) {
 	case "/compact":
 		if arg != "" {
 			c.notice("Usage: /compact")
@@ -539,10 +553,16 @@ func (c *Controller) command(line string) {
 		c.async(func(ctx context.Context) { c.generationControl(ctx, name, arg) })
 	case "/settings":
 		c.async(func(ctx context.Context) { c.settings(ctx, arg) })
+	case "/resources":
+		if arg != "" {
+			c.notice("Usage: /resources")
+			return
+		}
+		c.async(c.resources)
 	case "/help":
 		c.emit(Block{Kind: KindNotice, Text: helpText, Done: true})
 	default:
-		c.emit(warnBlock("Unknown command %s. Type /help.", name))
+		c.skillCommand(line, false)
 	}
 }
 
@@ -552,6 +572,7 @@ const helpText = `Commands:
   /mouse         toggle application mouse capture
   /compact       summarize history before the next turn
   /model [destination] [model]  choose the next-turn destination/model
+  /resources     inspect instruction, skill, and tool sources/scopes
   /settings [--json]  inspect next-turn and recorded settings
   /effort LEVEL|omit  set next-turn reasoning effort
   /thinking on|off  request and display public reasoning summaries
@@ -572,7 +593,7 @@ func (c *Controller) async(fn func(context.Context)) {
 	c.mu.Lock()
 	c.mode, c.cancel = ModeCommand, cancel
 	c.mu.Unlock()
-	c.wg.Go(func() {
+	c.goWork(func() {
 		defer func() {
 			cancel()
 			c.mu.Lock()

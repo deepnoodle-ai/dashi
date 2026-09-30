@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -15,6 +16,8 @@ import (
 type wiring struct {
 	Tools tool.Toolset
 	Hooks dashi.Hooks
+	// Scopes describes registered tool sources and their effective authority.
+	Scopes map[string]string
 	// Instructions is appended to the system prompt.
 	Instructions string
 	// Close releases what the feature holds. It may be nil.
@@ -24,7 +27,8 @@ type wiring struct {
 // Env is what an adapter needs to build its wiring.
 type Env struct {
 	// Dir is the workspace directory.
-	Dir string
+	Dir       string
+	Resources *resourceManager
 	// Approve asks the user about a tool call.
 	Approve ApprovalFunc
 	// Ask asks the user a question in the model's name.
@@ -34,6 +38,7 @@ type Env struct {
 // adapters lists the features that plug into the runner. To wire a feature,
 // add one adapter here.
 var adapters = []func(Env) (wiring, error){
+	resourceWiring,
 	workspaceWiring,
 }
 
@@ -67,10 +72,25 @@ func workspaceWiring(env Env) (wiring, error) {
 	if env.Ask != nil {
 		opts = append(opts, workspace.WithAsker(env.Ask))
 	}
-	return wiring{
-		Tools: ws.Tools(opts...),
-		Hooks: ws.Policy(env.Approve).Hooks(),
-	}, nil
+	tools := ws.Tools(opts...)
+	entries, err := tools.Tools(context.Background())
+	if err != nil {
+		return wiring{}, err
+	}
+	scopes := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		scope := "workspace " + ws.Dir() + "; read-only, host trusted"
+		switch entry.Definition.Name {
+		case workspace.ToolWriteFile, workspace.ToolEditFile:
+			scope = "workspace " + ws.Dir() + "; approval required; remembered grants cover this owned tool"
+		case workspace.ToolBash:
+			scope = "shell in " + ws.Dir() + "; approval required; remembers exact command; shell is not filesystem-confined"
+		case workspace.ToolAskUser:
+			scope = "workspace question; asks the user; no file authority"
+		}
+		scopes[entry.Definition.Name] = scope
+	}
+	return wiring{Tools: tools, Hooks: ws.Policy(env.Approve, resourcePolicyOptions(env.Resources)...).Hooks(), Scopes: scopes}, nil
 }
 
 // buildWiring runs every adapter and joins the results. Close releases every
@@ -90,6 +110,12 @@ func buildWiring(env Env) (wiring, error) {
 		if w.Tools != nil {
 			sets = append(sets, w.Tools)
 		}
+		if out.Scopes == nil {
+			out.Scopes = map[string]string{}
+		}
+		for name, scope := range w.Scopes {
+			out.Scopes[name] = scope
+		}
 		hooks = append(hooks, w.Hooks)
 		if w.Instructions != "" {
 			if out.Instructions != "" {
@@ -102,6 +128,9 @@ func buildWiring(env Env) (wiring, error) {
 		}
 	}
 	out.Tools = tool.Join(sets...)
+	if _, err := out.Tools.Tools(context.Background()); err != nil {
+		return wiring{}, err
+	}
 	out.Hooks = dashi.JoinHooks(hooks...)
 	out.Close = func() error {
 		var errs []error
@@ -111,4 +140,24 @@ func buildWiring(env Env) (wiring, error) {
 		return errors.Join(errs...)
 	}
 	return out, nil
+}
+
+func resourceWiring(env Env) (wiring, error) {
+	if env.Resources == nil {
+		return wiring{}, nil
+	}
+	tools, err := env.Resources.tools()
+	if err != nil {
+		return wiring{}, err
+	}
+	return wiring{Tools: tools, Hooks: env.Resources.hooks(), Scopes: map[string]string{
+		"load_skill":      "CLI model-eligible catalog; host-owned loader; no supporting-file grant",
+		"read_skill_file": "selected canonical skill folders; approval required; remembers exact canonical arguments for this run",
+	}}, nil
+}
+func resourcePolicyOptions(resources *resourceManager) []workspace.PolicyOption {
+	if resources == nil {
+		return nil
+	}
+	return []workspace.PolicyOption{workspace.TrustTools("load_skill")}
 }

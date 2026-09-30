@@ -16,6 +16,7 @@ import (
 // appConfig holds what buildApp needs.
 type appConfig struct {
 	Dir         string
+	HomeDir     string
 	Model       string
 	Client      llm.Client
 	Store       *session.Store
@@ -37,10 +38,24 @@ type app struct {
 // buildApp wires the adapters, the engine, and the controller around ui.
 func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	var ctrl *Controller
+	home := cfg.HomeDir
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+	}
+	resources := newResourceManager(cfg.Dir, home)
 	w, err := buildWiring(Env{
-		Dir: cfg.Dir,
+		Dir:       cfg.Dir,
+		Resources: resources,
 		Approve: func(ctx context.Context, r ApprovalRequest) (Approval, error) {
-			return ctrl.Approve(ctx, r)
+			answer, err := ctrl.Approve(ctx, resources.approvalRequest(ctx, r))
+			if err == nil {
+				resources.rememberApproval(r, answer)
+			}
+			return answer, err
 		},
 		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
 			return ctrl.Ask(ctx, q)
@@ -55,11 +70,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Model:         cfg.Model,
 		Store:         cfg.Store,
 		Wiring:        w,
+		Resources:     resources,
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { emitToUI(ui, b) },
 		recorder:      cfg.recorder,
 		Preferences:   cfg.Preferences,
 	})
+	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask
@@ -98,6 +115,16 @@ func (a *app) openSession(
 	}
 	if err := a.eng.Open(s); err != nil {
 		return "", err
+	}
+	if resources := a.eng.cfg.Resources; resources != nil {
+		found, err := resources.discover()
+		if err != nil {
+			return "", err
+		}
+		if notice != "" {
+			notice += "\n"
+		}
+		notice += resourceStartupSummary(found)
 	}
 	return notice, nil
 }

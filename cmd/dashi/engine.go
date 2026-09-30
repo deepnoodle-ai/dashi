@@ -31,6 +31,7 @@ type EngineConfig struct {
 	Store       *session.Store
 	Wiring      wiring
 	Preferences *cliPreferences
+	Resources   *resourceManager
 	// ModelAttempts is the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 	// Emit receives every block the engine produces. It may run on any
@@ -147,7 +148,8 @@ func (e *Engine) Open(s *session.Session) error {
 		Exclusive: true,
 	}
 	// A session with no turn yet is created by its first prompt.
-	if _, err := chat.Open(context.Background()); errors.Is(err, dashi.ErrSessionNotFound) {
+	_, openErr := chat.Open(context.Background())
+	if errors.Is(openErr, dashi.ErrSessionNotFound) {
 		chat.New = true
 	}
 	e.mu.Lock()

@@ -1,7 +1,7 @@
 # Load and inspect workspace instructions and skills
 
 Status: Approved\
-PRD PR: [#129](https://github.com/deepnoodle-ai/dashi/pull/129) · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#129](https://github.com/deepnoodle-ai/dashi/pull/129) · Implementation PR: [#141](https://github.com/deepnoodle-ai/dashi/pull/141) · Updated: 2026-09-30
 
 ## Problem and context
 
@@ -11,7 +11,7 @@ This delivers I09–I11 and the approved loaded-resource inventory in the [umbre
 
 ## Users and concepts
 
-The primary user codes with one terminal agent and wants the same selected instructions and skills across conversation turns and recovery.
+The primary user codes with one terminal agent and wants repository instructions and reusable skills in their conversation.
 
 **Workspace instructions** are the selected AGENTS.md or fallback CLAUDE.md at the workspace root. **Skill catalog** lists the skills the model may load. **Supporting file** belongs to a selected skill directory but is read separately. **Resource inventory** shows selected sources, availability, and effective access. Catalog discovery does not mean every skill body or supporting file entered the conversation.
 
@@ -49,24 +49,24 @@ Invoke a home skill that references `checklist.md`. Read the file through the sk
 - [ ] Denial, cancellation, and an unanswered unattended approval read no bytes. A changed target cannot reuse a previous target's approval. Inventory shows eligible scope separately from remembered approval scope.
 - [ ] Workspace write/edit roots remain unchanged. Skill metadata, including `allowed-tools`, grants no action. Shell work uses the existing explicitly approved shell tool.
 
-### UC-4: Refresh between prompts and resume pinned resources
+### UC-4: Refresh files and retain ordinary conversation history
 
-Complete a prompt, edit instructions and skills, then send another prompt in the same process. Repeat with slash invocation, a queued successor, and a stopped open turn. Exit and reopen the session.
+Load a skill, complete the prompt, change its file, then reload the session and load the skill again.
 
-- [ ] Unchanged instructions and catalogs keep their context identity and occur once in proposed requests, including after reopen. Existing provider-facing prompt prefixes remain unchanged.
-- [ ] Each new prompt rediscovers resources before turn admission. Edits between prompts affect the next turn without inspection or restart. An idle slash skill refreshes before expansion and uses the same selection for its turn. A queued successor rediscovers at its own admission.
-- [ ] Changed resources append the new contextual value for subsequent turns without editing earlier messages. Compaction retention follows [#117](session-context-dedup.md); this CLI introduces no deduplication or compaction engine.
-- [ ] Open-turn continuation reuses its selected instruction and skill content. Changed files cannot silently rebind that turn's skill loader. Missing recovery content causes a clear stop before dispatch.
-- [ ] `/resources` rediscovers inventory metadata and distinguishes open-turn resources from the selection pending the next turn. It never replaces an open pin or delivers changed context. The next admission rediscovers again. Inspection never infers execution or successful model use from catalog presence.
-- [ ] Refresh read errors warn with the failing path and omit failed content, without stale-byte reuse or partial content. Instruction errors select empty instructions without enabling fallback. Skill errors preserve valid candidates and existing precedence. Snapshot read/write failures stop before dispatch; supporting-file read errors return failed outcomes.
+- [ ] Instructions and the eligible catalog refresh before model requests. Idle slash invocation discovers current files before expansion. Queued work sees edits when it starts.
+- [ ] Loaded skill bodies remain in ordinary recorded tool results. Session reload preserves those results through the existing history path. A new load reads current files.
+- [ ] Unchanged contextual instructions and catalogs occur once in proposed requests, including after reopen. Changed values append without rewriting prior messages. Compaction follows [#117](session-context-dedup.md).
+- [ ] No separate skill-content cache, per-turn resource reference, or resource-specific recovery is required. Unrequested skill bodies are not persisted.
+- [ ] `/resources` inspects currently available files and scopes. It never claims that catalog presence proves a skill was loaded or used.
+- [ ] Refresh failures warn with the failing path and omit failed content. Instruction errors select empty instructions without enabling fallback. Skill errors preserve valid candidates and precedence; supporting-file read errors return failed outcomes.
 
 ## Requirements, decisions, and limits
 
 - Show a compact startup summary and a complete `/resources` inventory in screen and line modes. Print-mode notices use stderr. List currently registered tool sources and effective scopes alongside instructions and skills. MCP contributes its own source/status facts when its slice lands.
 - Cover empty, loading, partial-error, and success states at 80×24. Loading cannot appear as an empty success. Paths, descriptions, warnings, and arguments render as printable text. Show no credentials, instruction bodies, or file contents.
 - Bound workspace instructions to 64 KiB, matching the existing skill-body limit. Reject partial truncation because it can change a requirement's meaning.
-- Use the selected workspace root for discovery. Reject ancestor walking, nested instruction stacks, `.dive` paths, and replacing an open turn's selected resources during discovery.
-- Reuse `LoadDirs`, `Bundle`, `Expand`, and ContextItem delivery. Reject file instructions in `Agent.Instructions`, shell expansion, and file digests in `Agent.Revision`. The [technical spec](../design/cli-resources.md) defines the host's recovery pin for selected skill bodies.
+- Use the selected workspace root for discovery. Reject ancestor walking, nested instruction stacks, and `.dive` paths.
+- Reuse `LoadDirs`, `Bundle`, `Expand`, and ContextItem delivery. Reject file instructions in `Agent.Instructions`, shell expansion, and file digests in `Agent.Revision`. The [technical spec](../design/cli-resources.md) defines the CLI adapters.
 
 Custom system prompts and provider settings belong to slice 3. Composer completion belongs to slice 2 and consumes the eligible command catalog. MCP lifecycle belongs to slice 5. Attachment bytes, general context inspection, skill editing/installing, scripts, trigger matching, marketplaces, and compaction are outside this slice. Shared dispatch/wiring edits require scheduled integration ownership.
 

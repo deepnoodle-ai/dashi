@@ -199,6 +199,7 @@ func (u *recorderUI) blocks() []Block {
 type harness struct {
 	t      *testing.T
 	dir    string
+	home   string
 	store  *session.Store
 	client *fakeClient
 	ui     *recorderUI
@@ -223,6 +224,7 @@ func newHarnessLimit(t *testing.T, attempts int, script ...reply) *harness {
 	h := &harness{
 		t:      t,
 		dir:    t.TempDir(),
+		home:   t.TempDir(),
 		store:  store,
 		client: &fakeClient{script: script},
 		ui:     newRecorderUI(),
@@ -237,10 +239,11 @@ func newHarnessLimit(t *testing.T, attempts int, script ...reply) *harness {
 func (h *harness) build(o Options) {
 	h.t.Helper()
 	a, err := buildApp(h.t.Context(), appConfig{
-		Dir:    h.dir,
-		Model:  "fixture",
-		Client: h.client,
-		Store:  h.store,
+		Dir:     h.dir,
+		HomeDir: h.home,
+		Model:   "fixture",
+		Client:  h.client,
+		Store:   h.store,
 
 		ModelAttempts: h.limit,
 		recorder:      h.recorder,
