@@ -69,10 +69,10 @@ func mergeDestinations(files ...preferenceFile) (map[string]configuredDestinatio
 	}
 	return registry, nil
 }
-func detectedSelection(registry map[string]configuredDestination, lookup func(string) (string, bool)) selectionTier {
+func detectedSelection(registry, user map[string]configuredDestination, lookup func(string) (string, bool)) selectionTier {
 	for _, id := range []string{"anthropic", "google", "openai", "grok", "mistral", "deepinfra", "meta"} {
 		d := registry[id]
-		if len(d.Definition.Models) == 0 {
+		if len(d.Definition.Models) == 0 || !d.trustedBy(user) {
 			continue
 		}
 		for _, name := range d.BuiltinAliases {

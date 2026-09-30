@@ -45,7 +45,9 @@ func validConfigName(s string) bool {
 	return true
 }
 func validDestinationID(s string) bool {
-	return s != "" && utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '/' || r == '\\' })
+	return s != "" && utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '/' || r == '\\'
+	})
 }
 func (d configuredDestination) validate() error {
 	fail := func(field string) error { return fmt.Errorf("destination %q: invalid %s", d.ID, field) }

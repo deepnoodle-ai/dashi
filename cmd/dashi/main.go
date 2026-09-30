@@ -49,6 +49,9 @@ func run(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
+	if o.Models {
+		return runModels(o, home, dir, stdout, stderr)
+	}
 	settings, warnings := loadSettings(home, dir)
 	for _, w := range warnings {
 		fmt.Fprintf(stderr, "dashi: warning: %s\n", w)
