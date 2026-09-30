@@ -1,6 +1,6 @@
 # Load and inspect workspace instructions and skills
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -64,7 +64,7 @@ Send two turns, exit, reopen the session, and send another. Repeat with changed 
 - Cover empty, loading, partial-error, and success states at 80×24. Loading cannot appear as an empty success. Paths, descriptions, warnings, and arguments render as printable text. Show no credentials, instruction bodies, or file contents.
 - Bound workspace instructions to 64 KiB, matching the existing skill-body limit. Reject partial truncation because it can change a requirement's meaning.
 - Use the selected workspace root for discovery. Reject ancestor walking, nested instruction stacks, `.dive` paths, and automatic source reload during a running turn.
-- Reuse `LoadDirs`, `Bundle`, `Expand`, and ContextItem delivery. Reject file instructions in `Agent.Instructions`, shell expansion, and file digests in `Agent.Revision`. The technical spec must define the host's recovery pin for selected skill bodies.
+- Reuse `LoadDirs`, `Bundle`, `Expand`, and ContextItem delivery. Reject file instructions in `Agent.Instructions`, shell expansion, and file digests in `Agent.Revision`. The [technical spec](../design/cli-resources.md) defines the host's recovery pin for selected skill bodies.
 
 Custom system prompts and provider settings belong to slice 3. Composer completion belongs to slice 2 and consumes the eligible command catalog. MCP lifecycle belongs to slice 5. Attachment bytes, general context inspection, skill editing/installing, scripts, trigger matching, marketplaces, and compaction are outside this slice. Shared dispatch/wiring edits require scheduled integration ownership.
 
