@@ -409,19 +409,24 @@ func (r Runner) apply(
 				),
 			})
 		}
+		window := activeWindow(agent, r.Client, origin)
+		if agent.ActiveCompaction != nil && !agent.ActiveCompaction.Disabled && origin != StartCompaction && window == 0 {
+			rt.pendingWarnings = append(rt.pendingWarnings, Warning{Code: WarningActiveCompactionUnavailable, Message: "Active context protection has no recorded window; set ActiveCompactionPolicy.Window or provide model context evidence."})
+		}
 		if o := rt.commit(Step{
 			Kind:          StepStarted,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Started: &StartFact{
-				Agent:              agent,
-				Budget:             cloneBudget(c.Budget),
-				OutputSchema:       slices.Clone(c.OutputSchema),
-				Origin:             origin,
-				HistoryFingerprint: fingerprint,
-				Input:              cloneMessages(c.Input),
-				Parent:             cloneCallRef(c.Parent),
-				Compaction:         c.Compaction.clone(),
+				Agent:                  agent,
+				ActiveCompactionWindow: window,
+				Budget:                 cloneBudget(c.Budget),
+				OutputSchema:           slices.Clone(c.OutputSchema),
+				Origin:                 origin,
+				HistoryFingerprint:     fingerprint,
+				Input:                  cloneMessages(c.Input),
+				Parent:                 cloneCallRef(c.Parent),
+				Compaction:             c.Compaction.clone(),
 			},
 		}); o != nil {
 			return rt.result(*o)
@@ -711,8 +716,10 @@ type runtime struct {
 	listen *steerListener
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook answer is saved with the step it leads to.
-	pendingWarnings []Warning
-	pendingHooks    []HookResult
+	pendingWarnings     []Warning
+	pendingHooks        []HookResult
+	compactionUsed      bool
+	compactionCandidate *llm.Input
 }
 
 // result pairs an Outcome with the recording failure that ended the run.
@@ -806,6 +813,9 @@ func (r *runtime) commit(step Step) *Outcome {
 			fact.Items = items
 			step.Context = &fact
 		}
+	}
+	if step.Model != nil && (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) {
+		step.Model.Purpose = modelPurpose(r.turn, step.Model.AttemptID)
 	}
 	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
@@ -1046,6 +1056,12 @@ func (r *runtime) run() Outcome {
 		if s.unresolvedModel != "" {
 			return r.stop(StopUncertain, "model attempt needs reconciliation")
 		}
+		if s.pendingCompaction != "" {
+			if o := r.applyActiveCompaction(s); o != nil {
+				return *o
+			}
+			continue
+		}
 		if stop := budgetOvershotStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
@@ -1078,6 +1094,9 @@ func (r *runtime) run() Outcome {
 			continue
 		}
 		if s.failedModel != "" {
+			if lastModelPurpose(r.turn) == ModelPurposeCompaction {
+				return r.stop(StopFailed, StopReasonCompactionFailed)
+			}
 			return r.stop(StopFailed, s.failedModel)
 		}
 		if stop := budgetSpentStop(s); stop != nil {
@@ -1171,7 +1190,9 @@ func hasOpenTools(s *replayState) bool {
 	return false
 }
 
-func (r *runtime) model(s *replayState) (Outcome, bool) {
+func (r *runtime) model(s *replayState) (Outcome, bool) { return r.modelPurpose(s, "", nil) }
+
+func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *ContextCompactionPlan) (Outcome, bool) {
 	// Steers waiting now reach this call. They are recorded before the
 	// BeforeModel hooks run, so the hooks' input includes them.
 	if steers := r.waitingSteers(s); len(steers) > 0 {
@@ -1190,7 +1211,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			return r.stop(StopFailed, err.Error()), false
 		}
 	}
-	finalAnswerOnly := !r.agent.Limits.NoReservedFinalAnswer &&
+	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalAnswer &&
 		s.ModelAttempts > 0 &&
 		s.ModelAttempts+1 == s.attemptCap
 	messages, err := projectWithHistory(r.turn, r.history)
@@ -1198,7 +1219,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if !finalAnswerOnly && !r.agent.NoTools {
+	if purpose == "" && !finalAnswerOnly && !r.agent.NoTools {
 		// Without a toolset the selection still runs, so a named tool
 		// warns that it is not offered.
 		var tools []tool.Tool
@@ -1223,7 +1244,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			defs = append(defs, t.Definition.Clone())
 		}
 	}
-	structured := len(s.OutputSchema) > 0
+	structured := purpose == "" && len(s.OutputSchema) > 0
 	if structured {
 		defs = append(
 			defs,
@@ -1245,6 +1266,16 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		Settings: r.agent.Settings,
 		Stream:   r.opts.stream,
 	}
+	if purpose == ModelPurposeCompaction {
+		input.System = activeSummaryPrompt
+		input.Messages, err = r.activeSummaryMessages(plan)
+		if err != nil {
+			return r.stop(StopFailed, StopReasonCompactionFailed), false
+		}
+		input.Settings.MaxTokens = r.summaryMaxTokens(input.Settings.MaxTokens)
+		input.Settings.ToolChoice = nil
+		input.Settings.ParallelTools = nil
+	}
 	if key := r.runner.cacheKey; key != "" &&
 		input.Settings.PromptCache.Key == "" {
 		info, _ := r.runner.Client.ModelInfo(input.Model)
@@ -1259,7 +1290,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	// A request abandoned for an urgent steer before dispatch drops the
 	// hook answers of this pass; the next pass asks the hooks again.
 	mark := r.hookMark()
-	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly)
+	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly, purpose)
 	// The intent records the tools offered, after any hides, and the names
 	// hidden, so a call to a hidden tool resolves from the record.
 	defs = input.Tools
@@ -1277,10 +1308,21 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			return *o, false
 		}
 		mark = r.hookMark()
-		input.Messages, err = projectWithHistory(r.turn, r.history)
+		if purpose == ModelPurposeCompaction {
+			input.Messages, err = r.activeSummaryMessages(plan)
+		} else {
+			input.Messages, err = projectWithHistory(r.turn, r.history)
+		}
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false
 		}
+	}
+	if purpose == ModelPurposeCompaction {
+		input.Settings.MaxTokens = r.summaryMaxTokens(input.Settings.MaxTokens)
+		input.Settings.ToolChoice = nil
+		input.Settings.ParallelTools = nil
+		input.Tools = nil
+		defs = nil
 	}
 	if finalAnswerOnly {
 		// The turn-wide call limit wins over a forced application-tool choice.
@@ -1288,7 +1330,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	if len(s.OutputSchema) > 0 {
+	if purpose == "" && len(s.OutputSchema) > 0 {
 		if err := validateOutputToolChoice(input.Settings); err != nil {
 			return r.stop(StopFailed, err.Error()), false
 		}
@@ -1346,6 +1388,13 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			"prepared request changed original model input",
 		), false
 	}
+	if purpose == "" {
+		if o, again, handled := r.guardActiveContext(s, input, req); handled {
+			return o, again
+		}
+	} else if llm.EstimatedInputTokens(req) > max(0, s.ActiveCompactionWindow-req.Snapshot().Effective.MaxTokens) {
+		return r.contextLimit(s, req, "summary evidence or hook context does not fit"), false
+	}
 	// The call runs under its own context, so an urgent steer can end it
 	// without ending the run (U-6).
 	callCtx, cancelCall := context.WithCancelCause(r.ctx)
@@ -1368,7 +1417,7 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if costStop != nil {
 		return r.stopWith(costStop), false
 	}
-	admission, sendStop, ctxStop := r.beforeSend(s, req, atRisk, remainingCost)
+	admission, sendStop, ctxStop := r.beforeSend(s, req, atRisk, remainingCost, purpose)
 	if ctxStop != nil {
 		return *ctxStop, false
 	}
@@ -1389,6 +1438,8 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
 	fact := &ModelFact{
+		Purpose:              purpose,
+		Compaction:           plan.clone(),
 		AttemptID:            attempt,
 		MessageID:            messageID,
 		RequestDigest:        digest(req.Body()),
@@ -1576,7 +1627,17 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 			}
 		}
 	} else {
-		validationErr = validateModelResult(result, r.agent)
+		if purpose == ModelPurposeCompaction {
+			validationErr = validateModelResult(result, r.agent)
+			if validationErr == nil {
+				_, validationErr = validActiveSummary(&result)
+			}
+			if validationErr == nil {
+				_, validationErr = r.activeEstimateAfter(plan, &result)
+			}
+		} else {
+			validationErr = validateModelResult(result, r.agent)
+		}
 		if validationErr != nil {
 			settled.Error = validationErr.Error()
 		}
@@ -1602,6 +1663,9 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 		return r.stop(StopFailed, sendErr.Error()), false
 	}
 	if validationErr != nil {
+		if purpose == ModelPurposeCompaction {
+			return r.stop(StopFailed, StopReasonCompactionFailed), false
+		}
 		return r.stop(StopFailed, validationErr.Error()), false
 	}
 	current, replayErr := replay(r.turn)
@@ -1611,6 +1675,11 @@ func (r *runtime) model(s *replayState) (Outcome, bool) {
 	if stop := budgetOvershotStop(current); stop != nil {
 		return r.stopWith(stop), false
 	}
+	if purpose == ModelPurposeCompaction {
+		return Outcome{}, true
+	}
+	r.compactionUsed = false
+	r.compactionCandidate = nil
 	return r.classify(result)
 }
 

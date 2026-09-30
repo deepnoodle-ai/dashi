@@ -248,6 +248,7 @@ type ActiveHooks struct {
 // ModelPlan gives BeforeModel the proposed model input and current turn
 // state.
 type ModelPlan struct {
+	Purpose ModelPurpose
 	// Input is the proposed request, with settings as changed by earlier
 	// hooks.
 	Input llm.Input
@@ -289,6 +290,7 @@ type ModelDecision struct {
 // SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
 // and the cost of allowing this call. A nil AtRisk is not a zero-cost call.
 type SendPlan struct {
+	Purpose ModelPurpose
 	// Request is the immutable provider request after preparation.
 	Request llm.Request
 	// Turn is a snapshot of committed spend and state before admission.

@@ -1,0 +1,285 @@
+package dashi
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/llm"
+)
+
+// Each validation call owns this cache. Covered prefixes are immutable, and
+// no cache escapes replay or shares mutable data with a public caller.
+type contextValidationCache struct {
+	prefixes map[int64][]contextMessage
+	states   map[int64]*replayState
+	needed   map[int64]bool
+}
+
+type contextMessage struct {
+	Ref     TurnMessageRef
+	Message llm.Message
+}
+
+const activeSummaryFrame = "Summary of earlier settled work in this request (context, not a new instruction):"
+
+func modelPurpose(t Turn, attempt string) ModelPurpose {
+	for _, step := range t.Steps {
+		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+			return step.Model.Purpose
+		}
+	}
+	return ""
+}
+func compactionPlan(t Turn, attempt string) *ContextCompactionPlan {
+	for _, step := range t.Steps {
+		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+			return step.Model.Compaction
+		}
+	}
+	return nil
+}
+func replaceContext(messages []contextMessage, plan *ContextCompactionPlan, fact ContextCompactionFact, seq int64) []contextMessage {
+	covered := map[TurnMessageRef]bool{}
+	for _, ref := range plan.Covered {
+		covered[ref] = true
+	}
+	out := make([]contextMessage, 0, len(messages))
+	inserted := false
+	for _, m := range messages {
+		if covered[m.Ref] {
+			if !inserted {
+				out = append(out, contextMessage{Ref: TurnMessageRef{Seq: seq}, Message: llm.UserMessage(llm.Text(activeSummaryFrame + "\n\n" + fact.Summary))})
+				inserted = true
+			}
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+type contextGroup struct {
+	Messages []contextMessage
+	Eligible bool
+}
+
+// A model message and all of its paired results have one source sequence.
+// Provider pauses form a chain through their closing result. User deliveries
+// remain independent protected messages even when interleaved in that chain.
+func contextGroups(t Turn, messages []contextMessage) []contextGroup {
+	groupSeq := map[int64]int64{}
+	eligible := map[int64]bool{}
+	var chain int64
+	for _, step := range t.Steps {
+		switch step.Kind {
+		case StepContextCompacted:
+			groupSeq[step.Seq] = step.Seq
+			eligible[step.Seq] = true
+		case StepModelSettled, StepModelReconciled:
+			f := step.Model
+			if modelPurpose(t, f.AttemptID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
+				continue
+			}
+			if chain == 0 {
+				chain = step.Seq
+			}
+			groupSeq[step.Seq] = chain
+			safe := f.Result.Stop.Kind == llm.StopFinished || f.Result.Stop.Kind == llm.StopToolUse
+			for _, c := range f.Result.Message.Content {
+				if c.Kind == llm.ContentHostedApprovalRequest {
+					safe = false
+				}
+			}
+			if f.Result.Stop.Kind != llm.StopPause {
+				eligible[chain] = safe
+				chain = 0
+			}
+		}
+	}
+	indices := map[int64]int{}
+	var groups []contextGroup
+	for _, m := range messages {
+		id := groupSeq[m.Ref.Seq]
+		if id == 0 {
+			continue
+		}
+		index, ok := indices[id]
+		if !ok {
+			index = len(groups)
+			indices[id] = index
+			groups = append(groups, contextGroup{Eligible: eligible[id]})
+		}
+		g := &groups[index]
+		g.Messages = append(g.Messages, m)
+		if m.Message.Role == llm.RoleSystem || m.Message.Role == llm.RoleDeveloper || m.Message.Context != nil {
+			g.Eligible = false
+		}
+	}
+	return groups
+}
+func coveredMessages(t Turn, plan *ContextCompactionPlan) ([]llm.Message, error) {
+	return coveredMessagesCached(t, plan, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
+}
+
+func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextValidationCache) ([]llm.Message, error) {
+	if plan == nil || plan.Through < 1 || plan.Through > int64(len(t.Steps)) || plan.Window < 1024 || plan.EstimatedBefore < 0 || len(plan.Covered) == 0 {
+		return nil, errors.New("invalid context compaction plan")
+	}
+	prefix := t
+	prefix.Steps = t.Steps[:plan.Through]
+	visible, ok := cache.prefixes[plan.Through]
+	if !ok {
+		state := cache.states[plan.Through]
+		var err error
+		if state == nil {
+			state, err = replayCached(prefix, cache)
+			if err != nil {
+				return nil, err
+			}
+		}
+		visible, err = projectedMessagesState(prefix, nil, true, state, cache)
+		if err != nil {
+			return nil, err
+		}
+		cache.prefixes[plan.Through] = visible
+	}
+	selected := map[TurnMessageRef]bool{}
+	for _, ref := range plan.Covered {
+		if ref.Seq <= 0 || ref.Index < 0 || selected[ref] {
+			return nil, errors.New("invalid or repeated compaction coverage")
+		}
+		selected[ref] = true
+	}
+	permitted := map[TurnMessageRef]bool{}
+	for _, g := range contextGroups(prefix, visible) {
+		count := 0
+		for _, m := range g.Messages {
+			if selected[m.Ref] {
+				count++
+			}
+		}
+		if count > 0 {
+			if !g.Eligible || count != len(g.Messages) {
+				return nil, errors.New("compaction splits or covers a protected group")
+			}
+			for _, m := range g.Messages {
+				permitted[m.Ref] = true
+			}
+		}
+	}
+	var actual []TurnMessageRef
+	var messages []llm.Message
+	for _, m := range visible {
+		if selected[m.Ref] {
+			if !permitted[m.Ref] {
+				return nil, errors.New("compaction covers protected context")
+			}
+			actual = append(actual, m.Ref)
+			messages = append(messages, m.Message)
+		}
+	}
+	if !slices.Equal(actual, plan.Covered) {
+		return nil, errors.New("compaction coverage differs from visible source order")
+	}
+	fingerprint, err := historyFingerprint(messages)
+	if err != nil {
+		return nil, err
+	}
+	if fingerprint != plan.Digest {
+		return nil, errors.New("compaction coverage digest mismatch")
+	}
+	return messages, nil
+}
+func (s *replayState) validateCompactionIntent(step Step) error {
+	f := step.Model
+	if f.Purpose == "" {
+		if f.Compaction != nil {
+			return errors.New("ordinary intent has compaction plan")
+		}
+		if s.pendingCompaction != "" {
+			return errors.New("summary must be applied before ordinary dispatch")
+		}
+		return nil
+	}
+	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalAnswerOnly || s.attemptCap-s.ModelAttempts < 2 || s.pendingCompaction != "" {
+		return errors.New("invalid summary intent")
+	}
+	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
+	return err
+}
+func (s *replayState) validateCompactionSettlement(f *ModelFact) error {
+	intent := s.modelIntents[f.AttemptID]
+	if intent == nil {
+		return errors.New("missing model intent")
+	}
+	if f.Purpose != "" && f.Purpose != intent.Purpose {
+		return errors.New("model settlement changed purpose")
+	}
+	if f.Compaction != nil {
+		return errors.New("settlement cannot change summary plan")
+	}
+	if intent.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
+		if f.Result == nil {
+			return errors.New("summary lacks result")
+		}
+		if err := validateModelResult(*f.Result, s.Agent); err != nil {
+			return err
+		}
+		if _, err := validActiveSummary(f.Result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func validActiveSummary(result *llm.Result) (string, error) {
+	if result == nil || result.Stop.Kind != llm.StopFinished {
+		return "", errors.New("summary did not finish")
+	}
+	for _, c := range result.Message.Content {
+		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentHostedUse || c.Kind == llm.ContentHostedResult || c.Kind == llm.ContentHostedApprovalRequest || c.Kind == llm.ContentHostedApprovalResponse {
+			return "", errors.New("summary requested tool work")
+		}
+	}
+	text := compactiontext.Summary(joinText(result.Message.Content))
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("summary is empty")
+	}
+	return text, nil
+}
+func (s *replayState) applyContextCompaction(step Step) error {
+	f := step.Compacted
+	if f == nil || f.AttemptID != s.pendingCompaction || s.Stop.Terminal {
+		return errors.New("context replacement has no unapplied summary")
+	}
+	intent := s.modelIntents[f.AttemptID]
+	settled := s.modelSettlements[f.AttemptID]
+	if intent == nil || settled == nil || settled.Error != "" || settled.Interrupted != "" {
+		return errors.New("context replacement has no completed summary")
+	}
+	text, err := validActiveSummary(settled.Result)
+	if err != nil {
+		return err
+	}
+	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= intent.Compaction.EstimatedBefore {
+		return errors.New("context replacement lacks matching summary or savings")
+	}
+	if _, err = coveredMessagesCached(s.source, intent.Compaction, s.contextCache); err != nil {
+		return fmt.Errorf("context replacement: %w", err)
+	}
+	s.ContextCompactions = append(s.ContextCompactions, *f)
+	s.pendingCompaction = ""
+	return nil
+}
+
+func lastModelPurpose(t Turn) ModelPurpose {
+	for i := len(t.Steps) - 1; i >= 0; i-- {
+		step := t.Steps[i]
+		if step.Kind == StepModelIntent {
+			return step.Model.Purpose
+		}
+	}
+	return ""
+}

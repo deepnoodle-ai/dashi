@@ -74,6 +74,8 @@ type LimitKind string
 const (
 	// LimitModelAttempts is the agent's model call ceiling.
 	LimitModelAttempts LimitKind = "model_attempts"
+	// LimitContextWindow stops a request that cannot fit its pinned window.
+	LimitContextWindow LimitKind = "context_window"
 	// LimitDeadline is the agent's time ceiling.
 	LimitDeadline LimitKind = "deadline"
 	// LimitInterruptions is the agent's resume ceiling.
@@ -129,7 +131,7 @@ type LimitDetail struct {
 // Validate checks the typed stop metadata independently of its prose reason.
 func (l LimitDetail) Validate() error {
 	switch l.Kind {
-	case LimitModelAttempts, LimitDeadline, LimitInterruptions,
+	case LimitContextWindow, LimitModelAttempts, LimitDeadline, LimitInterruptions,
 		LimitProviderPauses, LimitOutputTokens, LimitTotalTokens, LimitCost:
 		if l.Code != "" {
 			return errors.New("dashi: only host limits carry a code")
