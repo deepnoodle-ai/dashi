@@ -139,8 +139,10 @@ func (wire codec) readStream(
 				)
 			}
 			item := items[e.OutputIndex]
-			if item["type"] != "message" || item["role"] != "assistant" {
-				continue // text labels cannot publish private reasoning items
+			if item["type"] != "message" || item["role"] != nil && item["role"] != "assistant" {
+				// Partial message envelopes can omit role. A reasoning or other
+				// opaque item still cannot be relabeled as answer text.
+				continue
 			}
 			if parts[e.OutputIndex] == nil {
 				parts[e.OutputIndex] = map[int]map[string]any{}
