@@ -1,6 +1,6 @@
 # Finish a long coding request before context fills
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -68,7 +68,7 @@ The policy becomes part of the accepted Turn configuration.
 The CLI enables it for supported models without asking the user to manage a second conversation.
 
 - [ ] One optional configuration selects active compaction. No configuration preserves today's library behavior.
-  The technical spec defines public names and defaults before implementation.
+  The [technical spec](../design/active-turn-context.md) defines public names and defaults before implementation.
 - [ ] The policy uses the declared model window or an explicit caller cap.
   An unknown window without a cap disables protection and produces one actionable warning.
   The CLI identifies this state without displaying a fabricated percentage or safety claim.
@@ -145,5 +145,5 @@ No paid probe is required to claim this fixture-backed behavior.
 
 Summaries can omit useful details. Preserve source facts and document that limitation.
 Provider estimates and private replay bundles can differ from text sizes.
-The technical spec must define safe cut groups, accounting purpose, recorded coverage, and request-size measurement before code starts.
-Those design choices require named independent PRD review. This draft approves no public API or implementation.
+The named independent PRD re-review returned ready with no remaining findings.
+The technical design requires the root checkpoint before publication or implementation.
