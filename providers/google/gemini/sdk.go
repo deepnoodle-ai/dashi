@@ -138,6 +138,10 @@ func (p *Client) sdkURL(model string, stream bool) string {
 	return endpoint
 }
 
+// sdkModel preserves one exact model ID as one URL path segment. Only the
+// SDK receives this representation; recorded model and replay identities stay raw.
+func sdkModel(model string) string { return url.PathEscape(model) }
+
 // sdkBody uses an in-memory HTTP transport. Preparation invokes the same SDK
 // serializer as Send but cannot reach the network or charge for a model call.
 func (p *Client) sdkBody(
@@ -158,7 +162,7 @@ func (p *Client) sdkBody(
 	if stream {
 		for _, err := range client.Models.GenerateContentStream(
 			ctx,
-			model,
+			sdkModel(model),
 			contents,
 			config,
 		) {
@@ -168,7 +172,7 @@ func (p *Client) sdkBody(
 		}
 	} else if _, err := client.Models.GenerateContent(
 		ctx,
-		model,
+		sdkModel(model),
 		contents,
 		config,
 	); err != nil {
