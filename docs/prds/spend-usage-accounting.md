@@ -1,7 +1,7 @@
 # Keep failed usage aggregation separate from uncertain cost
 
 Status: Approved\
-PRD PR: #123  Implementation PR: pending  Updated: 2026-09-29
+PRD PR: #123  Implementation PR: #126  Updated: 2026-09-30
 
 ## Problem and users
 
