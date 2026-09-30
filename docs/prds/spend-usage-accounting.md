@@ -65,8 +65,14 @@ For example, usage-only overflow with USD 0.75 model cost and USD 5 tool cost pr
 A developer runs or continues a turn whose recorded usage aggregation is incomplete.
 
 - [ ] An active output-token or total-token cap prevents another model dispatch. Retained counts cannot prove remaining allowance.
-- [ ] A `limited` stop uses the corresponding token `LimitKind` and explains incomplete usage aggregation.
-- [ ] Raising a cap alone cannot repair incomplete usage or permit dispatch. Continuation guidance explains the accounting condition.
+- [ ] The recorded `limited` stop uses the corresponding token `LimitKind`, explains incomplete usage aggregation, and sets `Stop.Terminal == true`.
+- [ ] The ended view has `ReadyToContinue == false` and `Next() == NextNone`, including after storage and replay.
+- [ ] `Continue`, including a budget raise, returns `ErrTurnEnded`. Raising a cap alone cannot repair incomplete usage.
+- [ ] Before that stop is recorded, valid reconciliation can restore complete usage and ordinary admission if every applicable limit permits execution.
+- [ ] Permitted late settlements can update reported Spend, including clearing `UsageIncomplete`, but never revive the ended turn.
+  Its recorded terminal stop, fixed answer, `NextNone`, and rejection of `Continue` remain unchanged.
+- [ ] Guidance tells the host to resolve outstanding effects as required, then start a new turn carrying prior history.
+  It never directs the host to resume the ended turn.
 - [ ] With only `MaxCost`, usage incompleteness alone does not prevent admission when recorded charges and the next monetary bound are exact.
 - [ ] Unknown, partial, incompatible-currency, and overflowing costs preserve conservative cost-cap behavior.
 - [ ] Uncapped execution can proceed while retaining the visible flag. Estimation and price selection retain their current rules.
@@ -76,7 +82,9 @@ A developer runs or continues a turn whose recorded usage aggregation is incompl
 - Add one boolean to Spend. Developers need a completeness signal, not a count of failed calls. Reject another ambiguous failure counter.
 - Keep aggregation atomic for Usage and independent for money. Reject saturation presented as an exact usage total.
 - Derive turn completeness from authoritative facts. Reject a second durable ledger or manual repair flag.
-  Reconciliation can change those facts. A budget raise cannot change them.
+  Before a terminal token stop, reconciliation can restore complete usage. A budget raise cannot change accounting facts.
+- End a turn when incomplete usage prevents token-cap enforcement. Late settlements may update accounting but cannot revive execution.
+  Preserve `NextNone` and existing ended-turn rules. Reject a resumable stop whose later accounting changes could revive an ended turn.
 - Preserve ambiguous `CostUnknown` values unchanged. Reject retroactive guesses that could make old amounts appear exact.
 - Deliberately broaden replay to accept individually valid facts with overflowing aggregates. Reject dropping valid settlements because totals cannot fit.
   Preserve recorded stop validity, terminal-state rules, nondispatch evidence, and reconciliation safeguards.
@@ -90,6 +98,6 @@ Do not rename existing Outcome or Stop types, change `llm.Usage.Add`, or relax v
 Older binaries can ignore the additive JSON field. They cannot be trusted to interpret new incomplete-usage snapshots correctly.
 Support new readers of old records. Do not promise old-reader budget safety for new accounting states.
 
-The technical spec must cover admission timing, terminal token stops, reconciliation, and legacy-record compatibility before implementation.
+The technical spec must implement this terminal-stop contract and cover admission timing, reconciliation, and legacy-record compatibility before implementation.
 Focused overflow and round-trip tests must meet every criterion without provider requests.
 Existing budget, recovery, replay, and delegation checks must pass. Independent implementation and billing-security reviews remain required.
