@@ -15,11 +15,12 @@ import (
 // sequences or carriage returns. A host must show this form, not r.
 func (r ApprovalRequest) Printable() ApprovalRequest {
 	return ApprovalRequest{
-		Tool:    PrintableText(r.Tool),
-		Summary: PrintableText(r.Summary),
-		Preview: PrintableText(r.Preview),
-		Dir:     PrintableText(r.Dir),
-		Command: PrintableText(r.Command),
+		Tool:          PrintableText(r.Tool),
+		Summary:       PrintableText(r.Summary),
+		Preview:       PrintableText(r.Preview),
+		Dir:           PrintableText(r.Dir),
+		Command:       PrintableText(r.Command),
+		RememberScope: PrintableText(r.RememberScope),
 	}
 }
 

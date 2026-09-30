@@ -140,7 +140,7 @@ func parseAnswer(line string) (Approval, bool) {
 	return Approval{}, false
 }
 
-func (u *lineUI) Ask(ctx context.Context, q Question) (string, error) {
+func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 	u.mu.Lock()
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
 	for i, c := range q.Choices {
@@ -148,11 +148,20 @@ func (u *lineUI) Ask(ctx context.Context, q Question) (string, error) {
 	}
 	fmt.Fprint(u.out, "> ")
 	u.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case line := <-u.ctrl.Answers():
-		return line, nil
+	if q.Multiple {
+		fmt.Fprintln(u.out, "Choose numbers separated by commas, or other: YOUR ANSWER.")
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return questionAnswer{}, ctx.Err()
+		case line := <-u.ctrl.Answers():
+			a, err := parseQuestionAnswer(q, line)
+			if err == nil {
+				return a, nil
+			}
+			fmt.Fprintf(u.out, "%v\n> ", err)
+		}
 	}
 }
 
@@ -241,6 +250,6 @@ func (u *printUI) Approve(context.Context, ApprovalRequest) (Approval, error) {
 		"with --yes, or to use the interactive screen."}, nil
 }
 
-func (u *printUI) Ask(context.Context, Question) (string, error) {
-	return "", errNoApprover
+func (u *printUI) Ask(context.Context, Question) (questionAnswer, error) {
+	return questionAnswer{}, errNoApprover
 }

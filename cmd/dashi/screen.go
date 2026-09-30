@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -33,19 +34,23 @@ type screen struct {
 	pendMu    sync.Mutex
 	pending   []queued
 	scheduled bool
+	promptSeq atomic.Uint64
 
 	// loop state
-	tr       Transcript
-	vp       tui.ViewportState
-	input    string
-	history  []string
-	frame    uint64
-	approval *approvalPrompt
-	asking   *askPrompt
-	picker   *pickerState
-	quitting bool
-	width    int
-	height   int
+	tr           Transcript
+	vp           tui.ViewportState
+	input        string
+	history      []string
+	frame        uint64
+	approval     *approvalPrompt
+	asking       *askPrompt
+	picker       *pickerState
+	quitting     bool
+	width        int
+	height       int
+	promptID     uint64
+	promptActive bool
+	savedDraft   string
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -61,7 +66,7 @@ type approvalPrompt struct {
 
 type askPrompt struct {
 	q     Question
-	reply chan string
+	reply chan questionAnswer
 }
 
 type pickerState struct {
@@ -77,12 +82,16 @@ type (
 	quitEvent   struct{ at time.Time }
 	promptEvent struct {
 		at       time.Time
+		id       uint64
 		approval *approvalPrompt
 		asking   *askPrompt
 		picker   *pickerState
 	}
 	// endPromptEvent removes a prompt that ended without an answer.
-	endPromptEvent struct{ at time.Time }
+	endPromptEvent struct {
+		at time.Time
+		id uint64
+	}
 )
 
 func (e flushEvent) Timestamp() time.Time     { return e.at }
@@ -161,39 +170,42 @@ func (s *screen) post(e tui.Event) {
 
 // Approve implements UI. It blocks until the user answers or ctx ends.
 func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+	id := s.promptSeq.Add(1)
 	p := &approvalPrompt{req: r, reply: make(chan Approval, 1)}
-	s.post(promptEvent{at: time.Now(), approval: p})
+	s.post(promptEvent{at: time.Now(), id: id, approval: p})
 	select {
 	case a := <-p.reply:
 		return a, nil
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
+		s.post(endPromptEvent{at: time.Now(), id: id})
 		return Approval{}, ctx.Err()
 	}
 }
 
 // Ask implements UI.
-func (s *screen) Ask(ctx context.Context, q Question) (string, error) {
-	p := &askPrompt{q: q, reply: make(chan string, 1)}
-	s.post(promptEvent{at: time.Now(), asking: p})
+func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+	id := s.promptSeq.Add(1)
+	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1)}
+	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:
 		return a, nil
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
-		return "", ctx.Err()
+		s.post(endPromptEvent{at: time.Now(), id: id})
+		return questionAnswer{}, ctx.Err()
 	}
 }
 
 // Choose implements Chooser.
 func (s *screen) Choose(ctx context.Context, title string, options []string) (int, bool) {
+	id := s.promptSeq.Add(1)
 	p := &pickerState{title: title, options: options, reply: make(chan int, 1)}
-	s.post(promptEvent{at: time.Now(), picker: p})
+	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
 		return i, i >= 0
 	case <-ctx.Done():
-		s.post(endPromptEvent{at: time.Now()})
+		s.post(endPromptEvent{at: time.Now(), id: id})
 		return 0, false
 	}
 }
@@ -248,8 +260,18 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		return []tui.Cmd{tui.Quit()}
 	case promptEvent:
 		s.drain()
+		if e.id < s.promptID {
+			return nil
+		}
+		if !s.promptActive {
+			s.savedDraft = s.input
+		}
+		s.promptActive, s.promptID, s.input = true, e.id, ""
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
 	case endPromptEvent:
+		if e.id != s.promptID {
+			return nil
+		}
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
@@ -260,6 +282,9 @@ const inputID = "main-input"
 
 func (s *screen) clearPrompts() {
 	s.approval, s.asking, s.picker = nil, nil, nil
+	if s.promptActive {
+		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
+	}
 }
 
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
@@ -337,7 +362,7 @@ func (s *screen) approvalKey(e tui.KeyEvent) []tui.Cmd {
 		return nil
 	}
 	p := s.approval
-	s.approval = nil
+	s.clearPrompts()
 	p.reply <- a
 	return []tui.Cmd{tui.Focus(inputID)}
 }
@@ -350,11 +375,11 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	case tui.KeyArrowDown:
 		p.index = min(p.index+1, len(p.options)-1)
 	case tui.KeyEnter:
-		s.picker = nil
+		s.clearPrompts()
 		p.reply <- p.index
 		return []tui.Cmd{tui.Focus(inputID)}
 	case tui.KeyEscape:
-		s.picker = nil
+		s.clearPrompts()
 		p.reply <- -1
 		return []tui.Cmd{tui.Focus(inputID)}
 	}
@@ -366,8 +391,13 @@ func (s *screen) submit(value string) {
 	value = strings.TrimSpace(value)
 	if s.asking != nil {
 		p := s.asking
-		s.asking = nil
-		p.reply <- value
+		a, err := parseQuestionAnswer(p.q, value)
+		if err != nil {
+			s.Emit(warnBlock("%v", err))
+			return
+		}
+		s.clearPrompts()
+		p.reply <- a
 		return
 	}
 	if value != "" && (len(s.history) == 0 || s.history[len(s.history)-1] != value) {

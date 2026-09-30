@@ -41,7 +41,7 @@ type UI interface {
 	// Approve asks the user about a tool call and blocks until the answer.
 	Approve(ctx context.Context, r ApprovalRequest) (Approval, error)
 	// Ask asks the user a question for the model.
-	Ask(ctx context.Context, q Question) (string, error)
+	Ask(ctx context.Context, q Question) (questionAnswer, error)
 	// Quit ends the program.
 	Quit()
 }
@@ -169,9 +169,10 @@ func (c *Controller) Approve(
 }
 
 // Ask is the AskFunc the wiring uses.
-func (c *Controller) Ask(ctx context.Context, q Question) (string, error) {
+func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
 	defer c.setMode(ModeRunning)
+	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
 	for i, ch := range q.Choices {
@@ -181,7 +182,27 @@ func (c *Controller) Ask(ctx context.Context, q Question) (string, error) {
 		}
 	}
 	q.Choices = choices
-	return c.ui.Ask(ctx, q)
+	a, err := c.ui.Ask(ctx, q)
+	if err != nil {
+		return workspace.Answer{}, err
+	}
+	if len(a.choices) == 0 {
+		return workspace.Answer{Text: a.text}, nil
+	}
+	labels := make([]string, len(a.choices))
+	for i, index := range a.choices {
+		if index < 0 || index >= len(original) {
+			return workspace.Answer{}, fmt.Errorf("answer choice is out of range")
+		}
+		labels[i] = original[index].Label
+	}
+	if !q.Multiple {
+		if len(labels) != 1 {
+			return workspace.Answer{}, fmt.Errorf("question accepts one choice")
+		}
+		return workspace.Answer{Text: labels[0]}, nil
+	}
+	return workspace.Answer{Selections: labels}, nil
 }
 
 // Answers is the channel that line mode reads an approval answer from.

@@ -35,6 +35,10 @@ type ApprovalRequest struct {
 
 	// Args holds the exact arguments of the call.
 	Args json.RawMessage
+
+	// RememberScope describes which later calls a remembered allow covers.
+	// Its lifetime is the Policy's lifetime; it does not persist a grant.
+	RememberScope string
 }
 
 // Approval is the person's answer.
@@ -170,27 +174,31 @@ func ruleKey(owned bool, name string, args json.RawMessage) string {
 
 func (p *Policy) request(plan dashi.ToolPlan, owned bool) ApprovalRequest {
 	r := ApprovalRequest{
-		Tool:    plan.Call.Name,
-		Summary: plan.Call.Name,
-		Args:    plan.Call.Args,
+		Tool:          plan.Call.Name,
+		Summary:       plan.Call.Name,
+		Args:          plan.Call.Args,
+		RememberScope: "This tool with these exact arguments",
 	}
 	if !owned {
 		return r
 	}
 	switch plan.Call.Name {
 	case ToolWriteFile:
+		r.RememberScope = "All write_file calls in this workspace"
 		var in writeArgs
 		if json.Unmarshal(plan.Call.Args, &in) == nil {
 			r.Summary = "write " + in.Path
 			r.Preview = p.writePreview(in)
 		}
 	case ToolEditFile:
+		r.RememberScope = "All edit_file calls in this workspace"
 		var in editArgs
 		if json.Unmarshal(plan.Call.Args, &in) == nil {
 			r.Summary = "edit " + in.Path
 			r.Preview = p.editPreview(in)
 		}
 	case ToolBash:
+		r.RememberScope = "This exact Bash command in this workspace"
 		var in bashArgs
 		if json.Unmarshal(plan.Call.Args, &in) == nil {
 			r.Command, r.Dir = in.Command, p.ws.Dir()

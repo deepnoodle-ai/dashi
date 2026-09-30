@@ -42,8 +42,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 			return ctrl.Approve(ctx, r)
 		},
 		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
-			text, err := ctrl.Ask(ctx, q)
-			return workspace.Answer{Text: text}, err
+			return ctrl.Ask(ctx, q)
 		},
 	})
 	if err != nil {
