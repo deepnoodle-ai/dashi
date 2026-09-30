@@ -590,7 +590,7 @@ func (r Runner) apply(
 				CommandDigest: d,
 				Model:         fact,
 			}
-			if err := checkLateModelStep(turn, state, step); err != nil {
+			if err := checkLateResultStep(turn, state, step); err != nil {
 				return Outcome{}, err
 			}
 			if o := rt.commit(step); o != nil {
@@ -651,12 +651,16 @@ func (r Runner) apply(
 			// recording a result, so the hooks run under the command's
 			// context.
 			rt.afterTool(ctx, fact)
-			if o := rt.commit(Step{
+			step := Step{
 				Kind:          StepToolSettled,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Tool:          fact,
-			}); o != nil {
+			}
+			if err := checkLateResultStep(turn, state, step); err != nil {
+				return Outcome{}, err
+			}
+			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
 			}
 		}

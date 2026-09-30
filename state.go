@@ -1001,6 +1001,9 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("result replacement without an outcome")
 		}
 		s.Tools[v.Call.ID] = v
+		if err := s.checkStillOpen(); err != nil {
+			return err
+		}
 	case StepApprovalSettled:
 		s.awaitingClassification = false
 		if step.Approval == nil {
@@ -1467,12 +1470,12 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 	return fmt.Errorf("%w: %s", ErrTurnEnded, s.Stop.Kind)
 }
 
-// checkLateModelStep refuses, before anything is saved, a late model result
+// checkLateResultStep refuses, before anything is saved, a late result
 // that replay would reject because it makes an open limited stop terminal
 // (checkStillOpen). A host recorder need not replay what it commits, so
 // without this the step would be stored and the turn would fail replay from
 // then on. It replays only when the turn rests at an open limited stop.
-func checkLateModelStep(turn Turn, s *replayState, step Step) error {
+func checkLateResultStep(turn Turn, s *replayState, step Step) error {
 	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
 		return nil
 	}
@@ -1482,13 +1485,13 @@ func checkLateModelStep(turn Turn, s *replayState, step Step) error {
 	candidate := turn
 	candidate.Steps = append(slices.Clone(turn.Steps), step)
 	if _, err := replay(candidate); err != nil {
-		return fmt.Errorf("dashi: late model result refused: %w", err)
+		return fmt.Errorf("dashi: late result refused: %w", err)
 	}
 	return nil
 }
 
 // checkStillOpen enforces that a turn becomes non-continuable only through
-// a recorded stop: a late model result after a limited stop that was not
+// a recorded stop: a late result after a limited stop that was not
 // terminal must not make it terminal, or the recorded Terminal would be
 // stale. The runner records uncertain before any budget stop while a model
 // call is unresolved, so no record it writes fails this.
@@ -1500,7 +1503,7 @@ func (s *replayState) checkStillOpen() error {
 		return err
 	}
 	if s.terminal() || incompleteUsageStop(s) != nil {
-		return errors.New("late model result ended the turn without a stop")
+		return errors.New("late result ended the turn without a stop")
 	}
 	return nil
 }

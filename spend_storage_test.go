@@ -221,3 +221,116 @@ func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
 		}
 	}
 }
+
+// A host may record an open cost stop while external work remains pending.
+// Its late charge cannot silently change that recorded stop's terminality.
+func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
+	for _, kind := range []string{"memory", "file", "custom"} {
+		t.Run(kind, func(t *testing.T) {
+			reply := dashitest.CallTool("call-1", "lookup", `{}`)
+			reply.Message.Content = append(reply.Message.Content,
+				dashitest.CallTool("call-2", "lookup", `{}`).Message.Content...)
+			reply.Usage = &llm.Usage{RequestsFinal: true}
+			reply.Cost = storageCharge(money.MustParseAmount("1"))
+			lookup, err := tool.Func[struct{}]("lookup", "Fixture",
+				func(_ context.Context, call tool.Call, _ struct{}) (tool.Outcome, error) {
+					if call.ID == "call-2" {
+						return tool.Waiting("external result"), nil
+					}
+					out := tool.Succeeded("done")
+					out.Cost = &tool.Cost{Amount: money.Amount(math.MaxInt64), Currency: "USD"}
+					return out, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := dashi.Runner{Client: dashitest.NewClient(reply), Tools: tool.List{lookup}}
+			out, err := runner.Run(t.Context(), dashi.Turn{ID: "late-tool"}, dashi.Start{
+				CommandID: "start", Agent: storageAgent(),
+				Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn := out.Turn
+			turn.Steps[0].Started.Budget = &dashi.Budget{MaxCost: &dashi.Money{
+				Amount: money.MustParseAmount("1"), Currency: "USD",
+			}}
+			turn.Steps[len(turn.Steps)-1].Stop = &dashi.Stop{
+				Kind: dashi.StopLimited, Reason: "cost", Limit: &dashi.LimitDetail{
+					Kind: dashi.LimitCost, Currency: "USD",
+					CostLimit: money.MustParseAmount("1"), CostUsed: money.MustParseAmount("1"),
+				},
+			}
+			before, err := dashi.Replay(turn)
+			if err != nil || before.Stop.Terminal || before.Spend.CostUnknown != 0 {
+				t.Fatalf("invalid fixture: view=%+v err=%v", before, err)
+			}
+			late := tool.Succeeded("done")
+			late.Cost = &tool.Cost{Amount: 1, Currency: "USD"}
+			bad := dashi.Step{
+				Version: 1, TurnID: turn.ID, Seq: int64(len(turn.Steps) + 1),
+				Kind: dashi.StepToolSettled,
+				Tool: &dashi.ToolFact{Call: before.Tools["call-2"].Call, Outcome: &late},
+			}
+			candidate := turn
+			candidate.Steps = append(append([]dashi.Step(nil), turn.Steps...), bad)
+			if _, err := dashi.Replay(candidate); !errors.Is(err, dashi.ErrInvalidTurn) {
+				t.Fatalf("late overflow changed an open stop: %v", err)
+			}
+
+			var recorder dashi.Recorder
+			var load func() dashi.Loader
+			var custom *uncheckedLateRecorder
+			if kind == "custom" {
+				custom = &uncheckedLateRecorder{turn: turn}
+				recorder, load = custom, func() dashi.Loader { return custom }
+			} else {
+				recorder, load = accountingStorage(t, kind == "file")
+				for _, step := range turn.Steps {
+					if err := recorder.Commit(t.Context(), dashi.CommitRequest{
+						Step: step, ExpectedSeq: step.Seq - 1,
+					}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			runner.Recorder = recorder
+			if _, err := runner.Run(t.Context(), turn, dashi.Settle{
+				CommandID: "late", CallID: "call-2", Outcome: &late,
+			}); !errors.Is(err, dashi.ErrInvalidTurn) {
+				t.Fatalf("unsafe late charge was not rejected: %v", err)
+			}
+			if custom != nil && custom.commits != 0 {
+				t.Fatal("runner sent the invalid transition to the host recorder")
+			}
+			saved, err := load().Load(t.Context(), turn.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			view, err := dashi.Replay(saved)
+			if err != nil || len(saved.Steps) != len(turn.Steps) ||
+				view.Tools["call-2"].Status != dashi.ToolWaiting ||
+				view.Spend.CostUnknown != 0 || view.Stop.Terminal {
+				t.Fatalf("rejection damaged the recorded turn: view=%+v err=%v", view, err)
+			}
+		})
+	}
+}
+
+// This host deliberately does not validate its appended facts. The runner
+// must reject the bad transition before calling Commit.
+type uncheckedLateRecorder struct {
+	turn    dashi.Turn
+	commits int
+}
+
+func (r *uncheckedLateRecorder) Commit(_ context.Context, req dashi.CommitRequest) error {
+	r.commits++
+	r.turn.Steps = append(r.turn.Steps, req.Step)
+	return nil
+}
+
+func (r *uncheckedLateRecorder) Load(context.Context, string) (dashi.Turn, error) {
+	return r.turn, nil
+}

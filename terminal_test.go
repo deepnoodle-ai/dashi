@@ -420,7 +420,7 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 
 // Settle checks a late model result against replay before saving it when
 // the turn rests at an open limited stop, and skips the replay otherwise.
-func TestCheckLateModelStep(t *testing.T) {
+func TestCheckLateResultStep(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}},
 		errors:  []error{errors.New("connection lost")},
@@ -436,7 +436,7 @@ func TestCheckLateModelStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkLateModelStep(first.Turn, state, bogus); err != nil {
+	if err := checkLateResultStep(first.Turn, state, bogus); err != nil {
 		t.Fatalf("checked a turn that is not at a limited stop: %v", err)
 	}
 
@@ -456,7 +456,7 @@ func TestCheckLateModelStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkLateModelStep(turn, state, bogus); !errors.Is(err, ErrInvalidTurn) {
+	if err := checkLateResultStep(turn, state, bogus); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("bogus step at an open limited stop: err=%v", err)
 	}
 	late := final("late")
