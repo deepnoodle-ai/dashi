@@ -1,7 +1,7 @@
 # Keep omitted settings omitted in new session turns
 
-Status: Draft\
-PRD PR: pending  Implementation PR: pending  Updated: 2026-09-30
+Status: Approved\
+PRD PR: #137  Implementation PR: pending  Updated: 2026-09-30
 
 ## Problem and users
 
@@ -67,4 +67,4 @@ A host changes Session.Agent for future work while a recorded turn or queued inp
 
 Exclude CLI commands, flags, settings-file formats, provider default changes, and record migration. Complete Settings requires the host to resolve its desired configuration first. Developers who want partial inheritance leave the flag false.
 
-Tests cover layer combinations, nil/zero values, fresh handles, queue dispatch, compaction, and recorded continuation. Reviewers run the committed Example. Legacy records decode with false, and existing partial-inheritance and recovery tests pass. Named PRD review precedes the lightweight technical spec and implementation. No product question blocks this draft.
+Tests cover layer combinations, nil/zero values, fresh handles, queue dispatch, compaction, and recorded continuation. Reviewers run the committed Example. Legacy records decode with false, and existing partial-inheritance and recovery tests pass. Independent PRD review found no blocking issues or open decisions. The [technical spec](../design/settings-inheritance.md) defines implementation and verification.
