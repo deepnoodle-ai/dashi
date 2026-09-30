@@ -1,6 +1,6 @@
 # Edit prompts and discover commands
 
-Status: Draft\
+Status: Approved\
 PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
@@ -52,7 +52,7 @@ Press Ctrl-C while idle with a draft. Read the warning, continue editing, or con
 
 - [ ] The first idle Ctrl-C preserves the draft and shows “press Ctrl-C again within 2 seconds to exit.” The second idle Ctrl-C within that interval exits. Editing or another action resets confirmation.
 - [ ] When draft, pending prompts, or queued input would be lost, the first notice identifies all affected memory-only input. Confirmation accepts that loss once. Input history is never described as recovery storage.
-- [ ] Ctrl-D edits nonempty input under Wonton's normal behavior. With empty input it requests exit and retains existing pending/queued-loss protection. Explicit exit commands retain that protection too.
+- [ ] Ctrl-D deletes the character at the cursor in nonempty input; at the end it leaves the draft intact. With empty input it requests exit and retains existing pending/queued-loss protection. Explicit exit commands retain that protection too.
 - [ ] Running-turn Ctrl-C retains interruption and resumption semantics. It does not arm idle exit. Approval, question, selection, and transcript Escape controls retain slice 1's precedence and meaning.
 
 ## Decisions, boundaries, and dependency
@@ -61,6 +61,6 @@ Use Wonton's `InputField.History`, `OnKey`, and `OnComplete`. Native in-buffer c
 
 Path completion inserts text only. Slice 6 owns attachment interpretation, bytes, chips, and attachment-specific completion. Exclude configurable keymaps, reverse history search, draft autosave, `/clear`, new queue APIs, and changes to viewport/dialog behavior. Plain/print modes gain truthful command dispatch and aliases; interactive composition applies to fullscreen and slice 1's inline mode.
 
-The orchestrator owns a Wonton terminal/input handoff foundation change before composer integration. Current `Runtime.Suspend` retains stdin and routes decoded events; it remains valid for transcript viewing, but cannot safely launch an interactive editor. Do not race stdin or add a private reader. The technical spec must pin sole input ownership and restoration with slice 1. Other composer helpers can proceed independently. Shared `screen.go`/`control.go` integration follows compaction #103 and preserves pending-input identities, ordering, and warnings.
+The orchestrator owns a Wonton terminal/input handoff foundation change before composer integration. Current `Runtime.Suspend` retains stdin and routes decoded events; it remains valid for transcript viewing, but cannot safely launch an interactive editor. Do not race stdin or add a private reader. The technical spec must pin sole input ownership and restoration with slice 1, and qualify Wonton's Ctrl-D/delete mapping. Other composer helpers can proceed independently. Shared `screen.go`/`control.go` integration follows compaction #103 and preserves pending-input identities, ordering, and warnings.
 
-Success requires keyless workflows through actual focused Wonton input, an example/transcript for command dispatch, and terminal recordings at 80×24. Cover empty draft/history, active work, no completion, history/editor failure, editor cancel/save, and exit confirmation. Preserve existing recovery, transcript, compaction, steering, and queue tests. Independent PRD review precedes the technical spec; implementation, acceptance, security, and taste reviews precede completion.
+Success requires keyless workflows through actual focused Wonton input, an example/transcript for command dispatch, and terminal recordings at 80×24. Cover empty draft/history, active work, no completion, history/editor failure, editor cancel/save, and exit confirmation. Preserve existing recovery, transcript, compaction, steering, and queue tests. The independent PRD review found no blocking findings; implementation, acceptance, security, and taste reviews precede completion.
