@@ -165,7 +165,7 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 			submitResult("out-2", `{"answer":2}`),
 		}}
 		runner, out, err := runStructured(t, agent, client, veto.Hooks())
-		// Call 2 is the reserved final answer; it is vetoed too.
+		// Call 2 is the reserved final reply; it is vetoed too.
 		if err != nil || out.Stop.Kind != StopFailed ||
 			out.Stop.Reason != StopReasonOutputRejected || out.Output != nil ||
 			out.Stop.Ended || client.sends != 2 {
@@ -174,7 +174,7 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 		if seen := toolResultText(t, out.Turn, "out-2"); seen != "Not accepted: contains PII" {
 			t.Fatalf("model would see %q", seen)
 		}
-		// No attempts remain: Continue ends the turn limited, never with a
+		// No model calls remain: Continue ends the turn limited, never with a
 		// vetoed output.
 		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "again"})
 		if err != nil || out.Stop.Kind != StopLimited || out.Output != nil ||
@@ -380,7 +380,8 @@ func TestSubmissionRejectionSurvivesCrashes(t *testing.T) {
 				submitResult("out-2", `{"answer":2}`),
 			}}
 			base := NewMemoryRecorder()
-			// The first model intent is the first call; crash on the second.
+			// The first model_call_started step is the first call; crash on the
+			// second.
 			rec := &failNthKind{base: base, kind: kind, n: 1}
 			if kind == StepModelCallStarted {
 				rec.n = 2
@@ -496,7 +497,7 @@ func TestFinishTextRejectedOnCallBeforeReserveIsDropped(t *testing.T) {
 		Agent:     agent,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
-	// Call 3 would be the reserved final answer, so the candidate from
+	// Call 3 would be the reserved final reply, so the candidate from
 	// call 2 cannot be turned down.
 	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "second" ||
 		client.sends != 2 || !hasWarning(out, WarningMessagesDropped) {

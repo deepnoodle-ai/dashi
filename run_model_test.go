@@ -339,7 +339,7 @@ func TestReservedFinalReplyClassifiesAfterStopWriteFailure(t *testing.T) {
 	}
 }
 
-// answerLookup is a local tool that always answers 42.
+// answerLookup is a local tool that always returns 42.
 func answerLookup() tool.Tool {
 	return tool.Tool{
 		Definition: tool.Definition{
@@ -414,7 +414,7 @@ func TestContinueRaisesModelCallLimit(t *testing.T) {
 		t.Fatalf("limit detail=%+v", out.Stop.Limit)
 	}
 
-	// A second raise builds on the first, and the record replays.
+	// A second raise builds on the first, and the record still builds a view.
 	if _, err := runner.Run(t.Context(), out.Turn, Continue{
 		CommandID:  "lower",
 		ModelCalls: 3,
@@ -586,7 +586,7 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 	t.Fatal("missing model settlement")
 }
 
-// attemptClient records the attempt identity each Send receives.
+// identityClient records the call identity each Send receives.
 type identityClient struct {
 	*scriptedClient
 	sent   []llm.CallIdentity
@@ -635,7 +635,8 @@ func TestClientReceivesRecordedCallIdentity(t *testing.T) {
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 	}
 	client.onSend = func(a llm.CallIdentity) {
-		// The intent carrying this ID is durable before Send is called.
+		// The model_call_started step carrying this ID is saved before Send
+		// is called.
 		saved, err := rec.Load(t.Context(), "t1")
 		if err != nil {
 			t.Fatal(err)

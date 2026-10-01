@@ -14,7 +14,7 @@ func TestReasoningPreviewResolvesWithoutPrivateText(t *testing.T) {
 	r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepTurnStarted, Started: &dashi.StartFact{Agent: dashi.Agent{Settings: llm.Settings{ReasoningSummary: new(true)}}}}})
 	var last Block
 	for _, delta := range []llm.Delta{{Kind: llm.DeltaReasoning, Index: 2, ContentIndex: 1, Text: "second"}, {Kind: llm.DeltaReasoning, Index: 2, ContentIndex: 0, Text: "first"}} {
-		blocks := r.Event(dashi.Event{ModelCallID: "attempt", MessageID: "message", Delta: &delta})
+		blocks := r.Event(dashi.Event{ModelCallID: "call", MessageID: "message", Delta: &delta})
 		if len(blocks) != 1 || blocks[0].Kind != KindReasoning {
 			t.Fatalf("preview = %+v", blocks)
 		}
@@ -25,22 +25,22 @@ func TestReasoningPreviewResolvesWithoutPrivateText(t *testing.T) {
 	}
 	result := &llm.Result{Message: llm.Message{Role: llm.RoleAssistant, Content: []llm.Content{
 		{Kind: llm.ContentOpaque, Opaque: &llm.Opaque{Raw: []byte(`{"private":"NEVER_DISPLAY"}`)}},
-		{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "settled summary"}, Replay: &llm.Opaque{Raw: []byte(`{"private":"NEVER_DISPLAY"}`)}},
+		{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "finished summary"}, Replay: &llm.Opaque{Raw: []byte(`{"private":"NEVER_DISPLAY"}`)}},
 		llm.Text("answer"),
 	}}}
-	blocks := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
-	if len(blocks) != 2 || blocks[0].ID != last.ID || blocks[0].Text != "settled summary" || !blocks[0].Done || blocks[1].Kind != KindAssistant || blocks[1].Text != "answer" {
-		t.Fatalf("reconciliation = %+v", blocks)
+	blocks := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "call", MessageID: "message", Result: result}}})
+	if len(blocks) != 2 || blocks[0].ID != last.ID || blocks[0].Text != "finished summary" || !blocks[0].Done || blocks[1].Kind != KindAssistant || blocks[1].Text != "answer" {
+		t.Fatalf("finished blocks = %+v", blocks)
 	}
 	for _, b := range blocks {
 		if strings.Contains(FormatBlock(b), "NEVER_DISPLAY") {
 			t.Fatal("private replay exposed")
 		}
 	}
-	// Reopening rebuilds the same settled blocks without provisional duplicates.
+	// Reopening rebuilds the same finished blocks without provisional duplicates.
 	reopened := NewRenderer(1, "fixture", t.TempDir())
 	reopened.showReasoning = true
-	finished := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
+	finished := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "call", MessageID: "message", Result: result}}})
 	if len(finished) != 2 || !reflect.DeepEqual(finished[0], blocks[0]) {
 		t.Fatalf("reopen = %+v", finished)
 	}

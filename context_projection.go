@@ -12,7 +12,8 @@ import (
 )
 
 // Each validation call owns this cache. Covered prefixes are immutable, and
-// no cache escapes replay or shares mutable data with a public caller.
+// no cache outlives the rebuild of the turn's state or shares mutable data
+// with a public caller.
 type contextValidationCache struct {
 	prefixes map[int64][]contextMessage
 	states   map[int64]*replayState
@@ -68,7 +69,7 @@ type contextGroup struct {
 }
 
 // A model message and all of its paired results have one source sequence.
-// Provider pauses form a chain through their closing result. User deliveries
+// Provider pauses form a chain through their closing result. Added user items
 // remain independent protected messages even when interleaved in that chain.
 func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 	groupSeq := map[int64]int64{}

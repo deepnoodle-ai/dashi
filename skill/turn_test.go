@@ -14,9 +14,9 @@ import (
 )
 
 // This is a host migration boundary, not a package policy: a second tool in
-// one model response is authorized before the first load is settled, even with
+// one model response is authorized before the first load is finished, even with
 // serial execution. Mobius's focus checkpoint and ordering cannot be replaced
-// by looking only for settled load calls in BeforeTool.
+// by looking only for finished load calls in BeforeTool.
 func TestSameBatchAuthorizationPrecedesLoadFinish(t *testing.T) {
 	bundle, err := skill.New(
 		[]skill.Definition{{
@@ -105,9 +105,10 @@ func TestSameBatchAuthorizationPrecedesLoadFinish(t *testing.T) {
 		t.Fatalf("recorded skill load = %+v", loaded)
 	}
 
-	// The bundle digest stayed the same; the host must change its explicit
-	// revision when focus selectors or their meaning change, and a retried
-	// Start under the new revision no longer matches the recorded agent.
+	// The bundle hash stayed the same; the host must change its explicit
+	// agent version when focus selectors or their meaning change, and a
+	// retried Start under the new version no longer matches the recorded
+	// agent.
 	changed := start
 	changed.Agent.Version = "incident-agent-v1:" + bundle.Hash() + ":focus-v2"
 	_, err = runner.Run(t.Context(), outcome.Turn, changed)

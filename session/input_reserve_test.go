@@ -30,7 +30,7 @@ func (r *flakyLoad) Load(ctx context.Context, id string) (dashi.Turn, error) {
 // step committed. Proof that it did not (a rejected command, a rejected or
 // conflicting start commit) restores them in order; an unknown result loads
 // the turn to decide; a failed load keeps them reserved until the next
-// command settles them. An item is never delivered twice.
+// command decides them. An item is never added twice.
 func TestSessionReservedItems(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -102,7 +102,7 @@ func TestSessionReservedItems(t *testing.T) {
 				}
 				s.Agent.Provider = ""
 				if tc.loadFails > 0 {
-					// Still reserved after Open fails to settle them too;
+					// Still reserved after Open fails to decide them too;
 					// Open itself works (TestSessionQueueBlocked).
 					if st, err := s.Open(t.Context()); err != nil || st.Queued != 2 {
 						t.Fatalf("open: %+v, %v", st, err)
@@ -256,8 +256,8 @@ func (r *ackLost) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	return r.MemoryRecorder.Load(ctx, id)
 }
 
-// A reservation the session cannot settle holds back only the queue: new
-// commands and Open run, each outcome warns queue_blocked, and RunQueue
+// A reservation the session cannot finish holds back only the queue: new
+// commands and Open run, each result warns queue_blocked, and RunQueue
 // returns the error.
 func TestSessionQueueBlocked(t *testing.T) {
 	mem := dashi.NewMemoryRecorder()

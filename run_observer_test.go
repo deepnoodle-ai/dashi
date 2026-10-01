@@ -330,7 +330,7 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 	}
 }
 
-// loseSettle fails the n-th model_call_finished commit as a lost write, so the
+// loseFinish fails the n-th model_call_finished commit as a lost write, so the
 // record ends at its model_call_started step, as after a crash.
 type loseFinish struct {
 	*MemoryRecorder
@@ -362,7 +362,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{
 			namedCallsResult("work", "work", "work"),
-			final("lost"), // its settle is lost, so the next run resends it
+			final("lost"), // its finish is lost, so the next run resends it
 			final("done"),
 		},
 		deltas: []llm.Delta{{Kind: llm.DeltaText, Text: "a"}, {Kind: llm.DeltaText, Text: "b"}},

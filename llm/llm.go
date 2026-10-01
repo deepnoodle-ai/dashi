@@ -74,8 +74,7 @@ const (
 // Reasoning is model reasoning output, kept so it can be shown to people and
 // replayed to the provider that produced it.
 type Reasoning struct {
-	// Text is a display projection; editing it does not alter private replay
-	// data.
+	// Text is a display copy; editing it does not alter private replay data.
 	Text string `json:"text"`
 }
 
@@ -166,8 +165,8 @@ func Block(block content.Block) Content {
 }
 
 // sources returns pointers to every source in c: a block's source and the
-// sources in blocks of a tool result, hosted-use output, or hosted result. They
-// alias c's payload.
+// sources in blocks of a tool result, provider tool use output, or provider
+// tool result. They alias c's payload.
 func (c Content) sources() []*content.Source {
 	var block, result, providerTool []content.Block
 	if c.Block != nil {
@@ -310,9 +309,9 @@ type Message struct {
 	Context *MessageContext `json:"context,omitempty"`
 }
 
-// MessageContext identifies a named context slot in projected conversation
-// history. It adds no authority or provider-visible content. A nil Context on
-// Message means that the slot identity is unknown.
+// MessageContext identifies a named context slot in the conversation history
+// built for the model. It adds no authority or provider-visible content. A nil
+// Context on Message means that the slot identity is unknown.
 type MessageContext struct {
 	Origin string `json:"origin"`
 	Name   string `json:"name"`
@@ -320,7 +319,7 @@ type MessageContext struct {
 
 // MessageSource preserves response provenance when a message leaves its Result.
 // Requested comes from the frozen request; Served and ResponseID are reported
-// facts, empty when unknown. This is not an attempt or dispatch record.
+// facts, empty when unknown. This is not a model call or dispatch record.
 type MessageSource struct {
 	// Requested identifies the configured destination and requested model.
 	Requested ModelRef `json:"requested"`
@@ -418,7 +417,7 @@ type Settings struct {
 	ParallelTools *bool `json:"parallel_tools,omitempty"`
 
 	// Citations asks the model to cite passages of the request's documents,
-	// including documents in tool results; the citations arrive on the answer's
+	// including documents in tool results; the citations arrive on the reply's
 	// text blocks. It applies to every document, because Anthropic enables
 	// citations for all documents in a request or none. An API without
 	// document citations omits the setting and warns when the request carries
@@ -590,7 +589,7 @@ type Result struct {
 	Usage *Usage `json:"usage,omitempty"`
 
 	// Cost is a provider-reported amount or explicit list-price estimate for
-	// this attempt. Nil means unknown, including when usage is known.
+	// this model call. Nil means unknown, including when usage is known.
 	Cost *Cost `json:"cost,omitempty"`
 
 	// ServiceTier is the provider-reported serving tier when available. A
@@ -646,10 +645,11 @@ type Delta struct {
 type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.
-// Its caller owns attempt identity, recording, and retry decisions, and passes
-// that identity to Send in Call.Identity. Deltas are
-// provisional; inspect the final result and stop before executing tool calls.
-// An error may accompany partial data or leave provider receipt uncertain.
+// Its caller owns model call identity, recording, and retry decisions, and
+// passes that identity to Send in Call.Identity. Deltas are provisional;
+// inspect the final result and stop before executing tool calls. An error may
+// accompany partial data or leave it unknown whether the provider received
+// the request.
 type Client interface {
 	// Provider returns the application's stable name for this destination.
 	Provider() string
@@ -668,8 +668,8 @@ type Client interface {
 
 	// Send performs at most one dispatch of call.Request and collects a
 	// result, reporting deltas to call.Sink. Calling Send again is a new
-	// attempt; a failure may occur before dispatch. See Attempt for what
-	// call.Attempt guarantees when it is set.
+	// model call; a failure may occur before dispatch. See CallIdentity for
+	// what call.Identity guarantees when it is set.
 	//
 	// Ending the context must stop generation at the provider, not only stop
 	// reading it: close the stream or cancel the remote job. Dashi cancels a
@@ -755,7 +755,7 @@ type Error struct {
 	// provider codes, statuses, and messages are recognized is an
 	// implementation detail that may change as providers change.
 	Reason ErrorReason
-	// SendStatus records what is known about this attempt's remote effect.
+	// SendStatus records what is known about this model call's remote effect.
 	// An absent value is unknown and must not authorize a retry.
 	SendStatus SendStatus
 
@@ -765,7 +765,8 @@ type Error struct {
 	// Code retains the provider error code, which may refine retry advice.
 	Code string
 	// Retryable is a hint from an explicit HTTP rejection, not permission to
-	// retry an uncertain effect. The caller owns recording and retry policy.
+	// retry a call whose effect is unknown. The caller owns recording and retry
+	// policy.
 	Retryable bool
 
 	// RetryAfter preserves the provider delay hint; zero means none was

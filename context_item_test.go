@@ -77,8 +77,9 @@ func TestSeedContextIDCollisionAndHookViewOwnership(t *testing.T) {
 }
 
 func TestTurnMessagesOwnsMetadataAndPreservesRecord(t *testing.T) {
-	// Minimal legacy record contains no projected metadata. Project restores the
-	// slot from recorded ContextItem fields and overrides embedded metadata.
+	// Minimal legacy record contains no message metadata. TurnMessagesFull
+	// restores the slot from recorded ContextItem fields and overrides
+	// embedded metadata.
 	turn := NewTurn("legacy")
 	turn.Steps = []Step{
 		{Version: 1, TurnID: turn.ID, Seq: 1, Kind: StepTurnStarted, Started: &StartFact{Agent: Agent{Version: "test", Provider: "test", API: "test.chat", Model: "test"}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},

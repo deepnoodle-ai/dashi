@@ -191,7 +191,7 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 		t.Fatalf("recorded notices=%d", count)
 	}
 	beforeParent, beforeChild := client.counts()
-	// A callback duplicate and a fresh projection cannot deliver again.
+	// A callback duplicate and a fresh reload cannot deliver again.
 	item := task.Notice().Item()
 	host := a.eng.taskHost()
 	host.mu.Lock()
@@ -256,7 +256,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		t.Fatal("wrong call accepted")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "continue", ""); err == nil {
-		t.Fatal("uncertain effect retried")
+		t.Fatal("effect with unknown result retried")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err != nil {
 		t.Fatal(err)
@@ -265,7 +265,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		t.Fatalf("original confirmation=%+v", confirmations)
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err == nil {
-		t.Fatal("already settled effect accepted")
+		t.Fatal("already finished effect accepted")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "continue", ""); err != nil {
 		t.Fatal(err)
@@ -409,7 +409,7 @@ func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 	changed.LastSeq++
 	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelCalls: 64})
 	if e == a {
-		t.Fatal("revision excluded")
+		t.Fatal("step excluded")
 	}
 }
 
@@ -483,11 +483,11 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err = a.eng.DriveTaskNotices(t.Context()); err == nil {
-				t.Fatal("unknown queue admission returned success")
+				t.Fatal("unconfirmed queue recording returned success")
 			}
 			parent, child := client.counts()
 			if parent != 2 || child != 1 {
-				t.Fatalf("unknown admission dispatched %d/%d", parent, child)
+				t.Fatalf("unconfirmed recording dispatched %d/%d", parent, child)
 			}
 			a.ctrl.mu.Lock()
 			a.ctrl.autoTaskDelivery = true
@@ -496,13 +496,13 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 			a.ctrl.Wait()
 			again, _ := client.counts()
 			if again != parent {
-				t.Fatal("automatic unknown-admission retry dispatched")
+				t.Fatal("automatic unconfirmed-recording retry dispatched")
 			}
 			a.ctrl.Input("unrelated new prompt")
 			a.ctrl.Wait()
 			again, _ = client.counts()
 			if again != parent {
-				t.Fatal("unrelated work replaced queued admission")
+				t.Fatal("unrelated work replaced queued recording")
 			}
 			recorder.mu.Lock()
 			recorder.unreadable = false
@@ -511,7 +511,7 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 			a.ctrl.Wait()
 			parent, child = client.counts()
 			if parent != 3 || child != 1 {
-				t.Fatalf("reconciled calls=%d/%d transcript=%s", parent, child, ui.text())
+				t.Fatalf("checked calls=%d/%d transcript=%s", parent, child, ui.text())
 			}
 			task := a.eng.taskHost().tasks.List()[0]
 			count := 0
@@ -526,7 +526,7 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 				}
 			}
 			if count != 1 {
-				t.Fatalf("completion admission count=%d", count)
+				t.Fatalf("completion recording count=%d", count)
 			}
 		})
 	}
@@ -546,11 +546,11 @@ func TestTaskDetailsSeparateModelCallEstimateFromDispatchAndHidePrivateContent(t
 		t.Fatalf("counts=%d/%d", calls, unresolved)
 	}
 	details := taskDetails(taskSnapshot{Bound: true, Turn: turn, View: dashi.TurnView{ID: "child"}})
-	if strings.Contains(details, "private summary") || !strings.Contains(details, "public answer") || !strings.Contains(details, "2 confirmed model dispatches") {
+	if strings.Contains(details, "private summary") || !strings.Contains(details, "public answer") || !strings.Contains(details, "2 model calls confirmed sent") {
 		t.Fatal(details)
 	}
 	row := taskRow(delegate.TaskView{TurnID: "child", ModelCalls: 3})
-	if !strings.Contains(row.Text, "3 model attempts") {
+	if !strings.Contains(row.Text, "3 model calls") {
 		t.Fatal(row.Text)
 	}
 }
@@ -640,7 +640,7 @@ func TestTaskDiscardExplicitlyClosesWaitingEffectWithoutRepeat(t *testing.T) {
 	installTaskEffect(t, &runs, true)
 	client := &taskFixtureClient{effect: true}
 	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(_ context.Context, q Question) (questionAnswer, error) {
-		if !strings.Contains(q.Prompt, "Uncertain effects may already have run") {
+		if !strings.Contains(q.Prompt, "Effects whose result is unknown may already have run") {
 			t.Error(q.Prompt)
 		}
 		return questionAnswer{choices: []int{1}}, nil
@@ -862,7 +862,7 @@ func TestChildApprovalInspectionAndStopRetainsOtherOriginalCall(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	if len(a.eng.taskHost().tasks.List()) != 2 {
-		t.Fatal("two children not admitted")
+		t.Fatal("two children not accepted")
 	}
 	close(childHold)
 	var first ApprovalRequest
@@ -1078,7 +1078,7 @@ func TestUnreadableParentBeforeNoticeBlocksHiddenChildAndAllowsNewSession(t *tes
 	}
 	defer b.eng.Close()
 	if _, err = b.eng.Prompt(t.Context(), "replacement"); err == nil || !strings.Contains(err.Error(), "may hide child") {
-		t.Fatal("hidden child admitted new work", err)
+		t.Fatal("hidden child accepted new work", err)
 	}
 	if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
 		t.Fatal("hidden child certified quiet")

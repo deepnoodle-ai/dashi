@@ -15,7 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
 
-// sendPlans records each admission plan and otherwise allows everything.
+// sendPlans records each send plan and otherwise allows everything.
 type sendPlans struct {
 	plans []dashi.SendPlan
 }

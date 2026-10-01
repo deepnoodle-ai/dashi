@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/wake"
 )
 
-// CommitRequest proposes one step at an expected turn revision and owner.
+// CommitRequest proposes one step at an expected sequence number and owner.
 type CommitRequest struct {
 	// Step is the fact to append. Its TurnID names the turn and its Seq is
 	// ExpectedSeq+1.
@@ -30,7 +30,7 @@ type CommitRequest struct {
 // before it acts on it, so a step the recorder acknowledged is the truth that
 // recovery, accounting, and live presentation rebuild from. A host recorder
 // can write its own rows in the same transaction: budget reservations,
-// accounting, projections, or an outbox.
+// accounting, derived views, or an outbox.
 //
 // Commit must follow these rules, which the runner relies on for recovery:
 //
@@ -73,7 +73,8 @@ type Recorder interface {
 
 // Loader is an optional Recorder capability that returns the authoritative
 // record of a turn. Runner.Run uses it to recognize a command retried with
-// an old turn snapshot after a lost acknowledgement, and answers from the
+// an old turn snapshot after a lost acknowledgement, and returns the result
+// from the
 // stored record instead of applying the command again.
 //
 // Load reports a turn with no committed steps as an error matching

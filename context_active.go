@@ -8,7 +8,7 @@ import (
 )
 
 // ActiveCompactionPolicy bounds model context during one Turn. Summaries use
-// that Turn's model attempts and budget. The byte estimate is not a tokenizer.
+// that Turn's model calls and budget. The byte estimate is not a tokenizer.
 type ActiveCompactionPolicy struct {
 	Disabled  bool    `json:"disabled,omitempty"`
 	Window    int     `json:"window,omitempty"`
@@ -44,13 +44,14 @@ type ModelPurpose string
 
 const ModelPurposeCompaction ModelPurpose = "compaction"
 
-// TurnMessageRef identifies a projected message within a source step.
+// TurnMessageRef identifies one of a turn's messages within its source step.
 type TurnMessageRef struct {
 	Seq   int64 `json:"seq"`
 	Index int   `json:"index"`
 }
 
-// ContextCompactionPlan binds a summary attempt to complete settled exchanges.
+// ContextCompactionPlan binds a summary model call to complete, finished
+// exchanges.
 type ContextCompactionPlan struct {
 	Through         int64            `json:"through"`
 	Covered         []TurnMessageRef `json:"covered"`

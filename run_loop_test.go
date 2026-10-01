@@ -186,7 +186,7 @@ func TestMissingSelectedToolWarnsOnceAcrossContinue(t *testing.T) {
 	}
 	agent := testAgent()
 	agent.Tools = []string{"a", "missing"}
-	// The interrupted attempt counts toward the limit.
+	// The interrupted model call counts toward the limit.
 	agent.Limits.ModelCalls = 5
 	out, err := runner.Run(ctx, Turn{ID: "t1"}, Start{
 		CommandID: "start",
@@ -316,7 +316,7 @@ func TestRetryWithRecordedAgentSucceeds(t *testing.T) {
 }
 
 // Commands on an existing turn run with the recorded agent: a runner that
-// never saw the agent settles, continues, and cancels the turn.
+// never saw the agent resolves, continues, and cancels the turn.
 func TestCommandsOnExistingTurnUseRecordedAgent(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "a"),
@@ -581,7 +581,7 @@ func TestCurrentTurnInNestedRun(t *testing.T) {
 	}
 }
 
-// An executor context whose turn cannot be replayed reports no turn, so a
+// An executor context whose turn's view cannot be built reports no turn, so a
 // tool such as delegate's task tool fails instead of guessing the agent.
 func TestCurrentTurnReportsFalseWhenReplayFails(t *testing.T) {
 	ctx := context.WithValue(t.Context(), currentCallKey{}, callContext{

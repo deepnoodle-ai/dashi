@@ -20,7 +20,7 @@ const (
 	CodeExecutionLegacyType = "code_execution_20250522"
 	// WebFetchType selects Anthropic's server-side page fetch tool.
 	WebFetchType = "web_fetch_20250910"
-	// MCPToolsetType declares an Anthropic-hosted remote MCP connector.
+	// MCPToolsetType declares a remote MCP connector that Anthropic runs.
 	MCPToolsetType = "mcp_toolset"
 )
 

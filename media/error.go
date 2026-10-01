@@ -27,7 +27,8 @@ const (
 	ErrorProtocol ErrorCategory = "protocol"
 )
 
-// Error keeps provider failure details without hiding uncertain submission.
+// Error keeps provider failure details without hiding a submission whose
+// result is unknown.
 // Retryable is an advisory classification, not permission to resubmit a job.
 type Error struct {
 	Provider   string

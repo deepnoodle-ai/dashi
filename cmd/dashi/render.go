@@ -70,7 +70,7 @@ type Block struct {
 	Lines []string
 	// Detail retains complete tool output for expansion and native scrollback.
 	Detail string
-	// Expanded is a display projection; the stored transcript keeps its excerpt.
+	// Expanded is a display-only view; the stored transcript keeps its excerpt.
 	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
@@ -276,7 +276,7 @@ func (r *Renderer) modelFinished(s dashi.Step) []Block {
 	id := messageKey(m.MessageID, m.ModelCallID)
 	if text == "" {
 		// A tool-only message has no text. If text streamed before it
-		// settled, an empty settled block replaces that provisional text.
+		// finished, an empty finished block replaces that provisional text.
 		if r.text[id] == "" {
 			return nil
 		}
@@ -426,7 +426,7 @@ func limitText(st *dashi.Stop) string {
 	return "Stopped at a limit: " + orDefault(st.Reason, "unknown") + "."
 }
 
-// Footer returns the line that closes a settled turn.
+// Footer returns the line that closes a finished turn.
 func (r *Renderer) Footer(v dashi.TurnView) Block {
 	return Block{
 		ID:   fmt.Sprintf("footer:%s", v.ID),

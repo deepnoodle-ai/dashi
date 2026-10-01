@@ -72,7 +72,7 @@ func validAttachmentSession(id string) bool {
 func (a *AttachmentStore) Close() { a.session.close() }
 
 // SaveSessionHeader persists non-authoritative discovery/preferences metadata
-// before attachment Start admission. Only Turn records acknowledge submitted
+// before the attachment Start is recorded. Only Turn records acknowledge submitted
 // input. The caller holds this same session's lease; no new session is created.
 func (a *AttachmentStore) SaveSessionHeader(ctx context.Context, s *Session) error {
 	if s == nil || s.ID != a.sessionID {
@@ -240,7 +240,7 @@ func writeAttachment(ctx context.Context, dir *attachmentDir, name string, data 
 }
 
 // Load reads only a strictly identified snapshot in this bound session.
-// The runner verifies the returned bytes' final size and digest.
+// The runner verifies the returned bytes' final size and hash.
 func (a *AttachmentStore) Load(ctx context.Context, turnID string, ref content.Ref) ([]byte, error) {
 	prefix := a.sessionID + "-"
 	if !strings.HasPrefix(turnID, prefix) {

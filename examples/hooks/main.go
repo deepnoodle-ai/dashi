@@ -1,10 +1,9 @@
-// Command hooks runs one turn with three hooks: a BeforeModel hook delivers
+// Command hooks runs one turn with three hooks: a BeforeModel hook adds
 // on-call context once, a BeforeTool hook denies shell commands that touch
 // prod, and a BeforeFinish hook asks the model to continue once if its
-// answer has no "Next step:" line. The last two print a line each time they
-// fire. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// reply has no "Next step:" line. The last two print a line each time they
+// fire. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally
+// overrides the catalog's default model.
 package main
 
 import (
@@ -50,7 +49,7 @@ func run(ctx context.Context) error {
 			return tool.Succeeded("Filesystem  Use%\n/dev/sda1   91%"), nil
 		})
 
-	// BeforeModel runs before every model call. SeedContext delivers the
+	// BeforeModel runs before every model call. SeedContext adds the
 	// on-call note only when the turn does not hold it yet; the note is
 	// recorded in the turn and stays in the model's context from then on.
 	onCall := dashi.SeedContext(dashi.ContextItem{
@@ -74,9 +73,9 @@ func run(ctx context.Context) error {
 			return dashi.Allow("not prod"), nil
 		})
 
-	// BeforeFinish: if the answer lacks a next step, ask once more. AddMessages
-	// alone is a nudge; a Reason would veto the answer instead. The turn
-	// records the hook's answer, and HookActed reads it there, so a resumed
+	// BeforeFinish: if the reply lacks a next step, ask once more. AddMessages
+	// alone is a nudge; a Reason would veto the reply instead. The turn
+	// records the hook's decision, and HookActed reads it there, so a resumed
 	// turn does not nudge again.
 	finish := dashi.FinishHook{Name: "next-step", Func: func(
 		_ context.Context, p dashi.FinishPlan) (dashi.FinishDecision, error) {

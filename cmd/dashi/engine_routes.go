@@ -10,7 +10,7 @@ import (
 )
 
 // routedCompactor preserves the compactor's own controls and records its route
-// before its first model attempt. Ordinary next-turn controls do not replace it.
+// before its first model call. Ordinary next-turn controls do not replace it.
 type routedCompactor struct {
 	*dashiCompactor
 	agent dashi.Agent
@@ -39,7 +39,7 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 		last := e.Last(ctx)
 		if last != nil && last.Open() && last.View.Origin != dashi.StartCompaction &&
 			(last.View.Agent.Provider != start.Agent.Provider || last.View.Agent.API != start.Agent.API) {
-			// Session closes a stopped turn before admitting Start, and checks
+			// Session closes a stopped turn before accepting Start, and checks
 			// its old destination during that close. Complete that close first.
 			if last.Next == dashi.NextRunning || last.Next == dashi.NextResolvePending {
 				return &session.TurnBusyError{TurnID: last.View.ID, Next: last.Next}

@@ -10,7 +10,7 @@ import (
 )
 
 // TaskTarget identifies the exact recorded child state inspected by a host.
-// Revision is the last recorded step sequence, not a task-list counter.
+// LastSeq is the last recorded step sequence, not a task-list counter.
 type TaskTarget struct {
 	ID      string
 	TurnID  string
@@ -20,8 +20,8 @@ type TaskTarget struct {
 var (
 	// ErrTaskBusy means a worker already owns the child.
 	ErrTaskBusy = errors.New("delegate: task worker is running")
-	// ErrTaskCommandUnknown means a prior write must be reconciled before a
-	// different action. Reload and retry the exact command, or inspect the
+	// ErrTaskCommandUnknown means the result of a prior write must be
+	// checked before a different action. Reload and retry the exact command, or inspect the
 	// authoritative changed record before choosing another action.
 	ErrTaskCommandUnknown = errors.New("delegate: child command acknowledgement is unknown")
 )
@@ -76,10 +76,11 @@ func receipt(turn dashi.Turn, id, hash string) (bool, error) {
 }
 
 // Run applies one explicit command to an inspected stopped child. It never
-// creates a Turn or retries an unsettled effect itself. Existing command
-// receipts are checked before Revision, so an acknowledged retry is safe even
+// creates a Turn or retries an unfinished effect itself. Existing command
+// receipts are checked before LastSeq, so an acknowledged retry is safe even
 // after later child work. Stop and Close own this worker as they own task starts.
-// A recorder implementing Loader is required for authoritative reconciliation.
+// A recorder implementing Loader is required, so Run can reload the record
+// and check what was actually written.
 func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.RunResult, runErr error) {
 	owned, id, hash, err := ownedCommand(cmd)
 	if err != nil {
@@ -184,7 +185,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 		}
 	}
 	if ts.isStopping(t) && (runErr != nil || out.Stop.Kind == dashi.StopInterrupted || out.Stop.Kind == dashi.StopWaiting) {
-		// Stop is a separate explicit intent. If its write is unknown,
+		// Stop is a separate explicit request. If its write is unknown,
 		// fence that cancellation receipt, not the preceding Continue.
 		target.LastSeq = out.LastSeq
 		_, id, hash, _ = ownedCommand(dashi.Cancel{CommandID: turn.ID + "/cancel", Reason: "stopped on request"})
@@ -201,8 +202,8 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 		t.pending = &pendingTaskCommand{target: target, id: id, hash: hash}
 		ts.mu.Unlock()
 	}
-	// Reconcile presentation too: a lost acknowledgement is not proof of a
-	// synthetic failure or permission to deliver a final result.
+	// Report from the reloaded record too: a lost acknowledgement neither
+	// proves a failure nor permits reporting a final result.
 	if runErr != nil {
 		loaded, e := loader.Load(context.WithoutCancel(ctx), turn.ID)
 		if e == nil {

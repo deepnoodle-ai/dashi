@@ -13,9 +13,9 @@ import (
 // package rules). Every event carries Seq: a step's own, or for a preview
 // or gap the step it belongs after. A nil h yields steps only.
 //
-// It ends as dashi.Follow does: when ctx ends, after a terminal stop, or
-// after yielding an error, such as one matching dashi.ErrCursorAhead. On any
-// exit, including a break, it stops its reader of the record and waits for
+// It ends as dashi.Follow does: when ctx ends, after the stop that ends the
+// turn, or after yielding an error, such as one matching
+// dashi.ErrCursorAhead. On any exit, including a break, it stops its reader of the record and waits for
 // it, unsubscribes from h, and drops previews it was holding.
 //
 // It registers with h before its first read of the record, so no preview
@@ -87,7 +87,7 @@ func Follow(
 				}
 				// Previews queued before this step was read belong at or
 				// before it: place them first. A delta the Observer
-				// delivers after its settling step is dropped; the step
+				// delivers after its finish step is dropped; the step
 				// carries the whole message.
 				if rd != nil && !m.place(h.take(turnID, rd)) {
 					return

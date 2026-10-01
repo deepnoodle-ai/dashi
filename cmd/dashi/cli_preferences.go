@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
-// cliPreferences keeps new-turn intent separate from the client driving an
+// cliPreferences keeps new-turn choices separate from the client driving an
 // existing turn. The Controller changes it only while no turn is running.
 type cliPreferences struct {
 	mu                 sync.RWMutex
@@ -35,7 +35,7 @@ func (p *cliPreferences) agent() dashi.Agent {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	agent, _ := selectionAgent(p.launch.Selection, p.launch.Controls.Settings)
-	// Own pointers even when admission waits behind queued work.
+	// Own pointers even when the Start waits behind queued work.
 	raw, _ := json.Marshal(agent)
 	var owned dashi.Agent
 	_ = json.Unmarshal(raw, &owned)

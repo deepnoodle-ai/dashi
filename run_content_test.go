@@ -42,7 +42,7 @@ func refMessage(ref content.Ref) llm.Message {
 }
 
 // bodyClient encodes the prepared input as the request body, so the request
-// digest and BeforeSend see the exact bytes that would be sent.
+// hash and BeforeSend see the exact bytes that would be sent.
 type bodyClient struct {
 	scriptedClient
 }

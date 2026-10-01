@@ -2,9 +2,9 @@
 // SDK. Conversion is adapted from Dive's Google provider (65c393f),
 // Apache-2.0.
 //
-// # Hosted tools
+// # Provider tools
 //
-// Hosted tool constructors return a definition-only tool.Tool: Google runs it
+// Provider tool constructors return a definition-only tool.Tool: Google runs it
 // inside the model call, so it has no Executor and no hook sees its calls.
 // Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid.

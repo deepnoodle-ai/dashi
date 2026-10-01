@@ -16,30 +16,30 @@ const (
 	// the turn is not known to be live: its worker may have crashed. Once
 	// the worker is known to be gone, Continue resumes it if
 	// ReadyToContinue is true. Otherwise Continue gives ErrNotReady: first
-	// settle each Pending item (for example, reconcile a model attempt
-	// whose result is unknown), or Cancel the turn.
+	// resolve each Pending item (for example, supply the result of a model
+	// call whose result is unknown), or Cancel the turn.
 	NextRecover Next = "recover"
-	// NextResolvePending means the turn waits for approvals or tool results; see
-	// TurnView.Pending. Resolve each one, then Continue.
+	// NextResolvePending means the turn waits for approvals or tool
+	// results; see TurnView.Pending. Resolve each one, then Continue.
 	NextResolvePending Next = "resolve_pending"
 	// NextContinue means Continue can run the turn now.
 	NextContinue Next = "continue"
 	// NextRaiseBudget means a cost or token cap stopped the turn. Continue
-	// with a raised Budget; when Stop shows no model attempts left, raise
+	// with a raised Budget; when Stop shows no model calls left, raise
 	// Continue.ModelCalls as well.
 	NextRaiseBudget Next = "raise_budget"
 	// NextRaiseModelCalls means the model-call limit stopped the turn.
 	// Continue with a higher Continue.ModelCalls.
 	NextRaiseModelCalls Next = "raise_model_calls"
 	// NextFix means a cause outside the turn must be fixed first: a
-	// failure, a refusal, a host limit, an uncertain effect to settle, or
-	// an interruption the turn cannot resume from. Fix it and Continue, or
-	// Cancel the turn.
+	// failure, a refusal, a host limit, a call with an unknown result to
+	// resolve, or an interruption the turn cannot resume from. Fix it and
+	// Continue, or Cancel the turn.
 	NextFix Next = "fix"
 )
 
 // Next maps the turn's recorded stop to the host's next action. A stop
-// that Replay or Outcome projected (Stop.Inferred) was never recorded, so
+// that View or RunResult inferred (Stop.Inferred) was never recorded, so
 // it gives NextRecover. A hook's view during a run has no stop and gives
 // NextRunning. A refusal never gives NextContinue, so a host is never told
 // to ask the model again after it refused. Next reads only the view's

@@ -62,7 +62,7 @@ func NewCodeInterpreterTool(options CodeInterpreterToolOptions) tool.Tool {
 	return newProviderTool("code_interpreter", "code_interpreter", options)
 }
 
-// ImageGenerationToolOptions configures the provider-hosted image generator.
+// ImageGenerationToolOptions configures the image generation provider tool.
 type ImageGenerationToolOptions struct {
 	// Model selects a GPT Image model independently of the mainline model.
 	Model string `json:"model,omitempty"`
@@ -82,7 +82,7 @@ type ImageGenerationToolOptions struct {
 	Action string `json:"action,omitempty"`
 }
 
-// NewImageGenerationTool declares OpenAI's provider-hosted image generator.
+// NewImageGenerationTool declares OpenAI's image generation provider tool.
 func NewImageGenerationTool(
 	options ImageGenerationToolOptions,
 ) (tool.Tool, error) {
@@ -117,7 +117,7 @@ func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
 	return newProviderTool("mcp:"+options.ServerLabel, "mcp", options), nil
 }
 
-// newHosted binds options to the "openai" destination. Options are plain
+// newProviderTool binds options to the "openai" destination. Options are plain
 // structs of strings, numbers, and slices, so encoding cannot fail.
 func newProviderTool(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)

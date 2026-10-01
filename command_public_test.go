@@ -73,7 +73,7 @@ func TestDecodedStartRunsLikeOriginal(t *testing.T) {
 			if g.CommandHash != w.CommandHash || !reflect.DeepEqual(g.Started, w.Started) {
 				t.Fatalf("start step differs:\n got %+v\nwant %+v", g, w)
 			}
-			// Replayed on the turn the original started, it is a retry.
+			// Run again on the turn the original started, it is a retry.
 			again := run(t, want.Turn, c)
 			if again.LastSeq != want.LastSeq {
 				t.Fatalf("retry advanced the turn to %d from %d", again.LastSeq, want.LastSeq)

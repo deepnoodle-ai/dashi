@@ -25,8 +25,8 @@ func (r Runner) apply(
 		return RunResult{}, errors.New("dashi: invalid context-done behavior")
 	}
 	// Empty IDs are generated before anything reads them: the turn ID before
-	// replay, recorder setup, and loading, and the command ID before its
-	// digest, which covers the ID.
+	// the view is built, recorder setup, and loading, and the command ID
+	// before its hash, which covers the ID.
 	if turn.ID == "" {
 		if _, ok := command.(Start); !ok {
 			return RunResult{}, errors.New("dashi: turn ID is required for commands other than Start")
@@ -42,7 +42,7 @@ func (r Runner) apply(
 	if err != nil {
 		return RunResult{}, err
 	}
-	// A Start's agent may leave its destination, model, and revision to
+	// A Start's agent may leave its destination, model, and version to
 	// defaults. The filled values are pinned like explicit ones, so a retried
 	// Start compares the same resolved agent. Other commands use the recorded
 	// agent.
@@ -60,7 +60,7 @@ func (r Runner) apply(
 			return RunResult{}, err
 		}
 	}
-	// A Start's digest covers its resolved agent, so a retry that spells out
+	// A Start's hash covers its filled-in agent, so a retry that spells out
 	// a default, such as the client's provider, is the same command.
 	hashed := command
 	if c, ok := command.(Start); ok {
@@ -132,7 +132,7 @@ func (r Runner) apply(
 		}
 	}
 	// Checked after the retry checks, so a retried command on an ended turn
-	// still gets its recorded answer.
+	// still gets its recorded result.
 	if err := state.acceptsAfterEnd(command); err != nil {
 		return RunResult{}, err
 	}
@@ -248,7 +248,7 @@ func (r Runner) apply(
 			return RunResult{}, err
 		}
 		if len(items) == 0 {
-			// Every item is already recorded: a retried delivery.
+			// Every item is already recorded: a retried AddMessages.
 			return rt.result(rt.current())
 		}
 		step := Step{
@@ -480,8 +480,8 @@ func (r Runner) apply(
 		}
 		return rt.result(rt.current())
 	case Cancel:
-		// A turn with no steps has not started: a host that admitted work
-		// and never ran it cancels its own admission.
+		// A turn with no steps has not started: a host that saved work to
+		// run later and never ran it withdraws it itself.
 		if len(turn.Steps) == 0 {
 			return RunResult{}, errors.New("dashi: cannot cancel: turn has not started")
 		}

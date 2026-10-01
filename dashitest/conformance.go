@@ -30,7 +30,7 @@ import (
 //   - Load of a turn with no steps returns an error matching
 //     dashi.ErrTurnNotFound or an empty turn with the requested ID. Run
 //     treats any other Load error as an unreadable record and stops.
-//   - A commit whose ExpectedSeq is not the turn's current revision is
+//   - A commit whose ExpectedSeq is not the turn's last step Seq is
 //     rejected with dashi.ErrStaleTurn, including a different step
 //     at an occupied sequence number. A step that differs only in its time
 //     is different: a worker retrying from an old snapshot builds new steps,
@@ -41,12 +41,12 @@ import (
 //     without adding a step, so a commit whose acknowledgement was lost can
 //     be retried.
 //   - A step with an already recorded command ID succeeds without adding a
-//     step when its kind and digest match, and is rejected with
+//     step when its kind and command hash match, and is rejected with
 //     dashi.ErrCommandIDReused when they differ. Command IDs are scoped to
 //     one turn.
 //   - Turns are independent: a step for one turn never depends on another
-//     turn's revision.
-//   - Of concurrent commits at the same revision, exactly one succeeds.
+//     turn's steps.
+//   - Of concurrent commits at the same ExpectedSeq, exactly one succeeds.
 //
 // When the store implements dashi.StepReader, Run also checks the rules
 // dashi.Follow relies on; otherwise those subtests are skipped:

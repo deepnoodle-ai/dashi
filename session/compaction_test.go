@@ -201,7 +201,7 @@ func (r tampered) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	return turn, err
 }
 
-// A digest mismatch warns only on a handle that holds the covered turns,
+// A hash mismatch warns only on a handle that holds the covered turns,
 // and changes nothing else: the replacement history is still sent.
 func TestSessionCompactionMismatch(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -228,7 +228,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 		t.Fatalf("warnings=%v", out.SessionWarnings)
 	}
 
-	// History loads turn 1, so the next turn checks the digest.
+	// History loads turn 1, so the next turn checks the hash.
 	full := handle(tampered{rec}, client)
 	if _, err := full.History(t.Context()); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 }
 
 // A summary that fails closes the compaction turn, keeps the previous
-// projected history, and warns; the next completed turn tries again.
+// history, and warns; the next completed turn tries again.
 func TestSessionCompactionFailed(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	refusal := llm.Result{
@@ -641,8 +641,8 @@ func TestSessionCompactionBudget(t *testing.T) {
 	}
 }
 
-// The summary is the text inside the answer's <summary> tags when it has
-// them, and the whole answer otherwise; a handle with no Compactor reads
+// The summary is the text inside the reply's <summary> tags when it has
+// them, and the whole reply otherwise; a handle with no Compactor reads
 // the same. Empty tags replace nothing.
 func TestSessionCompactionSummaryTags(t *testing.T) {
 	for _, tc := range []struct{ answer, want string }{
@@ -716,8 +716,8 @@ func TestSessionCompactionSameHandleRace(t *testing.T) {
 	}
 }
 
-// Only the session's Compactor starts compaction turns: the projection
-// trusts them, so a caller's Start cannot claim the origin or the fact.
+// Only the session's Compactor starts compaction turns: building the
+// history trusts them, so a caller's Start cannot claim the origin or the fact.
 func TestSessionRefusesCallerCompaction(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	s := handle(rec, dashitest.NewClient())

@@ -26,7 +26,7 @@ var errInspectionMetadataTooLarge = errors.New("session: metadata exceeds 1 MiB"
 // contain raw decoder errors or content from metadata of an unknown workspace.
 type Problem struct{ SessionID, TurnID, Message string }
 
-// MessagePreview identifies ordinary recorded text, never a projected history.
+// MessagePreview identifies ordinary recorded text, never built history.
 type MessagePreview struct {
 	TurnID  string
 	LastSeq int64
@@ -60,7 +60,7 @@ type Execution struct {
 }
 
 // Inspection contains one read-only scan through the captured indexed boundary.
-// A concurrently running worker can append facts after any loaded revision.
+// A concurrently running worker can append facts after any loaded step.
 type Inspection struct {
 	Metadata                                  Session
 	IndexedTurns, ReadableTurns, OmittedTurns int
@@ -211,7 +211,7 @@ func readInspectionMetadata(ctx context.Context, dir *attachmentDir) ([]byte, er
 }
 
 // Search scans ordinary recorded text once per candidate. Card facts and text
-// evidence share the same loaded revisions. It does not resolve content refs.
+// evidence share the same loaded steps. It does not resolve content refs.
 func (st *Store) Search(ctx context.Context, selectedWorkspace, query string) (SearchResult, error) {
 	var out SearchResult
 	selected, err := workspace.New(selectedWorkspace)

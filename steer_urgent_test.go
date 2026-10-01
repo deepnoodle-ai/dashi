@@ -355,7 +355,8 @@ func TestUrgentSteerBeforeHandOffFinishesNotDispatched(t *testing.T) {
 	}
 }
 
-// intentHook runs onIntent once, while the first model request commits.
+// callStartHook runs onCallStart once, while the first model call's start
+// commits.
 type callStartHook struct {
 	*MemoryRecorder
 	onCallStart func()
@@ -558,7 +559,7 @@ func TestReservedFinalReplyCallIsCutAndAskedAgain(t *testing.T) {
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{lookupTool()}
 	})
-	// An answer on the reserved call ends the turn as limited, as always.
+	// A reply on the reserved call ends the turn as limited, as always.
 	if out.Stop.Reason != "model_calls" || out.Reply != "Réponse finale" {
 		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
@@ -840,8 +841,8 @@ func TestSteeredTurnReplaysDeterministically(t *testing.T) {
 	}
 }
 
-// crashOnSteeredSettlement loses the first steering settlement, as when a
-// worker dies after the cancel and before the settlement is written.
+// crashOnSteeredFinish loses the first steering finish step, as when a
+// worker dies after the cancel and before the finish step is written.
 type crashOnSteeredFinish struct {
 	*MemoryRecorder
 	fired bool

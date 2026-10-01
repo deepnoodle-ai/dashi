@@ -12,8 +12,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// A Responses hosted item carries its result in the same item. Its public
-// fields are for display; replay preserves the complete provider item.
+// A Responses provider tool item carries its result in the same item. Its
+// public fields are for display; replay preserves the complete provider item.
 func (wire codec) decodeProviderToolItem(
 	raw json.RawMessage,
 	replay *llm.Opaque,

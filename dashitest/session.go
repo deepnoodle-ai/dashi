@@ -134,7 +134,7 @@ func testSessionProbing(t *testing.T, s Store) {
 	}
 
 	// Each record has its own step count, so a store that answers for the
-	// wrong turn shows up in the last turn's revision.
+	// wrong turn shows up in the last turn's step count.
 	x := sessionID + "-x"
 	seed(t, s, session.TurnID(x, 1), 1)
 	seed(t, s, x+"-10", 3)

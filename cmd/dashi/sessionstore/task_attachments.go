@@ -17,7 +17,7 @@ import (
 // TaskStorageAbsent establishes that no child could have started in this
 // session. PrepareStart durably creates children before recording any child
 // turn, even without attachments, and the CLI never removes that directory.
-// Existing storage or an uncertain path cannot establish absence.
+// Existing storage or a path in an unknown state cannot establish absence.
 func (st *Store) TaskStorageAbsent(s *Session) bool {
 	if s == nil || !validAttachmentSession(s.ID) {
 		return false

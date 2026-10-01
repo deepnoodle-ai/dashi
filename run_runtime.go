@@ -38,7 +38,7 @@ type runtime struct {
 	// the source cannot signal.
 	listen *steerListener
 	// pendingWarnings and pendingHooks ride on the next committed step, so
-	// a warning or hook answer is saved with the step it leads to.
+	// a warning or hook decision is saved with the step it leads to.
 	pendingWarnings     []Warning
 	pendingHooks        []HookResult
 	compactionUsed      bool
@@ -89,7 +89,7 @@ func (r *runtime) commit(step Step) *RunResult {
 		items := r.skipRecordedItems(step.Context.Items)
 		if len(items) == 0 {
 			if step.Kind == StepMessagesAdded {
-				// Everything was delivered before; there is nothing to record.
+				// Everything was added before; there is nothing to record.
 				return nil
 			}
 			step.Context = nil
@@ -124,8 +124,9 @@ func (r *runtime) commit(step Step) *RunResult {
 		step.Stop = &stop
 	}
 	if step.Kind == StepModelCallStarted {
-		// The fallback usage joins accounting before dispatch. Refuse an
-		// intent that would invalidate a token cap with either recorder.
+		// The fallback usage counts toward spend before the call is sent.
+		// Refuse a model_call_started step that would break a token cap,
+		// with either recorder.
 		candidate := r.turn
 		candidate.Steps = append(slices.Clone(r.turn.Steps), step)
 		state, err := replay(candidate)
@@ -185,12 +186,12 @@ func (r *runtime) commit(step Step) *RunResult {
 	return nil
 }
 
-// terminalAfter reports whether recording stop would end the turn. A stop
+// endsTurnAfter reports whether recording stop would end the turn. A stop
 // changes none of the state terminal reads except the stop itself.
 func (r *runtime) endsTurnAfter(stop Stop) bool {
 	state, err := replay(r.turn)
 	if err != nil {
-		// The commit's own replay check reports the broken record.
+		// The commit's own record check reports the broken record.
 		return false
 	}
 	return state.stopEnds(stop)
@@ -309,7 +310,7 @@ func (r *runtime) stopAfterAnswer(s *replayState) RunResult {
 		return r.contextStop()
 	}
 	// The reserved final call ends at the model-call limit. After Continue
-	// raises the limit, a recorded answer completes the turn.
+	// raises the limit, a recorded reply completes the turn.
 	if s.finalReplyOnly && s.modelCallCap <= s.ModelCalls {
 		return r.stop(StopLimited, string(LimitModelCalls))
 	}

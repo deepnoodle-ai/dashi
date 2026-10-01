@@ -17,7 +17,7 @@ import (
 const cliRouteVersion = "dashi-cli:route-v1:"
 
 // routeClients owns immutable destination definitions for this invocation.
-// The grant map contains whole-binding fingerprints, never credential values.
+// The grant map contains whole-binding hashes, never credential values.
 type routeClients struct {
 	grantMu        sync.RWMutex
 	registry, user map[string]configuredDestination
@@ -56,7 +56,7 @@ func (r *routeClients) clientFor(agent dashi.Agent) (llm.Client, error) {
 		}
 	} else {
 		// The earlier CLI used only the public OpenAI Responses route. Its
-		// automatic behavior revision cannot establish any custom binding.
+		// automatic behavior version cannot establish any custom binding.
 		builtin := builtinDestinations()["openai"]
 		if agent.ID != "dashi-cli" || !strings.HasPrefix(agent.Version, "auto:") || agent.Provider != "openai" || d.Definition.API != builtin.Definition.API || d.Definition.Endpoint != builtin.Definition.Endpoint || len(d.BuiltinAliases) == 0 {
 			return nil, errors.New("recorded turn has unknown destination provenance; its route cannot be reconstructed")

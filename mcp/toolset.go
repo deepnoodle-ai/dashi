@@ -46,9 +46,9 @@ type Options struct {
 
 	// Approve runs once for each Untrusted server, in sorted name order, one
 	// at a time, before any server starts. It gets the raw entry and its
-	// fingerprint. A false result or an error declines the server. Nil
-	// declines every untrusted server. The package stores no answer: the host
-	// may remember one, keyed on the fingerprint.
+	// hash. A false result or an error declines the server. Nil declines
+	// every untrusted server. The package stores no answer: the host may
+	// remember one, keyed on the hash.
 	Approve func(
 		ctx context.Context,
 		name string,

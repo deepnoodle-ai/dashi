@@ -17,7 +17,8 @@ type replayState struct {
 	source            Turn
 	pendingCompaction string
 	// compactionUsed holds an applied summary's guard until ordinary work
-	// succeeds. Replay preserves the guard across interruption and reload.
+	// succeeds. Rebuilding the view keeps the guard across interruption
+	// and reload.
 	compactionUsed bool
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
@@ -27,7 +28,7 @@ type replayState struct {
 	unresolvedPartial     bool
 	unresolvedInterrupted bool
 	startedModelCalls     map[string]*ModelFact
-	// modelOrder holds attempt IDs in record order.
+	// modelOrder holds model call IDs in record order.
 	modelOrder             []string
 	modelFinishes          map[string]*ModelFact
 	modelMessages          map[string]string
@@ -46,23 +47,23 @@ type replayState struct {
 	failedModel            string
 	// activeHooks is the ActiveHooks of the latest command.
 	activeHooks *ActiveHooks
-	// answerVetoed is set while the latest answer is one a BeforeFinish hook
+	// answerVetoed is set while the latest reply is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
-	// pausedHosted is set while the latest actionable result is a provider
-	// pause that left a hosted call unfinished. The next request must end
-	// with that result so the provider can finish the call, so no steer may
-	// follow it yet.
+	// pausedProviderTool is set while the latest actionable result is a
+	// provider pause that left a provider tool call unfinished. The next
+	// request must end with that result so the provider can finish the
+	// call, so no steer may follow it yet.
 	pausedProviderTool bool
-	// deliveredOnKept sizes the context delivered while a final text answer
+	// deliveredOnKept sizes the context added while a final text reply
 	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
-	// contextIDs maps each recorded context item ID to its item, so a
-	// repeated delivery is recognized.
+	// contextIDs maps each recorded context item ID to its item, so an
+	// item added twice is recognized.
 	contextIDs map[string]ContextItem
-	// liveSeq holds the step that recorded each live item, and intentSeq
-	// the step that recorded each model request, so a NextCallOnly item
-	// expires only after a later dispatched call.
+	// liveSeq holds the step that recorded each live item, and
+	// callStartSeq the step that recorded each model call's start, so a
+	// NextCallOnly item expires only after a later call is sent.
 	liveSeq      map[string]int64
 	callStartSeq map[string]int64
 }
@@ -189,7 +190,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		}
 	}
 	// Derive ArgsHash from the final status, so no transition out of
-	// approval can leave a stale digest behind.
+	// approval can leave a stale hash behind.
 	for id, v := range s.Tools {
 		v.ArgsHash = ""
 		if v.Status == ToolApprovalPending {
@@ -199,7 +200,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 	}
 	s.Pending = s.pendingItems()
 	s.Reply = answerText(t.Steps)
-	// A vetoed answer never reaches the host through Answer.
+	// A vetoed reply never reaches the host through Reply.
 	if s.answerVetoed {
 		s.Reply = ""
 	}
@@ -208,8 +209,8 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 	}
 	s.ReadyToContinue = s.canContinue()
 	if end := endedLength(t.Steps, s.Stop); end < len(t.Steps) {
-		// Late results after the terminal stop count in Spend, but the
-		// answer is fixed there, as Project's history is.
+		// Late results after the stop that ended the turn count in Spend,
+		// but the reply is fixed there, as TurnMessagesFull's messages are.
 		prefix := t
 		prefix.Steps = t.Steps[:end]
 		ended, err := replayCached(prefix, cache)
@@ -271,8 +272,9 @@ func (s *replayState) calculateSpend() error {
 			}
 		}
 		// A partial total is a lower bound, so it cannot show that a cap
-		// holds. Admission refuses hosted tools under a cap, so a partial
-		// charge there is hosted work nothing foresaw.
+		// holds. The budget check before each call refuses provider tools
+		// under a cap, so a partial cost there is provider tool work
+		// nothing foresaw.
 		if capped && (charge.Currency != s.Budget.MaxCost.Currency ||
 			charge.Partial()) {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
@@ -294,7 +296,8 @@ func (s *replayState) calculateSpend() error {
 	return nil
 }
 
-// projectionSnapshot captures only immutable facts needed by the pure projector.
+// viewSnapshot captures only the immutable facts needed to build the
+// turn's messages.
 // It does not calculate accounting or recursively validate a prefix.
 func (s *replayState) viewSnapshot() *replayState {
 	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelCallStart: s.modelCallStart, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}

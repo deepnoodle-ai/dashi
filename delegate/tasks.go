@@ -21,8 +21,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// defaultMaxReply is the byte cap on an answer returned to the model when
-// Config.MaxReply is zero. A longer answer would refill the context the
+// defaultMaxReply is the byte cap on a reply returned to the model when
+// Config.MaxReply is zero. A longer reply would refill the context the
 // model delegated to protect.
 const defaultMaxReply = 16 << 10
 
@@ -34,8 +34,8 @@ const defaultMaxTaskTurns = 10
 const stopTimeout = 30 * time.Second
 
 // TaskState is "running" or the dashi.StopKind of a child turn: completed,
-// failed, limited, refused, canceled, interrupted, waiting, or uncertain. No
-// other names exist.
+// failed, limited, refused, canceled, interrupted, waiting, or
+// result_unknown. No other names exist.
 type TaskState string
 
 // TaskRunning is the state of a task whose child turn is working.
@@ -83,7 +83,7 @@ type TaskView struct {
 	ToolCalls  int
 	// Spend is the spend of every child turn. It is live for a running turn.
 	Spend dashi.Spend
-	// Reply is the answer of the turn TurnID names, cut at
+	// Reply is the final reply of the turn TurnID names, cut at
 	// Config.MaxReply. It is empty unless that turn completed.
 	Reply string
 	// Reason says why that turn stopped, when it did not complete.
@@ -162,7 +162,7 @@ type childTurn struct {
 	state TaskState
 	steps []dashi.Step // observed while running
 	final *dashi.TurnView
-	// answer and reason are cut and ready for the model.
+	// answer (the turn's reply) and reason are cut and ready for the model.
 	answer, reason string
 	// notified is set when a report starts, reported when it is done. An
 	// ended turn counts as pending until reported.
@@ -172,7 +172,7 @@ type childTurn struct {
 	suppressed bool
 }
 
-// view returns the turn's view: final, or replayed from the observed steps.
+// view returns the turn's view: final, or built from the observed steps.
 func (c *childTurn) view() dashi.TurnView {
 	if c.final != nil {
 		return *c.final
@@ -630,7 +630,7 @@ func (t *task) turn(id string) *childTurn {
 	return c
 }
 
-// recordedStop returns the latest stop the record holds. Replay projects a
+// recordedStop returns the latest stop the record holds. Turn.View infers a
 // stop for a turn that has none, so the steps are the only proof.
 func recordedStop(t dashi.Turn) (dashi.Stop, bool) {
 	for _, s := range slices.Backward(t.Steps) {
@@ -758,7 +758,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	unended := t.turn(current).state == TaskRunning
 	ts.mu.Unlock()
 	if unended {
-		// The session failed before the turn recorded an outcome.
+		// The session failed before the turn recorded a result.
 		out, err := dashi.RunResult{}, cmp.Or(runErr, errNoOutcome)
 		if ts.isStopping(t) {
 			out, err = ts.recordCancel(t, current, out, err)
@@ -774,7 +774,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	ts.mu.Unlock()
 }
 
-// errNoOutcome marks a run that ended without an outcome or an error.
+// errNoOutcome marks a run that ended without a result or an error.
 var errNoOutcome = errors.New("the child session ended without an outcome")
 
 func (ts *Tasks) isStopping(t *task) bool {
@@ -854,7 +854,7 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	}
 }
 
-// endState maps a child turn's stop to its state, answer, and reason.
+// endState maps a child turn's stop to its state, reply, and reason.
 func endState(
 	ts *Tasks,
 	stop dashi.Stop,
@@ -1115,7 +1115,7 @@ func (ts *Tasks) startTask(
 	if endedBefore {
 		ts.notifyEnded(t, nil)
 	}
-	// The call settles only once the record holds the child, so a crash
+	// The call finishes only once the record holds the child, so a crash
 	// after the call cannot lose a child the model was told about.
 	select {
 	case <-t.started:

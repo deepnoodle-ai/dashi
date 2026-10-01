@@ -89,7 +89,7 @@ func TestWriteTranscript(t *testing.T) {
 		"start over",
 	}, text)
 	fmt.Fprintf(&doc, "The record of turn 1 after `/discard`: stop `%s` (%q); "+
-		"call c1 is `%s`, never settled. Turns in the session: %d.\n",
+		"call c1 is `%s`, never finished. Turns in the session: %d.\n",
 		view.Stop.Kind, view.Stop.Reason, view.Tools["c1"].Status, h.turns())
 
 	path := os.Getenv("DASHI_TRANSCRIPT")

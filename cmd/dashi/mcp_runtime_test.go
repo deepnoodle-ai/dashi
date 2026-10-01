@@ -167,7 +167,7 @@ func TestMCPRealDocumentationWorkflowWithFailureIsolationAndCallApproval(t *test
 		t.Fatal(e)
 	}
 	if _, e = a.eng.Prompt(t.Context(), "too early"); e == nil || store.Saved(a.eng.Session()) {
-		t.Fatal("admitted work before startup")
+		t.Fatal("accepted work before startup")
 	}
 	var order []string
 	e = a.eng.cfg.MCP.Initialize(t.Context(), func(ctx context.Context, r mcpStartupRequest) (bool, error) {

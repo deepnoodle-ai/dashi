@@ -55,7 +55,7 @@ func (e *Engine) inputReceipt(p *pendingPrompt, state inputReceiptState) {
 	}
 }
 
-// PromptInput admits one owned media request. It never queues it as text or
+// PromptInput accepts one owned media request. It never queues it as text or
 // steers it into another Turn; unresolved work preserves the incoming draft.
 func (e *Engine) PromptInput(ctx context.Context, in *submittedInput) (res Result, err error) {
 	if in == nil {

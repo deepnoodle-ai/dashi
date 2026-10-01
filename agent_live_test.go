@@ -125,7 +125,7 @@ func TestLiveSteerAfterToolBatch(t *testing.T) {
 }
 
 // Each subtest makes two paid calls: an urgent steer cuts a streamed
-// answer, and the provider accepts the partial, reminder, and steer.
+// reply, and the provider accepts the partial, reminder, and steer.
 func TestLiveUrgentSteerCutsStream(t *testing.T) {
 	for _, p := range liveProviders {
 		t.Run(p.name, func(t *testing.T) {

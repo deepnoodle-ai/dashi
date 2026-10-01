@@ -115,12 +115,13 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	// A request abandoned for an urgent steer before dispatch drops the
-	// hook answers of this pass; the next pass asks the hooks again.
+	// A request abandoned for an urgent steer before it is sent drops the
+	// hook decisions of this pass; the next pass asks the hooks again.
 	mark := r.hookMark()
 	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalReplyOnly, purpose)
-	// The intent records the tools offered, after any hides, and the names
-	// hidden, so a call to a hidden tool resolves from the record.
+	// The model_call_started step records the tools offered, after any
+	// hides, and the names hidden, so a call to a hidden tool is handled
+	// from the record.
 	defs = input.Tools
 	if ctxStop != nil {
 		return *ctxStop, false
@@ -218,7 +219,8 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if r.activeMediaEstimateUnavailable(s, snapshot.Input) {
 		// Content preparation and provider acceptance govern this candidate.
-		// Financial admission still uses the unchanged conservative risk estimate.
+		// The budget check before sending still uses the unchanged,
+		// cautious worst-case estimate.
 	} else if purpose == "" {
 		if o, again, handled := r.guardActiveContext(s, input, req); handled {
 			return o, again
@@ -405,7 +407,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		sendReason == llm.ReasonCallTimeout
 	finished := &ModelFact{ModelCallID: modelCall, MessageID: messageID}
 	// A Dashi timeout reason proves its own timer fired before the cut, so
-	// the timeout wins and the steer stays undelivered. A result that
+	// the timeout wins and the steer is not added yet. A result that
 	// completed as the cancel arrived also stands, and the steer waits for
 	// the next call (U-7).
 	if !timeoutWon && r.ctx.Err() == nil &&
@@ -524,8 +526,8 @@ type handOffResult struct {
 }
 
 // handOff marks call handed to the client, or, when an urgent steer cut it
-// short after its request was recorded but before the hand-off, settles it
-// as not dispatched, so the run goes back for the steer.
+// short after its request was recorded but before the hand-off, finishes it
+// as not sent, so the run goes back for the steer.
 func (r *runtime) handOff(
 	call *steerableCall,
 	modelCall string,
@@ -534,9 +536,9 @@ func (r *runtime) handOff(
 	if call == nil {
 		return handOffResult{}
 	}
-	// The listener gets its own replay of the turn, taken here with the
-	// intent recorded, because it runs on another goroutine: sharing the
-	// run's replay state would race with the run's commits.
+	// The listener gets its own view of the turn, built here with the
+	// model_call_started step recorded, because it runs on another
+	// goroutine: sharing the run's state would race with the run's commits.
 	inFlight, err := replay(r.turn)
 	if err != nil {
 		return handOffResult{
@@ -567,12 +569,13 @@ func (r *runtime) handOff(
 	return handOffResult{done: true, again: true}
 }
 
-// settleSteered records a call an urgent steer cut short after the hand-off
+// finishSteered records a call an urgent steer cut short after the hand-off
 // and goes back for the steer. The call counts as sent unless the client
-// reports it was not dispatched: a missing response proves nothing. It
+// reports it was not sent: a missing response proves nothing. It
 // does not count toward ModelCalls (U-8). Under a cost cap it is charged
-// the worst case reserved at admission, since a client may keep generating
-// after the cancel and the usage it reports so far is not final (U-9).
+// the worst-case cost checked before sending, since a client may keep
+// generating after the cancel and the usage it reports so far is not final
+// (U-9).
 func (r *runtime) finishSteered(
 	s *replayState,
 	callStart *ModelFact,
@@ -583,9 +586,10 @@ func (r *runtime) finishSteered(
 ) (RunResult, bool) {
 	finished.Interrupted = InterruptSteering
 	finished.Error = errSteered.Error()
-	// A SendStatusProviderRejected error that coincides with the cut settles as sent,
-	// and under a cap is charged the worst case. That over-charges a call
-	// the provider refused, which is harmless and keeps the rule simple.
+	// A SendStatusProviderRejected error that coincides with the cut
+	// finishes as sent, and under a cap is charged the worst case. That
+	// over-charges a call the provider refused, which is harmless and keeps
+	// the rule simple.
 	switch {
 	case sendStatusOf(sendErr, result) == llm.SendStatusNotSent:
 		finished.NotSent = true

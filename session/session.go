@@ -25,7 +25,7 @@ import (
 //	out, err := s.Send(ctx, "What's the weather in Tokyo?")
 //	out, err = s.Send(ctx, "And in Fahrenheit?")
 //
-// Each new turn gets the projected history of the turns before it, and its
+// Each new turn gets the history built from the turns before it, and its
 // agent carries forward from the last user turn field by field. A Session
 // must not be copied after first use.
 type Session struct {
@@ -38,7 +38,7 @@ type Session struct {
 	// empty session.
 	New bool
 	// Runner supplies services. A nil Recorder becomes one in-memory
-	// recorder that the handle keeps across calls, and the first outcome
+	// recorder that the handle keeps across calls, and the first result
 	// warns WarningMemoryOnly. The session sets Runner.CacheKey to its ID.
 	Runner dashi.Runner
 	// Agent overrides fields of the carried agent for new turns: a nonzero
@@ -52,14 +52,14 @@ type Session struct {
 	// works only when the source is a *dashi.Inbox.
 	Steering dashi.Steering
 	// Compactor, when set, runs a compaction turn before a new turn when
-	// the projected history has grown past its threshold. Package
+	// the session's history has grown past its threshold. Package
 	// compaction implements it. Every handle honors compaction turns
 	// already recorded, with or without one.
 	Compactor Compactor
 	// Exclusive promises that this handle is the only driver of the session
 	// and that earlier drivers have exited, so a turn this handle is not
 	// running has no worker. It proves nothing about effects they started:
-	// an unsettled uncertain call still makes a turn busy. A last turn that
+	// an unfinished call whose result is unknown still makes a turn busy. A last turn that
 	// cannot be read is skipped with a warning rather than blocking the
 	// session.
 	Exclusive bool
@@ -79,7 +79,7 @@ type Session struct {
 	compacting string
 	// memory is the recorder used when Runner.Recorder is nil.
 	memory *dashi.MemoryRecorder
-	// warnedMemory is set once an outcome carried WarningMemoryOnly.
+	// warnedMemory is set once a result carried WarningMemoryOnly.
 	warnedMemory bool
 	// created is set once this handle started the session's first turn, or
 	// found turns it may use, so New no longer applies.
@@ -99,7 +99,7 @@ const CloseReason = "a new message moved on"
 
 // A session's own warnings. No turn records them; they arrive on
 // dashi.RunResult.SessionWarnings, beside the dashi.WarningTurnUnreadable and
-// dashi.WarningCompactionMismatch of the session's projected history.
+// dashi.WarningCompactionMismatch of building the session's history.
 const (
 	// WarningTurnClosed means a new Start closed the session's last turn,
 	// which had stopped without ending, with Cancel and CloseReason.
@@ -112,8 +112,8 @@ const (
 	// still run; RunQueue returns the error until the turn can be read.
 	WarningQueueBlocked dashi.WarningCode = "queue_blocked"
 	// WarningCompactionFailed means a compaction turn did not complete with
-	// an answer, or could not start. The session closed it, kept the
-	// previous projected history, and ran the next turn.
+	// a reply, or could not start. The session closed it, kept the
+	// previous history, and ran the next turn.
 	WarningCompactionFailed dashi.WarningCode = "compaction_failed"
 )
 
@@ -128,21 +128,21 @@ var (
 )
 
 // TurnBusyError refuses a Start because the session's last turn is busy:
-// live, possibly live, waiting on the host, or holding an unsettled
-// uncertain call. The message names the way out. It encodes as JSON, so a
+// live, possibly live, waiting on the host, or holding an unfinished call
+// whose result is unknown. The message names the way out. It encodes as JSON, so a
 // server can return it as a 409 body.
 type TurnBusyError struct {
 	TurnID string `json:"turn_id"`
-	// Next is the busy turn's next action, refined with liveness.
+	// Next is the busy turn's next action, refined with its worker status.
 	Next dashi.Next `json:"next"`
 	// Origin is who started the busy turn.
 	Origin dashi.StartOrigin `json:"origin,omitempty"`
 	// Duplicate means the refused Start is a retry of that turn, which may
 	// still be running.
 	Duplicate bool `json:"duplicate,omitempty"`
-	// CallID names the unsettled uncertain call that makes the turn busy
-	// when no worker is known to run the turn. Resolve it after checking its
-	// effect, or Cancel the turn. It is empty while the turn is running.
+	// CallID names the unfinished call with an unknown result that makes
+	// the turn busy when no worker is known to run the turn. Resolve it
+	// after checking its effect, or Cancel the turn. It is empty while the turn is running.
 	CallID string `json:"call_id,omitempty"`
 }
 
@@ -201,9 +201,9 @@ type State struct {
 	Turns int
 	// Last is the last turn's view, or nil when Turns is 0.
 	Last *dashi.TurnView
-	// Next is the last turn's next action, refined with liveness: NextRunning
-	// when this handle runs it or WorkerChecker reports it live. It is
-	// NextNone for a new session.
+	// Next is the last turn's next action, refined with worker status:
+	// NextRunning when this handle runs it or WorkerChecker reports it
+	// live. It is NextNone for a new session.
 	Next dashi.Next
 	// Queued counts the items waiting in this handle's queue, including
 	// those reserved for a turn that is starting.
@@ -220,11 +220,11 @@ func (s *Session) Send(
 	return s.Run(ctx, dashi.Say(text), opts...)
 }
 
-// Resolve records each answer with Resolve, then runs one Continue, so a
-// host answers a waiting turn in one call; the record keeps a step per
-// answer. It stops at the first Resolve error. A Resolve without a command
-// ID gets "resolve:" and its CallID, as Pending's builders derive theirs
-// from the call, and the Continue's command ID derives from the answers',
+// Resolve records each dashi.Resolve command, then runs one Continue, so a
+// host resolves a waiting turn's pending work in one call; the record keeps
+// a step per Resolve. It stops at the first Resolve error. A Resolve without
+// a command ID gets "resolve:" and its CallID, as Pending's builders derive
+// theirs from the call, and the Continue's command ID derives from theirs,
 // so a retried Resolve is recognized. Each run gets opts, as Run's would:
 // WithOwner for a leasing host, WithObserver for a live view of the
 // Continue.
@@ -264,9 +264,9 @@ func (s *Session) Resolve(
 // Exclusive: then the Start leaves it out of the history with a
 // dashi.WarningTurnUnreadable and starts the turn after it. Queued user
 // input (see Enqueue) goes ahead of the Start's Input. Any other command
-// (Continue, Resolve, AddMessages, Cancel) goes to the last turn. The session sets Start.History and Continue.History to the
-// projected history of the turns before the target turn, replacing any the
-// caller set, and gives a Start the carried agent. A Start's command ID
+// (Continue, Resolve, AddMessages, Cancel) goes to the last turn. The
+// session sets Start.History and Continue.History to the history built from
+// the turns before the target turn, replacing any the caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
 // turns, and a Start cannot claim origin StartCompaction or set
 // Compaction. Every turn gets the handle's steering source (see Steering).
@@ -276,10 +276,10 @@ func (s *Session) Resolve(
 // turn stops any other way; the result is the last turn's, with the
 // session warnings of the earlier ones. With a Compactor, a compaction
 // turn may run first, before a Start, under the Start's Budget, or before
-// a queue turn: the next turn's outcome carries its session warnings, and
+// a queue turn: the next turn's result carries its session warnings, and
 // WarningCompactionFailed when it fails.
 //
-// The outcome and error mean what dashi.Runner.Run's do, and
+// The result and error mean what dashi.Runner.Run's do, and
 // RunResult.SessionWarnings adds the session's own warnings.
 func (s *Session) Run(
 	ctx context.Context,
@@ -293,7 +293,7 @@ func (s *Session) Run(
 }
 
 // checkCommand refuses a nil command, a Start with a reserved key, and a
-// Start that claims to be a compaction turn: the session's projection
+// Start that claims to be a compaction turn: building the session's history
 // trusts compaction turns, so only its Compactor may start them.
 func checkCommand(c dashi.Command) error {
 	switch c := c.(type) {
@@ -326,7 +326,7 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 	if s.ID == "" {
 		return State{Next: dashi.NextNone, Queued: queued}, nil
 	}
-	// A reservation that cannot be settled holds only the queue back.
+	// A reservation that cannot be finished holds only the queue back.
 	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
@@ -368,7 +368,7 @@ func (s *Session) planCommand(
 	if s.ID == "" {
 		return commandPlan{}, ErrNotFound
 	}
-	// A reservation that cannot be settled holds only the queue back.
+	// A reservation that cannot be finished holds only the queue back.
 	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
@@ -425,7 +425,7 @@ func takenKey(err error) bool {
 		ce.Step.Kind == dashi.StepTurnStarted
 }
 
-// startPlan is a chosen new turn, or the answer that replaces running one.
+// startPlan is a chosen new turn, or the result that replaces running one.
 type startPlan struct {
 	n        int
 	id       string
@@ -439,7 +439,7 @@ type startPlan struct {
 	closing []dashi.Event
 	// compact marks a compaction turn, which runs before the planned turn.
 	compact bool
-	// done is the result when no turn runs: a retried command's outcome.
+	// done is the result when no turn runs: a retried command's result.
 	done *dashi.RunResult
 }
 
@@ -455,7 +455,7 @@ func (s *Session) planStart(
 		s.ID = dashi.NewID()
 		s.created = true
 	}
-	// A reservation that cannot be settled holds only the queue back; its
+	// A reservation that cannot be finished holds only the queue back; its
 	// items are not free, so this Start does not take them.
 	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
@@ -556,7 +556,7 @@ func (s *Session) checkExists(last int) error {
 // duplicate applies the idempotency check. It scans back from the last
 // turn through the newest turn a caller's Start began; queue and
 // compaction turns never end the window, since they run after the caller's
-// turn. A match with the same input returns the turn's current outcome,
+// turn. A match with the same input returns the turn's current result,
 // as the first call returned it, unless the turn may still be running
 // (NextRunning or NextRecover): then waiting helps, and it returns a
 // duplicate busy error. A match with other input conflicts.
@@ -603,7 +603,7 @@ func (s *Session) duplicate(
 // readLast loads the last turn before a new turn starts. Without Exclusive,
 // a last turn that cannot be read is an error: its worker may still run it.
 // Under Exclusive it has no worker, so the session skips it: t is nil, and
-// skip is the turn_unreadable warning for the new turn's outcome. The
+// skip is the turn_unreadable warning for the new turn's result. The
 // caller holds mu.
 func (s *Session) readLast(
 	ctx context.Context,
@@ -646,7 +646,7 @@ func (s *Session) closeLast(
 	if t.view.Output != nil {
 		// The engine refuses Cancel once structured output is recorded, so
 		// Continue completes the turn without a model call, raising a spent
-		// model-attempt limit so that it can.
+		// model-call limit so that it can.
 		cont := dashi.Continue{CommandID: "close:" + id}
 		if l := t.view.Stop.Limit; l != nil && l.Kind == dashi.LimitModelCalls {
 			cont.ModelCalls = int(l.Limit) + 1
@@ -678,10 +678,10 @@ func (s *Session) closeLast(
 	return true, events, nil
 }
 
-// finish records a command's result in the cache, settles the queued items
-// it carried (started: the run reported its turn_started step), moves
-// missed steers to the queue when its turn ended, and adds the session's
-// warnings to its outcome. Clearing the running turn and
+// finish records a command's result in the cache, finishes the reservation
+// of the queued items it carried (started: the run reported its
+// turn_started step), moves missed steers to the queue when its turn ended,
+// and adds the session's warnings to its result. Clearing the running turn and
 // moving missed steers happen under one lock, so a steer is either in the
 // inbox when they move or goes to the queue itself.
 func (s *Session) finish(

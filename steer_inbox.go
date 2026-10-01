@@ -18,8 +18,8 @@ import (
 //
 // A steer the inbox hands to a run is claimed: Cancel no longer removes it.
 // When the run ends, claims it did not record are released. A steer in a
-// write whose outcome is unknown is in doubt: it goes only to runs of the
-// same turn until Leftovers reconciles it against the reloaded turn.
+// write whose result is unknown is in doubt: it goes only to runs of the
+// same turn until Leftovers checks it against the reloaded turn.
 //
 // Inbox is a SteeringNotifier: an urgent steer signals Ready, so the run
 // can cut short the model call in flight. The zero value is ready to use.

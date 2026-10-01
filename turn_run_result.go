@@ -13,13 +13,13 @@ import (
 
 // RunResult is what Run returns: the turn's record and what it means now.
 //
-// An RunResult is always the latest known state, and Run's error says whether
+// A RunResult is always the latest known state, and Run's error says whether
 // the command applied. After a rejected command it holds the caller's turn,
 // unchanged. After a step write that was not acknowledged (a *CommitError),
 // it holds the steps this run knows were saved.
 //
-// The embedded TurnView gives the stop, answer text, structured output,
-// spend, pending work, and per-call state without a replay.
+// The embedded TurnView gives the stop, reply text, structured output,
+// spend, pending work, and per-call state without calling Turn.View.
 type RunResult struct {
 	// Turn is the record to pass to the next Run.
 	Turn Turn
@@ -34,48 +34,50 @@ type RunResult struct {
 type PendingKind string
 
 const (
-	// PendingApproval is a local call a BeforeTool hook deferred, or a
-	// provider-hosted approval request. Answer it with Approve or Deny.
+	// PendingApproval is a local call a BeforeTool hook said needs
+	// approval, or a provider tool approval request. Resolve it with
+	// Approve or Deny.
 	PendingApproval PendingKind = "approval"
-	// PendingTool is a local call that started, waits for an external
-	// result, or has an uncertain effect; Tool.Status says which. Report
-	// its result with Result. Continue also recovers a started call: it
-	// reruns a call declared read-only or idempotent and marks any other
-	// uncertain.
+	// PendingTool is a local call that started, waits for an outside
+	// result, or may have run with an unknown result; Tool.Status says
+	// which. Report its result with Result. Continue also recovers a
+	// started call: it reruns a call declared read-only or idempotent and
+	// marks any other result_unknown.
 	PendingTool PendingKind = "tool"
-	// PendingModel is a model attempt without a recorded result. Continue
-	// recovers it, or Resolve reconciles it with a ModelResult or
+	// PendingModel is a model call without a recorded result. Continue
+	// recovers it, or Resolve supplies its result with a ModelResult or
 	// ModelFailure.
 	PendingModel PendingKind = "model"
 )
 
 // Pending is one piece of work a stopped turn waits on. Its methods build
-// the Resolve command that answers it, so the caller never copies argument
-// digests or IDs by hand. Each builder derives the command
-// ID from the item: a retried answer is recognized as a duplicate, and a
-// different second answer fails with ErrCommandIDReused.
+// the Resolve command for it, so the caller never copies argument hashes or
+// IDs by hand. Each builder derives the command ID from the item: a retried
+// command is recognized as a duplicate, and a different second command
+// fails with ErrCommandIDReused.
 //
 // Calls that are only requested, allowed, or denied need nothing but
 // Continue and are not listed.
 type Pending struct {
 	Kind PendingKind `json:"kind"`
-	// ID is the tool call, hosted request, or model attempt ID.
+	// ID is the tool call, provider tool request, or model call ID.
 	ID string `json:"id"`
-	// ModelCallID is the model attempt that produced the item.
+	// ModelCallID is the model call that produced the item.
 	ModelCallID string `json:"model_call_id,omitempty"`
 	// Name and Args describe what a person approves: the tool name and
-	// arguments of a local call or a hosted request.
+	// arguments of a local call or a provider tool request.
 	Name string          `json:"name,omitempty"`
 	Args json.RawMessage `json:"args,omitempty"`
 	// Tool is the call's state, set for local calls.
 	Tool *ToolView `json:"tool,omitempty"`
-	// Hosted is the provider's request, set for hosted approvals.
+	// ProviderTool is the provider's request, set for provider tool
+	// approvals.
 	ProviderTool *llm.ProviderToolApprovalRequest `json:"provider_tool,omitempty"`
 }
 
 // Approve builds the Resolve command that approves this call with exactly
-// the arguments shown. Resolve
-// only records the answer; Continue runs the call.
+// the arguments shown. Resolve only records the decision; Continue runs the
+// call.
 func (p Pending) Approve() Resolve {
 	return p.answer(true, "")
 }
@@ -88,7 +90,7 @@ func (p Pending) Deny(reason string) Resolve {
 }
 
 // Result builds the Resolve command that reports a final outcome for a
-// waiting, started, or uncertain local call.
+// local call that is waiting, started, or has an unknown result.
 func (p Pending) Result(outcome tool.Outcome) Resolve {
 	// Call IDs are unique within a turn; see answer.
 	return Resolve{
@@ -101,7 +103,8 @@ func (p Pending) Result(outcome tool.Outcome) Resolve {
 func (p Pending) answer(approve bool, reason string) Resolve {
 	if p.ProviderTool != nil {
 		// A provider may reuse a request ID after the earlier request was
-		// answered, so the attempt scopes the command ID to this request.
+		// resolved, so the model call ID scopes the command ID to this
+		// request.
 		return Resolve{
 			CommandID: "provider-tool-approval:" + p.ModelCallID + ":" + p.ID,
 			CallID:    p.ID,
@@ -118,9 +121,9 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 		Approve: approve,
 		Reason:  reason,
 	}
-	// Replay rejects a repeated tool call ID anywhere in a turn, so the
-	// call ID alone identifies this answer. An item that is not an
-	// approval gets an empty digest, which Run rejects as not pending.
+	// View rejects a repeated tool call ID anywhere in a turn, so the
+	// call ID alone identifies this decision. An item that is not an
+	// approval gets an empty hash, which Run rejects as not pending.
 	if p.Tool != nil {
 		fact.ArgsHash = p.Tool.ArgsHash
 	}
@@ -132,7 +135,7 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 }
 
 // restingOutcome is the RunResult for a command that did not apply: the
-// caller's turn and its view. A turn that fails replay has no view.
+// caller's turn and its view. A turn whose view cannot be built has no view.
 func restingOutcome(turn Turn) RunResult {
 	s, err := replay(turn)
 	if err != nil {

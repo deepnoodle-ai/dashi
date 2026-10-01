@@ -20,23 +20,23 @@ type Runner struct {
 	// or Continue that would call the model, or a Start whose agent leaves
 	// any of the three empty. A Start with an already-closed pause, whose
 	// agent names all three, records the turn without one (see WithPause),
-	// and Resolve, AddMessages, and Cancel record facts with a Recorder alone.
+	// and Resolve, AddMessages, and Cancel record steps with a Recorder alone.
 	// When set, it must match the turn's provider and API.
 	Client llm.Client
 	// Tools implements the tools a turn may call. It is resolved before each
 	// model call, so a dynamic toolset can change between calls; the turn's
 	// Agent.Tools and Agent.NoTools select from it by name.
 	Tools tool.Toolset
-	// Recorder acknowledges steps. When nil, Run uses an in-memory recorder
+	// Recorder saves steps. When nil, Run uses an in-memory recorder
 	// for that call; pass the returned Turn to a later Continue.
 	Recorder Recorder
-	// Hooks decide and shape model calls, tool calls, and final answers.
+	// Hooks decide and shape model calls, tool calls, and final replies.
 	// With none, every bound local and external tool runs. Supply the same
 	// hooks on every command for a turn; WithHooks adds per-command extras.
 	Hooks Hooks
 	// Observer receives every committed step, plus provisional deltas and
 	// tool progress, which it may drop (see Observer). When it is set, Run
-	// requests streamed model output and delivers tool.Report snapshots so
+	// requests streamed model output and passes on tool.Report snapshots so
 	// the Observer sees work as it happens; Stream always does.
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
@@ -80,15 +80,14 @@ func WithOwner(owner string) RunOption {
 // WithPause requests a stop before the next model or tool call once pause is
 // closed. Closing it does not interrupt work already in flight.
 //
-// A Start with an already-closed pause admits a turn without running it:
+// A Start with an already-closed pause records a turn without running it:
 // the turn records its Start step and an interrupted stop ("pause
 // requested"), and no model request is prepared or sent. It needs no Client
 // when the agent names its provider, API, and model. Next then gives
-// NextContinue; a later Continue runs the turn without counting an
-// interruption, since none of its work was cut short, and a Cancel, which
-// needs no Client, ends it.
-// A host uses this to fix the admitted request in the record before any paid
-// request runs.
+// NextContinue; a later Continue runs the turn without counting a resume
+// (Limits.Resumes), since none of its work was cut short, and a Cancel,
+// which needs no Client, ends it. A host uses this to save the turn's
+// request in the record before any paid request runs.
 func WithPause(pause <-chan struct{}) RunOption {
 	return func(o *runOptions) {
 		o.pause = pause
@@ -106,7 +105,7 @@ const (
 )
 
 // HistoryMismatch selects how Continue treats prior history that differs
-// from the history fingerprinted at Start.
+// from the history whose hash was recorded at Start.
 type HistoryMismatch string
 
 const (
@@ -125,9 +124,9 @@ const (
 // rejected command yields only an error; a write the recorder did not
 // acknowledge yields the RunResult event and its *CommitError together.
 // Breaking the range ends the context. By default, the turn records an
-// interruption; ContextCancel on the Runner makes the break a final cancel.
-// Reload the turn by ID to inspect committed facts, since no final event
-// follows a break. A second range yields ErrStreamConsumed instead of
+// interrupted stop; ContextCancel on the Runner makes the break a final
+// cancel. Reload the turn by ID to inspect committed steps, since no final
+// event follows a break. A second range yields ErrStreamConsumed instead of
 // repeating work.
 func (r Runner) Stream(
 	ctx context.Context,
@@ -179,8 +178,9 @@ func (r Runner) Stream(
 //     or may have been. The RunResult holds the steps this run knows were
 //     saved; see CommitError.
 //   - ErrRecordInvalid (which also matches ErrInvalidTurn): steps this run
-//     recorded fail replay, a bug in the runner or recorder. Something was
-//     recorded; the RunResult holds the steps without a view.
+//     recorded fail the record checks, a bug in the runner or recorder.
+//     Something was recorded; the RunResult holds the steps without a
+//     view.
 //   - any other error: the command was rejected and nothing was recorded.
 //     The RunResult is the caller's turn and its view, unchanged. An invalid
 //     input turn gives ErrInvalidTurn alone.

@@ -150,7 +150,7 @@ func steeringInterrupts(turn Turn) int {
 	return n
 }
 
-// unsafeHostedTool is a provider-hosted tool without annotations, so a
+// unsafeProviderTool is a provider tool without annotations, so a
 // call offering it is not safe to repeat.
 func unsafeProviderTool() tool.Tool {
 	return tool.Tool{Definition: tool.Definition{
@@ -538,7 +538,7 @@ func (c adaptingClient) Prepare(
 	return c.urgentClient.Prepare(ctx, in)
 }
 
-// searchTool is a provider-hosted search that is safe to repeat, so only
+// searchTool is a provider search tool that is safe to repeat, so only
 // the pause can keep a call offering it from being cut.
 func searchTool() tool.Tool {
 	return tool.Tool{Definition: tool.Definition{
@@ -553,7 +553,7 @@ func searchTool() tool.Tool {
 	}}
 }
 
-// pausedMidSearch is a result the provider paused while a hosted search
+// pausedMidSearch is a result the provider paused while a provider search
 // had not finished, as an Anthropic pause_turn does. The request after it
 // must end with it, so the provider can finish the search.
 func pausedMidSearch() llm.Result {
@@ -669,7 +669,7 @@ func TestUrgentSteerDoesNotCutAPausedProviderToolCall(t *testing.T) {
 	}
 }
 
-// pausedWithFinishedSearch is a pause whose hosted search has its result in
+// pausedWithFinishedSearch is a pause whose provider search has its result in
 // the same message, so nothing is left for the continuation to finish.
 func pausedWithFinishedSearch() llm.Result {
 	result := pausedMidSearch()

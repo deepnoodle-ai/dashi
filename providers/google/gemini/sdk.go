@@ -341,7 +341,7 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 }
 
 // sdkStream forwards SDK stream chunks to a sink as provisional deltas. It
-// keeps state across chunks so usage deltas carry cumulative hosted-tool
+// keeps state across chunks so usage deltas carry cumulative provider-tool
 // counts, including counts from metadata that arrives after the last
 // usageMetadata.
 type sdkStream struct {
@@ -419,7 +419,7 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 	}
 }
 
-// observe counts one chunk's hosted work. The SDK's typed metadata is
+// observe counts one chunk's provider tool work. The SDK's typed metadata is
 // re-encoded to its wire JSON so both stream paths count with one set of
 // rules.
 func (s *sdkStream) observe(candidate *genai.Candidate) bool {

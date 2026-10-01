@@ -121,6 +121,6 @@ func TestAutomationInvocationSignalsCancelWholeInputBeforeAcceptance(t *testing.
 		if err := json.Unmarshal(out.Bytes(), &object); err != nil || len(object.Messages) != 0 {
 			t.Fatalf("signal=%v out=%q err=%v", sig, out.String(), err)
 		}
-		fmt.Fprintf(os.Stderr, "signal %d: exit %d, empty response, no admission\n", sig, want)
+		fmt.Fprintf(os.Stderr, "signal %d: exit %d, empty response, nothing accepted\n", sig, want)
 	}
 }

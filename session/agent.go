@@ -29,7 +29,7 @@ func (s *Session) agentFor(ctx context.Context, start dashi.Agent, last int) das
 // A deadline is an absolute time that would stop the next turn before its
 // first call. Provider, API, and model carry only while they match the
 // runner's client, so a host that changes clients does not fail every
-// turn. A derived revision is dropped and derived again, since the merged
+// turn. A derived version is dropped and derived again, since the merged
 // agent may differ.
 func (s *Session) carried(a dashi.Agent) dashi.Agent {
 	a.Limits.Deadline = time.Time{}

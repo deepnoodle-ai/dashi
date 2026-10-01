@@ -19,7 +19,8 @@ const (
 	// ContentChangeOmitReasoning drops a recognized reasoning block that cannot
 	// be replayed to the selected destination under an explicit input policy.
 	ContentChangeOmitReasoning ContentChangeAction = "omit_reasoning"
-	// ContentChangeOmitHostedActivity records one omitted foreign hosted item.
+	// ContentChangeOmitProviderToolActivity records one omitted foreign
+	// provider tool item.
 	ContentChangeOmitProviderToolActivity ContentChangeAction = "omit_provider_tool_activity"
 	// ContentChangeConvertRole records an API's representation of developer
 	// authority.

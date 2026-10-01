@@ -25,7 +25,7 @@ type streamClient struct {
 	words []string
 	hold  chan struct{}
 	// read, when set, holds the reply until the reader has consumed the
-	// deltas: a delta the Observer delivers after its settling step is
+	// deltas: a delta the Observer delivers after its finish step is
 	// rightly dropped, which would make a test's expected shape racy.
 	read chan struct{}
 	// stop is the model's stop; zero means finished.
@@ -227,7 +227,7 @@ func TestFollowWakesOnObservedSteps(t *testing.T) {
 }
 
 // The review's regression: the Observer delivers a message's deltas late,
-// after a reader resumed from the step that settled it. Nothing is sent.
+// after a reader resumed from the step that finished it. Nothing is sent.
 func TestFollowDropsPreviewsFinishedBeforeCursor(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
@@ -460,7 +460,7 @@ func TestFollowCleansUpOnExit(t *testing.T) {
 	for range Follow(ctx, &hub, rec, "other", 0) {
 	}
 	cancel()
-	// A terminal stop while previews are held.
+	// The turn ends while previews are held.
 	rd := &hub
 	go func() {
 		time.Sleep(10 * time.Millisecond)
@@ -482,7 +482,7 @@ func TestManyDisconnectsLeaveNoEntries(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
 	// The run is not observed, so the hub has nothing of its own to keep
-	// for the turn (it remembers settled messages of observed runs).
+	// for the turn (it remembers finished messages of observed runs).
 	if _, err := runner(client, rec, nil).Run(
 		t.Context(), dashi.Turn{ID: "t1"}, start(),
 	); err != nil {
@@ -566,9 +566,10 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 
 // An Observer gap for a turn nobody follows yet still marks its message
 // streaming, so a reader that joins before the next delta gets a gap.
-// Once the hub observes a message's settling step, a delayed delta or gap
+// Once the hub observes a message's finish step, a delayed delta or gap
 // from an overlapping run cannot reopen it: readers do not get it, and a
-// reader that joins gets no gap for it. A terminal stop forgets the turn.
+// reader that joins gets no gap for it. The stop that ends the turn forgets
+// the turn.
 func TestFinishedMessageStaysClosed(t *testing.T) {
 	var hub Hub
 	rd := hub.subscribe("t1")
@@ -673,7 +674,7 @@ func TestHubReadersComeAndGo(t *testing.T) {
 	waitFor(t, func() bool { return hub.readers("t1") == 0 })
 }
 
-// When the settling step's commit fails, no settle and no gap arrive; the
+// When the finish step's commit fails, no finish and no gap arrive; the
 // reader keeps the deltas it has and ends with its context.
 func TestFollowAfterAFailedCommit(t *testing.T) {
 	var hub Hub

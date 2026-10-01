@@ -223,7 +223,8 @@ func TestRecordersRejectUnsafeTokenCallStartBeforeStorage(t *testing.T) {
 }
 
 // A host may record an open cost stop while external work remains pending.
-// Its late charge cannot silently change that recorded stop's terminality.
+// Its late cost cannot silently change whether that recorded stop ended the
+// turn.
 func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 	for _, kind := range []string{"memory", "file", "custom"} {
 		t.Run(kind, func(t *testing.T) {

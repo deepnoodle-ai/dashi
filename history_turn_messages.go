@@ -11,20 +11,21 @@ import (
 )
 
 // TurnMessagesFull returns this turn's own model messages without modifying the record.
-// It excludes prior conversation history, which the application owns. Unsettled
-// client calls and model intents cannot be projected into a new request, so
-// TurnMessagesFull fails on a turn that has them, unless the turn has ended.
+// It excludes prior conversation history, which the application owns.
+// Unfinished client calls and started model calls cannot go into a new
+// request, so TurnMessagesFull fails on a turn that has them, unless the turn
+// has ended.
 //
-// An ended turn (Stop.Ended) always projects, and only up to its terminal
-// stop: results recorded after it count in Spend but never change the
-// projection. Each tool call still started, waiting, or uncertain there
-// projects as an error result, and a model attempt with no recorded result
-// projects nothing.
+// An ended turn (Stop.Ended) always gives its messages, and only up to the
+// stop that ended it: results recorded after it count in Spend but never
+// change the messages. Each tool call still started, waiting, or with an
+// unknown result there shows as an error result, and a model call with no
+// recorded result shows nothing.
 func TurnMessagesFull(t Turn) ([]llm.Message, error) {
 	return publicTurnMessages(t, nil, false)
 }
 
-// modelToolResult is the result the model sees for a settled outcome when
+// modelToolResult is the result the model sees for a finished outcome when
 // no result hook replaced it.
 func modelToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 	output := tool.TextOutput("Tool was not executed.")
@@ -52,8 +53,9 @@ func sharedToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 	}
 }
 
-// projectWithHistory assembles one model request from the current call's prior
-// history and this turn's recorded messages. It never stores that history.
+// turnMessagesWithHistory assembles one model request from the current
+// call's prior history and this turn's recorded messages. It never stores
+// that history.
 func turnMessagesWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
 	return publicTurnMessages(t, history, true)
 }
@@ -130,8 +132,8 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 		}
 	}
 	// A NextCallOnly item expires once a model call that was dispatched
-	// follows it. A request settled without dispatch, or not settled at all,
-	// showed the model nothing.
+	// follows it. A request finished without being sent, or not finished at
+	// all, showed the model nothing.
 	lastDispatched := lastDispatchedCallStart(t)
 	resumed := lastCrashResume(t.Steps)
 	for _, step := range t.Steps {
@@ -150,7 +152,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			}
 		case StepMessagesAdded, StepLoopContinued, StepToolFinished:
 			// A turned-down submission's items follow its result, which is
-			// projected with the model message that made the call.
+			// shown with the model message that made the call.
 			if step.Context == nil {
 				continue
 			}
@@ -187,8 +189,9 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			}
 			m := step.Model.Result.Message.Clone()
 			// An incomplete result may contain a partial client call. It was
-			// recorded for audit but never admitted as an actionable tool request.
-			// Keep its other content without creating a dangling call in history.
+			// recorded for audit but never accepted as an actionable tool
+			// request. Keep its other content without creating a dangling call
+			// in history.
 			content := make([]llm.Content, 0, len(m.Content))
 			for _, part := range m.Content {
 				if part.Kind == llm.ContentProviderToolApprovalRequest {
@@ -232,7 +235,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 				var result llm.ToolResult
 				switch {
 				case v.Status != ToolFinished:
-					// Only an ended turn projects an unsettled call.
+					// Only an ended turn shows an unfinished call.
 					result = endedToolResult(v.Call.ID)
 				case v.Outcome == nil:
 					continue
@@ -269,9 +272,9 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 	return out, nil
 }
 
-// endedLength is how many steps an ended turn's history and answer read:
-// all of them, up to its terminal stop. Nothing but late results follows a
-// terminal stop, so the last stop is the terminal one.
+// endedLength is how many steps an ended turn's history and reply read:
+// all of them, up to the stop that ended it. Nothing but late results follows
+// that stop, so the last stop is the one that ended the turn.
 func endedLength(steps []Step, stop Stop) int {
 	end := len(steps)
 	if !stop.Ended {
@@ -304,8 +307,8 @@ func lastCrashResume(steps []Step) int64 {
 }
 
 // endedToolResult is what the model sees for a call still started, waiting,
-// or uncertain when its turn ended. Its effect is unknown, so it is an
-// error, never a made-up success.
+// or with an unknown result when its turn ended. Its effect is unknown, so it
+// is an error, never a made-up success.
 func endedToolResult(callID string) llm.ToolResult {
 	return llm.ToolResult{
 		CallID:  callID,
@@ -318,9 +321,10 @@ const endedToolText = "Result unknown; the turn ended."
 
 // crashResumeReminder follows a Continue that resumed a turn with no
 // recorded stop, whose worker stopped mid-turn. The runner reruns only
-// read-only or idempotent calls and marks the rest uncertain; the reminder
-// covers the model's side. Like steeringReminder it is projected, never
-// recorded, and a later dispatched call drops it.
+// read-only or idempotent calls and marks the rest result unknown; the
+// reminder covers the model's side. Like steeringReminder it is added to the
+// messages the model sees, never recorded, and a later dispatched call drops
+// it.
 func crashResumeReminder() llm.Message {
 	return llm.ReminderMessage(llm.Reminder{
 		Name:    "worker-restarted",
@@ -332,7 +336,7 @@ func crashResumeReminder() llm.Message {
 const crashResumeText = "The previous worker stopped in the middle of " +
 	"this turn. Check the current state before you repeat any action."
 
-// steeredPartial projects a call an urgent steer cut short: its partial
+// steeredPartial shows a call an urgent steer cut short: its partial
 // text as one assistant message, then a reminder that the user interrupted
 // it; the steer itself follows in its own step. This refines decision 9,
 // which keeps interrupted output from the model, for steering only: the
@@ -359,7 +363,8 @@ func steeredPartial(result *llm.Result) []llm.Message {
 }
 
 // steeringReminder tells the model its previous response was cut short. It
-// is projected, never recorded, so its wording can change between versions.
+// is added to the messages the model sees, never recorded, so its wording
+// can change between versions.
 func steeringReminder() llm.Message {
 	return llm.ReminderMessage(llm.Reminder{
 		Name:    "steering-interrupted",
@@ -368,8 +373,8 @@ func steeringReminder() llm.Message {
 	})
 }
 
-// lastDispatchedIntent returns the sequence number of the latest model
-// request whose call was dispatched, or zero.
+// lastDispatchedCallStart returns the sequence number of the latest
+// model_call_started step whose call was dispatched, or zero.
 func lastDispatchedCallStart(t Turn) int64 {
 	callStarts := map[string]int64{}
 	var last int64
@@ -387,10 +392,10 @@ func lastDispatchedCallStart(t Turn) int64 {
 	return last
 }
 
-// modelDispatched reports whether a settlement shows evidence that the call
-// reached the provider: any part of a provider response (an ID, content,
+// modelDispatched reports whether a recorded result shows evidence that the
+// call reached the provider: any part of a provider response (an ID, content,
 // usage, or a stop), or a rejection, which only a provider gives. A
-// settlement without such evidence, such as a call stopped before dispatch
+// recorded result without such evidence, such as a call stopped before dispatch
 // or one recovered after a worker crash, does not count; a recovered call is
 // resent on resume, so an item kept for it goes with the resend, and a
 // NextCallOnly item may reach the model twice rather than never. A call an

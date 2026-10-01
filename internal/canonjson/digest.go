@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 )
 
-// DigestPrefix names the hash and the canonical encoding a digest covers.
+// HashPrefix names the hash function and the canonical encoding a hash covers.
 const HashPrefix = "v2:sha256:"
 
-// Digest identifies v by the SHA-256 of its canonical JSON.
+// Hash identifies v by the SHA-256 of its canonical JSON.
 func Hash(v any) string {
 	b, err := Marshal(v)
 	if err != nil {

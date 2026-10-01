@@ -205,7 +205,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		return delegate.ErrTaskBusy
 	}
 	if snapshot.View.Stop.Ended {
-		return fmt.Errorf("task is terminal")
+		return fmt.Errorf("task has ended")
 	}
 	switch action {
 	case "done":
@@ -220,23 +220,23 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		if pending == nil {
 			return fmt.Errorf("call %s is not an already-started pending effect", callID)
 		}
-		if err := c.confirmTask(ctx, snapshot, callID, fmt.Sprintf("Verify that this exact external effect completed. It may still be running.\nTask %s · Turn %s · revision %d\nCall %s · tool %s\nArguments: %s\nNo tool runs and no output is recovered by this action.", id, snapshot.View.ID, snapshot.View.LastSeq, callID, pending.Name, string(pending.Args))); err != nil {
+		if err := c.confirmTask(ctx, snapshot, callID, fmt.Sprintf("Verify that this exact external effect completed. It may still be running.\nTask %s · Turn %s · step %d\nCall %s · tool %s\nArguments: %s\nNo tool runs and no output is recovered by this action.", id, snapshot.View.ID, snapshot.View.LastSeq, callID, pending.Name, string(pending.Args))); err != nil {
 			return err
 		}
 		outcome := tool.Succeeded("Operator verified this exact call completed; its output was not captured.")
 		_, err = c.runTaskCommand(ctx, snapshot, action, callID, dashi.Resolve{CallID: callID, Outcome: &outcome})
 		return err
 	case "discard":
-		if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Discard task %s, Turn %s, revision %d? Uncertain effects may already have run. This does not prove they stopped.", id, snapshot.View.ID, snapshot.View.LastSeq)); err != nil {
+		if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Discard task %s, Turn %s, step %d? Effects whose result is unknown may already have run. This does not prove they stopped.", id, snapshot.View.ID, snapshot.View.LastSeq)); err != nil {
 			return err
 		}
-		_, err = c.runTaskCommand(ctx, snapshot, action, "", dashi.Cancel{Reason: "Operator discarded this exact stopped task; uncertain effects may have run."})
+		_, err = c.runTaskCommand(ctx, snapshot, action, "", dashi.Cancel{Reason: "Operator discarded this exact stopped task; effects whose result is unknown may have run."})
 		return err
 	case "continue":
-		// Every deferred original approval gets its own bound recorded response.
+		// Every original approval still waiting gets its own bound recorded response.
 		for _, p := range snapshot.View.Pending {
 			if p.Kind != dashi.PendingApproval {
-				return fmt.Errorf("pending %s %s requires explicit reconciliation before continuation", p.Kind, p.ID)
+				return fmt.Errorf("pending %s %s must be resolved explicitly before continuation", p.Kind, p.ID)
 			}
 			owner := brokerOwner{TaskID: snapshot.Task.SessionID, Call: dashi.CallRef{TurnID: snapshot.View.ID, CallID: p.ID}}
 			answer, err := c.Approve(context.WithValue(ctx, brokerOwnerKey{}, owner), ApprovalRequest{Tool: p.Name, Summary: p.Name, Args: p.Args, RememberScope: "This exact recorded task call only"})
@@ -265,10 +265,10 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		case dashi.NextRaiseModelCalls:
 			limit := snapshot.View.Stop.Limit
 			if limit == nil || limit.Limit <= 0 || limit.Limit > int64(math.MaxInt/2) {
-				return fmt.Errorf("recorded attempt cap cannot be safely doubled")
+				return fmt.Errorf("recorded model-call cap cannot be safely doubled")
 			}
 			cmd.ModelCalls = int(limit.Limit) * 2
-			if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Raise the exact task %s Turn %s attempt cap from %d to %d? This is not a dollar cap.", id, snapshot.View.ID, limit.Limit, cmd.ModelCalls)); err != nil {
+			if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Raise the exact task %s Turn %s model-call cap from %d to %d? This is not a dollar cap.", id, snapshot.View.ID, limit.Limit, cmd.ModelCalls)); err != nil {
 				return err
 			}
 		case dashi.NextFix:
@@ -334,5 +334,5 @@ func (c *Controller) taskSpend() {
 	if c.eng.handle() != chat {
 		return
 	}
-	c.notice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 24 attempts; General: 32 attempts; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
+	c.notice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 24 model calls; General: 32 model calls; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
 }

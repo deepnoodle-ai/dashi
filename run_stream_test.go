@@ -113,7 +113,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 		}
 		if event.Result != nil {
 			terminals++
-			// The final event carries the outcome and the write failure
+			// The final event carries the RunResult and the write failure
 			// together.
 			if !nothingWritten(err) {
 				t.Fatalf("outcome=%+v err=%v", event.Result, err)

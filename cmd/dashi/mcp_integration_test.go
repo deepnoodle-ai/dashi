@@ -226,6 +226,6 @@ func TestMCPWontonStartupPreservesRejectedDraft(t *testing.T) {
 	})
 	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && s.input == "kept draft" })
 	if cfg.Client.(*fakeClient).sends != 0 || h.app.eng.Queued() != 0 || h.app.eng.Saved() {
-		t.Fatal("startup admitted input")
+		t.Fatal("startup accepted input")
 	}
 }

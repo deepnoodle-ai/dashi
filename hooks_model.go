@@ -13,7 +13,7 @@ import (
 )
 
 // beforeModel runs the BeforeModel chain, applying each hook's settings and
-// hides to input. It returns the items to deliver, the tools hidden from
+// hides to input. It returns the items to add, the tools hidden from
 // this call in the order they were first hidden, or a hook's stop. A hook
 // that fails or answers invalidly is skipped with a warning, since
 // BeforeModel only shapes the request. The returned RunResult is set when the
@@ -147,7 +147,7 @@ func hideTools(
 
 // keepToolChoiceOffered clears a forced tool choice that names a hidden
 // tool, whichever hook hid it: the hide wins. When no tools remain, the tool
-// choice and ParallelTools are cleared, as on the reserved final-answer
+// choice and ParallelTools are cleared, as on the reserved final-reply
 // call, since providers reject them without tools. Only losing a forced
 // choice warns.
 func keepToolChoiceOffered(
@@ -249,7 +249,7 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 }
 
 // beforeSend runs the BeforeSend chain for a prepared request. It returns
-// the admissions by hook name, or the stop that ends the run: a hook's
+// the reservations by hook name, or the stop that ends the run: a hook's
 // denial, or StopReasonHookFailed when a hook fails, since BeforeSend guards
 // spending.
 func (r *runtime) beforeSend(

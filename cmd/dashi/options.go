@@ -201,7 +201,7 @@ const usage = `Usage: dashi [flags]
 A terminal coding agent.
 
 Flags:
-  -p, --print PROMPT   run one turn without a screen and print the answer
+  -p, --print PROMPT   run one turn without a screen and print the reply
       --output-format text|json|jsonl  run one request with response-only output
   -c, --resume [ID]    reopen the last session of this directory, or session ID
       --provider ID    choose a configured destination

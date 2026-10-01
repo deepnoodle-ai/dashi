@@ -29,8 +29,8 @@ func (r *runtime) authorizeTool(
 ) (tool.Call, ToolVerdict, *RunResult) {
 	pass := 0
 	mark := r.hookMark()
-	// A mid-run view: its Stop stays empty, unlike Replay's. Nothing is
-	// committed during the chain, so one replay serves every hook.
+	// A mid-run view: its Stop stays empty, unlike turn.View()'s. Nothing
+	// is committed during the chain, so one view serves every hook.
 	view := TurnView{}
 	if current, err := replay(r.turn); err == nil {
 		view = current.TurnView
@@ -158,7 +158,7 @@ func validToolDecision(
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
 }
 
-// afterTool settles what the model sees of a tool or host result about to be
+// afterTool decides what the model sees of a tool or host result about to be
 // recorded. It runs the AfterTool chain, then applies the result limit, and
 // sets fact.Result when either changed the view. The limit runs last, so a
 // hook sees the full text and cannot bring the flood back.

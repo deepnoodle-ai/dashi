@@ -127,14 +127,14 @@ func limitOrDefault(limit, fallback int64) int64 {
 	return limit
 }
 
-// resolveRef calls the resolver and verifies the result against the
-// reference. It returns a reason, never the resolver's own error text.
+// resolveRef calls the ContentLoader and verifies the result against the
+// reference. It returns a reason, never the loader's own error text.
 func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
 	data, err := r.runner.ContentLoader.Load(r.ctx, r.turn.ID, ref)
 	if err != nil {
 		return nil, StopReasonContentUnavailable
 	}
-	// Own the bytes: a resolver may reuse its buffer for the next call.
+	// Own the bytes: a loader may reuse its buffer for the next call.
 	data = bytes.Clone(data)
 	if int64(len(data)) != ref.Size {
 		return nil, StopReasonContentSizeMismatch
@@ -152,8 +152,8 @@ func (r *runtime) refStop(id, reason string) *RunResult {
 }
 
 // contentSources returns pointers to every source in c, including the blocks
-// of tool results, hosted results, and hosted uses. They alias c, so the caller passes a
-// clone.
+// of tool results, provider tool results, and provider tool uses. They alias
+// c, so the caller passes a clone.
 func contentSources(c llm.Content) []*content.Source {
 	var block, result, providerTool []content.Block
 	if c.Block != nil {

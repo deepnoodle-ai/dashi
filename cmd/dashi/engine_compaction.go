@@ -15,8 +15,8 @@ import (
 type pendingPrompt struct {
 	start dashi.Start
 	input *submittedInput
-	// uncertain names an ordinary Start whose recording acknowledgment was
-	// lost. No later caller Start can evict its idempotency window.
+	// resultUnknown names an ordinary Start whose recording acknowledgment
+	// was lost. No later caller Start can evict its idempotency window.
 	resultUnknown string
 	attempted     bool
 	summary       bool
@@ -106,7 +106,7 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	}
 	res, err := e.run(ctx, p.start)
 	// Ordinary refusals still require the user to resubmit after recovery.
-	// Retain only a summary interruption or an uncertain admission.
+	// Retain only a summary interruption or a Start whose recording is unknown.
 	e.inputMu.Lock()
 	// A rejected ordinary attachment Start has no recorded owner. Release it
 	// together with the editable draft, so corrections cannot retry old bytes.
@@ -205,7 +205,7 @@ func (e *Engine) resolvePrompt(ctx context.Context, p *pendingPrompt) error {
 	}
 	loader, ok := e.handle().Runner.Recorder.(dashi.Loader)
 	if !ok {
-		return errors.New("pending prompt cannot be reconciled: recorder cannot load turns")
+		return errors.New("pending prompt cannot be checked: recorder cannot load turns")
 	}
 	turn, err := loader.Load(ctx, id)
 	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
@@ -235,7 +235,7 @@ func (e *Engine) resolvePrompt(ctx context.Context, p *pendingPrompt) error {
 }
 
 // acknowledgePrompt moves later input only after the ordinary Start commits.
-// Admission uses the same lock, so a new queue write cannot overtake the FIFO.
+// Accepting input uses the same lock, so a new queue write cannot overtake the FIFO.
 func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
 	if step == nil || step.Kind != dashi.StepTurnStarted || step.Started == nil ||
 		step.Started.Origin == dashi.StartCompaction {

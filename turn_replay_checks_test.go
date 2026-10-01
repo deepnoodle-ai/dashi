@@ -14,9 +14,9 @@ import (
 )
 
 // testStop builds a stop the way the runner records it, for records built by
-// hand: a limit kind fills Limit and Reason, and Terminal is set for the
+// hand: a limit kind fills Limit and Reason, and Ended is set for the
 // stops that end a turn whatever its state (completed, canceled, deadline,
-// interruptions, and model attempts, which the runner records only once
+// resumes, and model calls, which the runner records only once
 // they are used up).
 func testStop(kind StopKind, limit LimitKind) *Stop {
 	stop := &Stop{Kind: kind}
@@ -79,7 +79,8 @@ func TestEndedStops(t *testing.T) {
 			if !tt.want {
 				return
 			}
-			// Invariant: a terminal stop cannot continue under any raise.
+			// Invariant: a stop that ended the turn cannot continue under
+			// any raise.
 			huge := &Budget{
 				MaxOutputTokens: 1 << 40,
 				MaxTotalTokens:  1 << 40,
@@ -174,7 +175,7 @@ func TestDeadlineStopEndsTurn(t *testing.T) {
 	}
 }
 
-// A retried Cancel gets its recorded answer; a new one is refused.
+// A retried Cancel gets its recorded result; a new one is refused.
 func TestCancelOnEndedTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	rec := NewMemoryRecorder()
@@ -195,7 +196,7 @@ func TestCancelOnEndedTurn(t *testing.T) {
 	if _, err := runner.Run(t.Context(), canceled.Turn, Cancel{CommandID: "other"}); !errors.Is(err, ErrTurnEnded) {
 		t.Fatalf("second cancel err=%v", err)
 	}
-	// The unstarted call was settled as not executed, so approving it now
+	// The unstarted call was finished as not executed, so approving it now
 	// reports the real reason.
 	approve := first.Pending[0].Approve()
 	approve.CommandID = "approve"
@@ -204,8 +205,9 @@ func TestCancelOnEndedTurn(t *testing.T) {
 	}
 }
 
-// Every terminal stop applies the cancel rules: an approval pending when the
-// deadline stopped the turn is settled as not executed and cannot be given.
+// Every stop that ends the turn applies the cancel rules: an approval
+// pending when the deadline stopped the turn is finished as not executed
+// and cannot be given.
 func TestDeadlineStopFinishesPendingApproval(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	first, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredHooks())
@@ -355,9 +357,9 @@ func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
 	}
 }
 
-// A budget stop after the last model attempt is not terminal: a raise of the
-// budget and of the model-attempt cap together resumes it, and replay agrees
-// with the recorded flag.
+// A budget stop after the last model call does not end the turn: a raise of
+// the budget and of the model call limit together resumes it, and View
+// agrees with the recorded flag.
 func TestBudgetStopAfterLastModelCallContinuesWithBothRaises(t *testing.T) {
 	def := testAgent()
 	def.Limits.ModelCalls = 1
@@ -394,7 +396,7 @@ func TestBudgetStopAfterLastModelCallContinuesWithBothRaises(t *testing.T) {
 	}
 }
 
-// A late model result that would make a non-terminal limited stop terminal
+// A late model result that would make an open limited stop end the turn
 // is rejected: a turn ends only through a recorded stop. No runner path
 // reaches this today, so the check is exercised on the replay state that
 // model_call_finished and model_call_finished_by_host consult.
@@ -406,8 +408,8 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	if err := s.checkStillOpen(); err != nil {
 		t.Fatalf("open stop: %v", err)
 	}
-	// A late result that uses the last attempt leaves the stop open, since a
-	// Continue can raise the model-attempt cap.
+	// A late result that uses the last model call leaves the stop open,
+	// since a Continue can raise the model call limit.
 	s.ModelCalls = 2
 	if err := s.checkStillOpen(); err != nil {
 		t.Fatalf("spent cap: %v", err)
@@ -418,8 +420,8 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	}
 }
 
-// Resolve checks a late model result against replay before saving it when
-// the turn rests at an open limited stop, and skips the replay otherwise.
+// Resolve checks a late model result by rebuilding the view before saving it
+// when the turn rests at an open limited stop, and skips that otherwise.
 func TestCheckLateResultStep(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}},

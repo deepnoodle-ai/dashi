@@ -114,7 +114,7 @@ func TestInspectionCommandsPreserveOwnedSessionAndFacts(t *testing.T) {
 	a.ctrl.Input("/status " + bSaved.ID)
 	a.ctrl.Wait()
 	text := ui.text()
-	for _, want := range []string{"Session " + bSaved.ID, "retry handler", "Recorded stop: interrupted", "worker liveness unknown", "dashi --resume " + bSaved.ID, "passing recovery checks"} {
+	for _, want := range []string{"Session " + bSaved.ID, "retry handler", "Recorded stop: interrupted", "worker status unknown", "dashi --resume " + bSaved.ID, "passing recovery checks"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q: %s", want, text)
 		}

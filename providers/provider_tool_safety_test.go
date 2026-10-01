@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Gemini hosted tools are checked in the providers/google/gemini module.
+// Gemini provider tools are checked in the providers/google/gemini module.
 func TestProviderToolConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string

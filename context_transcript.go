@@ -81,8 +81,9 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 	providerToolOutput := func(blocks []content.Block, isError bool) []content.Block {
 		render(blocks)
 		if isError {
-			// The shared renderer does not label hosted errors. Keep explicit
-			// failure status visible in this active-only evidence copy.
+			// The shared renderer does not label provider tool errors. Keep
+			// explicit failure status visible in this active-only evidence
+			// copy.
 			return append([]content.Block{content.TextBlock("[provider tool error]")}, blocks...)
 		}
 		return blocks

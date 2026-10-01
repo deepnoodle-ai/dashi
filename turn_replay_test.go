@@ -190,7 +190,7 @@ func TestReplayCrashWithModelCallStartCanContinue(t *testing.T) {
 func TestReplayReadyAtResumeLimitDependsOnStop(t *testing.T) {
 	def := testAgent()
 	def.Limits.Resumes = 1
-	// A model attempt comes first: a pause before any attempt interrupted
+	// A model call comes first: a pause before any model call interrupted
 	// no work and does not count.
 	steps := []Step{
 		interruptionStart(def),

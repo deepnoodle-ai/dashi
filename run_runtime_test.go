@@ -344,7 +344,7 @@ type testReservation struct {
 	RequestProof string `json:"request_proof"`
 }
 
-// budgetHooks admit each call with reservation terms bound to the request,
+// budgetHooks reserve each call with reservation terms bound to the request,
 // recorded under the hook name "budget".
 func budgetHooks() Hooks {
 	return SendHook{
@@ -442,7 +442,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 }
 
 func TestHostReservationTakeoverAndExternalToolRecovery(t *testing.T) {
-	// The third and last attempt must complete the turn normally.
+	// The third and last model call must complete the turn normally.
 	def := testAgent()
 	def.Limits.NoReservedFinalReply = true
 	firstModel := callResult("job", "work")

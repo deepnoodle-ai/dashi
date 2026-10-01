@@ -113,7 +113,7 @@ func (in *submittedInput) publish(ctx context.Context, store *sessionstore.Attac
 		return fmt.Errorf("attachment submission is already recorded")
 	}
 	if in.unknown {
-		return fmt.Errorf("attachment submission needs reconciliation")
+		return fmt.Errorf("attachment submission must be checked against the record first")
 	}
 	for i := range in.snapshots {
 		s := &in.snapshots[i]
@@ -143,7 +143,7 @@ func (in *submittedInput) messageForStart() (llm.Message, error) {
 		return llm.Message{}, fmt.Errorf("attachment submission is already recorded")
 	}
 	if in.unknown {
-		return llm.Message{}, fmt.Errorf("attachment submission needs reconciliation")
+		return llm.Message{}, fmt.Errorf("attachment submission must be checked against the record first")
 	}
 	for _, s := range in.snapshots {
 		if !s.published {
@@ -154,7 +154,7 @@ func (in *submittedInput) messageForStart() (llm.Message, error) {
 }
 
 // receipt changes only the matching frozen draft. Summary Starts, Continue,
-// and acknowledgement for other revisions cannot consume it.
+// and acknowledgement for other draft versions cannot consume it.
 func (d *attachmentDraft) receipt(in *submittedInput, r inputReceipt) bool {
 	if in == nil {
 		return false

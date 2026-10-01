@@ -380,7 +380,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 	}
 }
 
-// deferredHooks defer every tool call for approval.
+// deferredHooks mark every tool call as needing approval.
 func deferredHooks() Hooks {
 	return ToolHook{
 		Name: "defer",

@@ -36,7 +36,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	}
 	defer attachments.Close()
 	id, _ := sessionstore.NewAttachmentID()
-	ref, err := attachments.Publish(ctx, id, "proof.txt", "text/plain", []byte("original admitted bytes"))
+	ref, err := attachments.Publish(ctx, id, "proof.txt", "text/plain", []byte("original accepted bytes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	var prepared, original dashi.Start
 	var refCall dashi.CallRef
 	resource := dashi.ContextItem{ID: "old-resource", Name: "workspace-instructions", Origin: dashi.ContextRuntime, Snapshot: true, Message: llm.ReminderMessage(llm.Reminder{Name: "workspace-instructions", Tier: llm.ReminderContextual, Content: "old instructions"})}
-	taskTool, err := tool.Func("task", "Capture admission", func(ctx context.Context, _ tool.Call, args struct {
+	taskTool, err := tool.Func("task", "Capture accepted input", func(ctx context.Context, _ tool.Call, args struct {
 		Prompt string `json:"prompt"`
 	}) (tool.Outcome, error) {
 		refCall, _ = dashi.CurrentCall(ctx)
@@ -63,7 +63,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 		}
 		resource.ID = "later-resource"
 		resource.Message = llm.ReminderMessage(llm.Reminder{Name: "workspace-instructions", Tier: llm.ReminderContextual, Content: "later instructions"})
-		return tool.Succeeded("admitted"), nil
+		return tool.Succeeded("accepted"), nil
 	}, tool.ReadOnly())
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +80,11 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 		t.Fatalf("unrelated text or missing resource identity: %+v", prepared.Input)
 	}
 	if prepared.Input[0].Text() != "inspect @literal-path" || prepared.Agent.Instructions != "child instructions" || prepared.Agent.Limits.ModelCalls != 32 || prepared.Agent.Settings.Temperature == nil || *prepared.Agent.Settings.Temperature != 0 || prepared.Agent.ActiveCompaction.Window != 16000 {
-		t.Fatal("admitted behavior changed")
+		t.Fatal("accepted behavior changed")
 	}
 	retried, err := host.prepareStart(ctx, refCall, original)
 	if err != nil || !reflect.DeepEqual(prepared, retried) {
-		t.Fatalf("retry changed admission: %v", err)
+		t.Fatalf("retry changed accepted input: %v", err)
 	}
 	childRef := *prepared.Input[1].Content[0].Block.Document.Source.Ref
 	if childRef.ID == ref.ID {
@@ -109,7 +109,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	}
 	childTurn := session.TurnID(delegate.ChildID(refCall.TurnID, refCall.CallID), 1)
 	data, err := services.ContentLoader.Load(ctx, childTurn, childRef)
-	if err != nil || string(data) != "original admitted bytes" {
+	if err != nil || string(data) != "original accepted bytes" {
 		t.Fatalf("recovery changed evidence: %q %v", data, err)
 	}
 	if _, err := services.ContentLoader.Load(ctx, parentID, childRef); err == nil {

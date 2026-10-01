@@ -231,8 +231,8 @@ func (wire codec) readStream(
 				)
 			}
 			// A public event must also belong to a recognized public reasoning
-			// item. Unmodeled content stays opaque under the settled decoder
-			// and must not leak through its provisional projection.
+			// item. Unmodeled content stays opaque under the final-response
+			// decoder and must not leak through its provisional view.
 			if !recognizedReasoningItem(items[e.OutputIndex]) {
 				continue // later part updates cannot relabel an opaque parent
 			}
@@ -293,7 +293,8 @@ func appendString(m map[string]any, key, s string) {
 	m[key] = old + s
 }
 
-// recognizedReasoningItem uses the settled decoder's public classification.
+// recognizedReasoningItem uses the final-response decoder's public
+// classification.
 // A subsequent streamed part cannot erase unknown original item semantics.
 func recognizedReasoningItem(item map[string]any) bool {
 	if item["type"] != "reasoning" {

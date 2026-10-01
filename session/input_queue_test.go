@@ -269,7 +269,7 @@ func TestSessionMissedSteers(t *testing.T) {
 		s := handle(rec, client)
 		s.New = true
 		// One model call: a steer that arrives during it cannot supersede
-		// the answer.
+		// the reply.
 		s.Agent.Limits.ModelCalls = 1
 		done := sendAsync(t.Context(), s, "start")
 		entered(t, client)
@@ -457,7 +457,7 @@ func TestSessionDispatchKeepsWarnings(t *testing.T) {
 }
 
 // A queue turn whose queue: key a turn in the idempotency window already
-// started is a duplicate: its items were delivered, so they are consumed
+// started is a duplicate: its items were already added, so they are consumed
 // and no turn starts.
 func TestSessionQueueUsedKey(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -483,8 +483,8 @@ func TestSessionQueueUsedKey(t *testing.T) {
 }
 
 // An unreadable last turn may hold a queue key, so under Exclusive a
-// repeated item fails RunQueue and starts no turn, rather than risk a
-// second delivery.
+// repeated item fails RunQueue and starts no turn, rather than risk
+// adding the items twice.
 func TestSessionQueueUsedKeyUnreadable(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(dashitest.Reply("ok"), dashitest.Reply("again"))

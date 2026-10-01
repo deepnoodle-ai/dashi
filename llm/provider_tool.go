@@ -24,7 +24,7 @@ type ProviderToolUse struct {
 	Origin content.Origin `json:"origin"`
 	// Status is the provider-reported execution state when available.
 	Status string `json:"status,omitempty"`
-	// Input is a display projection; Replay remains authoritative.
+	// Input is a display copy; Replay remains authoritative.
 	Input json.RawMessage `json:"input,omitempty"`
 	// Output exposes recognized result blocks without replacing Replay.
 	Output []content.Block `json:"output,omitempty"`

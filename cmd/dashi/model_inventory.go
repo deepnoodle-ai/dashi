@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
-// modelInventory is an offline projection. It constructs no provider client
+// modelInventory is an offline listing. It constructs no provider client
 // and probes no endpoint. Project bindings need trust before key lookup.
 func modelInventory(registry, user map[string]configuredDestination, lookup func(string) (string, bool), availableOnly bool, out io.Writer) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)

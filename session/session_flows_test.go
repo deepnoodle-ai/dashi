@@ -166,7 +166,7 @@ func TestSessionIdempotency(t *testing.T) {
 	})
 	t.Run("racing workers", func(t *testing.T) {
 		// Worker b chooses turn 1 before worker a commits it, with the same
-		// key and a different agent, so the engine's digests differ. b
+		// key and a different agent, so the engine's hashes differ. b
 		// loses at commit, reloads, and finds a's turn as its retry.
 		rec := dashi.NewMemoryRecorder()
 		a := handle(rec, dashitest.NewClient(dashitest.Reply("from a")))
@@ -367,7 +367,7 @@ func TestSessionEmptyID(t *testing.T) {
 	}
 }
 
-// TestSessionHistory sends each new turn the projected history of the
+// TestSessionHistory sends each new turn the history built from the
 // turns before it, and a Continue the history before its own turn.
 func TestSessionHistory(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -525,7 +525,8 @@ func TestSessionCarryForward(t *testing.T) {
 	}
 }
 
-// TestSessionAnswer records each answer, then continues, in one call.
+// TestSessionAnswer checks that Session.Resolve records each Resolve, then
+// continues, in one call.
 func TestSessionAnswer(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),
@@ -548,10 +549,10 @@ func TestSessionAnswer(t *testing.T) {
 	}
 }
 
-// TestSessionAnswerRetry retries Answer after its Resolve and Continue
-// committed but the caller lost the result. The retry returns the recorded
-// outcome and records and runs nothing more, for the Pending builders'
-// answers and for a Resolve without a command ID.
+// TestSessionAnswerRetry retries Session.Resolve after its Resolve and
+// Continue committed but the caller lost the result. The retry returns the
+// recorded result and records and runs nothing more, for a Resolve from the
+// Pending builders and for a Resolve without a command ID.
 func TestSessionAnswerRetry(t *testing.T) {
 	for _, name := range []string{"builder", "no command ID"} {
 		t.Run(name, func(t *testing.T) {
@@ -596,9 +597,9 @@ func TestSessionAnswerRetry(t *testing.T) {
 	}
 }
 
-// TestSessionAnswerOptions passes Answer's options to the runs it makes: a
-// leasing worker's WithOwner reaches the recorder on the Resolve and on the
-// Continue.
+// TestSessionAnswerOptions passes Session.Resolve's options to the runs it
+// makes: a leasing worker's WithOwner reaches the recorder on the Resolve
+// and on the Continue.
 func TestSessionAnswerOptions(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),

@@ -64,9 +64,9 @@ func ExampleRunUntilQuiet() {
 	// origin: scheduled
 }
 
-// A host can withhold a resumable stop, inspect its exact record, and settle
-// the external effect without running that effect again. A settlement alone
-// does not continue the child; the second explicit command does that.
+// A host can withhold a resumable stop, inspect its exact record, and
+// resolve the external effect without running that effect again. A Resolve
+// alone does not continue the child; the second explicit command does that.
 func ExampleTasks_Run() {
 	ctx := context.Background()
 	recorder := dashi.NewMemoryRecorder()

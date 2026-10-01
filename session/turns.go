@@ -45,7 +45,7 @@ const (
 )
 
 // WorkerChecker is an optional dashi.Recorder capability for hosts that lease
-// turns. A session asks it about a last turn with no recorded stop: live
+// turns. A session asks it about a last turn with no recorded stop: running
 // refines NextRecover to NextRunning, and stopped lets a new Start close the
 // turn. An error counts as unknown, which keeps the turn busy.
 type WorkerChecker interface {
@@ -53,8 +53,8 @@ type WorkerChecker interface {
 }
 
 // sessionTurn is a loaded turn with its view and, once built, its
-// projection. A turn that has ended never changes its projection, so the
-// cached projection is final.
+// messages. A turn that has ended never changes its messages, so the
+// cached messages are final.
 type sessionTurn struct {
 	turn             dashi.Turn
 	view             dashi.TurnView
@@ -62,7 +62,7 @@ type sessionTurn struct {
 	projected        bool
 	contextMessages  []llm.Message
 	contextProjected bool
-	// checked is set once a compaction turn's digest was compared, and
+	// checked is set once a compaction turn's hash was compared, and
 	// mismatch holds the warning when it differed.
 	checked  bool
 	mismatch *dashi.Warning
@@ -72,13 +72,13 @@ func (t *sessionTurn) ended() bool {
 	return t.view.Stop.Ended
 }
 
-// refined is a turn's Next with the liveness that refined it.
+// refined is a turn's Next with the worker status that refined it.
 type refined struct {
 	next         dashi.Next
 	workerStatus WorkerStatus
 }
 
-// refine reads a turn's Next and refines NextRecover with liveness: this
+// refine reads a turn's Next and refines NextRecover with worker status: this
 // handle running the turn, or the recorder's WorkerChecker. The caller
 // holds mu.
 func (s *Session) refine(ctx context.Context, t *sessionTurn) refined {
@@ -112,12 +112,13 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	}
 	e := &TurnBusyError{TurnID: t.turn.ID, Next: r.next, Origin: t.view.Origin}
 	// A worker is known to run the turn, so its calls are in progress, not
-	// uncertain: the caller waits or steers, and settles nothing.
+	// of unknown result: the caller waits or steers, and resolves nothing.
 	if r.next == dashi.NextRunning {
 		return e
 	}
-	// A stopped worker is not a stopped effect, so an uncertain call keeps
-	// the turn busy whatever its liveness, even under Exclusive.
+	// A stopped worker is not a stopped effect, so a call whose result is
+	// unknown keeps the turn busy whatever its worker status, even under
+	// Exclusive.
 	if e.CallID = resultUnknownCall(t); e.CallID != "" {
 		return e
 	}
@@ -133,10 +134,10 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	return nil
 }
 
-// uncertainCall returns the first unsettled call whose effect may still
-// happen or may have happened: a started local call that is neither
-// read-only nor idempotent, one already marked uncertain, or a model
-// attempt that offered a provider-hosted tool unsafe to repeat.
+// resultUnknownCall returns the first unfinished call whose effect may
+// still happen or may have happened: a started local call that is neither
+// read-only nor idempotent, one already marked result_unknown, or a model
+// call that offered a provider tool unsafe to repeat.
 func resultUnknownCall(t *sessionTurn) string {
 	for _, p := range t.view.Pending {
 		switch {
@@ -307,11 +308,11 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 	return nil
 }
 
-// history returns the projected history of turns 1 through n by the rule
-// of dashi.BuildHistory. It walks back from turn n, so a fresh handle
-// loads turns back to the newest completed compaction turn only, and it
-// keeps each ended turn's projection in the cache. A turn that fails to load
-// or project is left out with a dashi.WarningTurnUnreadable. The caller
+// history builds the history of turns 1 through n by the rule of
+// dashi.BuildHistory. It walks back from turn n, so a fresh handle loads
+// turns back to the newest completed compaction turn only, and it keeps
+// each ended turn's messages in the cache. A turn whose record or messages
+// fail to load is left out with a dashi.WarningTurnUnreadable. The caller
 // holds mu.
 func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Warning) {
 	var parts [][]llm.Message    // newest first
@@ -372,8 +373,8 @@ func (s *Session) conversation(ctx context.Context, n int) []llm.Message {
 	return out
 }
 
-// historyFor returns the Continue history of turn n: the projected history
-// of the turns before it, or none for a compaction turn, which started with
+// historyFor returns the Continue history of turn n: the history built from
+// the turns before it, or none for a compaction turn, which started with
 // none. The caller holds mu.
 func (s *Session) historyFor(
 	ctx context.Context,

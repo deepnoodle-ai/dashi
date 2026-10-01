@@ -9,19 +9,19 @@ import (
 )
 
 // nextCallPossible is nextCallFits with a pause also refusing: steering
-// uses it, since a steer not delivered stays with its source.
+// uses it, since a steer not added to the turn stays with its source.
 func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
 	return !r.pauseRequested() && r.nextCallFits(s, extraInputTokens)
 }
 
 // nextCallFits reports whether a further normal model call can happen: one
-// that still leaves the reserved final-answer call available (or fits in
+// that still leaves the reserved final-reply call available (or fits in
 // ModelCalls when there is no reserve), before the deadline, with the
 // context live, and within every Budget cap for its worst case.
 // extraInputTokens is the size of input the caller would add, such as
-// delivered items, estimated as Dashi estimates request input. A pause is
+// added messages, estimated as Dashi estimates request input. A pause is
 // not a reason to refuse: the run pauses before the next model call anyway,
-// so a pause must never let a rejected answer through.
+// so a pause must never let a rejected call through.
 //
 // A model call in flight already counts as used, so the check holds while a
 // call runs. The cost term estimates the next call from the latest recorded
@@ -32,7 +32,7 @@ func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
 	return r.callFits(s, extraInputTokens, false)
 }
 
-// callFits is nextCallFits, with the reserved final-answer call counted as
+// callFits is nextCallFits, with the reserved final-reply call counted as
 // available when reserved is true: any call that fits ModelCalls.
 func (r *runtime) callFits(
 	s *replayState,
@@ -83,7 +83,7 @@ func (r *runtime) callBlocked(s *replayState, extraInputTokens int) string {
 }
 
 // spendWithCallInFlight returns s with a model call in flight counted at its
-// worst case. Recorded spend counts an unsettled call at its estimated input
+// worst case. Recorded spend counts an unfinished call at its estimated input
 // only, and the next call must fit beside everything the running one could
 // still cost. It fails when that worst case is unknown.
 func spendWithCallInFlight(s *replayState) (*replayState, bool) {

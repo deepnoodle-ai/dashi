@@ -29,7 +29,7 @@ type Compactor struct {
 	Model string
 
 	// Prompt replaces DefaultPrompt. The summary is the text inside the
-	// answer's last <summary> and </summary> tags, or the whole answer
+	// reply's last <summary> and </summary> tags, or the whole reply
 	// when it has none.
 	Prompt string
 
@@ -47,8 +47,8 @@ func New(policy Policy) *Compactor {
 	return &Compactor{Policy: policy}
 }
 
-// Needed reports whether Policy.Due(last) and the projected history has a
-// message to summarize.
+// Needed reports whether Policy.Due(last) and projected, the history the
+// next turn would get, has a message to summarize.
 func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 	return c.Policy.Due(last) && len(withoutAuthoritative(projected)) > 0
 }
@@ -60,7 +60,7 @@ func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 // without their reminders, but with agent mail (a reminder with a From).
 // Their system and developer messages are kept ahead of the summary, with
 // their own role. The Start has origin StartCompaction and no tools, and
-// its fact's Digest is the fingerprint of projected. The caller sets its
+// its fact's Hash is the dashi.HistoryHash of projected. The caller sets its
 // CommandID and may set Budget; a Session also sets the fact's Through.
 func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()

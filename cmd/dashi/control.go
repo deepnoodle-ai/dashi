@@ -390,8 +390,8 @@ func (c *Controller) Input(line string) {
 		c.steer(line)
 		return
 	}
-	// Screen admission belongs to screen.submit on the Wonton event loop.
-	// Only the synchronous line reader admits attachments through Controller.
+	// Screen input is accepted by screen.submit on the Wonton event loop.
+	// Only the synchronous line reader accepts attachments through Controller.
 	if u, ok := c.ui.(interface{ attachmentLineInput(string) bool }); ok && !strings.HasPrefix(line, "/") && u.attachmentLineInput(raw) {
 		return
 	}
@@ -441,7 +441,7 @@ func (c *Controller) steer(line string) {
 
 // QuitDuringRun handles an exit action (/quit, /exit, or Ctrl-D) while a
 // turn runs: it cancels the run, and the program quits once the run
-// settles. When prompts are then still queued, it warns instead, as the
+// finishes. When prompts are then still queued, it warns instead, as the
 // same action at the prompt would, and repeating the action quits.
 func (c *Controller) QuitDuringRun(action string) {
 	c.mu.Lock()
@@ -471,7 +471,7 @@ func (c *Controller) prompt(text string) {
 		paused := host.deliveryErr != nil
 		host.mu.Unlock()
 		if paused {
-			c.notice("Task notice admission is unresolved. Press Enter to reconcile that exact queued Turn or reopen before a new prompt.")
+			c.notice("Recording of a task notice is unconfirmed. Press Enter to check that exact queued Turn or reopen before a new prompt.")
 			return
 		}
 	}

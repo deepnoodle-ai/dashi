@@ -333,7 +333,8 @@ func TestCallerOwnsEachRetryAttempt(t *testing.T) {
 					attempts.Load(),
 				)
 			}
-			// The caller can now record failure and another intent before dispatch.
+			// The caller can now record the failure and start another model
+			// call before dispatch.
 			_, err = p.Send(t.Context(), llm.Call{Request: req})
 			if err != nil || attempts.Load() != 2 {
 				t.Fatalf(

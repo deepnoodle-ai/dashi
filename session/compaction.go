@@ -12,7 +12,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// ErrNothingToCompact reports an attempt with no eligible history. No turn
+// ErrNothingToCompact reports a compaction request with no eligible history. No turn
 // was recorded and no model call was made. Package compaction aliases it.
 var ErrNothingToCompact = errors.New("compaction: nothing to compact")
 
@@ -31,7 +31,7 @@ func (s *Session) Compact(
 }
 
 // StreamCompact is Compact with events, including the compaction's final
-// Outcome. Breaking the range interrupts execution and preserves the record
+// RunResult. Breaking the range interrupts execution and preserves the record
 // for Continue. No queue turn follows it. Each iterator can be consumed once.
 func (s *Session) StreamCompact(
 	ctx context.Context,
@@ -151,18 +151,18 @@ func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.RunRes
 	return out, nil
 }
 
-// Compactor decides when and how a Session compacts its projected history.
+// Compactor decides when and how a Session compacts its history.
 // Package compaction implements it.
 type Compactor interface {
 	// Needed reports whether to compact before the next turn. projected is
-	// the projected history, and last is the usage of the last model call
-	// of the last turn.
+	// the session's history, as the next turn would receive it, and last is
+	// the usage of the last model call of the last turn.
 	Needed(projected []llm.Message, last llm.Usage) bool
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
-	// where the summary goes among them, its frame, and its Digest, the
+	// where the summary goes among them, its frame, and its Hash, the
 	// dashi.HistoryHash of projected. The session sets the command ID,
-	// origin, history, and Through, fills an empty Digest, turns tools
+	// origin, history, and Through, fills an empty Hash, turns tools
 	// off, and applies the caller's Start.Budget when it has one.
 	Start(projected []llm.Message) (dashi.Start, error)
 }
@@ -268,8 +268,8 @@ func (s *Session) buildCompaction(
 }
 
 // compact runs a planned compaction turn. For Stream, it reports the
-// turn's RunResult event. A compaction turn that fails or ends without an
-// answer adds WarningCompactionFailed to the call, and one that stopped
+// turn's RunResult event. A compaction turn that fails or ends without a
+// reply adds WarningCompactionFailed to the call, and one that stopped
 // without ending is closed first. It reports lost when another worker took
 // the slot, so the caller plans again and finds that worker's turn. It
 // returns an error only when the call must stop: the consumer broke the
@@ -280,7 +280,7 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 		return true, nil
 	}
 	// A preparation or recording failure is a warning for the automatic
-	// path, which still attempts the caller's turn.
+	// path, which still runs the caller's turn.
 	var reported error
 	if cl.stopped || ctx.Err() != nil {
 		reported = err
@@ -363,8 +363,8 @@ func (cl *call) runCompaction(
 }
 
 // takenSlot reports whether a compaction turn failed because another
-// worker took its slot: the same compact: key runs one turn, so a revision
-// or command conflict at any step means that worker records it.
+// worker took its slot: the same compact: key runs one turn, so a stale-turn
+// or reused-command-ID conflict at any step means that worker records it.
 func takenSlot(err error) bool {
 	return errors.Is(err, dashi.ErrStaleTurn) ||
 		errors.Is(err, dashi.ErrCommandIDReused)
@@ -377,8 +377,8 @@ func compactionFailed(msg string) dashi.Warning {
 	}
 }
 
-// checkDigest compares a completed compaction turn's digest with the
-// projected history of the turns it covers, when this handle already holds
+// checkHash compares a completed compaction turn's hash with the history
+// built from the turns it covers, when this handle already holds
 // them, and returns a WarningCompactionMismatch while they differ. Loading
 // the covered turns only to check would undo the short load. The caller
 // holds mu.
@@ -413,8 +413,8 @@ func cloneCompaction(f *dashi.CompactionFact) *dashi.CompactionFact {
 	return &c
 }
 
-// holds reports whether the cache has every turn that the projected
-// history of turns 1 through n reads. The caller holds mu.
+// holds reports whether the cache has every turn that building the history
+// of turns 1 through n reads. The caller holds mu.
 func (s *Session) holds(n int) bool {
 	for ; n >= 1; n-- {
 		t := s.turns[n]

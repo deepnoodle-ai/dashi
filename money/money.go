@@ -31,7 +31,7 @@ import (
 //
 // Hosts that keep ledgers in coarser units convert with Nanos and choose their
 // own rounding. Integer micro-units are Nanos()/1000; round holds and
-// reservations up and settled charges half to even, as Dashi does for nanos.
+// reservations up and final costs half to even, as Dashi does for nanos.
 type Amount int64
 
 // Nanos per whole currency unit.
@@ -115,7 +115,7 @@ func (a Amount) String() string {
 }
 
 // MarshalJSON writes the canonical decimal string. Each value has exactly one
-// spelling, so digests over canonical JSON agree for equal amounts; a string
+// spelling, so hashes over canonical JSON agree for equal amounts; a string
 // such as "0.50" read from a store re-encodes as "0.5".
 func (a Amount) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil

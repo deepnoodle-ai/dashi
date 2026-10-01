@@ -127,7 +127,7 @@ func (w automationWriter) write(ctx context.Context, data []byte, inactivity tim
 
 // The sole writer reloads one acknowledged parent response at a time. A
 // monotone numbered boundary coalesces scheduling hints without a copied
-// answer queue. Slow stdout never blocks source recording or drops responses.
+// reply queue. Slow stdout never blocks source recording or drops responses.
 type automationOutput struct {
 	format      string
 	writer      automationWriter
@@ -255,7 +255,7 @@ func (o *automationOutput) run() {
 			if view.Origin == dashi.StartCompaction || view.Parent != nil {
 				continue
 			}
-			lastAnswer = view.Reply // An empty last answer must stay empty.
+			lastAnswer = view.Reply // An empty last reply must stay empty.
 			if view.Reply == "" {
 				continue
 			}

@@ -247,7 +247,7 @@ func TestInspectionWorkspaceSecurityAndMetadataBounds(t *testing.T) {
 			}
 			if kind == "turns link" {
 				if len(list.Matches) != 1 || !list.Matches[0].Card.RecordUnavailable {
-					t.Fatal("title match lost uncertainty")
+					t.Fatal("title match lost unknown result")
 				}
 			} else {
 				if len(list.Matches) != 0 {
@@ -280,7 +280,7 @@ func TestInspectionLatestUnreadableClaimOnlyAndMissingStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.IndexedTurns != 3 || report.ReadableTurns != 1 || report.OmittedTurns != 2 || report.Latest == nil || report.Latest.Readable || report.Latest.TurnID != session.TurnID(s.ID, 3) || !report.RequestIncomplete {
-		t.Fatalf("lost latest uncertainty: %+v", report)
+		t.Fatalf("lost latest unknown result: %+v", report)
 	}
 	if !report.Accounting.Incomplete || report.Accounting.Spend.Cost["USD"] != money.MustParseAmount("0.25") || report.Accounting.Spend.CostUnknown != 0 {
 		t.Fatal("omissions changed recorded accounting")
@@ -570,8 +570,9 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	s, rec := savedSession(t, st, dir, "partial")
 	client := &inspectionClient{results: []llm.Result{reply("answer", "USD")}, window: 2000}
 	out := runInspectionTurn(t, rec, session.TurnID(s.ID, 1), client, dashi.Start{Input: dashi.Say("request").Input}, nil)
-	// Crash snapshot: Started, first intent, settled response, continuation,
-	// second intent. No fake model settlement or run stop is introduced.
+	// Crash snapshot: Started, first call start, finished response,
+	// continuation, second call start. No fake model finish or run stop is
+	// introduced.
 	for _, step := range out.Turn.Steps {
 		if step.Kind == dashi.StepModelCallFinished {
 			step.Model.EstimatedUsage = true
@@ -593,7 +594,7 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	callStart.ModelCallID = "new-unresolved"
 	turn.Steps = []dashi.Step{{Kind: dashi.StepModelCallStarted, Model: &callStart}}
 	c := contextOccupancy(turn, out.TurnView)
-	if c.Available || c.ModelCallID != "new-unresolved" || c.UnavailableReason != "model intent unresolved" {
+	if c.Available || c.ModelCallID != "new-unresolved" || c.UnavailableReason != "started model call has no recorded result" {
 		t.Fatalf("unresolved context=%+v", c)
 	}
 	unresolved := turnAccounting(turn, dashi.TurnView{})

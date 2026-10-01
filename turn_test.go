@@ -296,7 +296,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The bug: byte digests of the reloaded definition differ from the live one.
+	// The bug: byte hashes of the reloaded definition differ from the live one.
 	if byteHex(view.Tools["call-1"].Definition) == byteHex(binding.Definition) {
 		t.Fatal("simulation left the tool definition byte-identical")
 	}
@@ -316,7 +316,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("retried start=%+v err=%v", again.Stop, err)
 	}
 
-	// The application may digest the arguments it saw live or reloaded.
+	// The application may hash the arguments it saw live or reloaded.
 	for _, args := range []json.RawMessage{
 		messyArgs,
 		view.Tools["call-1"].Call.Args,
@@ -448,7 +448,7 @@ func mustLoad(t *testing.T, rec jsonbRecorder) Turn {
 }
 
 // Strict history checking must not reject history that only went through a
-// jsonb round trip: the fingerprint compares JSON meaning.
+// jsonb round trip: the hash compares JSON meaning.
 func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	rec := jsonbRecorder{NewMemoryRecorder()}
 	// The first model call is cut off by a deploy, so the turn waits to be

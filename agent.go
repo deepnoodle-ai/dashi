@@ -75,7 +75,7 @@ type Agent struct {
 // resolved values, so a recorded turn keeps its limits even if the library
 // defaults change later.
 type Limits struct {
-	// ModelCalls counts settled calls; interrupted calls have their own cap.
+	// ModelCalls counts finished calls; interrupted calls have their own cap.
 	// Zero means 8. It must not be negative.
 	ModelCalls int `json:"model_calls"`
 	// Resumes bounds how many times a stopped or crashed turn may be
@@ -87,14 +87,14 @@ type Limits struct {
 	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
 	// It must not be negative.
 	ToolConcurrency int `json:"tool_concurrency"`
-	// ToolResultBytes limits the text of one tool result in the projected
-	// history. Zero means 64 KiB. A negative value turns the limit off. A
+	// ToolResultBytes limits the text of one tool result in the messages the
+	// model sees. Zero means 64 KiB. A negative value turns the limit off. A
 	// value below 1 KiB is raised to 1 KiB, with a warning at Start. Dashi
 	// keeps the full result in the record; see ToolFact.Shortened.
 	ToolResultBytes int `json:"tool_result_bytes"`
-	// NoReservedFinalReply turns off the final-answer reserve. By default,
-	// the last allowed model attempt, after earlier attempts, asks for an
-	// answer without advertising application tools.
+	// NoReservedFinalReply turns off the reserved final-reply call. By
+	// default, the last allowed model call, after earlier calls, asks for a
+	// reply without advertising application tools.
 	NoReservedFinalReply bool `json:"no_reserved_final_reply,omitempty"`
 	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
 	Deadline time.Time `json:"deadline,omitzero"`
@@ -165,14 +165,14 @@ func resolveCount(n, def int) int {
 
 // DerivedVersionPrefix begins every Agent.Version the runner derived
 // from the agent. A host that carries a recorded agent into a new turn
-// clears such a revision, so the runner derives it again from the agent
+// clears such a version, so the runner derives it again from the agent
 // the new turn runs.
 const DerivedVersionPrefix = "auto:"
 
-// agentRevision derives a revision from a resolved agent's behavior. ID,
-// Revision, Limits.Deadline, and Settings.PromptCache.Key are left out: the
+// agentVersion derives a version from a resolved agent's behavior. ID,
+// Version, Limits.Deadline, and Settings.PromptCache.Key are left out: the
 // first two name the agent rather than describe it, a deadline is a per-turn
-// time that would make every revision unique, and a cache key usually names
+// time that would make every version unique, and a cache key usually names
 // a conversation.
 func agentVersion(a Agent) string {
 	a.ID, a.Version = "", ""
@@ -184,7 +184,7 @@ func agentVersion(a Agent) string {
 
 // agentFor returns the resolved agent a command runs with. A Start resolves
 // its own agent: an empty Provider and API come from the client, an empty
-// Model is the catalog default, and an empty Revision is derived from the
+// Model is the catalog default, and an empty Version is derived from the
 // agent. Without a client, the agent must name all three. Every
 // other command runs with the agent recorded in the caller's snapshot; run
 // checks it against a Loader's record.

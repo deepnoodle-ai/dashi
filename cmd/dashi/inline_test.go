@@ -20,7 +20,7 @@ func TestInlineCompletionPrintsOnceAndResetStartsNewSegment(t *testing.T) {
 	var output bytes.Buffer
 	i := newInlineScreen(newScreen("fixture"), &output)
 	flush := func() { i.HandleEvent(flushEvent{}) }
-	i.Emit(Block{Kind: KindAssistant, Done: true}) // Invisible settled tool-only assistant.
+	i.Emit(Block{Kind: KindAssistant, Done: true}) // Invisible finished tool-only assistant.
 	i.Emit(Block{ID: "user", Kind: KindUser, Text: "REOPENED USER", Done: true})
 	i.Emit(Block{ID: "assistant", Kind: KindAssistant, Text: "streaming"})
 	flush()
@@ -207,8 +207,8 @@ func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 	if strings.Contains(output.String(), "text-only") {
 		t.Fatal("per-Turn protection notice reached native scrollback")
 	}
-	// The intent records the warning before the answer streams. A
-	// re-delivered warning updates the same row.
+	// The model_call_started step records the warning before the reply
+	// streams. A re-delivered warning updates the same row.
 	warn := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{ModelCallID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
 	emit(warn)
 	emit(warn)

@@ -35,7 +35,7 @@ type queuedItem struct {
 
 // reservation marks queued items a Start carries: the Start's command ID
 // and turn number. It is open while that Start runs; once it has ended
-// with an unknown result, the next command settles it by loading the turn.
+// with an unknown result, the next command finishes it by loading the turn.
 type reservation struct {
 	commandID string
 	n         int
@@ -341,14 +341,15 @@ func (s *Session) decideReserved(
 	return err
 }
 
-// errReserved marks a reservation the session cannot settle: it cannot
+// errReserved marks a reservation the session cannot finish: it cannot
 // tell whether a turn took the queued items. New commands still run, but
 // the queue waits, so its items never run out of order or twice.
 var errReserved = errors.New("session: queued items stay reserved")
 
-// settleReserved settles the reservations of Starts that ended with an
-// unknown result. It returns an error matching errReserved when one cannot
-// be settled; only the queue waits on it. The caller holds mu.
+// finishReserved finishes the reservations of Starts that ended with an
+// unknown result: it consumes or restores their items. It returns an error
+// matching errReserved when one cannot be finished; only the queue waits on
+// it. The caller holds mu.
 func (s *Session) finishReserved(ctx context.Context) error {
 	var pending []*reservation
 	for _, q := range s.queue {
@@ -394,7 +395,7 @@ func (s *Session) finishByLoad(ctx context.Context, r *reservation) error {
 }
 
 // queueBlocked returns a WarningQueueBlocked while a reservation cannot be
-// settled. The caller holds mu.
+// finished. The caller holds mu.
 func (s *Session) queueBlocked() []dashi.Warning {
 	n := 0
 	var id string
@@ -454,10 +455,10 @@ func notStarted(err error) bool {
 }
 
 // planQueue chooses a queue turn for every free item, when the session is
-// idle. It fails with errReserved while a reservation cannot be settled,
+// idle. It fails with errReserved while a reservation cannot be finished,
 // since items that turn may have taken would otherwise run out of order.
 // When a turn in the idempotency window already started with the same
-// queue: key, the items were delivered: it consumes them and starts
+// queue: key, the items were already added to it: it consumes them and starts
 // nothing. An unreadable last turn is an error, even under Exclusive,
 // since it may hold that key. The caller holds mu.
 func (s *Session) planQueue(
@@ -487,7 +488,7 @@ func (s *Session) planQueue(
 	if last > 0 {
 		// An unreadable last turn fails even under Exclusive: it may have
 		// started with this queue key, and starting another queue turn
-		// could deliver the items twice. A caller's Start moves past it.
+		// could add the items twice. A caller's Start moves past it.
 		t, err := s.load(ctx, last)
 		if err != nil {
 			if s.Exclusive && ctx.Err() == nil {
@@ -549,7 +550,7 @@ func (s *Session) planQueue(
 // usedKey reports whether a turn in the idempotency window, from turn n
 // back through the newest turn a caller's Start began, started with key.
 // A turn that fails to load fails the check, since a missed key would
-// deliver the items twice. The caller holds mu.
+// add the items twice. The caller holds mu.
 func (s *Session) usedKey(ctx context.Context, key string, n int) (bool, error) {
 	for ; n >= 1; n-- {
 		t, err := s.load(ctx, n)

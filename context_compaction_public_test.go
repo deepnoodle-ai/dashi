@@ -55,7 +55,7 @@ func (c *activeProviderToolDiagnosticClient) Send(ctx context.Context, call llm.
 			result = dashitest.Reply("<summary>Required provider tool evidence was omitted.</summary>")
 		}
 	} else if c.ordinary == 0 {
-		// Native decoding sees the original hosted item. The HTTP
+		// Native decoding sees the original provider tool item. The HTTP
 		// transport is a local fixture and cannot make a network request.
 		c.ordinary++
 		var err error

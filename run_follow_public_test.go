@@ -104,10 +104,10 @@ func projectPreview(e dashi.Event) string {
 	return e.Progress.Message
 }
 
-// finalClient answers every call with one final message, streamed as three
+// finalClient replies to every call with one final message, streamed as three
 // deltas. When set, it streams only once following has begun (a reader that
 // joins mid-message rightly gets a gap), and it returns only once the client
-// has read the deltas (a preview after its settling step is rightly dropped).
+// has read the deltas (a preview after its finish step is rightly dropped).
 type finalClient struct{ following, read <-chan struct{} }
 
 func (finalClient) Provider() string                       { return "test" }
@@ -284,7 +284,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 		t.Fatalf("resume from 2 got %+v", events)
 	}
 
-	// A browser reconnecting with the terminal step's id is told to stop.
+	// A browser reconnecting with the ending step's id is told to stop.
 	resp := get(t, url, strconv.Itoa(len(out.Turn.Steps)))
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("reconnect after the end: status %d; want 204", resp.StatusCode)

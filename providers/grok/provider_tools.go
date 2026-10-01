@@ -106,13 +106,13 @@ type CodeExecutionToolOptions struct {
 	IncludeOutputs bool `json:"include_outputs,omitempty"`
 }
 
-// NewCodeExecutionTool declares Grok's hosted Python sandbox.
+// NewCodeExecutionTool declares Grok's Python sandbox provider tool.
 func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
 	return newProviderTool("code_execution", "code_interpreter", options)
 }
 
 // ImageGenerationToolOptions controls whether Grok may generate, edit, or
-// choose between the two. The hosted tool chooses its own size and format.
+// choose between the two. The provider tool chooses its own size and format.
 type ImageGenerationToolOptions struct {
 	// Action is "auto", "generate", or "edit"; empty uses the provider
 	// default.
@@ -130,7 +130,7 @@ func NewImageGenerationTool(
 	return newProviderTool("image_generation", "image_generation", options), nil
 }
 
-// newHosted binds options to the "grok" destination. Options are plain
+// newProviderTool binds options to the "grok" destination. Options are plain
 // structs of strings, numbers, and slices, so encoding cannot fail.
 func newProviderTool(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)

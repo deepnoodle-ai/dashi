@@ -17,7 +17,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// Turn carries the identified sequence of acknowledged execution facts.
+// Turn is the saved record of one turn: its ID and the steps recorded so
+// far, in order.
 type Turn struct {
 	ID    string `json:"id"`
 	Steps []Step `json:"steps"`
@@ -25,47 +26,52 @@ type Turn struct {
 
 // NewTurn returns an empty turn to start under the caller-assigned id. A
 // Start on the zero Turn gets a generated ID instead (see NewID), which the
-// outcome's Turn and every step event carry. Choose the ID yourself and save
+// RunResult's Turn and every step event carry. Choose the ID yourself and save
 // it before the call when a retry after a crash must find the same turn.
 func NewTurn(id string) Turn {
 	return Turn{ID: id}
 }
 
-// StepKind identifies the fact recorded by a step.
+// StepKind says what a step records.
 type StepKind string
 
 const (
-	// StepTurnStarted pins the resolved agent and initial input.
+	// StepTurnStarted records the turn's start: the agent and the initial
+	// input.
 	StepTurnStarted StepKind = "turn_started"
-	// StepMessagesAdded records context supplied between runs.
+	// StepMessagesAdded records messages the host added between runs.
 	StepMessagesAdded StepKind = "messages_added"
-	// StepTurnContinued records a command that resumes a stopped turn.
+	// StepTurnContinued records a Continue command that resumes a stopped
+	// turn.
 	StepTurnContinued StepKind = "turn_continued"
-	// StepLoopContinued records progression to another model call.
+	// StepLoopContinued records that the turn goes on to another model call.
 	StepLoopContinued StepKind = "loop_continued"
-	// StepModelCallStarted records a prepared model call before dispatch.
+	// StepModelCallStarted records a model call just before it is sent.
 	StepModelCallStarted StepKind = "model_call_started"
-	// StepContextCompacted records an applied active-Turn context replacement.
+	// StepContextCompacted records that part of the turn's own messages
+	// were replaced by a summary mid-turn.
 	StepContextCompacted StepKind = "context_compacted"
 	// StepModelCallFinished records the result of a model call.
 	StepModelCallFinished StepKind = "model_call_finished"
-	// StepModelCallFinishedByHost records a host-supplied result for an uncertain call.
+	// StepModelCallFinishedByHost records a result the host supplied, with
+	// Resolve, for a model call whose result was unknown.
 	StepModelCallFinishedByHost StepKind = "model_call_finished_by_host"
-	// StepToolDecision records the BeforeTool verdict for a call.
+	// StepToolDecision records the BeforeTool hooks' verdict for a call.
 	StepToolDecision StepKind = "tool_decision"
-	// StepToolStarted records the start of tool execution.
+	// StepToolStarted records that a tool call started running.
 	StepToolStarted StepKind = "tool_started"
-	// StepToolWaiting records a tool outcome that awaits later settlement.
+	// StepToolWaiting records that a tool call's result will come later.
 	StepToolWaiting StepKind = "tool_waiting"
-	// StepToolFinished records a final tool outcome.
+	// StepToolFinished records a tool call's final outcome.
 	StepToolFinished StepKind = "tool_finished"
-	// StepApprovalDecided records a host answer to a deferred local tool
-	// decision, supplied by Resolve.
+	// StepApprovalDecided records the host's approve or deny decision, given
+	// with Resolve, for a local tool call that needed approval.
 	StepApprovalDecided StepKind = "approval_decided"
-	// StepProviderToolApprovalDecided records a host answer to provider-hosted
-	// approval, supplied by Resolve.
+	// StepProviderToolApprovalDecided records the host's approve or deny
+	// decision, given with Resolve, for a provider tool approval request.
 	StepProviderToolApprovalDecided StepKind = "provider_tool_approval_decided"
-	// StepOutputRecorded pins a validated structured result.
+	// StepOutputRecorded records an accepted, schema-validated structured
+	// output.
 	StepOutputRecorded StepKind = "output_recorded"
 	// StepTurnStopped records why a run ended.
 	StepTurnStopped StepKind = "turn_stopped"
@@ -87,7 +93,7 @@ type Step struct {
 	Started     *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
 	Budget *Budget `json:"budget,omitempty"`
-	// ModelCalls on a continuation records the raised model-attempt cap.
+	// ModelCalls on a continuation records the raised model call limit.
 	ModelCalls           int                               `json:"model_calls,omitempty"`
 	Compacted            *ContextCompactionFact            `json:"compacted,omitempty"`
 	Context              *ContextFact                      `json:"context,omitempty"`
@@ -99,14 +105,14 @@ type Step struct {
 	Stop                 *Stop                             `json:"stop,omitempty"`
 	// Warnings records nonfatal conditions observed when this step was made.
 	Warnings []Warning `json:"warnings,omitempty"`
-	// HookResults records the hook answers given since the previous step:
-	// every answer that was not "no opinion", and every failure.
+	// HookResults records the hook decisions made since the previous step:
+	// every decision that was not "no opinion", and every failure.
 	HookResults []HookResult `json:"hook_results,omitempty"`
 	// ActiveHooks lists the Runner's hooks on the first step of each command.
 	ActiveHooks *ActiveHooks `json:"active_hooks,omitempty"`
 }
 
-// Items returns the context items the step delivered: those of a
+// Items returns the context items the step added: those of an
 // AddMessages or steer, a loop continuation, or a rejected submission. A durable
 // host can read steer IDs from them in the transaction that saves the step.
 func (s Step) Items() []ContextItem {
@@ -126,7 +132,7 @@ const (
 	WarningHistoryMismatch WarningCode = "history_mismatch"
 	// WarningBudgetClamp records an output allowance reduced by a turn cap.
 	WarningBudgetClamp WarningCode = "budget_clamp"
-	// WarningHookFailed records a hook error or invalid answer that the turn
+	// WarningHookFailed records a hook error or invalid decision that the turn
 	// worked around: a skipped BeforeModel hook, or a tool call denied
 	// because its BeforeTool hook failed or its rewrites did not converge.
 	// The step's HookResults name the hook.
@@ -136,10 +142,10 @@ const (
 	WarningHooksChanged WarningCode = "hooks_changed"
 	// WarningMessagesDropped means a BeforeFinish hook asked the model to
 	// continue when no further model call was possible, so its items were
-	// not delivered.
+	// not added.
 	WarningMessagesDropped WarningCode = "messages_dropped"
 	// WarningSteering means a steering source failed or returned an invalid
-	// steer, or waiting steers could not be delivered because no further
+	// steer, or waiting steers could not be added because no further
 	// model call can happen. The steers stay with their source.
 	WarningSteering WarningCode = "steering"
 	// WarningToolChoiceCleared means a BeforeModel hook hid the tool a forced
@@ -165,13 +171,14 @@ const (
 	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
 
 	// BuildHistory reports the warnings below, which no turn records.
-	// Package session passes them on in Outcome.SessionWarnings.
+	// Package session passes them on in RunResult.SessionWarnings.
 
-	// WarningTurnUnreadable means a turn failed to load or project and was
-	// left out of the history sent to the model.
+	// WarningTurnUnreadable means a turn failed to load, or its messages
+	// could not be built, and it was left out of the history sent to the
+	// model.
 	WarningTurnUnreadable WarningCode = "turn_unreadable"
 	// WarningCompactionMismatch means the turns a compaction turn covers no
-	// longer give the projected history its digest records. The compaction
+	// longer build the history whose hash it recorded. The compaction
 	// turn is still honored, so every reader sends the same history.
 	WarningCompactionMismatch WarningCode = "compaction_mismatch"
 )
@@ -190,13 +197,14 @@ var (
 	ErrAgentChanged = errors.New("dashi: agent changed")
 	// ErrCommandIDReused reports a reused command ID with different content.
 	ErrCommandIDReused = errors.New("dashi: command ID reused with different content")
-	// ErrInvalidTurn reports a turn record that fails replay validation.
+	// ErrInvalidTurn reports a turn record that fails the checks run when
+	// its view is built.
 	ErrInvalidTurn = errors.New("dashi: invalid turn record")
 	// ErrStaleTurn reports a commit made from an out-of-date copy of the
 	// turn: another worker added a step first, or holds the turn's lease.
 	// Reload the turn.
 	ErrStaleTurn = errors.New("dashi: stale turn")
-	// ErrStreamConsumed reports a second attempt to range one stream.
+	// ErrStreamConsumed reports a second try to range over one stream.
 	ErrStreamConsumed = errors.New("dashi: stream already consumed")
 	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.
 	ErrTurnNotFound = errors.New("dashi: turn not found")
@@ -208,12 +216,13 @@ var (
 	// wrapped message names the calls the turn waits on, or its stop. A
 	// turn that can never run again gives ErrTurnEnded instead.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
-	// ErrTurnEnded rejects a command on a turn whose stop is terminal (see
+	// ErrTurnEnded rejects a command on a turn that has ended (see
 	// Stop.Ended). Only a Resolve reporting the result of work that had
 	// already started is accepted after the turn ends.
 	ErrTurnEnded = errors.New("dashi: turn has ended")
-	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug
-	// in the runner or recorder. Unlike a rejected command, something was
+	// ErrRecordInvalid reports that steps a run recorded fail the checks
+	// run when the turn's view is built ("replay"), a bug in the runner or
+	// recorder. Unlike a rejected command, something was
 	// recorded. Run wraps it together with ErrInvalidTurn.
 	ErrRecordInvalid = errors.New("dashi: recorded steps fail replay")
 )

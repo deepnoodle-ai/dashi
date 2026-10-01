@@ -1,5 +1,5 @@
 // Command agent runs one agent turn against the OpenAI Responses API and
-// prints the answer. Set OPENAI_API_KEY before running it; OPENAI_MODEL
+// prints the reply. Set OPENAI_API_KEY before running it; OPENAI_MODEL
 // optionally overrides the catalog's default model.
 package main
 

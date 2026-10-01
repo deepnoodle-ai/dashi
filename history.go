@@ -8,7 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// BuildHistory returns the projected history of turns, which are in
+// BuildHistory returns the history built from turns, which are in
 // order, oldest first: what the next turn sends as Start.History, or as
 // Continue.History for the turn after them. It is the rule a session.Session
 // uses, for a host that keeps its own turns.
@@ -17,9 +17,9 @@ import (
 // completed with a summary, it uses that turn's replacement history and
 // stops, so turns before it may be left out of turns. Every other turn
 // gives its TurnMessages. A compaction turn that failed replaces nothing.
-// A turn that cannot be replayed or projected is left out with a
+// A turn whose view or messages cannot be built is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
-// sending. When the compaction turn used has a Digest and turns holds turns
+// sending. When the compaction turn used has a Hash and turns holds turns
 // before it, they are checked against it (compaction.Compactor and
 // session.Session set it; a host with its own compactor sets it with
 // HistoryHash); a mismatch warns WarningCompactionMismatch, and the
@@ -63,7 +63,7 @@ type historyTurn struct {
 	messages func() ([]llm.Message, error)
 }
 
-// projectHistory is the history rule of BuildHistory over n turns, which
+// buildHistory is the history rule of BuildHistory over n turns, which
 // at reads by index, newest first. An error from at makes the turn
 // unreadable; its historyTurn still carries the ID. check, when not nil,
 // returns a warning about the compaction turn whose replacement is used.
@@ -118,8 +118,8 @@ func unreadable(turnID string, err error) Warning {
 	}
 }
 
-// digestMismatch returns a WarningCompactionMismatch when covered, the
-// projected history before compaction turn id, does not have digest.
+// hashMismatch returns a WarningCompactionMismatch when covered, the
+// history before compaction turn id, does not have hash.
 func hashMismatch(id, hash string, covered []llm.Message) *Warning {
 	if got, err := historyHash(covered); err == nil && got == hash {
 		return nil

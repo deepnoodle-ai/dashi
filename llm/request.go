@@ -12,7 +12,7 @@ import (
 // RequestSnapshot records preparation evidence without execution state. Input
 // keeps the caller's original history and settings; Effective includes provider
 // defaults. ContentChanges describes adaptations using original input positions.
-// Unverified names features sent without known support. Warnings project the
+// Unverified names features sent without known support. Warnings show the
 // adjustments that replaced a requested value, and content changes the caller
 // should fix, for callers to surface.
 // Body is the single encoded payload Send will send, including stream mode.
@@ -58,9 +58,10 @@ type RequestSnapshot struct {
 	Unverified []Feature `json:"unverified,omitempty"`
 }
 
-// Request owns immutable, destination-bound intent. Each Send is a separate
-// attempt, even when reusing this request. Callers record execution separately;
-// this value does not prove dispatch or receipt. Observers cannot change it.
+// Request holds what the caller asked to send, fixed and bound to one
+// destination. Each Send is a separate model call, even when reusing this
+// request. Callers record execution separately; this value does not prove
+// dispatch or receipt. Observers cannot change it.
 type Request struct {
 	snapshot []byte
 	body     []byte
@@ -186,7 +187,8 @@ func (p Request) ContentChanges() []ContentChange {
 }
 
 // Generate prepares and sends through the same contracts as explicit users.
-// Use Prepare and Send separately when intent must be recorded in between.
+// Use Prepare and Send separately when the call's start must be recorded in
+// between.
 func Generate(
 	ctx context.Context,
 	client Client,

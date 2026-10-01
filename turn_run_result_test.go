@@ -191,7 +191,7 @@ func TestApproveOnNonApprovalIsRejected(t *testing.T) {
 }
 
 // A denial is recorded by Resolve alone. A crash while the next Continue
-// settles the call must not lose the operator's reason.
+// finishes the call must not lose the operator's reason.
 func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		toolUse(toolCall("call-1", "deploy", `{}`)),
@@ -432,7 +432,7 @@ func TestViewInfersStopLikeRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cut the record after the model intent, as a crash would.
+	// Cut the record after the model_call_started step, as a crash would.
 	crashed := Turn{ID: out.Turn.ID, Steps: out.Turn.Steps[:2]}
 	view, err := crashed.View()
 	if err != nil || view.Stop.Kind != StopInterrupted {
@@ -614,7 +614,7 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 		s.Tools[id] = ToolView{Call: tool.Call{ID: id, Name: "work"}, Status: status}
 		s.callOrder = append(s.callOrder, id)
 	}
-	// Hosted requests keep the model's order, not map order.
+	// Provider tool requests keep the model's order, not map order.
 	for _, id := range []string{"h9", "h1", "h5"} {
 		s.providerTool[id] = llm.ProviderToolApprovalRequest{ID: id, Name: "remote"}
 		s.providerToolOrder = append(s.providerToolOrder, id)
@@ -905,8 +905,8 @@ func providerToolRequest(id string) llm.Result {
 	}
 }
 
-// A provider may reuse a hosted request ID after the first request was
-// answered. The second request needs its own answer command.
+// A provider may reuse a provider tool request ID after the first request
+// was resolved. The second request needs its own Resolve command.
 func TestReusedProviderToolApprovalIDGetsItsOwnAnswer(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		providerToolRequest("h1"),

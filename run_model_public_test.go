@@ -20,7 +20,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// wire answers model calls at a public endpoint without a network, so the
+// wire replies to model calls at a public endpoint without a network, so the
 // catalog and default prompt caching apply as they do in production. It
 // records each request body.
 type wire struct {

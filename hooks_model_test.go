@@ -41,7 +41,8 @@ func toolNames(defs []tool.Definition) []string {
 	return names
 }
 
-// intentOf returns the n-th recorded model intent.
+// callStartOf returns the model fact of the n-th recorded
+// model_call_started step.
 func callStartOf(t *testing.T, turn Turn, n int) *ModelFact {
 	t.Helper()
 	prefix := prefixThrough(t, turn, StepModelCallStarted, n)
@@ -295,7 +296,7 @@ func TestHideHasNoEffectOnTheReservedFinalReply(t *testing.T) {
 	if len(callStartOf(t, out.Turn, 2).Hidden) != 0 {
 		t.Fatalf("final call recorded hides")
 	}
-	// Replay rejects a record that claims hides on the final call.
+	// turn.View() rejects a record that claims hides on the final call.
 	turn := cloneTurn(out.Turn)
 	for i, step := range turn.Steps {
 		if step.Kind == StepModelCallStarted && step.Model.FinalReplyOnly {

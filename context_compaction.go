@@ -73,7 +73,8 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 				return RunResult{}, false, false
 			}
 			r.compactionUsed = true
-			// Re-read deliveries committed by ordinary BeforeModel before the summary.
+			// Re-read messages added by ordinary BeforeModel before the
+			// summary.
 			current, err := replay(r.turn)
 			if err != nil {
 				return r.stop(StopFailed, err.Error()), false, true
@@ -157,8 +158,9 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 		return nil, err
 	}
 	out := []llm.Message{llm.UserMessage(llm.Text(strings.Join(evidence, "\n\n")))}
-	// Use the ordinary projection for delivery lifetime, roles, and slot
-	// metadata. Raw facts retain expired deliveries but must not restore them.
+	// Use the turn's ordinary messages for added-item lifetime, roles, and
+	// slot metadata. Raw facts retain expired added items but must not
+	// restore them.
 	projected, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
@@ -178,15 +180,16 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 }
 
 // activeEstimateAfter verifies actual prepared bytes for the ordinary request
-// with the replacement, without dispatch or admission of that candidate.
+// with the replacement, without sending or reserving for that candidate.
 func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.Result) (int, error) {
 	summary, err := validActiveSummary(result)
 	if err != nil {
 		return 0, err
 	}
 	messagesTurn := r.turn
-	// An unsent/streaming summary intent is not ordinary conversation. Validate
-	// its result against the already-settled prefix without projecting an intent.
+	// A summary call that is unsent or still streaming is not ordinary
+	// conversation. Validate its result against the already-finished prefix
+	// without building messages from that call's model_call_started step.
 	for i := len(messagesTurn.Steps) - 1; i >= 0; i-- {
 		step := messagesTurn.Steps[i]
 		if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
@@ -271,7 +274,7 @@ func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
 }
 
 // activeMediaEstimateUnavailable inspects the prepared, hydrated candidate,
-// not its encoded body. It does not change policy or monetary risk admission.
+// not its encoded body. It does not change policy or cost reservations.
 func (r *runtime) activeMediaEstimateUnavailable(s *replayState, input llm.Input) bool {
 	if s.ActiveCompactionWindow == 0 || !activeInputHasMedia(input) {
 		return false

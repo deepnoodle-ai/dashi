@@ -128,8 +128,8 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 	}
 }
 
-// A turn's own messages (Project, which a session's History uses) keep the
-// raw output an active compaction replaced, while the projected history of
+// A turn's own messages (TurnMessagesFull, which a session's History uses)
+// keep the raw output an active compaction replaced, while the history of
 // the next turn (BuildHistory) holds only the summary, before and after a
 // reload.
 func TestActiveCompactionHistorySeparation(t *testing.T) {
@@ -275,7 +275,8 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 			if out.Reply != "" {
 				t.Fatalf("summary became answer: %q", out.Reply)
 			}
-			// A new admitted summary on explicit Continue replaces the rejected one.
+			// A new accepted summary on explicit Continue replaces the
+			// rejected one.
 			retry := final("<summary>Original objective. Evidence 1 and 2 checked.</summary>")
 			retry.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 2}
 			c.results = append(c.results[:3], append([]llm.Result{retry}, c.results[3:]...)...)

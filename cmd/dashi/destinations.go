@@ -107,7 +107,7 @@ func (d configuredDestination) endpoint() (*url.URL, error) {
 	return u, nil
 }
 
-// fingerprint records the whole binding without its credential values. Model
+// hash records the whole binding without its credential values. Model
 // registration order does not change binding identity.
 func (d configuredDestination) hash() (string, error) {
 	if err := d.validate(); err != nil {

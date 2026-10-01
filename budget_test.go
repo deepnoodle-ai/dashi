@@ -717,7 +717,7 @@ func TestBudgetProviderToolRequestsUseAdapterCounts(t *testing.T) {
 	}
 	result := final("answer")
 	// The adapter reports one billed search; the block count (two, one of
-	// them a failed attempt) does not override it.
+	// them a failed search) does not override it.
 	result.Usage = &llm.Usage{
 		InputTokens:  10,
 		OutputTokens: 10,
@@ -1124,8 +1124,9 @@ func TestBudgetInterruptedProviderToolUseRecordsUnreportedRequests(t *testing.T)
 	}
 }
 
-// hostedCollectedCancelClient streams nothing; after the run's context ends
-// it returns a message holding hosted-tool records, with no ID or usage.
+// providerToolCollectedCancelClient streams nothing; after the run's context
+// ends it returns a message holding provider tool records, with no ID or
+// usage.
 type providerToolCollectedCancelClient struct {
 	*pricedClient
 	cancel context.CancelFunc
@@ -1143,8 +1144,9 @@ func (c *providerToolCollectedCancelClient) Send(
 	)}, ctx.Err()
 }
 
-// A run-cancelled call is never projected, so it keeps the message the
-// client returned: its hosted-tool records stay for audit and count as
+// A run-cancelled call never goes into the messages the model sees, so it
+// keeps the message the client returned: its provider tool records stay for
+// audit and count as
 // unreported requests.
 func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1379,7 +1381,8 @@ func TestBudgetInterruptedSilentProviderToolIsPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A cut-off call with a hosted tool may have run it, so it is uncertain.
+	// A cut-off call with a provider tool may have run it, so its result is
+	// unknown.
 	if out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("stop=%+v", out.Stop)
 	}

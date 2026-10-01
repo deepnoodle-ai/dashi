@@ -1,5 +1,5 @@
 // Command tools runs one agent turn in which the model calls typed Go
-// function tools, then prints the answer and the turn's usage and cost. Set
+// function tools, then prints the reply and the turn's usage and cost. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the catalog's default model.
 package main

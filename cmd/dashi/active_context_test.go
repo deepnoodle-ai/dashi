@@ -28,10 +28,11 @@ func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 	finish := dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
 		ModelCallID: "summary", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("PRIVATE SUMMARY"))},
 	}}
-	// Purpose is inherited from the intent even if a settlement omits it.
+	// Purpose is inherited from the model_call_started step even if the
+	// finish step omits it.
 	for _, b := range r.Event(stepEvent(finish)) {
 		if b.Kind != KindCompaction || strings.Contains(b.Text, "PRIVATE SUMMARY") {
-			t.Fatalf("settled summary leaked: %+v", b)
+			t.Fatalf("finished summary leaked: %+v", b)
 		}
 	}
 	applied := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepContextCompacted,
@@ -96,15 +97,15 @@ func TestCLIActiveContextWindowPinnedPerRecordedStart(t *testing.T) {
 	for i, want := range []int{20000, 50000} {
 		start := h.turn(i + 1).Steps[0].Started
 		if start.Agent.ActiveCompaction == nil || start.Agent.ActiveCompaction.Window != 0 || start.ActiveCompactionWindow != want {
-			t.Fatalf("admission %d lost policy/window: %+v", i+1, start)
+			t.Fatalf("start %d lost policy/window: %+v", i+1, start)
 		}
 	}
 	if strings.Contains(h.ui.text(), "recorded window") {
 		t.Fatalf("per-Turn protection notice shown:\n%s", h.ui.text())
 	}
-	// Stored history retains the admitted window after catalog changes.
+	// Stored history retains the recorded window after catalog changes.
 	if start := h.turn(1).Steps[0].Started; start.ActiveCompactionWindow != 20000 {
-		t.Fatal("later catalog mutated first admission")
+		t.Fatal("later catalog mutated first start")
 	}
 }
 

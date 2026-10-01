@@ -37,7 +37,7 @@ func TestAttachmentRejectedCorrectionNeverRetriesRemovedEvidence(t *testing.T) {
 			frozen := u.attachments.frozenBy
 			u.attachmentMu.Unlock()
 			if frozen != "" || a.eng.HasPending() || cfg.Client.(*fakeClient).sends != 0 {
-				t.Fatal("rejected request retained admission ownership or dispatched")
+				t.Fatal("rejected request retained ownership or dispatched")
 			}
 			if _, err := a.eng.Resume(t.Context()); err == nil {
 				t.Fatal("rejected request silently resumed")

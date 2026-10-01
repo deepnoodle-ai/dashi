@@ -1,6 +1,6 @@
 // Command attachment_refs runs an agent turn that refers to a stored upload by
-// reference. The turn record holds the upload's ID, digest, and size, never
-// its bytes; a resolver supplies the bytes before each model request, after it
+// reference. The turn record holds the upload's ID, hash, and size, never
+// its bytes; a content loader supplies the bytes before each model request, after it
 // checks the tenant. Set ANTHROPIC_API_KEY before running it;
 // ANTHROPIC_MODEL optionally overrides the catalog's default model.
 package main
@@ -71,8 +71,8 @@ func run(ctx context.Context) error {
 	text := []byte("Quarterly note: revenue grew 12%. Churn fell to 2%.")
 	sum := sha256.Sum256(text)
 	uploads := store{"upl_1": {tenant: "acme", data: text}}
-	// The runner checks the resolved bytes against SHA256 and Size. A failed
-	// resolve stops the turn as failed; it is not a Run error.
+	// The runner checks the loaded bytes against SHA256 and Size. A failed
+	// load stops the turn as failed; it is not a Run error.
 	ref := content.Ref{
 		ID:     "upl_1",
 		SHA256: hex.EncodeToString(sum[:]),

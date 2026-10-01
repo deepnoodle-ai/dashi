@@ -6,9 +6,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// Citations returns the citations on assistant text across every settled
+// Citations returns the citations on assistant text across every finished
 // model call in the turn, in the order the provider reported them. A turn
-// that used hosted tools may cite sources in several calls, so the final
+// that used provider tools may cite sources in several calls, so the final
 // message alone can miss some. Citations are not deduplicated: one source
 // may be cited twice with different excerpts.
 func (t Turn) Citations() []content.Citation {
@@ -29,10 +29,11 @@ func (t Turn) Citations() []content.Citation {
 	return out
 }
 
-// ProviderToolUses returns the provider-run tool calls across every settled model
-// call in the turn, in order. Some providers report a hosted call's result
-// as a separate item; ProviderToolUses copies that result's output and error flag
-// onto its use, so each entry is one call with its result either way.
+// ProviderToolUses returns the provider-run tool calls across every
+// finished model call in the turn, in order. Some providers report a
+// provider tool call's result as a separate item; ProviderToolUses copies
+// that result's output and error flag onto its use, so each entry is one
+// call with its result either way.
 func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 	var out []llm.ProviderToolUse
 	index := map[string]int{}
@@ -57,8 +58,9 @@ func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 	return out
 }
 
-// settledResults returns the actionable assistant results in step order:
-// settled or reconciled calls that neither failed nor were interrupted.
+// finishedResults returns the actionable assistant results in step order:
+// finished calls, including those the host resolved, that neither failed
+// nor were interrupted.
 func finishedResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
 	turn := Turn{Steps: steps}
@@ -74,7 +76,8 @@ func finishedResults(steps []Step) []*llm.Result {
 }
 
 // actionableResult returns the step's assistant result when the step
-// settles or reconciles a call that neither failed nor was interrupted.
+// finishes a call, or records a host-supplied result for it, and the call
+// neither failed nor was interrupted.
 func actionableResult(step Step) *llm.Result {
 	if (step.Kind != StepModelCallFinished &&
 		step.Kind != StepModelCallFinishedByHost) ||
@@ -88,11 +91,11 @@ func actionableResult(step Step) *llm.Result {
 	return step.Model.Result
 }
 
-// answerText returns the text of the latest assistant answer. Messages the
-// provider paused and then continued are one answer, so their content is
+// answerText returns the text of the latest assistant reply. Messages the
+// provider paused and then continued are one reply, so their content is
 // joined with the final message's. A call an urgent steer cut short ends
 // the chain: the model wrote what follows after reading the steer, so text
-// from before the cut is not part of that answer.
+// from before the cut is not part of that reply.
 func answerText(steps []Step) string {
 	var chain []*llm.Result
 	turn := Turn{Steps: steps}

@@ -118,7 +118,7 @@ const fileSearchResponse = `{
 }`
 
 // Built from documentation (the genai GroundingChunk maps field), not
-// captured. Maps grounding is hosted work this adapter does not price.
+// captured. Maps grounding is provider tool work this adapter does not price.
 const mapsResponse = `{
   "responseId": "resp-maps",
   "modelVersion": "gemini-2.5-flash",

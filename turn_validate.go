@@ -78,7 +78,7 @@ func (a ActiveHooks) validate() error {
 
 // validateHidden checks the tools recorded as hidden from a model call:
 // named once each, never the submit tool, and not also offered. The
-// reserved final-answer call runs no hides, so it records none.
+// reserved final-reply call runs no hides, so it records none.
 func validateHidden(fact *ModelFact) error {
 	if fact.FinalReplyOnly && len(fact.Hidden) > 0 {
 		return errors.New("invalid hidden tools")
@@ -96,7 +96,8 @@ func validateHidden(fact *ModelFact) error {
 	return nil
 }
 
-// validateAdmission checks the BeforeSend admissions recorded on an intent.
+// validateReservation checks the BeforeSend reservation terms recorded on a
+// model call's start.
 func validateReservation(admission map[string]json.RawMessage) error {
 	total := 0
 	for name, raw := range admission {
@@ -202,7 +203,7 @@ func validateStepPayload(step Step) error {
 			expected = 0
 		}
 	case StepToolFinished:
-		// A turned-down submission carries the items to deliver.
+		// A turned-down submission carries the items to add.
 		if step.Context != nil {
 			expected = 2
 		}

@@ -369,7 +369,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.unresolvedModel = ""
 		s.modelFinishes[step.Model.ModelCallID] = step.Model
-		// Verified nonexecution clears uncertainty; Continue may retry.
+		// Proof that the call was never sent clears the unknown result;
+		// Continue may retry.
 		if step.Model.Error != "" &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
 				(step.Model.SendStatus != llm.SendStatusProviderRejected &&
@@ -533,9 +534,9 @@ func (s *replayState) apply(step Step) error {
 		if step.Tool.Outcome == nil {
 			// No outcome records a result the runner did not observe: a
 			// panic, or a start with no result after a crash. A returned
-			// error settles with a failed outcome instead. Replay does not
+			// error finishes with a failed outcome instead. View does not
 			// second-guess the reason text, so an older or forged record
-			// claiming uncertainty for an error still needs Resolve.
+			// claiming an unknown result for an error still needs Resolve.
 			if v.Status != ToolStarted && v.Status != ToolWaiting {
 				return errors.New("uncertainty without start")
 			}
@@ -630,8 +631,8 @@ func (s *replayState) apply(step Step) error {
 		if step.Approval.ArgsHash != ArgsHash(v.Call.Args) {
 			return errors.New("stale approval")
 		}
-		// Verdict stays the hooks'; the host's answer is kept beside it,
-		// so a denial's reason reaches the model when Continue settles the
+		// Verdict stays the hooks'; the host's decision is kept beside it,
+		// so a denial's reason reaches the model when Continue finishes the
 		// call.
 		answer := *step.Approval
 		v.Approval = &answer
@@ -715,7 +716,7 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		// A candidate answer survives an interruption, and a BeforeFinish
+		// A candidate reply survives an interruption, and a BeforeFinish
 		// failure, so Continue can classify it again without another model
 		// call.
 		if step.Stop.Kind != StopInterrupted &&
@@ -739,7 +740,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.Stop = *step.Stop
 		if step.Stop.Kind == StopLimited {
-			// Cost and usage completeness determine prefix terminality.
+			// Whether cost and usage are complete decides whether the
+			// steps so far end the turn.
 			if err := s.calculateSpend(); err != nil {
 				return err
 			}
@@ -753,7 +755,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Stop.Ended {
 			// The stop is the evidence that calls without a start could not
-			// execute. Started calls remain pending for late reconciliation.
+			// run. Started calls stay pending until a late result arrives
+			// or the host resolves them.
 			for _, id := range s.callOrder {
 				v := s.Tools[id]
 				switch v.Status {

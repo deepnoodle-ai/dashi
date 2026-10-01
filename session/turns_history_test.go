@@ -11,8 +11,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/session"
 )
 
-// BuildHistory over a session's turns gives the session's projected
-// history, and checks the digest the session recorded.
+// BuildHistory over a session's turns gives the session's history, and
+// checks the hash the session recorded.
 func TestBuildHistoryMatchesSession(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(
@@ -51,7 +51,7 @@ func TestBuildHistoryMatchesSession(t *testing.T) {
 	}
 }
 
-// A Session fills the digest a custom Compactor leaves empty, from the
+// A Session fills the hash a custom Compactor leaves empty, from the
 // history it compacted, so the check still applies.
 func TestSessionFillsEmptyCompactionHash(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -63,7 +63,7 @@ func TestSessionFillsEmptyCompactionHash(t *testing.T) {
 	)
 	s := handle(rec, client)
 	s.New = true
-	s.Compactor = keepLast{limit: 100, keep: 1} // leaves Digest empty
+	s.Compactor = keepLast{limit: 100, keep: 1} // leaves Hash empty
 	sendAll(t, s, "first", "second")
 	before, err := s.NextHistory(t.Context())
 	if err != nil {

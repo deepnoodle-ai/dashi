@@ -1,10 +1,10 @@
 // Command durable_approval approves tool calls the way a server does. The
-// RequireApproval hook defers each deploy call, so the turn stops waiting;
-// each answer is recorded with its own Run, and Continue resumes the turn.
-// With a durable recorder, each of those Runs could happen in a different
-// request or process, given IDs the host chose and saved. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// RequireApproval hook marks each deploy call as needing approval, so the
+// turn stops waiting; each decision is recorded with its own Run, and
+// Continue resumes the turn. With a durable recorder, each of those Runs
+// could happen in a different request or process, given IDs the host chose
+// and saved. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
+// optionally overrides the catalog's default model.
 package main
 
 import (
@@ -68,7 +68,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// The model may ask again after an answer, so repeat until the turn
+	// The model may ask again after a decision, so repeat until the turn
 	// stops for another reason.
 	stdin := prompt.Stdin()
 	for out.Stop.Kind == dashi.StopWaiting {
@@ -81,7 +81,7 @@ func run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			// Approve and Deny only record the answer; nothing runs yet.
+			// Approve and Deny only record the decision; nothing runs yet.
 			answer := p.Deny("The operator declined this deploy.")
 			if ok {
 				answer = p.Approve()

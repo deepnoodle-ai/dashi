@@ -18,7 +18,7 @@ import (
 // it: to make a retry after a crash safe, choose the ID, save it before the
 // call, and reuse it. Without that, a retry from an old turn snapshot is still
 // refused by the recorder, so no model call or tool runs twice. A host that
-// saves whole commands, such as an outbox replayed after a crash, encodes
+// saves whole commands, such as an outbox run again after a crash, encodes
 // them with MarshalCommand and finds them by CommandIDOf and CommandKindOf.
 type Command interface{ commandID() string }
 
@@ -33,7 +33,8 @@ type Start struct {
 	// Budget applies to this turn, independently of its agent.
 	Budget *Budget `json:"budget,omitempty"`
 	// OutputSchema overrides the agent's default for this turn. The
-	// admitted schema is pinned in the start fact for replay and recovery.
+	// accepted schema is pinned in the start fact, so later runs and
+	// recovery use the same schema.
 	// A JSON null means none.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	// History is caller-owned prior conversation and is not stored in the turn.
@@ -65,7 +66,7 @@ type Continue struct {
 	History   []llm.Message `json:"history,omitempty"`
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget `json:"budget,omitempty"`
-	// ModelCalls raises the turn's model-attempt limit to this total. Zero
+	// ModelCalls raises the turn's model call limit to this total. Zero
 	// keeps the current limit. It must exceed the limit now in force, which
 	// is the agent's Limits.ModelCalls until an earlier Continue raises
 	// it. A turn that stopped at its limit continues only when this raise
@@ -73,9 +74,9 @@ type Continue struct {
 	// on, and the recorded agent does not change.
 	ModelCalls int `json:"model_calls,omitempty"`
 	// OnHistoryMismatch controls what happens when History differs from the
-	// fingerprint recorded at Start. The default warns and proceeds.
+	// hash recorded at Start. The default warns and proceeds.
 	//
-	// It is encoded with the command but left out of its digest, because it
+	// It is encoded with the command but left out of its hash, because it
 	// says how to handle a mismatch, not what the command asks for. A
 	// rejected Continue commits nothing, and a retry of an applied one
 	// returns the recorded result, so changing it on a retry is not a
@@ -83,18 +84,18 @@ type Continue struct {
 	OnHistoryMismatch HistoryMismatch `json:"on_history_mismatch,omitempty"`
 }
 
-// Resolve records a host-supplied settlement: a final tool outcome, an answer
-// to a tool or provider-hosted approval, or a model result or verified
-// failure. Exactly one fact is set.
+// Resolve records a result the host supplies for a pending item: a final
+// tool outcome, a decision on a tool or provider tool approval, or a model
+// result or verified failure. Exactly one fact is set.
 type Resolve struct {
 	CommandID            string                            `json:"command_id,omitempty"`
 	CallID               string                            `json:"call_id,omitempty"`
 	Outcome              *tool.Outcome                     `json:"outcome,omitempty"`
 	Approval             *ApprovalDecision                 `json:"approval,omitempty"`
 	ProviderToolApproval *llm.ProviderToolApprovalResponse `json:"provider_tool_approval,omitempty"`
-	// ModelResult settles a pending model attempt without another dispatch.
+	// ModelResult finishes a pending model call without sending it again.
 	ModelResult *llm.Result `json:"model_result,omitempty"`
-	// ModelFailure supplies verified evidence that an attempt did not execute.
+	// ModelFailure supplies verified evidence that a model call did not run.
 	ModelFailure *ModelFailure `json:"model_failure,omitempty"`
 }
 
@@ -184,10 +185,10 @@ type commandEnvelope struct {
 
 // MarshalCommand encodes c with its kind, as
 // {"kind":"start","command":{...}}, for a host that saves commands before it
-// runs them. UnmarshalCommand returns an equal command with the same digest,
-// so a saved command replayed after a crash is a retry, not a conflict. Raw
+// runs them. UnmarshalCommand returns an equal command with the same hash,
+// so a saved command run again after a crash is a retry, not a conflict. Raw
 // JSON values, such as an output schema or tool arguments, come back
-// compacted, which keeps their meaning and the digest.
+// compacted, which keeps their meaning and the hash.
 func MarshalCommand(c Command) ([]byte, error) {
 	kind := CommandKindOf(c)
 	if kind == "" {
@@ -235,8 +236,8 @@ func decodeCommand[T Command](raw json.RawMessage) (Command, error) {
 
 // normalizeCommand returns c with an empty CommandID replaced by a new ID,
 // and a JSON null output schema treated as absent, so a command decoded from
-// JSON runs exactly like the original. The ID is part of the command digest,
-// so it is filled before the digest is computed.
+// JSON runs exactly like the original. The ID is part of the command hash,
+// so it is filled before the hash is computed.
 func normalizeCommand(c Command) Command {
 	id := c.commandID()
 	if id == "" {
@@ -273,7 +274,7 @@ func absentNull(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// commandDigest is digest for a command, reporting values that cannot be
+// commandHash is the hash of a command, reporting values that cannot be
 // encoded. Continue.OnHistoryMismatch is left out (see its doc).
 func commandHash(c Command) (string, error) {
 	if v, ok := c.(Continue); ok {

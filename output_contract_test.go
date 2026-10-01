@@ -297,8 +297,8 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	if err != nil || string(view.OutputSchema) != schema || string(view.Agent.OutputSchema) != string(answerSchema) {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
-	// The admitted request is part of the record; altering it invalidates the
-	// accepted model intent and submission evidence.
+	// The accepted request is part of the record; altering it invalidates the
+	// accepted model_call_started step and submission evidence.
 	for i := range out.Turn.Steps {
 		if out.Turn.Steps[i].Kind == StepTurnStarted {
 			out.Turn.Steps[i].Started.OutputSchema = append(

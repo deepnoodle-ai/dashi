@@ -226,7 +226,7 @@ func TestSpendStringStableAndPreservesFields(t *testing.T) {
 }
 
 // TestBudgetCostCapBoundaryIsExact keeps the existing rule, a call whose
-// worst case reaches the cap exactly is admitted, and checks that one nano
+// worst case reaches the cap exactly is allowed, and checks that one nano
 // more is refused.
 func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	client := newPricedClient()
@@ -440,7 +440,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		final    bool
 	}{
 		{
-			// No recorded Charge: Dashi prices the reported usage.
+			// No recorded Cost: Dashi prices the reported usage.
 			name:     "measured",
 			finish:   &ModelFact{Result: usageResult(measured.Copy())},
 			finished: true, basis: UsageSourceReported, charged: true, final: true,
@@ -459,7 +459,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
-			// Usage without a terminal stop may describe an earlier frame.
+			// Usage without a final stop reason may describe an earlier frame.
 			name:     "no terminal stop",
 			finish:   &ModelFact{Result: cutStop},
 			finished: true, basis: UsageSourceEstimated, charged: true,
@@ -634,9 +634,9 @@ func TestModelCallCostsIncludePendingModelCall(t *testing.T) {
 }
 
 // Canonical JSON compares strings by content, so "0.50" and "0.5" differ.
-// Dashi digests Go values, and money.Amount always marshals one trimmed
+// Dashi hashes Go values, and money.Amount always marshals one trimmed
 // spelling, so every spelling a store or a caller may supply decodes to a
-// value with the same digest.
+// value with the same hash.
 func TestMoneyHashIgnoresStoredSpelling(t *testing.T) {
 	if canonjson.Equal(json.RawMessage(`"0.50"`), json.RawMessage(`"0.5"`)) {
 		t.Fatal("canonical JSON unexpectedly equates decimal strings")

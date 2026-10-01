@@ -51,7 +51,7 @@ func FormatAccounting(a Accounting) string {
 	if a.Incomplete || a.CountsIncomplete {
 		countLabel = "at least "
 	}
-	fmt.Fprintf(&out, "\nModel calls with recorded dispatch evidence: %s%d; unresolved model intents: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedStartedModelCalls)
+	fmt.Fprintf(&out, "\nModel calls recorded as sent: %s%d; started model calls with no recorded result: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedStartedModelCalls)
 	fmt.Fprintf(&out, "\nTokens: uncached input %d; cache reads %d; cache writes %d; output %d", spend.Usage.InputTokens, spend.Usage.CacheReadInputTokens, spend.Usage.CacheCreationInputTokens, spend.Usage.OutputTokens)
 	if a.Incomplete || spend.UsageIncomplete {
 		out.WriteString("\nUsage incomplete; retained token counts are not complete totals.")
@@ -94,13 +94,13 @@ func FormatInspection(report Inspection) string {
 	if report.Request == nil {
 		out.WriteString("\nNo readable recorded request.")
 	} else {
-		fmt.Fprintf(&out, "\nLast request (%s at revision %d): %s", report.Request.TurnID, report.Request.LastSeq, report.Request.Text)
+		fmt.Fprintf(&out, "\nLast request (%s at step %d): %s", report.Request.TurnID, report.Request.LastSeq, report.Request.Text)
 	}
 	if report.RequestIncomplete {
 		out.WriteString("\nNewer request facts may be missing.")
 	}
 	if e := report.Latest; e != nil {
-		fmt.Fprintf(&out, "\nLatest execution: %s at revision %d", e.TurnID, e.LastSeq)
+		fmt.Fprintf(&out, "\nLatest execution: %s at step %d", e.TurnID, e.LastSeq)
 		if e.Summary {
 			out.WriteString(" (summary Turn)")
 		}
@@ -164,7 +164,7 @@ func RecordedStopSummary(e *Execution) string {
 		return "latest record unreadable"
 	}
 	if e.Stop.Inferred {
-		return "no run stop recorded; worker liveness unknown"
+		return "no run stop recorded; worker status unknown"
 	}
 	switch e.Stop.Kind {
 	case dashi.StopCompleted:
@@ -174,7 +174,7 @@ func RecordedStopSummary(e *Execution) string {
 	case dashi.StopWaiting:
 		return "recorded waiting; reopen to inspect pending work"
 	case dashi.StopResultUnknown:
-		return "recorded uncertain; reopen and verify effects"
+		return "recorded result unknown; reopen and verify effects"
 	case dashi.StopLimited:
 		return "recorded limited; reopen to inspect the limit"
 	default:

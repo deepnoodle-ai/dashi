@@ -13,7 +13,8 @@ const (
 	ReasoningOmit ReasoningPolicy = "omit"
 )
 
-// ProviderToolActivityPolicy controls omission of completed foreign hosted work.
+// ProviderToolActivityPolicy controls omission of completed foreign provider
+// tool work.
 type ProviderToolActivityPolicy string
 
 const (

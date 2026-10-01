@@ -51,9 +51,10 @@ const (
 	SubmissionUnknown SubmissionState = "unknown"
 )
 
-// Submission keeps receipt uncertainty distinct from a known remote handle.
-// Rejected and unknown submissions have no handle; the caller records errors
-// and reconciliation evidence separately.
+// Submission keeps an unknown receipt, where the provider may or may not have
+// the job, distinct from a known remote handle. Rejected and unknown
+// submissions have no handle; the caller records errors, and the evidence it
+// needs to look the job up later, separately.
 type Submission struct {
 	State      SubmissionState `json:"state"`
 	Job        *Job            `json:"job,omitempty"`
@@ -64,7 +65,7 @@ type Submission struct {
 	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
 }
 
-// Validate rejects invented handles for uncertain or rejected submissions.
+// Validate rejects invented handles for unknown or rejected submissions.
 func (s Submission) Validate() error {
 	if err := validateRawUsage(s.RawUsage); err != nil {
 		return err

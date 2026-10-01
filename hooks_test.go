@@ -972,8 +972,9 @@ func TestRequireApprovalNamesAndGates(t *testing.T) {
 
 // TestHookCallOrder checks that every model call passes BeforeModel and
 // BeforeSend, every eligible tool call passes BeforeTool once, and every
-// final answer passes BeforeFinish, whether the run is collected or
-// streamed, across a deferred approval, and on the reserved final answer.
+// final reply passes BeforeFinish, whether the run is collected or
+// streamed, across a needs-approval decision, and on the reserved final
+// reply.
 func TestHookCallOrder(t *testing.T) {
 	var order []string
 	note := func(s string) {
@@ -1088,7 +1089,7 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	if out.Tools["call-1"].Verdict.RulesVersion != "require_approval:remote" {
 		t.Fatalf("verdict = %+v", out.Tools["call-1"].Verdict)
 	}
-	// The answer comes from a handler whose Runner has no hooks, which
+	// The Resolve comes from a handler whose Runner has no hooks, which
 	// Resolve does not need; that is not a change of hooks.
 	finishr := runner
 	finishr.Hooks = Hooks{}
@@ -1259,8 +1260,8 @@ func TestAddedMessagesAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 	if err != nil || out.Stop.Reason != StopReasonHookFailed {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	// The next call would be the reserved final answer, so there is no room
-	// for a normal call that could use the delivery.
+	// The next call would be the reserved final reply, so there is no room
+	// for a normal call that could use the added messages.
 	fail = false
 	out, err = runner.Run(t.Context(), out.Turn, AddMessages{
 		CommandID: "note",

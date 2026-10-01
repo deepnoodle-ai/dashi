@@ -88,7 +88,7 @@ func ExampleSession_Steer() {
 }
 
 // Enqueue holds input for the next turn. When the running turn ends, the
-// same Send starts a queue turn from it and returns that turn's outcome.
+// same Send starts a queue turn from it and returns that turn's result.
 func ExampleSession_Enqueue() {
 	ctx := context.Background()
 	client := dashitest.NewClient(

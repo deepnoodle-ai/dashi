@@ -216,7 +216,7 @@ func (b *Bundle) Catalog() string {
 	return b.catalog
 }
 
-// Digest identifies the names, descriptions, bodies, and loader name in this
+// Hash identifies the names, descriptions, bodies, and loader name in this
 // bundle. It does not include host policy or action selectors.
 func (b *Bundle) Hash() string {
 	if b == nil {

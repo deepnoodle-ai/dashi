@@ -102,7 +102,7 @@ func (h *taskInputs) prepareStart(ctx context.Context, ref dashi.CallRef, start 
 	if err := json.Unmarshal(call.Args, &args); err != nil || len(start.Input) != 1 || start.Input[0].Text() != args.Prompt {
 		return start, fmt.Errorf("task prompt differs from original call")
 	}
-	// Resolve trust and recorded fingerprint before any content publication.
+	// Resolve trust and recorded hash before any content publication.
 	if _, err := h.clientFor(taskBindingContext(ctx, ref), view.Agent); err != nil {
 		return start, err
 	}

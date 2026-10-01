@@ -2,7 +2,7 @@
 // questions the context window is nearly full, so before the fourth the
 // session runs a compaction turn: the model summarizes the older messages,
 // and later turns send the summary in their place. A second handle with no
-// compactor then reads the same projected history from the record. It
+// compactor then builds the same history from the record. It
 // needs no API key: a scripted dashitest client stands in for the model,
 // so the replies are fixed. With a real client, the session code stays the
 // same.

@@ -13,7 +13,7 @@
 //   - When deltas for a message are lost, whether a reader fell behind, the
 //     Observer dropped them, or the reader joined while the message was
 //     streaming, the reader gets one Event with Gap set for that message,
-//     and no further deltas for it. Its settling step usually follows; if
+//     and no further deltas for it. Its finish step usually follows; if
 //     the run ended early, as after a failed commit, reload the turn.
 //   - Tool progress may be dropped without a gap: each snapshot replaces the
 //     last. A reader that joins while a tool runs sees no progress for it
@@ -35,11 +35,11 @@ import (
 const queueLimit = 256
 
 // openTimeout forgets a turn nobody follows once it has been quiet this
-// long: a message whose deltas stopped without a settling step, as when its
-// run died, or the settled messages it remembers.
+// long: a message whose deltas stopped without a finish step, as when its
+// run died, or the finished messages it remembers.
 const openTimeout = 10 * time.Minute
 
-// settledLimit bounds the settled messages a turn remembers. A delayed
+// finishedLimit bounds the finished messages a turn remembers. A delayed
 // delta comes from a recent message, so the latest few suffice.
 const finishedLimit = 64
 
@@ -49,11 +49,11 @@ const finishedLimit = 64
 // A Hub must not be copied after first use.
 //
 // Steps reach the Hub too, but only as hints: they wake readers waiting for
-// the record and mark a streaming message settled. Readers always take steps
-// from the record. The Hub keeps one small entry per turn with readers, a
-// message streaming, or recently settled messages (so a delayed delta from
-// an overlapping run cannot reopen one); a terminal stop, or ten quiet
-// minutes with no readers, removes it.
+// the record and mark a streaming message finished. Readers always take
+// steps from the record. The Hub keeps one small entry per turn with
+// readers, a message streaming, or recently finished messages (so a delayed
+// delta from an overlapping run cannot reopen one); the stop that ends the
+// turn, or ten quiet minutes with no readers, removes it.
 type Hub struct {
 	mu        sync.Mutex
 	turns     map[string]*turnState
@@ -73,8 +73,8 @@ type turnState struct {
 	// when it grows.
 	stepSeq int64
 	wake    chan struct{}
-	// settled holds messages whose settling step was observed, oldest
-	// first in settledOrder, so a delayed delta or gap from an overlapping
+	// finished holds messages whose finish step was observed, oldest
+	// first in finishedOrder, so a delayed delta or gap from an overlapping
 	// run cannot reopen one.
 	finished      map[string]bool
 	finishedOrder []string
@@ -147,7 +147,7 @@ func (h *Hub) Observe(e dashi.Event) {
 }
 
 func (h *Hub) observeStep(e dashi.Event) {
-	// A settled model message is remembered even for a turn nobody follows
+	// A finished model message is remembered even for a turn nobody follows
 	// yet, so a delayed delta cannot reopen it.
 	finishes := ""
 	if e.Step.Model != nil {
@@ -228,8 +228,8 @@ func (h *Hub) lock(turnID string, create bool) *turnState {
 	}
 }
 
-// markSettled remembers a settled message, forgetting the oldest past
-// settledLimit. The caller holds t.mu.
+// markFinished remembers a finished message, forgetting the oldest past
+// finishedLimit. The caller holds t.mu.
 func (t *turnState) markFinished(id string) {
 	if t.finished[id] {
 		return

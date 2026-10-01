@@ -871,13 +871,12 @@ func TestEveryContextWindowNamesTheProviderPageThatStatesIt(t *testing.T) {
 	}
 }
 
-// requestPriceSource is one provider pricing page that states the rate for
-// one meter key on the listed models. Every entry of every sheet's requests
-// map must appear here, and every row must match the catalog, because a
-// priced key is what turns a hosted request from unpriced into a charge: a
-// wrong rate misstates cost, and a missing one hides it. Rates are USD per
-// unit as exact decimal text. Free allowances are ignored, so a rate is an
-// upper bound.
+// requestPriceSource is one provider pricing page that states the rate for one
+// meter key on the listed models. Every entry of every sheet's requests map
+// must appear here, and every row must match the catalog, because a priced key
+// is what turns a provider tool request from unpriced into a charge: a wrong
+// rate misstates cost, and a missing one hides it. Rates are USD per unit as
+// exact decimal text. Free allowances are ignored, so a rate is an upper bound.
 type requestPriceSource struct {
 	provider string
 	meter    string
@@ -903,7 +902,7 @@ type unpricedMeter struct {
 	reason   string
 }
 
-// requestPricesChecked is the date every hosted request rate was last
+// requestPricesChecked is the date every provider tool request rate was last
 // checked against the provider's pricing page.
 const requestPricesChecked = "2026-09-28"
 
@@ -1275,7 +1274,7 @@ var unpricedMeters = []unpricedMeter{
 }
 
 // emittedMeters lists every meter key each provider's adapters can count
-// into Usage.Requests. Mistral's hosted connectors exist only in its
+// into Usage.Requests. Mistral's provider connectors exist only in its
 // Conversations API, which Dashi does not use.
 var emittedMeters = map[string][]string{
 	"anthropic": {
@@ -1389,8 +1388,8 @@ func TestEveryRequestPriceNamesTheProviderPageThatStatesIt(t *testing.T) {
 	}
 }
 
-// TestEveryEmittedMeterIsPricedOrExplained keeps a new adapter meter or a
-// new sheet from silently leaving hosted work unpriced: each key an adapter
+// TestEveryEmittedMeterIsPricedOrExplained keeps a new adapter meter or a new
+// sheet from silently leaving provider tool work unpriced: each key an adapter
 // can count is priced on every priced sheet of its provider or listed in
 // unpricedMeters with a reason.
 func TestEveryEmittedMeterIsPricedOrExplained(t *testing.T) {

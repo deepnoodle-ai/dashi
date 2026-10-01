@@ -58,14 +58,15 @@ type StepWaiter interface {
 	Wait(ctx context.Context, turnID string, after int64) error
 }
 
-// Settles returns the ID of the live previews this step supersedes: the
-// MessageID of a settled or reconciled model call, whose deltas it replaces,
-// or the call ID of a settled tool call, whose progress it ends. It returns
-// "" for every other step, including model_call_started, which carries the
-// same MessageID as the deltas that follow it but settles nothing.
+// Finishes returns the ID of the live previews this step replaces: the
+// MessageID of a finished model call (including one the host resolved),
+// whose deltas it replaces, or the call ID of a finished tool call, whose
+// progress it ends. It returns "" for every other step, including
+// model_call_started, which carries the same MessageID as the deltas that
+// follow it but finishes nothing.
 //
 // A handler that merges previews with Follow's steps drops a preview whose
-// MessageID (for a delta) or CallID (for progress) a sent step settled.
+// MessageID (for a delta) or CallID (for progress) a sent step finished.
 func (s Step) Finishes() string {
 	switch {
 	case (s.Kind == StepModelCallFinished || s.Kind == StepModelCallFinishedByHost) &&
@@ -83,8 +84,8 @@ var (
 	followPoll = time.Second
 	// followBackstop bounds a wait on a StepWaiter.
 	followBackstop = 15 * time.Second
-	// followResting applies while the turn rests at a stop that is not
-	// terminal, which can last days while it waits for a person.
+	// followResting applies while the turn rests at a stop that did not
+	// end it, which can last days while it waits for a person.
 	followResting = 30 * time.Second
 	// followFloor is the pause after a wake that found nothing new, so a
 	// waiter that reports steps too eagerly cannot make Follow spin.
@@ -98,13 +99,14 @@ var (
 // each new step as it commits. It reads through r, pages until it catches
 // up, and then waits on r's StepWaiter, when it has one, or polls.
 //
-// Follow ends when ctx ends, after yielding a step whose stop is terminal, or
-// after yielding an error; ending never affects the turn. When the step at
-// the cursor is itself a terminal stop, Follow ends at once without yielding
-// anything, so a reader that reconnects after the end is not held open. A
-// late result of work started before a terminal stop can still be recorded
-// after it; a reader that must see every step (accounting, a mirror) reads
-// later results with StepsAfter from the stop's Seq. A read error, including
+// Follow ends when ctx ends, after yielding a step whose stop ended the turn
+// (Stop.Ended), or after yielding an error; ending never affects the turn.
+// When the step at the cursor is itself such a stop, Follow ends at once
+// without yielding anything, so a reader that reconnects after the end is
+// not held open. A late result of work started before the ending stop can
+// still be recorded after it; a reader that must see every step
+// (accounting, a mirror) reads later results with StepsAfter from the
+// stop's Seq. A read error, including
 // ErrCursorAhead, is yielded once. A step that does not continue the cursor
 // (another turn's step, or a gap in Seq) yields an error matching
 // ErrRecordInvalid.

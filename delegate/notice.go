@@ -46,7 +46,7 @@ func (v TaskView) Notice() Notice {
 
 // Text returns the message for the model, such as
 // "[task t_k3f2 completed] explore: find the parser".
-// The answer or the reason follows on the next lines.
+// The reply or the reason follows on the next lines.
 func (n Notice) Text() string {
 	v := n.Task
 	var sb strings.Builder

@@ -127,7 +127,7 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 	id := report.Metadata.ID
 	prefix := "Session " + id + ": "
 	if !owner.Owned || owner.ID != id {
-		return prefix + "worker liveness unknown. Reopen this target while idle with /sessions " + id + " and choose it, or exit and run dashi --resume " + id + ". Acquiring its lock and passing recovery checks are required before any action."
+		return prefix + "worker status unknown. Reopen this target while idle with /sessions " + id + " and choose it, or exit and run dashi --resume " + id + ". Acquiring its lock and passing recovery checks are required before any action."
 	}
 	switch owner.Mode {
 	case ModeRunning:
@@ -171,7 +171,7 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 }
 
 // Endpoint identity is displayed only when a current definition proves the
-// recorded fingerprint. This is pure metadata work, never client construction.
+// recorded hash. This is pure metadata work, never client construction.
 func (c *Controller) inspectionDestinations(report sessionstore.Inspection) string {
 	p := c.eng.cfg.Preferences
 	if p == nil {

@@ -27,14 +27,14 @@ type Event struct {
 	// Gap marks model deltas the Observer dropped because it fell behind.
 	// ModelCallID and MessageID name the message that lost them. Its preview
 	// now has a hole: discard it, and ignore further deltas for that
-	// MessageID until the step that settles it (model_call_finished) arrives. A
-	// gap with no such step after it means the run ended early, as after a
-	// failed commit; load the turn from the recorder. Dropped tool progress
-	// makes no gap, since each snapshot replaces the last. Runner.Stream
-	// never drops, so it never yields a gap.
+	// MessageID until the step that finishes it (model_call_finished)
+	// arrives. A gap with no such step after it means the run ended early,
+	// as after a failed commit; load the turn from the recorder. Dropped
+	// tool progress makes no gap, since each snapshot replaces the last.
+	// Runner.Stream never drops, so it never yields a gap.
 	Gap bool
 	// Result is set only on the final Runner.Stream event. Observer receives
-	// steps, deltas, progress, and gaps, not this terminal event.
+	// steps, deltas, progress, and gaps, not this final event.
 	Result *RunResult
 }
 
@@ -44,8 +44,8 @@ type Event struct {
 // Every step the recorder acknowledges reaches the Observer, in order.
 // Previews (model deltas and tool progress) wait in a bounded queue and are
 // dropped when it is full; dropped deltas are reported by one Event with Gap
-// set. A step whose commit failed with unknown persistence is only in the
-// record.
+// set. A step whose commit failed without knowing whether it was saved is
+// only in the record.
 //
 // Each Run or Stream call delivers on its own goroutine, which keeps
 // draining after the call returns: Run returning does not mean the Observer

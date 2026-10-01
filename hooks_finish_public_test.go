@@ -40,8 +40,9 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 				Name: "interrupt-after-delivery",
 				Func: func(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
 					if _, ok := plan.Turn.Context(item.Origin, item.Name); ok {
-						// The finish delivery is committed before this hook runs.
-						// Interrupt before another model request can start.
+						// The finish hook's added item is committed before
+						// this hook runs. Interrupt before another model
+						// request can start.
 						cancel()
 						return dashi.ModelDecision{}, ctx.Err()
 					}
@@ -63,7 +64,7 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	}
 
 	// Load the durable record. The new runner, client, and hook do not use
-	// the first outcome or the first hook's delivery count.
+	// the first result or the first hook's addition count.
 	saved, err := recorder.Load(t.Context(), first.Turn.ID)
 	if err != nil {
 		t.Fatal(err)

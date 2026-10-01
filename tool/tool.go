@@ -63,8 +63,8 @@ type Definition struct {
 	// conversion.
 	Schema json.RawMessage `json:"schema"`
 
-	// Hosted selects a provider-owned tool configuration. Its wire options
-	// are validated again by the destination adapter before dispatch.
+	// ProviderTool selects a provider-owned tool configuration. Its wire
+	// options are validated again by the destination adapter before dispatch.
 	ProviderTool *ProviderToolSpec `json:"provider_tool,omitempty"`
 
 	// Kind identifies the execution location; empty leaves it unspecified.
@@ -106,7 +106,7 @@ func (s ProviderToolSpec) Validate() error {
 	return nil
 }
 
-// Clone detaches hosted wire options from the caller's buffer.
+// Clone detaches provider tool wire options from the caller's buffer.
 func (s ProviderToolSpec) Clone() ProviderToolSpec {
 	s.Options = slices.Clone(s.Options)
 	return s
@@ -126,7 +126,7 @@ func (d Definition) Validate() error {
 	}
 	if d.Kind == KindProviderTool {
 		// A missing RawMessage is written as JSON null in saved turns.
-		// Treat it as absent only for hosted tools, which have no schema.
+		// Treat it as absent only for provider tools, which have no schema.
 		hasSchema := len(d.Schema) != 0 &&
 			!bytes.Equal(bytes.TrimSpace(d.Schema), []byte("null"))
 		if hasSchema || d.ProviderTool == nil {
@@ -267,8 +267,8 @@ type State string
 const (
 	// StateSucceeded requires output from a completed call.
 	StateSucceeded State = "succeeded"
-	// StateFailed requires output describing a known failure, not an uncertain
-	// effect.
+	// StateFailed requires output describing a known failure, not an effect
+	// whose result is unknown.
 	StateFailed State = "failed"
 	// StateNotExecuted confirms the executor did not run; explanatory output is
 	// optional.
@@ -346,7 +346,7 @@ func Failed(text string) Outcome {
 	return Outcome{State: StateFailed, Output: new(TextOutput(text))}
 }
 
-// Waiting returns an outcome that pauses the call until the host settles it.
+// Waiting returns an outcome that pauses the call until the host resolves it.
 // reason is required; set Wait.Prompt on the result to add a question or
 // instruction for the user. Waiting("") is invalid, and the runner stops the
 // turn with ErrInvalidOutcome if an executor returns it.
@@ -425,8 +425,8 @@ func (o Outcome) Validate() error {
 // StateFailed and nil error does the same with content the tool chooses. Wrap
 // the error with Fatal when continuing the turn would be wrong.
 //
-// An executor never reports uncertainty. The runner alone decides that a
-// result was not observed: after a panic, or when a recorded start has no
+// An executor never reports an unknown result. The runner alone decides that
+// a result was not observed: after a panic, or when a recorded start has no
 // recorded result after a crash.
 type Executor interface {
 	// Execute returns the call's outcome, or an error describing why it
@@ -491,7 +491,7 @@ type Tool struct {
 	// data.
 	Definition Definition
 
-	// Executor runs local calls and is nil for external or provider-hosted
+	// Executor runs local calls and is nil for external tools and provider
 	// tools.
 	Executor Executor
 }

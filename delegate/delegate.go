@@ -2,7 +2,7 @@
 // the background. The model calls the "task" tool with a subagent name and a
 // prompt. The call returns at once with a task ID, and the agent keeps
 // working. The model can later call "task_status" to read the state or the
-// answer, and "task_stop" to end a task. When a turn of a task ends, the
+// reply, and "task_stop" to end a task. When a turn of a task ends, the
 // agent gets a notice: Tasks puts it on Config.Session, or the host routes
 // it from Config.OnTask.
 //
@@ -43,7 +43,7 @@ import (
 const (
 	// ToolName starts a task.
 	ToolName = "task"
-	// StatusToolName reads the state or the answer of a task.
+	// StatusToolName reads the state or the reply of a task.
 	StatusToolName = "task_status"
 	// StopToolName stops a task.
 	StopToolName = "task_stop"
@@ -122,7 +122,7 @@ type Config struct {
 	// Tools is ignored. A Recorder should implement dashi.Loader.
 	// Without one, children run but do not survive a restart.
 	Runner dashi.Runner
-	// MaxReply caps the bytes of a child's answer that reach the model,
+	// MaxReply caps the bytes of a child's reply that reach the model,
 	// in a notice or a status result. Zero means 16 KiB; a negative value
 	// means no cap.
 	MaxReply int
@@ -148,8 +148,8 @@ type Config struct {
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound.
 	MaxTaskTurns int
-	// PrepareStart may append admitted evidence and pin generation settings,
-	// active compaction, and behavior revision before a new child is recorded.
+	// PrepareStart may append checked evidence and pin generation settings,
+	// active compaction, and the agent version before a new child is recorded.
 	// It receives an owned Start outside the task lock. It cannot change the
 	// task prompt, parent, destination, instructions, tools, limits, or budget.
 	// Existing recorded children never call it.

@@ -53,7 +53,7 @@ func (ts *Tasks) prepareStart(ctx context.Context, ref dashi.CallRef, start dash
 		return dashi.Start{}, fmt.Errorf("delegate: prepare child: %w", err)
 	}
 	// Compare the protected fields after removing the explicitly allowed
-	// settings/revision changes. The original input is an unchanged prefix.
+	// settings and version changes. The original input is an unchanged prefix.
 	if len(prepared.Input) < len(start.Input) || !equalValue(start.Input, prepared.Input[:len(start.Input)]) {
 		return dashi.Start{}, errors.New("delegate: child preparation changed the task prompt")
 	}

@@ -282,8 +282,9 @@ func TestReplayKeepsRecordedToolUnknownResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A record from an older runner, or a forged one, may claim uncertainty
-	// for a returned error. Replay honors the record rather than guessing.
+	// A record from an older runner, or a forged one, may claim an unknown
+	// result for a returned error. View honors the record rather than
+	// guessing.
 	forged := Turn{ID: got.Turn.ID}
 	for _, step := range got.Turn.Steps {
 		if step.Kind == StepToolFinished {
@@ -430,7 +431,7 @@ func callsResult(ids ...string) llm.Result {
 	}
 }
 
-// settledFact returns the recorded settlement for callID.
+// finishedFact returns the recorded finish fact for callID.
 func finishedFact(t *testing.T, turn Turn, callID string) *ToolFact {
 	t.Helper()
 	for _, step := range turn.Steps {
@@ -465,7 +466,7 @@ func resultText(result *llm.ToolResult) string {
 }
 
 // assertRecordRoundTrips checks that the recorder holds the returned turn and
-// that its JSON form replays to the same view.
+// that its JSON form builds the same view.
 func assertRecordRoundTrips(t *testing.T, rec *MemoryRecorder, turn Turn) {
 	t.Helper()
 	saved, err := rec.Load(t.Context(), turn.ID)

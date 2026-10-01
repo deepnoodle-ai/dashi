@@ -260,7 +260,7 @@ func TestPendingStartUnknownAcknowledgment(t *testing.T) {
 			h.input("")
 			if blocked {
 				if !h.app.eng.HasPending() || h.turns() != 0 {
-					t.Fatal("unreadable target admitted new work")
+					t.Fatal("unreadable target accepted new work")
 				}
 				rec.mu.Lock()
 				rec.unreadable = false

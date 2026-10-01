@@ -55,7 +55,7 @@ func TestPromptStreamsTextAndFooter(t *testing.T) {
 	if h.turns() != 1 || s.Title != "fix the test" {
 		t.Fatalf("session=%+v", s)
 	}
-	// Streamed text and the settled text are one block.
+	// Streamed text and the finished text are one block.
 	assistants := 0
 	for _, b := range h.ui.blocks() {
 		if b.Kind == KindAssistant {
@@ -402,7 +402,7 @@ func TestSlashCommands(t *testing.T) {
 	}
 }
 
-// A settled bash call is followed by the diff of the working tree.
+// A finished bash call is followed by the diff of the working tree.
 func TestDiffShownAfterBash(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")

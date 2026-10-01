@@ -53,18 +53,18 @@ func (s *Session) Stream(
 // last turn ended with NextNone, or it has none. It starts a queue turn
 // from every queued item and repeats, as Run does after a turn, until the
 // queue is empty or a turn stops any other way. It returns the last turn's
-// outcome and true, or, when it ran nothing, the session's last turn's
-// outcome and false: nothing was queued, or the last turn has not ended, so
+// result and true, or, when it ran nothing, the session's last turn's
+// result and false: nothing was queued, or the last turn has not ended, so
 // the items wait. A queue turn's Start has the command ID "queue:" and the
 // sorted item IDs in JSON, origin StartUser when any item came from the
 // user and StartScheduled otherwise, and the items' messages as Input, in
 // queue order. A queue turn whose key a turn in the idempotency window
-// already started is a duplicate: its items were delivered, so they leave
-// the queue and nothing runs. A last turn that cannot be read fails the
+// already started is a duplicate: its items were already added to that
+// turn, so they leave the queue and nothing runs. A last turn that cannot be read fails the
 // check, even under Exclusive, since it may hold the key: RunQueue returns
 // the error and runs nothing. While queued items stay reserved for a turn
 // the session cannot read, RunQueue returns that error and runs nothing;
-// the outcomes of other commands warn WarningQueueBlocked meanwhile.
+// the results of other commands warn WarningQueueBlocked meanwhile.
 func (s *Session) RunQueue(
 	ctx context.Context,
 	opts ...dashi.RunOption,
@@ -93,9 +93,9 @@ type call struct {
 	stopped bool
 	// started is set when the last exec of a Start saw its turn_started
 	// step: the engine reports a step only once it committed, so the
-	// queued items the Start carried were delivered.
+	// queued items the Start carried were added to the turn.
 	started bool
-	// warnings holds session warnings of a compaction turn for the outcome
+	// warnings holds session warnings of a compaction turn for the result
 	// of the turn it ran before.
 	warnings []dashi.Warning
 }
@@ -129,7 +129,7 @@ func (cl *call) dispatch(
 		next, ran, qerr := cl.queueTurn(ctx)
 		if !ran && (qerr == nil || errors.Is(qerr, errReserved)) {
 			// Nothing ran, or the queue waits on a reservation, which the
-			// outcome already warns of.
+			// result already warns of.
 			break
 		}
 		if cl.yield == nil {
@@ -199,7 +199,7 @@ func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.RunResult, erro
 			continue
 		}
 		// A keyed Start that raced another worker's equal Start to the same
-		// turn gets that turn's outcome from the engine, as a retry. With
+		// turn gets that turn's result from the engine, as a retry. With
 		// no stop recorded, the turn may still be running, so plan again:
 		// the idempotency check then refuses it as a duplicate.
 		if attempt < 2 && !fresh && err == nil && out.Stop.Inferred {
@@ -237,7 +237,7 @@ func (cl *call) queueTurn(ctx context.Context) (dashi.RunResult, bool, error) {
 		p, ok, err := s.planQueue(ctx, compacted)
 		s.mu.Unlock()
 		if errors.Is(err, errReserved) {
-			// The queue waits; each outcome warns WarningQueueBlocked.
+			// The queue waits; each result warns WarningQueueBlocked.
 			return dashi.RunResult{}, false, err
 		}
 		if err != nil {
@@ -328,7 +328,7 @@ func (cl *call) exec(
 		}
 	}
 	if !have {
-		// The engine yielded no outcome: the turn holds the committed
+		// The engine yielded no RunResult: the turn holds the committed
 		// steps this call saw, if any.
 		out = dashi.RunResult{Turn: seen}
 		if runErr == nil && cl.stopped {
@@ -488,7 +488,7 @@ func collectRun(
 	return out, events, runErr
 }
 
-// lastOutcome returns the current outcome of the session's last turn, or a
+// lastOutcome returns the current result of the session's last turn, or a
 // zero RunResult when it has none.
 func (s *Session) lastOutcome(ctx context.Context) (dashi.RunResult, error) {
 	s.mu.Lock()

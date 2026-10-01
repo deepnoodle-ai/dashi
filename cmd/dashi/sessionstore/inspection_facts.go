@@ -196,7 +196,7 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		out.WindowSource = "recorded active-protection window"
 	}
 	if finished == nil {
-		out.UnavailableReason = "model intent unresolved"
+		out.UnavailableReason = "started model call has no recorded result"
 		return out
 	}
 	out.Estimated = finished.EstimatedUsage

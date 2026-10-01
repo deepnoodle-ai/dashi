@@ -146,7 +146,7 @@ type Capabilities struct {
 // Check validates requested features and known limits without changing the
 // request; call Fit first to bring settings within limits. Under
 // CapabilityAdjust the returned features have unknown support, so callers can
-// record that uncertainty. Known rejection fails under both policies.
+// record that support is unknown. Known rejection fails under both policies.
 // Input.Settings should contain effective settings when checking defaults.
 func (c Capabilities) Check(
 	r Input,
@@ -345,8 +345,8 @@ func requestedFeatures(r Input) []Feature {
 					data(b)
 				}
 			}
-			// Hosted outputs are display projections of provider replay data.
-			// They are not encoded as independent media inputs.
+			// Provider tool outputs are display copies of provider replay
+			// data. They are not encoded as independent media inputs.
 		}
 	}
 	return features

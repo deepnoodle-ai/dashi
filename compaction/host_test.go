@@ -11,7 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// A host's compaction turn carries the Compactor's digest, so
+// A host's compaction turn carries the Compactor's hash, so
 // BuildHistory checks it as it checks a Session's: an altered earlier
 // turn warns, and the replacement history is still used.
 func TestHostCompactionHash(t *testing.T) {

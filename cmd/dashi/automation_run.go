@@ -196,7 +196,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 	}
 
 	if execCtx.Err() != nil {
-		diagnostic("request canceled before admission")
+		diagnostic("request canceled before it was accepted")
 		return 4
 	}
 	var selected *submittedInput

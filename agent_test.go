@@ -123,7 +123,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	}
 
 	// A retried Start whose instructions no longer match the record fails;
-	// the error names the field and the fix. The revision is pinned so the
+	// the error names the field and the fix. The version is pinned so the
 	// derived one does not differ too.
 	edited := agent
 	edited.Instructions = "Be thorough."
@@ -487,7 +487,7 @@ func TestGeneratedCommandIDIsPartOfHash(t *testing.T) {
 }
 
 func TestAgentVersionIsPinned(t *testing.T) {
-	// A change to this value changes the revision of every recorded agent
+	// A change to this value changes the version of every recorded agent
 	// that relied on the derived one; make it deliberately.
 	agent := Agent{
 		Provider:     "anthropic",

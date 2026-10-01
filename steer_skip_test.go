@@ -135,7 +135,7 @@ func skipStart(concurrency int) Start {
 	return startAgent(agent)
 }
 
-// requireSkipped checks that call id settled as kept from starting by a
+// requireSkipped checks that call id finished as kept from starting by a
 // steer, and whether BeforeTool decided on it first.
 func requireSkipped(t *testing.T, turn Turn, id string, decided bool) {
 	t.Helper()
@@ -241,7 +241,7 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 		[]string{"b", "c"},
 		"a",
 	)
-	// The record replays to the same view.
+	// The record builds the same view.
 	view, err := cloneTurn(out.Turn).View()
 	if err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 			t.Fatal("the steer was recorded with no model call to read it")
 		}
 	}
-	// The host answers both. The approved call runs: it came before the
+	// The host resolves both. The approved call runs: it came before the
 	// skip, and the steer reaches the next model call after its result.
 	for _, pending := range out.Pending {
 		var finish Resolve
@@ -454,7 +454,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 	)
 }
 
-// crashOnSkip fails the commit of call id's steering settlement, as when a
+// crashOnSkip fails the commit of call id's steering finish step, as when a
 // worker dies right after an earlier skip was written.
 type crashOnSkip struct {
 	*MemoryRecorder
@@ -586,7 +586,7 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 }
 
 // A started call may have taken effect, so neither the record nor a steer
-// settles it as not run; a resumed start re-runs a call safe to repeat.
+// finishes it as not run; a resumed start re-runs a call safe to repeat.
 func TestSteerSkipsOnlyUnstartedCalls(t *testing.T) {
 	r := &runtime{}
 	for status, want := range map[ToolStatus]bool{
@@ -679,7 +679,7 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	}
 }
 
-// On the last normal attempt, only the reserved final-answer call remains.
+// On the last normal model call, only the reserved final-reply call remains.
 // It offers no tools, so the batch runs, that call receives the steer, and
 // no warning claims the steer stays with its source.
 func TestUrgentSteerOnLastModelCallReachesFinalReplyCall(t *testing.T) {
@@ -700,7 +700,7 @@ func TestUrgentSteerOnLastModelCallReachesFinalReplyCall(t *testing.T) {
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{bench.tool()}
 	})
-	// A reserved final answer ends the turn as limited by ModelCalls.
+	// A reserved final reply ends the turn as limited by ModelCalls.
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
@@ -807,7 +807,7 @@ func TestUrgentSteerSkipsExternalCallBeforeHandOff(t *testing.T) {
 	requireResultsThenSteer(t, client.inputs()[1], "stop", []string{"e"})
 }
 
-// steerOnModelSettled sends an urgent steer as the first model result is
+// steerOnModelFinished sends an urgent steer as the first model result is
 // recorded: the call no longer runs, so the steer cannot cut it and waits
 // for the batch.
 type steerOnModelFinished struct {
@@ -828,7 +828,7 @@ func (c *steerOnModelFinished) Commit(ctx context.Context, req CommitRequest) er
 }
 
 // With room for another call, the finish point turns the submission down
-// for the steer, as it does a text answer; the skip never touches it.
+// for the steer, as it does a text reply; the skip never touches it.
 func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 	inbox := newWatchedInbox()
 	agent := testAgent()
@@ -856,7 +856,7 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 }
 
 // staleInbox is an Inbox with its own Ready signal. Once armed, its next
-// Steers call reads the queue, then holds its answer until its context
+// Steers call reads the queue, then holds its return until its context
 // ends: a slow listener fetch that began before a steer was queued.
 type staleInbox struct {
 	*Inbox
@@ -1043,7 +1043,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
 	}
-	// Forge: the allowed submission settles as skipped by a steer instead
+	// Forge: the allowed submission finishes as skipped by a steer instead
 	// of starting.
 	forged := cloneTurn(out.Turn)
 	var steps []Step

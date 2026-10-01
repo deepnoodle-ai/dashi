@@ -44,7 +44,7 @@ func TestRenderTextDeltasGrowOneBlock(t *testing.T) {
 	}); len(got) != 0 {
 		t.Fatalf("reasoning shown: %+v", got)
 	}
-	// The settled step replaces the text and closes the block.
+	// The finished step replaces the text and closes the block.
 	done := onlyBlock(t, r.Event(stepEvent(dashi.Step{
 		Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{
@@ -68,7 +68,7 @@ func TestFooterShowsIncompleteUsageWithoutQualifyingExactCost(t *testing.T) {
 	got := FooterText(1, "fixture", view)
 	want := "[turn 1 | fixture | 0 model calls | usage incomplete | $0.500]"
 	if got != want {
-		t.Fatalf("footer presented incomplete counts or uncertain money: %q", got)
+		t.Fatalf("footer presented incomplete counts or unknown money: %q", got)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestRenderStopKinds(t *testing.T) {
 			"The turn is waiting: tool result.",
 		},
 		{
-			"uncertain",
+			"result unknown",
 			dashi.Stop{Kind: dashi.StopResultUnknown, Reason: "model call"},
 			"The turn stopped with an unknown result: model call.",
 		},
@@ -312,7 +312,7 @@ func TestLineModeMarksEmptyFinishedCorrection(t *testing.T) {
 	ui := newLineUI(&out)
 	ui.Emit(Block{ID: "a", Kind: KindAssistant, Text: "Let me look."})
 	ui.Emit(Block{ID: "a", Kind: KindAssistant, Done: true})
-	if !strings.Contains(out.String(), "[Corrected: the model gave no answer text]") {
+	if !strings.Contains(out.String(), "[Corrected: the model gave no reply text]") {
 		t.Fatalf("output=%q", out.String())
 	}
 }

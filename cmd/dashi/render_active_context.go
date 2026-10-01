@@ -7,7 +7,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 )
 
-// Purpose belongs to the recorded attempt, not to its preview text. Keep the
+// Purpose belongs to the recorded model call, not to its preview text. Keep the
 // map for late previews as well as live rendering and recorded replay.
 type activeContextModelCall struct {
 	before       int
@@ -47,7 +47,7 @@ func (r *Renderer) activeContextCallStart(s dashi.Step) []Block {
 		a.before = s.Model.Compaction.EstimatedBefore
 	}
 	r.activeContext[s.Model.ModelCallID] = a
-	return []Block{activeContextBlock(s.Model.ModelCallID, StateRunning, "Compacting this Turn's settled work...", false)}
+	return []Block{activeContextBlock(s.Model.ModelCallID, StateRunning, "Compacting this Turn's finished work...", false)}
 }
 
 func activeContextBlock(id, state, text string, done bool) Block {
@@ -61,7 +61,7 @@ func (r *Renderer) activeContextFinished(s dashi.Step) []Block {
 	}
 	a := r.activeContext[m.ModelCallID]
 	if a == nil {
-		// A standalone settlement can still be identified by its purpose.
+		// A standalone finish step can still be identified by its purpose.
 		if r.activeContext == nil {
 			r.activeContext = make(map[string]*activeContextModelCall)
 		}

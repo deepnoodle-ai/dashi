@@ -442,8 +442,9 @@ func TestPrivateReplayRequiresMatchingOriginUnlessCanonicalConversionIsSupported
 							if (err == nil) != (variant == "same" || part.ToolCall != nil) {
 								t.Fatalf("%s replay: %v", part.Kind, err)
 							}
-							// Citations must also carry origin when separated from their
-							// enclosing provider data by an application projection.
+							// Citations must also carry origin when separated
+							// from their enclosing provider data by an
+							// application's own view.
 							if part.Block != nil &&
 								part.Block.Text != nil &&
 								len(part.Block.Text.Citations) > 0 {

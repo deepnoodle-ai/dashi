@@ -154,7 +154,7 @@ func TestSessionStreamBreak(t *testing.T) {
 }
 
 // A Stream of a retried Start whose turn is running follows that turn and
-// ends with its outcome, without starting another turn.
+// ends with its result, without starting another turn.
 func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	rec := newLiveRecorder()
 	client := held(1, dashitest.Reply("answer"))
@@ -171,7 +171,7 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	rec.set(session.WorkerStatusRunning)
 	retry := handle(rec, client)
 	// Release the model call only once the retry follows the running
-	// turn: a retry planned after the turn ended would get its outcome
+	// turn: a retry planned after the turn ended would get its result
 	// without step events.
 	following := make(chan struct{})
 	var once sync.Once

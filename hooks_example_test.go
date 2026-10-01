@@ -11,9 +11,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// SeedContext delivers a note before the first model call and not again,
+// SeedContext adds a note before the first model call and not again,
 // because the turn record already holds it. The turn here makes two model
-// calls, one for a tool call and one for the answer.
+// calls, one for a tool call and one for the reply.
 func ExampleSeedContext() {
 	ctx := context.Background()
 	onCall := dashi.SeedContext(dashi.ContextItem{

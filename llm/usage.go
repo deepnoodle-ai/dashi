@@ -38,15 +38,15 @@ type ModalityTokenUsage struct {
 // This differs deliberately from ReasoningTokens, which is a subset of
 // OutputTokens rather than an additive bucket.
 type Usage struct {
-	// Requests counts billable provider-hosted work by meter key (see
+	// Requests counts billable provider tool work by meter key (see
 	// MeterWebSearch).
 	Requests map[string]int `json:"requests,omitempty"`
 	// RequestsComplete reports that Requests come from the provider's complete,
-	// final response, so no billed hosted work is missing from them. Adapters
-	// leave it false for a response cut off before its final usage, whose
-	// counts may be inferred from the hosted blocks seen so far. When it is
-	// false and the call had hosted activity, the runner records
-	// MeterUnreported so the call's cost shows as partial.
+	// final response, so no billed provider tool work is missing from them.
+	// Adapters leave it false for a response cut off before its final usage,
+	// whose counts may be inferred from the provider tool blocks seen so far.
+	// When it is false and the call had provider tool activity, the runner
+	// records MeterUnreported so the call's cost shows as partial.
 	RequestsComplete bool `json:"requests_complete,omitempty"`
 	// InputTokens counts input excluding cache reads and cache creation.
 	InputTokens int `json:"input_tokens"`

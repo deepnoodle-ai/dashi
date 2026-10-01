@@ -295,7 +295,7 @@ func TestSystemPromptStableAcrossReminders(t *testing.T) {
 			}, nil
 		}),
 	}
-	// The hook delivers a one-call reminder on the second call only, so the
+	// The hook adds a one-call reminder on the second call only, so the
 	// first call has none, the second has one, and the third has none again.
 	calls := 0
 	hooks := Hooks{BeforeModel: []ModelHook{{
@@ -384,8 +384,8 @@ func reminderBefore(messages []llm.Message, first, second string) bool {
 	return i >= 0 && j > i
 }
 
-// unsettledCallsTurn records one model result with three calls that end
-// started, waiting, and uncertain, and an uncertain stop.
+// unfinishedCallsTurn records one model result with three calls that end
+// started, waiting, and result unknown, and a result_unknown stop.
 func unfinishedCallsTurn() Turn {
 	def := tool.Definition{
 		Name:   "work",
@@ -460,7 +460,8 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 	}
 	before, _ := json.Marshal(messages)
 
-	// A late result is recorded and counted, but the projection is frozen.
+	// A late result is recorded and counted, but the turn's messages do not
+	// change.
 	late, err := runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID: "late",
 		CallID:    "started",
@@ -478,7 +479,7 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 	}
 }
 
-// A canceled turn with a model attempt in flight projects its input only.
+// A canceled turn with a model call in flight shows its input only.
 func TestCanceledTurnDropsPendingModelCall(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
@@ -555,8 +556,8 @@ func countReminders(messages []llm.Message) int {
 	return n
 }
 
-// A late model result after a cancel counts in Spend, but Answer, like
-// Project, stays fixed at the terminal stop.
+// A late model result after a cancel counts in Spend, but Reply, like
+// TurnMessagesFull, stays fixed at the stop that ended the turn.
 func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}},

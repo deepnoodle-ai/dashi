@@ -36,7 +36,7 @@ func AgentCredentials(t *testing.T, provider string) (string, string) {
 }
 
 // RecordedReminder makes one paid call with a recorded reminder and checks
-// that the answer follows it and the projection keeps it.
+// that the reply follows it and the turn's messages keep it.
 func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -163,7 +163,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	)
 }
 
-// ReservedFinalAnswer makes exactly two paid calls. The second call must see
+// ReservedFinalReply makes exactly two paid calls. The second call must see
 // the recorded tool result while no longer advertising application tools.
 func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
@@ -300,7 +300,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	)
 }
 
-// AgentTurn makes three paid calls: a streamed final answer, then a local
+// AgentTurn makes three paid calls: a streamed final reply, then a local
 // tool call followed by a second model call. It checks the recorded steps,
 // replay, and that a duplicate start repeats no work.
 func AgentTurn(
@@ -508,7 +508,7 @@ func (c *countingClient) Send(
 }
 
 // streamOutcome runs command through Runner.Stream and returns its final
-// Outcome, so a check can exercise a streamed model request.
+// RunResult, so a check can exercise a streamed model request.
 func streamOutcome(
 	ctx context.Context,
 	runner dashi.Runner,
@@ -530,7 +530,7 @@ func streamOutcome(
 
 // SteerAfterToolBatch makes two paid calls. A steer sent while the tool runs
 // must reach the second call after the tool result, which every provider
-// must accept, and change the answer.
+// must accept, and change the reply.
 func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -595,8 +595,8 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 }
 
 // UrgentSteerCutsStream makes two paid calls. An urgent steer sent once a
-// long streamed answer has begun must cut that call short, and the provider
-// must accept the next request: the partial answer, the interruption
+// long streamed reply has begun must cut that call short, and the provider
+// must accept the next request: the partial reply, the interruption
 // reminder, and the steer.
 func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
@@ -672,7 +672,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 }
 
 // UrgentSteerPartialEndsInWhitespace makes two paid calls. It cuts a
-// streamed answer where the text so far ends in whitespace, and checks that
+// streamed reply where the text so far ends in whitespace, and checks that
 // the provider accepts the next request, whose partial Dashi trims.
 func UrgentSteerPartialEndsInWhitespace(
 	t *testing.T,
@@ -798,7 +798,7 @@ func (c *whitespaceCutClient) Send(
 // it costs about $1.30 on claude-haiku-4-5. The first call must end in a
 // provider pause (Anthropic's pause_turn after ten server iterations); it
 // skips when the model finishes without pausing. An urgent steer then
-// arrives during the continuation. When the pause left a hosted call
+// arrives during the continuation. When the pause left a provider tool call
 // unfinished, as a pause during web search does, the continuation must not
 // be cut: the steer lands after it. Otherwise the continuation is cut.
 // Either way the provider must accept the request that carries the steer.
@@ -902,8 +902,8 @@ func UrgentSteerAfterPause(
 	)
 }
 
-// unfinishedHosted reports whether the result of the attempt left a hosted
-// call without its result.
+// unfinishedProviderTool reports whether the result of the model call left a
+// provider tool call without its result.
 func unfinishedProviderTool(turn dashi.Turn, attempt string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind != dashi.StepModelCallFinished ||
@@ -936,7 +936,7 @@ func hasWarning(turn dashi.Turn, text string) bool {
 	return false
 }
 
-// describeCalls summarizes a turn's model settlements for a failure.
+// describeCalls summarizes a turn's finished model calls for a failure.
 func describeCalls(turn dashi.Turn) string {
 	var b strings.Builder
 	for _, step := range turn.Steps {

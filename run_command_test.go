@@ -243,7 +243,7 @@ func TestRunnerStrictContinueRejectsAtResumeLimit(t *testing.T) {
 	}
 	assertSavedSteps(t, recorder, limited)
 
-	// Warn mode still records the interruption-limit stop.
+	// Warn mode still records the resume-limit stop.
 	out, err := (Runner{
 		Client:   &scriptedClient{},
 		Recorder: recorder,
@@ -277,7 +277,7 @@ func TestRunnerInvalidHistoryAtResumeLimitCommitsNothing(t *testing.T) {
 }
 
 // interruptionLimitedHistoryTurn returns a turn that has used its only
-// resume, so the next Continue reaches the interruption limit.
+// resume, so the next Continue reaches the resume limit.
 func interruptionLimitedHistoryTurn(
 	t *testing.T,
 	history []llm.Message,
@@ -286,7 +286,7 @@ func interruptionLimitedHistoryTurn(
 	def := testAgent()
 	def.Limits.Resumes = 1
 	recorder := NewMemoryRecorder()
-	// The first pause follows a model attempt, so resuming from it counts.
+	// The first pause follows a model call, so resuming from it counts.
 	paused := make(chan struct{})
 	runner := Runner{
 		Client:   &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}},
@@ -590,7 +590,7 @@ func TestRecordWithoutClient(t *testing.T) {
 		t.Fatalf("admitted=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
 	}
 
-	// The same admission with a Client records the same Start step.
+	// The same unrun Start with a Client records the same Start step.
 	withClient, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
 	)
@@ -622,7 +622,7 @@ func TestRecordWithoutClient(t *testing.T) {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 
-	// Continue with a Client runs an admitted turn.
+	// Continue with a Client runs a turn that was recorded without running.
 	rec2 := NewMemoryRecorder()
 	again, err := (Runner{Recorder: rec2}).Run(
 		t.Context(), Turn{ID: "t2"}, admit, WithPause(paused),
@@ -838,8 +838,9 @@ func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 	}
 }
 
-// crashedModelIntent records a turn whose model attempt has an intent and
-// an uncertain stop, so a Resolve must reconcile it.
+// crashedModelCallStart records a turn whose model call has a
+// model_call_started step and a result_unknown stop, so a Resolve must
+// supply its result.
 func crashedModelCallStart(t *testing.T, rec *MemoryRecorder) Turn {
 	t.Helper()
 	def := testAgent()
@@ -912,7 +913,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 		t.Fatalf("canceled=%+v err=%v", canceled.Stop, err)
 	}
 
-	// The same admission, continued later, runs normally.
+	// The same unrun Start, continued later, runs normally.
 	rec = NewMemoryRecorder()
 	admitted, err = (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
@@ -936,7 +937,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("done=%+v err=%v sends=%d", done.Stop, err, client.sends)
 	}
-	// A pause before the first model attempt interrupted no work.
+	// A pause before the first model call interrupted no work.
 	if done.Resumes != 0 {
 		t.Fatalf("interruptions=%d", done.Resumes)
 	}
@@ -973,7 +974,7 @@ func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 }
 
 // pausingTool is a local "lookup" tool that closes paused when it runs, so
-// a turn pauses after a model attempt, before its next model call.
+// a turn pauses after a model call, before its next model call.
 func pausingTool(paused chan struct{}) tool.Tool {
 	return tool.Tool{
 		Definition: tool.Definition{

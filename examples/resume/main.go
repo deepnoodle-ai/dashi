@@ -2,7 +2,7 @@
 // hands the message to a mail service and returns before delivery is known;
 // the result arrives later, as a delivery webhook would bring it. The first
 // run starts the turn and exits while it waits. The second run records the
-// delivery result and continues the turn to its answer. Both runs share a
+// delivery result and continues the turn to its reply. Both runs share a
 // filerecorder, a durable recorder that keeps each turn in a file, which is
 // what lets the turn outlive the process.
 //
@@ -73,7 +73,7 @@ func run(ctx context.Context, mode, dir string) error {
 	switch mode {
 	case "start":
 		// Running start again repeats the same command, which returns the
-		// recorded outcome instead of starting over. The turn records its
+		// recorded result instead of starting over. The turn records its
 		// agent, so the resume process needs none.
 		out, err = runner.Run(ctx, dashi.NewTurn(turnID), dashi.Start{
 			CommandID: "start",
@@ -157,7 +157,7 @@ func deliver(
 	}
 	for _, p := range view.Pending {
 		fmt.Printf("Webhook: %s delivered\n", messageID(p))
-		// Result only records the outcome; nothing runs until Continue.
+		// Result only records the tool's result; nothing runs until Continue.
 		out, err := runner.Run(ctx, turn, p.Result(
 			tool.Succeeded("Delivered as "+messageID(p)+"."),
 		))

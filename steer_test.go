@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// sendingClient runs onSend before each model call is answered, so a test
+// sendingClient runs onSend before each model call returns, so a test
 // can send a steer while the call is in flight.
 type sendingClient struct {
 	*scriptedClient
@@ -209,8 +209,8 @@ func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
 			return tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("ok"))}, nil
 		}),
 	}
-	// Three attempts with the last reserved: after two calls, no normal
-	// call remains, so the steer cannot supersede the answer.
+	// Three model calls with the last reserved: after two calls, no normal
+	// call remains, so the steer cannot replace the reply.
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
@@ -336,7 +336,7 @@ func TestSteerRecordedOnceWhenAcknowledgmentFails(t *testing.T) {
 	if n := len(stepsOf(out.Turn, StepMessagesAdded)); n != 1 {
 		t.Fatalf("steer recorded %d times", n)
 	}
-	// Recorded before call 1, found again before call 2 and at the answer.
+	// Recorded before call 1, found again before call 2 and at the reply.
 	if len(source.acked) != 3 {
 		t.Fatalf("acknowledgments = %v", source.acked)
 	}
@@ -367,7 +367,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	if len(stepsOf(out.Turn, StepMessagesAdded)) != 0 {
 		t.Fatal("an invalid steer was recorded")
 	}
-	// Steers runs before the call and at the answer; each is warned once.
+	// Steers runs before the call and at the reply; each is warned once.
 	if n := len(warningsOf(out.Turn, WarningSteering)); n != 2 {
 		t.Fatalf("got %d steering warnings", n)
 	}
@@ -377,7 +377,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	out, err = (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t2"}, startInput(), WithSteering(failing),
 	)
-	// The source is asked before the call and at the answer, and its
+	// The source is asked before the call and at the reply, and its
 	// failure is reported once.
 	if err != nil || out.Stop.Kind != StopCompleted ||
 		len(warningsOf(out.Turn, WarningSteering)) != 1 {
@@ -480,8 +480,8 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 	}
 }
 
-// pauseOnIntent closes pause when the runner records a model request, so
-// the call is recorded but never dispatched.
+// pauseOnCallStart closes pause when the runner records a model call's
+// start, so the call is recorded but never sent.
 type pauseOnCallStart struct {
 	*MemoryRecorder
 	pause chan struct{}
@@ -495,11 +495,11 @@ func (p pauseOnCallStart) Commit(ctx context.Context, req CommitRequest) error {
 }
 
 // TestRecordedSteerReachesNextTurnThroughHistory records a steer and then
-// pauses before its model call is dispatched. The host gives the turn up:
+// pauses before its model call is sent. The host gives the turn up:
 // Leftovers returns nothing, because the steer is in the turn's record, and
 // the steer reaches the next turn exactly once through TurnMessagesFull. A
-// NextCallOnly steer does too: a call that was never dispatched does not
-// expire it, in Project or in the replayed view.
+// NextCallOnly steer does too: a call that was never sent does not
+// expire it, in TurnMessagesFull or in the rebuilt view.
 func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 	for _, nextCallOnly := range []bool{false, true} {
 		name := "plain"
@@ -566,7 +566,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 }
 
 // TestNextCallOnlyExpiresAfterDispatchedCall checks the other side: once a
-// dispatched call follows a NextCallOnly item, later calls and the replayed
+// sent call follows a NextCallOnly item, later calls and the rebuilt
 // view no longer carry it.
 func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
 	inbox := NewInbox()
@@ -742,8 +742,8 @@ func TestInboxConcurrentSends(t *testing.T) {
 			}
 		})
 	}
-	// Four attempts with the last reserved: the third call's answer cannot
-	// be superseded, so the script's three results suffice.
+	// Four model calls with the last reserved: the third call's reply cannot
+	// be replaced, so the script's three results suffice.
 	agent := testAgent()
 	agent.Limits.ModelCalls = 4
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
@@ -785,9 +785,9 @@ func TestInboxConcurrentSends(t *testing.T) {
 	}
 }
 
-// TestDeliverBeforeSubmissionStartReachesModel stops a run after the model
-// submitted output but before the submission call started. A AddMessages made
-// then supersedes the kept submission on Continue.
+// TestAddMessagesBeforeSubmissionStartReachesModel stops a run after the
+// model submitted output but before the submission call started. An
+// AddMessages made then replaces the kept submission on Continue.
 func TestAddMessagesBeforeSubmissionStartReachesModel(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		submitResult("out-1", `{"answer":1}`),
@@ -820,8 +820,8 @@ func TestAddMessagesBeforeSubmissionStartReachesModel(t *testing.T) {
 	}
 }
 
-// TestNudgeOfRecordedItemsCostsNoCall has a BeforeFinish hook deliver the
-// same identified item at every answer. The first delivery nudges the model
+// TestNudgeOfRecordedItemsCostsNoCall has a BeforeFinish hook add the
+// same identified item at every reply. The first time nudges the model
 // once; afterwards the item is recorded, so it is no nudge.
 func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
 	note := ContextItem{ID: "n1", Message: llm.UserMessage(llm.Text("cite a source"))}
@@ -884,9 +884,9 @@ func TestHookCannotAddToolResult(t *testing.T) {
 	}
 }
 
-// TestDeliverAfterInterruptedCandidateReachesModel covers a AddMessages sent
-// after a run was interrupted at a final text answer: Continue asks the
-// model again with it, instead of accepting the kept answer.
+// TestAddMessagesAfterInterruptedCandidateReachesModel covers an AddMessages
+// sent after a run was interrupted at a final text reply: Continue asks the
+// model again with it, instead of accepting the kept reply.
 func TestAddMessagesAfterInterruptedCandidateReachesModel(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -1016,7 +1016,7 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 }
 
 // TestReplayRejectsForgedSteeringSteps checks that only the runner records
-// steers: never a command, and on a settlement only a rejected submission.
+// steers: never a command, and on a finish step only a rejected submission.
 func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 	inbox := NewInbox()
 	mustSend(t, inbox, "hello")
@@ -1080,9 +1080,9 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 	})
 }
 
-// loseIntentAck records the first model request and then reports its write
-// as unknown, so the worker stops before the client is called, as a crash
-// between the request and dispatch would.
+// loseCallStartAck records the first model call's start and then reports
+// its write as unknown, so the worker stops before the client is called, as
+// a crash between recording the call and sending it would.
 type loseCallStartAck struct {
 	*MemoryRecorder
 	fired bool
@@ -1101,8 +1101,8 @@ func (l *loseCallStartAck) Commit(ctx context.Context, req CommitRequest) error 
 
 // TestNextCallOnlySteerSurvivesCrashBeforeDispatch records a NextCallOnly
 // steer and a model request, stops before the client is called, reloads,
-// and continues. The recovered settlement is no evidence of dispatch, so
-// the steer reaches the resent call.
+// and continues. The recovered finish step is no evidence the call was
+// sent, so the steer reaches the resent call.
 func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 	inbox := NewInbox()
 	if _, err := inbox.Send(Steer{Item: ContextItem{

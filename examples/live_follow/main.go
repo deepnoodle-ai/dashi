@@ -104,7 +104,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Tab A has already shown the answer as it streamed.
+	// Tab A has already shown the reply as it streamed.
 	fmt.Printf("Stop: %s\n", out.Stop.Kind)
 	return nil
 }
@@ -130,7 +130,7 @@ func follow(
 		}
 		switch {
 		case e.Gap:
-			fmt.Print("[…]") // lost deltas; the settled message has the text
+			fmt.Print("[…]") // lost deltas; the finished message has the text
 			continue
 		case e.Delta != nil:
 			if e.Delta.Kind != llm.DeltaText {

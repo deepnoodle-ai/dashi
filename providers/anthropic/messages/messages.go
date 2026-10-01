@@ -3,9 +3,9 @@
 // contracts.
 // This package owns API conversion and dispatch, not agent or session state.
 //
-// # Hosted tools
+// # Provider tools
 //
-// Hosted tool constructors return a definition-only tool.Tool: Anthropic runs
+// Provider tool constructors return a definition-only tool.Tool: Anthropic runs
 // it inside the model call, so it has no Executor and no hook sees its calls.
 // Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid.
@@ -13,7 +13,7 @@
 // Each options struct has a Provider field that binds the tool to one
 // configured destination. Empty means "anthropic", the default name of
 // Config.Provider; set it to the client's Provider() for a destination with a
-// custom name, since a destination refuses hosted tools bound to another.
+// custom name, since a destination refuses provider tools bound to another.
 package messages
 
 import (
@@ -774,7 +774,7 @@ func (wire codec) decode(
 		r.Message.Content = append(r.Message.Content, c)
 	}
 	// A response without usage gets no counts; the runner accounts for its
-	// hosted uses.
+	// provider tool uses.
 	if r.Usage != nil {
 		if r.Usage.Requests == nil {
 			r.Usage.Requests = map[string]int{}

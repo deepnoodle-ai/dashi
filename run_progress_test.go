@@ -51,7 +51,7 @@ func namedCallsResult(names ...string) llm.Result {
 	}
 }
 
-// oneCall scripts a model that calls name once, then answers.
+// oneCall scripts a model that calls name once, then replies.
 func oneCall(name string) []llm.Result {
 	return []llm.Result{callResult("call", name), final("ok")}
 }
@@ -72,7 +72,7 @@ func progressStart(limit int) Start {
 }
 
 // progressOrder checks that every progress event for a call falls between
-// the call's tool_started step and its settlement, and returns the progress
+// the call's tool_started step and its finish step, and returns the progress
 // events and final outcome.
 type progressOrder struct {
 	t        *testing.T
@@ -293,7 +293,7 @@ func TestProgressBeforePanicIsDelivered(t *testing.T) {
 
 // A call that hands off work keeps a leaked goroutine reporting while a
 // second call holds the runner in its drain loop, so a late report would be
-// delivered if the settled call's slot still accepted or forwarded reports.
+// delivered if the finished call's slot still accepted or forwarded reports.
 func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 	for _, state := range []tool.State{tool.StateWaiting, tool.StateDetached} {
 		t.Run(string(state), func(t *testing.T) {

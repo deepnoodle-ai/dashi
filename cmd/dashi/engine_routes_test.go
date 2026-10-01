@@ -270,7 +270,7 @@ func TestSummaryStreamingAndPhysicalReopenUseOnlyPublicText(t *testing.T) {
 				`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","summary":[]}}`,
 				`{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}`,
 				`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"preview"}`,
-				`{"type":"response.completed","response":{"object":"response","status":"completed","output":[{"type":"reasoning","encrypted_content":"NEVER_DISPLAY_PRIVATE","summary":[{"type":"summary_text","text":"public settled summary"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}}`,
+				`{"type":"response.completed","response":{"object":"response","status":"completed","output":[{"type":"reasoning","encrypted_content":"NEVER_DISPLAY_PRIVATE","summary":[{"type":"summary_text","text":"public finished summary"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}}`,
 			}
 			body := "data: " + strings.Join(events, "\n\ndata: ") + "\n\n"
 			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
@@ -290,7 +290,7 @@ func TestSummaryStreamingAndPhysicalReopenUseOnlyPublicText(t *testing.T) {
 			}
 			if b.Kind == KindReasoning {
 				n++
-				if b.Text != "public settled summary" || !b.Done {
+				if b.Text != "public finished summary" || !b.Done {
 					t.Fatalf("summary=%+v", b)
 				}
 			}

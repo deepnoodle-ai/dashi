@@ -11,8 +11,8 @@ import (
 
 // completeResult reports whether a call returned a result that stands on
 // its own: no error, a stop kind other than incomplete, and a valid result.
-// An incomplete result from a call a steer cut short settles as steered, so
-// the steer is delivered instead of the turn failing.
+// An incomplete result from a call a steer cut short finishes as steered,
+// so the steer is added instead of the turn failing.
 func completeResult(result llm.Result, err error, agent Agent) bool {
 	return err == nil && result.Stop.Kind != "" &&
 		result.Stop.Kind != llm.StopIncomplete &&
@@ -21,15 +21,15 @@ func completeResult(result llm.Result, err error, agent Agent) bool {
 
 // interruptedResult keeps what an interrupted call produced. For a steering
 // cut the partial response is only the content streamed before the call's
-// context ended (U-6), because it is projected into the next call: a message
-// the client returns may hold text generated after the cut, which was never
-// shown, so that message only adds to the output estimate, and a collected
-// call keeps no partial. Any other cause is never projected, so it keeps
-// the returned message for audit, including hosted-tool records, or else
-// the streamed content. The returned ID and usage stand, with the usage
-// observed on the stream. The output count is the larger of the reported
-// count and the estimate from every streamed delta or the returned message,
-// so replay and token caps count output that was generated but never shown
+// context ended (U-6), because it goes into the next call's messages: a
+// message the client returns may hold text generated after the cut, which
+// was never shown, so that message only adds to the output estimate, and a
+// collected call keeps no partial. With any other cause the partial never
+// reaches the model, so it keeps the returned message for audit, including
+// provider tool records, or else the streamed content. The returned ID and
+// usage stand, with the usage observed on the stream. The output count is
+// the larger of the reported count and the estimate from every streamed
+// delta or the returned message, so View and token caps count output that was generated but never shown
 // (decision 24). The estimate is capped at maxTokens when positive, since a
 // provider bills no more output than the call allowed. It returns nil when
 // the call left no trace.
@@ -177,7 +177,7 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 
 // finishText decides a final-text candidate: it parses structured output,
 // runs the BeforeFinish hooks, and then either asks the model again with the
-// hooks' items or accepts the answer. The parse comes first so hooks see the
+// hooks' items or accepts the reply. The parse comes first so hooks see the
 // value, or why it failed, and can ask for a correction.
 func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	state, err := replay(r.turn)
@@ -201,8 +201,8 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 			plan.Output, plan.OutputErr = parseOutputText(plan.Reply, schema)
 		}
 	}
-	// Context delivered after a BeforeFinish failure kept this answer
-	// supersedes it, when the model can still be asked again.
+	// Context added after a BeforeFinish failure kept this reply replaces
+	// it, when the model can still be asked again.
 	if state.deliveredOnKept > 0 {
 		if r.nextCallFits(state, state.deliveredOnKept) {
 			if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
@@ -332,7 +332,7 @@ func validateModelResult(result llm.Result, agent Agent) error {
 // additions. The reminder instruction primes the model to expect
 // <system-reminder> messages. It is always sent, so the system prompt stays
 // the same while reminders come and go and the provider's prompt cache
-// survives; only the reserved final-answer call adds its own text.
+// survives; only the reserved final-reply call adds its own text.
 func modelSystem(instructions string, structured, finalReply bool) string {
 	parts := []string{}
 	if instructions != "" {

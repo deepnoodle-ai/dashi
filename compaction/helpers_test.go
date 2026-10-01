@@ -11,7 +11,7 @@ import (
 )
 
 // exchange is one Turn of history: a user prompt, an assistant message with
-// parallel tool calls, the results, and a final answer. Each text is padded
+// parallel tool calls, the results, and a final reply. Each text is padded
 // to size bytes.
 func exchange(n, size int) []llm.Message {
 	pad := strings.Repeat("x", size)

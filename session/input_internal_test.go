@@ -12,7 +12,7 @@ import (
 
 // ErrRecordInvalid follows recorded steps, so it proves nothing about the
 // start: the session loads the turn, and items its turn_started step holds
-// are consumed, never delivered again. The engine returns it only for a
+// are consumed, never added again. The engine returns it only for a
 // runner or recorder bug, so the test drives the decideReserved rule directly.
 func TestSessionResolveAfterRecordInvalid(t *testing.T) {
 	for _, started := range []bool{true, false} {
@@ -70,7 +70,7 @@ func TestSessionResolveAfterRecordInvalid(t *testing.T) {
 			if !started {
 				return
 			}
-			// A later item runs alone: "a" is not delivered twice.
+			// A later item runs alone: "a" is not added twice.
 			if _, err := s.Enqueue(ctx, "b"); err != nil {
 				t.Fatal(err)
 			}

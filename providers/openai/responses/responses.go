@@ -3,9 +3,9 @@
 // and replay handling are adapted from Dive's OpenAI provider (65c393f),
 // Apache-2.0. Provider wire objects stay outside Dashi's public model types.
 //
-// # Hosted tools
+// # Provider tools
 //
-// Hosted tool constructors return a definition-only tool.Tool: OpenAI runs it
+// Provider tool constructors return a definition-only tool.Tool: OpenAI runs it
 // inside the model call, so it has no Executor and no hook sees its calls.
 // Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid. These
@@ -570,7 +570,7 @@ func (wire codec) validateOutput(
 	return nil
 }
 
-// Hosted activity cannot be a final structured answer, even when the same
+// Provider tool activity cannot be a final structured reply, even when the same
 // response also contains valid JSON text. Malformed calls retain opaque replay;
 // other opaque items (including reasoning) are still allowed alongside text.
 func nativeOutputActivity(part llm.Content) bool {
@@ -598,13 +598,14 @@ type codec struct {
 	// media reports whether the request being sent carries media, so errors
 	// reported in its response body can be classified as media rejections.
 	media bool
-	// hostedTypes lists the hosted tool types the request declared, which
-	// decide the meter a web search bills. Empty means unknown; decoding then
-	// reads the response's echo of its tools.
+	// providerToolTypes lists the provider tool types the request declared,
+	// which decide the meter a web search bills. Empty means unknown; decoding
+	// then reads the response's echo of its tools.
 	providerToolTypes []string
 }
 
-// hostedTypes returns the provider types of the hosted tools in definitions.
+// providerToolTypes returns the provider types of the provider tools in
+// definitions.
 func providerToolTypes(definitions []tool.Definition) []string {
 	var types []string
 	for _, definition := range definitions {
@@ -893,8 +894,8 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 		ResponseID: r.ID,
 	}
 	r.Usage = v.Usage
-	// Hosted counts live in Usage, so none are recorded when the provider
-	// reported no usage; the runner accounts for that case.
+	// Provider tool counts live in Usage, so none are recorded when the
+	// provider reported no usage; the runner accounts for that case.
 	var fields meterFields
 	if r.Usage != nil && json.Unmarshal(raw, &fields) == nil {
 		r.Usage.Requests = wire.providerToolRequests(fields, v.Output)

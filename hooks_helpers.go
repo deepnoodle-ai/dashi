@@ -10,16 +10,16 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 )
 
-// SeedContext returns a BeforeModel hook, named after item, that delivers
+// SeedContext returns a BeforeModel hook, named after item, that adds
 // item unless the latest visible message with its Origin and Name has the
 // same value. It reads the proposed model input, so unchanged context is not
 // repeated across session turns or reopened handles. Changed values append
 // without replacing earlier messages. Compaction that removes the item causes
-// it to be delivered again. Summary text does not establish its presence.
+// it to be added again. Summary text does not establish its presence.
 //
 // It panics if item has no Name and clears NextCallOnly. Empty Origin means
-// ContextUser. Delivery IDs do not affect value comparison. If a configured
-// ID already occurs in this turn, a fresh derived ID identifies the delivery.
+// ContextUser. Item IDs do not affect value comparison. If a configured
+// ID already occurs in this turn, a fresh derived ID identifies the addition.
 func SeedContext(item ContextItem) ModelHook {
 	if item.Name == "" {
 		panic("dashi: SeedContext item has no name")
@@ -102,7 +102,7 @@ func Deny(reason string) ToolDecision {
 }
 
 // NeedsApproval makes the call wait for approval: the turn stops waiting, and the
-// call is listed in RunResult.Pending. The host answers with Pending.Approve or
+// call is listed in RunResult.Pending. The host decides with Pending.Approve or
 // Pending.Deny, then Continue runs or refuses the call.
 func NeedsApproval(reason string) ToolDecision {
 	return ToolDecision{Kind: DecisionNeedsApproval, Reason: reason}
@@ -121,10 +121,11 @@ func Rewrite(args any) (ToolDecision, error) {
 	return ToolDecision{Rewrite: b}, nil
 }
 
-// RequireApproval returns a BeforeTool hook that defers each call to one of
-// the named tools, or to any application tool when none are named, until a
-// host answers it with Pending.Approve or Pending.Deny. Other calls get no
-// opinion. The hook's name and the deferral's revision are both
+// RequireApproval returns a BeforeTool hook that holds each call to one of
+// the named tools, or to any application tool when none are named, for
+// approval until a host decides with Pending.Approve or Pending.Deny. Other
+// calls get no opinion. The hook's name and the NeedsApproval decision's
+// RulesVersion are both
 // "require_approval:" followed by the sorted, comma-separated names, or "*"
 // for every tool, so two calls with different tools do not collide.
 func RequireApproval(tools ...string) Hooks {

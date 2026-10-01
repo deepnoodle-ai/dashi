@@ -271,7 +271,7 @@ func readFixture(t *testing.T, name string) string {
 
 // A stream cut off before message_delta has no final server_tool_use
 // counters. The visible block is counted, but the counts are not final, so
-// the runner treats the call's hosted billing as possibly incomplete.
+// the runner treats the call's provider tool billing as possibly incomplete.
 func TestProviderToolRequestsFromCutStreamAreNotFinal(t *testing.T) {
 	fixture := readFixture(t, "websearch-max-uses-exceeded-stream.sse")
 	marker := "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"

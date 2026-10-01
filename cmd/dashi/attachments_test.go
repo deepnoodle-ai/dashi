@@ -115,7 +115,7 @@ func TestAttachmentGenerationAndAggregateProtection(t *testing.T) {
 		t.Fatalf("ready=%d failed=%d", ready, failed)
 	}
 	if _, err := d.prepareInput(); err == nil {
-		t.Fatal("loading/error entries admitted")
+		t.Fatal("loading/error entries accepted")
 	}
 }
 
@@ -128,7 +128,7 @@ func TestAttachmentInputFreezeIdentityAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := in.messageForStart(); err == nil {
-		t.Fatal("unpublished input admitted")
+		t.Fatal("unpublished input accepted")
 	}
 	if err := d.setText("new"); err == nil {
 		t.Fatal("frozen draft edited")
@@ -149,7 +149,7 @@ func TestAttachmentInputFreezeIdentityAndReceipt(t *testing.T) {
 	r.state = inputConfirmedAbsent
 	r.ordinaryStart = true
 	if !d.receipt(in, r) || in.unknown {
-		t.Fatal("absence not reconciled")
+		t.Fatal("absence not checked")
 	}
 	r.state = inputPreRecordFailure
 	if !d.receipt(in, r) || d.frozenBy != "" {
@@ -181,7 +181,7 @@ func TestAttachmentUnknownMentionRequiresSelection(t *testing.T) {
 	d := &attachmentDraft{}
 	d.setText("look @new.png")
 	if _, err := d.prepareInput(); err == nil {
-		t.Fatal("unstaged mention admitted")
+		t.Fatal("unstaged mention accepted")
 	}
 }
 

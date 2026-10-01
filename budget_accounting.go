@@ -36,7 +36,7 @@ func modelCallCost(
 	if modelUsageMayBePartial(finish) {
 		// Streamed usage may describe only the input or an earlier output
 		// frame. Keep reported counts and include later visible output only
-		// when the model result is incomplete or uncertain.
+		// when the model result is incomplete or its outcome is unknown.
 		estimated = true
 		if next.TotalInputTokens() == 0 {
 			next.InputTokens = callStart.EstimatedInputTokens
@@ -87,7 +87,7 @@ func modelUsageMayBePartial(finish *ModelFact) bool {
 		return false
 	}
 	// A validation error can follow a finished response with final usage.
-	// Missing or invalid stops, though, provide no terminal evidence.
+	// Missing or invalid stops, though, give no evidence that it ended.
 	switch finish.Result.Stop.Kind {
 	case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit,
 		llm.StopContextLimit, llm.StopRefusal, llm.StopPause, llm.StopOther:
@@ -97,18 +97,19 @@ func modelUsageMayBePartial(finish *ModelFact) bool {
 	}
 }
 
-// addUnreportedRequests covers hosted work whose billing the provider never
-// reported: the call's usage is missing or not final (Usage.RequestsComplete),
-// as for a stream cut off before its final usage. Counts an adapter inferred
+// addUnreportedRequests covers provider tool work whose billing the provider
+// never reported: the call's usage is missing or not final
+// (Usage.RequestsComplete), as for a stream cut off before its final usage. Counts an adapter inferred
 // from the blocks seen so far are kept, but they may miss billed work, so
 // the call gets at least one llm.MeterUnreported request, which no sheet
 // prices, and its cost shows as partial rather than complete. Visible uses
 // beyond the counted requests are all unreported. Uses with an error result
 // are skipped, since providers do not bill refused or failed uses.
 //
-// Some hosted work leaves no block at all: Gemini reports search grounding
-// only in metadata near the end of a stream. So a request that declared a
-// hosted tool counts as hosted activity even with no visible use.
+// Some provider tool work leaves no block at all: Gemini reports search
+// grounding only in metadata near the end of a stream. So a request that
+// declared a provider tool counts as provider tool use even with no visible
+// use.
 func addUnreportedRequests(
 	usage *llm.Usage,
 	callStart *ModelFact,
@@ -166,10 +167,11 @@ func estimatedOutputTokens(result *llm.Result) int {
 	return runes/4 + min(1, runes%4)
 }
 
-// cappedOutputEstimate estimates a settled call's output from its text,
-// capped at the intent's effective max_tokens as the live settlement's
-// estimate is, since a provider bills no more output than the call allowed.
-// Replay then never counts more than the run did.
+// cappedOutputEstimate estimates a finished call's output from its text,
+// capped at the effective max_tokens recorded when the call started, as the
+// live run's estimate is, since a provider bills no more output than the
+// call allowed. Rebuilding the view from the record then never counts more
+// than the run did.
 func cappedOutputEstimate(callStart *ModelFact, result *llm.Result) int {
 	estimate := estimatedOutputTokens(result)
 	if limit := callStart.Effective.MaxTokens; limit > 0 {

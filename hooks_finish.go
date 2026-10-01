@@ -8,23 +8,23 @@ import (
 )
 
 // finishResult is the combined BeforeFinish answer. A reason is a veto: the
-// answer is unacceptable. Items alone are a nudge: try once more.
+// reply is unacceptable. Items alone are a nudge: try once more.
 type finishResult struct {
 	// steers supersede the candidate before the hooks see it.
 	steers      []ContextItem
 	deliver     []ContextItem
 	acceptEmpty bool
 	// reason is the first nonempty Reason, bounded; hook is the first hook
-	// that turned the answer down.
+	// that turned the reply down.
 	reason string
 	hook   string
-	// noCall means the hooks vetoed the answer and no further model call can
+	// noCall means the hooks vetoed the reply and no further model call can
 	// happen: the caller records the rejection and stops the turn with
 	// StopReasonOutputRejected.
 	noCall bool
 }
 
-// beforeFinish runs the BeforeFinish chain for a candidate answer. A failing
+// beforeFinish runs the BeforeFinish chain for a candidate reply. A failing
 // hook stops the turn, since BeforeFinish guards what the turn accepts; the
 // candidate survives the stop, so Continue asks the hooks again.
 func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
@@ -91,7 +91,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
 	return out, nil
 }
 
-// finishPoint is the one place a candidate final answer is decided, on both
+// finishPoint is the one place a candidate final reply is decided, on both
 // the final-text path and the dashi_submit_output path. Steering's check for
 // waiting steers belongs first here, before the BeforeFinish hooks: a steer
 // supersedes a candidate without asking the hooks about it, recorded with
@@ -100,9 +100,9 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
 // When the hooks turn the candidate down, the caller records the rejection
 // and the model is asked again. When no further normal model call can
 // happen, a nudge (items alone) is dropped with a warning and the candidate
-// stands, since a finish hook never spends the last answer; a veto (a
+// stands, since a finish hook never spends the last reply; a veto (a
 // reason) is still recorded, and the turn stops with
-// StopReasonOutputRejected instead of accepting the answer.
+// StopReasonOutputRejected instead of accepting the reply.
 func (r *runtime) finishPoint(
 	s *replayState,
 	plan FinishPlan,
@@ -133,8 +133,8 @@ func (r *runtime) finishPoint(
 	}
 	extra := estimatedItemTokens(finish.deliver) + len(finish.reason)
 	if finish.reason != "" {
-		// Once the answer is vetoed, the reserve protects nothing, so the
-		// reserved final-answer call may answer again.
+		// Once the reply is vetoed, the reserve protects nothing, so the
+		// reserved final-reply call may reply again.
 		finish.noCall = !r.callFits(s, extra, true)
 		return finish, nil
 	}
@@ -158,7 +158,7 @@ func (f finishResult) rejects() bool {
 	return len(f.deliver) > 0 || f.reason != ""
 }
 
-// notAccepted is the model-visible text of a turned-down answer.
+// notAccepted is the model-visible text of a turned-down reply.
 func notAccepted(reason string) string {
 	return "Not accepted: " + reason
 }
@@ -167,7 +167,7 @@ func notAccepted(reason string) string {
 // down through rejectSubmission.
 const sourceSteering = "steering"
 
-// deliveryDropped warns that context delivered while an answer was kept
+// messagesDropped warns that messages added while a reply was kept
 // cannot reach the model, because no further model call can happen.
 func (r *runtime) messagesDropped() {
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
@@ -178,14 +178,14 @@ func (r *runtime) messagesDropped() {
 	})
 }
 
-// rejectSubmission settles a started dashi_submit_output call that a hook
+// rejectSubmission finishes a started dashi_submit_output call that a hook
 // or a steer turned down, as failed with the model-visible output
-// "Not accepted: <reason>". The items to deliver ride on the same step, so
-// a crash cannot record the rejection without them; projection places them
-// after the call's result. source names who rejected it for the record,
-// such as "hook <name>" or "steering". It is the same started-to-settled
-// transition a schema rejection uses, so the next successful submission is
-// the one recorded as output.
+// "Not accepted: <reason>". The items to add ride on the same step, so
+// a crash cannot record the rejection without them; the turn's messages
+// place them after the call's result. source names who rejected it for the
+// record, such as "hook <name>" or "steering". It is the same
+// started-to-finished transition a schema rejection uses, so the next
+// successful submission is the one recorded as output.
 //
 // vetoed records a BeforeFinish veto, which keeps the text of the model
 // message that made the call out of TurnView.Reply until a new model result

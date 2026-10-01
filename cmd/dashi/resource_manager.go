@@ -111,7 +111,7 @@ func (m *resourceManager) beforeModel(ctx context.Context, plan dashi.ModelPlan)
 	for _, hook := range hooks {
 		decision, err := hook.Func(ctx, plan)
 		if err != nil {
-			return dashi.ModelDecision{Stop: &dashi.Stop{Kind: dashi.StopFailed, Reason: "Resource delivery failed: " + err.Error()}}, nil
+			return dashi.ModelDecision{Stop: &dashi.Stop{Kind: dashi.StopFailed, Reason: "Adding resource messages failed: " + err.Error()}}, nil
 		}
 		delivery = append(delivery, decision.AddMessages...)
 	}

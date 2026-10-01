@@ -13,7 +13,7 @@ import (
 type Money struct {
 	// Amount is denominated in Currency without conversion.
 	Amount money.Amount `json:"amount"`
-	// Currency must match the price sheet used for cost admission.
+	// Currency must match the price sheet used for cost reservations.
 	Currency string `json:"currency"`
 }
 
@@ -52,7 +52,8 @@ func (b Budget) Validate() error {
 	return nil
 }
 
-// BudgetRaise preserves each authorized increase for replay and audit.
+// BudgetRaise preserves each authorized increase, so rebuilding the turn's
+// state and audits see it.
 type BudgetRaise struct {
 	// Budget is the complete effective budget after the raise.
 	Budget Budget `json:"budget"`
@@ -103,8 +104,8 @@ type LimitDetail struct {
 	Kind LimitKind `json:"kind"`
 	// Code is the application's stable identifier for a host limit.
 	Code string `json:"code,omitempty"`
-	// Limit is the ceiling for a counted kind: tokens, model attempts,
-	// interruptions, or provider pauses, or Unix seconds for a deadline.
+	// Limit is the ceiling for a counted kind: tokens, model calls,
+	// resumes, or provider pauses, or Unix seconds for a deadline.
 	Limit int64 `json:"limit,omitempty"`
 	// Used is the count already consumed, or the current Unix time. A token
 	// count is only a lower bound when Spend.UsageIncomplete is true.

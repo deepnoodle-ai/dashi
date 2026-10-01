@@ -311,7 +311,7 @@ func TestTaskPreparationRejectsProtectedFieldsAndBindingFailure(t *testing.T) {
 			h := newHarness(t, script("must not dispatch child"), cfg, nil)
 			if _, err := h.start(t.Context()); err != nil {
 				t.Fatal(err)
-			} // setup error settles the parent's tool; never creates child
+			} // setup error finishes the parent's tool; never creates child
 			if _, err := h.rec.Load(t.Context(), childTurnID()); !errors.Is(err, dashi.ErrTurnNotFound) {
 				t.Fatalf("setup failure recorded child: %v", err)
 			}

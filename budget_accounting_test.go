@@ -438,7 +438,7 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	return r.base.Commit(ctx, req)
 }
 
-// creditHooks admit a call against the recorder's balance, recording the
+// creditHooks reserve a call against the recorder's balance, recording the
 // reservation terms under the hook name "credits".
 func creditHooks(recorder *creditRecorder) Hooks {
 	return SendHook{

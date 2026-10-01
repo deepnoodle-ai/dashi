@@ -9,20 +9,20 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// Limit for the text of one tool result in the projected history. The minimum
-// keeps room for the marker and some text on each side of it.
+// Limit for the text of one tool result in the messages the model sees. The
+// minimum keeps room for the marker and some text on each side of it.
 const (
 	defaultToolResultBytes = 64 << 10
 	minToolResultBytes     = 1 << 10
 )
 
 // Shortened records how the result limit changed one call's result in the
-// projected history. Sizes count text bytes after the AfterTool hooks ran,
-// so a redactor can make them differ from the tool's own output.
+// messages the model sees. Sizes count text bytes after the AfterTool hooks
+// ran, so a redactor can make them differ from the tool's own output.
 type Shortened struct {
 	// OriginalBytes is the text size before shortening.
 	OriginalBytes int `json:"original_bytes"`
-	// ShownBytes is how much of that text the projected history keeps. The
+	// ShownBytes is how much of that text the model sees. The
 	// marker is not counted, but it fits inside Limit with the kept text.
 	ShownBytes int `json:"shown_bytes"`
 	// Limit is the limit in force when Dashi shortened the result.

@@ -200,7 +200,7 @@ func TestCrashInCommandThenDiscard(t *testing.T) {
 	if n := h.turns(); n != 2 || runs.Load() != 1 {
 		t.Fatalf("turns=%d runs=%d", n, runs.Load())
 	}
-	// The record keeps the cancel beside the call that never settled.
+	// The record keeps the cancel beside the call that never finished.
 	turn := h.turn(1)
 	view, err := turn.View()
 	if err != nil {
@@ -235,7 +235,7 @@ func TestCrashInCommandThenDone(t *testing.T) {
 }
 
 // /quit, /exit, and Ctrl-D during a run cancel the turn. When a prompt is
-// still queued once the run settles, the program warns instead of quitting,
+// still queued once the run finishes, the program warns instead of quitting,
 // and repeating the action quits.
 func TestQuitDuringRunKeepsQueuedPrompt(t *testing.T) {
 	for _, action := range []string{"/quit", "/exit", "Ctrl-D"} {
@@ -332,7 +332,7 @@ func TestInterruptDuringApprovalKeepsQueuedPrompt(t *testing.T) {
 	}
 }
 
-// With nothing queued, /quit during a run quits once the run settles.
+// With nothing queued, /quit during a run quits once the run finishes.
 func TestQuitDuringRunQuits(t *testing.T) {
 	started := make(chan struct{})
 	h := newHarness(t, blockUntilDone(started))

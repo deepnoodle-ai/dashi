@@ -21,10 +21,11 @@ func (b *Bundle) Reminder() llm.Reminder {
 	}
 }
 
-// Hooks returns hooks that deliver the catalog as a runtime snapshot unless
-// its latest visible value is unchanged. Session turns share that presence
-// rule with SeedContext. A changed catalog appends, and compaction that drops
-// it causes a new delivery. The item ID carries the catalog digest for audit.
+// Hooks returns hooks that add the catalog to the turn as a runtime snapshot
+// unless its latest visible value is unchanged. Session turns share that
+// presence rule with SeedContext. A changed catalog appends, and compaction
+// that drops it causes the catalog to be added again. The item ID carries
+// the catalog hash for audit.
 // An empty bundle returns no hooks.
 func (b *Bundle) Hooks() dashi.Hooks {
 	if b == nil || b.catalog == "" {

@@ -350,7 +350,8 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 }
 
 // DriveTaskNotices is called only by the Controller's parent driver. A stopped
-// parent or pending admission holds notices without authorizing continuation.
+// parent or a parent Start whose recording is unconfirmed holds notices
+// without authorizing continuation.
 func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error) {
 	host := e.taskHost()
 	if host != nil {
@@ -359,7 +360,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 			host.deliveryErr = err
 			host.mu.Unlock()
 			if err != nil {
-				e.warn("Task notice delivery paused; press Enter to retry its recorded admission or reopen. No continuation was authorized: %v", err)
+				e.warn("Task notice delivery paused; press Enter to retry recording it or reopen. No continuation was authorized: %v", err)
 			}
 		}()
 	}
@@ -430,7 +431,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 }
 
 // QuietTasks drains permitted task notices. It never resumes a stopped parent,
-// resolves an uncertain child effect, or raises any recorded limit.
+// resolves a child effect with an unknown result, or raises any recorded limit.
 func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) {
 	if err := e.recoverTasks(ctx); err != nil {
 		return result, err
@@ -560,7 +561,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 			}
 			if problems[id] != "" {
 				// A damaged latest record cannot borrow an earlier stop as
-				// completion. Keep the derived task visible with uncertainty.
+				// completion. Keep the derived task visible with its result unknown.
 				task.State = "record unavailable"
 				task.Reply = ""
 				task.Reason = problems[id]

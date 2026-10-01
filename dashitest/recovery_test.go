@@ -22,9 +22,9 @@ import (
 // that the record shows committed, and a lost acknowledgement must be
 // reported as unknown rather than assumed to have failed or succeeded.
 func TestRecoveryFromEachCommitFault(t *testing.T) {
-	// Without a fault the record is: start, model intent and settlement,
-	// tool decision, start, and settlement, the answering model intent and
-	// settlement at 7 and 8, and the stop. A zero Seq targets the first step
+	// Without a fault the record is: start, model call started and
+	// finished, tool decision, started, and finished, the replying model
+	// call started and finished at 7 and 8, and the stop. A zero Seq targets the first step
 	// of that kind.
 	targets := []struct {
 		kind dashi.StepKind
@@ -401,7 +401,7 @@ func resume(
 		t.Fatal(err)
 	}
 	if view.Stop.Kind == dashi.StopCompleted {
-		// Retrying the original command returns the recorded outcome.
+		// Retrying the original command returns the recorded result.
 		return run(t, saved, begin, runner, opts...)
 	}
 	return run(t, saved, dashi.Continue{CommandID: "resume"}, runner, opts...)
@@ -422,8 +422,8 @@ func run(
 	return out
 }
 
-// uncertainTool reports whether the reloaded record shows a started tool
-// with no result. Only the host can reconcile that call.
+// resultUnknownTool reports whether the reloaded record shows a started
+// tool with no result. Only the host can resolve that call.
 func resultUnknownTool(kind dashi.StepKind, committed bool) bool {
 	return kind == dashi.StepToolStarted && committed ||
 		kind == dashi.StepToolFinished && !committed
@@ -492,7 +492,7 @@ func requireRecordAt(
 	}
 }
 
-// countIntents counts the model intents recorded before seq.
+// countCallStarts counts the model_call_started steps recorded before seq.
 func countCallStarts(turn dashi.Turn, seq int64) int {
 	n := 0
 	for _, step := range turn.Steps {

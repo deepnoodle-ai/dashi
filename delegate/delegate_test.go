@@ -205,7 +205,7 @@ func inputText(in llm.Input) string {
 	return sb.String()
 }
 
-// parentAfterTask answers parent calls after the task call settled.
+// parentAfterTask answers parent calls after the task call finished.
 func parentAfterTask(_ context.Context, in llm.Input) (llm.Result, error) {
 	if strings.Contains(inputText(in), "[task t_") {
 		return costed(text("parent read the notice"), "1"), nil
@@ -233,7 +233,7 @@ func answers(a string) modelFunc {
 	}
 }
 
-// script is the default model with an immediate child answer.
+// script is the default model with an immediate child reply.
 func script(childAnswer string) modelFunc {
 	return scripted(answers(childAnswer))
 }
@@ -1001,8 +1001,8 @@ func TestKilledInsideTaskCallHoldsOneChild(t *testing.T) {
 				return false
 			}
 			// The crash fails every later commit, the child's too. Crash
-			// once the child ended, so its one model call stays settled
-			// (#84: a child still running must repeat an unsettled call).
+			// once the child ended, so its one model call stays finished
+			// (#84: a child still running must repeat an unfinished call).
 			h.waitStop(t, childTurnID(), dashi.StopCompleted)
 			return true
 		}},
@@ -1392,7 +1392,7 @@ func TestTaskIsIdempotentWithLoader(t *testing.T) {
 }
 
 // A nil Recorder is a supported mode. The child runs, and the task ends. A
-// resumed parent reports the task call as uncertain.
+// resumed parent reports the task call as result_unknown.
 func TestTaskWithoutHostRecorder(t *testing.T) {
 	g := newGate()
 	h := newHarness(t, scripted(gated(g, "found it")), delegate.Config{}, nil)
@@ -1744,7 +1744,7 @@ func TestNoticeCutsLongAnswer(t *testing.T) {
 
 func TestFailedChildEndsTheTaskAndIsNotRerun(t *testing.T) {
 	child := func(context.Context, llm.Input) (llm.Result, error) {
-		return text("  "), nil // an empty answer fails the child
+		return text("  "), nil // an empty reply fails the child
 	}
 	h := newHarness(t, scripted(child), delegate.Config{}, nil)
 	if _, err := h.start(t.Context()); err != nil {
@@ -1927,7 +1927,7 @@ func TestSubagentModelOverridesParent(t *testing.T) {
 }
 
 // A crash during a child tool call, after the child's first model call
-// settled, must not repeat that model call after Recover.
+// finished, must not repeat that model call after Recover.
 func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 	child := func(_ context.Context, in llm.Input) (llm.Result, error) {
 		if len(in.Messages) == 1 {

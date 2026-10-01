@@ -35,7 +35,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	running := 0
 	progress := newProgressHub(r.emitter.active() || r.opts.streamSink != nil)
 	// fatal holds the stop reason of the first result that ends the turn.
-	// Once set, no further call starts; running calls still settle.
+	// Once set, no further call starts; running calls still finish.
 	fatal := ""
 	record := func(v toolResult) *RunResult {
 		if ctx.Err() != nil {
@@ -443,8 +443,9 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			return r.stop(StopResultUnknown, "tool outcome needs reconciliation"), true
 		}
 	}
-	// An uncertain call outranks a fatal one: Continue is refused until the
-	// host reconciles it, and the fatal failure stays on its settled step.
+	// A call with an unknown result outranks a fatal one: Continue is
+	// refused until the host resolves it, and the fatal failure stays on its
+	// finish step.
 	if fatal != "" {
 		return r.stop(StopFailed, fatal), true
 	}
@@ -464,9 +465,9 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 // cannot leave the dispatcher waiting on results with running overcounted.
 // This single dispatch path serves both sequential and parallel calls. A
 // panic is recovered, not re-raised: the call may have taken effect before it
-// panicked, so its result is unknown and the runner records it as uncertain
-// rather than running it again. The call's progress slot closes before the
-// result is sent, even on panic, so no report follows the settlement.
+// panicked, so the runner records its result as unknown rather than running
+// it again. The call's progress slot closes before the result is sent, even
+// on panic, so no report follows the finish step.
 func execute(
 	ctx context.Context,
 	ex tool.Executor,
@@ -485,16 +486,16 @@ func execute(
 	return result
 }
 
-// toolSettlement converts an observed executor result into the step to record
+// toolFinish converts an observed executor result into the step to record
 // and, when the result ends the turn, the StopFailed reason. It applies the
 // contract in design/decisions.md entry 1: an error is a failure the model
-// sees, tool.ErrFatal also stops the turn, and uncertainty is reserved for a
-// result the runner did not observe. An invalid outcome was observed, so it is
-// a fatal executor bug, not uncertainty.
+// sees, tool.ErrFatal also stops the turn, and an unknown result is kept for
+// a result the runner did not see. An invalid outcome was seen, so it is a
+// fatal executor bug, not an unknown result.
 func toolFinish(v toolResult) (Step, string) {
 	fact := &ToolFact{Call: v.call}
 	if v.panicked != "" {
-		// No outcome records the call as uncertain.
+		// No outcome records the call's result as unknown.
 		fact.Reason = v.panicked
 		return Step{Kind: StepToolFinished, Tool: fact}, ""
 	}
@@ -533,7 +534,7 @@ func toolFinish(v toolResult) (Step, string) {
 }
 
 // panicReason records the panic value and a bounded stack, prefixed so hosts
-// can recognize a recovered panic among uncertain calls.
+// can recognize a recovered panic among calls with unknown results.
 func panicReason(v any) string {
 	reason := fmt.Sprintf("panic: %v\n%s", v, debug.Stack())
 	if len(reason) > maxPanicReason {
@@ -571,8 +572,8 @@ func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 			},
 		})
 	}
-	// Context delivered while a stop kept this submission, after the model
-	// made it, supersedes it when the model can still be asked again.
+	// Context added while a stop kept this submission, after the model
+	// made it, replaces it when the model can still be asked again.
 	since := addedSinceCandidate(r.turn, state.modelCallOfTool[call.ID])
 	if len(since) > 0 {
 		if r.nextCallFits(state, estimatedItemTokens(since)) {
@@ -603,7 +604,7 @@ func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 		return r.afterSteerWrite(
 			finish.steers,
 			// A steer is a nudge, not a veto: the message's text keeps
-			// its place in Answer.
+			// its place in Reply.
 			r.rejectSubmission(
 				call,
 				steerNotAccepted,
@@ -636,9 +637,9 @@ func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 	})
 }
 
-// deliveredSinceCandidate returns the context delivered after the model
-// attempt that made a candidate answer settled: the same rule the text path
-// applies, so a AddMessages made before the submission call started counts too.
+// addedSinceCandidate returns the context added after the model call that
+// made a candidate reply finished: the same rule the text path applies, so
+// an AddMessages made before the submission call started counts too.
 func addedSinceCandidate(t Turn, modelCallID string) []ContextItem {
 	finished := false
 	var items []ContextItem

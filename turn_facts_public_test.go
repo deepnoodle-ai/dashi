@@ -72,7 +72,7 @@ func (c *approvalClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	}, nil
 }
 
-// approvalHooks defer every tool call to a person.
+// approvalHooks send every tool call to a person for approval.
 var approvalHooks = dashi.RequireApproval()
 
 // jsonbStore wraps MemoryRecorder; Load returns each step re-encoded with
@@ -158,7 +158,7 @@ func pendingApproval(
 	if err != nil || out.Stop.Kind != dashi.StopWaiting {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
-	// A host with durable storage reloads the turn before answering.
+	// A host with durable storage reloads the turn before resolving.
 	turn, err := store.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
@@ -256,8 +256,8 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	}
 }
 
-// A call that leaves approval without an answer, here by cancellation, no
-// longer carries an approval digest.
+// A call that leaves approval without a decision, here by cancellation, no
+// longer carries an approval hash.
 func TestCanceledApprovalHasNoArgsHash(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	canceled, err := runner.Run(

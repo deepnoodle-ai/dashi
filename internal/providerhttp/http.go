@@ -214,7 +214,8 @@ func (c Client) Prepare(
 }
 
 // Post performs at most one dispatch, without retries or redirects. Errors
-// include retry hints for the caller that owns attempt recording and admission.
+// include retry hints for the caller that owns recording each model call and
+// reserving its cost.
 func (c Client) Post(
 	ctx context.Context,
 	p llm.Request,

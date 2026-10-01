@@ -71,7 +71,7 @@ func TestAttachmentInterruptedWriteRemovesOnlyOwnTemp(t *testing.T) {
 	orphan := filepath.Join(st.root, s.ID, "attachments", ".tmp-uncertain-other-operation")
 	os.Mkdir(orphan, 0o700)
 	if !st.RetainsAttachments(s) {
-		t.Fatal("uncertain foreign temp not retained")
+		t.Fatal("unknown-state foreign temp not retained")
 	}
 	ctx = &attachmentCancelContext{Context: context.Background(), at: 5}
 	a.Publish(ctx, id, "evidence.txt", "text/plain", []byte(strings.Repeat("x", 96<<10)))
@@ -224,7 +224,7 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 	if hex.EncodeToString(hash[:]) == ref.SHA256 {
 		t.Fatal("corruption fixture unchanged")
 	}
-	// Runner owns final digest verification; retry verifies it locally too.
+	// Runner owns final hash verification; retry verifies it locally too.
 	if _, err := a.Publish(ctx, id, "a.txt", "text/plain", []byte("abc")); err == nil {
 		t.Fatal("corrupt retry reused")
 	}
@@ -268,7 +268,7 @@ func TestAttachmentAllStorageLinksRejected(t *testing.T) {
 				}
 			}
 			if !st.RetainsAttachments(s) {
-				t.Fatal("uncertain/link content not retained")
+				t.Fatal("unknown-state/link content not retained")
 			}
 		})
 	}
@@ -292,7 +292,7 @@ func TestAttachmentCancellationAndEmptyCollision(t *testing.T) {
 		t.Fatal("empty existing ID overwritten")
 	}
 	if !st.RetainsAttachments(s) {
-		t.Fatal("uncertain empty publication not retained")
+		t.Fatal("unknown-state empty publication not retained")
 	}
 	if _, err := a.Load(ctx, s.ID+"-1", content.Ref{ID: id, Size: 3, SHA256: strings.Repeat("0", 64)}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)

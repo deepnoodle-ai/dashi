@@ -593,8 +593,8 @@ func (r *Recorder) append(
 	}
 	if err := r.syncFile(f); err != nil {
 		// After a failed fsync the kernel may have discarded the written
-		// pages while still serving them from cache, so the outcome is
-		// unknown and this process stops trusting the log.
+		// pages while still serving them from cache, so whether the write
+		// landed is unknown and this process stops trusting the log.
 		r.retire(turnID, err)
 		return unknown(fmt.Errorf("filerecorder: sync: %w", err))
 	}

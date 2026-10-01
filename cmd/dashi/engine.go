@@ -19,7 +19,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// defaultModelAttempts is the model-call limit of one turn. Coding reads many
+// defaultModelCalls is the model-call limit of one turn. Coding reads many
 // files, and Dashi's own default of 8 stops too early.
 const defaultModelCalls = 40
 
@@ -416,7 +416,7 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 		start.CommandID = dashi.NewID()
 		start.Agent = e.agent()
 		e.mu.Unlock()
-		// A first admission may skip damaged history under Exclusive. A
+		// A first recording may skip damaged history under Exclusive. A
 		// supplied key cannot bypass the library's idempotency scan. In
 		// this case retain the generated key from the first recording
 		// acknowledgment (or CommitError) before any retry.
@@ -766,7 +766,7 @@ func (e *Engine) Queued() int {
 	return n + st.Queued
 }
 
-// settled shows the end of one turn: its footer, how to go on, the session's
+// finished shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
 func (e *Engine) finished(r *Renderer, out dashi.RunResult) {
 	for _, w := range out.SessionWarnings {

@@ -95,8 +95,8 @@ func pausedTurn(t *testing.T, rec *MemoryRecorder) (RunResult, Runner) {
 	return first, runner
 }
 
-// Two followers with different cursors replay, then follow live, and both
-// end at the terminal stop.
+// Two followers with different cursors read the record so far, then follow
+// live, and both end at the stop that ends the turn.
 func TestFollowReplaysThenFollowsLive(t *testing.T) {
 	rec := NewMemoryRecorder()
 	first, runner := pausedTurn(t, rec)
@@ -144,7 +144,7 @@ func TestFollowerLeavingDoesNotCancel(t *testing.T) {
 	}
 }
 
-// Follow ends at a terminal stop; a late result recorded after it is read
+// Follow ends at the ending stop; a late result recorded after it is read
 // with StepsAfter from the stop's Seq, as an accounting reader would.
 func TestLateResultAfterEndedStopIsReadable(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
@@ -315,8 +315,8 @@ func TestFollowPollsSlowlyWhileResting(t *testing.T) {
 	}
 }
 
-// Settles names what a step supersedes in a real run: model_call_started
-// carries the deltas' MessageID but settles nothing.
+// Finishes names what a step replaces in a real run: model_call_started
+// carries the deltas' MessageID but finishes nothing.
 func TestStepFinishes(t *testing.T) {
 	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		return tool.Succeeded("done"), nil
@@ -372,7 +372,7 @@ func TestStepFinishes(t *testing.T) {
 	}
 }
 
-// A reader whose cursor is already the terminal stop ends at once.
+// A reader whose cursor is already the ending stop ends at once.
 func TestFollowFromEndedCursorEndsAtOnce(t *testing.T) {
 	setFollowIntervals(t, time.Hour, time.Hour, time.Hour)
 	rec := NewMemoryRecorder()

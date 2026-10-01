@@ -20,7 +20,7 @@ var openAIKeywords = []string{
 
 // CheckOpenAIStrict accepts a deliberately small subset of OpenAI's strict
 // response-format dialect. Compile must have succeeded first. No rewrite is
-// made: a caller can compare the admitted schema with the prepared body.
+// made: a caller can compare the accepted schema with the prepared body.
 func CheckOpenAIStrict(raw json.RawMessage) error {
 	var node any
 	if err := json.Unmarshal(raw, &node); err != nil {

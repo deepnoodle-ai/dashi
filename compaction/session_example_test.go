@@ -13,8 +13,8 @@ import (
 )
 
 // A Session with a Compactor runs a compaction turn when the last model
-// call used 80% of the window. A handle with no Compactor reads the same
-// projected history from the record. The scripted client needs no API key.
+// call used 80% of the window. A handle with no Compactor builds the same
+// history from the record. The scripted client needs no API key.
 func ExampleCompactor() {
 	ctx := context.Background()
 	full := dashitest.Reply("Keep logs structured.")

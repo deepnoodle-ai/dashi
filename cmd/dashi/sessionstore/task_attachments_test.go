@@ -68,6 +68,6 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 		t.Fatal("child symlink followed")
 	}
 	if st.TaskStorageAbsent(s) {
-		t.Fatal("uncertain child storage certified absence")
+		t.Fatal("unknown-state child storage certified absence")
 	}
 }

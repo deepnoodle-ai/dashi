@@ -12,7 +12,7 @@ func SafeRepeat(def tool.Definition) bool {
 		def.Annotations.Idempotent != nil && *def.Annotations.Idempotent
 }
 
-// UnsafeHosted reports whether defs offers a provider-hosted tool that is not
+// UnsafeProviderTool reports whether defs offers a provider tool that is not
 // safe to repeat.
 func UnsafeProviderTool(defs []tool.Definition) bool {
 	for _, def := range defs {

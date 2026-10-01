@@ -18,7 +18,7 @@ import (
 
 // TestSessionLastTurnRules builds each row of the last-turn table as turn 1,
 // then sends a new message from a fresh handle, with and without Exclusive
-// and with each WorkerChecker answer.
+// and with each WorkerStatus a WorkerChecker reports.
 func TestSessionLastTurnRules(t *testing.T) {
 	type expect struct {
 		busy   dashi.Next // empty: the Start closes or starts
@@ -53,7 +53,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 			next:  dashi.NextRecover,
 			want: func(l session.WorkerStatus, _ bool) expect {
 				if l == session.WorkerStatusRunning {
-					// A live worker runs the call: no CallID to settle.
+					// A live worker runs the call: no CallID to resolve.
 					return expect{busy: dashi.NextRunning}
 				}
 				return expect{busy: dashi.NextRecover, callID: true}
@@ -277,7 +277,7 @@ func TestSessionResultUnknownCallCancel(t *testing.T) {
 
 // TestSessionLostWorker expires the old worker's claim during a model call
 // and during a call that is not idempotent. A new message refuses, takeover
-// with Continue{} never reruns the tool, no new turn overlaps the unsettled
+// with Continue{} never reruns the tool, no new turn overlaps the unfinished
 // call, and the old worker's late commit is rejected.
 func TestSessionLostWorker(t *testing.T) {
 	t.Run("model call", func(t *testing.T) {
@@ -347,7 +347,7 @@ func TestSessionLostWorker(t *testing.T) {
 			t.Fatalf("late commit: %v; want a revision conflict", err)
 		}
 		requireTurns(t, rec, 1)
-		// The host checked the charge and settles the call under its lease.
+		// The host checked the charge and resolves the call under its lease.
 		finish := out.Pending[0].Result(tool.Succeeded("charged once"))
 		if _, err := b.Run(t.Context(), finish, dashi.WithOwner("b")); err != nil {
 			t.Fatal(err)
@@ -481,7 +481,7 @@ func buildCompleted(t *testing.T, rec *liveRecorder) {
 }
 
 // buildCrashInModel records a turn 1 whose worker stopped during a model
-// call: an intent with no result and no stop.
+// call: a model_call_started step with no result and no stop.
 func buildCrashInModel(t *testing.T, rec *liveRecorder) {
 	t.Helper()
 	fault := &dashitest.FaultRecorder{
@@ -509,8 +509,8 @@ func buildCrashInTool(name string) func(*testing.T, *liveRecorder) {
 	}
 }
 
-// buildUncertainStop resumes a crash in a tool that is not idempotent, so
-// the call is recorded uncertain.
+// buildResultUnknownStop resumes a crash in a tool that is not idempotent,
+// so the call is recorded as result_unknown.
 func buildResultUnknownStop(t *testing.T, rec *liveRecorder) {
 	t.Helper()
 	buildCrashInTool("charge")(t, rec)
@@ -707,7 +707,8 @@ func hasWarning(warnings []dashi.Warning, code dashi.WarningCode) bool {
 	return false
 }
 
-// liveRecorder is a MemoryRecorder with a fixed WorkerChecker answer.
+// liveRecorder is a MemoryRecorder whose WorkerChecker reports a fixed
+// WorkerStatus.
 type liveRecorder struct {
 	*dashi.MemoryRecorder
 	mu           sync.Mutex

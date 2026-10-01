@@ -103,7 +103,7 @@ func TestRuntimeActiveContextDiscardKeepsFinishedEffects(t *testing.T) {
 		t.Fatalf("partial summary applied or cancellation lost: %+v", view)
 	}
 	if got, err := os.ReadFile(filepath.Join(cfg.Dir, "checks.log")); err != nil || string(got) != "CHECK_OK\n" {
-		t.Fatalf("settled check lost %q %v", got, err)
+		t.Fatalf("finished check lost %q %v", got, err)
 	}
 	id := h.app.eng.Session().ID
 	c.mu.Lock()

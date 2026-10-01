@@ -272,7 +272,7 @@ func nextRows() []nextRow {
 			want:  NextContinue,
 		},
 		{
-			// The reserved final answer ends at the model-call limit; a
+			// The reserved final reply ends at the model-call limit; a
 			// raise, not a bare Continue, completes it.
 			name: "output recorded at the model-call limit",
 			stop: limited(LimitModelCalls),
@@ -295,7 +295,7 @@ func pendingCall(status ToolStatus) func(*replayState) {
 }
 
 // rowView builds the view of a turn at rest at the row's stop. Readiness
-// and Terminal come from the same code replay uses.
+// and Ended come from the same code View uses.
 func rowView(row nextRow) TurnView {
 	s := &replayState{
 		TurnView:     TurnView{Tools: map[string]ToolView{}, LastSeq: 5},
@@ -364,7 +364,7 @@ func TestNextCoversEveryStop(t *testing.T) {
 }
 
 // stopSites reads the package source for every stop the code can record or
-// project, as "kind/reason" keys (see nextRow), and for the StopKind,
+// infer, as "kind/reason" keys (see nextRow), and for the StopKind,
 // LimitKind, and StopReason constants by name.
 func stopSites(t *testing.T) ([]string, map[string]string) {
 	t.Helper()
@@ -490,7 +490,7 @@ func limitKind(e ast.Expr) ast.Expr {
 	return e
 }
 
-// Next reads the recorded stop, not the one Replay projects for a record
+// Next reads the recorded stop, not the one View infers for a record
 // that ends mid-run.
 func TestNextReadsRecordedStop(t *testing.T) {
 	crashed := interruptionRecord(

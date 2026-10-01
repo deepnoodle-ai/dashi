@@ -41,7 +41,7 @@ func (h *hostTurns) send(text, answer string) {
 }
 
 // compact runs a compaction turn that keeps the last keep messages of the
-// projected history and answers with answer.
+// history and replies with answer.
 func (h *hostTurns) compact(keep int, answer string) {
 	h.t.Helper()
 	h.client.Add(dashitest.Reply(answer))
