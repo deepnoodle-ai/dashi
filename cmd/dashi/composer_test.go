@@ -272,7 +272,7 @@ func TestComposerRunningHelpUnknownAndEditorRetry(t *testing.T) {
 func TestComposerCommandHelpMatchesAvailableHandlers(t *testing.T) {
 	h := newHarness(t)
 	text := h.app.ctrl.commandHelp()
-	for _, want := range []string{"/help", "/?", "/quit", "/q", "/exit", "/tasks", "/task", "/task-stop", "Enter / Shift+Enter", "Up / Down", "Tab/Down", "Shift+Tab/Up", "Escape", "Ctrl+G", "Ctrl+C", "Ctrl+D", "pending/queued-loss", "supported fullscreen/inline terminal handoff"} {
+	for _, want := range []string{"/help", "/?", "/quit", "/q", "/exit", "/tasks", "/task", "/task-stop", "Enter", "Shift+Enter", "Up/Down", "Shift+Tab", "Esc", "Ctrl+G", "Ctrl+C", "Ctrl+D", "Keys (fullscreen and inline modes)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help missing %s", want)
 		}
@@ -283,7 +283,7 @@ func TestComposerCommandHelpMatchesAvailableHandlers(t *testing.T) {
 		}
 	}
 	h.input("/?")
-	if !strings.Contains(h.ui.text(), "Commands:") {
+	if !strings.Contains(h.ui.text(), "also works while a turn runs") {
 		t.Fatal("help alias")
 	}
 }
@@ -309,7 +309,7 @@ func TestComposerPrintCommandsNeverStartProviderWork(t *testing.T) {
 		input  string
 		code   int
 		output string
-	}{{"/?", 0, "Commands:"}, {"/q", 0, ""}, {"/exit", 0, ""}, {"/unknown", 2, "unknown command"}, {"/model other", 2, "requires --plain"}} {
+	}{{"/?", 0, "also works while a turn runs"}, {"/q", 0, ""}, {"/exit", 0, ""}, {"/unknown", 2, "unknown command"}, {"/model other", 2, "requires --plain"}} {
 		t.Run(scenario.input, func(t *testing.T) {
 			cfg := testConfig(t)
 			var out, diag bytes.Buffer

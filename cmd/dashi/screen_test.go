@@ -117,7 +117,7 @@ func TestScreenShowsTurnAsItStreams(t *testing.T) {
 		"list_directory",
 		"ok",
 		"The fix is done.",
-		"[turn 1 | fixture | 2 model calls",
+		"turn 1 · fixture · 2 model calls",
 		"fixture ·",
 	} {
 		if !strings.Contains(got, want) {
@@ -300,5 +300,52 @@ func TestPromptCancellationCannotClearNewQuestion(t *testing.T) {
 	s.HandleEvent(promptEvent{id: 1, asking: first})
 	if s.asking != nil || s.input != "existing draft" {
 		t.Fatal("stale question was redisplayed")
+	}
+}
+
+func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	line := func(width int) string {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
+	}
+	wide := line(160)
+	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help lists commands") || len([]rune(wide)) != 159 {
+		t.Fatalf("wide = %q", wide)
+	}
+	narrow := line(60)
+	if !strings.HasPrefix(narrow, " fixture · ") || strings.Contains(narrow, "/help") {
+		t.Fatalf("narrow = %q", narrow)
+	}
+}
+
+func TestIdleInputHintIsEmpty(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	got := h.render()
+	if strings.Contains(got, "Ask anything") || !strings.Contains(got, "\n\n────") {
+		t.Fatalf("idle footer:\n%s", got)
+	}
+}
+
+func TestFooterBlockRendersAsRule(t *testing.T) {
+	f := footerFacts{Turn: 3, Model: "claude-x", Calls: 2, Tokens: 12345, Cost: "$0.0421"}
+	b := Block{Kind: KindFooter, Text: f.String(), Footer: &f, Done: true}
+	if FormatBlock(b) != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421" {
+		t.Fatalf("plain = %q", FormatBlock(b))
+	}
+	got := strings.TrimRight(tui.SprintScreen(blockView(b), tui.WithWidth(70), tui.WithHeight(1)).Text(), "\n")
+	if got != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421 ───────" {
+		t.Fatalf("screen = %q", got)
+	}
+	styled := tui.Sprint(blockView(b), tui.WithWidth(70))
+	for _, want := range []string{"\x1b[0;38;5;248m── turn 3 · ", "\x1b[0mclaude-x", "\x1b[0;38;5;108m$0.0421", "\x1b[0;38;5;248m───"} {
+		if !strings.Contains(styled, want) {
+			t.Fatalf("missing %q in %q", want, styled)
+		}
+	}
+	f.UsageIncomplete = true
+	if styled := tui.Sprint(blockView(b), tui.WithWidth(70)); !strings.Contains(styled, "33musage incomplete") {
+		t.Fatalf("incomplete = %q", styled)
 	}
 }

@@ -31,6 +31,7 @@ const (
 	KindWarning    BlockKind = "warning"
 	KindCompaction BlockKind = "compaction"
 	KindPending    BlockKind = "pending"
+	KindHelp       BlockKind = "help"
 )
 
 // Tool line states.
@@ -74,6 +75,10 @@ type Block struct {
 	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
+	// Footer holds the facts of a footer block, and Help the structure of a
+	// help block. Text keeps the plain form of both.
+	Footer *footerFacts
+	Help   *helpDoc
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and -p use
@@ -428,33 +433,95 @@ func limitText(st *dashi.Stop) string {
 
 // Footer returns the line that closes a settled turn.
 func (r *Renderer) Footer(v dashi.TurnView) Block {
+	f := newFooterFacts(r.Turn, r.Model, v)
 	return Block{
-		ID:   fmt.Sprintf("footer:%s", v.ID),
-		Kind: KindFooter,
-		Text: FooterText(r.Turn, r.Model, v),
-		Done: true,
+		ID:     fmt.Sprintf("footer:%s", v.ID),
+		Kind:   KindFooter,
+		Text:   f.String(),
+		Footer: &f,
+		Done:   true,
 	}
 }
 
-// FooterText formats the turn summary: number, model, model calls, tokens,
-// and cost.
-func FooterText(turn int, model string, v dashi.TurnView) string {
-	parts := []string{fmt.Sprintf("turn %d", turn)}
-	if model != "" {
-		parts = append(parts, model)
+// footerFacts is the turn summary: number, model, model calls, tokens, and
+// cost. The screen styles each value; plain output joins them.
+type footerFacts struct {
+	Turn  int
+	Model string
+	Calls int
+	// Tokens is meaningless when UsageIncomplete is set.
+	Tokens          int
+	UsageIncomplete bool
+	Cost            string
+}
+
+func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
+	return footerFacts{
+		Turn:            turn,
+		Model:           model,
+		Calls:           v.ModelAttempts,
+		Tokens:          v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens,
+		UsageIncomplete: v.Spend.UsageIncomplete,
+		Cost:            costText(v.Spend),
 	}
-	calls := v.ModelAttempts
-	parts = append(parts, fmt.Sprintf("%d model %s", calls, plural(calls, "call")))
-	if v.Spend.UsageIncomplete {
-		parts = append(parts, "usage incomplete")
+}
+
+// footerPart is one value of the footer. Meta values are quiet; the screen
+// emphasizes the rest by kind.
+type footerPart struct {
+	text string
+	kind footerKind
+}
+
+type footerKind int
+
+const (
+	footerMeta footerKind = iota
+	footerValue
+	footerCost
+	footerWarn
+)
+
+func (f footerFacts) parts() []footerPart {
+	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta}}
+	if f.Model != "" {
+		parts = append(parts, footerPart{f.Model, footerValue})
+	}
+	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta})
+	if f.UsageIncomplete {
+		parts = append(parts, footerPart{"usage incomplete", footerWarn})
 	} else {
-		tokens := v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens
-		parts = append(parts, groupDigits(tokens)+" tokens")
+		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue})
 	}
-	if cost := costText(v.Spend); cost != "" {
-		parts = append(parts, cost)
+	if f.Cost != "" {
+		parts = append(parts, footerPart{f.Cost, footerCost})
 	}
-	return "[" + strings.Join(parts, " | ") + "]"
+	return parts
+}
+
+// String is the plain form: "── turn 3 · model · 2 model calls · ...".
+func (f footerFacts) String() string {
+	var out strings.Builder
+	out.WriteString(footerRule)
+	for i, p := range f.parts() {
+		if i == 0 {
+			out.WriteString(" ")
+		} else {
+			out.WriteString(footerSep)
+		}
+		out.WriteString(p.text)
+	}
+	return out.String()
+}
+
+const (
+	footerRule = "──"
+	footerSep  = " · "
+)
+
+// FooterText formats the turn summary as plain text.
+func FooterText(turn int, model string, v dashi.TurnView) string {
+	return newFooterFacts(turn, model, v).String()
 }
 
 func costText(sp dashi.Spend) string {
@@ -675,6 +742,15 @@ func printable(b Block) Block {
 	b.Text = workspace.PrintableText(b.Text)
 	b.Name = workspace.PrintableText(b.Name)
 	b.Arg = workspace.PrintableText(b.Arg)
+	if b.Footer != nil {
+		f := *b.Footer
+		f.Model, f.Cost = workspace.PrintableText(f.Model), workspace.PrintableText(f.Cost)
+		b.Footer = &f
+	}
+	if b.Help != nil {
+		h := b.Help.printable()
+		b.Help = &h
+	}
 	if b.Lines != nil {
 		lines := make([]string, len(b.Lines))
 		for i, l := range b.Lines {

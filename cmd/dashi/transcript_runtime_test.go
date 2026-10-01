@@ -500,7 +500,7 @@ func TestRuntimeNativeScrollbackReturnsWithDraftAndSafeOutput(t *testing.T) {
 			}
 			h.input.events <- tui.KeyEvent{Key: tui.KeyEnter}
 			h.wait(func(s transcriptState) bool {
-				return s.input == "kept draft" && strings.Contains(s.text, "Ask anything.")
+				return s.input == "kept draft" && strings.Contains(s.text, "❯ kept draft")
 			})
 		})
 	}

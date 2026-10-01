@@ -84,7 +84,7 @@ func TestMCPWontonStartupCancelNoTurnNoChild(t *testing.T) {
 func TestMCPCommandDiscoveryAndNoInventoryEffects(t *testing.T) {
 	h := newHarness(t)
 	help := h.app.ctrl.commandHelp()
-	if !strings.Contains(help, "/mcp") || !strings.Contains(help, "idle or during a turn") {
+	if !strings.Contains(help, "/mcp") || !strings.Contains(help, "  "+duringMarker+" /mcp ") {
 		t.Fatal(help)
 	}
 	if !strings.Contains(strings.Join(h.app.ctrl.commandNames(), ","), "/mcp") {
@@ -200,7 +200,9 @@ func TestMCPReopenApprovalDoesNotRepeatSettledSearch(t *testing.T) {
 
 func TestMCPWontonInventoryEmpty(t *testing.T) {
 	h := newTranscriptRuntime(t)
-	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "Ask anything") })
+	h.wait(func(s transcriptState) bool {
+		return s.mode == ModeIdle && strings.Contains(s.text, "Type a message...")
+	})
 	h.typeText("/mc")
 	h.key(tui.KeyEvent{Key: tui.KeyTab})
 	h.wait(func(s transcriptState) bool { return s.input == "/mcp" })

@@ -13,6 +13,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a `Client` when its agent names its provider, API, and model. A run that
   would call the model without one fails with "client is required to call the
   model" before recording anything.
+- **The `dashi` CLI reads more clearly.** `/help` groups commands under
+  headings, lists skills in their own section, marks commands that also work
+  during a turn with `•`, and shows keys in a short aligned list. Secondary
+  text is a lighter gray, and notices such as `/status` output use the normal
+  foreground. The end-of-turn footer is a rule line
+  (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
+  "Ask anything" hint is gone; the status line shows "/help lists commands"
+  when it fits. The mouse wheel scrolls three lines per notch, and also
+  scrolls dialog details.
 
 ## [0.2.0] - 2026-10-01
 
