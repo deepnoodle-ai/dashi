@@ -73,7 +73,7 @@ func qualifyAutomationWriter(out io.Writer) (automationWriter, error) {
 		w.deadline = d.SetWriteDeadline
 	} else {
 		switch out.(type) {
-		case *bytes.Buffer, *strings.Builder:
+		case *bytes.Buffer, *strings.Builder, automationNullOutput:
 		default:
 			return automationWriter{}, errors.New("stdout does not support cancellable writes")
 		}
