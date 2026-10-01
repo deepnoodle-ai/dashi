@@ -2,7 +2,7 @@
 
 Status: Accepted · Author: Active-context track · Date: 2026-09-30\
 Workflow: Media-estimate amendment passed named PRD re-review at `0811b0d` and root checkpoint; implementation follows.\
-Requirements: [Finish a long coding request](../prds/active-turn-context.md)
+Requirements: [Finish a long coding request](../prds/active-turn-context.md) · PRD PR: #144 · Implementation PR: #147
 
 ## Shape and public API
 
