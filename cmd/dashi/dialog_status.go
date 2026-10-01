@@ -118,6 +118,22 @@ func (s *screen) dialogTextKey(id uint64) func(tui.KeyEvent) bool {
 	}
 }
 
+// Paste bypasses OnKey in Wonton. A retained answer/reason field must consume
+// it while the inspector owns input, even before its first focused render.
+func (s *screen) dialogTextPaste(id uint64) tui.PasteHandler {
+	generation, asking, approval := s.generation, s.asking, s.approval
+	return func(info tui.PasteInfo) (tui.PasteHandlerDecision, string) {
+		if !s.promptActive || s.promptID != id || s.generation != generation || s.asking != asking || s.approval != approval {
+			return tui.PasteModified, "" // stale fields cannot edit a replacement prompt
+		}
+		if s.dialogStatusActive(s.dialogStatus) {
+			s.post(dialogStatusKeyEvent{input: s.dialogStatus, key: tui.KeyEvent{Paste: info.Content}})
+			return tui.PasteModified, ""
+		}
+		return tui.PasteAccept, ""
+	}
+}
+
 func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 	return func(value string) {
 		if !s.dialogStatusActive(p) {
