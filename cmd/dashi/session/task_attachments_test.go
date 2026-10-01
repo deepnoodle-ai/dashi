@@ -15,6 +15,9 @@ import (
 
 func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 	st, s, parent := attachmentFixture(t)
+	if !st.TaskStorageAbsent(s) {
+		t.Fatal("fresh session cannot establish absent child storage")
+	}
 	ref := dashi.CallRef{TurnID: dashi.TurnID(s.ID, 1), CallID: "task:/weird"}
 	if _, err := parent.ChildAttachments(ref, false); err == nil {
 		t.Fatal("missing recovery directory created")
@@ -24,6 +27,9 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer child.Close()
+	if st.TaskStorageAbsent(s) {
+		t.Fatal("child storage was omitted from recovery evidence")
+	}
 	id, _ := NewAttachmentID()
 	snapshot, err := child.Publish(t.Context(), id, "proof.txt", "text/plain", []byte("fixed"))
 	if err != nil {
@@ -59,5 +65,8 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 	if bound, err := parent.ChildAttachments(ref, false); err == nil {
 		bound.Close()
 		t.Fatal("child symlink followed")
+	}
+	if st.TaskStorageAbsent(s) {
+		t.Fatal("uncertain child storage certified absence")
 	}
 }

@@ -1033,3 +1033,67 @@ func TestReadableTaskNoticeRequiresUnreadableOriginalParent(t *testing.T) {
 		t.Fatal("required parent repeated dispatch")
 	}
 }
+
+func TestUnreadableParentBeforeNoticeBlocksHiddenChildAndAllowsNewSession(t *testing.T) {
+	client := &taskFixtureClient{childHold: make(chan struct{}), childStarted: make(chan struct{})}
+	ui := newRecorderUI()
+	a, cfg := taskTestApp(t, client, ui)
+	if _, err := a.eng.Prompt(t.Context(), "delegate"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-client.childStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not start")
+	}
+	task := a.eng.taskHost().tasks.List()[0]
+	meta := a.eng.Session()
+	var parents []dashi.Turn
+	for turn, err := range a.eng.handle().Turns(t.Context()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		parents = append(parents, turn)
+	}
+	if len(recordedTaskNotices(parents)) != 0 {
+		t.Fatal("fixture already contains a parent notice")
+	}
+	rec, err := cfg.Store.Recorder(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.eng.Close()
+	if err = os.WriteFile(rec.Path(task.Parent.TurnID), []byte("damaged parent\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	parentCalls, childCalls := client.counts()
+	b, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
+		t.Fatal(err)
+	}
+	defer b.eng.Close()
+	if _, err = b.eng.Prompt(t.Context(), "replacement"); err == nil || !strings.Contains(err.Error(), "may hide child") {
+		t.Fatal("hidden child admitted new work", err)
+	}
+	if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
+		t.Fatal("hidden child certified quiet")
+	}
+	b.ctrl.Input("/tasks")
+	mustHave(t, ui.text(), "Task inventory incomplete")
+	afterParent, afterChild := client.counts()
+	if afterParent != parentCalls || afterChild != childCalls {
+		t.Fatal("recovery dispatched work")
+	}
+	if _, err = b.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if b.eng.Session().ID == meta.ID {
+		t.Fatal("recovery decision retained damaged session")
+	}
+	if _, err = b.eng.Prompt(t.Context(), "separate work"); err != nil {
+		t.Fatal("new session blocked", err)
+	}
+}

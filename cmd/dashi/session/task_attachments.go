@@ -13,6 +13,26 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 )
 
+// TaskStorageAbsent establishes that no child could have started in this
+// session. PrepareStart durably creates children before recording any child
+// turn, even without attachments, and the CLI never removes that directory.
+// Existing storage or an uncertain path cannot establish absence.
+func (st *Store) TaskStorageAbsent(s *Session) bool {
+	parent, err := st.Attachments(s)
+	if err != nil {
+		return false
+	}
+	defer parent.Close()
+	children, err := parent.session.child("children")
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err == nil {
+		children.close()
+	}
+	return false
+}
+
 // ChildAttachments binds one derived child to private evidence beneath the
 // parent's leased store. Recovery opens existing directories without creation.
 func (a *AttachmentStore) ChildAttachments(parent dashi.CallRef, create bool) (*AttachmentStore, error) {

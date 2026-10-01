@@ -161,8 +161,8 @@ func (e *Engine) recoverTasks(ctx context.Context) error {
 	return nil
 }
 
-// Discovery follows FR-4 for unrelated unreadable parent history. Known task
-// links still require their original parent; skipped history proves no absence.
+// FR-4 permits skipping damaged history only when durable child storage is
+// absent. A child's directory precedes its first turn and any parent notice.
 func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 	host := e.taskHost()
 	var turns []dashi.Turn
@@ -226,6 +226,9 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 	}
 	host.inventoryErr = errors.Join(incomplete...)
 	host.mu.Unlock()
+	if len(skipped) > 0 && !e.cfg.Store.TaskStorageAbsent(e.Session()) {
+		required = append(required, fmt.Errorf("task inventory incomplete: damaged parent history may hide child work; restore its journal and reopen, or use /new for a separate session"))
+	}
 	return turns, errors.Join(required...)
 }
 
