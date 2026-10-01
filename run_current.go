@@ -168,3 +168,11 @@ func (r *runtime) callRunner() Runner {
 	}
 	return out
 }
+
+func cloneCallRef(c *CallRef) *CallRef {
+	if c == nil {
+		return nil
+	}
+	copied := *c
+	return &copied
+}

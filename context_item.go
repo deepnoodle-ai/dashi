@@ -1,6 +1,10 @@
 package dashi
 
-import "cmp"
+import (
+	"cmp"
+
+	"github.com/deepnoodle-ai/dashi/llm"
+)
 
 // ContextOrigin records who supplied a ContextItem, independently of its
 // message role. It decides the roles and reminder tiers the item may use:
@@ -39,4 +43,39 @@ const (
 // empty origin as ContextUser.
 func contextKey(item ContextItem) string {
 	return string(cmp.Or(item.Origin, ContextUser)) + "\x00" + item.Name
+}
+
+// ContextItem carries content whose origin and replacement behavior are
+// independent of its message role. All content needed for recovery is recorded.
+type ContextItem struct {
+	// ID identifies one delivery of this item. A turn records an ID at most
+	// once, and a repeat with the same content is skipped, so a source that
+	// retries a delivery cannot deliver it twice. Name, by contrast, names a
+	// slot that a later snapshot replaces. ID is optional for Deliver and
+	// hook items and required for steers.
+	ID string `json:"id,omitempty"`
+	// Name identifies an item that a later snapshot may replace.
+	Name string `json:"name,omitempty"`
+	// Origin records who supplied the item; empty means ContextUser.
+	Origin  ContextOrigin `json:"origin"`
+	Message llm.Message   `json:"message"`
+	// Snapshot supersedes an earlier item with the same name: Turn.Context
+	// returns this one. Model requests keep the earlier item in place and
+	// add this one after it, so the prompt prefix and the provider's cache
+	// survive; the reminder instruction tells the model the latest is
+	// current.
+	Snapshot bool `json:"snapshot,omitempty"`
+	// NextCallOnly keeps this item until a later model call shows evidence
+	// of dispatch (a provider response or rejection), then omits it. A call
+	// with no such evidence, such as one recovered after a crash, is resent
+	// with the item, so the model may see it twice rather than never. A
+	// call an urgent steer cut short does not expire it either: the
+	// replacement call sees it again. For a value that must reflect each
+	// call, such as the current time, use a named Snapshot item instead.
+	NextCallOnly bool `json:"next_call_only,omitempty"`
+}
+
+func cloneContextItem(item ContextItem) ContextItem {
+	item.Message = item.Message.Clone()
+	return item
 }

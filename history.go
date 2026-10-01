@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -131,4 +132,23 @@ func digestMismatch(id, digest string, covered []llm.Message) *Warning {
 			id,
 		),
 	}
+}
+
+// replacement returns the replacement history of a compaction turn, and
+// false when the turn did not complete with a summary (summaryText), so it
+// replaces nothing.
+func replacement(v TurnView) ([]llm.Message, bool) {
+	f := v.Compaction
+	answer := compactiontext.Summary(v.Answer)
+	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
+		return nil, false
+	}
+	summary := answer
+	if f.Frame != "" {
+		summary = f.Frame + "\n\n" + answer
+	}
+	out := make([]llm.Message, 0, len(f.Keep)+1)
+	out = append(out, f.Keep[:f.SummaryAt]...)
+	out = append(out, llm.UserMessage(llm.Text(summary)))
+	return append(out, f.Keep[f.SummaryAt:]...), true
 }
