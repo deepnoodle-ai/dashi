@@ -527,7 +527,12 @@ delivers a result says so in its outcome's structured `Data`
 the turn it names. Live, the read marks the turn under the lock that sending
 a notice takes, so the read and the notice never both carry it; a wait owns
 the end it waits for, and a notice already on `Config.Session` is withdrawn
-(`Session.Withdraw`), or the read does not deliver. A read of a running task,
+(`Session.Withdraw`), or the read does not deliver. The live claim is
+provisional: Tasks watches the parent's record until it settles the call.
+Recorded, the turn is reported with `AlreadyDelivered`; a turn that stops
+before the result is saved, or a record that does not settle in 30 seconds,
+gives the result back to the notice, so it is not lost for the session. A
+repeated result is better than a lost one. A read of a running task,
 the task list, a deferred stop, and user inspection (`/task`, `/tasks`)
 deliver nothing. Rationale: the record stays the only proof, so a crash
 before the read is recorded still redelivers on reopen. The marker is a turn

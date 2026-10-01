@@ -88,7 +88,9 @@ record holds the notice** (the context item `task-done:<child turn ID>`), or
 holds a `task_status` call that gave the model that turn's result. Such a
 call records the child turn ID in its outcome's `Data`, so the model that
 reads a result there gets no notice afterwards, and the `TaskEnded` event has
-`AlreadyDelivered` set. A host that routes notices from `OnTask` skips those,
+`AlreadyDelivered` set once the parent's record holds the call; if the turn
+stops before the result is saved, the notice goes out as usual. A host that
+routes notices from `OnTask` skips those,
 and a host that holds notices until a turn ends checks
 `delegate.DeliveredNotices(turns)` first. A read of a running task, or of the
 task list, delivers nothing. Two cases:

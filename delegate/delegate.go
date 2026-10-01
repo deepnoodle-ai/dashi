@@ -136,7 +136,7 @@ type Config struct {
 	// resumes and a TaskEnded event when it ends. Without Session, the host
 	// decides how a result reaches the agent (see Notice); it sends none
 	// for an event with AlreadyDelivered set. It runs on the task's
-	// goroutine, or on a task_status call's when that call waited for the
+	// goroutine, or on a goroutine of a task_status call that read the
 	// end, and must return promptly. TaskEnded fires once for each child turn in one process. It
 	// does not fire when Close interrupts a turn.
 	OnTask func(TaskEvent)

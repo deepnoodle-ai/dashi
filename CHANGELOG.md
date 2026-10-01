@@ -83,7 +83,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **`tool.Outcome.Data` carries structured detail about a call for the
   host.** It is raw JSON that the turn record keeps and the model never sees.
-  `Validate` rejects invalid JSON.
+  Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
+  dropped, and the step records the new `WarningToolDataDropped`; the call
+  still succeeds.
 
 ### Fixed
 
@@ -105,9 +107,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (decision 46). A `TaskEnded` event for such a turn has the new
   `AlreadyDelivered` set, and a host that holds notices checks the new
   `delegate.DeliveredNotices(turns)`. A notice already on `Config.Session` is
-  taken back with the new `Session.Withdraw`. Reading a running task or the
-  task list delivers nothing, and the user's `/task` and `/tasks` still never
-  count as delivery.
+  taken back with the new `Session.Withdraw`. A read whose result the parent
+  never records, as when the turn is canceled first, gives the result back:
+  the notice reaches the agent on the next turn. Reading a running task or
+  the task list delivers nothing, and the user's `/task` and `/tasks` still
+  never count as delivery.
 - **The CLI no longer says task results wait for a stopped parent while the
   parent runs.** The line now shows only when the turn really stopped, and
   says what to do: "Task results will be sent when this turn goes on. Press

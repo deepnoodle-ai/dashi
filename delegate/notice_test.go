@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // noticeReminders counts the task-ended reminders in a model request.
@@ -307,5 +308,97 @@ func TestChildKnowsItsTaskID(t *testing.T) {
 	}
 	if got := h.view(t, childTurnID()).Agent.Instructions; !strings.Contains(got, taskID()) {
 		t.Fatalf("recorded instructions=%q", got)
+	}
+}
+
+// cancelAfterStatus wraps the task_status tool of ts: after the real call
+// returns, it cancels the turn and holds its result until the runner has
+// stopped, so the result is never recorded.
+type cancelAfterStatus struct {
+	ts     tool.Toolset
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterStatus) Tools(ctx context.Context) ([]tool.Tool, error) {
+	list, err := c.ts.Tools(ctx)
+	for i, tl := range list {
+		if tl.Definition.Name != delegate.StatusToolName {
+			continue
+		}
+		inner := tl.Executor
+		list[i].Executor = executor(func(ctx context.Context, call tool.Call) (tool.Outcome, error) {
+			out, err := inner.Execute(ctx, call)
+			c.cancel()
+			<-ctx.Done()
+			time.Sleep(50 * time.Millisecond)
+			return out, err
+		})
+	}
+	return list, err
+}
+
+// A read that took the notice's place but whose result the parent never
+// recorded, because the turn was canceled first, does not lose the result:
+// the notice reaches the agent on the next turn, without a reopen.
+func TestUnrecordedStatusReadGivesTheResultBack(t *testing.T) {
+	g := newGate()
+	var mu sync.Mutex
+	var noticeCalls []int // parent call numbers that carried a notice
+	var parentCalls atomic.Int32
+	var s *session.Session
+	h := newHarness(t, func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if role(in) != "parent" {
+			return gated(g, "the answer")(ctx, in)
+		}
+		n := parentCalls.Add(1)
+		if k := noticeReminders(in); k > 0 {
+			mu.Lock()
+			for range k {
+				noticeCalls = append(noticeCalls, int(n))
+			}
+			mu.Unlock()
+		}
+		switch n {
+		case 1:
+			return costed(taskCall("find the parser"), "1"), nil
+		case 2:
+			go func() { time.Sleep(50 * time.Millisecond); g.open() }()
+			return costed(toolCall("status-1", delegate.StatusToolName,
+				`{"task_id":"`+sessionTaskID(s)+`","wait_seconds":30}`), "1"), nil
+		}
+		return costed(text("parent done"), "1"), nil
+	}, delegate.Config{}, nil)
+	s = sessionTasks(t, h)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	s.Runner.Tools = tool.Join(h.base, cancelAfterStatus{h.tasks.Tools(), cancel})
+	out, _ := s.Send(ctx, "go")
+	if out.Stop.Kind != dashi.StopInterrupted && out.Stop.Kind != dashi.StopCanceled {
+		t.Fatalf("first turn stop=%+v", out.Stop)
+	}
+	turns := sessionTurns(t, s)
+	if len(statusDelivered(turns)) != 0 {
+		t.Fatal("the canceled read was recorded")
+	}
+	// The claim gives the result back: the notice goes out as usual.
+	if e := h.next(t, delegate.TaskEnded); e.AlreadyDelivered {
+		t.Fatal("an unrecorded read counted as delivery")
+	}
+	s.Runner.Tools = tool.Join(h.base, h.tasks.Tools())
+	if _, err := s.Send(t.Context(), "next"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := delegate.RunUntilQuiet(t.Context(), s, h.tasks); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	got := noticeCalls
+	mu.Unlock()
+	if len(got) != 1 || got[0] < 3 {
+		t.Fatalf("notice reached parent calls %v, want one after the canceled turn", got)
+	}
+	turns = sessionTurns(t, s)
+	if !delegate.DeliveredNotices(turns)[delegate.NoticeID(sessionChildTurn(s))] {
+		t.Fatal("the record does not show the notice delivered")
 	}
 }

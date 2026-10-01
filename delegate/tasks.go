@@ -58,9 +58,9 @@ type TaskEvent struct {
 	Kind TaskEventKind
 	Task TaskView
 	// AlreadyDelivered is set on a TaskEnded event when a task_status call
-	// already gave the agent this turn's final result. Tasks sends no notice
-	// for it, and a host that routes notices from OnTask must not send one
-	// either.
+	// already gave the agent this turn's final result and the parent's
+	// record holds that call. Tasks sends no notice for it, and a host that
+	// routes notices from OnTask must not send one either.
 	AlreadyDelivered bool
 }
 
@@ -135,6 +135,9 @@ type Tasks struct {
 	reports int           // reports finished
 	waited  int           // reports that Wait has returned for
 	wg      sync.WaitGroup
+	// quit closes when Close starts, to end the goroutines that confirm a
+	// task_status read.
+	quit chan struct{}
 }
 
 // task is the mutable record of one child session. Tasks.mu guards every
@@ -176,9 +179,12 @@ type childTurn struct {
 	// ended turn counts as pending until reported.
 	notified, reported bool
 	deferred           bool
-	// read is set when a task_status call gave the agent the turn's final
-	// result before its notice went out, so no notice is sent.
-	read bool
+	// read is set when a task_status call claimed the turn's final result
+	// in place of its notice. The claim holds until the parent's record
+	// settles the call (see confirmRead): recorded, the result is delivered;
+	// not recorded, the notice goes out after all. readCall is that call.
+	read     bool
+	readCall dashi.CallRef
 	// suppressed distinguishes Close interruption from acknowledged notices.
 	suppressed bool
 }
@@ -208,6 +214,7 @@ func NewTasks(cfg Config) *Tasks {
 		catalog: slices.Clone(catalog),
 		tasks:   map[string]*task{},
 		changed: make(chan struct{}),
+		quit:    make(chan struct{}),
 	}
 	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
 		t.warnNoLoader()
@@ -354,6 +361,9 @@ func (ts *Tasks) changedLocked() {
 // children keep stopping.
 func (ts *Tasks) Close(ctx context.Context) error {
 	ts.mu.Lock()
+	if !ts.closed {
+		close(ts.quit)
+	}
 	ts.closed = true
 	for _, t := range ts.tasks {
 		if t.cancel != nil {
@@ -888,16 +898,16 @@ func endState(
 // notifyEnded reports each ended turn of the task that nobody was told of:
 // it delivers the turn's notice to Config.Session and calls OnTask, once
 // per turn, in order. A turn that delivered holds counts as reported. A turn
-// that a task_status call read gets no notice, and its TaskEnded event says
-// so. While a task_status call waits for the task, the last turn is left to
+// that a task_status call claimed is left to confirmRead, which reports it.
+// While a task_status call waits for the task, the last turn is left to
 // that call, which reports it when it returns. A turn stays pending until
 // OnTask has returned.
 func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 	for {
 		ts.mu.Lock()
 		i := slices.IndexFunc(t.turns, func(c *childTurn) bool {
-			return !c.notified && !c.deferred && c.state != TaskRunning &&
-				(t.waiting == 0 || c != t.last())
+			return !c.notified && !c.deferred && !c.read &&
+				c.state != TaskRunning && (t.waiting == 0 || c != t.last())
 		})
 		if i < 0 {
 			ts.mu.Unlock()
@@ -911,14 +921,9 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 		}
 		c.notified = true
 		v := ts.viewLocked(t, c)
-		read := c.read
 		ts.mu.Unlock()
-		if !read {
-			ts.toParent(v.Notice().Steer())
-		}
-		if ts.cfg.OnTask != nil {
-			ts.cfg.OnTask(TaskEvent{Kind: TaskEnded, Task: v, AlreadyDelivered: read})
-		}
+		ts.toParent(v.Notice().Steer())
+		ts.onTask(TaskEnded, v)
 		ts.mu.Lock()
 		ts.reportedLocked(c, true)
 		ts.mu.Unlock()
