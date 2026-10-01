@@ -131,6 +131,7 @@ command again; a repeated command returns the recorded result.
    with `dashi.MarshalCommand`, and run it. With an already-closed
    `dashi.WithPause`, this records the turn without a model call
    ([recovering turns](recovering-turns.md#resuming-after-a-stop-or-crash)).
+   It needs no `Client` when the Agent names its provider, API, and model.
 2. **Advance.** Load the turn and map `view.Next()` to a command.
    `NextContinue` and `NextResume` give `Continue` with the same history;
    resume only once the old worker is known to be gone. `NextAnswer` waits

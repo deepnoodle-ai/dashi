@@ -70,15 +70,7 @@ func (r *runtime) contextStop() Outcome {
 }
 
 func (r *runtime) pauseRequested() bool {
-	if r.opts.pause == nil {
-		return false
-	}
-	select {
-	case <-r.opts.pause:
-		return true
-	default:
-		return false
-	}
+	return pauseClosed(r.opts.pause)
 }
 
 func (r *runtime) pauseStop() Outcome {

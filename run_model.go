@@ -16,6 +16,11 @@ import (
 func (r *runtime) model(s *replayState) (Outcome, bool) { return r.modelPurpose(s, "", nil) }
 
 func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *ContextCompactionPlan) (Outcome, bool) {
+	// Runner.apply rejects a run that could get here without a Client
+	// before it records anything; this guards the invariant.
+	if r.runner.Client == nil {
+		return r.stop(StopFailed, errNoModelClient.Error()), false
+	}
 	// Steers waiting now reach this call. They are recorded before the
 	// BeforeModel hooks run, so the hooks' input includes them.
 	if steers := r.waitingSteers(s); len(steers) > 0 {

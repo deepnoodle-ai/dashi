@@ -15,10 +15,13 @@ import (
 // agent goes on its Start and is recorded, per-call controls are RunOption
 // values, and each turn's state lives in its Turn.
 type Runner struct {
-	// Client prepares and sends model requests. Only Start and Continue
-	// call the model, so only they require it; Settle, Deliver, and Cancel
-	// record facts and run with a Recorder alone. When set on those
-	// commands, it must match the turn's recorded provider and API.
+	// Client prepares and sends model requests, and fills a Start agent's
+	// empty provider, API, and model. It is required only for those: a Start
+	// or Continue that would call the model, or a Start whose agent leaves
+	// any of the three empty. A Start with an already-closed pause, whose
+	// agent names all three, records the turn without one (see WithPause),
+	// and Settle, Deliver, and Cancel record facts with a Recorder alone.
+	// When set, it must match the turn's provider and API.
 	Client llm.Client
 	// Tools implements the tools a turn may call. It is resolved before each
 	// model call, so a dynamic toolset can change between calls; the turn's
@@ -79,7 +82,8 @@ func WithOwner(owner string) RunOption {
 //
 // A Start with an already-closed pause admits a turn without running it:
 // the turn records its Start step and an interrupted stop ("pause
-// requested"), and no model request is prepared or sent. Next then gives
+// requested"), and no model request is prepared or sent. It needs no Client
+// when the agent names its provider, API, and model. Next then gives
 // NextContinue; a later Continue runs the turn without counting an
 // interruption, since none of its work was cut short, and a Cancel, which
 // needs no Client, ends it.

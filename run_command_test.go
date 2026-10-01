@@ -568,24 +568,152 @@ func (c noModelClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	return llm.Result{}, nil
 }
 
-func TestStartAndContinueRequireClient(t *testing.T) {
+func TestAdmitWithoutClient(t *testing.T) {
 	rec := NewMemoryRecorder()
-	runner := Runner{Recorder: rec}
-	_, err := runner.Run(t.Context(), Turn{}, Start{
-		Agent: testAgent(),
-		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
-	})
-	if err == nil || !strings.Contains(err.Error(), "client is required") {
-		t.Fatalf("start err=%v", err)
+	paused := make(chan struct{})
+	close(paused)
+	admit := Start{
+		CommandID: "start",
+		Agent:     testAgent(),
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := start(t, client, nil, rec, Hooks{})
+	admitted, err := (Runner{Recorder: rec}).Run(
+		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(t.Context(), out.Turn, Continue{})
-	if err == nil || !strings.Contains(err.Error(), "client is required") {
+	if len(admitted.Turn.Steps) != 2 ||
+		admitted.Stop.Kind != StopInterrupted ||
+		admitted.Stop.Reason != "pause requested" ||
+		admitted.Next() != NextContinue {
+		t.Fatalf("admitted=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
+	}
+
+	// The same admission with a Client records the same Start step.
+	withClient, err := (Runner{Client: &scriptedClient{}}).Run(
+		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, want := admitted.Turn.Steps[0], withClient.Turn.Steps[0]
+	if got.CommandDigest != want.CommandDigest ||
+		!reflect.DeepEqual(got.Started, want.Started) {
+		t.Fatalf("start step differs without a client:\n%+v\n%+v", got, want)
+	}
+
+	// A retried Start with a Client is the same command.
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	runner := Runner{Client: client, Recorder: rec}
+	retried, err := runner.Run(t.Context(), Turn{ID: "t1"}, admit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retried.Turn.Steps) != 2 || client.sends != 0 {
+		t.Fatalf("retry ran: steps=%d sends=%d", len(retried.Turn.Steps), client.sends)
+	}
+
+	// Cancel needs no Client.
+	canceled, err := (Runner{Recorder: rec}).Run(
+		t.Context(), retried.Turn, Cancel{CommandID: "cancel", Reason: "operator"},
+	)
+	if err != nil || canceled.Stop.Kind != StopCanceled {
+		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
+	}
+
+	// Continue with a Client runs an admitted turn.
+	rec2 := NewMemoryRecorder()
+	again, err := (Runner{Recorder: rec2}).Run(
+		t.Context(), Turn{ID: "t2"}, admit, WithPause(paused),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client = &scriptedClient{results: []llm.Result{final("done")}}
+	done, err := (Runner{Client: client, Recorder: rec2}).Run(
+		t.Context(), again.Turn, Continue{CommandID: "continue"},
+	)
+	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
+		t.Fatalf("done=%+v sends=%d err=%v", done.Stop, client.sends, err)
+	}
+}
+
+func TestStartWithoutClientNeedsAFullAgent(t *testing.T) {
+	paused := make(chan struct{})
+	close(paused)
+	for _, clear := range []func(*Agent){
+		func(a *Agent) { a.Provider = "" },
+		func(a *Agent) { a.API = "" },
+		func(a *Agent) { a.Model = "" },
+	} {
+		rec := NewMemoryRecorder()
+		agent := testAgent()
+		clear(&agent)
+		_, err := (Runner{Recorder: rec}).Run(t.Context(), Turn{ID: "t1"}, Start{
+			Agent: agent,
+			Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+		}, WithPause(paused))
+		if err == nil || !strings.Contains(err.Error(), "client is required to fill") {
+			t.Fatalf("err=%v", err)
+		}
+		if _, err := rec.Load(t.Context(), "t1"); !errors.Is(err, ErrTurnNotFound) {
+			t.Fatalf("turn was recorded: %v", err)
+		}
+	}
+}
+
+func TestStartWithoutClientAndActiveCompactionFails(t *testing.T) {
+	paused := make(chan struct{})
+	close(paused)
+	rec := NewMemoryRecorder()
+	agent := testAgent()
+	agent.ActiveCompaction = &ActiveCompactionPolicy{}
+	_, err := (Runner{Recorder: rec}).Run(t.Context(), Turn{ID: "t1"}, Start{
+		Agent: agent,
+		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+	}, WithPause(paused))
+	if err == nil || !strings.Contains(err.Error(), "context window") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := rec.Load(t.Context(), "t1"); !errors.Is(err, ErrTurnNotFound) {
+		t.Fatalf("turn was recorded: %v", err)
+	}
+}
+
+func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
+	rec := NewMemoryRecorder()
+	runner := Runner{Recorder: rec}
+	_, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		Agent: testAgent(),
+		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+	}, WithPause(make(chan struct{})))
+	if err == nil || !strings.Contains(err.Error(), "client is required to call the model") {
+		t.Fatalf("start err=%v", err)
+	}
+	if _, err := rec.Load(t.Context(), "t1"); !errors.Is(err, ErrTurnNotFound) {
+		t.Fatalf("start was recorded: %v", err)
+	}
+
+	paused := make(chan struct{})
+	close(paused)
+	admitted, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		Agent: testAgent(),
+		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
+	}, WithPause(paused))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(t.Context(), admitted.Turn, Continue{})
+	if err == nil || !strings.Contains(err.Error(), "client is required to call the model") {
 		t.Fatalf("continue err=%v", err)
+	}
+	saved, err := rec.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Steps) != len(admitted.Turn.Steps) {
+		t.Fatalf("continue recorded steps: %d, want %d", len(saved.Steps), len(admitted.Turn.Steps))
 	}
 }
 

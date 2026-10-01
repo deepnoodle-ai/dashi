@@ -183,8 +183,9 @@ func agentRevision(a Agent) string {
 }
 
 // agentFor returns the resolved agent a command runs with. A Start resolves
-// its own agent: Provider and API come from the client, an empty Model is the
-// catalog default, and an empty Revision is derived from the agent. Every
+// its own agent: an empty Provider and API come from the client, an empty
+// Model is the catalog default, and an empty Revision is derived from the
+// agent. Without a client, the agent must name all three. Every
 // other command runs with the agent recorded in the caller's snapshot; run
 // checks it against a Loader's record.
 func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
@@ -199,8 +200,14 @@ func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
 		return agent, nil
 	}
 	agent := start.Agent
-	agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
-	agent.API = cmp.Or(agent.API, r.Client.API())
+	if r.Client == nil &&
+		(agent.Provider == "" || agent.API == "" || agent.Model == "") {
+		return Agent{}, errors.New("dashi: client is required to fill the agent's provider, API, or model")
+	}
+	if r.Client != nil {
+		agent.Provider = cmp.Or(agent.Provider, r.Client.Provider())
+		agent.API = cmp.Or(agent.API, r.Client.API())
+	}
 	if agent.Model == "" {
 		model, ok := catalog.Default(agent.Provider)
 		if ok {
@@ -221,7 +228,8 @@ func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
 	if agent.Revision == "" {
 		agent.Revision = agentRevision(agent)
 	}
-	if r.Client.Provider() != agent.Provider || r.Client.API() != agent.API {
+	if r.Client != nil &&
+		(r.Client.Provider() != agent.Provider || r.Client.API() != agent.API) {
 		return Agent{}, errors.New("dashi: client does not match agent provider and API")
 	}
 	return agent, nil
