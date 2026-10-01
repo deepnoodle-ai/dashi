@@ -183,7 +183,7 @@ func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
 	s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: 12, Y: row})
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: 3, Y: 0})
 	s.HandleEvent(tui.TickEvent{})
-	if got, want := s.vp.SelectedText(), "answer 0\nanswer 1"; got != want {
+	if got, want := s.vp.SelectedText(), "answer 0\n\nanswer 1"; got != want {
 		t.Fatalf("selected %q, want %q", got, want)
 	}
 }
@@ -323,8 +323,8 @@ func TestDragThroughATaskResultKeepsTheSelection(t *testing.T) {
 	}
 }
 
-// Every kind of block can sit in the middle of a selection. A block whose
-// selectable text does not match its view makes Wonton drop the selection.
+// Every kind of block can sit in the middle of a selection, including a
+// blank reply, which draws nothing and copies nothing.
 func TestADragSurvivesEveryKindOfBlock(t *testing.T) {
 	f := footerFacts{Turn: 1, Model: "fixture", Calls: 1, Tokens: 10}
 	blocks := []Block{
@@ -432,7 +432,6 @@ func TestDragAutoScrollAcrossTurnsKeepsTheAnchor(t *testing.T) {
 // blocks as on screen, one continuous band per row, and decoration left out
 // of both even when the drag starts on it.
 func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
-	t.Skip("needs the Wonton release after v0.5.0 (deepnoodle-ai/wonton#72): blank lines between blocks, continuous highlight, drags from decoration")
 	h := selectionTranscript(t)
 	s := h.scr
 	h.mu.Lock()

@@ -296,8 +296,8 @@ func (s *screen) Item(i int) tui.View {
 // Source implements tui.ViewportSourceItems: it is the text a selection
 // copies. Glyphs, labels, rules, and states are decorations. Every
 // non-empty source must match text its view marks with SourceOffset;
-// otherwise Wonton cannot map the item, and a drag across it drops the
-// whole selection.
+// otherwise Wonton cannot map the item, treats it as decoration, and a
+// selection skips its text.
 func (s *screen) Source(i int) (string, bool) {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return "", true
@@ -317,11 +317,6 @@ func (s *screen) Source(i int) (string, bool) {
 		return strings.Join(b.Lines, "\n"), true
 	case KindFooter:
 		return footerSource(b), true
-	case KindAssistant, KindReasoning:
-		// A blank reply draws nothing.
-		if strings.TrimSpace(b.Text) == "" {
-			return "", true
-		}
 	case KindPending:
 		if b.Done {
 			return "", true
