@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	goruntime "runtime"
 	"strings"
@@ -694,5 +695,46 @@ func TestShortenResultFragmentedInputKeepsHeadAndTail(t *testing.T) {
 	tail = tail[strings.LastIndex(tail, "]")+1:]
 	if tail == "" || !strings.HasSuffix(all, tail) {
 		t.Fatalf("tail not kept: %q", tail)
+	}
+}
+
+// Outcome.Data that is not valid JSON or is too large is dropped with a
+// warning; the call still succeeds. Valid Data is recorded as returned.
+func TestToolOutcomeDataIsKeptOrDropped(t *testing.T) {
+	tests := []struct {
+		name string
+		data json.RawMessage
+		kept bool
+	}{
+		{"valid", json.RawMessage(`{"id":"a"}`), true},
+		{"invalid JSON", json.RawMessage(`{"id":`), false},
+		{"too large", json.RawMessage(`"` + strings.Repeat("x", maxOutcomeData) + `"`), false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				out := tool.Succeeded("ok")
+				out.Data = test.data
+				return out, nil
+			})
+			client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote"), final("ok")}}
+			rec := NewMemoryRecorder()
+			got, err := startTurn(testAgent(), toolRunner(client, rec, executor))
+			if err != nil || got.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", got.Stop, err)
+			}
+			var warned bool
+			for _, step := range got.Turn.Steps {
+				for _, w := range step.Warnings {
+					warned = warned || w.Code == WarningToolDataDropped
+				}
+			}
+			fact := finishedFact(t, got.Turn, "call-1")
+			if test.kept != (string(fact.Outcome.Data) == string(test.data)) ||
+				!test.kept && (fact.Outcome.Data != nil || !warned) || test.kept && warned {
+				t.Fatalf("data=%.40s warned=%v", fact.Outcome.Data, warned)
+			}
+			assertRecordRoundTrips(t, rec, got.Turn)
+		})
 	}
 }

@@ -134,6 +134,8 @@ func validateStepPayload(step Step) error {
 			valid = true
 		case WarningLimitAdjusted:
 			valid = step.Kind == StepTurnStarted
+		case WarningToolDataDropped:
+			valid = step.Kind == StepToolFinished || step.Kind == StepToolWaiting
 		}
 		if !valid || warning.Message == "" {
 			return errors.New("invalid warning")

@@ -316,7 +316,9 @@ type Outcome struct {
 
 	// Data is optional structured detail about the call for the host. The
 	// turn record keeps it, and hosts read it from ToolView.Outcome; the
-	// model never sees it. It must be valid JSON.
+	// model never sees it. Like Progress.Data, Data that is not valid JSON
+	// or exceeds 64 KiB is dropped: the runner records the outcome without
+	// it and adds a dashi.WarningToolDataDropped warning.
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -377,11 +379,9 @@ type Cost struct {
 }
 
 // Validate reports whether o carries exactly the payloads its State permits
-// and whether any output content and Data are well formed.
+// and whether any output content is well formed. It does not check Data:
+// the runner drops Data that is not valid JSON or exceeds 64 KiB, and warns.
 func (o Outcome) Validate() error {
-	if len(o.Data) > 0 && !json.Valid(o.Data) {
-		return errors.New("tool: outcome data is not valid JSON")
-	}
 	if o.Cost != nil {
 		if strings.TrimSpace(o.Cost.Currency) == "" ||
 			strings.TrimSpace(o.Cost.Currency) != o.Cost.Currency ||

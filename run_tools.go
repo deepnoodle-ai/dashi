@@ -506,13 +506,14 @@ func toolFinish(v toolResult) (Step, string) {
 		}
 	}
 	if err == nil {
-		fact.Outcome = &v.outcome
+		out, warnings := dropBadData(v.outcome, v.call.ID)
+		fact.Outcome = &out
 		kind := StepToolFinished
-		switch v.outcome.State {
+		switch out.State {
 		case tool.StateWaiting, tool.StateDetached:
 			kind = StepToolWaiting
 		}
-		return Step{Kind: kind, Tool: fact}, ""
+		return Step{Kind: kind, Tool: fact, Warnings: warnings}, ""
 	}
 	fact.Reason = err.Error()
 	text := fact.Reason

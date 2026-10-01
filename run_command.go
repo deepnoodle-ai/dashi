@@ -460,7 +460,8 @@ func (r Runner) apply(
 				c.Outcome.State == tool.StateDetached {
 				return RunResult{}, errors.New("dashi: resolve requires a final tool outcome")
 			}
-			fact := &ToolFact{Call: v.Call, Outcome: c.Outcome}
+			out, warnings := dropBadData(*c.Outcome, c.CallID)
+			fact := &ToolFact{Call: v.Call, Outcome: &out}
 			// The turn deadline limits the turn's own work, not the host
 			// recording a result, so the hooks run under the command's
 			// context.
@@ -470,6 +471,7 @@ func (r Runner) apply(
 				CommandID:   c.CommandID,
 				CommandHash: d,
 				Tool:        fact,
+				Warnings:    warnings,
 			}
 			if err := checkLateResultStep(turn, state, step); err != nil {
 				return RunResult{}, err

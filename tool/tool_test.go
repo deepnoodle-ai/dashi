@@ -450,20 +450,18 @@ func TestFuncRecursiveArgumentTypes(t *testing.T) {
 	}
 }
 
-// Data must be valid JSON, and Clone gives the copy its own bytes.
+// Clone gives the copy its own Data bytes. Validate leaves Data to the
+// runner, which drops what is not valid JSON.
 func TestOutcomeData(t *testing.T) {
 	o := Succeeded("ok")
 	o.Data = json.RawMessage(`{"turn":"a"}`)
-	if err := o.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	c := o.Clone()
 	c.Data[2] = 'x'
 	if string(o.Data) != `{"turn":"a"}` {
 		t.Fatalf("Clone shares Data: %s", o.Data)
 	}
 	o.Data = json.RawMessage(`{"turn":`)
-	if o.Validate() == nil {
-		t.Fatal("invalid JSON in Data was accepted")
+	if err := o.Validate(); err != nil {
+		t.Fatalf("invalid Data failed the outcome: %v", err)
 	}
 }
