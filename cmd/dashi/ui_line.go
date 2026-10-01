@@ -13,17 +13,24 @@ import (
 // lineUI is the UI for a plain terminal, a pipe, and tests. It prints each
 // block as text, and it reads approval answers from the controller.
 type lineUI struct {
-	out io.Writer
+	out              io.Writer
+	attachmentErrors io.Writer
 
 	mu      sync.Mutex
 	printed map[string]string
 	midLine bool
 	// live is true once the scrollback is shown. The user typed the lines
 	// of a live run, so the terminal has echoed them already.
-	live bool
-	ctrl *Controller
-	quit chan struct{}
-	once sync.Once
+	live            bool
+	ctrl            *Controller
+	attachmentMu    sync.Mutex
+	attachments     attachmentDraft
+	attachmentInput *submittedInput
+	receiptMu       sync.Mutex
+	receiptQueue    []attachmentEvent
+	receiptsRunning bool
+	quit            chan struct{}
+	once            sync.Once
 }
 
 func newLineUI(out io.Writer) *lineUI {
@@ -97,6 +104,10 @@ func (u *lineUI) SetLive() {
 }
 
 func (u *lineUI) Reset() {
+	u.attachmentMu.Lock()
+	u.attachments.clear()
+	u.attachmentInput = nil
+	u.attachmentMu.Unlock()
 	u.mu.Lock()
 	u.live = false
 	u.printed = map[string]string{}
@@ -222,6 +233,9 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 				u.ctrl.WaitForInput()
 				u.ctrl.CancelUnanswered()
 				u.ctrl.Wait()
+				if u.AttachmentUnsaved() {
+					u.AttachmentWarning("Input ended with an unsubmitted attachment draft. Its source snapshots were not submitted; published recovery content is retained.")
+				}
 				return <-errc
 			}
 			select {

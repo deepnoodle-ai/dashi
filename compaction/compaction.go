@@ -35,7 +35,9 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 )
@@ -464,7 +466,46 @@ func digestOf(messages []llm.Message) (string, error) {
 func estimate(m llm.Message) int {
 	m.Context = nil
 	b, _ := json.Marshal(m)
-	return len(b)/bytesPerToken + 1
+	size := len(b)
+	for _, c := range m.Content {
+		var blocks []content.Block
+		if c.Block != nil {
+			blocks = append(blocks, *c.Block)
+		}
+		if c.ToolResult != nil {
+			blocks = append(blocks, c.ToolResult.Output.Content...)
+		}
+		if c.HostedUse != nil {
+			blocks = append(blocks, c.HostedUse.Output...)
+		}
+		if c.HostedResult != nil {
+			blocks = append(blocks, c.HostedResult.Output...)
+		}
+		for _, src := range contentsrc.Blocks(blocks) {
+			if src.Ref == nil || src.Ref.Size <= 0 {
+				continue
+			}
+			wire := referenceWireSize(src.Ref.Size)
+			if wire > math.MaxInt-size {
+				return math.MaxInt
+			}
+			size += wire
+		}
+	}
+	return size/bytesPerToken + 1
+}
+
+// referenceWireSize estimates the inline base64 bytes of a declared reference.
+// It never resolves a reference or claims provider-specific media token fit.
+func referenceWireSize(size int64) int {
+	groups := size / 3
+	if size%3 != 0 {
+		groups++
+	}
+	if groups > int64(math.MaxInt/4) {
+		return math.MaxInt
+	}
+	return int(groups) * 4
 }
 
 // usedTokens counts the tokens one model call used: all input, cached input

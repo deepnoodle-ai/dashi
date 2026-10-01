@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -13,11 +14,12 @@ import (
 // remains live, so streamed replacements do not print duplicate text.
 type inlineScreen struct {
 	*screen
-	runner     *tui.InlineApp
-	printed    int
-	generation uint64
-	inspecting bool
-	exiting    bool
+	runner            *tui.InlineApp
+	printed           int
+	generation        uint64
+	inspecting        bool
+	exiting           bool
+	protectionPrinted map[string]string
 }
 
 func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
@@ -72,13 +74,44 @@ func (i *inlineScreen) HandleEvent(e tui.Event) []tui.Cmd {
 func (i *inlineScreen) flushCompleted() {
 	if i.generation != i.screen.generation {
 		i.generation, i.printed = i.screen.generation, 0
+		i.protectionPrinted = nil
+	}
+	if i.protectionPrinted == nil {
+		i.protectionPrinted = make(map[string]string)
+	}
+	// Native scrollback cannot replace a completed row. A recorded warning
+	// can replace its initial protection marker after that row was printed,
+	// so append the authoritative correction once, before later answers.
+	var updates []int
+	for id, text := range i.protectionPrinted {
+		n, ok := i.tr.index[id]
+		if !ok || n >= i.printed {
+			continue
+		}
+		b := i.tr.Blocks[n]
+		if b.Done && b.Kind == KindCompaction && b.State == "unavailable" && b.Text != text {
+			updates = append(updates, n)
+		}
+	}
+	sort.Ints(updates)
+	for _, n := range updates {
+		b := i.tr.Blocks[n]
+		i.protectionPrinted[b.ID] = b.Text
+		i.printCompletedBlock(printable(fullBlock(b)))
 	}
 	for i.printed < len(i.tr.Blocks) && i.tr.Blocks[i.printed].Done {
-		b := printable(fullBlock(i.tr.Blocks[i.printed]))
+		b := i.tr.Blocks[i.printed]
 		i.printed++ // Print re-renders LiveView synchronously.
-		if text, ok := nativeBlockText(b, max(80, i.width)); ok {
-			i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
+		if strings.HasPrefix(b.ID, "active-protection:") {
+			i.protectionPrinted[b.ID] = b.Text
 		}
+		i.printCompletedBlock(printable(fullBlock(b)))
+	}
+}
+
+func (i *inlineScreen) printCompletedBlock(b Block) {
+	if text, ok := nativeBlockText(b, max(80, i.width)); ok {
+		i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 	}
 }
 

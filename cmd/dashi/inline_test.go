@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
@@ -183,5 +185,59 @@ func TestInlineRuntimeApprovalsQuestionsAndRecovery(t *testing.T) {
 	after := wait(func(s inlineState) bool { return !s.inspecting && s.input == "kept draft" })
 	if after.printed != before.printed {
 		t.Fatal("inspection reprinted the completed prefix as new work")
+	}
+}
+
+// The initial protection marker has already reached native scrollback when
+// preparation records its media warning. Replacing the transcript row must
+// also make that warning visible during the live turn, before an answer.
+func TestInlineRecordedProtectionWarningUpdatesPrintedMarker(t *testing.T) {
+	var output bytes.Buffer
+	i := newInlineScreen(newScreen("fixture"), &output)
+	r := NewRenderer(1, "fixture", "")
+	emit := func(step dashi.Step) {
+		for _, block := range r.Event(stepEvent(step)) {
+			i.Emit(block)
+		}
+		i.HandleEvent(flushEvent{})
+	}
+	emit(dashi.Step{Kind: dashi.StepStarted, TurnID: "turn", Started: &dashi.StartFact{
+		Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000,
+	}})
+	if !strings.Contains(output.String(), "text-only") {
+		t.Fatal("initial marker did not reach native scrollback")
+	}
+	// A streaming answer keeps the turn visibly unfinished while the warning
+	// replaces the completed protection row behind the native printed prefix.
+	for _, block := range r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
+		i.Emit(block)
+	}
+	i.HandleEvent(flushEvent{})
+	warn := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "turn", Model: &dashi.ModelFact{AttemptID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
+	emit(warn)
+	emit(warn)
+	i.HandleEvent(flushEvent{})
+	if count := strings.Count(output.String(), "Active-Turn protection unavailable for media"); count != 1 {
+		t.Fatalf("recorded warning was hidden or repeated in native scrollback: count=%d output=%q", count, output.String())
+	}
+	if strings.Contains(output.String(), "unfinished answer") {
+		t.Fatal("warning update flushed unfinished answer")
+	}
+	warnings := 0
+	for _, block := range i.tr.Blocks {
+		if block.State == "unavailable" {
+			warnings++
+		}
+	}
+	if warnings != 1 {
+		t.Fatal("warning update duplicated authoritative transcript row")
+	}
+	i.Reset()
+	for _, block := range r.Event(stepEvent(warn)) {
+		i.Emit(block)
+	}
+	i.HandleEvent(flushEvent{})
+	if count := strings.Count(output.String(), "Active-Turn protection unavailable for media"); count != 2 {
+		t.Fatal("session reset suppressed recorded warning")
 	}
 }

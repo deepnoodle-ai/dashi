@@ -39,31 +39,37 @@ type screen struct {
 	promptSeq atomic.Uint64
 
 	// loop state
-	tr               Transcript
-	vp               tui.ViewportState
-	input            string
-	historyStore     *inputHistory
-	pathCompletion   *workspaceCompletion
-	exitGuard        idleExitGuard
-	handoff          func(func() error) (error, error)
-	history          []string
-	frame            uint64
-	approval         *approvalPrompt
-	asking           *askPrompt
-	picker           *pickerState
-	quitting         bool
-	width            int
-	height           int
-	promptID         uint64
-	promptActive     bool
-	savedDraft       string
-	expanded         map[int]bool
-	runtime          *tui.Runtime
-	mouseEnabled     bool
-	generation       uint64
-	nativeScrollback func(bool)
-	clipboardOut     io.Writer
-	clipboardWrite   func(context.Context, string) (string, error)
+	tr                    Transcript
+	vp                    tui.ViewportState
+	input                 string
+	attachments           attachmentDraft
+	attachmentInput       *submittedInput
+	attachmentSelectionMu sync.Mutex
+	attachmentContext     context.Context
+	attachmentCancel      context.CancelFunc
+	attachmentUnsaved     atomic.Bool
+	historyStore          *inputHistory
+	pathCompletion        *workspaceCompletion
+	exitGuard             idleExitGuard
+	handoff               func(func() error) (error, error)
+	history               []string
+	frame                 uint64
+	approval              *approvalPrompt
+	asking                *askPrompt
+	picker                *pickerState
+	quitting              bool
+	width                 int
+	height                int
+	promptID              uint64
+	promptActive          bool
+	savedDraft            string
+	expanded              map[int]bool
+	runtime               *tui.Runtime
+	mouseEnabled          bool
+	generation            uint64
+	nativeScrollback      func(bool)
+	clipboardOut          io.Writer
+	clipboardWrite        func(context.Context, string) (string, error)
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -301,6 +307,10 @@ func (s *screen) drain() {
 	for _, q := range items {
 		if q.reset {
 			s.tr = Transcript{}
+			s.attachments.clear()
+			s.attachmentInput = nil
+			s.attachmentUnsaved.Store(false)
+			s.input = ""
 			s.generation++
 			s.expanded = nil
 			s.vp.InvalidateAll()
@@ -317,6 +327,8 @@ func (s *screen) drain() {
 // HandleEvent implements tui.EventHandler.
 func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 	switch e := event.(type) {
+	case attachmentEvent:
+		s.attachmentEvent(e)
 	case tui.KeyEvent:
 		return s.key(e)
 	case tui.ResizeEvent:
@@ -345,6 +357,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.drain()
 	case quitEvent:
 		s.drain()
+		s.cancelAttachmentSelections()
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	case promptEvent:
@@ -442,6 +455,7 @@ func (s *screen) interrupt() []tui.Cmd {
 	}
 	s.exitGuard.reset()
 	if s.ctrl.Interrupt() {
+		s.cancelAttachmentSelections()
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	}
@@ -455,6 +469,7 @@ func (s *screen) requestQuit() []tui.Cmd {
 		if s.ctrl.keepQueued("Ctrl-D") {
 			return nil
 		}
+		s.cancelAttachmentSelections()
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	case ModeRunning:
@@ -518,6 +533,22 @@ func (s *screen) submit(value string) {
 			return
 		}
 	}
+	if s.asking == nil && !strings.HasPrefix(value, "/") && s.AttachmentInput(raw) {
+		return
+	}
+	if s.asking == nil && strings.HasPrefix(value, "/") {
+		name, arg := splitCommand(value)
+		if name == "/attach" || name == "/detach" || name == "/attachments" {
+			s.attachmentCommand(name, arg)
+			s.input = s.attachments.text
+			return
+		}
+		if len(s.attachments.entries) > 0 {
+			s.ctrl.Input(value)
+			s.input = s.attachments.text
+			return
+		}
+	}
 	s.input = ""
 	if s.asking != nil {
 		p := s.asking
@@ -531,6 +562,11 @@ func (s *screen) submit(value string) {
 		return
 	}
 	s.recordSubmittedInput(raw)
+	if !strings.HasPrefix(value, "/") {
+		s.attachments.clear()
+		s.attachmentInput = nil
+		s.attachmentUnsaved.Store(false)
+	}
 	s.vp.ScrollToBottom()
 	s.ctrl.Input(value)
 }
@@ -571,6 +607,9 @@ func (s *screen) footer() tui.View {
 		if mode == ModeRunning {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
 		}
+		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
+			views = append(views, tui.Text(" %s", row).Hint())
+		}
 		views = append(views,
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
 			tui.Divider(), s.inputView(mode), tui.Divider())
@@ -580,6 +619,12 @@ func (s *screen) footer() tui.View {
 }
 
 func (s *screen) inputView(mode Mode) tui.View {
+	maxHeight := 8
+	if len(s.attachments.entries) > 0 {
+		// Inline output uses eight rows. Keep composer and status visible on
+		// an 80×24 terminal, including the running-work indicator.
+		maxHeight = 6
+	}
 	// Wonton v0.2.1 retains a field's initial placeholder. Keep it neutral;
 	// the ordinary text view above it updates the current input meaning.
 	return tui.InputField(&s.input).
@@ -589,9 +634,23 @@ func (s *screen) inputView(mode Mode) tui.View {
 		Placeholder("Type a message...").
 		History(s.history).
 		Multiline(true).
-		MaxHeight(8).
+		MaxHeight(maxHeight).
 		OnKey(s.inputKey).
-		OnChange(func(string) { s.exitGuard.reset() }).
+		OnPaste(s.inputPaste(s.promptID)).
+		OnChange(func(value string) {
+			s.exitGuard.reset()
+			if s.promptActive {
+				return
+			}
+			if s.attachments.frozenBy != "" {
+				s.input = s.attachments.text
+				return
+			}
+			if !strings.HasPrefix(value, "/") {
+				s.attachments.setText(value)
+			}
+			s.updateAttachmentUnsaved()
+		}).
 		OnComplete(s.completeDraft).
 		OnSubmit(s.inputSubmit(s.promptID))
 }

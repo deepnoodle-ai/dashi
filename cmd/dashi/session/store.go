@@ -82,7 +82,7 @@ func (st *Store) Create(dir, model string) (*Session, error) {
 // delete recorded history.
 func (st *Store) Discard(s *Session) {
 	dir := filepath.Join(st.root, s.ID)
-	if st.Saved(s) {
+	if st.Saved(s) || st.RetainsAttachments(s) {
 		return
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "turns"))

@@ -13,6 +13,7 @@ import (
 
 type pendingPrompt struct {
 	start dashi.Start
+	input *submittedInput
 	// uncertain names an ordinary Start whose recording acknowledgment was
 	// lost. No later caller Start can evict its idempotency window.
 	uncertain string
@@ -104,10 +105,25 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	// Ordinary refusals still require the user to resubmit after recovery.
 	// Retain only a summary interruption or an uncertain admission.
 	e.inputMu.Lock()
-	if e.pending == p && p.uncertain == "" && !p.attempted && !p.summary &&
+	// A rejected ordinary attachment Start has no recorded owner. Release it
+	// together with the editable draft, so corrections cannot retry old bytes.
+	var ce *dashi.CommitError
+	rejectedInput := p.input != nil && !p.summary && errors.As(err, &ce) &&
+		ce.Persistence == dashi.PersistenceRejected && ce.Step != nil &&
+		ce.Step.Kind == dashi.StepStarted && ce.Step.Started != nil &&
+		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
+	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
 		e.pending = nil
+		e.inputReceipt(p, inputPreRecordFailure)
 		e.cfg.Emit(Block{ID: "pending:" + p.start.CommandID, Kind: KindPending, Done: true})
+	}
+	if e.pending == p && p.input != nil {
+		if p.uncertain != "" {
+			e.inputReceipt(p, inputPendingUnknown)
+		} else if !p.summary && res.Outcome.Origin != dashi.StartCompaction {
+			e.inputReceipt(p, inputPreRecordFailure)
+		}
 	}
 	e.inputMu.Unlock()
 	return res, err
@@ -190,6 +206,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
 		e.inputMu.Lock()
 		p.uncertain = ""
+		e.inputReceipt(p, inputConfirmedAbsent)
 		e.inputMu.Unlock()
 		return nil
 	}
@@ -224,7 +241,11 @@ func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
 	if e.pending == nil || e.pending.start.CommandID != "" && step.CommandID != e.pending.start.CommandID {
 		return nil
 	}
+	if e.pending.input != nil && (len(step.Started.Input) < len(e.pending.start.Input) || !reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(e.pending.start.Input):], e.pending.start.Input)) {
+		return nil
+	}
 	key := e.pending.start.CommandID
+	e.inputReceipt(e.pending, inputRecorded)
 	e.pending = nil
 	e.cfg.Emit(Block{ID: "pending:" + key, Kind: KindPending, Done: true})
 	return e.flushLaterLocked()
