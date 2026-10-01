@@ -224,9 +224,12 @@ func TestRuntimeStatusShortcutPreservesOwnWordsDraft(t *testing.T) {
 		t.Fatalf("keyboard did not bind the exact draft: %q", pending.text)
 	}
 	before := inspectionFiles(t, h.app.ctrl.store.Root())
-	// Queue both keys without waiting for focus or a rendered inspection field.
-	h.input.events <- tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true}
-	h.input.events <- tui.KeyEvent{Key: tui.KeyEnter}
+	// One batch keeps the original field focused for all three events.
+	h.scr.rt.SendEvent(tui.BatchEvent{Events: []tui.Event{
+		tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true},
+		tui.KeyEvent{Paste: " " + h.app.eng.Session().ID},
+		tui.KeyEvent{Key: tui.KeyEnter},
+	}})
 	h.wait(func(s transcriptState) bool {
 		return s.question && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
 	})
@@ -276,9 +279,12 @@ func TestRuntimeStatusShortcutPreservesDenialDraft(t *testing.T) {
 		t.Fatalf("keyboard did not bind the exact denial: %q", pending.reason)
 	}
 	before := inspectionFiles(t, h.app.ctrl.store.Root())
-	// Queue both keys without waiting for focus or a rendered inspection field.
-	h.input.events <- tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true}
-	h.input.events <- tui.KeyEvent{Key: tui.KeyEnter}
+	// One batch keeps the original field focused for all three events.
+	h.scr.rt.SendEvent(tui.BatchEvent{Events: []tui.Event{
+		tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true},
+		tui.KeyEvent{Paste: " " + h.app.eng.Session().ID},
+		tui.KeyEvent{Key: tui.KeyEnter},
+	}})
 	h.wait(func(s transcriptState) bool {
 		return s.approval && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
 	})
@@ -304,4 +310,32 @@ func TestRuntimeStatusShortcutPreservesDenialDraft(t *testing.T) {
 	if reason != draft || runs.Load() != 0 {
 		t.Fatalf("intentional denial changed: %q; runs=%d", reason, runs.Load())
 	}
+}
+
+func TestDialogStatusPasteCallbackGuardsPromptIdentity(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	original := &askPrompt{reply: make(chan questionAnswer, 1), own: true, text: "回答 original ✓"}
+	h.scr.HandleEvent(promptEvent{id: 1, asking: original})
+	paste := h.scr.dialogTextPaste(1)
+	if decision, _ := paste(tui.PasteInfo{Content: "/path ordinary text"}); decision != tui.PasteAccept {
+		t.Fatal("ordinary paste was consumed outside inspection")
+	}
+	replacement := &askPrompt{reply: make(chan questionAnswer, 1), own: true, text: "replacement draft"}
+	h.scr.HandleEvent(promptEvent{id: 2, asking: replacement})
+	h.scr.beginDialogStatus("/status")
+	status := h.scr.dialogStatus
+	if decision, text := paste(tui.PasteInfo{Content: " stale text"}); decision != tui.PasteModified || text != "" {
+		t.Fatal("stale paste was not consumed")
+	}
+	if replacement.text != "replacement draft" || original.text != "回答 original ✓" || status.text != "/status" {
+		t.Fatal("stale callback changed replacement prompt or inspector")
+	}
+	current := h.scr.dialogTextPaste(2)
+	h.scr.generation++
+	if decision, _ := current(tui.PasteInfo{Content: "wrong generation"}); decision != tui.PasteModified || status.text != "/status" {
+		t.Fatal("stale generation paste changed inspection")
+	}
+	h.scr.clearPrompts()
 }
