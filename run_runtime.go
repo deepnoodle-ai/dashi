@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 type runtime struct {
@@ -92,21 +92,6 @@ func (r *runtime) failureOrContext(err error) Outcome {
 	return r.stop(StopFailed, err.Error())
 }
 
-func safeRepeat(def tool.Definition) bool {
-	return def.Annotations.ReadOnly != nil &&
-		*def.Annotations.ReadOnly ||
-		def.Annotations.Idempotent != nil && *def.Annotations.Idempotent
-}
-
-func unsafeHosted(defs []tool.Definition) bool {
-	for _, def := range defs {
-		if def.Kind == tool.KindProviderHosted && !safeRepeat(def) {
-			return true
-		}
-	}
-	return false
-}
-
 func (r *runtime) commit(step Step) *Outcome {
 	if step.Context != nil && len(step.Context.Items) > 0 {
 		items := r.skipRecordedItems(step.Context.Items)
@@ -128,7 +113,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
 		if step.Kind != StepStarted &&
-			!sameJSONValue(r.lastHooks, r.activeHooks) {
+			!canonjson.SameValue(r.lastHooks, r.activeHooks) {
 			step.Warnings = append(step.Warnings, Warning{
 				Code:    WarningHooksChanged,
 				Message: "this command's Runner hooks differ from the previous command's",

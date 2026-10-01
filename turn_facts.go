@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -15,7 +17,7 @@ import (
 // store that reorders keys or respells numbers give the same digest. A
 // pending call's ToolView.ArgsDigest holds this value already.
 func ArgsDigest(args json.RawMessage) string {
-	return digest(args)
+	return canonjson.Digest(args)
 }
 
 // CompactionFact is recorded in the start fact of a compaction turn. With
@@ -44,7 +46,7 @@ func (f *CompactionFact) clone() *CompactionFact {
 		return nil
 	}
 	c := *f
-	c.Keep = cloneMessages(f.Keep)
+	c.Keep = llmclone.Messages(f.Keep)
 	return &c
 }
 

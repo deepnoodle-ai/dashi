@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -319,14 +320,14 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		messyArgs,
 		view.Tools["call-1"].Call.Args,
 	} {
-		if digest(args) != ArgsDigest(view.Tools["call-1"].Call.Args) {
+		if canonjson.Digest(args) != ArgsDigest(view.Tools["call-1"].Call.Args) {
 			t.Fatalf("approval digest of %s does not match", args)
 		}
 	}
 	approval := ApprovalFact{
 		CallID:     "call-1",
 		Approve:    true,
-		ArgsDigest: digest(messyArgs),
+		ArgsDigest: canonjson.Digest(messyArgs),
 	}
 	settle := Settle{CommandID: "approve", CallID: "call-1", Approval: &approval}
 	out, err = runner.Run(t.Context(), turn, settle)

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmtext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -49,11 +50,6 @@ func sharedToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 		Output:  output,
 		IsError: o.State == tool.StateFailed || o.State == tool.StateNotExecuted,
 	}
-}
-
-func cloneToolResult(r llm.ToolResult) llm.ToolResult {
-	r.Output = r.Output.Clone()
-	return r
 }
 
 // projectWithHistory assembles one model request from the current call's prior
@@ -350,7 +346,7 @@ func steeredPartial(result *llm.Result) []llm.Message {
 		return nil
 	}
 	text := strings.TrimRightFunc(
-		joinText(result.Message.Content),
+		llmtext.Join(result.Message.Content),
 		unicode.IsSpace,
 	)
 	if text == "" {

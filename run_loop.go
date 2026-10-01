@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/tooldef"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -135,7 +136,7 @@ func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
 func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 	unsafe := false
 	for _, def := range s.modelDefs {
-		if def.Kind == tool.KindProviderHosted && !safeRepeat(def) {
+		if def.Kind == tool.KindProviderHosted && !tooldef.SafeRepeat(def) {
 			unsafe = true
 			break
 		}

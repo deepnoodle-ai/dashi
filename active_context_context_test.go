@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -41,7 +42,7 @@ func TestActiveCompactionSummaryUsesLiveProjectedContext(t *testing.T) {
 			}
 			if message.Text() == runtimeNote {
 				foundRuntime = index
-				if !sameJSONValue(message, runtimeMessageWithContext(runtimeMessage, string(ContextRuntime), "persistent")) {
+				if !canonjson.SameValue(message, runtimeMessageWithContext(runtimeMessage, string(ContextRuntime), "persistent")) {
 					t.Fatalf("send %d runtime role/metadata changed: %+v", i, message)
 				}
 			}

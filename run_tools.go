@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/tooldef"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -118,7 +120,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				}
 				continue
 			}
-			if !safeRepeat(v.Definition) {
+			if !tooldef.SafeRepeat(v.Definition) {
 				fact := &ToolFact{
 					Call:   v.Call,
 					Reason: "previous execution may have taken effect",
@@ -186,7 +188,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					return r.failureOrContext(err), true
 				}
 				for _, candidate := range bound {
-					if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+					if candidate.Definition.Name == v.Call.Name && canonjson.SameValue(
 						candidate.Definition,
 						v.Definition,
 					) {
@@ -365,7 +367,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				return r.contextStop(), true
 			}
 			for _, candidate := range bound {
-				if candidate.Definition.Name == v.Call.Name && sameJSONValue(
+				if candidate.Definition.Name == v.Call.Name && canonjson.SameValue(
 					candidate.Definition,
 					v.Definition,
 				) {

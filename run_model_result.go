@@ -1,7 +1,6 @@
 package dashi
 
 import (
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -327,21 +326,6 @@ func validateModelResult(result llm.Result, agent Agent) error {
 		return errors.New("dashi: invalid model stop")
 	}
 	return nil
-}
-
-func cloneMessages(ms []llm.Message) []llm.Message {
-	out := make([]llm.Message, len(ms))
-	for i, m := range ms {
-		out[i] = m.Clone()
-	}
-	return out
-}
-
-func cloneInput(in llm.Input) llm.Input {
-	b, _ := json.Marshal(in)
-	var out llm.Input
-	_ = json.Unmarshal(b, &out)
-	return out
 }
 
 // modelSystem joins the agent's instructions with the runner's own

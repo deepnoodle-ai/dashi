@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -217,7 +218,7 @@ func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 			continue
 		}
 		item := e.steer.Item
-		if old, ok := recorded[item.ID]; ok && sameJSONValue(old, item) {
+		if old, ok := recorded[item.ID]; ok && canonjson.SameValue(old, item) {
 			continue
 		}
 		out = append(out, Steer{

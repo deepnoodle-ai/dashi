@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -52,7 +54,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			if s.attemptCap-s.ModelAttempts < 2 {
 				return r.stop(StopLimited, "model_attempts"), false, true
 			}
-			copy := cloneInput(input)
+			copy := llmclone.Input(input)
 			r.compactionCandidate = &copy
 			minimum := &llm.Result{Message: llm.AssistantMessage(llm.Text(".")), Stop: llm.Stop{Kind: llm.StopFinished}}
 			after, probeErr := r.activeEstimateAfter(plan, minimum)
@@ -201,7 +203,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	replaced := replaceContext(messages, plan, ContextCompactionFact{Summary: summary}, int64(len(r.turn.Steps))+1)
 	var input llm.Input
 	if r.compactionCandidate != nil {
-		input = cloneInput(*r.compactionCandidate)
+		input = llmclone.Input(*r.compactionCandidate)
 	} else {
 		s, err := replay(r.turn)
 		if err != nil {
@@ -226,7 +228,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if err != nil {
 		return 0, err
 	}
-	if req.Origin().Provider != r.agent.Provider || req.Origin().API != r.agent.API || req.Origin().Model != r.agent.Model || !sameJSONValue(req.Snapshot().Input, hydrated) {
+	if req.Origin().Provider != r.agent.Provider || req.Origin().API != r.agent.API || req.Origin().Model != r.agent.Model || !canonjson.SameValue(req.Snapshot().Input, hydrated) {
 		return 0, errors.New("prepared replacement changed original input or destination")
 	}
 	after := llm.EstimatedInputTokens(req)

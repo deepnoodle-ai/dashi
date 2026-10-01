@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -189,7 +191,7 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 			fact.Shortened = &facts
 		}
 	}
-	if !sameJSONValue(current, base) {
+	if !canonjson.SameValue(current, base) {
 		current.CallID = fact.Call.ID
 		fact.Result = &current
 	}
@@ -205,7 +207,7 @@ func (r *runtime) afterToolHooks(
 	fact *ToolFact,
 	base llm.ToolResult,
 ) llm.ToolResult {
-	current := cloneToolResult(base)
+	current := llmclone.ToolResult(base)
 	view := TurnView{}
 	if s, err := replay(r.turn); err == nil {
 		view = s.TurnView
@@ -217,12 +219,12 @@ func (r *runtime) afterToolHooks(
 			Call:       fact.Call.Clone(),
 			Definition: def.Clone(),
 			Outcome:    fact.Outcome.Clone(),
-			Result:     cloneToolResult(current),
+			Result:     llmclone.ToolResult(current),
 			Turn:       snapshotView(view),
 		})
 		var replace llm.ToolResult
 		if err == nil && d.Replace != nil {
-			replace = cloneToolResult(*d.Replace)
+			replace = llmclone.ToolResult(*d.Replace)
 			replace.CallID = fact.Call.ID
 			err = validToolResult(replace)
 		}
@@ -265,7 +267,7 @@ func (r *runtime) afterToolHooks(
 			))
 			break
 		}
-		if d.Replace == nil || sameJSONValue(replace, current) {
+		if d.Replace == nil || canonjson.SameValue(replace, current) {
 			continue
 		}
 		current = replace

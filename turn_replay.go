@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -85,7 +86,7 @@ func snapshotView(v TurnView) TurnView {
 	for id, tv := range v.Tools {
 		if tv.result != nil {
 			copied := out.Tools[id]
-			copied.result = new(cloneToolResult(*tv.result))
+			copied.result = new(llmclone.ToolResult(*tv.result))
 			if tv.shortened != nil {
 				copied.shortened = new(*tv.shortened)
 			}

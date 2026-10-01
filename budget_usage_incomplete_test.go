@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -208,7 +209,7 @@ func TestBudgetLateReconciliationNeverRevivesEndedTurn(t *testing.T) {
 	if out.Spend.UsageIncomplete || out.Spend.Cost["USD"] != amount("0.5") {
 		t.Fatal("late settlement did not correct reported accounting")
 	}
-	if !sameJSONValue(out.Stop, before.Stop) || out.Answer != before.Answer {
+	if !canonjson.SameValue(out.Stop, before.Stop) || out.Answer != before.Answer {
 		t.Fatal("late accounting changed the ended stop or fixed answer")
 	}
 	if out.ReadyToContinue || out.Next() != NextNone {

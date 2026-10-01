@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -339,7 +340,7 @@ func TestStructuredOutputStartRejectsInvalidTurnSchema(t *testing.T) {
 }
 
 func TestSameJSONPreservesLargeIntegerIdentity(t *testing.T) {
-	if sameJSON(
+	if canonjson.Equal(
 		json.RawMessage(`{"id":9007199254740992}`),
 		json.RawMessage(`{"id":9007199254740993}`),
 	) {

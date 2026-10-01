@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -745,7 +746,7 @@ func sameInputTail(recorded, input []llm.Message) bool {
 	if len(input) > len(recorded) {
 		return false
 	}
-	return sameJSONValue(recorded[len(recorded)-len(input):], input)
+	return canonjson.SameValue(recorded[len(recorded)-len(input):], input)
 }
 
 // internalKey reports whether a Start's command ID marks one of the

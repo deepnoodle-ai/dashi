@@ -1,9 +1,8 @@
 package dashi
 
 import (
-	"strings"
-
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/llmtext"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -119,28 +118,5 @@ func answerText(steps []Step) string {
 	for _, result := range chain {
 		parts = append(parts, result.Message.Content...)
 	}
-	return joinText(parts)
-}
-
-// joinText concatenates text blocks. Adjacent blocks are joined as they are,
-// because providers split one cited sentence into several blocks. Any other
-// item between two text blocks (a hosted tool use, a tool call, reasoning)
-// ends a passage, so the next text starts after a blank line.
-func joinText(parts []llm.Content) string {
-	var out strings.Builder
-	gap := false
-	for _, part := range parts {
-		if part.Kind != llm.ContentBlock ||
-			part.Block == nil ||
-			part.Block.Text == nil {
-			gap = true
-			continue
-		}
-		if gap && out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
-			out.WriteString("\n\n")
-		}
-		gap = false
-		out.WriteString(part.Block.Text.Text)
-	}
-	return out.String()
+	return llmtext.Join(parts)
 }

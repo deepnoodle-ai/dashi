@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -173,7 +174,7 @@ func agentRevision(a Agent) string {
 	a.ID, a.Revision = "", ""
 	a.Limits.Deadline = time.Time{}
 	a.Settings.PromptCache.Key = ""
-	sum := strings.TrimPrefix(digest(a), digestPrefix)
+	sum := strings.TrimPrefix(canonjson.Digest(a), canonjson.DigestPrefix)
 	return revisionPrefix + sum[:16]
 }
 
@@ -235,7 +236,7 @@ func agentChanged(agent, recorded Agent) error {
 	_ = json.Unmarshal(bb, &b)
 	var fields []string
 	for _, k := range slices.Sorted(maps.Keys(a)) {
-		if !sameJSONValue(a[k], b[k]) {
+		if !canonjson.SameValue(a[k], b[k]) {
 			fields = append(fields, k)
 		}
 	}
@@ -254,5 +255,5 @@ func agentChanged(agent, recorded Agent) error {
 // sameAgent compares agents after both were resolved, so a caller's zero limit
 // matches the default recorded for it.
 func sameAgent(a, b Agent) bool {
-	return sameJSONValue(a, b)
+	return canonjson.SameValue(a, b)
 }

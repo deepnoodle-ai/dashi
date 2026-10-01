@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -213,7 +214,7 @@ func classifySteers(
 			continue
 		}
 		if recorded, ok := record[item.ID]; ok {
-			if sameJSONValue(recorded, item) {
+			if canonjson.SameValue(recorded, item) {
 				again = append(again, item.ID)
 				continue
 			}
@@ -395,7 +396,7 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 			out = append(out, item)
 			continue
 		}
-		if !sameJSONValue(old, item) {
+		if !canonjson.SameValue(old, item) {
 			r.pendingWarnings = append(r.pendingWarnings, Warning{
 				Code: WarningDeliveryDropped,
 				Message: fmt.Sprintf(
@@ -428,7 +429,7 @@ func newDeliveries(s *replayState, items []ContextItem) ([]ContextItem, error) {
 		}
 		batch[item.ID] = true
 		if old, ok := s.contextIDs[item.ID]; ok {
-			if !sameJSONValue(old, item) {
+			if !canonjson.SameValue(old, item) {
 				return nil, fmt.Errorf(
 					"dashi: the turn records a different context item with ID %q",
 					item.ID,

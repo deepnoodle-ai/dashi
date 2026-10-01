@@ -7,6 +7,8 @@ import (
 	"slices"
 	"unicode/utf8"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/tooldef"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -203,7 +205,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		return r.stop(StopFailed, "prepared request changed destination"), false
 	}
 	snapshot := req.Snapshot()
-	if !sameJSONValue(snapshot.Input, input) {
+	if !canonjson.SameValue(snapshot.Input, input) {
 		return r.stop(
 			StopFailed,
 			"prepared request changed original model input",
@@ -225,7 +227,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	defer cancelCall(nil)
 	never := ""
 	switch {
-	case unsafeHosted(defs):
+	case tooldef.UnsafeHosted(defs):
 		never = "it offers a provider-hosted tool that is not safe to repeat"
 	case s.pausedHosted:
 		// The steer could not follow the paused result anyway (FR-6).
@@ -266,7 +268,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Compaction:           plan.clone(),
 		AttemptID:            attempt,
 		MessageID:            messageID,
-		RequestDigest:        digest(req.Body()),
+		RequestDigest:        canonjson.Digest(req.Body()),
 		FinalAnswerOnly:      finalAnswerOnly,
 		Admission:            admission,
 		AtRisk:               atRisk,
@@ -416,7 +418,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if r.ctx.Err() != nil && !timeoutWon {
 		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
-		settled.Uncertain = unsafeHosted(defs)
+		settled.Uncertain = tooldef.UnsafeHosted(defs)
 		settled.Result = partial(InterruptRun)
 		setSettlementCharge(fact, settled)
 		step := Step{Kind: StepModelSettled, Model: settled}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -81,7 +82,7 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	for i, id := range []string{"started", "waiting", "uncertain"} {
 		r := messages[2+i].Content[0].ToolResult
 		if r == nil || r.CallID != id || !r.IsError ||
-			!sameJSONValue(r.Output, tool.TextOutput(endedToolText)) {
+			!canonjson.SameValue(r.Output, tool.TextOutput(endedToolText)) {
 			t.Fatalf("result %d = %+v", i, r)
 		}
 	}

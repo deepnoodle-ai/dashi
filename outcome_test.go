@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/llmtext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -526,7 +527,7 @@ func TestJoinTextKeepsSentencesIntact(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := joinText(test.parts); got != test.want {
+			if got := llmtext.Join(test.parts); got != test.want {
 				t.Fatalf("got %q, want %q", got, test.want)
 			}
 		})

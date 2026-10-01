@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -282,7 +283,7 @@ func TestRefRequestDigestCoversHydratedBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digestOf != digest(body) {
+	if digestOf != canonjson.Digest(body) {
 		t.Fatalf("digest %q does not cover the hydrated request", digestOf)
 	}
 	if !bytes.Contains(body, []byte(base64Of(refBytes))) {

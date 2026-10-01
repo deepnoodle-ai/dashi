@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -496,7 +497,7 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 	good := ApprovalFact{
 		CallID:     "call-1",
 		Approve:    true,
-		ArgsDigest: digest(view.Tools["call-1"].Call.Args),
+		ArgsDigest: canonjson.Digest(view.Tools["call-1"].Call.Args),
 	}
 	accepted, err := (Runner{
 		Client:   client,

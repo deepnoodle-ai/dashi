@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/internal/llmtext"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -243,7 +244,7 @@ func validActiveSummary(result *llm.Result) (string, error) {
 			return "", errors.New("summary requested tool work")
 		}
 	}
-	text := compactiontext.Summary(joinText(result.Message.Content))
+	text := compactiontext.Summary(llmtext.Join(result.Message.Content))
 	if strings.TrimSpace(text) == "" {
 		return "", errors.New("summary is empty")
 	}

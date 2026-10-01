@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -187,7 +188,7 @@ func (r Runner) apply(
 		if err != nil {
 			return Outcome{}, err
 		}
-		rt.history = cloneMessages(c.History)
+		rt.history = llmclone.Messages(c.History)
 		if len(c.OutputSchema) > 0 {
 			if _, err := compileOutputSchema(c.OutputSchema); err != nil {
 				return Outcome{}, err
@@ -229,7 +230,7 @@ func (r Runner) apply(
 				OutputSchema:           slices.Clone(c.OutputSchema),
 				Origin:                 origin,
 				HistoryFingerprint:     fingerprint,
-				Input:                  cloneMessages(c.Input),
+				Input:                  llmclone.Messages(c.Input),
 				Parent:                 cloneCallRef(c.Parent),
 				Compaction:             c.Compaction.clone(),
 			},
@@ -322,7 +323,7 @@ func (r Runner) apply(
 		if !state.canContinueWith(c.Budget, c.ModelAttempts) {
 			return Outcome{}, notReady(state)
 		}
-		rt.history = cloneMessages(c.History)
+		rt.history = llmclone.Messages(c.History)
 		step := Step{
 			Kind:          StepContinued,
 			CommandID:     c.CommandID,

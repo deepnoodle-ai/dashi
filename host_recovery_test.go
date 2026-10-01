@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -24,7 +25,7 @@ func budgetHooks() Hooks {
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
 			admission, err := json.Marshal(testAdmission{
 				Units:        3,
-				RequestProof: digest(plan.Request.Body()),
+				RequestProof: canonjson.Digest(plan.Request.Body()),
 			})
 			return SendDecision{Admission: admission}, err
 		},

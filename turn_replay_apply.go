@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -251,7 +253,7 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("duplicate tool definition")
 			}
 			if d.Name == SubmitOutputTool {
-				if len(s.OutputSchema) == 0 || d.Kind != tool.KindLocal || !sameJSON(
+				if len(s.OutputSchema) == 0 || d.Kind != tool.KindLocal || !canonjson.Equal(
 					d.Schema,
 					s.OutputSchema,
 				) {
@@ -420,11 +422,11 @@ func (s *replayState) apply(step Step) error {
 		if err := step.Tool.Call.Validate(); err != nil {
 			return err
 		}
-		if !sameJSONValue(step.Tool.Call.Args, v.Call.Args) &&
-			!sameJSONValue(step.Tool.Call.RequestedArgs, v.Call.Args) {
+		if !canonjson.SameValue(step.Tool.Call.Args, v.Call.Args) &&
+			!canonjson.SameValue(step.Tool.Call.RequestedArgs, v.Call.Args) {
 			return errors.New("tool rewrite lost requested arguments")
 		}
-		if step.Tool.Definition.Name != "" && !sameJSONValue(
+		if step.Tool.Definition.Name != "" && !canonjson.SameValue(
 			step.Tool.Definition,
 			v.Definition,
 		) {
@@ -434,7 +436,7 @@ func (s *replayState) apply(step Step) error {
 			(v.Verdict.Kind != DecisionAllow ||
 				v.Verdict.Revision != "dashi-output-v1" ||
 				len(step.Tool.Call.RequestedArgs) != 0 ||
-				!sameJSON(
+				!canonjson.Equal(
 					v.Call.Args,
 					step.Tool.Call.Args,
 				)) {
@@ -458,10 +460,10 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool start")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status != ToolAllowed || !sameJSONValue(
+		if !ok || v.Status != ToolAllowed || !canonjson.SameValue(
 			v.Call,
 			step.Tool.Call,
-		) || (step.Tool.Definition.Name != "" && !sameJSONValue(
+		) || (step.Tool.Definition.Name != "" && !canonjson.SameValue(
 			step.Tool.Definition,
 			v.Definition,
 		)) {
@@ -475,7 +477,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("missing tool wait")
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || !sameJSONValue(
+		if !ok || !canonjson.SameValue(
 			v.Call,
 			step.Tool.Call,
 		) || (v.Status != ToolStarted && (v.Status != ToolAllowed || v.Definition.Kind != tool.KindExternal)) {
@@ -525,7 +527,7 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status == ToolSettled || !sameJSONValue(v.Call, step.Tool.Call) {
+		if !ok || v.Status == ToolSettled || !canonjson.SameValue(v.Call, step.Tool.Call) {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
@@ -592,7 +594,7 @@ func (s *replayState) apply(step Step) error {
 				if err := validToolResult(*step.Tool.Result); err != nil {
 					return err
 				}
-				v.result = new(cloneToolResult(*step.Tool.Result))
+				v.result = new(llmclone.ToolResult(*step.Tool.Result))
 				if sh := step.Tool.Shortened; sh != nil {
 					if sh.Limit <= 0 || sh.ShownBytes < 0 ||
 						sh.OriginalBytes <= sh.ShownBytes {
@@ -672,7 +674,7 @@ func (s *replayState) apply(step Step) error {
 				v.Outcome == nil ||
 				v.Outcome.State != tool.StateSucceeded ||
 				s.callAttempts[v.Call.ID] != step.Output.AttemptID ||
-				!sameJSON(
+				!canonjson.Equal(
 					v.Call.Args,
 					step.Output.Value,
 				) {
@@ -688,7 +690,7 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("structured output does not match a final model answer")
 			}
 			parsed, err := parseOutputText(s.latestResult.Message.Text(), schema)
-			if err != nil || !sameJSON(parsed, step.Output.Value) {
+			if err != nil || !canonjson.Equal(parsed, step.Output.Value) {
 				return errors.New("structured output differs from final model text")
 			}
 		default:

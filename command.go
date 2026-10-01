@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -277,5 +278,5 @@ func commandDigest(c Command) (string, error) {
 	if _, err := json.Marshal(c); err != nil {
 		return "", err
 	}
-	return digest(c), nil
+	return canonjson.Digest(c), nil
 }

@@ -24,8 +24,8 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 	if string(raw) != `{"max_cost":{"amount":"0.5","currency":"USD"}}` {
 		t.Fatalf("live budget encoded %s", raw)
 	}
-	want := digest(live)
-	if got := digest(jsonbRoundTrip(live)); got != want {
+	want := canonjson.Digest(live)
+	if got := canonjson.Digest(jsonbRoundTrip(live)); got != want {
 		t.Fatal("a jsonb round trip changed the budget digest")
 	}
 	for _, spelling := range []string{
@@ -43,7 +43,7 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 		if err := json.Unmarshal([]byte(text), &stored); err != nil {
 			t.Fatalf("decode %s: %v", spelling, err)
 		}
-		if digest(stored) != want {
+		if canonjson.Digest(stored) != want {
 			t.Fatalf("stored amount %s changed the budget digest", spelling)
 		}
 	}

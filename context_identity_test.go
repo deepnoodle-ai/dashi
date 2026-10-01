@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -109,7 +110,7 @@ func TestProjectContextOwnsMetadataAndPreservesRecord(t *testing.T) {
 func TestContextPointerOwnershipAcrossInputAndCompactionClones(t *testing.T) {
 	message := llm.UserMessage(llm.Text("seed"))
 	message.Context = &llm.MessageContext{Origin: "runtime", Name: "seed"}
-	input := cloneInput(llm.Input{Messages: []llm.Message{message}})
+	input := llmclone.Input(llm.Input{Messages: []llm.Message{message}})
 	input.Messages[0].Context.Name = "input mutation"
 	fact := (&CompactionFact{Keep: []llm.Message{message}}).clone()
 	fact.Keep[0].Context.Name = "compaction mutation"

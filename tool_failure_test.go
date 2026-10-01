@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -493,7 +494,7 @@ func assertRecordRoundTrips(t *testing.T, rec *MemoryRecorder, turn Turn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digest(got) != digest(expected) {
+	if canonjson.Digest(got) != canonjson.Digest(expected) {
 		t.Fatal("decoded record replays to a different view")
 	}
 }

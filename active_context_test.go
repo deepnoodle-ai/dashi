@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -113,7 +114,7 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := ProjectContext(restored)
-	if err != nil || !sameJSONValue(got, view) {
+	if err != nil || !canonjson.SameValue(got, view) {
 		t.Fatalf("reload=%v", err)
 	}
 	for _, input := range c.sent {

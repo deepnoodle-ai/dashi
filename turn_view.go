@@ -3,6 +3,7 @@ package dashi
 import (
 	"encoding/json"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -68,7 +69,7 @@ func (v ToolView) Shortened() *Shortened {
 // zero value before the call settles.
 func (v ToolView) Result() llm.ToolResult {
 	if v.result != nil {
-		return cloneToolResult(*v.result)
+		return llmclone.ToolResult(*v.result)
 	}
 	if v.Outcome == nil || v.Status != ToolSettled {
 		return llm.ToolResult{}

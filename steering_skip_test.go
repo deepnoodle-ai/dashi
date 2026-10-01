@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -308,7 +309,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, v := range out.Tools {
-		if !sameJSONValue(view.Tools[id].Result(), v.Result()) ||
+		if !canonjson.SameValue(view.Tools[id].Result(), v.Result()) ||
 			view.Tools[id].Status != v.Status {
 			t.Fatalf("replay differs for %s", id)
 		}

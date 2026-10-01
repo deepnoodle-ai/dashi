@@ -7,6 +7,7 @@ import (
 	"iter"
 	"sync/atomic"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -224,7 +225,7 @@ func (s *Session) buildCompaction(
 	projected []llm.Message,
 	budget *Budget,
 ) (*startPlan, error) {
-	c, err := s.Compactor.Start(cloneMessages(projected))
+	c, err := s.Compactor.Start(llmclone.Messages(projected))
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}

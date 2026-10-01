@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -34,13 +35,13 @@ func (r *runtime) beforeModel(
 	for _, h := range r.hooks.BeforeModel {
 		d, err := callHook(hookContext(r.ctx, s.TurnView), h, ModelPlan{
 			Purpose: purpose,
-			Input:   cloneInput(*input),
+			Input:   llmclone.Input(*input),
 			Turn:    snapshotView(s.TurnView),
 		})
 		// The candidate input is this hook's settings and hides applied on
 		// top of every earlier hook's, so validation sees what the call
 		// would send whatever the hooks' order.
-		candidate := cloneInput(*input)
+		candidate := llmclone.Input(*input)
 		candidateHidden := hidden
 		var warnings []Warning
 		hookIgnored := hideIgnored{}

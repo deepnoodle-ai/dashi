@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -34,7 +35,7 @@ func activeTextDocument(b content.Block) bool {
 // reuse the ordinary candidate's verified bytes; rendering performs no I/O.
 // Between-Turn compaction retains its existing transcript behavior.
 func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
-	messages = cloneMessages(messages)
+	messages = llmclone.Messages(messages)
 	var verified map[string][]byte
 	for _, message := range messages {
 		for _, part := range message.Content {

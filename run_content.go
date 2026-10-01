@@ -9,6 +9,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -61,7 +62,7 @@ func (r *runtime) hydrate(input llm.Input) (llm.Input, *Outcome) {
 	if !input.HasRef() {
 		return input, nil
 	}
-	messages := cloneMessages(input.Messages)
+	messages := llmclone.Messages(input.Messages)
 	var sources []*content.Source
 	for _, m := range messages {
 		for _, c := range m.Content {

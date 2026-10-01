@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 )
 
 // SeedContext returns a BeforeModel hook, named after item, that delivers
@@ -40,7 +42,7 @@ func SeedContext(item ContextItem) ModelHook {
 				message.Context = nil
 				configured := item.Message
 				configured.Context = nil
-				if sameJSONValue(message, configured) {
+				if canonjson.SameValue(message, configured) {
 					return ModelDecision{}, nil
 				}
 				break

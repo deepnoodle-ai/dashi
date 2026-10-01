@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -825,7 +826,7 @@ func TestSteeredTurnReplaysDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameJSONValue(view.Spend, out.Spend) ||
+	if !canonjson.SameValue(view.Spend, out.Spend) ||
 		view.ModelAttempts != out.ModelAttempts ||
 		view.Answer != out.Answer {
 		t.Fatalf("replay differs: %+v vs %+v", view.Spend, out.Spend)

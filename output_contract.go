@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -86,10 +85,4 @@ func parseOutputText(
 		return nil, err
 	}
 	return raw, nil
-}
-
-// sameJSON reports whether a and b are single JSON values with the same
-// meaning; see package canonjson.
-func sameJSON(a, b json.RawMessage) bool {
-	return canonjson.Equal(a, b)
 }
