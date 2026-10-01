@@ -77,8 +77,8 @@ func (s *screen) approvalView() tui.View {
 		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · Esc interrupts").Wrap().Hint(),
 	}
 	if p.denying {
-		views = append(views, tui.Text(" Deny: Enter submits the optional reason.").Hint(),
-			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.inputKey).OnSubmit(s.denialSubmit(s.promptID)))
+		views = append(views, tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing.").Hint(),
+			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.dialogTextKey(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" y allow once · a allow for this Dashi run · n deny").Wrap().Bold())
 	}
@@ -187,8 +187,8 @@ func (s *screen) questionView() tui.View {
 	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Bold(),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
 	if p.own {
-		views = append(views, tui.Text(" Enter submits your words · /status [ID] inspects · Esc interrupts").Wrap().Hint(),
-			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.inputKey).OnSubmit(s.questionSubmit(s.promptID)))
+		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Hint(),
+			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Hint(),
 			tui.Text(" Tab submit · o own words · /status [ID] · Esc interrupts").Wrap().Hint())
