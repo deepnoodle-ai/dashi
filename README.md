@@ -81,6 +81,7 @@ shape. Selected Anthropic, OpenAI, and Gemini routes are tested live; see
 - [Agent turns and recovery](docs/agent-turns.md): the turn contract.
 - [Design notes](design/): decisions, proposals, and terminology.
 - [Go style guide](docs/dev/go-style.md): conventions for contributors.
+- [Releasing](docs/dev/releasing.md) and the [changelog](CHANGELOG.md).
 
 ## Verify
 

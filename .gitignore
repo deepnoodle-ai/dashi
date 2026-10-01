@@ -36,3 +36,7 @@ go.work.sum
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Built by make build
+/cmd/dashi/dashi
+__pycache__/
