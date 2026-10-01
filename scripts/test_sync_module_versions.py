@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("sync_module_versions.py")
@@ -30,6 +33,33 @@ class ModuleListTest(unittest.TestCase):
     def test_rejects_a_malformed_version(self) -> None:
         with self.assertRaises(SystemExit):
             sync.main(["0.1.0", "--check"])
+
+
+class WriteTest(unittest.TestCase):
+    def test_write_syncs_requirements_and_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "sub").mkdir()
+            (root / "go.mod").write_text(f"module {sync.MODULE_PREFIX}\n\ngo 1.26\n")
+            (root / "sub" / "go.mod").write_text(
+                f"module {sync.MODULE_PREFIX}/sub\n\ngo 1.26\n\n"
+                f"require {sync.MODULE_PREFIX} v0.1.0\n"
+            )
+            (root / "go.work").write_text(
+                "go 1.26\n\nuse (\n\t.\n\t./sub\n)\n\n"
+                f"replace {sync.MODULE_PREFIX} v0.1.0 => .\n"
+            )
+            with mock.patch.object(sync, "REPO_ROOT", root), \
+                    mock.patch.object(sync, "SUB_MODULES", ("sub",)):
+                self.assertEqual(sync.check("v0.2.0"), 1)
+                self.assertEqual(sync.write("v0.2.0"), 0)
+                self.assertEqual(sync.check("v0.2.0"), 0)
+                self.assertEqual(
+                    sync.workspace_replaces(), [(sync.MODULE_PREFIX, "v0.2.0", ".")]
+                )
+            # The rewritten workspace must still load.
+            subprocess.run(["go", "list", "-m", "all"], cwd=root / "sub", check=True,
+                           capture_output=True)
 
 
 if __name__ == "__main__":

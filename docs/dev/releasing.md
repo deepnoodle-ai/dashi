@@ -22,9 +22,12 @@ make release-prep VERSION=v0.2.0
 Every sub-module builds locally through the repository's `go.work`, so a stale
 `github.com/deepnoodle-ai/dashi vX.Y.Z` requirement is invisible to tests but
 breaks anyone who resolves the tag. The `go.mod` files carry no `replace`
-directives, because `go install …@version` refuses a module that has them. This rewrites every intra-repo requirement,
-including `cmd/dashi`'s on `mcp` and `providers/google/gemini`. Run
-`make tidy-all` afterwards.
+directives, because `go install …@version` refuses a module that has them.
+This rewrites every intra-repo requirement, including `cmd/dashi`'s on `mcp`
+and `providers/google/gemini`, and pins `go.work`'s replacements to the new
+version so the workspace builds before the tag exists. Do not run
+`make tidy-all` until after tagging: `go mod tidy` ignores the workspace and
+cannot fetch an untagged version.
 
 ## 3. Draft the release notes
 
@@ -41,7 +44,7 @@ Re-running keeps written Highlights and refreshes the rest.
 
 ## 4. Open the release PR
 
-Commit the changelog, the `go.mod` and `go.sum` updates, and the notes together
+Commit the changelog, the `go.mod` and `go.work` updates, and the notes together
 as `chore(release): prepare v0.2.0`. The notes get reviewed alongside the code.
 
 ## 5. Tag

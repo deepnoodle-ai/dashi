@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.8
 
 require (
-	github.com/deepnoodle-ai/dashi v0.1.0
+	github.com/deepnoodle-ai/dashi v0.1.1
 	github.com/deepnoodle-ai/wonton v0.4.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/term v0.46.0
@@ -49,8 +49,8 @@ require (
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
-	github.com/deepnoodle-ai/dashi/mcp v0.1.0
-	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.1.0
+	github.com/deepnoodle-ai/dashi/mcp v0.1.1
+	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.1.1
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect

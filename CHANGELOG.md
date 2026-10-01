@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
+### Changed
+
+- **Installable CLI.** `go install github.com/deepnoodle-ai/dashi/cmd/dashi@latest`
+  now works. A committed `go.work` replaces the sub-modules' `replace`
+  directives, which `go install` refuses. (#163)
+- **Release tooling.** `make release-prep`, `release-notes`, `tag-modules` and
+  `release-publish` cut a release of all four modules together. (#162)
+
 ## [0.1.0] - 2026-10-01
 
 ### Added
