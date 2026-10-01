@@ -13,9 +13,6 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/content"
-	"github.com/deepnoodle-ai/dashi/dashitest"
-	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
@@ -122,61 +119,6 @@ func requirePrefix(t *testing.T, prev, next map[string]json.RawMessage, label st
 	}
 }
 
-// A session caches by default on Claude, and the second turn, run on an
-// agent the host builds afresh, starts with the exact bytes of the first
-// turn's last request: tools, system text, and the leading messages.
-func TestSessionTurnsKeepThePromptPrefix(t *testing.T) {
-	w := &wire{replies: []string{
-		claudeToolUse("toolu_1", "look"),
-		claudeText("A desk."),
-		claudeText("Still a desk."),
-	}}
-	client, err := messages.New(messages.Config{
-		APIKey: "test",
-		Client: &http.Client{Transport: w},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Several tools, sent in the toolset's order on every call.
-	s := &dashi.Session{Runner: dashi.Runner{
-		Client: client,
-		Tools:  tool.List{namedTool(t, "zoom"), lookTool(t), namedTool(t, "aim")},
-	}}
-	agent := func() dashi.Agent {
-		return dashi.Agent{
-			Model:        "claude-sonnet-5",
-			Instructions: "You describe rooms.",
-		}
-	}
-	s.Agent = agent()
-	if _, err := s.Send(t.Context(), "What is here?"); err != nil {
-		t.Fatal(err)
-	}
-	s.Agent = agent()
-	out, err := s.Send(t.Context(), "And now?")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Answer != "Still a desk." {
-		t.Fatalf("answer = %q", out.Answer)
-	}
-	reqs := w.requests(t)
-	if len(reqs) != 3 {
-		t.Fatalf("requests = %d", len(reqs))
-	}
-	if string(reqs[0]["cache_control"]) != `{"type":"ephemeral"}` ||
-		!strings.Contains(string(reqs[0]["system"]), `"cache_control"`) {
-		t.Fatalf("first request has no cache points: %s", w.bodies[0])
-	}
-	if tools := string(reqs[0]["tools"]); strings.Index(tools, `"zoom"`) >
-		strings.Index(tools, `"aim"`) {
-		t.Fatalf("tools were reordered: %s", tools)
-	}
-	requirePrefix(t, reqs[0], reqs[1], "turn 1 call 2")
-	requirePrefix(t, reqs[1], reqs[2], "turn 2 call 1")
-}
-
 // Within a turn each request starts with the previous one, reminders
 // included: a replaced snapshot stays where it was. The one miss is a
 // NextCallOnly item, which leaves the history once a call has seen it.
@@ -269,17 +211,16 @@ func openAIText(text string) string {
 	return fmt.Sprintf(`{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.5","output":[{"type":"message","id":"msg_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":%q,"annotations":[]}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`, text)
 }
 
-// A session sends its ID as the OpenAI prompt cache key on models where a
+// Runner.CacheKey is sent as the OpenAI prompt cache key on models where a
 // key per conversation only improves routing, and not on GPT-5.6, where a
 // key may separate caches. An agent's own key wins.
-func TestSessionIDIsTheDefaultCacheKey(t *testing.T) {
+func TestRunnerCacheKeyIsTheDefaultPromptCacheKey(t *testing.T) {
 	for _, tc := range []struct {
-		name, model, agentKey string
-		want                  func(sessionID string) string
+		name, model, agentKey, want string
 	}{
-		{"before GPT-5.6", "gpt-5.5", "", func(id string) string { return id }},
-		{"GPT-5.6", "gpt-5.6", "", func(string) string { return "" }},
-		{"agent key wins", "gpt-5.5", "tenant-4", func(string) string { return "tenant-4" }},
+		{"before GPT-5.6", "gpt-5.5", "", "conversation-1"},
+		{"GPT-5.6", "gpt-5.6", "", ""},
+		{"agent key wins", "gpt-5.5", "tenant-4", "tenant-4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &wire{replies: []string{openAIText("Hi.")}}
@@ -292,19 +233,21 @@ func TestSessionIDIsTheDefaultCacheKey(t *testing.T) {
 			}
 			agent := dashi.Agent{Model: tc.model}
 			agent.Settings.PromptCache.Key = tc.agentKey
-			s := &dashi.Session{Runner: dashi.Runner{Client: client}, Agent: agent}
-			out, err := s.Send(t.Context(), "Hello.")
+			r := dashi.Runner{Client: client, CacheKey: "conversation-1"}
+			start := dashi.Say("Hello.")
+			start.Agent = agent
+			out, err := r.Run(t.Context(), dashi.NewTurn("t-1"), start)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var key string
 			_ = json.Unmarshal(w.requests(t)[0]["prompt_cache_key"], &key)
-			if want := tc.want(s.ID); key != want {
-				t.Fatalf("prompt_cache_key = %q, want %q", key, want)
+			if key != tc.want {
+				t.Fatalf("prompt_cache_key = %q, want %q", key, tc.want)
 			}
 			// The key is not part of the agent's behavior.
 			if out.Turn.Steps[0].Started.Agent.Settings.PromptCache.Key != tc.agentKey {
-				t.Fatal("the session key was recorded on the agent")
+				t.Fatal("the runner's key was recorded on the agent")
 			}
 		})
 	}
@@ -413,92 +356,5 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil ||
 		out.Stop.Limit.Kind != dashi.LimitCost {
 		t.Fatalf("sheet without a one-hour rate: %+v", out.Stop)
-	}
-}
-
-func TestRecordedSummaryPreferenceSurvivesReopenAndModelSwitch(t *testing.T) {
-	agentOf := func(turn dashi.Turn) dashi.Agent {
-		view, err := dashi.Replay(turn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return view.Agent
-	}
-	dir := t.TempDir()
-	recorder, err := filerecorder.New(filerecorder.Config{Dir: dir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	public := llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "public"}, Replay: &llm.Opaque{Version: 1, Type: "reasoning", Unit: llm.OpaqueUnitContentBlock, Origin: content.Origin{Provider: dashitest.Provider, API: dashitest.API, Model: dashitest.Model, Scope: "dashitest"}, Raw: json.RawMessage(`{"private":"CIPHER"}`)}}
-	reply := dashitest.Reply("answer")
-	reply.Message.Content = append([]llm.Content{public}, reply.Message.Content...)
-	client := dashitest.NewClient(reply, dashitest.Reply("next"), dashitest.Reply("third"))
-	session := &dashi.Session{ID: "summary", New: true, Runner: dashi.Runner{Client: client, Recorder: recorder}, Agent: dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{ReasoningSummary: new(true)}}}
-	first, err := session.Send(t.Context(), "hi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Answer != "answer" {
-		t.Fatalf("public summary reached answer: %q stop=%+v turn=%+v", first.Answer, first.Stop, first.Turn)
-	}
-	reopenedRecorder, err := filerecorder.New(filerecorder.Config{Dir: dir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reopened := &dashi.Session{ID: "summary", Runner: dashi.Runner{Client: client, Recorder: reopenedRecorder}}
-	second, err := reopened.Send(t.Context(), "again")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pref := agentOf(second.Turn).Settings.ReasoningSummary; pref == nil || !*pref {
-		t.Fatal("reopened turn did not inherit true")
-	}
-	reopened.Agent = dashi.Agent{Model: "another-model", Settings: llm.Settings{ReasoningSummary: new(false)}}
-	third, err := reopened.Send(t.Context(), "stop requesting")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pref := agentOf(third.Turn).Settings.ReasoningSummary; pref == nil || *pref || agentOf(third.Turn).Model != "another-model" {
-		t.Fatal("false/model switch lost")
-	}
-	loaded, err := reopenedRecorder.Load(t.Context(), first.Turn.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pref := agentOf(loaded).Settings.ReasoningSummary; pref == nil || !*pref {
-		t.Fatal("new off preference changed prior turn")
-	}
-	if !strings.Contains(string(public.Replay.Raw), "CIPHER") {
-		t.Fatal("private artifact changed")
-	}
-	inputs := client.Inputs()
-	if len(inputs) != 3 || inputs[2].Settings.ReasoningSummary == nil || *inputs[2].Settings.ReasoningSummary {
-		t.Fatal("false not sent to next call")
-	}
-	found := false
-	for _, message := range inputs[2].Messages {
-		for _, part := range message.Content {
-			if part.Reasoning != nil && part.Reasoning.Text == "public" && part.Replay != nil && strings.Contains(string(part.Replay.Raw), "CIPHER") {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Fatal("summary-off stripped earlier display/replay")
-	}
-	for _, turn := range []dashi.Turn{first.Turn, second.Turn, third.Turn} {
-		foundFact := false
-		for _, step := range turn.Steps {
-			if step.Kind == dashi.StepModelIntent && step.Model != nil {
-				pref := step.Model.Effective.ReasoningSummary
-				if pref == nil || *pref != *agentOf(turn).Settings.ReasoningSummary {
-					t.Fatal("recorded model fact preference differs")
-				}
-				foundFact = true
-			}
-		}
-		if !foundFact {
-			t.Fatal("missing recorded model facts")
-		}
 	}
 }

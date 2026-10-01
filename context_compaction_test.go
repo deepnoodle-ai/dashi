@@ -127,23 +127,32 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 		}
 	}
 }
-func TestActiveCompactionSessionHistorySeparation(t *testing.T) {
+
+// A turn's own messages (Project, which a session's History uses) keep the
+// raw output an active compaction replaced, while the projected history of
+// the next turn (ProjectHistory) holds only the summary, before and after a
+// reload.
+func TestActiveCompactionHistorySeparation(t *testing.T) {
 	c, a := activeFixture()
 	calls := 0
 	rec := NewMemoryRecorder()
-	s := &Session{ID: "session", New: true, Runner: Runner{Client: c, Tools: activeTools(&calls), Recorder: rec}, Agent: a, Exclusive: true}
-	out, err := s.Run(t.Context(), activeStart(a))
+	r := Runner{Client: c, Tools: activeTools(&calls), Recorder: rec}
+	out, err := r.Run(t.Context(), NewTurn("session-1"), activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("%+v %v", out.Stop, err)
 	}
-	for _, session := range []*Session{s, {ID: "session", Runner: s.Runner, Exclusive: true}} {
-		raw, err := session.History(t.Context())
+	loaded, err := rec.Load(t.Context(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, turn := range []Turn{out.Turn, loaded} {
+		raw, err := Project(turn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, err := session.ProjectedHistory(t.Context())
-		if err != nil {
-			t.Fatal(err)
+		view, warnings := ProjectHistory([]Turn{turn})
+		if len(warnings) > 0 {
+			t.Fatal(warnings)
 		}
 		rb, _ := json.Marshal(raw)
 		vb, _ := json.Marshal(view)

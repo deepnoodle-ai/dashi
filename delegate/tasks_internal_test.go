@@ -10,6 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -46,7 +47,7 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	ctx := t.Context()
 	recorder := dashi.NewMemoryRecorder()
 	ref := dashi.CallRef{TurnID: "parent", CallID: "task-call"}
-	child := dashi.TurnID(ChildID(ref.TurnID, ref.CallID), 1)
+	child := session.TurnID(ChildID(ref.TurnID, ref.CallID), 1)
 	runner := dashi.Runner{Recorder: recorder, Client: dashitest.NewClient(dashitest.CallTool("write", "external", `{}`)), Tools: tool.List{{
 		Definition: tool.Definition{Name: "external", Description: "External work", Schema: []byte(`{"type":"object"}`)},
 		Executor:   internalWaiting{},

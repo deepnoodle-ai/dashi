@@ -59,11 +59,12 @@ four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
 
 - A feature belongs in the root package `dashi` only if the Turn engine itself
   must know about it. Everything else is a sub-package that imports `dashi`,
-  as `compaction`, `delegate`, `skill`, `filerecorder`, and `mcp` do.
+  as `session`, `compaction`, `delegate`, `skill`, `filerecorder`, and `mcp`
+  do.
 - Generic helpers that touch no public `dashi` type go in `internal/`.
 - Root files use a prefix by area so related files sort together: `turn_`
   (Turn, facts, views, replay), `run_` (Runner, model attempt, tool loop),
-  `steer_`, `budget_`, `hooks_`, `context_`, `history_`, and `session_`.
+  `steer_`, `budget_`, `hooks_`, `context_`, and `history_`.
   Name a test file after the source file it exercises.
 
 ## Modules and releases

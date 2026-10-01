@@ -206,7 +206,7 @@ func classifySteers(
 			continue
 		}
 		batch[item.ID] = true
-		if err := validateContext(item); err != nil {
+		if err := item.Validate(); err != nil {
 			invalid = append(invalid, steerProblem{
 				id:      item.ID,
 				message: fmt.Sprintf("steer %s skipped: %v", item.ID, err),
@@ -417,7 +417,7 @@ func newDeliveries(s *replayState, items []ContextItem) ([]ContextItem, error) {
 	out := make([]ContextItem, 0, len(items))
 	batch := map[string]bool{}
 	for i, item := range items {
-		if err := validateContext(item); err != nil {
+		if err := item.Validate(); err != nil {
 			return nil, fmt.Errorf("dashi: context item %d: %w", i+1, err)
 		}
 		if item.ID == "" {

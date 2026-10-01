@@ -1,13 +1,15 @@
 # Sessions
 
-A session is a conversation of many turns. `dashi.Session` drives one: it
+A session is a conversation of many turns. `session.Session`, in package
+`github.com/deepnoodle-ai/dashi/session`, drives one: it
 numbers the turns, sends each new turn the history of the ones before it,
 carries the agent forward, and decides what a new message does while the last
-turn is still open. It is built on `Runner.Run` and adds no storage: the turn
-records are the only truth. [Running turns](running-turns.md) covers one turn.
+turn is still open. It is built on `dashi.Runner` and uses only its public
+contract, and it adds no storage: the turn records are the only truth. A host
+that stores its own turns uses `Runner` directly instead. [Running turns](running-turns.md) covers one turn.
 
 ```go
-s := &dashi.Session{Runner: dashi.Runner{Client: client}}
+s := &session.Session{Runner: dashi.Runner{Client: client}}
 out, err := s.Send(ctx, "What's the weather in Tokyo?")
 out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
@@ -27,18 +29,18 @@ the scripted `dashitest.Client`, with a tool call and a denied call.
 
 ## IDs and storage
 
-- **Turn IDs.** Turn *n* of session `S` is `dashi.TurnID(S, n)`, `S-n`. An
+- **Turn IDs.** Turn *n* of session `S` is `session.TurnID(S, n)`, `S-n`. An
   empty `Session.ID` is a new session with a generated ID, readable from
   `s.ID` after the first `Start`.
 - **Creating.** A handle with an ID reopens that session, and an ID with no
-  turns fails with `ErrSessionNotFound`, so a mistyped ID never starts an
+  turns fails with `session.ErrNotFound`, so a mistyped ID never starts an
   empty session. Set `New` to create it; `New` on a session with turns fails
-  with `ErrSessionExists`, except for a retry of the first `Start`.
+  with `session.ErrExists`, except for a retry of the first `Start`.
 - **Recorders.** A nil `Runner.Recorder` becomes one in-memory recorder that
   the handle keeps, and the first outcome warns `memory_only`. A durable
   recorder lets any handle, in any process, reopen the session. The session
   finds its last turn by probing turn IDs through `StepReader` or `Loader`,
-  about 2·log2(n) reads; a recorder can answer in one with `SessionIndex`.
+  about 2·log2(n) reads; a recorder can answer in one with `session.Index`.
   `filerecorder` implements it by which turn logs exist, so finding the last
   turn reads none of them. `dashitest.Run` checks both.
 - **Open.** `s.Open(ctx)` reports the last turn's view and `Next`; it never
@@ -103,7 +105,7 @@ while the winner runs, never a success for an unfinished turn.
 start := dashi.Say(message)
 start.CommandID = r.Header.Get("Idempotency-Key")
 out, err := s.Run(ctx, start, dashi.WithOwner(workerID))
-var busy *dashi.TurnBusyError
+var busy *session.TurnBusyError
 if errors.As(err, &busy) {
 	writeJSON(w, http.StatusConflict, busy)
 }
@@ -145,9 +147,9 @@ the running turn; the caller says which.
   takes any user-role `ContextItem`. Empty IDs are generated; a repeated ID
   is an error.
 
-The handle owns an `*Inbox` and passes it to every turn it runs. A host with
+The handle owns a `*dashi.Inbox` and passes it to every turn it runs. A host with
 its own durable steering source sets `Session.Steering`; `Steer` then works
-only if that source is an `*Inbox`, and otherwise the host sends through its
+only if that source is a `*dashi.Inbox`, and otherwise the host sends through its
 own system.
 
 **Dispatch on idle.** When a `Start` or `Continue` ends its turn with
@@ -155,7 +157,7 @@ own system.
 **queue turn** from every item, and repeats until the queue is empty or a turn
 stops any other way. `Run` returns the last turn's outcome, with the earlier
 turns' session warnings. When a turn stops without ending, items wait, and
-`SessionState.Queued` counts them. `s.RunQueue(ctx)` runs them on an idle
+`State.Queued` from `Open` counts them. `s.RunQueue(ctx)` runs them on an idle
 session with no new input, and reports false when it ran nothing.
 
 A queue turn has the command ID `queue:` and the sorted item IDs, origin
@@ -206,8 +208,8 @@ reason `CloseReason`. `s.History(ctx)` is the conversation: every message of
 every turn but compaction turns. `s.ProjectedHistory(ctx)` is what the next
 turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
 see [Compaction](compaction.md)). A host that keeps its own turns gets the
-same projected history from `dashi.ProjectHistory(turns)`. `s.Compact(ctx, nil)` requests a summary
-while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
+same projected history from `dashi.ProjectHistory(turns)`. `s.Compact(ctx, nil)`
+requests a summary while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
 queued input and refuse an unended last turn.
 
 ## Replace generation settings

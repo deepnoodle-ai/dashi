@@ -164,30 +164,15 @@ const (
 	// prepared media, whose context size cannot be estimated from wire bytes.
 	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
 
-	// The warnings below are a Session's own. No turn records them; they
-	// arrive on Outcome.SessionWarnings.
+	// ProjectHistory reports the warnings below, which no turn records.
+	// Package session passes them on in Outcome.SessionWarnings.
 
-	// WarningTurnClosed means a new Start closed the session's last turn,
-	// which had stopped without ending, with Cancel and CloseReason.
-	WarningTurnClosed WarningCode = "turn_closed"
 	// WarningTurnUnreadable means a turn failed to load or project and was
 	// left out of the history sent to the model.
 	WarningTurnUnreadable WarningCode = "turn_unreadable"
-	// WarningMemoryOnly means the session is recorded only in the handle's
-	// in-memory recorder and ends with the handle.
-	WarningMemoryOnly WarningCode = "memory_only"
-	// WarningQueueBlocked means queued items wait because the session
-	// cannot read the turn that may have taken some of them. New commands
-	// still run; RunQueue returns the error until the turn can be read.
-	WarningQueueBlocked WarningCode = "queue_blocked"
-	// WarningCompactionFailed means a compaction turn did not complete with
-	// an answer, or could not start. The session closed it, kept the
-	// previous projected history, and ran the next turn.
-	WarningCompactionFailed WarningCode = "compaction_failed"
 	// WarningCompactionMismatch means the turns a compaction turn covers no
-	// longer give the projected history its digest records. The session
-	// still honors the compaction turn, so every reader sends the same
-	// history.
+	// longer give the projected history its digest records. The compaction
+	// turn is still honored, so every reader sends the same history.
 	WarningCompactionMismatch WarningCode = "compaction_mismatch"
 )
 
@@ -251,10 +236,10 @@ func cloneTurn(t Turn) Turn {
 	return out
 }
 
-// cloneTurnSafe copies a turn that may not serialize, such as a caller's
-// turn that failed replay. cloneTurn would panic on it, so such a turn is
-// copied shallowly: its steps are new values that share nested data.
-func cloneTurnSafe(t Turn) Turn {
+// Clone returns a deep copy of t, which shares nothing with it. A turn that
+// does not encode as JSON, which no recorded turn is, is copied step by
+// step instead, and its steps share nested data with t.
+func (t Turn) Clone() Turn {
 	if _, err := json.Marshal(t); err != nil {
 		return Turn{ID: t.ID, Steps: slices.Clone(t.Steps)}
 	}

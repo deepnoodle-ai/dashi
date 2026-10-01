@@ -20,6 +20,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func main() {
@@ -54,7 +55,7 @@ func run(ctx context.Context) error {
 	policy := compaction.Policy{}
 	policy.Model.Capabilities.ContextWindow = 32_000
 	rec := dashi.NewMemoryRecorder()
-	s := &dashi.Session{
+	s := &session.Session{
 		ID:     "heron",
 		New:    true,
 		Runner: dashi.Runner{Client: client, Recorder: rec},
@@ -110,7 +111,7 @@ func run(ctx context.Context) error {
 	}
 
 	// A viewer or a recovery worker needs no compactor to send the same.
-	reader := &dashi.Session{
+	reader := &session.Session{
 		ID:     "heron",
 		Runner: dashi.Runner{Client: client, Recorder: rec},
 	}

@@ -15,7 +15,7 @@ import (
 // it for that child turn. Either a turn recorded a context item with the ID
 // NoticeID(turn), or a session's queue turn started with it: its command ID
 // is "queue:" and the JSON list of the item IDs it carried (see
-// dashi.Session.RunQueue). A task_status read does not count. Recover and
+// session.Session.RunQueue). A task_status read does not count. Recover and
 // the live path use this same check.
 const (
 	noticePrefix = "task-done:"
@@ -84,8 +84,8 @@ func (n Notice) Item() dashi.ContextItem {
 }
 
 // Steer returns the notice as a steer: send it to a running turn with
-// dashi.Session.SteerItem, which queues it for a queue turn when no turn
-// runs, or queue its Item with dashi.Session.EnqueueItem. Config.Session
+// session.Session.SteerItem, which queues it for a queue turn when no turn
+// runs, or queue its Item with session.Session.EnqueueItem. Config.Session
 // does this for the host.
 func (n Notice) Steer() dashi.Steer {
 	return dashi.Steer{Item: n.Item()}

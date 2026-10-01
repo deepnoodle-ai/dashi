@@ -27,8 +27,8 @@ type Agent struct {
 	ID string `json:"id"`
 	// Revision pins behavior so a continued turn cannot silently change it.
 	// When empty, it is derived from the agent's behavior fields as
-	// "auto:" and 16 hex digits, so it changes exactly when they do,
-	// including the tool selection. The derivation leaves out
+	// DerivedRevisionPrefix and 16 hex digits, so it changes exactly when
+	// they do, including the tool selection. The derivation leaves out
 	// Limits.Deadline and cannot see tool implementations, which are not
 	// part of the agent; set Revision yourself to version those.
 	Revision     string `json:"revision"`
@@ -40,10 +40,11 @@ type Agent struct {
 	// that model; otherwise it is required.
 	Model    string       `json:"model"`
 	Settings llm.Settings `json:"settings"`
-	// NoInheritedSettings makes Settings a complete set during Session
-	// inheritance. Nil and zero fields do not inherit lower-priority Agent
-	// values. Higher-priority partial settings may still override this set.
-	// Other Agent fields retain their ordinary inheritance rules.
+	// NoInheritedSettings makes Settings a complete set when a host, such
+	// as a session.Session, carries an agent forward. Nil and zero fields do
+	// not inherit lower-priority Agent values. Higher-priority partial
+	// settings may still override this set. Other Agent fields retain their
+	// ordinary inheritance rules.
 	NoInheritedSettings bool `json:"no_inherited_settings,omitempty"`
 	// OutputSchema is the default final-result schema for turns using this
 	// agent. Start.OutputSchema may override it for one turn. A JSON null
@@ -162,8 +163,11 @@ func resolveCount(n, def int) int {
 	return n
 }
 
-// revisionPrefix marks a revision the runner derived from the agent.
-const revisionPrefix = "auto:"
+// DerivedRevisionPrefix begins every Agent.Revision the runner derived
+// from the agent. A host that carries a recorded agent into a new turn
+// clears such a revision, so the runner derives it again from the agent
+// the new turn runs.
+const DerivedRevisionPrefix = "auto:"
 
 // agentRevision derives a revision from a resolved agent's behavior. ID,
 // Revision, Limits.Deadline, and Settings.PromptCache.Key are left out: the
@@ -175,7 +179,7 @@ func agentRevision(a Agent) string {
 	a.Limits.Deadline = time.Time{}
 	a.Settings.PromptCache.Key = ""
 	sum := strings.TrimPrefix(canonjson.Digest(a), canonjson.DigestPrefix)
-	return revisionPrefix + sum[:16]
+	return DerivedRevisionPrefix + sum[:16]
 }
 
 // agentFor returns the resolved agent a command runs with. A Start resolves

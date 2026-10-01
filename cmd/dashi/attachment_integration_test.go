@@ -17,11 +17,12 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content/mention"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func fixtureSelectedText(t *testing.T, dir, name, body string) string {
@@ -65,7 +66,7 @@ func TestAttachmentPrintFlagsMentionsAndRecordedRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, err := rec.Load(t.Context(), dashi.TurnID(s.ID, 1))
+	turn, err := rec.Load(t.Context(), session.TurnID(s.ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestAttachmentPrintFailureStartsNoWork(t *testing.T) {
 	if cfg.Client.(*fakeClient).sends != 0 || stdout.Len() != 0 {
 		t.Fatal("failed selection dispatched")
 	}
-	if _, err := cfg.Store.Latest(cfg.Dir); !errors.Is(err, session.ErrNotFound) {
+	if _, err := cfg.Store.Latest(cfg.Dir); !errors.Is(err, sessionstore.ErrNotFound) {
 		t.Fatalf("failed selection recorded session: %v", err)
 	}
 }
@@ -254,7 +255,7 @@ func TestAttachmentUnknownStartRetainsAndReconcilesFullInput(t *testing.T) {
 		t.Fatal("duplicate Start/model call")
 	}
 	rec, _ := cfg.Store.Recorder(a.eng.Session())
-	turn, err := rec.Load(t.Context(), dashi.TurnID(a.eng.Session().ID, 1))
+	turn, err := rec.Load(t.Context(), session.TurnID(a.eng.Session().ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +425,7 @@ func TestAttachmentRejectedAbsentAndConflictingAdmission(t *testing.T) {
 				t.Fatal("retry duplicated or lost request")
 			}
 			rec, _ := cfg.Store.Recorder(a.eng.Session())
-			turn, err := rec.Load(t.Context(), dashi.TurnID(a.eng.Session().ID, 1))
+			turn, err := rec.Load(t.Context(), session.TurnID(a.eng.Session().ID, 1))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -460,7 +461,7 @@ func TestAttachmentCrashChild(t *testing.T) {
 	}
 	cfg := testConfig(t)
 	cfg.Dir = os.Getenv("DASHI_ATTACHMENT_CRASH_WORKSPACE")
-	cfg.Store = session.NewStore(root)
+	cfg.Store = sessionstore.NewStore(root)
 	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
 		return &attachmentCrashRecorder{r, os.Getenv("DASHI_ATTACHMENT_CRASH_STATE")}
 	}
@@ -504,7 +505,7 @@ func TestAttachmentRealProcessCrashSourceDeletionAndReopen(t *testing.T) {
 	}
 	cfg := testConfig(t, say("continued after crash"))
 	cfg.Dir = workspace
-	cfg.Store = session.NewStore(root)
+	cfg.Store = sessionstore.NewStore(root)
 	a, err := buildApp(t.Context(), cfg, newLineUI(&bytes.Buffer{}))
 	if err != nil {
 		t.Fatal(err)
@@ -747,7 +748,7 @@ func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
 					}
 					return dashi.SendDecision{}, nil
 				}})
-				out, err := runner.Run(t.Context(), dashi.Turn{ID: dashi.TurnID(a.eng.Session().ID, 1)}, start)
+				out, err := runner.Run(t.Context(), dashi.Turn{ID: session.TurnID(a.eng.Session().ID, 1)}, start)
 				if err != nil {
 					t.Fatal(err)
 				}

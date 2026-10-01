@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
@@ -19,7 +19,7 @@ type appConfig struct {
 	HomeDir       string
 	Model         string
 	Client        llm.Client
-	Store         *session.Store
+	Store         *sessionstore.Store
 	Preferences   *cliPreferences
 	InvocationDir string
 	MCPFiles      []string
@@ -123,7 +123,7 @@ func (a *app) modelLabel() string {
 // openSession opens the session the flags name, or a new one. Resuming a
 // directory with no session starts a new one and says so.
 func (a *app) openSession(
-	store *session.Store,
+	store *sessionstore.Store,
 	dir string,
 	o Options,
 ) (notice string, err error) {
@@ -131,14 +131,14 @@ func (a *app) openSession(
 	if err != nil {
 		return "", err
 	}
-	var s *session.Session
+	var s *sessionstore.Session
 	if o.Resume {
 		if o.ResumeID != "" {
 			s, err = store.LoadScoped(context.Background(), dir, o.ResumeID)
 		} else {
 			s, err = store.Latest(dir)
 		}
-		if errors.Is(err, session.ErrNotFound) && o.ResumeID == "" {
+		if errors.Is(err, sessionstore.ErrNotFound) && o.ResumeID == "" {
 			notice, s, err = "There is no session to resume. Starting a new one.", nil, nil
 		}
 		if err != nil {

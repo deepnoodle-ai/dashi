@@ -10,8 +10,8 @@ import (
 
 // ProjectHistory returns the projected history of turns, which are in
 // order, oldest first: what the next turn sends as Start.History, or as
-// Continue.History for the turn after them. It is the rule a Session uses,
-// for a host that keeps its own turns.
+// Continue.History for the turn after them. It is the rule a session.Session
+// uses, for a host that keeps its own turns.
 //
 // It walks back from the newest turn. At the newest compaction turn that
 // completed with a summary, it uses that turn's replacement history and
@@ -20,10 +20,10 @@ import (
 // A turn that cannot be replayed or projected is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
 // sending. When the compaction turn used has a Digest and turns holds turns
-// before it, they are checked against it (compaction.Compactor and a
-// Session set it; a host with its own compactor sets it with
-// HistoryFingerprint); a mismatch warns
-// WarningCompactionMismatch, and the replacement history is still used.
+// before it, they are checked against it (compaction.Compactor and
+// session.Session set it; a host with its own compactor sets it with
+// HistoryFingerprint); a mismatch warns WarningCompactionMismatch, and the
+// replacement history is still used.
 //
 // The result shares message content with the turns, so the caller must not
 // change it.
@@ -77,7 +77,7 @@ func projectHistory(
 	for i := n - 1; i >= 0; i-- {
 		h, err := at(i)
 		if err == nil && h.view.Origin == StartCompaction {
-			msgs, ok := replacement(h.view)
+			msgs, ok := h.view.ReplacementHistory()
 			if !ok {
 				continue // a failed compaction replaces nothing
 			}
@@ -134,10 +134,12 @@ func digestMismatch(id, digest string, covered []llm.Message) *Warning {
 	}
 }
 
-// replacement returns the replacement history of a compaction turn, and
-// false when the turn did not complete with a summary (summaryText), so it
-// replaces nothing.
-func replacement(v TurnView) ([]llm.Message, bool) {
+// ReplacementHistory returns the history a compaction turn replaces the
+// history of the turns it covers with: CompactionFact.Keep with the summary,
+// after its Frame, at SummaryAt. It returns false for any other turn and for
+// a compaction turn that did not complete with a summary, which replaces
+// nothing. The result shares message content with v.
+func (v TurnView) ReplacementHistory() ([]llm.Message, bool) {
 	f := v.Compaction
 	answer := compactiontext.Summary(v.Answer)
 	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {

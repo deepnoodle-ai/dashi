@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -28,7 +29,7 @@ type EngineConfig struct {
 	Dir         string
 	Client      llm.Client
 	Model       string
-	Store       *session.Store
+	Store       *sessionstore.Store
 	Wiring      wiring
 	Preferences *cliPreferences
 	Resources   *resourceManager
@@ -47,7 +48,7 @@ type EngineConfig struct {
 }
 
 // Engine runs the turns of one session. It holds the session's metadata and
-// a dashi.Session handle, which owns the turn numbers, the history, the
+// a session.Session handle, which owns the turn numbers, the history, the
 // queue, and the rules for a new prompt while a turn is open. The steering
 // inbox is the handle's. The Engine has no screen: the Controller and the
 // screen sit on top of it.
@@ -55,10 +56,10 @@ type Engine struct {
 	cfg EngineConfig
 
 	mu   sync.Mutex
-	sess *session.Session
+	sess *sessionstore.Session
 	// chat drives the open session. The process lock makes it the only
 	// driver, so it is Exclusive.
-	chat               *dashi.Session
+	chat               *session.Session
 	inbox              *dashi.Inbox
 	unlock             func()
 	attachmentResolver *engineAttachmentResolver
@@ -92,7 +93,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 }
 
 // Session returns the open session's metadata.
-func (e *Engine) Session() *session.Session {
+func (e *Engine) Session() *sessionstore.Session {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.sess
@@ -122,14 +123,14 @@ func (e *Engine) SetModel(name string) {
 	}
 }
 
-// Open makes s the open session and locks it. It returns session.ErrBusy when
+// Open makes s the open session and locks it. It returns sessionstore.ErrBusy when
 // another process holds s. Opening the session that is already open does
 // nothing. The previous session, if any, is released first.
-func (e *Engine) Open(s *session.Session) error {
+func (e *Engine) Open(s *sessionstore.Session) error {
 	return e.openOwned(s, nil)
 }
 
-func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
+func (e *Engine) openOwned(s *sessionstore.Session, ownedUnlock func()) error {
 	e.mu.Lock()
 	same := e.sess != nil && e.sess.ID == s.ID
 	e.mu.Unlock()
@@ -157,7 +158,7 @@ func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
 	}
 	inbox := dashi.NewInbox()
 	resolver := &engineAttachmentResolver{store: e.cfg.Store, session: s}
-	chat := &dashi.Session{
+	chat := &session.Session{
 		ID: s.ID,
 		Runner: dashi.Runner{
 			Client:          e.cfg.Client,
@@ -174,7 +175,7 @@ func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
 			if ev.Step != nil && ev.Step.Kind == dashi.StepStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
 				// Child IDs are hashes. Only exact numbered parent identities qualify.
 				n := turnNumber(ev.TurnID)
-				if n > 0 && ev.TurnID == dashi.TurnID(s.ID, n) {
+				if n > 0 && ev.TurnID == session.TurnID(s.ID, n) {
 					stopped(n)
 				}
 			}
@@ -182,7 +183,7 @@ func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
 	}
 	// A session with no turn yet is created by its first prompt.
 	_, openErr := chat.Open(context.Background())
-	if errors.Is(openErr, dashi.ErrSessionNotFound) {
+	if errors.Is(openErr, session.ErrNotFound) {
 		chat.New = true
 	}
 	if err := e.closeTasks(); err != nil {
@@ -236,7 +237,7 @@ func (e *Engine) release() {
 }
 
 // handle returns the open session's handle.
-func (e *Engine) handle() *dashi.Session {
+func (e *Engine) handle() *session.Session {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.chat
@@ -335,7 +336,7 @@ func (e *Engine) Last(ctx context.Context) *LastTurn {
 	}
 	st, err := chat.Open(ctx)
 	if err != nil {
-		if !errors.Is(err, dashi.ErrSessionNotFound) {
+		if !errors.Is(err, session.ErrNotFound) {
 			e.warn("The last turn cannot be read: %v.", err)
 		}
 		return nil
@@ -530,7 +531,7 @@ func (e *Engine) Steer(text string, urgent bool) error {
 		Urgent: urgent,
 	})
 	if err != nil {
-		var busy *dashi.TurnBusyError
+		var busy *session.TurnBusyError
 		if errors.As(err, &busy) && busy.Origin == dashi.StartCompaction {
 			if urgent {
 				e.notice("This input cannot interrupt compaction. It is queued; press Ctrl-C to interrupt.")
@@ -770,7 +771,7 @@ func (e *Engine) Queued() int {
 func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable ||
-			w.Code == dashi.WarningCompactionFailed ||
+			w.Code == session.WarningCompactionFailed ||
 			w.Code == dashi.WarningCompactionMismatch {
 			e.warn("%s.", w.Message)
 		}
@@ -934,7 +935,7 @@ func diffBlock(turnID string, seq int64, lines []string) Block {
 // saveDiff keeps a shown diff, so a reopened session shows it again.
 func (e *Engine) saveDiff(turnID string, seq int64, lines []string) {
 	s := e.Session()
-	err := e.cfg.Store.AppendDiff(s, session.Diff{
+	err := e.cfg.Store.AppendDiff(s, sessionstore.Diff{
 		Turn: turnID, Seq: seq, Lines: lines,
 	})
 	if err != nil {

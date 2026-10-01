@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -66,7 +66,7 @@ func run(
 		return 1
 	}
 	if automationOneShot(o, stdin) {
-		return runAutomation(ctx, o, stdin, stdout, stderr, dir, home, session.NewStore(filepath.Join(home, ".dashi", "sessions")), func() (appConfig, error) {
+		return runAutomation(ctx, o, stdin, stdout, stderr, dir, home, sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions")), func() (appConfig, error) {
 			return loadCLIConfig(o, home, dir, invocation, stdin, stderr)
 		})
 	}
@@ -115,7 +115,7 @@ func runLines(
 	ui.ctrl = a.ctrl
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
-		if errors.Is(err, session.ErrBusy) {
+		if errors.Is(err, sessionstore.ErrBusy) {
 			fmt.Fprintf(stderr, "dashi: this session is open in another dashi.\n")
 		} else {
 			fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -204,7 +204,7 @@ func runScreen(
 	defer history.close()
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
-		if errors.Is(err, session.ErrBusy) {
+		if errors.Is(err, sessionstore.ErrBusy) {
 			fmt.Fprintf(stderr, "dashi: this session is open in another dashi.\n")
 		} else {
 			fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -266,7 +266,7 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 		return appConfig{}, err
 	}
 	warnPreferenceSources(stderr, user, project)
-	store := session.NewStore(filepath.Join(home, ".dashi", "sessions"))
+	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
 		return appConfig{}, err

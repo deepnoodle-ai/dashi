@@ -39,7 +39,7 @@ Session contracts remain proposed; see the
   closed turns. It is stored as its turns' records and has no record of its own.
   Avoid "thread" and "conversation" as type names. (Proposed; see the [sessions
   PRD](roadmap-research/14-session-continuity-prd.md).)
-- **Session handle**: The Go value (`dashi.Session`) that drives one session in
+- **Session handle**: The Go value (`session.Session`) that drives one session in
   one process or request, with its runner, steering, and cache. It holds no
   durable state: anything that must outlast it belongs in the turn records. Many
   handles, in many processes, can refer to one session over its life.

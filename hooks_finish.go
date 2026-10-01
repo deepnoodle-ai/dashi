@@ -37,7 +37,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		d, err := callHook(hookContext(r.ctx, plan.Turn), h, p)
 		if err == nil {
 			for _, item := range d.Deliver {
-				if e := validateContext(item); e != nil {
+				if e := item.Validate(); e != nil {
 					err = fmt.Errorf("invalid context item: %w", e)
 					break
 				}

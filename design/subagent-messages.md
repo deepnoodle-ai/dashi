@@ -25,7 +25,7 @@ parent Session ──task_send──▶ Tasks ─────SteerItem/Start─�
 - **IDs.** `ChildID(parentTurn, call)` now names the child session. Its turns
   are `TurnID(child, n)`: `<child>-1`, `<child>-2`. `TaskID` hashes the
   session ID, so it is unchanged in form and stable across reopen.
-- **The handle.** Per task, `Tasks` holds `dashi.Session{ID: child, Runner:
+- **The handle.** Per task, `Tasks` holds `session.Session{ID: child, Runner:
   childRunner, Exclusive: true}`. Turn 1 is `Start{Parent: &ref, Agent:
   childAgent, Input: prompt}` with `New`. `Exclusive` holds because one
   `Tasks` is the only driver of its children. No new `Session` field.
@@ -98,7 +98,7 @@ const TaskMessage TaskEventKind = "message" // TaskEvent.Message is set
 
 type Config struct {
     // existing fields
-    Session      *dashi.Session // Tasks delivers to it; nil: route from OnTask
+    Session      *session.Session // Tasks delivers to it; nil: route from OnTask
     MaxMessages  int            // per sending turn and recipient; zero = 8
     MaxTaskTurns int            // per task; zero = 10, negative = none
 }

@@ -55,7 +55,7 @@ func (in *Inbox) Send(steer Steer) (string, error) {
 	if item.Origin == "" {
 		item.Origin = ContextUser
 	}
-	if err := validateContext(item); err != nil {
+	if err := item.Validate(); err != nil {
 		return "", fmt.Errorf("dashi: invalid steer: %w", err)
 	}
 	in.mu.Lock()
@@ -229,6 +229,15 @@ func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
 	clear(in.entries[len(kept):])
 	in.entries = kept
 	return out, nil
+}
+
+// Has reports whether the inbox holds a steer with id: queued, claimed, or
+// in doubt. Send refuses such an ID, so a host that keeps a queue of its own
+// beside the inbox checks it before queueing an item there.
+func (in *Inbox) Has(id string) bool {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return in.find(id) >= 0
 }
 
 func (in *Inbox) find(id string) int {

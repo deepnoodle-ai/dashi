@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -200,7 +201,7 @@ type harness struct {
 	t      *testing.T
 	dir    string
 	home   string
-	store  *session.Store
+	store  *sessionstore.Store
 	client *fakeClient
 	ui     *recorderUI
 	app    *app
@@ -219,7 +220,7 @@ func newHarness(t *testing.T, script ...reply) *harness {
 // newHarnessLimit is newHarness with a model-call limit per turn.
 func newHarnessLimit(t *testing.T, attempts int, script ...reply) *harness {
 	t.Helper()
-	store := session.NewStore(t.TempDir())
+	store := sessionstore.NewStore(t.TempDir())
 	store.DisableSync()
 	h := &harness{
 		t:      t,
@@ -276,7 +277,7 @@ func (h *harness) turn(n int) dashi.Turn {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	turn, err := rec.Load(h.t.Context(), dashi.TurnID(s.ID, n))
+	turn, err := rec.Load(h.t.Context(), session.TurnID(s.ID, n))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -284,7 +285,7 @@ func (h *harness) turn(n int) dashi.Turn {
 }
 
 // turnsOf returns the number of turns a stored session has.
-func turnsOf(t *testing.T, st *session.Store, s *session.Session) int {
+func turnsOf(t *testing.T, st *sessionstore.Store, s *sessionstore.Session) int {
 	t.Helper()
 	rec, err := st.Recorder(s)
 	if err != nil {

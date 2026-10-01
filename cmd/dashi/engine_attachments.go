@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -16,12 +16,12 @@ import (
 // text-only session from opening. Every bound descriptor lives under its lease.
 type engineAttachmentResolver struct {
 	mu      sync.Mutex
-	store   *session.Store
-	session *session.Session
-	bound   *session.AttachmentStore
+	store   *sessionstore.Store
+	session *sessionstore.Session
+	bound   *sessionstore.AttachmentStore
 }
 
-func (r *engineAttachmentResolver) bind() (*session.AttachmentStore, error) {
+func (r *engineAttachmentResolver) bind() (*sessionstore.AttachmentStore, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.bound == nil {

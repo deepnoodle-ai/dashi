@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -28,7 +29,7 @@ func inspectionTestConfig(t *testing.T, script ...reply) appConfig {
 	return cfg
 }
 
-func recordedInspectionSession(t *testing.T, cfg appConfig, prompt string, interrupted bool) *session.Session {
+func recordedInspectionSession(t *testing.T, cfg appConfig, prompt string, interrupted bool) *sessionstore.Session {
 	t.Helper()
 	copyCfg := cfg
 	started := make(chan struct{})
@@ -183,7 +184,7 @@ func TestStatusDuringWorkDoesNotSteerOrAuthorize(t *testing.T) {
 }
 
 func TestInspectionOwnerGuidanceUsesExactPendingCallAndNoFalseRecovery(t *testing.T) {
-	base := session.Inspection{Metadata: session.Session{ID: "target"}, Latest: &session.Execution{Readable: true, Next: dashi.NextResolve, Pending: []session.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
+	base := sessionstore.Inspection{Metadata: sessionstore.Session{ID: "target"}, Latest: &sessionstore.Execution{Readable: true, Next: dashi.NextResolve, Pending: []sessionstore.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
 	own := inspectionOwner{ID: "target", Owned: true, Mode: ModeIdle}
 	got := inspectionGuidance(base, own)
 	if !strings.Contains(got, "verify the exact external effect for call effect-42") || !strings.Contains(got, "/done effect-42") || strings.Contains(got, "Press Enter") {
@@ -289,7 +290,7 @@ func TestSearchCardsAndCanceledSelectionDoNotLoseDraft(t *testing.T) {
 	current := a.eng.Session().ID
 	a.ctrl.Input("/sessions retry handler")
 	a.ctrl.Wait()
-	if len(ui.details) != 1 || !strings.Contains(ui.details[0], "Last request ("+dashi.TurnID(saved.ID, 1)) || !strings.Contains(ui.details[0], "Status: recorded completed") || !strings.Contains(ui.details[0], "Text match (") {
+	if len(ui.details) != 1 || !strings.Contains(ui.details[0], "Last request ("+session.TurnID(saved.ID, 1)) || !strings.Contains(ui.details[0], "Status: recorded completed") || !strings.Contains(ui.details[0], "Text match (") {
 		t.Fatal(ui.details)
 	}
 	if a.eng.Session().ID != current || cfg.Client.(*fakeClient).sends != 0 {
@@ -396,7 +397,7 @@ func TestInspectionEndpointDoesNotConstructClientOrLeakCredentials(t *testing.T)
 		return nil, nil
 	}
 	ctrl := NewController(t.Context(), e, newRecorderUI(), e.cfg.Store, e.cfg.Dir)
-	report := session.Inspection{Metadata: *e.Session(), Latest: &session.Execution{Readable: true, Destination: session.Destination{Provider: "one", API: "openai.responses", Revision: cliRouteRevision + fingerprint}}, NextDestination: session.Destination{Provider: "one"}}
+	report := sessionstore.Inspection{Metadata: *e.Session(), Latest: &sessionstore.Execution{Readable: true, Destination: sessionstore.Destination{Provider: "one", API: "openai.responses", Revision: cliRouteRevision + fingerprint}}, NextDestination: sessionstore.Destination{Provider: "one"}}
 	got := ctrl.inspectionDestinations(report)
 	for _, secret := range []string{"password", "api_key", "SECRET", "fragment", "name:"} {
 		if strings.Contains(got, secret) {

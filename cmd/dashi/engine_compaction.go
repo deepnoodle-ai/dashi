@@ -9,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 type pendingPrompt struct {
@@ -28,7 +29,7 @@ type pendingLine struct {
 
 // configureChat follows the selected model only for new work. Continued
 // turns keep their recorded model, input, and limits.
-func (e *Engine) configureChat() *dashi.Session {
+func (e *Engine) configureChat() *session.Session {
 	e.mu.Lock()
 	chat := e.chat
 	if chat == nil {

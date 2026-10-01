@@ -11,10 +11,11 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func routedTestEngine(t *testing.T, dispatch func(string) (int, string)) (*Engine, *cliPreferences) {
@@ -37,7 +38,7 @@ func routedTestEngine(t *testing.T, dispatch func(string) (int, string)) (*Engin
 			return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {kind}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 		})}})
 	}
-	store := session.NewStore(t.TempDir())
+	store := sessionstore.NewStore(t.TempDir())
 	store.DisableSync()
 	dir, err := canonicalWorkspace(t.TempDir(), "")
 	if err != nil {
@@ -129,12 +130,12 @@ func TestNewDestinationClosesInterruptedOldTurnFirst(t *testing.T) {
 	if err != nil || result.Outcome.Answer != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
 		t.Fatalf("result=%+v error=%v counts=%v", result, err, counts)
 	}
-	first, err := e.handle().Runner.Recorder.(dashi.Loader).Load(context.Background(), dashi.TurnID(e.Session().ID, 1))
+	first, err := e.handle().Runner.Recorder.(dashi.Loader).Load(context.Background(), session.TurnID(e.Session().ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	view, err := dashi.Replay(first)
-	if err != nil || view.Stop.Kind != dashi.StopCanceled || view.Stop.Reason != dashi.CloseReason {
+	if err != nil || view.Stop.Kind != dashi.StopCanceled || view.Stop.Reason != session.CloseReason {
 		t.Fatalf("old turn = %+v %v", view, err)
 	}
 }
@@ -172,7 +173,7 @@ func TestNewDestinationCompletesRecordedOutputBeforeQueuedWork(t *testing.T) {
 	if err != nil || result.Outcome.Answer != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
 		t.Fatalf("result=%+v err=%v counts=%v", result, err, counts)
 	}
-	firstTurn, err := e.handle().Runner.Recorder.(dashi.Loader).Load(t.Context(), dashi.TurnID(e.Session().ID, 1))
+	firstTurn, err := e.handle().Runner.Recorder.(dashi.Loader).Load(t.Context(), session.TurnID(e.Session().ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

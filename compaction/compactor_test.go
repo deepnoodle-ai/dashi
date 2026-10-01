@@ -24,7 +24,7 @@ func replaced(t *testing.T, s dashi.Start, answer string) []llm.Message {
 }
 
 func TestCompactorKeepsToolPairsValidAtEveryCut(t *testing.T) {
-	history, starts := session(6, 400)
+	history, starts := conversation(6, 400)
 	for _, fraction := range []float64{0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7} {
 		c := &Compactor{Policy: policyWith(20_000), TailFraction: fraction}
 		s, err := c.Start(history)
@@ -111,7 +111,7 @@ func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
 
 func TestCompactorNeeded(t *testing.T) {
 	c := New(policyWith(1_000))
-	history, _ := session(2, 10)
+	history, _ := conversation(2, 10)
 	if !c.Needed(history, llm.Usage{InputTokens: 800}) {
 		t.Fatal("not needed at 80%")
 	}
@@ -134,7 +134,7 @@ func system(text string) llm.Message {
 // A summary model with a smaller window than the session's sizes the
 // transcript and the output allowance to its own window.
 func TestCompactorSummaryModelWindow(t *testing.T) {
-	history, _ := session(8, 400_000) // about 800k tokens
+	history, _ := conversation(8, 400_000) // about 800k tokens
 	session := &Compactor{Policy: policyWith(1_000_000), TailFraction: -1}
 	small := *session
 	small.Model = "claude-haiku-4-5" // a 200k-token window in the catalog
@@ -160,7 +160,7 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 }
 
 func TestCompactorKeepsTailWithinBudget(t *testing.T) {
-	history, starts := session(4, 2_000)
+	history, starts := conversation(4, 2_000)
 	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestCompactorKeepsTailWithinBudget(t *testing.T) {
 }
 
 func TestCompactorSummarizesAllWhenNewestTurnIsTooLarge(t *testing.T) {
-	history, _ := session(3, 100)
+	history, _ := conversation(3, 100)
 	history = append(history, exchange(3, 60_000)...)
 	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
 	if err != nil {

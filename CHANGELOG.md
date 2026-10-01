@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`Session` moves to package `session`.** Import
+  `github.com/deepnoodle-ai/dashi/session` and write `session.Session`. It is
+  built only on the public `Runner` API, which any host can use. Names that
+  only a session uses move with it, without the redundant prefix:
+  `SessionState` is `session.State`, `SessionIndex` is `session.Index`,
+  `ErrSessionNotFound` is `session.ErrNotFound`, and `ErrSessionExists` is
+  `session.ErrExists`. `TurnID`, `Liveness` and its constants,
+  `TurnLiveness`, `TurnBusyError`, `ErrTurnBusy`, `Queued`, `Compactor`,
+  `ErrNothingToCompact`, `CloseReason`, and the warning codes `turn_closed`,
+  `memory_only`, `queue_blocked`, and `compaction_failed` keep their names in
+  package `session`. The session's own error messages begin with `session:`
+  instead of `dashi:`. `Say`, `Inbox`, `WarningTurnUnreadable`, and
+  `WarningCompactionMismatch` stay in `dashi`.
+
+### Added
+
+- **Helpers for hosts that drive `Runner` directly.** `Runner.CacheKey` sets
+  a conversation's prompt cache key; `Recorded(err)` tells a failure after
+  recording began from a rejected command; `Turn.Clone` deep-copies a turn;
+  `ContextItem.Validate` checks context input; `TurnView.ReplacementHistory`
+  returns a compaction turn's replacement history; `Inbox.Has` reports a held
+  steer ID; and `DerivedRevisionPrefix` marks a revision the runner derived.
+
 ## [0.1.1] - 2026-10-01
 
 ### Changed

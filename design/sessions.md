@@ -14,11 +14,12 @@ This document covers track 3, the session core; the CLI port is track 4. Terms
 ## Layers
 
 `Runner.Run(ctx, turn, command)` stays the public engine for servers that
-schedule their own work, recovery workers, and tests. `dashi.Session` sits above
+schedule their own work, recovery workers, and tests. `session.Session` sits above
 it and uses only the public engine API: `Run`, `Stream`, `Replay`, `Project`,
 `Loader`, `StepReader`. It is `http.Get` over `Client.Do`: two levels of one
-design. `Session` lives in package `dashi`; `compaction` imports `dashi`, so the
-session takes a `Compactor` interface.
+design. `Session` lives in package `session`, which imports `dashi` and never
+the reverse; `compaction` implements its `Compactor` interface, so the session
+imports no compactor.
 
 ## The type
 
@@ -28,7 +29,7 @@ type Session struct {
     // (NewID), readable from ID after the first Start.
     ID string
     // New creates the session: the first Start makes turn 1, and a session
-    // that already has turns fails with ErrSessionExists.
+    // that already has turns fails with ErrExists.
     New bool
     // Runner supplies services. A nil Recorder becomes one in-memory
     // recorder that the handle keeps across calls.
@@ -56,7 +57,7 @@ func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
 func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, error)
 func (s *Session) RunQueue(ctx context.Context, opts ...RunOption) (Outcome, bool, error)
-func (s *Session) Open(ctx context.Context) (SessionState, error)
+func (s *Session) Open(ctx context.Context) (State, error)
 func (s *Session) History(ctx context.Context) ([]llm.Message, error)          // conversation history
 func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) // what the next turn sends
 func (s *Session) Turns(ctx context.Context) iter.Seq2[Turn, error]
@@ -71,7 +72,7 @@ other command (`Continue`, `Settle`, `Deliver`, `Cancel`) goes to the last turn.
 The session fills `Start.History` and `Continue.History` with the projected
 history of the turns before the target turn, the turn ID, and, on a `Start`, the
 merged agent ([session-engine.md](session-engine.md#carry-forward)). A command
-on a session with no turns returns `ErrSessionNotFound`.
+on a session with no turns returns `session.ErrNotFound`.
 
 **`Send`** is exactly `Run(ctx, Say(text), opts...)`. It must stay a one-line
 wrapper; drifting entry points made one peer's streaming path ignore its session
@@ -107,15 +108,15 @@ application; the CLI's `session.json` is the model.
 // TurnID returns the ID of turn n (from 1) of a session.
 func TurnID(sessionID string, n int) string
 
-// SessionIndex is an optional Recorder capability for sessions.
-type SessionIndex interface {
+// Index is an optional Recorder capability for sessions.
+type Index interface {
     // LastTurn returns the highest turn number recorded for the session,
     // or 0 when it has none.
     LastTurn(ctx context.Context, sessionID string) (int, error)
 }
 ```
 
-**Probing.** Without `SessionIndex`, the session finds the last turn by doubling
+**Probing.** Without `session.Index`, the session finds the last turn by doubling
 the distance *d* (1, 2, 4, …) past the last turn it knows exists (0 at first)
 until a turn is missing, then binary-searching. A probe reads one step with
 `StepsAfter(id, 0, 1)` on a `StepReader`, or calls `Load`, where
@@ -127,7 +128,7 @@ the turns it ran.
 
 Probing needs turns numbered from 1 without gaps. The session never skips a
 number: a `Start` always targets `last+1`. A host that deletes turns (later)
-must implement `SessionIndex`. `filerecorder` implements it by which turn logs
+must implement `session.Index`. `filerecorder` implements it by which turn logs
 exist, the same search over file names with no side index, so a damaged log
 is found without being read and is then skipped as unreadable.
 
@@ -313,7 +314,7 @@ usual retry arrives while its turn still runs.
    stop gets step 5, never a success for a turn still running.
 
 A host that needs a longer window deduplicates at admission. A later optional
-`SessionIndex` method can find a turn by `CommandID`.
+`session.Index` method can find a turn by `CommandID`.
 
 ## Opening and creating
 
@@ -321,7 +322,7 @@ A host that needs a longer window deduplicates at admission. A later optional
 its state. It never runs anything:
 
 ```go
-type SessionState struct {
+type State struct {
     Turns  int       // number of the last turn; 0 for a new session
     Last   *TurnView // nil when Turns is 0
     Next   Next      // refined with liveness
@@ -329,8 +330,8 @@ type SessionState struct {
 }
 ```
 
-An ID with no turns is `ErrSessionNotFound`, unless `New` is set. With `New`, a
-session that already has turns fails with `ErrSessionExists`, except for an
+An ID with no turns is `session.ErrNotFound`, unless `New` is set. With `New`, a
+session that already has turns fails with `session.ErrExists`, except for an
 idempotent retry of the first `Start`, which the check above finds first. `New`
 stops applying once the handle starts turn 1 or finds turns without `New`, so
 the handle that creates a session keeps using it. An empty ID is always new.
@@ -354,8 +355,8 @@ return theirs in `Queued.Warnings`.
 | Name | Kind | When |
 |---|---|---|
 | `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that may still be running |
-| `ErrSessionNotFound` | error | An ID with no turns and no `New` |
-| `ErrSessionExists` | error | `New` on a session with turns |
+| `session.ErrNotFound` | error | An ID with no turns and no `New` |
+| `session.ErrExists` | error | `New` on a session with turns |
 | `ErrCommandConflict` | error (engine) | Same key, different input |
 | `turn_closed` | warning | A new `Start` closed the last turn |
 | `memory_only` | warning | In-memory recorder; or input queued under a durable recorder |
@@ -366,7 +367,7 @@ return theirs in `Queued.Warnings`.
 
 ## Conformance checks
 
-`dashitest` gains checks for any recorder that implements `SessionIndex` (it
+`dashitest` gains checks for any recorder that implements `session.Index` (it
 agrees with the turns committed, including after a race on `S-n`) and a probing
 check (a session of 1, 2, and 3 turns is found with at most `2·log2(n)+2` reads,
 plus one to load the last turn, through `StepReader` and through `Loader` alone,

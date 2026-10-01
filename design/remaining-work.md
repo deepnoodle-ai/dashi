@@ -193,7 +193,7 @@ external settle, a family budget cap over a host ledger, and a child index.
 
 ### 14. Sessions
 
-**Status:** Designed, 2026-09-29; not built. `dashi.Session` is a handle over
+**Status:** Designed, 2026-09-29; not built. `session.Session` is a handle over
 the unchanged engine: turn records are the only truth (turn IDs `S-n`), a new
 message refuses only on a busy turn (live, possibly live when neither
 `TurnLiveness` nor `Session.Exclusive` proves it stopped, waiting, or holding an
@@ -202,7 +202,7 @@ cancels the turn) and closes other stopped turns, a lost worker's turn
 is taken over with `Continue{}` rather than replaced, sends are idempotent,
 input is steered or queued, compaction is a
 turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
-`cmd/dashi/session` store is the working prototype it replaces. **Size:** L.
+`cmd/dashi/sessionstore` store is the working prototype it replaces. **Size:** L.
 **Difficulty:** High. **Reference:**
 [PRD](roadmap-research/14-session-continuity-prd.md); tech spec
 [sessions.md](sessions.md), [session-engine.md](session-engine.md),
@@ -212,7 +212,7 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
    the crash-resume reminder.
 2. `Agent` on `Start` (L): tool selection, `CurrentTurn`, `TurnView.Origin`, one
    runner in the CLI.
-3. Session core (L): `Session`, `S-n` IDs, `SessionIndex`, `TurnLiveness`,
+3. Session core (L): `Session`, `S-n` IDs, `session.Index`, `TurnLiveness`,
    `Exclusive`, idempotency; a keyless `chat` example on `dashitest`.
 4. Steering, the in-memory queue, and the CLI (M): dispatch on idle; port
    `examples/delegate` to `RunUntilQuiet`; port `cmd/dashi`.
@@ -221,7 +221,7 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
 
 Later, each with its own note: the durable queue (first), mid-turn compaction,
 fork, rewind, deletion and retention, replacing a running turn
-across processes, and a `SessionIndex` lookup by `CommandID`. When a caller
+across processes, and a `session.Index` lookup by `CommandID`. When a caller
 needs them: `KeepStopped`, `Withdraw`, and `FollowSession`. Child sessions
 moved to item 13's third slice.
 
@@ -235,7 +235,7 @@ research](roadmap-research/14-session-continuity-research.md) ·
 39](decisions.md)). `Session.Compactor` runs a compaction turn before a new
 turn when the last call used 80% of the window; the turn records the
 replacement history, which every reader honors. `compaction.Compactor`
-implements `dashi.Compactor` and makes no model call; `Compact`, `Project`, and
+implements `session.Compactor` and makes no model call; `Compact`, `Project`, and
 `Record` stay for hosts that drive the engine directly. `examples/compaction`
 runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
 [guide](../docs/guides/compaction.md),

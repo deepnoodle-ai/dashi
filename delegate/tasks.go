@@ -17,6 +17,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -138,7 +139,7 @@ type task struct {
 	parent        dashi.CallRef
 	sub           Subagent
 	description   string
-	session       *dashi.Session
+	session       *session.Session
 
 	// turns holds one entry per child turn, in order.
 	turns []*childTurn
@@ -530,7 +531,7 @@ func loadRecord(
 ) (record, error) {
 	var rec record
 	for n := 1; ; n++ {
-		turn, err := loader.Load(ctx, dashi.TurnID(sessionID, n))
+		turn, err := loader.Load(ctx, session.TurnID(sessionID, n))
 		if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
 			return rec, nil
 		}
@@ -697,7 +698,7 @@ func (ts *Tasks) startTurnLocked(
 		return err
 	}
 	t.turns = append(t.turns, &childTurn{
-		id:    dashi.TurnID(t.sessionID, len(t.turns)+1),
+		id:    session.TurnID(t.sessionID, len(t.turns)+1),
 		state: TaskRunning,
 	})
 	ts.launchLocked(ctx, t, start)
@@ -926,8 +927,8 @@ func (ts *Tasks) toParent(steer dashi.Steer) {
 
 // refusesSteers reports whether err is the session refusing any steer, not
 // this one: a compaction turn runs, or the host supplies the steering source.
-func refusesSteers(s *dashi.Session, err error) bool {
-	var busy *dashi.TurnBusyError
+func refusesSteers(s *session.Session, err error) bool {
+	var busy *session.TurnBusyError
 	if errors.As(err, &busy) && busy.Origin == dashi.StartCompaction {
 		return true
 	}
@@ -1214,8 +1215,8 @@ func isTaskTool(name string) bool {
 
 // childSession returns the handle that drives a task's child session. Tasks
 // is its only driver, so it is Exclusive. create sets New, for turn 1.
-func childSession(t *task, runner dashi.Runner, create bool) *dashi.Session {
-	return &dashi.Session{
+func childSession(t *task, runner dashi.Runner, create bool) *session.Session {
+	return &session.Session{
 		ID:        t.sessionID,
 		New:       create,
 		Runner:    runner,

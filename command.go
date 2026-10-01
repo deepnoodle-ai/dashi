@@ -108,6 +108,11 @@ func (c Start) commandID() string {
 	return c.CommandID
 }
 
+// Say returns a Start holding one user text message.
+func Say(text string) Start {
+	return Start{Input: []llm.Message{llm.UserMessage(llm.Text(text))}}
+}
+
 func (c Deliver) commandID() string {
 	return c.CommandID
 }

@@ -235,7 +235,7 @@ func writeJSONB(buf *bytes.Buffer, value any) {
 	}
 }
 
-// indexedStore implements dashi.SessionIndex as a host table would: it
+// indexedStore implements session.Index as a host table would: it
 // parses each started turn's ID from the right. With prefix set, it counts
 // every turn whose ID starts with the session ID instead, so a session
 // whose ID extends another's inflates its count.

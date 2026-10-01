@@ -12,8 +12,9 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/delegate"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -63,7 +64,7 @@ type Chooser interface {
 type Controller struct {
 	eng            *Engine
 	ui             UI
-	store          *session.Store
+	store          *sessionstore.Store
 	dir            string
 	attachmentRoot string
 
@@ -95,7 +96,7 @@ func NewController(
 	base context.Context,
 	eng *Engine,
 	ui UI,
-	store *session.Store,
+	store *sessionstore.Store,
 	dir string,
 ) *Controller {
 	c := &Controller{
@@ -560,7 +561,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) bool {
 // busyText says what to do when the session refuses a prompt, or returns
 // the error's own text.
 func busyText(err error) string {
-	var busy *dashi.TurnBusyError
+	var busy *session.TurnBusyError
 	if !errors.As(err, &busy) {
 		return err.Error()
 	}

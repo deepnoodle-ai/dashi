@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/content/mention"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -58,7 +58,7 @@ func (d *attachmentDraft) prepareInput() (*submittedInput, error) {
 			return nil, fmt.Errorf("attachment %d is not ready", e.number)
 		}
 	}
-	id, err := session.NewAttachmentID()
+	id, err := sessionstore.NewAttachmentID()
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (d *attachmentDraft) prepareInput() (*submittedInput, error) {
 	in := &submittedInput{id: id, draftRevision: d.revision, displayText: d.outboundText()}
 	parts := []llm.Content{llm.Text(in.displayText)}
 	for _, e := range d.entries {
-		snapshotID, err := session.NewAttachmentID()
+		snapshotID, err := sessionstore.NewAttachmentID()
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +106,7 @@ func (d *attachmentDraft) prepareInput() (*submittedInput, error) {
 	return in, nil
 }
 
-func (in *submittedInput) publish(ctx context.Context, store *session.AttachmentStore) error {
+func (in *submittedInput) publish(ctx context.Context, store *sessionstore.AttachmentStore) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	if in.acknowledged {

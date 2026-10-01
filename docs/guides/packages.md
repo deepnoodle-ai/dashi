@@ -25,6 +25,8 @@ other.
   recorder for recovery tests.
 - `feed`: Serves a turn to live readers: committed steps from the record with
   the runner's live previews merged in place.
+- `session`: A conversation of many turns on a `dashi.Runner`: turn numbers,
+  history, the carried agent, queued and steered input, and compaction.
 - `compaction`: Shortens a long history with a summary: a `Compactor` for a
   session's compaction turns, and `Compact` and `Project` for a host-owned
   history.
@@ -55,9 +57,10 @@ Providers → `catalog` → `llm` → `tool` → `content`; `llm`, `media`, and
 `speech` share `model` identity and evidence. Shared content, model, and money
 depend only on the standard library; `money` is a leaf so that `tool` can
 report exact charges without importing `llm`. The root agent loop depends on
-`llm` and `tool`; `filerecorder`, `dashitest`, and `feed` depend only on the
-root package and the standard library. Session storage remains an optional
-future adapter.
+`llm` and `tool`. `session`, `feed`, `filerecorder`, and `dashitest` build on
+the root package, and the root package imports none of them; `filerecorder`
+and `dashitest` also import `session`, whose recorder capabilities they
+implement and check. Session storage remains an optional future adapter.
 
 The Google adapter depends on `google.golang.org/genai` and gRPC, so it is its
 own module and the root module does not require them. The other providers use

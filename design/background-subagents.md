@@ -78,7 +78,7 @@ type TaskView struct { ID, ChildID, Subagent, Description string; Parent dashi.C
 func (v TaskView) Notice() Notice
 func (n Notice) Text() string; func (n Notice) Steer() dashi.Steer
 func NoticeID(childID string) string        // "task-done:" + childID
-func RunUntilQuiet(ctx context.Context, s *dashi.Session, t *Tasks,
+func RunUntilQuiet(ctx context.Context, s *session.Session, t *Tasks,
     opts ...dashi.RunOption) (dashi.Outcome, error)
 ```
 
@@ -200,7 +200,7 @@ check after each test.
 1. **Background is the only mode.** The user asked; there are no users.
 2. **A host-owned `Tasks` owns children**, so their life does not depend on one
    tool call. The library does not use "session". (Superseded by
-   [decision 42](decisions.md): each task runs in a child `dashi.Session`
+   [decision 42](decisions.md): each task runs in a child `session.Session`
    that `Tasks` drives.)
 3. **Status and result are one tool**, with a 60 second wait cap.
 4. **The notice uses the existing steer path**, origin `ContextTool`.

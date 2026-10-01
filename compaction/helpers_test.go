@@ -41,8 +41,8 @@ func exchange(n, size int) []llm.Message {
 	}
 }
 
-// session builds a history of turns Turns and the index where each starts.
-func session(turns, size int) ([]llm.Message, []int) {
+// conversation builds a history of turns Turns and the index where each starts.
+func conversation(turns, size int) ([]llm.Message, []int) {
 	var history []llm.Message
 	var starts []int
 	for n := 0; n < turns; n++ {

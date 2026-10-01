@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // Reader loads recorded Turns without creating, syncing, claiming, or repairing
@@ -21,8 +22,8 @@ import (
 type Reader struct{ root *os.Root }
 
 var (
-	_ dashi.Loader       = (*Reader)(nil)
-	_ dashi.SessionIndex = (*Reader)(nil)
+	_ dashi.Loader  = (*Reader)(nil)
+	_ session.Index = (*Reader)(nil)
 )
 
 // OpenReader opens an existing log directory. Missing storage wraps
@@ -172,7 +173,7 @@ func lastTurn(ctx context.Context, sessionID string, hasLog func(string) (bool, 
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		ok, err := hasLog(dashi.TurnID(sessionID, n))
+		ok, err := hasLog(session.TurnID(sessionID, n))
 		if err != nil {
 			return 0, err
 		}
@@ -195,7 +196,7 @@ func lastTurn(ctx context.Context, sessionID string, hasLog func(string) (bool, 
 			return 0, err
 		}
 		mid := lo + (hi-lo)/2
-		ok, err := hasLog(dashi.TurnID(sessionID, mid))
+		ok, err := hasLog(session.TurnID(sessionID, mid))
 		if err != nil {
 			return 0, err
 		}

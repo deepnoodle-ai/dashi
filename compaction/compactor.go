@@ -6,9 +6,10 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
-// Compactor implements dashi.Compactor. Set it as Session.Compactor, and
+// Compactor implements session.Compactor. Set it as Session.Compactor, and
 // the session runs a compaction turn when the last model call used
 // Policy's share of the window. A host that keeps its own turns calls
 // Needed and Start itself and runs the Start with its own Runner. The
@@ -141,4 +142,4 @@ func isResult(c llm.Content) bool {
 	return c.ToolResult != nil
 }
 
-var _ dashi.Compactor = (*Compactor)(nil)
+var _ session.Compactor = (*Compactor)(nil)

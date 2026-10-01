@@ -13,9 +13,10 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -131,7 +132,7 @@ func sanitizeAutomationDiagnostic(value string) string {
 }
 func loadAutomationSnapshot(ctx context.Context, loader interface {
 	dashi.Loader
-	dashi.SessionIndex
+	session.Index
 }, id string) (automationSnapshot, error) {
 	var snap automationSnapshot
 	n, err := loader.LastTurn(ctx, id)
@@ -141,9 +142,9 @@ func loadAutomationSnapshot(ctx context.Context, loader interface {
 	var views []dashi.TurnView
 	var parents []dashi.Turn
 	for i := 1; i <= n; i++ {
-		turn, err := loader.Load(ctx, dashi.TurnID(id, i))
+		turn, err := loader.Load(ctx, session.TurnID(id, i))
 		if err != nil {
-			return snap, fmt.Errorf("required parent Turn %s is unreadable", dashi.TurnID(id, i))
+			return snap, fmt.Errorf("required parent Turn %s is unreadable", session.TurnID(id, i))
 		}
 		view, err := dashi.Replay(turn)
 		if err != nil {
@@ -204,7 +205,7 @@ func loadAutomationSnapshot(ctx context.Context, loader interface {
 	}
 	return snap, nil
 }
-func openAutomationSaved(ctx context.Context, store *session.Store, dir string, o Options) (*session.Session, *filerecorder.Reader, func(), error) {
+func openAutomationSaved(ctx context.Context, store *sessionstore.Store, dir string, o Options) (*sessionstore.Session, *filerecorder.Reader, func(), error) {
 	id := o.ResumeID
 	if id == "" {
 		result, err := store.Search(ctx, dir, "")
@@ -212,7 +213,7 @@ func openAutomationSaved(ctx context.Context, store *session.Store, dir string, 
 			return nil, nil, nil, err
 		}
 		if len(result.Matches) == 0 {
-			return nil, nil, nil, session.ErrNotFound
+			return nil, nil, nil, sessionstore.ErrNotFound
 		}
 		id = result.Matches[0].Card.Metadata.ID
 	}
@@ -232,7 +233,7 @@ func openAutomationSaved(ctx context.Context, store *session.Store, dir string, 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	fail := func(err error) (*session.Session, *filerecorder.Reader, func(), error) {
+	fail := func(err error) (*sessionstore.Session, *filerecorder.Reader, func(), error) {
 		unlock()
 		return nil, nil, nil, err
 	}
