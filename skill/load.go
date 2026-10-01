@@ -330,7 +330,15 @@ func statProblem(path string, err error) string {
 func loadFolder(dir, base string) (entry, bool, []Warning) {
 	path := filepath.Join(dir, skillFile)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return entry{}, false, nil
+		// Lstat tells an absent file from a symlink whose target is gone.
+		if _, linkErr := os.Lstat(path); linkErr != nil {
+			return entry{}, false, nil
+		}
+		return entry{}, false, []Warning{{
+			Path:    path,
+			Message: statProblem(path, err),
+			Skipped: true,
+		}}
 	}
 	return loadFile(path, base, dir)
 }

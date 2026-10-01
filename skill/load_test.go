@@ -160,6 +160,23 @@ func TestLoadDirsSkipsContainerFolderSilently(t *testing.T) {
 	}
 }
 
+func TestLoadDirsReportsBrokenSkillFileSymlink(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "linked")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing.md"), filepath.Join(folder, "SKILL.md")); err != nil {
+		t.Skip(err)
+	}
+	set, warns := skill.LoadDirs(root)
+	if len(set.Skills()) != 0 || len(warns) != 1 || !warns[0].Skipped ||
+		warns[0].Path != filepath.Join(folder, "SKILL.md") ||
+		!strings.Contains(warns[0].Message, "broken symlink") {
+		t.Fatalf("skills = %+v warnings = %+v", set.Skills(), warns)
+	}
+}
+
 func TestLoadDirsReportsBrokenSymlink(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "gone")); err != nil {
