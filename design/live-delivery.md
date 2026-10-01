@@ -40,14 +40,13 @@ previews count against the 64-slot bound. A preview that does not fit, after
 evicting the oldest queued progress as today, is dropped and sets a flag. The
 next event *enqueued*, or `close`, first enqueues one `Event{TurnID,
 ModelCallID, MessageID, Gap: true}` naming the message that lost deltas;
-markers do not count against the bound, and consecutive drops make one
-marker. Evicted progress sets no gap: each snapshot replaces the last and the
-settled step follows (tool-progress.md). Consumer rules: after a gap, discard
-that message's preview and ignore its later deltas until its `model_call_finished`
+markers do not count against the bound, and consecutive drops make one marker.
+Evicted progress sets no gap: each snapshot replaces the last and the finish
+step follows (tool-progress.md). Consumer rules: after a gap, discard that
+message's preview and ignore its later deltas until its `model_call_finished`
 step arrives; a gap with no such step after it (only when a commit failed and
-the run ended) means load the turn. A step whose commit ended with unknown
-persistence is only in the record. `Stream` never drops, so it never yields a
-gap.
+the run ended) means load the turn. A step whose commit has an unknown result
+is only in the record. `Stream` never drops, so it never yields a gap.
 
 *Order.* Events from one invocation arrive in order. Each `Run` or `Stream`
 has its own delivery goroutine that keeps draining after the call returns, so
@@ -81,72 +80,71 @@ cursor is owner-independent: a `Claim` or a new worker continues the same
 - waits on the reader's `StepWaiter` when present, with a 15 s backstop poll,
   or polls every second without one; a `Wait` error is a hint failure and
   falls back to polling;
-- polls every 30 s while the last step is a non-terminal stop, so a turn
-  waiting days for approval does not cost a query per second per tab;
-- rereads the step at a positive cursor first, so a reader resuming at a
-  terminal stop ends at once and one resuming at a resting stop polls slowly;
+- polls every 30 s while the last step is a stop that did not end the turn, so
+  a turn waiting days for approval does not cost a query per second per tab;
+- rereads the step at a positive cursor first, so a reader resuming at an
+  ending stop ends at once and one resuming at a resting stop polls slowly;
 - pauses briefly after a wake that found nothing, so a waiter that wakes
   falsely cannot make it spin;
-- ends when ctx ends, after a terminal stop (decision 4), or after yielding a
+- ends when ctx ends, after an ending stop (decision 4), or after yielding a
   read error. Ending never affects the turn.
 
 Correctness comes from paging, never from the wake. The intervals are
 constants.
 
-**4. A terminal stop means the turn is over.** `Stop.Ended` (recorded as
-`"terminal"`, omitted when false) is set in one place, `rt.commit` of a
-`StepTurnStopped` step, from `replayState.terminal()` on the state after that step.
-That covers `stop`, `stopWith`, `Cancel`, the interruptions stop inside
-`Continue`, and stops the hooks work adds. Replay recomputes it after each stop
-and rejects a recorded value that differs (`ErrRecordInvalid`). It is not
+**4. An ending stop means the turn is over.** `Stop.Ended` (recorded as
+`"ended"`, omitted when false) is set in one place, `rt.commit` of a
+`StepTurnStopped` step, from `replayState.terminal()` on the state after that
+step. That covers `stop`, `stopWith`, `Cancel`, the resumes stop inside
+`Continue`, and stops the hooks work adds. Replay recomputes it after each
+stop and rejects a recorded value that differs (`ErrRecordInvalid`). It is not
 `canContinue`, which asks whether `Continue` can run *now* and is false while
-waiting on approvals, reconciliation, or a raise. The terminal cases, checked
-against the code:
+waiting on approvals, a host-resolved model call, or a raise. The ending
+cases, checked against the code:
 
 - `completed` and `canceled`;
-- `limited` with `Limit.Kind` `deadline` or `interruptions` (keyed on the
+- `limited` with `Limit.Kind` `deadline` or `resumes` (keyed on the
   kind, not the reason string);
 - any `limited` stop once `ModelCalls` reaches the agent's limit;
 - `limited` by `cost` when spend includes an unknown cost.
 
-Not terminal: `waiting`, `interrupted`, `failed` (including reason
-`hook_failed` from hooks, which is not counted as an interruption),
-`refused`, `uncertain`, and `limited` by `provider_pauses`, `output_tokens`,
+Not ending: `waiting`, `interrupted`, `failed` (including reason `hook_failed`
+from hooks, which does not count toward `Limits.Resumes`), `refused`,
+`result_unknown`, and `limited` by `provider_pauses`, `output_tokens`,
 `total_tokens`, `host`, or cost with an unpriced model or no raise yet.
-Invariant, tested: `terminal()` implies `Continue` is refused with
-any raise. Every input only grows (attempts, unknown cost) or is fixed at
-Start (agent limits, deadline), so a recorded `true` stays true. A recorded
-`false` stays accurate because a turn becomes non-continuable only through a
-recorded stop: only model results raise those counts, and replay rejects one
-that would make an open limited stop terminal; `Resolve` checks this before
-saving. Cost of a field over a method: if decision 25 later lets `Continue`
-raise agent limits, old records carry a stale value; acceptable before
-release.
+Invariant, tested: `terminal()` implies `Continue` is refused with any raise.
+Every input only grows (model calls, unknown cost) or is fixed at Start (agent
+limits, deadline), so a recorded `true` stays true. A recorded `false` stays
+accurate because a turn becomes non-continuable only through a recorded stop:
+only model results raise those counts, and replay rejects one that would make
+an open limited stop end the turn; `Resolve` checks this before saving. Cost
+of a field over a method: if decision 25 later lets `Continue` raise agent
+limits, old records carry a stale value; acceptable before release.
 
-*After a terminal stop the record accepts only late results of work that had
+*After an ending stop the record accepts only late results of work that had
 already started* (`StepModelCallFinished`, `StepModelCallFinishedByHost`,
 `StepToolFinished`), as a canceled turn does today. Replay applies the cancel
-rules to every terminal stop: unstarted calls settle as not executed and
-pending hosted approvals clear, so no UI offers "Approve" on a dead turn; a
-late model result's tool calls never enter the turn (the two replay checks
-and the top of `run()` that test "canceled" today test "terminal"). After the
-idempotent-retry check, so a retried `Cancel` still gets its recorded answer,
+rules to every ending stop: unstarted calls finish as not executed and pending
+provider tool approvals clear, so no UI offers "Approve" on a dead turn; a
+late model result's tool calls never enter the turn (the two replay checks and
+the top of `run()` that test "canceled" today test "ended"). After the
+idempotent-retry check, so a retried `Cancel` still gets its recorded result,
 the runner rejects `AddMessages`, approvals, `Cancel`, raises, new work, and a
-`Resolve` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
+`Resolve` for a call the ending rules finished with `ErrTurnEnded` ("dashi:
 turn has ended"). `canContinue` also keys on `Limit.Kind`, so the two checks
-cannot disagree. Late results may therefore follow a
-terminal stop: `Follow` ending there is a display convenience; a reload or
-`StepsAfter` from the stop's `Seq` shows them. A reader that must see every step
-(accounting, mirroring) keeps its cursor.
+cannot disagree. Late results may therefore follow an ending stop: `Follow`
+ending there is a display convenience; a reload or `StepsAfter` from the
+stop's `Seq` shows them. A reader that must see every step (accounting,
+mirroring) keeps its cursor.
 
 **5. Reasoning is never altered in the record; previews are tagged by kind.**
 Every delta carries `Delta.Kind`, and progress is its own field. Reasoning
 previews stay on by default: the Observer and `Stream` feed trusted
 application code, and the record holds the same reasoning for provider
 replay, so hiding previews alone protects nothing. A `Step` is the internal
-record: project it, never send it verbatim. The projection removes
+record: filter it, never send it verbatim. The filter removes
 `ModelFact.Result.Raw`, encrypted or signed reasoning, the `StartFact` agent
-(instructions, tool definitions), command digests, and owners.
+(instructions, tool definitions), command hashes, and owners.
 
 **6. Scope is one turn.** A cursor is a turn's `Seq`. A conversation-wide
 cursor belongs to the host (decision 19); no helper.
@@ -161,9 +159,9 @@ cursor belongs to the host (decision 19); no helper.
 // in their own commit). Event gains:
 Gap bool // MessageID lost deltas here; ignore it until its step
 
-// Stop, "a turn's terminal or resumable condition", gains:
-// Terminal means the turn is over: no command can run it again.
-Terminal bool `json:"terminal,omitempty"`
+// Stop, "a turn's ending or resumable condition", gains:
+// Ended means the turn is over: no command can run it again.
+Ended bool `json:"ended,omitempty"`
 var ErrTurnEnded = errors.New("dashi: turn has ended")
 
 // StepReader is an optional Recorder capability for live readers.
@@ -184,16 +182,16 @@ type StepWaiter interface {
 }
 func Follow(ctx context.Context, r StepReader, turnID string,
 	after int64) iter.Seq2[Step, error]
-// Settles names the previews a step supersedes: the MessageID of
+// Finishes names the previews a step supersedes: the MessageID of
 // model_call_finished or model_call_finished_by_host, or the call ID of tool_finished.
-func (s Step) Settles() string
+func (s Step) Finishes() string
 var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 ```
 
 **The web handler** in the guide serves committed steps and runs in the
 tests. It authorizes the turn first (`Follow` on an unknown turn waits
 forever); reads the cursor from `Last-Event-ID`, falling back to `?after=`;
-projects every step and sends it with `id: Seq`; sends `end` at a terminal
+filters every step and sends it with `id: Seq`; sends `end` at an ending
 stop and answers `204` to a reconnect at one, so `EventSource` stops; and, on
 `ErrCursorAhead` (a wrong turn, a replica read, a filerecorder line lost to a
 failed fsync), tells the client to reset rather than retry. `Follow` needs
@@ -214,9 +212,9 @@ after LIMIT limit+1` to detect `ErrCursorAhead` in one query (special-casing
 ## Plan
 
 **PR A** (#48, merged): `Event`/`Observer` moved to `observer.go`; lossless
-steps and the gap; `Stop.Ended` and the terminal-stop tightening.
+steps and the gap; `Stop.Ended` and the ending-stop tightening.
 
-**PR B**: `StepReader`, `StepWaiter`, `Follow`, `Step.Settles`, the memory
+**PR B**: `StepReader`, `StepWaiter`, `Follow`, `Step.Finishes`, the memory
 and file implementations, conformance, the guide's web handler (run by
 `run_follow_public_test.go`), and `examples/live_follow`.
 

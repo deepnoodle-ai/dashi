@@ -9,18 +9,19 @@ tag in ordinary user text cannot create a typed reminder or raise authority.
 
 ## Lifetime and record
 
-`Start.Input` and `AddMessages` accept `llm.ReminderMessage`. `BeforeModel` can
-return one through `ModelDecision.AddMessages`. The full typed content is saved in
-the turn record and reconstructed by `TurnMessagesFull`, including after an external tool
-wait or process restart. A `ContextItem.Snapshot` item supersedes older items
-of the same origin and context-item name: `Turn.Context` returns the latest,
-and the reminder instruction tells the model the latest of a name is current.
-The model projection keeps the older copies in place and appends the new one,
-so the prompt prefix stays cacheable ([prompt caching](prompt-cache.md)).
-`NextCallOnly` keeps a recorded item until a later model call shows evidence of
-dispatch (a provider response or rejection); after an ambiguous crash the resent
-call carries it again, so it may reach the model twice rather than never.
-Neither rule edits the saved facts.
+`Start.Input` and `AddMessages` accept `llm.ReminderMessage`. `BeforeModel`
+can return one through `ModelDecision.AddMessages`. The full typed content is
+saved in the turn record and reconstructed by `TurnMessagesFull`, including
+after an external tool wait or process restart. A `ContextItem.Snapshot` item
+supersedes older items of the same origin and context-item name:
+`Turn.Context` returns the latest, and the reminder instruction tells the
+model the latest of a name is current. The messages the model sees keep the
+older copies in place and add the new one, so the prompt prefix stays
+cacheable ([prompt caching](prompt-cache.md)). `NextCallOnly` keeps a recorded
+item until a later model call shows evidence of dispatch (a provider response
+or rejection); after an ambiguous crash the resent call carries it again, so
+it may reach the model twice rather than never. Neither rule edits the saved
+facts.
 
 This matches Nvoken's choice to keep application context in its authoritative
 transcript. Nvoken also deduplicates unchanged named values and carries them
@@ -48,7 +49,7 @@ reminder can close its tag or forge another. Tool results and user text are
 not escaped: a coding agent must see a file's bytes. Origin `ContextAgent`
 carries exactly one contextual reminder, in the user role, with a `from`.
 
-This adapts Dive's typed recorded reminders to Dashi's `ContextItem` projection
+This adapts Dive's typed recorded reminders to Dashi's `ContextItem` messages
 and provider-neutral preparation boundary. It leaves string-based
 `SetSystemReminder` editing behind: changing a recorded reminder requires a new
 context item, not mutation of earlier transcript text.

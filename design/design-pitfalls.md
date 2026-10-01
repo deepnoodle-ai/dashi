@@ -39,11 +39,12 @@ Review failures between every pair of recording and execution boundaries.
 **5. Mistaking persistence for exactly-once effects.** A recorded tool start
 without a result means the effect may have happened. A stale worker's rejected
 commit does not undo its external action. Do not blindly replay unmatched calls,
-label uncertainty as known failure, or turn a journal failure into ordinary model
-feedback. Require explicit reconciliation or justified retry semantics;
+label an unknown result as a known failure, or turn a journal failure into
+ordinary model feedback. Require an explicit host-supplied result or justified
+retry semantics;
 idempotency and fencing protect different boundaries. [Evidence][nvoken], [OpenHands recovery][openhands]
 
-**6. Treating approval, interruption, and uncertainty as one state.** OpenHands'
+**6. Treating approval, interruption, and unknown results as one state.** OpenHands'
 unmatched-action path conflates these cases; MAF's batch approval creates ordering
 problems. A new user message, reconnect, or resume must not imply consent. Model
 risk estimates and tool annotations can inform host policy but cannot establish
@@ -52,9 +53,9 @@ and changed arguments. [Evidence][openhands-issues], [MAF approval failures][maf
 
 **7. Repairing context by falsifying history.** Synthetic user messages can make
 library bookkeeping look like user instructions. Fabricated tool results can
-hide uncertainty. Destructive compaction, orphaned calls, and lost reasoning
+hide an unknown result. Destructive compaction, orphaned calls, and lost reasoning
 signatures can make later requests unusable. Preserve the facts; make repairs
-and omissions explicit projection decisions, with provenance. Queue steering
+and omissions explicit choices in how messages are built, with provenance. Queue steering
 input at safe boundaries. [Evidence][openhands-issues], [pi replay failures][pi-issues]
 
 **8. A second execution path that slowly diverges.** Pi's compaction requests
@@ -66,7 +67,7 @@ metadata-only chunks and interleaved tool arguments. [Evidence][trackers], [pi l
 
 **9. Limits that reset or conceal extra work.** Approval loops, continuation
 hooks, retries, and child agents can bypass a local iteration cap. An automatic
-final answer still consumes resources; a sleeping retry still occupies a host.
+final reply still consumes resources; a sleeping retry still occupies a host.
 Avoid declaring completion while queued work remains or reporting a routine
 limit as an unexplained error. Review accounting and lifecycle across re-entry,
 not just inside the innermost loop. [Evidence][maf-issues], [pi lifecycle lessons][pi-issues]

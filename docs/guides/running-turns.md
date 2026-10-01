@@ -6,9 +6,9 @@ results. The focused guides cover the rest:
 - [Sessions](sessions.md): a conversation of many turns, with the history,
   agent, and open turns handled for you.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final
-  answers.
-- [Approving tool calls](approvals.md): asking a person inline, or deferring
-  calls and answering them later.
+  replies.
+- [Approving tool calls](approvals.md): asking a person inline, or holding
+  calls for approval and resolving them later.
 - [Recovering turns](recovering-turns.md): IDs, recorders, crash recovery,
   turn states, and limits.
 - [Live updates](live-updates.md): serving a turn to browsers and observing a
@@ -28,7 +28,7 @@ go run ./examples/agent
 ```
 
 Its [source](../../examples/agent/main.go) shows the agent, runner, command,
-and outcome.
+and result.
 
 A `Runner` holds services such as the client and tools; each call passes a
 turn and one command, and `Start` carries the agent. Everything else has a
@@ -42,9 +42,9 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 - **Agent.** Set it on `Start.Agent`; the turn records it, and later commands
   run with the recorded agent. Provider and API come from the client. An empty
   `Model` is the provider's `catalog.Default`; providers without a catalog
-  need `Model`. An empty `Revision` is derived from the agent's behavior
+  need `Model`. An empty `Version` is derived from the agent's behavior
   fields (`"auto:…"`), so it changes when they do; the tool selection is part
-  of it but tool implementations are not, so set `Revision` yourself if you
+  of it but tool implementations are not, so set `Version` yourself if you
   version tools. `ID` may stay empty.
 - **IDs.** A `Start` on the zero `Turn` gets a generated turn ID, and a command
   with no `CommandID` gets one. `out.Turn.ID`, every step event, and each
@@ -58,12 +58,12 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 
 ## Reading the result
 
-`Run` returns an `Outcome` and an error. The outcome is always the latest known
-state of the turn; the error says whether the command applied. `out.Answer` is
-the final answer text, `out.Output` the structured output, `out.Spend` the
-usage and cost, and `out.Pending` the work the turn waits on. `out.Turn` is the
-record to pass to the next call. `dashi.turn.View()` gives the same view for a
-turn loaded from a recorder.
+`Run` returns a `RunResult` and an error. The result is always the latest
+known state of the turn; the error says whether the command applied.
+`out.Reply` is the final reply text, `out.Output` the structured output,
+`out.Spend` the usage and cost, and `out.Pending` the work the turn waits on.
+`out.Turn` is the record to pass to the next call. `turn.View()` gives the
+same view for a turn loaded from a recorder.
 
 For most programs, `if err != nil { return err }` is enough. A host that
 recovers turns checks, in order: `errors.Is(err, dashi.ErrStaleTurn)`
@@ -73,35 +73,36 @@ recovers turns checks, in order: `errors.Is(err, dashi.ErrStaleTurn)`
 [recovering turns](recovering-turns.md)). Any other error
 means the command was rejected and nothing was recorded, except
 `ErrRecordInvalid`: steps this run recorded fail replay, a bug to report. A
-failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()` and
-`out.Turn.ProviderToolUses()` collect sources and provider-run tool calls from every
-model call in the turn.
+failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()`
+and `out.Turn.ProviderToolUses()` collect sources and provider tool calls from
+every model call in the turn.
 
-`out.Answer` is the latest assistant text, even when the turn did not
+`out.Reply` is the latest assistant text, even when the turn did not
 complete. Check `out.Stop` before showing it.
 
 `out.Next()` says what to do next, so a host need not decode `out.Stop`:
-`NextNone` (completed or ended), `NextResolvePending` (settle `out.Pending`, then
-`Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseModelCalls`
-(`Continue` with a raise), `NextFix` (fix a failure, refusal, or uncertain
-effect, then `Continue`, or `Cancel`), and `NextRecover` (no stop was recorded,
-so `out.Stop.Inferred` is true: the worker may have crashed; `Continue`
-resumes it when `ReadyToContinue`, and otherwise settle `out.Pending` first;
+`NextNone` (completed or ended), `NextResolvePending` (resolve `out.Pending`,
+then `Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseModelCalls`
+(`Continue` with a raise), `NextFix` (fix a failure, refusal, or a call whose
+result is unknown, then `Continue`, or `Cancel`), and `NextRecover` (no stop
+was recorded, so `out.Stop.Inferred` is true: the worker may have crashed;
+`Continue` resumes it when `ReadyToContinue`, and otherwise resolve
+`out.Pending` first;
 see [recovering turns](recovering-turns.md)). A hook's view of a running turn
 gives `NextRunning`.
 
 ## Prior conversation
 
-A turn is one input processed until the agent settles, possibly across many
+A turn is one input processed until the agent finishes, possibly across many
 model calls. If it follows earlier conversation, pass
 those messages in `Start.History` and again in `Continue.History` on every
 resume. Dashi uses that history to build model requests during the current
-call. The saved turn records its own input and output plus a fingerprint of
-the earlier history; it does not save the earlier messages. Keep them in your
+call. The saved turn records its own input and output plus a hash of the
+earlier history; it does not save the earlier messages. Keep them in your
 application so a worker can supply them after a crash. If the history on
 `Continue` differs, Dashi proceeds and records a warning in
-`Outcome.Warnings` and `turn.View().Warnings`. If `Start` had no history,
-omit `History` on `Continue` (or pass an empty slice).
+`RunResult.Warnings` and the `Warnings` of `turn.View()`. If `Start` had no
+history, omit `History` on `Continue` (or pass an empty slice).
 
 A [session](sessions.md) does this for you: it builds the history from the
 earlier turns' records. For example, without one, reuse the same `prior`
@@ -123,19 +124,19 @@ resume := dashi.Continue{
 
 ## Running turns without a session
 
-A host that admits and stores its own turns runs one loop per turn. Each
+A host that creates and stores its own turns runs one loop per turn. Each
 command is saved before it runs, so a worker that crashes can run the same
 command again; a repeated command returns the recorded result.
 
-1. **Admit.** Choose the turn ID and the Start's `CommandID`, save the Start
+1. **Create.** Choose the turn ID and the Start's `CommandID`, save the Start
    with `dashi.MarshalCommand`, and run it. With an already-closed
    `dashi.WithPause`, this records the turn without a model call
    ([recovering turns](recovering-turns.md#resuming-after-a-stop-or-crash)).
    It needs no `Client` when the Agent names its provider, API, and model.
 2. **Advance.** Load the turn and map `view.Next()` to a command.
    `NextContinue` and `NextRecover` give `Continue` with the same history;
-   resume only once the old worker is known to be gone. `NextResolvePending` waits
-   for the host to `Resolve` each pending call or approval.
+   resume only once the old worker is known to be gone. `NextResolvePending`
+   waits for the host to `Resolve` each pending call or approval.
    `NextRaiseBudget` and `NextRaiseModelCalls` are the host's choice: `Continue`
    with a raised `Budget` or `ModelCalls`, or `Cancel`. `NextFix`
    depends on the cause, such as a host limit code the host owns: fix it and
@@ -144,8 +145,8 @@ command again; a repeated command returns the recorded result.
    `runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))`. `Cancel`, `Resolve`,
    and `AddMessages` need no `Client`.
 
-Derive each `CommandID` from the turn ID and revision, or save each planned
-command before running it, so a crash replays the same command. After a
+Derive each `CommandID` from the turn ID and last step number, or save each
+planned command before running it, so a crash replays the same command. After a
 restart, the first saved command with no step in the turn (match
 `dashi.CommandIDOf` against `Step.CommandID`) is the one to run again:
 
@@ -154,7 +155,7 @@ for {
 	turn, _ := rec.Load(ctx, turnID)
 	cmd := outbox.unapplied(turn) // saved, but no step records it
 	if cmd == nil {
-		view, _ := dashi.turn.View()
+		view, _ := turn.View()
 		if cmd = plan(turn, view, history); cmd == nil {
 			break // NextNone, or waiting on the host
 		}
@@ -171,9 +172,10 @@ Here `plan` is the switch on `view.Next()`, with
 `Example_hostTurnLoop` runs the whole loop, including a crash between saving
 and running, without an API key.
 
-The rest of a host's work has its own guide: settling each model attempt in
-the recorder with `dashi.ModelCallCostOf` ([budgets](budgets.md)); history
-across turns and compaction with `dashi.BuildHistory`
+The rest of a host's work has its own guide: charging or releasing each model
+call's credit hold in the recorder with `dashi.ModelCallCostOf`
+([budgets](budgets.md)); history across turns and compaction with
+`dashi.BuildHistory`
 ([compaction without a session](compaction.md#without-a-session)); and
 leases, crashes, and limits ([recovering turns](recovering-turns.md)).
 
@@ -183,7 +185,7 @@ conversation's prompt cache key, `dashi.Recorded(err)` tells a failure after
 recording began from a rejected command, `TurnView.ReplacementHistory` reads
 a compaction turn's result, `ContextItem.Validate` checks input before it is
 queued, and `Inbox.Has` checks a steer ID. A host that carries a recorded
-agent into its next turn clears a `Revision` that begins with
+agent into its next turn clears a `Version` that begins with
 `dashi.DerivedVersionPrefix`.
 
 ## Structured output
@@ -194,7 +196,7 @@ per-turn `Start.OutputSchema`, then decode the value after the turn:
 ```go
 start.Agent.OutputSchema = dashi.MustOutputSchema[Person]()
 // Run the turn, then:
-person, err := dashi.DecodeOutput[Person](outcome)
+person, err := dashi.DecodeOutput[Person](out)
 ```
 
 `MustOutputSchema` follows `tool.Func`'s schema rules and panics for a type
@@ -207,7 +209,7 @@ see [structured final results](../agent-turns.md#structured-final-results).
 
 `Runner.Stream` is the iterator form of `Runner.Run`. It enables provider
 streaming, yields acknowledged steps and provisional deltas in order, then one
-final `Outcome`. Breaking the range interrupts the turn by default; reload
+final `RunResult`. Breaking the range interrupts the turn by default; reload
 its record and call `Continue` when ready. Set
 `Runner.OnContextDone: ContextCancel` when a disconnect should instead end
 the turn as canceled. The iterator is backpressured and never drops an

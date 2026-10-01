@@ -8,9 +8,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Plain names across the API.** Names now say what they mean, so a new
+  reader does not have to decode them. Recorded values change with the names
+  (step kinds, JSON keys, stop and verdict codes), so turns recorded by an
+  earlier version do not load. The main renames, old → new:
+  - Commands: `Settle` → `Resolve`, `Deliver` → `AddMessages`,
+    `Session.Answer` → `Session.Resolve`, `ApprovalFact` →
+    `ApprovalDecision`, `ContentResolver` → `ContentLoader` (method `Load`).
+  - Results: `Outcome` → `RunResult`, `TurnView.Answer` → `Reply`,
+    `Replay(turn)` → `turn.View()`, `TurnView.Revision` → `LastSeq`,
+    `Stop.Terminal` → `Ended`, `Stop.Projected` → `Inferred`, `uncertain` →
+    `result_unknown`.
+  - Next steps: `NextAnswer` → `NextResolvePending`, `NextResolve` →
+    `NextFix`, `NextResume` → `NextRecover`, `NextRaiseAttempts` →
+    `NextRaiseModelCalls`.
+  - Steps: `model_requested` → `model_call_started`, `model_settled` →
+    `model_call_finished`, `model_reconciled` → `model_call_finished_by_host`,
+    `tool_settled` → `tool_finished`, `approval_settled` →
+    `approval_decided`, `context_delivered` → `messages_added`;
+    `StepStarted`/`Continued`/`Stopped` → `StepTurnStarted`/`Continued`/`Stopped`.
+  - Model calls and cost: "attempt" → "model call" (`Limits.ModelCalls`,
+    `ModelCallID`, `ModelCallCost`, `TurnView.ModelCallCosts`), `AtRisk` →
+    `WorstCaseCost`, `Charge` → `Cost`, `SpendBasis` → `UsageSource`
+    (`reported`/`estimated`/`not_sent`), `llm.FailureDisposition` →
+    `llm.SendStatus`, `Admission` → `Reservation`, `Limits.Interruptions` →
+    `Resumes`, `FitTokens` → `SuggestedMaxOutputTokens`.
+  - Tools: every `Hosted*` name → `ProviderTool*`, `Defer` →
+    `NeedsApproval`, a hook decision's `Revision` → `RulesVersion`.
+  - History and recording: `ProjectContext` → `TurnMessages`, `Project` →
+    `TurnMessagesFull`, `ProjectHistory` → `BuildHistory`,
+    `Session.ProjectedHistory` → `NextHistory`, digest and fingerprint →
+    hash (`HistoryHash`, `ArgsHash`, `RequestHash`, `CommandHash`),
+    `Agent.Revision` → `Agent.Version`, `ErrRevisionConflict` →
+    `ErrStaleTurn`, `ErrCommandConflict` → `ErrCommandIDReused`,
+    `CommitError.Persistence` → `NothingWritten`, `session.Liveness` →
+    `WorkerStatus`, `ModelFact.Origin` → `Endpoint`.
+  - A limited stop's reason is now its `LimitKind` (for example
+    `model_calls`), and every stop-reason code has a constant.
 - **A `Runner` needs a `Client` only to fill in an agent or call the model.**
-  A Start with an already-closed `WithPause` records ("admits") a turn without
-  a `Client` when its agent names its provider, API, and model. A run that
+  A Start with an already-closed `WithPause` records a turn without running it
+  and without a `Client` when its agent names its provider, API, and model. A run that
   would call the model without one fails with "client is required to call the
   model" before recording anything.
 

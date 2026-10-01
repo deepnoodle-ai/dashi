@@ -1,6 +1,6 @@
-# Hosted tool pricing
+# Provider tool pricing
 
-**Status:** Reporting implemented; bounded admission deferred (see below) ·
+**Status:** Reporting implemented; running under a cap deferred (see below) ·
 **Date:** 2026-09-28 · **Fixes:** finding 11.1 in
 [gaps/F](gaps/F-example-ports.md) · **Relates to:**
 [pricing](pricing-proposal.md), [model catalog](model-catalog.md),
@@ -8,10 +8,10 @@
 
 ## Problem
 
-A **hosted tool** runs at the provider (web search, code execution), and many
-bill per use on top of tokens. Before this change, any hosted use made a call's
-cost unknown although its token cost was known. The catalog priced no hosted
-requests; the runner counted `ProviderToolUse` blocks by the name the model called
+A **provider tool** runs at the provider (web search, code execution), and many
+bill per use on top of tokens. Before this change, any provider tool use made a
+call's cost unknown although its token cost was known. The catalog priced no
+provider tool requests; the runner counted `ProviderToolUse` blocks by the name the model called
 (`bash_code_execution`), so a price sheet would have had to know block names; it
 ignored the counters providers report; Gemini search grounding produced no
 block, so a grounded Gemini call looked fully priced when it was not; and one
@@ -45,15 +45,15 @@ key was available; a live-tagged test checks them. The runner no longer counts
 blocks.
 
 Two **reserved keys** are never priced (`Pricing.Validate` rejects them):
-`unrecognized:<wire type>` for hosted work an adapter does not recognize, and
-`unreported` for hosted work in a call whose final usage never arrived (a
-cut-off stream, or a response without usage). Adapters set `Usage.RequestsComplete`
-only when counts come from the provider's complete response: Anthropic when the
-stop reason (sent with the final `server_tool_use` counters) arrived, Responses
-on the terminal response object, Gemini when the candidate has a `finishReason`.
-For a call with hosted activity (counted requests, visible uses, or a declared
-hosted tool) whose counts are not final, the runner keeps the known counts and
-adds `unreported`: the visible uses beyond those counted, and at least one, so
+`unrecognized:<wire type>` for provider tool work an adapter does not
+recognize, and `unreported` for provider tool work in a call whose final usage
+never arrived (a cut-off stream, or a response without usage). Adapters set
+`Usage.RequestsComplete` only when counts come from the provider's complete
+response: Anthropic when the stop reason (sent with the final
+`server_tool_use` counters) arrived, Responses on the last response object of
+the stream, Gemini when the candidate has a `finishReason`. For a call with
+provider tool activity (counted requests, visible uses, or a declared provider
+tool) whose counts are not final, the runner keeps the known counts and adds `unreported`: the visible uses beyond those counted, and at least one, so
 such a call shows as partial. Uses with an error result are skipped, since
 providers do not bill refused uses.
 
@@ -76,29 +76,29 @@ Checked 2026-09-28:
 | Meta | web_search 0.0025 per query | none |
 
 Free allowances are ignored, so estimates err high. xAI also reports its billed
-amount (`cost_in_usd_ticks`, 10^10 per dollar, tool charges included); the
+amount (`cost_in_usd_ticks`, 10^10 per dollar, tool costs included); the
 adapter records it as a provider-reported `Result.Cost`, which wins over any
 estimate.
 
 ## Partial cost
 
-`Pricing.Estimate` fails only when tokens cannot be priced. Hosted requests
-without a rate are left out of `Hosted` and `Total` and listed in
+`Pricing.Estimate` fails only when tokens cannot be priced. Provider tool
+requests without a rate are left out of `ProviderTools` and `Total` and listed in
 `Cost.UnpricedRequests`; `Cost.Partial()` reports that `Total` is a lower bound.
 `Spend.Cost` includes the known part, `Spend.CostPartial` counts such calls, and
 `Spend.UnpricedRequests` sums their counts.
 
 **Budget rule.** A cap is an upper bound and a partial total a lower bound, so a
-partial charge never counts as verified spend. Before dispatch, a request that
-declares hosted tools under `MaxCost` still stops `limited`. After a call, a
-partial charge under a cap counts as unknown: its known part is `CostUsed`, the
+partial cost never counts as verified spend. Before dispatch, a request that
+declares provider tools under `MaxCost` still stops `limited`. After a call, a
+partial cost under a cap counts as unknown: its known part is `CostUsed`, the
 turn stops `limited`, and a raise cannot clear it. The reason names the unpriced
 keys and says to start a new turn with the history. Without a cap, partial costs
 are reported and the turn runs normally.
 
-## Bounded admission: deferred, with evidence
+## Allowing provider tools under a cap: deferred, with evidence
 
-The review proposed admitting hosted tools under a cap when each has a
+The review proposed allowing provider tools under a cap when each has a
 provider-enforced use limit, priced meters, and a per-use token allowance,
 reserving uses × price + uses × allowance × input rate. Live calls
 (claude-haiku-4-5, `web_search_20250305`) show that formula understates the
@@ -117,9 +117,9 @@ worst case:
 A safe bound therefore needs a pass limit the provider enforces (xAI's
 `max_turns` is one; OpenAI's `max_tool_calls` says further attempts are
 "ignored" without saying whether they cost a pass). Until then, the pre-dispatch
-stop above is the only rule that cannot be silently exceeded, so bounded
-admission, the default use limit under a cap, and settling at max(known,
-reserved) are left for a follow-up.
+stop above is the only rule that cannot be silently exceeded, so allowing
+bounded provider tools under a cap, the default use limit, and charging
+max(known, reserved) are left for a follow-up.
 
 ## Changes and tests
 
@@ -137,4 +137,5 @@ recording `unreported`; catalog provenance and coverage.
   `web_fetch_20260209` (or later) is in the request; Dashi sends older versions.
   Moving to them would let code execution be priced at zero there. Execution
   time is billed when files are attached, even if the tool is not called.
-- Bounded admission, once a provider-enforced pass limit is available.
+- Allowing bounded provider tools under a cap, once a provider-enforced pass
+  limit is available.

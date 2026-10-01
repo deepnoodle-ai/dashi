@@ -19,12 +19,12 @@ runner.Tools = tool.Join(tool.List{existing}, bundle)
 runner.Hooks = dashi.JoinHooks(runner.Hooks, bundle)
 ```
 
-`bundle.Hooks()` uses [`SeedContext`](hooks.md#delivering-context-and-vetoing-answers)
-to keep one unchanged catalog visible across turns. Changed catalogs append.
-Compaction that drops the catalog causes another delivery. A kept catalog
-prevents delivery across reopened handles. The model calls `load_skill` to
-read the full text of a skill.
-[`examples/skills`](../../examples/skills) is a complete program.
+`bundle.Hooks()` uses
+[`SeedContext`](hooks.md#adding-messages-and-vetoing-replies) to keep one
+unchanged catalog visible across turns. Changed catalogs append. Compaction
+that drops the catalog adds it again. A kept catalog is not added again across
+reopened handles. The model calls `load_skill` to read the full text of a
+skill. [`examples/skills`](../../examples/skills) is a complete program.
 
 ## Files
 
@@ -35,9 +35,10 @@ read the full text of a skill.
 
 The loader reads a flat `.md` file in any search dir, so a stray `NOTES.md`
 in a skills dir becomes a command. Keep notes out of these dirs (`README.md`
-is skipped). Other files in a skill folder are supporting files. The loader does not read
-them. The text that the model receives starts with `Base directory: <dir>`,
-so the agent can read a supporting file with its own file tool.
+is skipped). Other files in a skill folder are supporting files. The loader
+does not read them. The text that the model receives starts with `Base
+directory: <dir>`, so the agent can read a supporting file with its own file
+tool.
 
 `DefaultDirs` lists these dirs, first match wins: for the project, then the
 home dir, `.dashi/skills`, `.agents/skills`, `.claude/skills`,
@@ -106,16 +107,16 @@ build a `/` menu. Names match without regard to case.
 ## Trust
 
 Skill files are project text. A cloned repository can contain a hostile one.
-For this reason `bundle.Hooks()` delivers the catalog as contextual runtime
-context, not as operator text. A skill body that the model loads is tool
+For this reason `bundle.Hooks()` adds the catalog as runtime context, not as
+operator text. A skill body that the model loads is tool
 result text. Skills grant no tool and run no command. Your tool approval
 policy still decides every action.
 
 If you trust your skill dirs, you can put `bundle.Catalog()` in
-`Agent.Instructions` instead. Do not put `bundle.Digest()` in
+`Agent.Instructions` instead. Do not put `bundle.Hash()` in
 `Agent.Version` for file skills: a person may edit a file between runs, and
-a changed revision refuses to resume the turn. The catalog item ID holds the
-digest, so the record shows which catalog the model saw.
+a changed version refuses to resume the turn. The catalog item ID holds the
+hash, so the record shows which catalog the model saw.
 
 ## Moving from Dive
 

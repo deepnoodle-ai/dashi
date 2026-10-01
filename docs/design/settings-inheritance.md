@@ -35,7 +35,7 @@ Keep `Session.agentFor`'s source order and last-user selection. Queue dispatch a
 
 ## Records and compatibility
 
-Retain the effective marker in StartFact.Agent, TurnView.Agent, and Outcome.Agent through existing recording and replay. It participates in existing command digests, Agent equality, and derived revisions. False is omitted from JSON, so legacy Agents retain their serialized shape and derived identity. Old records decode without migration.
+Retain the effective marker in StartFact.Agent, TurnView.Agent, and RunResult.Agent through existing recording and replay. It participates in existing command hashes, Agent equality, and derived versions. False is omitted from JSON, so legacy Agents retain their serialized shape and derived identity. Old records decode without migration.
 
 Keep provider preparation unchanged. Nil pointers mean omitted controls. MaxTokens zero receives the existing finite provider-preparation default. Validation, budgets, preparation adjustments, retry identity, and recovery retain their current contracts.
 
@@ -51,4 +51,4 @@ A boolean adds an Agent selection rule. Hosts using it must first resolve their 
 
 Add keyless tests for marked Start, marked Session, both, neither, and a carried marker after JSON storage and reopening. Observe Agent.Settings and model inputs for nil pointers, explicit zero/false pointers, MaxTokens zero, Citations false, and nested PromptCache clearing. Include a provider-preparation check that a cleared MaxTokens receives its ordinary default.
 
-Exercise queue dispatch, compaction followed by an ordinary turn, and continuation after Session settings change. Compare old facts and revisions before and after the change. Keep legacy Agent identity coverage. Update the sessions guide and relevant API comments. Commit an Example showing older controls cleared by complete Session settings. Run `go test -race ./...` and the project's required checks. No migration, feature flag, or unresolved design question remains.
+Exercise queue dispatch, compaction followed by an ordinary turn, and continuation after Session settings change. Compare old facts and derived Agent versions before and after the change. Keep legacy Agent identity coverage. Update the sessions guide and relevant API comments. Commit an Example showing older controls cleared by complete Session settings. Run `go test -race ./...` and the project's required checks. No migration, feature flag, or unresolved design question remains.

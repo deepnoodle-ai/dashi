@@ -30,9 +30,9 @@ model refs.
 `Input.Stream` chooses the transport. The immutable `Request` retains the input,
 effective settings, adjustments, content changes, model evidence, and exact
 wire body; `RequestSnapshot` is its recordable form. `Send` performs at most one
-dispatch; a sink observes streaming deltas. Each send is a separate attempt,
-including retries of the same request. The caller owns attempt identity and
-recording.
+send; a sink observes streaming deltas. Each send is a separate model call,
+including retries of the same request. The caller owns model call identity
+(`llm.CallIdentity`) and recording.
 `llm.Generate` combines preparation and sending for simple use.
 Gemini's conversational default is `v1beta`: its tested `v1` route rejected
 client function calling. The image-generation client keeps its independently
@@ -48,7 +48,7 @@ substitute fail preparation. By default ([decision 4](decisions.md)), unknown
 support is sent and recorded as unverified, and out-of-range values are fitted
 with a typed adjustment that is also a warning. The strictness argued here
 remains available as `CapabilityStrict`, which rejects both.
-Preparation does not prove dispatch or receipt, and these facts do not guarantee
+Preparation does not prove the request was sent or received, and these facts do not guarantee
 API acceptance. See [model controls](model-controls.md) for the contract.
 
 `Usage` records token measurements; `Result.Cost` holds a reported amount when
@@ -76,7 +76,7 @@ Preparation requires completed, unambiguous tool exchanges and preserves saved
 call IDs. Unsupported IDs are deterministically remapped for the prepared body,
 with paired call/result decisions recording original and outgoing IDs. Tool
 schemas remain raw JSON. A tool's Go error is a model-facing failure and only
-an unobserved result is uncertain ([decisions](decisions.md) entry 1). See
+an unobserved result is unknown ([decisions](decisions.md) entry 1). See
 [content replay](provider-content-replay.md) for supported adaptations, record
 changes, and deferred loss policies.
 
@@ -92,5 +92,5 @@ OpenAI Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`). Other
 routes and Vertex ADC still need qualification. Gemini LLM image input also
 passed live with inline bytes (blocking and streaming), a public URL, and a
 Files URI on `gemini-2.5-flash`. Media, resource references, and
-provider-hosted tools have separate implementation and qualification notes
+provider tools have separate implementation and qualification notes
 in this directory.

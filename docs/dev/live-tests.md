@@ -38,7 +38,7 @@ Gemini API (`gemini-2.5-flash`). This qualifies those routes only.
 
 On 2026-09-27, Anthropic Messages (`claude-haiku-4-5-20251001`), OpenAI
 Responses (`gpt-4.1-mini`), and Gemini API (`gemini-2.5-flash`) agent turns
-passed live: a streamed final answer and a local tool call
+passed live: a streamed final reply and a local tool call
 followed by a second model call. With the corresponding API keys set:
 
 ```sh
@@ -91,26 +91,26 @@ go test -tags live . -run '^TestLive(Anthropic|OpenAI)StructuredOutput$' -v
 ```
 
 In `providers/google/gemini`, the Gemini probes drop the provider from the
-name: `TestLiveStructuredOutput`, `TestLiveReservedFinalAnswer`,
+name: `TestLiveStructuredOutput`, `TestLiveReservedFinalReply`,
 `TestLiveIteratorAgentTurn`, and `TestLiveRecordedReminder`.
 
-## Reserved final answer
+## Reserved final reply
 
-On 2026-09-27, the reserved final-answer attempt passed live on the same three
+On 2026-09-27, the reserved final-reply call passed live on the same three
 routes: each turn used a local multiplication tool once, sent a second request
-without application tools, and returned an answer with `StopLimited` and
+without application tools, and returned a reply with `StopLimited` and
 `model_calls`. With the same keys and model names, repeat the two-call check
 per provider:
 
 ```sh
-DASHI_LIVE_AGENT_TEST=1 go test -tags live . -run '^TestLiveReservedFinalAnswer$' -v
+DASHI_LIVE_AGENT_TEST=1 go test -tags live . -run '^TestLiveReservedFinalReply$' -v
 ```
 
 ## Compaction
 
 On 2026-09-28, `TestLiveCompactionContinuity` passed on OpenAI Responses
 (`gpt-6-luna`). Three turns, one with a tool call, were compacted into a
-summary alone. The agent then answered a follow-up from the summary. The test
+summary alone. The agent then replied to a follow-up from the summary. The test
 makes about six paid calls:
 
 ```sh
@@ -155,7 +155,7 @@ rejection trigger there.
 Gemini's conversational client defaults to `v1beta` because the tested `v1`
 route rejected function calling. Pin `v1` explicitly only for turns that must
 retain its earlier private replay scope; `Prepare` rejects client function
-calls there before dispatch.
+calls there before sending.
 
 ## Gemini image input
 

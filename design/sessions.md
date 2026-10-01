@@ -8,18 +8,18 @@
 streams, compaction turns).
 
 This document covers track 3, the session core; the CLI port is track 4. Terms
-(session, session handle, conversation history, projected history) are in the
+(session, session handle, conversation history, next history) are in the
 [glossary](ubiquitous-language.md).
 
 ## Layers
 
 `Runner.Run(ctx, turn, command)` stays the public engine for servers that
-schedule their own work, recovery workers, and tests. `session.Session` sits above
-it and uses only the public engine API: `Run`, `Stream`, `Turn.View`, `TurnMessagesFull`,
-`Loader`, `StepReader`. It is `http.Get` over `Client.Do`: two levels of one
-design. `Session` lives in package `session`, which imports `dashi` and never
-the reverse; `compaction` implements its `Compactor` interface, so the session
-imports no compactor.
+schedule their own work, recovery workers, and tests. `session.Session` sits
+above it and uses only the public engine API: `Run`, `Stream`, `Turn.View`,
+`TurnMessagesFull`, `Loader`, `StepReader`. It is `http.Get` over `Client.Do`:
+two levels of one design. `Session` lives in package `session`, which imports
+`dashi` and never the reverse; `compaction` implements its `Compactor`
+interface, so the session imports no compactor.
 
 ## The type
 
@@ -48,15 +48,15 @@ type Session struct {
     // queue, and the IDs of turns this handle is running.
 }
 
-func (s *Session) Run(ctx context.Context, c Command, opts ...RunOption) (Outcome, error)
+func (s *Session) Run(ctx context.Context, c Command, opts ...RunOption) (RunResult, error)
 func (s *Session) Stream(ctx context.Context, c Command, opts ...RunOption) iter.Seq2[Event, error]
-func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (Outcome, error)
-func (s *Session) Answer(ctx context.Context, answers []Resolve, opts ...RunOption) (Outcome, error)
+func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (RunResult, error)
+func (s *Session) Resolve(ctx context.Context, answers []Resolve, opts ...RunOption) (RunResult, error)
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error)
 func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
 func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, error)
-func (s *Session) RunQueue(ctx context.Context, opts ...RunOption) (Outcome, bool, error)
+func (s *Session) RunQueue(ctx context.Context, opts ...RunOption) (RunResult, bool, error)
 func (s *Session) Open(ctx context.Context) (State, error)
 func (s *Session) History(ctx context.Context) ([]llm.Message, error)          // conversation history
 func (s *Session) NextHistory(ctx context.Context) ([]llm.Message, error) // what the next turn sends
@@ -68,9 +68,9 @@ func Say(text string) Start
 
 **Routing.** `Run` mirrors the engine without the turn argument. A `Start` opens
 the next turn after the idempotency check and the last-turn rules below. Any
-other command (`Continue`, `Resolve`, `AddMessages`, `Cancel`) goes to the last turn.
-The session fills `Start.History` and `Continue.History` with the projected
-history of the turns before the target turn, the turn ID, and, on a `Start`, the
+other command (`Continue`, `Resolve`, `AddMessages`, `Cancel`) goes to the last
+turn. The session fills `Start.History` and `Continue.History` with the history
+built from the turns before the target turn, the turn ID, and, on a `Start`, the
 merged agent ([session-engine.md](session-engine.md#carry-forward)). A command
 on a session with no turns returns `session.ErrNotFound`.
 
@@ -78,17 +78,17 @@ on a session with no turns returns `session.ErrNotFound`.
 wrapper; drifting entry points made one peer's streaming path ignore its session
 (maf#3848).
 
-**`Answer`** runs `Resolve` for each answer, then one `Continue`. The user makes
-one call; the record has separate steps, so decision 18 holds. It stops at the
-first `Resolve` error. A `Resolve` without a command ID gets `settle:` and its
-`CallID`, as `Pending`'s builders derive theirs from the call, and the
-`Continue`'s command ID is `answer:` and the settles' IDs, so a retried `Answer`
-is recognized. It takes `RunOption`s, as `Run` does,
+**`Session.Resolve`** runs a `Resolve` command for each item, then one
+`Continue`. The user makes one call; the record has separate steps, so decision
+18 holds. It stops at the first `Resolve` error. A `Resolve` without a command
+ID gets `resolve:` and its `CallID`, as `Pending`'s builders derive theirs from
+the call, and the `Continue`'s command ID is `answer:` and the resolves' IDs, so
+a retried `Session.Resolve` is recognized. It takes `RunOption`s, as `Run` does,
 and passes them to each run, so a leasing host gives `WithOwner` and a live UI
 `WithObserver` the one way it gives them elsewhere.
 
 **`RunQueue`** starts the next turn from queued input when the session is idle,
-and reports false, with the last turn's outcome, when it ran nothing;
+and reports false, with the last turn's result, when it ran nothing;
 `delegate.RunUntilQuiet` needs it.
 
 **Handle lock.** One mutex guards the cache, the inbox claims, the queue, and
@@ -116,15 +116,15 @@ type Index interface {
 }
 ```
 
-**Probing.** Without `session.Index`, the session finds the last turn by doubling
-the distance *d* (1, 2, 4, …) past the last turn it knows exists (0 at first)
-until a turn is missing, then binary-searching. A probe reads one step with
-`StepsAfter(id, 0, 1)` on a `StepReader`, or calls `Load`, where
+**Probing.** Without `session.Index`, the session finds the last turn by
+doubling the distance *d* (1, 2, 4, …) past the last turn it knows exists (0 at
+first) until a turn is missing, then binary-searching. A probe reads one step
+with `StepsAfter(id, 0, 1)` on a `StepReader`, or calls `Load`, where
 `ErrTurnNotFound` or an empty turn means missing; a step of another turn is an
 error, and the search stops at 2^30. A 1,000-turn session takes about 20 reads
 from a fresh handle, and a handle that already knows its last turn takes one. A
-recorder that is neither cannot reopen a session; the handle then knows only
-the turns it ran.
+recorder that is neither cannot reopen a session; the handle then knows only the
+turns it ran.
 
 Probing needs turns numbered from 1 without gaps. The session never skips a
 number: a `Start` always targets `last+1`. A host that deletes turns (later)
@@ -132,20 +132,20 @@ must implement `session.Index`. `filerecorder` implements it by which turn logs
 exist, the same search over file names with no side index, so a damaged log
 is found without being read and is then skipped as unreadable.
 
-**Cache.** The handle caches loaded turns and their views. A turn with a
-terminal stop never changes its projection ([ended
-turns](session-engine.md#ended-turns-project-and-freeze)), so its cached
-projection is final. The handle reloads the last turn before each command.
+**Cache.** The handle caches loaded turns and their views. An ended turn's
+messages never change ([ended
+turns](session-engine.md#ended-turns-build-and-freeze)), so its cached
+messages are final. The handle reloads the last turn before each command.
 
-**Unreadable turns.** Building projected or conversation history skips a turn
+**Unreadable turns.** Building the next or the conversation history skips a turn
 that fails to load or replay, and adds a `turn_unreadable` warning naming it, as
-the CLI does today. An unreadable *last* turn is an error, since its liveness is
-unknown, except under `Exclusive`, where it has no worker: a new `Start` leaves
-it out of the history with `turn_unreadable` and starts `S-(n+1)`. A keyed
-`Start` and a queue turn still fail, since the idempotency check cannot rule
-out that the turn holds their key.
+the CLI does today. An unreadable *last* turn is an error, since its worker
+status is unknown, except under `Exclusive`, where it has no worker: a new
+`Start` leaves it out of the history with `turn_unreadable` and starts
+`S-(n+1)`. A keyed `Start` and a queue turn still fail, since the idempotency
+check cannot rule out that the turn holds their key.
 
-## Concurrency and liveness
+## Concurrency and worker status
 
 No session lease or lock. Three engine rules keep the record correct:
 
@@ -167,17 +167,17 @@ now. A turn with no stop recorded after its latest `Start` or `Continue` is
 either running or crashed.
 
 ```go
-type Liveness string // whether any worker may still act on a turn
+type WorkerStatus string // whether any worker may still act on a turn
 
 const (
-    WorkerStatusUnknown Liveness = "unknown" // no proof, e.g. an expired lease
-    WorkerStatusRunning    Liveness = "live"    // a worker holds an unexpired claim
-    WorkerStatusStopped Liveness = "stopped" // the host knows no worker still acts
+    WorkerStatusUnknown WorkerStatus = "unknown" // no proof, e.g. an expired lease
+    WorkerStatusRunning WorkerStatus = "running" // a worker holds an unexpired claim
+    WorkerStatusStopped WorkerStatus = "stopped" // the host knows no worker still acts
 )
 
 // WorkerChecker is an optional Recorder capability for hosts that lease turns.
 type WorkerChecker interface {
-    Liveness(ctx context.Context, turnID string) (Liveness, error)
+    WorkerStatus(ctx context.Context, turnID string) (WorkerStatus, error)
 }
 ```
 
@@ -187,30 +187,31 @@ and `WithOwner` fences its commits, not that effect. A host reports stopped
 only when it knows no worker drives the turn (its process exited, or host
 fencing guarantees it); an expired lease, an error, and a missing capability
 are unknown. The session refines `NextRecover` to `NextRunning` when this handle
-runs the turn or `Liveness` reports live.
+runs the turn or `WorkerStatus` reports running.
 
 **`Exclusive`** promises that no other process drives the session and that
 earlier ones have exited, so no worker drives a turn this handle is not running.
 The CLI sets it under its process lock; leasing servers implement
 `WorkerChecker`.
 
-**A stopped worker is not a stopped effect.** Liveness and `Exclusive` say only
-whether a worker drives the turn; a tool's child process or a remote operation
-can outlive its caller. So a last turn holding an **unsettled uncertain call**
-(a started call, neither `ReadOnly` nor `Idempotent`, with no result, or a model
-call that offered a hosted tool unsafe to repeat) is busy for a new message
-whatever its liveness, even under `Exclusive`. The host releases it: `Resolve`
-the call with the real result after checking the effect, or `Cancel{}` the turn.
-A cancel records the host's acceptance of the risk, not a guarantee: the call
-stays unsettled beside a `StopCanceled` step with the host's reason, projects as
-"result unknown; the turn ended", and the model may repeat the effect.
+**A stopped worker is not a stopped effect.** Worker status and `Exclusive` say
+only whether a worker drives the turn; a tool's child process or a remote
+operation can outlive its caller. So a last turn holding an **unfinished call
+with an unknown result** (a started call, neither `ReadOnly` nor `Idempotent`,
+with no result, or a model call that offered a provider tool unsafe to repeat)
+is busy for a new message whatever its worker status, even under `Exclusive`.
+The host releases it: `Resolve` the call with the real result after checking the
+effect, or `Cancel{}` the turn. A cancel records the host's acceptance of the
+risk, not a guarantee: the call stays unfinished beside a `StopCanceled` step
+with the host's reason, shows in the turn's messages as "result unknown; the
+turn ended", and the model may repeat the effect.
 
 **Taking over a lost worker.** A server recovers a turn whose lease expired
 with `Continue{}` under `WithOwner`, never by closing it and starting another.
-Resume repeats no effect: a started unsafe call becomes uncertain
-(`tools_loop.go`, decision 11); safe calls may rerun; an unfinished model call
-is repeated at a token cost only, unless it offered an unsafe hosted tool
-(`runner.go`, `recoverModelIntent`). The old worker's late commits fail the
+Resume repeats no effect: a started unsafe call gets a result-unknown stop
+(`run_tools.go`, decision 11); safe calls may rerun; an unfinished model call
+is repeated at a token cost only, unless it offered an unsafe provider tool
+(`run_loop.go`, `recoverModelCallStart`). The old worker's late commits fail the
 owner fence.
 
 ## What a new `Start` does
@@ -220,22 +221,23 @@ The first matching row applies:
 
 | Last turn | `Next()` | A new `Start` |
 |---|---|---|
-| None, or ended (completed, canceled, or a terminal limit) | `NextNone` | Starts |
+| None, or ended (completed, canceled, or an ending limit) | `NextNone` | Starts |
 | Cannot be read, under `Exclusive` | unknown | Skips it with `turn_unreadable`, starts |
 | Cannot be read, without `Exclusive` | unknown | Returns the load error |
 | Live, or running on this handle | `NextRunning` | Refuses, no `CallID` |
-| Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
+| Holds an unfinished call with an unknown result, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
 | No stop recorded; stopped, or `Exclusive` | `NextRecover` | Closes, starts |
-| No stop recorded; liveness unknown (an expired lease included) | `NextRecover` | Refuses |
+| No stop recorded; worker status unknown (an expired lease included) | `NextRecover` | Refuses |
 | Waiting on approvals or results | `NextResolvePending` | Refuses |
-| Interrupted, provider-pause limit, or answered and ready | `NextContinue` | Closes, starts |
+| Interrupted, provider-pause limit, or resolved and ready | `NextContinue` | Closes, starts |
 | At a budget or model-call limit | `NextRaiseBudget`, `NextRaiseModelCalls` | Closes, starts |
 | Refused, failed, or other limits | `NextFix` | Closes, starts |
 
 A turn is **busy** when a `Start` refuses on it: live, possibly live, waiting on
-the host, or holding an unsettled uncertain call. To add input to a running
-turn, or hold it for the next one, callers use `Steer` and `Enqueue`. To replace
-a running turn, they stop it (cancel its context or use `WithPause`), then send.
+the host, or holding an unfinished call with an unknown result. To add input to
+a running turn, or hold it for the next one, callers use `Steer` and `Enqueue`.
+To replace a running turn, they stop it (cancel its context or use `WithPause`),
+then send.
 
 ```go
 var ErrTurnBusy = errors.New("dashi: session turn is busy")
@@ -245,7 +247,7 @@ type TurnBusyError struct {
     Next      Next
     Origin    StartOrigin // compaction: the session's own work
     Duplicate bool        // this Start is a retry of that turn
-    CallID    string      // the unsettled uncertain call; empty while running
+    CallID    string      // the unfinished call with an unknown result; empty while running
 }
 
 func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
@@ -253,30 +255,30 @@ func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
 
 The message names the way out. For `NextRecover`: "dashi: turn S-7 may still be
 running; if its worker is lost, take it over with Continue{} or discard it with
-Cancel{}". For `NextResolvePending`: "answer its pending work or Cancel{} it". With
-`CallID`: "call c-3 in turn S-7 may still be running; Resolve{} it after checking
-its effect, or Cancel{} the turn to accept the risk". The CLI asks: "the last
-command may still be running: mark it done, or discard it?"
+Cancel{}". For `NextResolvePending`: "resolve its pending work or Cancel{} it".
+With `CallID`: "call c-3 in turn S-7 may still be running; Resolve{} it after
+checking its effect, or Cancel{} the turn to accept the risk". The CLI asks:
+"the last command may still be running: mark it done, or discard it?"
 
 **Closing** sends `Cancel{CommandID: "close:" + turnID, Reason: CloseReason}`
 (`CloseReason` is "a new message moved on"); the fixed command ID makes two
-closers idempotent, and the new turn's outcome warns `turn_closed`. The engine
-refuses `Cancel` once structured output is recorded (`runner.go`), so the
+closers idempotent, and the new turn's result warns `turn_closed`. The engine
+refuses `Cancel` once structured output is recorded (`run_command.go`), so the
 session closes such a turn, whatever its `Next`, with `Continue{CommandID:
 "close:" + turnID}`, which completes it without a model call
-(`stopAfterAnswer`). At a model-call limit, the reserved final answer, that
+(`stopAfterAnswer`). At a model-call limit, the reserved final reply, that
 `Continue` raises `ModelCalls` by one, or it would stop limited again. A
 close that leaves the turn open refuses with `*TurnBusyError`. Steers the
 closed turn never recorded move to the queue
-([session-input.md](session-input.md)). Closing relies on track 1: ended turns
-project and freeze.
+([session-input.md](session-input.md)). Closing relies on track 1: an ended
+turn's messages are built and frozen.
 
 **Why refuse, when most chat peers accept input while busy?** `Session.Run` is
 also the server API, and a server must not guess whether the user meant steer,
 queue, or replace. A chat UI calls `Steer` or `Enqueue`, as the CLI does. Why
-close other stopped turns? The engine treats few stops as terminal (`state.go`,
-`terminal`), so refusing on the rest would block a zero-value session after an
-Esc, a refusal, or the default eight model calls.
+close other stopped turns? The engine treats few stops as ending the turn
+(`turn_replay_checks.go`, `terminal`), so refusing on the rest would block a
+zero-value session after an Esc, a refusal, or the default eight model calls.
 
 ## Idempotency
 
@@ -289,17 +291,18 @@ usual retry arrives while its turn still runs.
    turn. Queue and compaction turns (`queue:` and `compact:` keys) never start
    the window, whatever their origin, so it covers those that ran after the
    caller's turn. The key marks them because a queue turn's origin can be
-   `StartUser`; `Run` refuses a caller's `Start` with either prefix. A turn in the window that fails to load fails the check with
-   its error, since a missed key would run the command again.
+   `StartUser`; `Run` refuses a caller's `Start` with either prefix. A turn in
+   the window that fails to load fails the check with its error, since a missed
+   key would run the command again.
 3. A turn matches when its recorded command ID equals the key. It is a duplicate
    when its input matches too: for a caller's `Start`, the recorded
    `StartFact.Input` ends with the retry's `Input` by JSON meaning (queued user
    items the session added come first); for a queue turn, the key itself is
    derived from the item IDs. History and agent are not compared. Same key,
    different input: `ErrCommandIDReused`.
-4. A duplicate whose turn has stopped returns the turn's current outcome, as the
+4. A duplicate whose turn has stopped returns the turn's current result, as the
    first call returned it: ended (`NextNone`), or stopped without ending
-   (waiting on an answer, at a limit, needing a decision), since waiting would
+   (waiting on the host, at a limit, needing a decision), since waiting would
    not change it.
 5. A duplicate whose turn may still be running (`NextRunning`, `NextRecover`)
    returns `*TurnBusyError{Duplicate: true}` naming it. `Stream` instead follows
@@ -307,14 +310,14 @@ usual retry arrives while its turn still runs.
    a `StepReader` and a `Loader`; a `NextRecover` turn may have lost its worker,
    and following it could wait forever, so it refuses.
 6. Two workers racing to `S-(n+1)` with the same key: with different histories,
-   the engine's command digest covers `History` and the agent, so the loser gets
+   the engine's command hash covers `History` and the agent, so the loser gets
    `ErrCommandIDReused`; with the same, the engine takes the loser as a retry
-   and returns the winner's outcome. Either way the session reloads and applies
+   and returns the winner's result. Either way the session reloads and applies
    step 3, so a true retry is recognized and a loser whose turn has no recorded
    stop gets step 5, never a success for a turn still running.
 
-A host that needs a longer window deduplicates at admission. A later optional
-`session.Index` method can find a turn by `CommandID`.
+A host that needs a longer window deduplicates when it accepts a request. A
+later optional `session.Index` method can find a turn by `CommandID`.
 
 ## Opening and creating
 
@@ -325,7 +328,7 @@ its state. It never runs anything:
 type State struct {
     Turns  int       // number of the last turn; 0 for a new session
     Last   *TurnView // nil when Turns is 0
-    Next   Next      // refined with liveness
+    Next   Next      // refined with worker status
     Queued int       // items waiting in this handle's queue
 }
 ```
@@ -339,7 +342,7 @@ Creating is explicit, so a mistyped ID fails rather than start an empty
 session, as Dive's `Store.Open` did.
 
 With no `Runner.Recorder`, the handle creates one `MemoryRecorder`, as the
-zero-value rule requires, and the first outcome carries a `memory_only` warning.
+zero-value rule requires, and the first result carries a `memory_only` warning.
 
 A `Session` refuses provider-side conversation state, as the OpenAI SDK does,
 once roadmap item 2 adds such a setting to `llm.Settings`.
@@ -349,19 +352,19 @@ once roadmap item 2 adds such a setting to `llm.Settings`.
 Session warnings are not in any turn record, so the ones a turn run produces
 (`turn_closed`, `turn_unreadable`, `queue_blocked`, `compaction_failed`,
 `compaction_mismatch`, and `memory_only` for the in-memory recorder) go on a new
-field, `Outcome.SessionWarnings []Warning`. `Steer`, `Enqueue`, and `EnqueueItem`
-return theirs in `Queued.Warnings`.
+field, `RunResult.SessionWarnings []Warning`. `Steer`, `Enqueue`, and
+`EnqueueItem` return theirs in `Queued.Warnings`.
 
 | Name | Kind | When |
 |---|---|---|
-| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that may still be running |
+| `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unfinished call with an unknown result; `Duplicate` for a retry of a turn that may still be running |
 | `session.ErrNotFound` | error | An ID with no turns and no `New` |
 | `session.ErrExists` | error | `New` on a session with turns |
 | `ErrCommandIDReused` | error (engine) | Same key, different input |
 | `turn_closed` | warning | A new `Start` closed the last turn |
 | `memory_only` | warning | In-memory recorder; or input queued under a durable recorder |
 | `turn_unreadable` | warning | A turn was skipped while building history, or an unreadable last turn under `Exclusive` |
-| `queue_blocked` | warning | A reservation cannot be settled, so the queue waits ([session-input.md](session-input.md)) |
+| `queue_blocked` | warning | A reservation cannot be finished, so the queue waits ([session-input.md](session-input.md)) |
 | `compaction_failed`, `compaction_mismatch` | warning | See [session-input.md](session-input.md#compaction-turns) |
 | `tool_not_offered` | recorded warning | See [session-engine.md](session-engine.md#tool-selection) |
 

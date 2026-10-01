@@ -79,7 +79,7 @@ replaces an older one is added after it rather than in its place. Your part:
 - Changing `ToolChoice`, reasoning, or `Citations` resets Anthropic's message
   cache.
 
-Known misses: the reserved final-answer call, compaction (the fixed cache
+Known misses: the reserved final-reply call, compaction (the fixed cache
 point still hits), a changed model, and on Anthropic a system message in the
 history, which Dashi moves into the top-level system prompt. See
 [design/prompt-cache.md](../../design/prompt-cache.md) for the reasons.

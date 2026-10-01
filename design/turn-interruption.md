@@ -106,12 +106,12 @@ after `Continue`.
 partial text and token usage arrived so the UI can show it and billing counts
 it. On resume the model call is simply sent again.
 
-One exception: *provider-hosted tools*, tools the provider runs itself during
+One exception: *provider tools*, tools the provider runs itself during
 the model call, such as web search, code execution, or remote MCP connectors.
-If the interrupted call may have run a hosted tool that is not known to be
+If the interrupted call may have run a provider tool that is not known to be
 read-only or idempotent (safe to repeat), resending it could repeat a real
-action, so the call is *uncertain* (below) and is not resent. Dashi marks the
-built-in hosted tools it knows are read-only, such as web search; a tool
+action, so the call's result is *unknown* (below) and it is not resent. Dashi marks
+the built-in provider tools it knows are read-only, such as web search; a tool
 definition's annotations can say so for others.
 
 **During a tool call.** The runner stops waiting. Any result that arrives after
@@ -122,30 +122,30 @@ a real outcome. The call stays marked as started with no result.
 
 `Continue` first resolves anything left in flight, then carries on:
 
-- An interrupted model call is sent again, unless a hosted tool makes it
-  uncertain.
+- An interrupted model call is sent again, unless a provider tool makes its
+  result unknown.
 - A local tool call that started but has no saved result is rerun if its
   definition is annotated `ReadOnly` or `Idempotent` (`tool/tool.go:33-43`).
-- Any other such call is **uncertain**: the tool started but no result was
-  saved, so Dashi cannot tell whether it ran. Running it again might send a
-  second email or charge a card twice. The turn stops `uncertain`, and the
+- Any other such call has an **unknown result**: the tool started but no
+  result was saved, so Dashi cannot tell whether it ran. Running it again might send a
+  second email or charge a card twice. The turn stops `result_unknown`, and the
   application must report what happened.
 
 The application reports with `Resolve`: the tool's result if it can find it (for
 example by looking up an idempotency key in the downstream system), or a
-failure; for an uncertain model call, the result or evidence that it never ran.
+failure; for a model call with an unknown result, the result or evidence that it never ran.
 Or it can `Cancel` the turn. `Resolve` only records the report; `Continue`
 resumes the turn. The same holds everywhere `Resolve` is used, including an
-approval or a tool result delivered to a waiting turn, which today carries on
+approval or a tool result supplied to a waiting turn, which today carries on
 immediately: one rule, and the request that records an approval does not run
 the model inline. The report is committed before `Resolve` returns, so a
 forgotten `Continue` loses nothing; the turn stays stopped. To make that
-visible, `Outcome` and the saved turn say when nothing blocks the turn and it
+visible, `RunResult` and the saved turn say when nothing blocks the turn and it
 is ready to continue, so an application calls `Continue` and a host's sweeper
 can find ready turns that no worker is running.
 
 This refines [turn.md](turn.md)'s rule that work is "never blindly repeated": it
-still holds for actions with uncertain effects, but repeating a model call, or
+still holds for actions whose effects are unknown, but repeating a model call, or
 a tool declared safe to repeat, is the normal recovery.
 
 ## Limits and deadlines
@@ -153,9 +153,9 @@ a tool declared safe to repeat, is the normal recovery.
 **Interruptions have their own limit.** A new `Limits.Resumes` counts
 resumes after an interruption or crash, with a default of 10. Interruptions are
 usually the hosting's fault, not the model's, so they do not consume
-`ModelCalls`: a model call recorded as interrupted is not counted as an
-attempt, so its resend on resume uses the attempt the cut-off call would have
-used. Its token usage and cost still count toward spend and budgets. A day of
+`ModelCalls`: a model call recorded as interrupted is not counted toward
+`ModelCalls`, so its resend on resume uses the slot the cut-off call would
+have used. Its token usage and cost still count toward spend and budgets. A day of
 deploys therefore cannot exhaust a turn's model budget. When a
 `Continue` would exceed the limit, the turn stops as `limited` instead of
 resuming, so a turn that crashes its worker every time cannot loop forever.
@@ -205,10 +205,10 @@ None for decision 6; naming of the ready flag is left to implementation.
 unstarted calls left pending and a cut-off model call recorded as interrupted.
 Explicit `Cancel` tests are unchanged. New tests: `Continue` after an
 interruption and after a crash, with an interrupted model call, a started safe
-tool, and a started unsafe tool; a hosted tool of unknown safety; the `Pause`
+tool, and a started unsafe tool; a provider tool of unknown safety; the `Pause`
 channel during a model call and during a tool loop; `ContextCancel` with a
 broken `Stream`; `Resolve` on an interrupted turn; repeated interruptions
-during model calls, which reach the interruption limit while `ModelCalls`
+during model calls, which reach the resume limit while `ModelCalls`
 is unchanged and usage still accumulates; a
 deadline cutting off a running call; and a lease loss rejected by the store.
 

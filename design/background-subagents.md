@@ -48,7 +48,7 @@ subagent, state, tool calls, cost, label. `/tasks ID` prints the result.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `task` | `subagent` (enum), `prompt`, `description` | `Started task t_k3f2 (explore): <description>. It runs in the background. A message that starts with "[task t_k3f2" arrives when it ends. Keep working. Do not poll.` |
-| `task_status` | `task_id` (optional), `wait_seconds` (0 to 60, default 0) | Running: state, tool calls, cost so far. Ended: state and answer. No `task_id`: one line per task; with `wait_seconds`, it waits for the next end. |
+| `task_status` | `task_id` (optional), `wait_seconds` (0 to 60, default 0) | Running: state, tool calls, cost so far. Ended: state and reply. No `task_id`: one line per task; with `wait_seconds`, it waits for the next end. |
 | `task_stop` | `task_id` | `Stopped task t_k3f2.` or `Task t_k3f2 already completed.` |
 
 Status and result are one tool. The context of the call ends a wait early. An
@@ -73,7 +73,7 @@ type Config struct { /* existing fields kept */ OnTask func(TaskEvent) }
 type TaskEvent struct{ Kind TaskEventKind; Task TaskView } // started, ended
 type TaskState string // "running" or a dashi.StopKind word
 type TaskView struct { ID, ChildID, Subagent, Description string; Parent dashi.CallRef
-    State TaskState; ModelCalls, ToolCalls int; Spend dashi.Spend; Answer, Reason string }
+    State TaskState; ModelCalls, ToolCalls int; Spend dashi.Spend; Reply, Reason string }
 
 func (v TaskView) Notice() Notice
 func (n Notice) Text() string; func (n Notice) Steer() dashi.Steer
@@ -95,7 +95,7 @@ a follow-up Turn.
 **Start.** `task` reads `CurrentCall` and `CurrentRunner`, computes the child
 ID, and asks `Tasks` to start it. `Tasks` copies the running runner, starts a
 goroutine under its own context, and runs the child with `Start.Parent`. The
-call settles once the record holds the child's first step, so a crash after
+call finishes once the record holds the child's first step, so a crash after
 the call cannot lose a child the model heard about. If `Tasks` holds the
 child, `task` returns the same ID, so it is idempotent. The child does not
 depend on the tool call or the parent Turn.
@@ -143,7 +143,7 @@ their records, and sends no `TaskEnded`; the next `Recover` resumes them.
 - FR-5: A notice has origin `ContextTool` and the ID `task-done:<child ID>`.
   (Superseded by [decision 43](decisions.md): origin `ContextAgent`, a
   `task-ended` reminder, one notice per child turn.)
-- FR-6: `task_status` returns state and answer of an ended task at any time.
+- FR-6: `task_status` returns state and reply of an ended task at any time.
 - FR-7: `Recover` needs a `Loader` recorder and returns an error that says so.
   Without one, `Tasks` warns once, and tasks do not survive a restart.
 - FR-8: `Close` records no child as failed.
@@ -178,7 +178,8 @@ check after each test.
 
 ## Out of scope
 
-- A task that outlives the process (external settle, 13 PRD).
+- A task that outlives the process (its result supplied later by the host, 13
+  PRD).
 - A message from the parent to a running child. (Superseded: now in scope,
   both ways; see the [subagent messages
   PRD](roadmap-research/13-subagent-messages-prd.md) and decision 42.)
@@ -216,8 +217,9 @@ check after each test.
    AddMessages cannot reach an ended Turn, so a follow-up Turn is the only way.
 8. **Idle rule: show it and start a follow-up Turn at once.**
 9. **Task ID is a fixed function of the child ID.**
-10. **States are `running` plus `StopKind` words**, including `waiting` (a
-    deferred approval) and `uncertain`. Both count as an end and send a notice.
+10. **States are `running` plus `StopKind` words**, including `waiting` (an
+    approval still pending) and `result_unknown`. Both count as an end and
+    send a notice.
 11. **No child index.** `Recover` walks the Turns the host holds.
 12. **Close interrupts, reopen resumes.** Children always run with
     `OnContextDone: ContextInterrupt`, whatever the parent uses, so Close is
@@ -225,7 +227,7 @@ check after each test.
 13. **Ctrl-C leaves tasks running.**
 14. **A child bounds itself** with its own limits.
 15. **`task` waits for the child's first step** (added in implementation). A
-    settled call would otherwise outlive a child that a crash never saved.
+    finished call would otherwise outlive a child that a crash never saved.
 16. **`FollowUp` takes notice steers**, not views, so the CLI needs no map of
     ended tasks (changed in implementation).
 17. **`Recover` reports an ended child once per process.** It skips the child
@@ -237,7 +239,7 @@ check after each test.
     would. The result says the task has ended. `Recover` after that skips the
     child. A rerun may repeat a notice that a follow-up Turn already
     carried, because `startTask` does not see the other Turns. That costs a
-    repeat (see 5). A host still calls `Recover` on reopen: a settled `task`
+    repeat (see 5). A host still calls `Recover` on reopen: a finished `task`
     call is not run again, so only `Recover` finds those children.
 19. **`Tasks.Wait(ctx)` is the one idle call.** A task is pending until
     `OnTask` returns for its end, so the gap between "ended" and "notice in

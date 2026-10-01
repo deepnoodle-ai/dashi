@@ -19,7 +19,7 @@ recognition, err := client.PrepareTranscription(ctx, speech.TranscribeInput{
     }),
 })
 if err != nil { return err }
-recordIntent(recognition.Summary()) // metadata only; does not include the clip
+recordRequest(recognition.Summary()) // metadata only; does not include the clip
 transcript, err := client.SendTranscription(ctx, recognition)
 if err != nil { return err }
 _ = transcript.Text // empty text can mean valid silence
@@ -28,20 +28,20 @@ synthesis, err := client.PrepareSynthesis(ctx, speech.SynthesizeInput{
     Model: "gpt-4o-mini-tts", Text: "Hello there.", Voice: "alloy",
 })
 if err != nil { return err }
-recordIntent(synthesis.Summary()) // no spoken text or instructions
+recordRequest(synthesis.Summary()) // no spoken text or instructions
 audio, err := client.SendSynthesis(ctx, synthesis)
 if err != nil { return err }
 _ = audio.Audio // inline MP3 content; the application owns storage/playback
 ```
 
-`recordIntent` stands for an application function; the snippet assumes imports
+`recordRequest` stands for an application function; the snippet assumes imports
 for `context`, `os`, `content`, `speech`, and `openaispeech`.
 
 Prepare does no network work. The request keeps its exact wire body privately;
 `Summary()` returns detached metadata and cannot reconstruct or replay it.
-Send makes one attempt. If a `*speech.Error` has `RemoteOutcomeUnknown`, a lost
-or unusable response does not establish whether the provider processed the request.
-Do not automatically retry it.
+Send makes one attempt. If a `*speech.Error` has `RemoteOutcomeUnknown`, a
+lost or unusable response does not show whether the provider processed the
+request. Do not automatically retry it.
 An explicit HTTP rejection carries `Status`, a bounded provider `Code`, a
 positive `RetryAfter` hint when sent, and advisory `Retryable`. OpenAI may use
 429 for both temporary throttling and `insufficient_quota`; the latter has

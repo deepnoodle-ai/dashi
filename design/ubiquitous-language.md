@@ -10,7 +10,7 @@ Session contracts remain proposed; see the
 ## Define an agent
 
 - **Agent**: Reusable agent configuration (`dashi.Agent`): identity,
-  revision, instructions, model, settings, output schema, and limits. It is
+  version, instructions, model, settings, output schema, and limits. It is
   plain JSON data, recorded when a turn starts, not a running object.
 - **Runner**: The value that runs turns (`dashi.Runner`): an agent plus its
   long-lived services, such as the client, tools, recorder, hooks, and
@@ -24,15 +24,18 @@ Session contracts remain proposed; see the
 - **API**: The wire format a client speaks, such as `openai.responses`.
 - **Tool**: A named operation the model can request, with a **tool definition**
   describing its purpose and input schema.
+- **Provider tool**: A tool the provider runs on its side, such as web search
+  (`tool.ProviderToolSpec`). Its calls and results are `llm.ProviderToolUse`
+  and `llm.ProviderToolResult`. Avoid "hosted tool".
 - **Toolset**: A named source of tools resolved before each model call.
 - **Skill**: Named task instructions loaded into context when invoked.
 
 ## Work with turns and sessions
 
-- **Turn**: One input processed until the agent settles, possibly across many
+- **Turn**: One input processed until the agent stops, possibly across many
   model calls, with its calls, usage, and state persisted across continuation.
   Some SDKs call one model call plus its tool calls a "turn"; Dashi calls that
-  a **model attempt** and never uses "turn" for a loop iteration.
+  a **model call** and never uses "turn" for a loop iteration.
 - **Session**: A conversation of many turns, named by a **session ID**. It holds
   the whole conversation history plus the other events and information around
   it: stops, approvals, steers, compaction summaries, spend, warnings, and
@@ -43,23 +46,29 @@ Session contracts remain proposed; see the
   one process or request, with its runner, steering, and cache. It holds no
   durable state: anything that must outlast it belongs in the turn records. Many
   handles, in many processes, can refer to one session over its life.
-- **Turn outcome** (`dashi.RunResult`): The returned turn record and its current
-  view, including its stop, answer, spend, and pending work. The separate Go
+- **Run result** (`dashi.RunResult`): The returned turn record and its current
+  view, including its stop, reply, spend, and pending work. The separate Go
   error reports command and recording failures.
-- **Turn stop** (`dashi.Stop`): Why turn execution paused or ended. `Terminal`
-  says whether the turn can ever run again. `TurnView.Next()` gives the host's
-  next action.
+- **Reply** (`TurnView.Reply`): The model's final text for the turn.
+- **Turn stop** (`dashi.Stop`): Why turn execution paused or ended. `Ended`
+  says the turn can never run again; `Inferred` says no stop was recorded and
+  Dashi inferred one from the work in flight. `TurnView.Next()` gives the
+  host's next action.
 - **Next action**: What the host does next with a turn, read from its recorded
-  stop (`TurnView.Next`): nothing, running (a hook's view), resume, answer,
-  continue, raise a budget or the model-attempt limit, or resolve a cause
-  first.
-- **Ended turn**: A turn whose stop is terminal; no command can run it again
+  stop (`TurnView.Next`): nothing, running (a hook's view), recover, resolve
+  pending items, continue, raise a budget or the model-call limit, or fix a
+  cause first.
+- **Ended turn**: A turn whose stop has `Ended` set; no command can run it again
   (`ErrTurnEnded`). A session **closes** a stopped turn that has not ended by
   canceling it when a new message arrives, and refuses while the turn is
   **busy**: live, possibly live (an expired lease included), waiting on the
-  host, or holding an unsettled uncertain call, whatever its liveness. Only
-  proof that no worker still drives it makes a turn **stopped**; that proves
-  nothing about effects the worker started. (Proposed; decision 38.)
+  host, or holding an unfinished call whose result is unknown, whatever its
+  worker status. Only proof that no worker still runs it makes a turn
+  **stopped**; that proves nothing about effects the worker started.
+  (Proposed; decision 38.)
+- **Worker status** (`session.WorkerStatus`): Whether a worker is still
+  running a turn: `unknown`, `running`, or `stopped`, reported by a
+  `WorkerChecker`.
 - **Subagent**: An agent performing delegated work, linked to the parent
   turn's call that started it. A background subagent is a **task** that runs
   in a **child session** of one or more child turns. (Proposed; decision 42;
@@ -78,17 +87,19 @@ Session contracts remain proposed; see the
   subagent name. Dashi sets it from the sending turn, never from the text.
   (Proposed; decision 43.)
 - **Notice**: The agent message Dashi sends for a task when one of its turns
-  ends, carrying the answer or the stop reason.
+  ends, carrying the reply or the stop reason.
 
 Use the five **turn commands** as the shared verbs. Each carries a
 **command ID** (`CommandID`), an idempotency key: repeating it with the same
 payload acknowledges the recorded step instead of repeating the effect.
 
 - **Start**: Begin a new turn with input.
-- **AddMessages**: Add context to an existing turn without advancing execution.
+- **AddMessages**: Add messages to an existing turn without advancing
+  execution.
 - **Continue**: Advance an eligible existing turn, optionally with more context.
-- **Resolve**: Record a host-supplied tool outcome, approval answer, hosted
-  approval, or model result. It never runs the turn; `Continue` does.
+- **Resolve**: Record a host-supplied tool outcome, approval decision,
+  provider tool approval, or model call result. It never runs the turn;
+  `Continue` does.
 - **Cancel**: Request that the turn stop.
 
 These replace the lifecycle meanings currently carried by Dive's `WithInput`,
@@ -110,15 +121,18 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
 - **Conversation history**: Every message across a session's turns: user and
   assistant messages, tool calls, and tool results. It is complete and never
   shortened; compaction does not remove anything from it.
-- **Projected history**: The messages sent to the model for one call: the
-  conversation history after compaction and projection. `Start.History` and
-  `Continue.History` carry the projected history of earlier turns.
-- **Compaction**: Summarizing the projected history while retaining the
+- **Turn messages** (`TurnMessages`): One turn's own messages as the model
+  sees them, with recorded replacements applied. `TurnMessagesFull` gives the
+  original messages without replacements. Neither includes earlier turns.
+- **History** (`BuildHistory`, `Session.NextHistory`): The messages a turn
+  sends ahead of its own, built from earlier turns' messages, starting at the
+  newest compaction turn's replacement history. `Start.History` and
+  `Continue.History` carry it. Avoid "projected history".
+- **Compaction**: Summarizing the messages the model sees while retaining the
   conversation history and the execution record.
 - **Replacement history**: What a compaction turn records to stand in for the
-  projected history of the turns it covers: the summary plus the kept messages.
-  Every reader builds later turns' projected history from it. (Proposed;
-  decision 39.)
+  messages of the turns it covers: the summary plus the kept messages. Every
+  reader builds later turns' history from it. (Proposed; decision 39.)
 
 ## Inspect calls and results
 
@@ -128,11 +142,19 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
   decisions, evidence, and exact body produced by preparation.
 - **Request snapshot**: The recordable form of a model request; carries no
   execution status.
-- **Attempt**: One execution try using a model request. Retries are distinct
-  attempts; preparation and entering `Send` do not prove dispatch or receipt.
+- **Model call**: One send of a model request, named by a `ModelCallID`.
+  Retries are separate model calls; preparation and entering `Send` do not
+  prove the request was sent or received. **Send status** (`llm.SendStatus`)
+  says whether a failed call was `not_sent`, `provider_rejected`, or
+  `unknown`.
+- **Worst-case cost** (`WorstCaseCost`): The most a model call can cost,
+  computed before it is sent. A **reservation** is what a `BeforeSend` hook
+  approves against that figure; the call's **cost** (`ModelCallCost`) is
+  recorded when it finishes, with its **usage source**: `reported`,
+  `estimated`, or `not_sent`.
 - **Model capabilities**: Known support and limits, with evidence and a date;
   unknown support remains explicit. **Pricing** is separate cost information.
-- **Model result** (`llm.Result`): One attempt's message, stop reason, and
+- **Model result** (`llm.Result`): One model call's message, stop reason, and
   usage, whether streamed or returned whole.
 - **Model stop** (`llm.Stop`): Why one model response ended, with its classified
   kind and raw provider reason. A model stop alone does not end the turn.
@@ -140,8 +162,8 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
   effective arguments.
 - **Tool outcome** (`tool.Outcome`): A tool call's execution state and permitted
   payload. **Tool output** (`tool.Output`) is its returned content and display
-  text. `ToolView.Result()` gives the model-facing projection. An unobserved
-  effect remains uncertain in `ToolView.Status`.
+  text. `ToolView.Result()` gives what the model sees. A call that may have run
+  without a recorded result is `ToolResultUnknown` in `ToolView.Status`.
 - **Usage and limits**: Accumulated token and call counts, and bounds on calls,
   concurrency, and time.
 - **Prompt cache**: The provider's store of a request's leading part (tools,
@@ -161,12 +183,18 @@ These replace the lifecycle meanings currently carried by Dive's `WithInput`,
 
 - **Hook**: A named application function called at one point of a turn
   (`BeforeModel`, `BeforeSend`, `BeforeTool`, `BeforeFinish`) to shape or
-  decide it; its answer is recorded with the step it leads to.
+  decide it; its decision is recorded with the step it leads to. A tool hook
+  allows a call, denies it, or says it **needs approval** (`NeedsApproval`);
+  the host's answer is an **approval decision** (`ApprovalDecision`).
 - **Dialog**: A prompt asking a person for approval, selection, or text input.
 - **Event and observer**: Live text, tool progress, and execution updates
   delivered to an observer callback.
-- **Step**: A recorded fact within a turn, such as a model request or tool
-  completion.
+- **Step**: A recorded fact within a turn, such as a model call starting or a
+  tool finishing. Its **sequence number** (`Seq`) orders it; `TurnView.LastSeq`
+  is the latest one. A step that records a call's result **finishes** that
+  call (`Step.Finishes`).
+- **Hash**: A SHA-256 hash that identifies content, such as `ArgsHash` or
+  `HistoryHash`. Dashi never says "digest" or "fingerprint".
 
 [model]: ../tmp/research/design/2026-09-26-dive-v2-conceptual-model.md
 [dive]: ../tmp/research/dive-api/README.md

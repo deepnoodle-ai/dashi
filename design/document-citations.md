@@ -35,8 +35,8 @@ per-document flag would invite mixed requests Anthropic rejects.
   when the request contains a document; otherwise the setting has no effect and
   nothing is warned.
 
-Citations cost a little more input and split the answer into several text
-blocks, one per cited passage. The answer accessor must join adjacent text
+Citations cost a little more input and split the reply into several text
+blocks, one per cited passage. The reply accessor must join adjacent text
 blocks without inserting separators.
 
 Decoded document citations carry their title and a location:
@@ -52,8 +52,8 @@ type CitationLocation struct {
 `RequestDocumentIndex` counts the document blocks of the request that produced
 the citation, in the order sent: every message, then each tool result's blocks.
 It is not stable across calls, since next-call-only context and new tool results
-change the order. Translating it to caller coordinates is not clean: hosted
-results such as web fetch can contain documents that the provider counts and
+change the order. Translating it to caller coordinates is not clean: provider
+tool results such as web fetch can contain documents that the provider counts and
 Dashi does not author. Callers who need a stable key should give documents
 titles and use `Citation.Title`. Search result citations map their `source` to
 `Citation.URL`; other citation kinds stay in `Raw`.
@@ -110,7 +110,7 @@ llm.UserMessage(
 
 ```go
 func MustOutputSchema[T any]() json.RawMessage
-func DecodeOutput[T any](o Outcome) (T, error)
+func DecodeOutput[T any](o RunResult) (T, error)
 ```
 
 `MustOutputSchema` generates the schema with `tool.Func`'s rules and runs the

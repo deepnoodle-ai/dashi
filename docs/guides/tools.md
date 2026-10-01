@@ -49,7 +49,7 @@ start := dashi.Start{
 The runner applies the selection before each model call, before any
 `BeforeModel` hook. A name the runner does not offer is skipped, and the turn
 records a `tool_not_offered` warning once per name. The selection is part of
-the agent, so the turn records it and it changes the derived `auto:` revision.
+the agent, so the turn records it and it changes the derived `auto:` version.
 The turn records the names sorted and without duplicates, so the order of the
 list does not matter.
 
@@ -120,9 +120,9 @@ Case-only aliases of declared names are rejected even in default mode:
 their last value, including when a nested object repeats. The typed callback
 decodes that same last-key JSON meaning, while `Call.Args` stays raw. Ordinary
 surplus keys are still accepted. When the matching typed executor is bound,
-case-alias checks run before `BeforeTool` hooks and after hook rewrites. A definition
-advertised without its executor can still reach a deferred approval; the
-call cannot gain an executor later in that same run. On resume, the bound
+case-alias checks run before `BeforeTool` hooks and after hook rewrites. A
+definition advertised without its executor can still reach a held approval;
+the call cannot gain an executor later in that same run. On resume, the bound
 executor checks again before its callback runs. A Toolset lookup error stops
 the turn before the hook sees the call.
 
@@ -150,20 +150,20 @@ search := tool.MustFunc("search_notes", "Searches the notes.", searchFn,
 
 The hints change behavior. When a crash loses a call's result, a resumed turn
 reruns the call only if the tool has either hint; otherwise it does not run the
-call again and records that the earlier execution may have taken effect. A
-read-only subagent gets only tools marked read-only.
+call again and records that its result is unknown: the earlier run may have
+taken effect. A read-only subagent gets only tools marked read-only.
 
 ## Outcomes and errors
 
 Return `tool.Succeeded(text)` for the common case. `tool.Detached(id)` hands
 work to another system whose result the host records later with `Resolve`, and
-`tool.Waiting(reason)` pauses the call until the host settles it. `Waiting("")`
+`tool.Waiting(reason)` pauses the call until the host resolves it. `Waiting("")`
 and `Detached("")` are invalid; the runner stops the turn if an executor
 returns them.
 
 To report a failure, return an error: the model sees its text, and the runner
 keeps it for the host. Wrap it with `tool.Fatal` to stop the turn instead.
-`tool.Failed(text)` is for settling an external or detached call, or for
+`tool.Failed(text)` is for resolving an external or detached call, or for
 attaching a `Cost` to a failure.
 
 A failed, denied, or skipped call reaches the model as a result flagged as an
@@ -175,10 +175,10 @@ warning.
 ## Large results
 
 A tool can return more text than the model needs. By default, Dashi limits the
-text of each tool result in the projected history to 64 KiB. This includes error
-results. Set `Agent.Limits.ToolResultBytes` for another limit. A negative value
-turns the limit off. A value below 1 KiB becomes 1 KiB, and `Start` records a
-`WarningLimitAdjusted`.
+text of each tool result in the messages the model sees to 64 KiB. This
+includes error results. Set `Agent.Limits.ToolResultBytes` for another limit. A
+negative value turns the limit off. A value below 1 KiB becomes 1 KiB, and
+`Start` records a `WarningLimitAdjusted`.
 
 When a result is over the limit, the model sees the first half and the last
 half of the allowed text. A marker between them gives the original size and the
@@ -189,18 +189,19 @@ order. The limit also counts the separators that providers add between text
 blocks, and Dashi drops empty text blocks. Images and other non-text blocks
 stay in place and do not count.
 
-The turn record keeps the full result in `ToolView.Outcome`. `ToolView.Result()`
-returns the result as the projected history shows it, and
+The turn record keeps the full result in `ToolView.Outcome`.
+`ToolView.Result()` returns the result as the model sees it, and
 `ToolView.Shortened()` returns the sizes and the limit, as recorded when the
-call settled. Replay, `dashi.Project`, and recovery read the recorded result. They never compute it again, so a new limit
-applies only to new turns. `Observer` and `Stream` events carry the full result,
+call finished. Replay, `dashi.TurnMessagesFull`, and recovery read the
+recorded result. They never compute it again, so a new limit applies only to
+new turns. `Observer` and `Stream` events carry the full result,
 so a live reader can show all of it to a person
 ([example](../../examples/bigresult/main.go)).
 
 The limit applies to each result. Parallel calls add up: eight results of
 64 KiB send 512 KiB. Set a lower limit when `ToolConcurrency` is high.
-Shortening is not redaction. Secrets in the kept text stay in the projected history, and the
-full result stays in the record.
+Shortening is not redaction. Secrets in the kept text stay in the messages the
+model sees, and the full result stays in the record.
 
 ## Tool progress
 
@@ -222,28 +223,29 @@ previews: never recorded, never replayed, and never shown to the model, so the
 tool's `Outcome` must still carry its full result. `Report` never blocks and
 does nothing when no one listens. When the consumer is slower than the tool,
 snapshots merge and the latest wins. On `Stream`, the last report before
-`Execute` returns arrives before the call's settled step. `Observer` gets
-progress at the lowest priority and may drop it: progress fills at most half
-its preview queue, and deltas evict queued progress when the queue is full.
-Nothing for a call follows its settled step, and no progress is delivered once
-the turn's context ends, such as after breaking a `Stream` range. A snapshot
-may wait while the runner authorizes or commits another call.
+`Execute` returns arrives before the call's `tool_finished` step. `Observer`
+gets progress at the lowest priority and may drop it: progress fills at most
+half its preview queue, and deltas evict queued progress when the queue is
+full. Nothing for a call follows its `tool_finished` step, and no progress is
+delivered once the turn's context ends, such as after breaking a `Stream`
+range. A snapshot may wait while the runner authorizes or commits another
+call.
 Report at human rates, a few times a second at most, and throttle rendering
 if needed. To test a tool on its own, install a reporter with
 `tool.WithReporter`. See `examples/tool_progress`, and
 [live updates](live-updates.md) for serving progress to browsers.
 
-## Hosted tools
+## Provider tools
 
 Provider packages construct tools that the provider runs inside the model
 call, such as `messages.NewWebSearchTool` or `gemini.NewGoogleSearchTool`.
 Each takes an options struct whose zero value works where the provider allows
 it, and returns an error only when its options can be invalid. The result is a
-`tool.Tool` with no executor: the runner never dispatches it and no hook sees
+`tool.Tool` with no executor: the runner never runs it and no hook sees
 its calls. For a direct model call, pass its `Definition` in
 `llm.Input.Tools`.
 
-A hosted tool is bound to one configured destination, named by the client's
+A provider tool is bound to one configured destination, named by the client's
 `Provider()`. Anthropic and Gemini options have a `Provider` field; leave it
 empty for the default destination and set it for one with a custom name. An
 empty `Provider` on a Gemini tool without options, such as Google Search, also

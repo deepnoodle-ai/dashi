@@ -11,7 +11,7 @@ The `delegate` package provides three tools:
 | Tool | What it does |
 | --- | --- |
 | `task` | Starts a subagent. Returns `Started task t_k3f2 ...` at once. |
-| `task_status` | Gives the state of a task, or its answer when it ended. `wait_seconds` (0 to 60) waits for the end. Without `task_id`, it lists all tasks. |
+| `task_status` | Gives the state of a task, or its reply when it ended. `wait_seconds` (0 to 60) waits for the end. Without `task_id`, it lists all tasks. |
 | `task_stop` | Stops a running task. |
 
 A `Tasks` value owns the running children. The host makes one for each
@@ -59,9 +59,9 @@ are left). A resumed child uses that record, not the subagent's current config,
 and a tool a dynamic toolset adds after the child starts is not offered to it.
 A child with no rule (no named tools, a parent that may use every tool, and
 not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
-every tool, including one a toolset adds later. A child never receives the three task tools, so a child cannot start a
-child. It sees only its prompt, so the model must put every fact in the
-prompt.
+every tool, including one a toolset adds later. A child never receives the
+three task tools, so a child cannot start a child. It sees only its prompt, so
+the model must put every fact in the prompt.
 
 ## The link between parent and child
 
@@ -77,14 +77,15 @@ function of the session ID, so it is the same after a reopen.
 Each child turn that ends calls `Config.OnTask` once with `TaskEnded`. With
 `Config.Session` set, `Tasks` first puts the turn's notice on that session
 itself; without it, the host decides what to do. `TaskView.Notice()` gives
-the message: `Text()` for display, and `Item()` and `Steer()` for delivery.
+the message: `Text()` for display, and `Item()` and `Steer()` to send it to
+the conversation.
 The item is a `task-ended` reminder from the task
 (`from="task t_k3f2 (explore)"`) with origin `ContextAgent`, so it is never
 user or operator text.
 
-There is one delivery rule: **a result is delivered when the conversation's
+There is one rule: **a result has reached the parent when the conversation's
 record holds the notice** (the context item `task-done:<child turn ID>`). A
-`task_status` read is not delivery, so the model that reads a result still
+`task_status` read does not count, so the model that reads a result still
 gets the notice. Two cases:
 
 - **A turn runs.** `Session.SteerItem` sends the steer to the running turn.
@@ -95,8 +96,8 @@ gets the notice. Two cases:
   the user's next message: it runs as a **queue turn** of its own, with origin
   `StartScheduled`, which claims no user authority. The queue turn's command ID
   is `queue:` and the JSON list of the item IDs it carries, and that also
-  counts as delivery. A steer that missed its turn moves to the queue too.
-  Interactive hosts should raise `Limits.ModelCalls`.
+  counts as the notice reaching the record. A steer that missed its turn moves
+  to the queue too. Interactive hosts should raise `Limits.ModelCalls`.
 
 A host that drives turns with `Runner.Run` and its own `dashi.Inbox` can still
 send the steer to the inbox; notices left over when no turn runs need a turn
@@ -106,7 +107,7 @@ of their own, which the session's queue provides.
 
 `delegate.RunUntilQuiet(ctx, s, tasks)` runs the session's queue and waits
 while tasks run. It returns when no task is pending and the queue is empty,
-with the last turn's outcome, or when a turn stops with anything but
+with the last turn's result, or when a turn stops with anything but
 `NextNone`, which needs the host first. The same `Send` also runs a queue turn
 by itself when a notice arrives before its turn ends.
 
@@ -128,7 +129,7 @@ session's `s.Turns(ctx)` yields:
 
 | Child turn record | `Recover` |
 | --- | --- |
-| Last turn, no stop or interrupted | Resumes that turn. Settled model calls do not run again. `OnTask` gets `TaskStarted`. |
+| Last turn, no stop or interrupted | Resumes that turn. Finished model calls do not run again. `OnTask` gets `TaskStarted`. |
 | Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once for each such turn. |
 | Ended, and the record holds the notice | Nothing. |
 | Canceled | Not resumed. |
@@ -136,7 +137,7 @@ session's `s.Turns(ctx)` yields:
 `Recover` needs a recorder that implements `dashi.Loader` (`MemoryRecorder`
 and `filerecorder` do). Without one it returns an error, and the tool logs a
 warning: tasks then run but do not survive a restart, and a resumed parent
-reports the `task` call as uncertain.
+reports the `task` call's result as unknown.
 
 Call `Recover` on reopen. The order against resuming the parent does not
 matter: a rerun `task` call that finds an ended child reports it too, once.
@@ -152,12 +153,12 @@ tool or `Tasks.Stop(ctx, id)`. The running child turn records `canceled`, and
 `Recover` does not resume it; the child session keeps its history. The states
 of a task, those of its last turn, are `running` and the Dashi stop words:
 `completed`, `failed`, `limited`, `refused`, `canceled`, `interrupted`,
-`waiting`, and `uncertain`. `Tasks.List()` returns a `TaskView` for each task
-with state, tool calls, cost, and the answer.
+`waiting`, and `result_unknown`. `Tasks.List()` returns a `TaskView` for each
+task with state, tool calls, cost, and the reply.
 
-## Answers, budgets, and spend
+## Replies, budgets, and spend
 
-`MaxReply` caps the answer in bytes (default 16 KiB; negative means no cap).
+`MaxReply` caps the reply in bytes (default 16 KiB; negative means no cap).
 A child keeps its own `Limits` and `Budget`. A parent `Budget` does not cap a
 child, and the end of the parent turn does not stop it.
 
@@ -179,8 +180,8 @@ an ordinary turn with its own spend.
 Child tool calls pass through the hooks of the parent runner, also while no
 turn runs. The hook sees the child's `TurnView`: `Parent` is set, and
 `Agent.ID` is the subagent name. Several children can run at once, so the
-prompt must handle parallel calls, and it must answer inline. A hook that
-defers a child's call ends the task in state `waiting`.
+prompt must handle parallel calls, and it must decide inline. A hook that
+holds a child's call for approval ends the task in state `waiting`.
 
 ## Showing the child's work
 

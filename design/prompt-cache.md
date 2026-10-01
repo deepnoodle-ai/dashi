@@ -56,13 +56,14 @@ off the wire or out of records passes its own hash.
 **Where callers set it.** Direct calls set `Input.Settings.PromptCache`. Agents
 set `Agent.Settings.PromptCache`, which reaches `Start.Agent`,
 `Session.Agent`, and carry-forward like any setting. The automatic agent
-revision (`defaults.go`) leaves `PromptCache.Key` out, as it does
+version (`agent.go`) leaves `PromptCache.Key` out, as it does
 `Limits.Deadline`. Children of `delegate` keep their agent's key.
 
 **Session key.** A session hands its ID to the Runner as a fallback key. When
 the agent sets no `Key` and the model's knowledge sets `cache_key_default`
 (`Capabilities.CacheKeyDefault`), the Runner puts the ID in the call's input
-settings before hooks run, so the model intent records it as requested; the
+settings before hooks run, so the `model_call_started` step records it as
+requested; the
 recorded agent keeps no key. That flag is on for
 OpenAI Responses before GPT-5.6, where the key improves routing. On 5.6 a
 key may isolate caches, so a key per session would make each session pay
@@ -214,17 +215,18 @@ Decision 41 makes these rules binding for all features:
   the reminder instruction. Per-call facts (time, budget left, file lists) go
   in reminders, never in instructions.
 - **Reminders:** user messages appended at the end. A spent `NextCallOnly`
-  item or crash-resume reminder leaves the projection, so the next call
+  item or crash-resume reminder leaves the turn's messages, so the next call
   rewrites one model step.
-- **Snapshot items (changed here):** the projection (`project.go`) keeps a
-  replaced `Snapshot` item in place and appends the new one. Removal broke
+- **Snapshot items (changed here):** `TurnMessages`
+  (`history_turn_messages.go`) keeps a replaced `Snapshot` item in place and
+  appends the new one. Removal broke
   the prefix at the old item: with a per-call value such as the time, every
   cache entry ended in that item, so each call hit only the fixed point and
   rewrote every message at 1.25x (2x for 1h). The reminder instruction
   gains "When reminders share a name, the latest is current";
-  `Turn.Context` still returns the latest. Session history is the
-  projection of earlier turns, so every replaced copy stays in it until
-  compaction: a snapshot delivered on each call adds one message per call
+  `TurnView.Context` still returns the latest. Session history is built from
+  the messages of earlier turns, so every replaced copy stays in it until
+  compaction: a snapshot added on each call adds one message per call
   for the life of the session. Cache reads keep each copy cheap, but the
   context window fills; this growth is what keeps the cross-turn prefix.
   See [runtime reminders](runtime-reminders.md).
@@ -233,7 +235,7 @@ Decision 41 makes these rules binding for all features:
   changed selection, invalidates everything.
 - **Settings:** changing `tool_choice`, reasoning, or `Citations` invalidates
   Anthropic's message cache.
-- **Known misses:** the reserved final-answer call (it adds system text and
+- **Known misses:** the reserved final-reply call (it adds system text and
   drops tools), compaction (a new history; the fixed point still hits), a
   changed model, and, on Anthropic, a system or developer message in the
   history: the codec moves its text into the top-level system after the
@@ -242,7 +244,7 @@ Decision 41 makes these rules binding for all features:
 
 **Follow-up.** Anthropic now keeps both caches for a `{"role":"system"}`
 message inside `messages` on recent models (PRD Context). A catalog flag
-would let the codec keep such messages in place, and the final-answer call
+would let the codec keep such messages in place, and the final-reply call
 could use one, but it also drops the tools, so we accept its miss.
 
 ## Alternatives considered
@@ -261,7 +263,7 @@ could use one, but it also drops the tools, so we accept its miss.
   pause over five minutes pays only the surcharge.
 - A cross-provider agent asking for a lifetime a route lacks warns on every
   call; that is the adjust contract.
-- The final-answer miss stays (see the follow-up above).
+- The final-reply miss stays (see the follow-up above).
 - Append-only snapshots let the model see stale values and grow the history.
 - The `dashi` CLI keeps the default lifetime, not 1 hour: users pause for
   hours, and 2x writes add up. Revisit once live hit rates exist.

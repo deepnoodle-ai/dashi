@@ -8,11 +8,11 @@ decision 31 ([hooks.md](hooks.md)), [turn.md](turn.md)
 > `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
 > are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
 > hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
-> carry a policy revision; and a tool with no hook opinion runs.
+> carry a policy version; and a tool with no hook opinion runs.
 
 ## The problem
 
-The shortest useful program needed an agent `ID` and `Revision`, a model name,
+The shortest useful program needed an agent `ID` and `Version`, a model name,
 a turn ID, a `CommandID`, and `Policy: dashi.AllowLocalPolicy{}` if it had
 tools. Without the policy, every tool call was denied silently; without a key,
 the first call failed with a bare 401. After this change:
@@ -38,20 +38,20 @@ overwrites a set value.
 | Whole `Agent` empty | defaults below | the recorded agent, whole |
 | `Agent.ID` | stays empty | recorded value |
 | `Agent.Model` | catalog default (1.2) | recorded value |
-| `Agent.Version` | `"auto:"` + 16 hex of the agent digest | recorded value |
+| `Agent.Version` | `"auto:"` + 16 hex of the agent hash | recorded value |
 
 The turn ID is filled before the recorder is chosen or loaded, so every
 emitted step and the final `Stream` event carry it, and a host can save it
 from the first step event, before the model call. The `CommandID` is filled
-before the command digest is computed, because the ID is part of the digest.
+before the command hash is computed, because the ID is part of the hash.
 
 **Why.** `Continue` compares the whole agent with the recorded one, so a random
-revision would fail with `ErrAgentChanged` in the next process. The derived
-revision is a digest of the recorded behavior fields (instructions, provider,
-API, model, settings, output schema, limits), excluding ID, Revision, and
-`Limits.Deadline` (a per-turn time that would make every revision unique). It
+version would fail with `ErrAgentChanged` in the next process. The derived
+version is a hash of the recorded behavior fields (instructions, provider,
+API, model, settings, output schema, limits), excluding ID, Version, and
+`Limits.Deadline` (a per-turn time that would make every version unique). It
 changes exactly when behavior changes. Tools are not part of the agent and are
-not compared on `Continue`; hosts that version tools set `Revision` themselves.
+not compared on `Continue`; hosts that version tools set `Version` themselves.
 A whole-empty agent on an existing turn uses the record, so a later catalog or
 library-default change, or edited instructions, cannot block `Continue` or
 `Cancel` of an old turn. A partly set agent is still compared field by field,
@@ -78,13 +78,14 @@ generated IDs, and there is no durability interface: the guide says this.
 ## 3.1 Bound tools run by default
 
 A nil `Policy` becomes an unexported `defaultPolicy` that allows every
-registered local and external tool, recording revision `default-v1`, so an
+registered local and external tool, recording version `default-v1`, so an
 audit can tell a default allow from an explicit `AllowLocalPolicy`
 (`allow-local-v1`). `denyToolPolicy` is removed. This is decision 31 applied
 early; hooks later replace `Policy` and keep this default. Allowing an external
-tool records a `tool_waiting` step until the host settles it, so it grants the
-model nothing the host does not run itself. Provider-hosted tools never reach
-`AuthorizeTool`. Approval is opt-in: a policy that returns `DecisionNeedsApproval`.
+tool records a `tool_waiting` step until the host resolves it, so it grants the
+model nothing the host does not run itself. Provider tools never reach
+`AuthorizeTool`. Approval is opt-in: a policy that returns
+`DecisionNeedsApproval`.
 
 ## 1.2 Default model
 
@@ -103,8 +104,8 @@ empty `Input.Model` is an error that points to `catalog.Default`.
 
 Constructors keep succeeding without a key, because `Prepare` and `ModelInfo`
 work offline (tests, dry runs, cost estimates). The first `Send` fails before
-dispatch with an `*llm.Error` of category authentication, disposition
-not-dispatched, wrapping `llm.ErrNoAPIKey` and naming the environment
+sending with an `*llm.Error` of category authentication, send status
+`not_sent`, wrapping `llm.ErrNoAPIKey` and naming the environment
 variables checked. The check is skipped when a custom endpoint or a custom
 `http.Client` is set, since a proxy or transport may supply credentials.
 Ollama and Gemini on Vertex need no key. The media clients (OpenAI Images,
@@ -142,5 +143,5 @@ registry would need side-effect imports. It can be added later if hosts ask.
 
 ## Recorded-format changes
 
-Default tool decisions record revision `default-v1`; start facts may hold an
-empty agent ID and an `auto:` revision. There is no migration.
+Default tool decisions record version `default-v1`; start facts may hold an
+empty agent ID and an `auto:` version. There is no migration.

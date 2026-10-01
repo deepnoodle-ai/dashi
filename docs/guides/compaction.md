@@ -29,9 +29,9 @@ their middle, followed by the turns after the compaction turn.
 [`examples/compaction`](../../examples/compaction) runs this without an API key.
 
 - **Every reader sends the same history.** The compaction turn records the
-  kept messages at its start, and its answer is the summary. A handle with no
-  compactor, such as a viewer or a recovery worker, builds the same projected
-  history from the record, and loads turns back to the newest compaction turn
+  kept messages at its start, and its reply is the summary. A handle with no
+  compactor, such as a viewer or a recovery worker, builds the same history
+  from the record, and loads turns back to the newest compaction turn
   only.
 - **The conversation is untouched.** `s.History` never includes compaction
   turns; `s.Turns` does. A UI hides them by `TurnView.Origin`, or shows a
@@ -49,15 +49,15 @@ their middle, followed by the turns after the compaction turn.
 2. It sends the older messages as a text transcript with the prompt
    (`Compactor.Prompt`). A large tool result is shortened in the middle to fit
    the window. Reminders are removed, except agent mail: a reminder with a
-   `From`, such as a subagent's answer, becomes an item that names its sender.
+   `From`, such as a subagent's reply, becomes an item that names its sender.
 3. It keeps each system or developer message of the covered part with its
    own role, ahead of the summary. The summarizer does not see them.
 4. `Compactor.Model` names the summary model; empty means the session's. When
    the catalog gives it a smaller window than the session model's, the
    transcript is sized to fit that window.
 
-The summary is a user message: a fixed frame, then the text inside the answer's
-last `<summary>` and `</summary>` tags, or the whole answer when it has none.
+The summary is a user message: a fixed frame, then the text inside the reply's
+last `<summary>` and `</summary>` tags, or the whole reply when it has none.
 The default prompt asks for the tags, so a preamble such as "Here is the
 summary:" is left out. A reader with no compactor applies the same rule. The
 summary never has operator authority, so text inside old tool output cannot
@@ -80,14 +80,14 @@ after a compaction turn.
 
 If the compaction turn does not complete with a summary, the session closes it
 (`Cancel` with command ID `close:` and its turn ID), keeps the previous
-projected history, and runs the caller's turn with the warning
-`compaction_failed` in `Outcome.SessionWarnings`. A failing summary is tried
+history, and runs the caller's turn with the warning `compaction_failed` in
+`RunResult.SessionWarnings`. A failing summary is tried
 again only after the next turn completes. A compactor that cannot build its
 request warns the same way, and no compaction turn is recorded. When two handles
 reach the compaction slot at once, one runs the compaction turn and the other
 uses its replacement history, with no warning.
 
-Each compaction turn records a digest of the history it replaced. A handle
+Each compaction turn records a hash of the history it replaced. A handle
 that already holds the covered turns checks it; a mismatch means a covered
 turn changed, which is a bug. The session warns `compaction_mismatch` and
 still uses the compaction turn, so every reader sends the same history.
@@ -123,12 +123,12 @@ this without an API key.
 
 Set `Compactor.Model`, or the Start's `Agent`, when the Runner has no default
 model; a session fills in its own. `Compactor.Start` records the
-`HistoryHash` of the history it replaces as the fact's `Digest`, and
+`HistoryHash` of the history it replaces as the fact's `Hash`, and
 `BuildHistory` checks it against the turns before the compaction turn, for
 a host's turns and a session's alike; a mismatch warns `compaction_mismatch`.
-A session fills an empty `Digest` itself. A host with a custom compactor sets
-it with `dashi.HistoryHash(history)`; a fact without one is not
-checked. `Through` is optional; a session sets it. Use `compaction.LastUsage`, not
+A session fills an empty `Hash` itself. A host with a custom compactor sets
+it with `dashi.HistoryHash(history)`; a fact without one is not checked.
+`Through` is optional; a session sets it. Use `compaction.LastUsage`, not
 `Spend.Usage`, for `Needed`: the spend sums every call, and each call in a
 tool loop sends the whole history again. Do not compact while a turn waits to
 continue: `Continue` must get the history the turn started with.
@@ -136,12 +136,12 @@ continue: `Continue` must get the history the turn started with.
 ## Persistent context
 
 Keep `llm.Message.Context` when retaining messages. `Message.Clone` and JSON
-storage preserve this slot identity. `SeedContext` and skill catalogs avoid
-another delivery while their latest unchanged value remains visible. If
-compaction removes it, they deliver it again. A summary mentioning the value
-does not establish presence. Reconstructing retained messages from text alone
-loses identity. Old compaction records without identity keep their messages
-and receive one new identified delivery.
+storage preserve this slot identity. `SeedContext` and skill catalogs do not
+add the item again while their latest unchanged value remains visible. If
+compaction removes it, they add it again. A summary mentioning the value does
+not count as the item being present. Reconstructing retained messages from
+text alone loses identity. Old compaction records without identity keep their
+messages and receive one new identified copy.
 
 ## What it costs, and what it loses
 
@@ -156,15 +156,16 @@ threshold. Nil retains the budget supplied by the configured Compactor.
 `s.Compact(ctx, &dashi.Budget{MaxOutputTokens: 1000})` caps that recorded
 summary. Later Run commands keep their own budget selection.
 `StreamCompact` accepts the same arguments and streams progress plus the
-compaction Outcome. Existing RunOption controls apply.
+compaction turn's `RunResult`. Existing RunOption controls apply.
 
 Manual compaction requires an ended last turn. It refuses interrupted or
 waiting ordinary work with `*session.TurnBusyError`; continue or explicitly
 cancel that work first. It preserves queued input and starts no queue turn.
-No eligible history returns zero Outcome and `session.ErrNothingToCompact`,
-which is also `compaction.ErrNothingToCompact`. A recorded failed or empty
-summary returns its Outcome with `compaction_failed` and keeps the old
-projection. Preparation and recorder failures remain Go errors.
+No eligible history returns a zero `RunResult` and
+`session.ErrNothingToCompact`, which is also `compaction.ErrNothingToCompact`.
+A recorded failed or empty summary returns its `RunResult` with
+`compaction_failed` and keeps the old history. Preparation and recorder
+failures remain Go errors.
 
 The CLI enables automatic compaction and offers `/compact`. See the
 [CLI guide](cli.md) for markers, pending input, and recovery.
@@ -180,9 +181,9 @@ agent := dashi.Agent{
 }
 ```
 
-Before a text-only ordinary dispatch, the Runner sizes the prepared provider body,
-including tools, hooks, and replay data. At the default 80%
-threshold it can summarize complete settled exchanges. It keeps the original
+Before sending an ordinary text-only request, the Runner sizes the prepared
+provider body, including tools, hooks, and replay data. At the default 80%
+threshold it can summarize complete, finished exchanges. It keeps the original
 request, caller-owned history, operator steering, and named context. A summary
 retains the objective, findings, changed files, verification, and remaining work.
 Completed tools remain recorded and are not executed again by compaction.
@@ -194,7 +195,7 @@ without active protection. `Fraction` defaults to 0.8 and `MaxTokens` to 2048.
 `Disabled: true` explicitly overrides inherited protection in a Session.
 
 The threshold is proactive, not a hard refusal. Without eligible coverage, a
-request that still fits can dispatch. A hard no-fit stops with
+request that still fits can be sent. A hard no-fit stops with
 `LimitContextWindow` and reason `context_window`. Protected input may fill the
 window even after all eligible exchanges are replaced. Preserve the recorded
 work and start a new Turn with a larger model or smaller input. Estimates use
@@ -207,17 +208,18 @@ and tool results. The Turn records `active_compaction_media_estimate_unavailable
 once. It skips proactive compaction and the byte-based context limit for that
 request. The recorded policy stays active for later text-only requests. Provider
 content preparation and actual window acceptance govern media requests; neither
-preparation nor a known window proves token fit. Cost-risk estimates and budget
-admission stay unchanged, so a cost cap can still refuse the request.
+preparation nor a known window proves token fit. Worst-case cost estimates and
+budget checks stay unchanged, so a cost cap can still refuse the request.
 
-Summary attempts use the same sender, hooks, billing identities, attempts,
-and cumulative budget as ordinary work. `ModelPlan.Purpose`,
+Summary calls use the same sender, hooks, billing identities, model-call
+limit, and cumulative budget as ordinary work. `ModelPlan.Purpose`,
 `SendPlan.Purpose`, and `ModelFact.Purpose` identify `ModelPurposeCompaction`.
 Summary calls offer no tools or structured output and never become the Turn's
-answer. They leave one ordinary attempt available, which permits a final
-response but does not guarantee completion after another tool selection.
+reply. They leave one ordinary model call available, which permits a final
+reply but does not guarantee completion after another tool selection.
 
-`TurnMessagesFull` and `Session.History` retain ordinary messages and omit summary work.
+`TurnMessagesFull` and `Session.History` retain ordinary messages and omit
+summary work.
 `TurnMessages` and `Session.NextHistory` apply recorded replacements.
 `TurnView.ContextCompactions` exposes the applied text and estimated savings;
 actual summary usage and money remain in `Spend`. The two summary mechanisms
@@ -226,11 +228,11 @@ starts active protection inside its own summary Turn.
 
 Failed, empty, tool-requesting, or non-shrinking summaries record their raw
 result and accounting, then stop with `compaction_failed`. Explicit `Continue`
-can admit a new summary attempt. After a successful recorded settlement,
+can allow a new summary call. After a summary call's result is recorded,
 reload applies its replacement without another model call. An interrupted
-no-tools summary follows existing safe recovery. An ambiguous recorder write
-requires authoritative reload before any further dispatch. Cancellation ends
-work; interruption preserves continuation. The raw facts always remain.
+no-tools summary follows existing safe recovery. A recorder write with an
+unknown result requires reloading from the recorder before any further call
+is sent. Cancellation ends work; interruption preserves continuation. The raw facts always remain.
 
 Readers must understand the new `context_compacted` step and compaction-purpose
 model records. Upgrade readers before producing these records; older readers

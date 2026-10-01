@@ -38,16 +38,16 @@ return `dashi.ErrCursorAhead`, and otherwise drop it, leaving at most
 `(turn_id, seq)` unique; `dashitest.Run` checks these rules.
 `Follow` pages until it catches up, then
 polls every second, or every 30 seconds while the turn rests at a stop that
-is not terminal. For faster updates, also implement `dashi.StepWaiter`: for
+has not ended it. For faster updates, also implement `dashi.StepWaiter`: for
 example, `pg_notify` in the commit transaction and one shared `LISTEN`
 connection that wakes waiting readers. With a waiter, `Follow` still reads
 every 15 seconds, so a missed wake delays a step by up to that long.
 
-`Follow` ends when the request ends, or after a terminal stop (see
-[turn states](recovering-turns.md#turn-states-and-limits)); from a cursor that is already
-the terminal stop, it ends at once. A late result of work started before the
-stop can still be recorded after it; a reload, or `StepsAfter` from the
-stop's `Seq`, shows it.
+`Follow` ends when the request ends, or after the stop that ends the turn
+(see [turn states](recovering-turns.md#turn-states-and-limits)); from a
+cursor that is already at that stop, it ends at once. A late result of work
+started before the stop can still be recorded after it; a reload, or
+`StepsAfter` from the stop's `Seq`, shows it.
 
 Live previews (token streaming and tool progress) never enter the record;
 they come from `Runner.Observer` in the runner's process. Package `feed`
@@ -107,16 +107,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 Steps go out with an SSE `id`, so the browser resumes from them; previews
 and gaps have none, since they cannot be replayed. Each preview comes after
-the step it follows (`Event.Seq`) and before the next, and one the client's
-steps have already settled is never sent, even on a reconnect. The page still
-clears a message's preview when it applies the step whose `Step.Settles`
-names it. A `gap` means the message lost deltas: the client fell behind, or
-it joined while the message was streaming. The page discards that preview
-and shows the message when its settling step arrives. Tool progress may drop
-without a gap; a page that joins while a tool runs shows its progress from
-the tool's next report.
+the step it follows (`Event.Seq`) and before the next, and one whose message
+or call the client's steps have already finished is never sent, even on a
+reconnect. The page still clears a message's preview when it applies the step
+whose `Step.Finishes()` names it. A `gap` means the message lost deltas: the
+client fell behind, or it joined while the message was streaming. The page
+discards that preview and shows the message when its finish step arrives. Tool
+progress may drop without a gap; a page that joins while a tool runs shows its
+progress from the tool's next report.
 
-At a terminal stop the handler sends `end`, so the page calls
+At the stop that ends the turn the handler sends `end`, so the page calls
 `EventSource.close()`; a browser that reconnects anyway gets `204 No
 Content`, which stops `EventSource` from reconnecting. This handler runs in
 Dashi's tests (`run_follow_public_test.go`). The hub serves readers in the
@@ -126,7 +126,7 @@ runner's process; a multi-process host relays the Observer's events, with
 **Never send a `Step` to a browser as it is.** A step is the internal record:
 it holds the provider's raw response (`ModelFact.Result.Raw`), encrypted or
 signed reasoning, the agent's instructions and tool definitions (the
-`turn_started` step), command digests, and lease owners. `project` builds the
+`turn_started` step), command hashes, and lease owners. `project` builds the
 client's view from the fields it needs. Reasoning reaches the client two
 ways, in steps and as reasoning deltas, so if your product does not show it,
 hide it in `project` and have `projectPreview` skip deltas whose
@@ -146,8 +146,8 @@ goroutine and must return promptly.
   previews. Progress is dropped first; dropped deltas are reported by one
   event with `Gap` set, naming the message in `MessageID`. That message's
   preview now has a hole: discard it and ignore its later deltas until its
-  `model_call_finished` step arrives with the whole message. A gap with no such step
-  after it means the run ended early; load the turn.
+  `model_call_finished` step arrives with the whole message. A gap with no
+  such step after it means the run ended early; load the turn.
 - **Delivery runs behind the call.** `Run` can return before the Observer has
   every event, and a `Continue` issued before the previous call's events
   drain may deliver concurrently with them. Order steps by `Seq`.
@@ -164,7 +164,7 @@ runner.Observer = func(e dashi.Event) {
 		holed[e.MessageID] = true
 		ui.DiscardPreview(e.MessageID) // or show a placeholder
 	case e.Step != nil:
-		if id := e.Step.Settles(); id != "" {
+		if id := e.Step.Finishes(); id != "" {
 			delete(holed, id)
 		}
 		ui.ApplyStep(*e.Step) // supersedes previews for its message or call
