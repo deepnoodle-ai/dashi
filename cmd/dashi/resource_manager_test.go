@@ -83,7 +83,16 @@ func TestResourceExternalDefinitionCannotLoadPrivateBytes(t *testing.T) {
 	if approvals != 0 {
 		t.Fatal("invalid defining file reached approval instead of discovery warning")
 	}
-	mustHave(t, h.ui.text(), "1 skill was not loaded")
+	if strings.Contains(h.ui.text(), "not loaded") {
+		t.Fatalf("skill problem reached the transcript:\n%s", h.ui.text())
+	}
+	found, err := h.app.eng.cfg.Resources.discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Warnings) != 1 || !strings.Contains(found.Warnings[0].Message, "cannot read") {
+		t.Fatalf("warnings = %+v", found.Warnings)
+	}
 }
 
 func TestResourceApprovalLifetimeAndChangedTarget(t *testing.T) {

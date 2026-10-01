@@ -22,8 +22,8 @@ type resourceManager struct {
 	files           map[dashi.CallRef]*validatedSkillFile
 	// Display only. The workspace policy owns and enforces these answers.
 	remembered map[skillFileArgs]bool
-	// shown holds the keys of current problems already summarized. A key
-	// that disappears is dropped, so a problem that returns shows again.
+	// shown holds the keys of current instruction problems already shown.
+	// A key that disappears is dropped, so a problem that returns shows again.
 	shown map[string]bool
 }
 
@@ -31,9 +31,10 @@ func newResourceManager(dir, home string) *resourceManager {
 	return &resourceManager{workspace: dir, home: home, files: map[dashi.CallRef]*validatedSkillFile{}, remembered: map[skillFileArgs]bool{}, shown: map[string]bool{}}
 }
 
-// discover refreshes resources before each use. Problems that were not shown
-// before become one summary line; /resources lists each in full.
-// Adjustments, such as a shortened description, appear only in /resources.
+// discover refreshes resources before each use. Skill problems never reach
+// the transcript; /resources lists them. A workspace instruction file that
+// exists but cannot be used is shown once, because the model then works
+// without instructions the user relies on.
 func (m *resourceManager) discover() (*discoveredResources, error) {
 	found, err := discoverResources(m.workspace, m.home)
 	if err != nil {
@@ -43,7 +44,7 @@ func (m *resourceManager) discover() (*discoveredResources, error) {
 	current := map[string]bool{}
 	var fresh []resourceWarning
 	for _, warning := range found.Warnings {
-		if !warning.Skipped {
+		if !warning.Instructions {
 			continue
 		}
 		key := warning.key()
@@ -54,36 +55,12 @@ func (m *resourceManager) discover() (*discoveredResources, error) {
 	}
 	m.shown = current
 	m.mu.Unlock()
-	if summary := notLoadedSummary(fresh); summary != "" && m.warning != nil {
-		m.warning("%s", summary)
-	}
-	return found, nil
-}
-
-// notLoadedSummary names how many resources did not load, or "" for none.
-func notLoadedSummary(warnings []resourceWarning) string {
-	instructions, skills := false, 0
-	for _, warning := range warnings {
-		if warning.Instructions {
-			instructions = true
-		} else {
-			skills++
+	if m.warning != nil {
+		for _, warning := range fresh {
+			m.warning("Workspace instructions not loaded: %s: %s. /resources shows details.", warning.Path, warning.Message)
 		}
 	}
-	var subject string
-	switch {
-	case instructions && skills > 0:
-		subject = fmt.Sprintf("Workspace instructions and %d %s were", skills, plural(skills, "skill"))
-	case instructions:
-		subject = "Workspace instructions were"
-	case skills == 1:
-		subject = "1 skill was"
-	case skills > 1:
-		subject = fmt.Sprintf("%d skills were", skills)
-	default:
-		return ""
-	}
-	return subject + " not loaded. /resources shows why."
+	return found, nil
 }
 func (m *resourceManager) rememberApproval(request ApprovalRequest, answer Approval) {
 	if request.Tool != "read_skill_file" || !answer.Allow || !answer.Remember {

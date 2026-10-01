@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func homeSkillLayout(t *testing.T, home string) {
 	}
 }
 
-func TestResourceWarningsCollapseOncePerProblem(t *testing.T) {
+func TestSkillProblemsStayOutOfTranscript(t *testing.T) {
 	cfg := testConfig(t, say("Hello."), say("Again."), say("Third."))
 	homeSkillLayout(t, cfg.HomeDir)
 	var out bytes.Buffer
@@ -50,10 +51,7 @@ func TestResourceWarningsCollapseOncePerProblem(t *testing.T) {
 	}
 	got := out.String()
 	t.Logf("startup notice: %s\ntranscript:\n%s", notice, got)
-	if n := strings.Count(got, "2 skills were not loaded. /resources shows why."); n != 1 {
-		t.Fatalf("summary shown %d times:\n%s", n, got)
-	}
-	for _, quiet := range []string{"Resource ", "description", "SKILL.md;", "text-only", "Unverified support"} {
+	for _, quiet := range []string{"warning", "not loaded", "Resource ", "description", "symlink", "SKILL.md", "text-only", "Unverified support"} {
 		if strings.Contains(before(got, "Available instructions"), quiet) {
 			t.Fatalf("transcript shows %q:\n%s", quiet, got)
 		}
@@ -80,35 +78,36 @@ func TestResourceWarningsCollapseOncePerProblem(t *testing.T) {
 	}
 }
 
-func TestResourceWarningsShowNewAndReturningProblems(t *testing.T) {
-	home := t.TempDir()
+func TestInstructionProblemShowsOncePerProblem(t *testing.T) {
+	dir := t.TempDir()
 	var shown []string
-	m := newResourceManager(t.TempDir(), home)
-	m.warning = func(format string, args ...any) { shown = append(shown, format) }
+	m := newResourceManager(dir, t.TempDir())
+	m.warning = func(format string, args ...any) { shown = append(shown, fmt.Sprintf(format, args...)) }
 	discover := func() {
 		t.Helper()
 		if _, err := m.discover(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	bad := filepath.Join(home, ".dashi/skills/review/SKILL.md")
-	putResource(t, bad, "Review body.")
+	agents := filepath.Join(dir, "AGENTS.md")
+	putResource(t, agents, "Use tabs.")
+	putResource(t, filepath.Join(dir, ".dashi/skills/review/SKILL.md"), "---\nname: has space\n---\nBody")
 	discover()
 	discover()
 	if len(shown) != 0 {
-		t.Fatalf("valid skill warned: %v", shown)
+		t.Fatalf("skill problem or valid instructions warned: %v", shown)
 	}
-	// Edited mid-session to become invalid: shown once, not on each refresh.
-	putResource(t, bad, "---\nname: has space\n---\nBody")
+	// Edited mid-session to become unusable: shown once, not on each refresh.
+	putResource(t, agents, "bad\xff")
 	discover()
 	discover()
-	if len(shown) != 1 {
+	if len(shown) != 1 || !strings.Contains(shown[0], "Workspace instructions not loaded: "+agents) {
 		t.Fatalf("warnings = %v", shown)
 	}
 	// Fixed, then broken again: the returning problem shows again.
-	putResource(t, bad, "Review body.")
+	putResource(t, agents, "Use tabs.")
 	discover()
-	putResource(t, bad, "---\nname: has space\n---\nBody")
+	putResource(t, agents, "bad\xff")
 	discover()
 	if len(shown) != 2 {
 		t.Fatalf("warnings = %v", shown)
@@ -131,28 +130,6 @@ func TestResourceWarningsDedupeSymlinkedRoots(t *testing.T) {
 	}
 	if len(found.Warnings) != 1 || found.Warnings[0].Path != filepath.Join(agents, "SKILL.md") {
 		t.Fatalf("warnings = %+v", found.Warnings)
-	}
-	if got := notLoadedSummary(found.Warnings); got != "1 skill was not loaded. /resources shows why." {
-		t.Fatalf("summary = %q", got)
-	}
-}
-
-func TestNotLoadedSummaryWording(t *testing.T) {
-	skill := resourceWarning{}
-	instructions := resourceWarning{Instructions: true}
-	for _, tc := range []struct {
-		in   []resourceWarning
-		want string
-	}{
-		{nil, ""},
-		{[]resourceWarning{skill}, "1 skill was not loaded. /resources shows why."},
-		{[]resourceWarning{skill, skill}, "2 skills were not loaded. /resources shows why."},
-		{[]resourceWarning{instructions}, "Workspace instructions were not loaded. /resources shows why."},
-		{[]resourceWarning{instructions, skill}, "Workspace instructions and 1 skill were not loaded. /resources shows why."},
-	} {
-		if got := notLoadedSummary(tc.in); got != tc.want {
-			t.Errorf("notLoadedSummary(%d) = %q, want %q", len(tc.in), got, tc.want)
-		}
 	}
 }
 
