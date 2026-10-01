@@ -260,8 +260,18 @@ func TestQuitDuringRunKeepsQueuedPrompt(t *testing.T) {
 			}
 			h.app.ctrl.Wait()
 			const lost = "1 queued message will be lost. Repeat %s to go ahead."
-			mustHave(t, h.ui.text(), fmt.Sprintf(lost, action))
-			if n := strings.Count(h.ui.text(), fmt.Sprintf(lost, action)); n != 1 {
+			mustHave(t, h.ui.text(), fmt.Sprintf(lost, func() string {
+				if action == "/exit" {
+					return "/quit"
+				}
+				return action
+			}()))
+			if n := strings.Count(h.ui.text(), fmt.Sprintf(lost, func() string {
+				if action == "/exit" {
+					return "/quit"
+				}
+				return action
+			}())); n != 1 {
 				t.Fatalf("warned %d times:\n%s", n, h.ui.text())
 			}
 			if quit() || h.app.ctrl.Mode() != ModeIdle {

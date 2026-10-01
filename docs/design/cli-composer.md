@@ -2,6 +2,7 @@
 
 Status: Accepted · Author: Codex · Date: 2026-09-30\
 Workflow: spec, orchestrator checkpoint, then build. Independent PRD review is ready.
+Implementation: [#142](https://github.com/deepnoodle-ai/dashi/pull/142).
 
 ## Context and boundaries
 
@@ -15,7 +16,7 @@ Keep `InputField` with its stable input ID, multiline mode, `History`, `OnKey`, 
 
 Main-composer OnKey always returns false for Escape. Wonton first restores and consumes Escape during completion cycling. Without active cycling, Escape reaches `screen.HandleEvent`, which applies slice 1's running-work, selection, then transcript-bottom actions. Dialog fields retain their cancellation hooks and do not enable composer completion. Wonton v0.2.1 already supports this route: `inputState.HandleKeyEvent` returns false for unused Escape, and both Runtime and InlineApp propagate it. No completion-state mirror or new Wonton hook is needed.
 
-Capture the raw submitted value before the Controller trims or interprets it. Append only nonblank main-composer submissions, suppress consecutive exact duplicates, and retain the newest 1,000. Dialog answers and internally dispatched queued inputs never append. Submission history is not a delivery acknowledgment. Resetting/reopening a session preserves the global recall list.
+Capture the raw submitted value before the Controller trims or interprets it. Append only nonblank main-composer submissions, suppress consecutive exact duplicates, and retain the newest 1,000 in memory. Persist the newest whole entries that fit both that count and 64 MiB of serialized JSON. Loading uses the same byte limit. An entry that cannot fit alone fails persistence explicitly and remains in local recall. Remove that permanent rejection from the persistence retry list so later supported submissions can save. Filesystem failures retain supported unsaved additions for retry, preserving the previous valid file. Dialog answers and internally dispatched queued inputs never append. Submission history is not a delivery acknowledgment. Resetting/reopening a session preserves the global recall list.
 
 Store JSON `{ "entries": ["..."] }` at `~/.dashi/history.json`. Load before screen initialization. Missing files return empty history; parse/read errors return a warning and usable empty recall. Use a 0700 parent and 0600 same-directory temporary file, close then rename. Failure leaves the previous valid file intact. Never log entry contents in an error. Serialize persistence tasks in submission order and post errors to the screen event loop; event-loop rendering never mutates files.
 

@@ -188,10 +188,14 @@ func TestScreenCtrlCByMode(t *testing.T) {
 	if !strings.Contains(h.render(), "Interrupted.") {
 		t.Fatalf("no interrupt line:\n%s", h.render())
 	}
-	// Idle: Ctrl-C quits.
+	// Idle: the first Ctrl-C protects input, then an unchanged repeat quits.
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	if h.check(func() bool { return h.scr.quitting }) {
+		t.Fatal("first idle Ctrl-C quit")
+	}
 	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
 	if !h.check(func() bool { return h.scr.quitting }) {
-		t.Fatal("Ctrl-C at idle did not quit")
+		t.Fatal("repeated Ctrl-C at idle did not quit")
 	}
 }
 

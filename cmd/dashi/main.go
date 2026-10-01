@@ -113,6 +113,9 @@ func runPrint(
 	if a.wiring.Close != nil {
 		defer a.wiring.Close()
 	}
+	if handled, code := a.ctrl.printCommand(o.Print, stdout, stderr); handled {
+		return code
+	}
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -225,6 +228,14 @@ func runScreen(
 		defer a.wiring.Close()
 	}
 	scr.bind(a)
+	home := cfg.HomeDir
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	history, entries := openInputHistory(filepath.Join(home, ".dashi", "history.json"), func(err error) { scr.Emit(warnBlock("%v", err)) })
+	scr.historyStore, scr.history = history, entries
+	scr.pathCompletion = indexWorkspace(cfg.Dir)
+	defer history.close()
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
 		if errors.Is(err, session.ErrBusy) {
@@ -253,6 +264,7 @@ func runScreen(
 	// Stop work that is still running, so the turn records an interruption.
 	a.ctrl.Interrupt()
 	a.ctrl.Wait()
+	history.close()
 	scr.drain()
 	if inline != nil {
 		inline.flushExit(stdout)

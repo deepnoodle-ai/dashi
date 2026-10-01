@@ -24,6 +24,7 @@ func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 	i := &inlineScreen{screen: s}
 	i.runner = tui.NewInlineApp(tui.WithInlineOutput(output), tui.WithInlineFPS(30), tui.WithInlineBracketedPaste(true))
 	s.send = i.runner.SendEvent
+	s.handoff = i.runner.Handoff
 	s.clipboardOut = output
 	s.mouseEnabled = false // Native terminal selection remains available.
 	s.nativeScrollback = i.showScrollback

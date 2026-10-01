@@ -55,6 +55,11 @@ Previously queued input goes before it; later submitted lines go after it.
 Pending and queued input live only in memory. Exit or session changes warn
 before discarding them. Recorded summaries can be reopened and continued.
 
+Compose multiline requests, recall input across launches, complete commands
+and workspace paths, or press Ctrl+G to edit a draft externally. Idle Ctrl-C
+requires an unchanged repeat within two seconds. See [composer controls](cli-composer.md)
+for keyboard behavior, private history, editor selection, and exit protection.
+
 ## Commands
 
 | Input | Result |
@@ -76,10 +81,12 @@ before discarding them. Recorded summaries can be reopened and continued.
 | `/queue text` | Hold a prompt for when the running turn ends |
 | `/done` | Mark a command done that was running when dashi stopped |
 | `/discard` | Discard the open turn |
-| `/quit` | Save and exit (Ctrl-D does the same) |
-| `/help` | Show the commands |
+| `/quit`, `/q`, `/exit` | Save and exit (Ctrl-D requests exit with empty input) |
+| `/help`, `/?` | Show available commands, aliases, and composer controls |
 
-Display commands work during a turn. Mutating commands may request that you retry after the turn ends.
+Help, queueing, resource inspection, and implemented transcript actions work
+during a turn. Other commands require explicit resubmission after it ends.
+Dashi does not queue command execution from a retry notice.
 
 Workspace AGENTS.md takes precedence over CLAUDE.md. Project and home skills
 support `/skill arguments` and progressive model loading. See

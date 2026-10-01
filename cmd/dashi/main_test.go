@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -75,6 +76,46 @@ func TestPrintModeExitsNonzeroOnLimit(t *testing.T) {
 	code := runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stderr.String(), "limited") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestPrintLocalCommandsIgnoreBusyResumeSession(t *testing.T) {
+	for _, input := range []string{"/help", "/?", "/quit", "/q", "/exit"} {
+		t.Run(input, func(t *testing.T) {
+			cfg := testConfig(t)
+			saved, err := cfg.Store.Create(cfg.Dir, cfg.Model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.Store.Save(saved); err != nil {
+				t.Fatal(err)
+			}
+			unlock, err := cfg.Store.Lock(saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unlock()
+			var stdout, stderr bytes.Buffer
+			code := runPrint(t.Context(), cfg, Options{
+				Print: input, PrintSet: true, Resume: true, ResumeID: saved.ID,
+			}, &stdout, &stderr)
+			if code != 0 || stderr.Len() != 0 || cfg.Client.(*fakeClient).sends != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if input == "/help" || input == "/?" {
+				if !strings.Contains(stdout.String(), "Commands:") {
+					t.Fatalf("help missing: %q", stdout.String())
+				}
+			} else if stdout.Len() != 0 {
+				t.Fatalf("quit printed output: %q", stdout.String())
+			}
+			if release, err := cfg.Store.Lock(saved); !errors.Is(err, session.ErrBusy) {
+				if release != nil {
+					release()
+				}
+				t.Fatalf("local command released the existing lock: %v", err)
+			}
+		})
 	}
 }
 
