@@ -135,7 +135,12 @@ func (s *screen) captureAttachmentEvidence() {
 		Documents   []string
 		ImageSize   int
 		ImageSHA256 string
-	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest}
+		Picker      string
+		Session     string
+	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest, "", s.eng.Session().ID}
+	if s.picker != nil {
+		state.Picker = s.picker.title
+	}
 	data, _ := json.Marshal(state)
 	temp := filepath.Join(filepath.Dir(path), filepath.Base(path)+".tmp")
 	if os.WriteFile(temp, data, 0600) == nil {
