@@ -230,7 +230,9 @@ func taskLineView(b Block) tui.View {
 	if b.Name != "" {
 		views = append(views, tui.Text(" %s", b.Name).Fg(color))
 	}
-	views = append(views, tui.Text(" · %s", b.Text).Wrap().Style(mutedStyle).Flex(1))
+	// The text is the line's source for selection; the rest is a label.
+	views = append(views, tui.Text(" · ").Style(mutedStyle),
+		tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle).Flex(1))
 	return tui.Group(views...)
 }
 
