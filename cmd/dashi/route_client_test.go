@@ -63,7 +63,7 @@ func TestTurnClientSendsFrozenRequestOnOriginalDestination(t *testing.T) {
 	}
 }
 
-func TestRecordedRouteFingerprintPrecedesFirstAttempt(t *testing.T) {
+func TestRecordedRouteHashPrecedesFirstModelCall(t *testing.T) {
 	d := configuredDestination{ID: "team", Definition: destinationDefinition{API: "openai.responses", Endpoint: "https://team.test/responses", Models: []string{"same/model"}, DefaultModel: "same/model", CredentialEnv: "TEAM_KEY"}}
 	agent, err := selectionAgent(resolvedSelection{Destination: d, Model: "same/model"}, llm.Settings{Temperature: new(0.0)})
 	if err != nil {
@@ -109,8 +109,8 @@ func TestRecordedProjectRouteStillRequiresTrust(t *testing.T) {
 	if _, err := routes.clientFor(agent); err == nil || lookups != 0 {
 		t.Fatalf("project trust bypass: %v lookups=%d", err, lookups)
 	}
-	fingerprint, _ := d.fingerprint()
-	routes.grants[fingerprint] = true
+	hash, _ := d.hash()
+	routes.grants[hash] = true
 	if _, err := routes.clientFor(agent); err != nil || lookups != 1 {
 		t.Fatalf("granted route failed: %v lookups=%d", err, lookups)
 	}
@@ -119,7 +119,7 @@ func TestRecordedProjectRouteStillRequiresTrust(t *testing.T) {
 func TestLegacyRouteDoesNotInventCustomEndpoint(t *testing.T) {
 	registry := builtinDestinations()
 	routes := newRouteClients(registry, nil, func(string) (string, bool) { return "fixture", true })
-	agent := dashi.Agent{ID: "dashi-cli", Revision: "auto:legacy", Provider: "openai", API: "openai.responses", Model: registry["openai"].Definition.DefaultModel}
+	agent := dashi.Agent{ID: "dashi-cli", Version: "auto:legacy", Provider: "openai", API: "openai.responses", Model: registry["openai"].Definition.DefaultModel}
 	if _, err := routes.clientFor(agent); err != nil {
 		t.Fatal(err)
 	}

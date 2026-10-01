@@ -11,8 +11,8 @@ import (
 
 // completeResult reports whether a call returned a result that stands on
 // its own: no error, a stop kind other than incomplete, and a valid result.
-// An incomplete result from a call a steer cut short settles as steered, so
-// the steer is delivered instead of the turn failing.
+// An incomplete result from a call a steer cut short finishes as steered,
+// so the steer is added instead of the turn failing.
 func completeResult(result llm.Result, err error, agent Agent) bool {
 	return err == nil && result.Stop.Kind != "" &&
 		result.Stop.Kind != llm.StopIncomplete &&
@@ -21,15 +21,15 @@ func completeResult(result llm.Result, err error, agent Agent) bool {
 
 // interruptedResult keeps what an interrupted call produced. For a steering
 // cut the partial response is only the content streamed before the call's
-// context ended (U-6), because it is projected into the next call: a message
-// the client returns may hold text generated after the cut, which was never
-// shown, so that message only adds to the output estimate, and a collected
-// call keeps no partial. Any other cause is never projected, so it keeps
-// the returned message for audit, including hosted-tool records, or else
-// the streamed content. The returned ID and usage stand, with the usage
-// observed on the stream. The output count is the larger of the reported
-// count and the estimate from every streamed delta or the returned message,
-// so replay and token caps count output that was generated but never shown
+// context ended (U-6), because it goes into the next call's messages: a
+// message the client returns may hold text generated after the cut, which
+// was never shown, so that message only adds to the output estimate, and a
+// collected call keeps no partial. With any other cause the partial never
+// reaches the model, so it keeps the returned message for audit, including
+// provider tool records, or else the streamed content. The returned ID and
+// usage stand, with the usage observed on the stream. The output count is
+// the larger of the reported count and the estimate from every streamed
+// delta or the returned message, so View and token caps count output that was generated but never shown
 // (decision 24). The estimate is capped at maxTokens when positive, since a
 // provider bills no more output than the call allowed. It returns nil when
 // the call left no trace.
@@ -94,20 +94,20 @@ func markIncomplete(result *llm.Result) {
 	}
 }
 
-func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
+func sendStatusOf(err error, result llm.Result) llm.SendStatus {
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || result.ID != "" || len(result.Message.Content) > 0 ||
 		result.Usage != nil {
-		return llm.FailureUnknown
+		return llm.SendStatusUnknown
 	}
-	if failure.Disposition == llm.FailureNotDispatched ||
-		failure.Disposition == llm.FailureRejected {
-		return failure.Disposition
+	if failure.SendStatus == llm.SendStatusNotSent ||
+		failure.SendStatus == llm.SendStatusProviderRejected {
+		return failure.SendStatus
 	}
-	return llm.FailureUnknown
+	return llm.SendStatusUnknown
 }
 
-func (r *runtime) classify(result llm.Result) (Outcome, bool) {
+func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 	if r.ctx.Err() != nil {
 		return r.contextStop(), false
 	}
@@ -115,14 +115,14 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	calls := 0
-	hosted := 0
+	providerTool := 0
 	useful := false
 	for _, p := range result.Message.Content {
 		switch p.Kind {
 		case llm.ContentToolCall:
 			calls++
-		case llm.ContentHostedApprovalRequest:
-			hosted++
+		case llm.ContentProviderToolApprovalRequest:
+			providerTool++
 		case llm.ContentBlock:
 			if p.Block != nil &&
 				(p.Block.Text == nil ||
@@ -141,54 +141,54 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with client calls"), false
 	}
-	if hosted > 0 &&
+	if providerTool > 0 &&
 		result.Stop.Kind != llm.StopToolUse &&
 		result.Stop.Kind != llm.StopFinished {
-		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
+		return r.stop(StopFailed, "untrusted stop with provider tool approval"), false
 	}
 	if calls > 0 {
-		return Outcome{}, true
+		return RunResult{}, true
 	}
-	if hosted > 0 {
+	if providerTool > 0 {
 		return r.stop(StopWaiting, "provider approval pending"), false
 	}
 	switch result.Stop.Kind {
 	case llm.StopPause:
 		state, _ := replay(r.turn)
 		if state.ProviderPauses > max(r.agent.Limits.ProviderPauses, 0) {
-			return r.stop(StopLimited, "provider_pauses"), false
+			return r.stop(StopLimited, string(LimitProviderPauses)), false
 		}
 		if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 			return *o, false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	case llm.StopRefusal:
 		return r.stop(StopRefused, result.Stop.Raw), false
 	case llm.StopOutputLimit:
-		return r.stop(StopLimited, "output"), false
+		return r.stop(StopLimited, string(LimitOutputTokens)), false
 	case llm.StopContextLimit:
-		return r.stop(StopLimited, "context"), false
+		return r.stop(StopLimited, string(LimitContextWindow)), false
 	case llm.StopFinished, llm.StopOther:
 		return r.finishText(result, useful)
 	default:
-		return r.stop(StopFailed, "incomplete_model_result"), false
+		return r.stop(StopFailed, StopReasonIncompleteModelResult), false
 	}
 }
 
 // finishText decides a final-text candidate: it parses structured output,
 // runs the BeforeFinish hooks, and then either asks the model again with the
-// hooks' items or accepts the answer. The parse comes first so hooks see the
+// hooks' items or accepts the reply. The parse comes first so hooks see the
 // value, or why it failed, and can ask for a correction.
-func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
+func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	state, err := replay(r.turn)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	structured := len(state.OutputSchema) > 0
 	plan := FinishPlan{
-		Turn:      snapshotView(state.TurnView),
-		AttemptID: state.latestAttempt,
-		Answer:    result.Message.Text(),
+		Turn:        snapshotView(state.TurnView),
+		ModelCallID: state.latestModelCall,
+		Reply:       result.Message.Text(),
 	}
 	if structured {
 		if result.Stop.Kind != llm.StopFinished {
@@ -198,19 +198,19 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			if err != nil {
 				return r.stop(StopFailed, err.Error()), false
 			}
-			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
+			plan.Output, plan.OutputErr = parseOutputText(plan.Reply, schema)
 		}
 	}
-	// Context delivered after a BeforeFinish failure kept this answer
-	// supersedes it, when the model can still be asked again.
+	// Context added after a BeforeFinish failure kept this reply replaces
+	// it, when the model can still be asked again.
 	if state.deliveredOnKept > 0 {
 		if r.nextCallFits(state, state.deliveredOnKept) {
 			if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 				return *o, false
 			}
-			return Outcome{}, true
+			return RunResult{}, true
 		}
-		r.deliveryDropped()
+		r.messagesDropped()
 	}
 	finish, o := r.finishPoint(state, plan)
 	if o != nil {
@@ -227,7 +227,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		if o != nil {
 			return *o, false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	if finish.rejects() {
 		var items []ContextItem
@@ -251,13 +251,13 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		if finish.noCall {
 			return r.stop(StopFailed, StopReasonOutputRejected), false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	if !structured {
 		if !useful && !finish.acceptEmpty {
-			return r.stop(StopFailed, "empty_response"), false
+			return r.stop(StopFailed, StopReasonEmptyResponse), false
 		}
-		return r.stopAfterAnswer(state), false
+		return r.stopAfterReply(state), false
 	}
 	if plan.OutputErr != nil {
 		return r.stop(
@@ -266,14 +266,14 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		), false
 	}
 	fact := &StructuredOutput{
-		Value:     plan.Output,
-		Source:    OutputFromText,
-		AttemptID: state.latestAttempt,
+		Value:       plan.Output,
+		Source:      OutputSourceText,
+		ModelCallID: state.latestModelCall,
 	}
 	if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 		return *o, false
 	}
-	return r.stopAfterAnswer(state), false
+	return r.stopAfterReply(state), false
 }
 
 func submittedOutput(s *replayState) *StructuredOutput {
@@ -283,14 +283,14 @@ func submittedOutput(s *replayState) *StructuredOutput {
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
 		if v.Call.Name == SubmitOutputTool &&
-			v.Status == ToolSettled &&
+			v.Status == ToolFinished &&
 			v.Outcome != nil &&
 			v.Outcome.State == tool.StateSucceeded {
 			return &StructuredOutput{
-				Value:      slices.Clone(v.Call.Args),
-				Source:     OutputFromTool,
-				ToolCallID: id,
-				AttemptID:  s.callAttempts[id],
+				Value:       slices.Clone(v.Call.Args),
+				Source:      OutputSourceToolCall,
+				ToolCallID:  id,
+				ModelCallID: s.modelCallOfTool[id],
 			}
 		}
 	}
@@ -332,8 +332,8 @@ func validateModelResult(result llm.Result, agent Agent) error {
 // additions. The reminder instruction primes the model to expect
 // <system-reminder> messages. It is always sent, so the system prompt stays
 // the same while reminders come and go and the provider's prompt cache
-// survives; only the reserved final-answer call adds its own text.
-func modelSystem(instructions string, structured, finalAnswer bool) string {
+// survives; only the reserved final-reply call adds its own text.
+func modelSystem(instructions string, structured, finalReply bool) string {
 	parts := []string{}
 	if instructions != "" {
 		parts = append(parts, instructions)
@@ -348,7 +348,7 @@ func modelSystem(instructions string, structured, finalAnswer bool) string {
 			"When your work is finished, call dashi_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.",
 		)
 	}
-	if finalAnswer {
+	if finalReply {
 		parts = append(
 			parts,
 			"This is the last model call allowed for this turn. Use the information already available to give the best final answer. State any unfinished work or uncertainty. Do not request further work or application tools.",

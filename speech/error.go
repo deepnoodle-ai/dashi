@@ -23,7 +23,8 @@ const (
 
 // Error keeps a failure classification separate from retry authorization.
 // RemoteOutcomeUnknown means the provider may have processed the call despite
-// the local failure; callers must reconcile before attempting a replay.
+// the local failure; callers must check with the provider before attempting
+// a replay.
 // Provider response text is deliberately omitted from Error and Error().
 type Error struct {
 	Category ErrorCategory
@@ -33,7 +34,7 @@ type Error struct {
 	// RetryAfter is a valid, positive provider Retry-After hint, or zero.
 	RetryAfter time.Duration
 	// Retryable is an advisory classification of an explicit HTTP rejection,
-	// not permission to replay a call with an uncertain remote outcome.
+	// not permission to replay a call whose remote outcome is unknown.
 	Retryable            bool
 	RemoteOutcomeUnknown bool
 	Cause                error

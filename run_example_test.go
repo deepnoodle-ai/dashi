@@ -36,30 +36,30 @@ func (o *hostOutbox) unapplied(turn dashi.Turn) dashi.Command {
 }
 
 // plan maps a stored turn to the host's next command, or nil when there is
-// nothing to run now. The CommandID comes from the turn ID and revision, so
+// nothing to run now. The CommandID comes from the turn ID and LastSeq, so
 // planning again after a crash gives the same command.
 func plan(turn dashi.Turn, view dashi.TurnView, history []llm.Message) dashi.Command {
-	id := fmt.Sprintf("%s@%d", turn.ID, view.Revision)
+	id := fmt.Sprintf("%s@%d", turn.ID, view.LastSeq)
 	switch view.Next() {
-	case dashi.NextContinue, dashi.NextResume: // Resume once the old worker is gone.
+	case dashi.NextContinue, dashi.NextRecover: // Resume once the old worker is gone.
 		return dashi.Continue{CommandID: id, History: history}
-	case dashi.NextAnswer:
-		// The host settles each pending item when its answer arrives; here a
-		// person approves the call.
+	case dashi.NextResolvePending:
+		// The host resolves each pending item when its decision or result
+		// arrives; here a person approves the call.
 		return view.Pending[0].Approve()
-	case dashi.NextRaiseBudget, dashi.NextRaiseAttempts:
-		// Or Continue with a raised Budget or ModelAttempts.
+	case dashi.NextRaiseBudget, dashi.NextRaiseModelCalls:
+		// Or Continue with a raised Budget or ModelCalls.
 		return dashi.Cancel{CommandID: id, Reason: "limit reached"}
-	case dashi.NextResolve:
+	case dashi.NextFix:
 		// Host-specific: fix the cause and Continue, or Cancel.
 		return dashi.Cancel{CommandID: id, Reason: view.Stop.Reason}
 	}
 	return nil // NextNone: done.
 }
 
-// A host that stores its own turns admits each turn, then loops: load the
-// turn, rerun a saved command that never applied, or plan, save, and run
-// the next one.
+// A host that stores its own turns first records each turn without running
+// it, then loops: load the turn, rerun a saved command that never applied,
+// or plan, save, and run the next one.
 func Example_hostTurnLoop() {
 	ctx := context.Background()
 	write, _ := tool.Func("write", "Write a file.",
@@ -78,29 +78,29 @@ func Example_hostTurnLoop() {
 	var outbox hostOutbox
 	var history []llm.Message // Earlier conversation, kept by the host.
 
-	// Admit: save the Start, then record it without a model call.
+	// Save the Start, then record it without a model call.
 	start := dashi.Start{
 		CommandID: "t1@0",
 		Agent:     dashi.Agent{Model: "fixture"},
 		Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 	}
 	outbox.save(start)
-	admitted := make(chan struct{})
-	close(admitted)
+	paused := make(chan struct{})
+	close(paused)
 	runner.Run(ctx, dashi.NewTurn("t1"), start,
-		dashi.WithOwner(owner), dashi.WithPause(admitted))
+		dashi.WithOwner(owner), dashi.WithPause(paused))
 
 	// A worker plans and saves the next command, then crashes before
 	// running it.
 	turn, _ := rec.Load(ctx, "t1")
-	view, _ := dashi.Replay(turn)
+	view, _ := turn.View()
 	outbox.save(plan(turn, view, history))
 
 	for {
 		turn, _ := rec.Load(ctx, "t1")
 		cmd := outbox.unapplied(turn)
 		if cmd == nil {
-			view, _ := dashi.Replay(turn)
+			view, _ := turn.View()
 			if cmd = plan(turn, view, history); cmd == nil {
 				break
 			}
@@ -108,18 +108,18 @@ func Example_hostTurnLoop() {
 		}
 		out, err := runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))
 		if err != nil {
-			fmt.Println(err) // Reload and back off on ErrRevisionConflict.
+			fmt.Println(err) // Reload and back off on ErrStaleTurn.
 			return
 		}
 		fmt.Println(dashi.CommandIDOf(cmd), "->", out.Stop.Kind, out.Next())
 	}
 	// Output:
-	// t1@2 -> waiting answer
+	// t1@2 -> waiting resolve_pending
 	// approval:c1 -> waiting continue
 	// t1@8 -> completed none
 }
 
-// A host admits a turn without running it: a Start with an already-closed
+// A host records a turn without running it: a Start with an already-closed
 // pause records the request and stops before any model request. A later
 // Continue runs it; a Cancel, which needs no client, withdraws it.
 func ExampleWithPause() {
@@ -140,7 +140,7 @@ func ExampleWithPause() {
 	out, _ = runner.Run(ctx, out.Turn, dashi.Continue{})
 	fmt.Println(out.Stop.Kind, "->", out.Next())
 
-	// Withdrawing an admitted turn needs only the recorder.
+	// Withdrawing a turn that never ran needs only the recorder.
 	out, _ = runner.Run(ctx, dashi.Turn{}, start, dashi.WithPause(paused))
 	clientless := dashi.Runner{Recorder: rec}
 	out, _ = clientless.Run(ctx, out.Turn, dashi.Cancel{Reason: "withdrawn"})

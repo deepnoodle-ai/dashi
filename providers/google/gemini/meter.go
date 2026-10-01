@@ -8,7 +8,7 @@ import (
 )
 
 // groundingWire holds the fields of a candidate's groundingMetadata that
-// show which hosted tools ran. Each groundingChunks entry is a union keyed by
+// show which provider tools ran. Each groundingChunks entry is a union keyed by
 // its source kind (web, retrievedContext, maps, image), so chunks stay maps
 // and an unknown kind can still be named.
 type groundingWire struct {
@@ -23,8 +23,8 @@ type urlContextWire struct {
 	URLMetadata []json.RawMessage `json:"urlMetadata"`
 }
 
-// metadataMeters counts the hosted work that a candidate's grounding and URL
-// context metadata record. Gemini reports no hosted-tool counters in
+// metadataMeters counts the provider tool work that a candidate's grounding and
+// URL context metadata record. Gemini reports no provider-tool counters in
 // usageMetadata, so these counts come from the metadata itself:
 //
 //   - Each non-empty webSearchQueries entry is one MeterWebSearch. Gemini 3
@@ -136,7 +136,8 @@ func (m *streamMeters) observe(
 	return !maps.Equal(before, m.counts())
 }
 
-// counts returns the cumulative counts, or nil when no hosted work was seen.
+// counts returns the cumulative counts, or nil when no provider tool work was
+// seen.
 func (m *streamMeters) counts() map[string]int {
 	counts := maps.Clone(m.metadata)
 	if m.codeRuns > 0 {

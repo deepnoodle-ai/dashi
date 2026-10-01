@@ -46,13 +46,13 @@ func (v TaskView) Notice() Notice {
 
 // Text returns the message for the model, such as
 // "[task t_k3f2 completed] explore: find the parser".
-// The answer or the reason follows on the next lines.
+// The reply or the reason follows on the next lines.
 func (n Notice) Text() string {
 	v := n.Task
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[task %s %s] %s: %s", v.ID, v.State, v.Subagent, v.Description)
-	if v.Answer != "" {
-		sb.WriteString("\n" + v.Answer)
+	if v.Reply != "" {
+		sb.WriteString("\n" + v.Reply)
 	}
 	if v.Reason != "" {
 		sb.WriteString("\nReason: " + v.Reason)
@@ -115,7 +115,7 @@ func deliveredNotices(turns []dashi.Turn) map[string]bool {
 				}
 			}
 			if list, ok := strings.CutPrefix(step.CommandID, queuePrefix); ok &&
-				step.Kind == dashi.StepStarted {
+				step.Kind == dashi.StepTurnStarted {
 				var ids []string
 				if json.Unmarshal([]byte(list), &ids) == nil {
 					for _, id := range ids {

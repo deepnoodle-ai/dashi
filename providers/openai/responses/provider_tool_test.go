@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func TestHostedItemsReplayWithoutExecution(t *testing.T) {
+func TestProviderToolItemsReplayWithoutExecution(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -37,14 +37,14 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("decode hosted output: %v", err)
+		t.Fatalf("decode provider tool output: %v", err)
 	}
 	if len(result.Message.Content) != 2 {
-		t.Fatal("hosted output or answer was dropped")
+		t.Fatal("provider tool output or answer was dropped")
 	}
-	use := result.Message.Content[0].HostedUse
+	use := result.Message.Content[0].ProviderToolUse
 	if use == nil || use.Name != "web_search" {
-		t.Fatal("hosted search became an executable client call")
+		t.Fatal("provider tool search became an executable client call")
 	}
 	if len(use.Output) != 2 || use.Output[1].Resource == nil {
 		t.Fatal("search snippet or resource reference was lost")
@@ -61,7 +61,7 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("prepare hosted history: %v", err)
+		t.Fatalf("prepare provider tool history: %v", err)
 	}
 	var body struct {
 		Input []json.RawMessage `json:"input"`
@@ -70,7 +70,7 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Input) != 4 {
-		t.Fatal("hosted item or message order changed")
+		t.Fatal("provider tool item or message order changed")
 	}
 	var item struct {
 		Results []struct {
@@ -81,11 +81,11 @@ func TestHostedItemsReplayWithoutExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if item.Results[0].URL != "https://example.com" {
-		t.Fatal("hosted provider item was not replayed")
+		t.Fatal("provider tool provider item was not replayed")
 	}
 }
 
-func TestHostedDefinitionsRequestResults(t *testing.T) {
+func TestProviderToolDefinitionsRequestResults(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -130,7 +130,7 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("prepare hosted tools: %v", err)
+		t.Fatalf("prepare provider tools: %v", err)
 	}
 	var body struct {
 		Tools   []map[string]any `json:"tools"`
@@ -140,7 +140,7 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Tools) != 4 || len(body.Include) != 4 {
-		t.Fatal("hosted tools or requested result includes were omitted")
+		t.Fatal("provider tools or requested result includes were omitted")
 	}
 	if body.Tools[1]["vector_store_ids"] == nil {
 		t.Fatal("file search lost its vector store")
@@ -152,7 +152,7 @@ func TestHostedDefinitionsRequestResults(t *testing.T) {
 	}
 }
 
-func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
+func TestProviderToolImageRejectsUnsupportedCompression(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -170,7 +170,7 @@ func TestHostedImageRejectsUnsupportedCompression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image.Definition.Hosted.Options = json.RawMessage(
+	image.Definition.ProviderTool.Options = json.RawMessage(
 		`{"output_format":"png","output_compression":50}`,
 	)
 	_, err = client.Prepare(
@@ -206,7 +206,7 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 		"type":"mcp_approval_request","id":"approval_1",
 		"server_label":"docs","name":"read","arguments":"{}"
 	}`))
-	if err != nil || len(items) != 1 || items[0].HostedApprovalRequest == nil {
+	if err != nil || len(items) != 1 || items[0].ProviderToolApprovalRequest == nil {
 		t.Fatal("MCP approval request was not exposed", err)
 	}
 	input := llm.Input{
@@ -221,8 +221,8 @@ func TestMCPApprovalRequiresExplicitResponse(t *testing.T) {
 		t.Fatalf("pending approval should replay without a decision: %v", err)
 	}
 	response := llm.Content{
-		Kind: llm.ContentHostedApprovalResponse,
-		HostedApprovalResponse: &llm.HostedApprovalResponse{
+		Kind: llm.ContentProviderToolApprovalResponse,
+		ProviderToolApprovalResponse: &llm.ProviderToolApprovalResponse{
 			RequestID: "approval_1",
 			Approve:   false,
 			Reason:    "Denied by caller",
@@ -254,7 +254,7 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition.Definition.Hosted.Options = json.RawMessage(`{
+	definition.Definition.ProviderTool.Options = json.RawMessage(`{
 		"server_label":"docs","server_url":"https://example.com/mcp",
 		"authorization":"secret"
 	}`)
@@ -278,7 +278,7 @@ func TestMCPOptionsRejectEmbeddedCredentials(t *testing.T) {
 	}
 }
 
-func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
+func TestProviderToolImageAndMCPResultsRemainObservable(t *testing.T) {
 	wire := codec{
 		origin: content.Origin{
 			Provider: "openai",
@@ -297,11 +297,11 @@ func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode generated image: %v", err)
 	}
-	if len(items) != 1 || items[0].HostedUse == nil ||
-		len(items[0].HostedUse.Output) != 1 {
+	if len(items) != 1 || items[0].ProviderToolUse == nil ||
+		len(items[0].ProviderToolUse.Output) != 1 {
 		t.Fatal("generated image was dropped")
 	}
-	image := items[0].HostedUse.Output[0].Image
+	image := items[0].ProviderToolUse.Output[0].Image
 	if image == nil || image.Source.MIMEType != "image/png" {
 		t.Fatal("generated image MIME type was lost")
 	}
@@ -313,14 +313,14 @@ func TestHostedImageAndMCPResultsRemainObservable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode MCP call: %v", err)
 	}
-	use := items[0].HostedUse
+	use := items[0].ProviderToolUse
 	if use == nil || use.ServerName != "docs" ||
 		len(use.Output) != 1 || use.Output[0].Text.Text != "Result" {
 		t.Fatal("MCP result lost its server or output")
 	}
 }
 
-func TestGrokHostedImageKeepsModelWrittenPrompt(t *testing.T) {
+func TestGrokProviderToolImageKeepsModelWrittenPrompt(t *testing.T) {
 	wire := codec{
 		origin: content.Origin{
 			Provider: "grok",
@@ -333,13 +333,13 @@ func TestGrokHostedImageKeepsModelWrittenPrompt(t *testing.T) {
 		"type":"image_generation_call","id":"ig_1","status":"completed",
 		"prompt":"A corgi on a wave","result":"iVBORw0KGgo="
 	}`))
-	if err != nil || len(items) != 1 || items[0].HostedUse == nil {
+	if err != nil || len(items) != 1 || items[0].ProviderToolUse == nil {
 		t.Fatalf("decode Grok image: %v", err)
 	}
 	var input struct {
 		Prompt string `json:"prompt"`
 	}
-	if err := json.Unmarshal(items[0].HostedUse.Input, &input); err != nil ||
+	if err := json.Unmarshal(items[0].ProviderToolUse.Input, &input); err != nil ||
 		input.Prompt != "A corgi on a wave" {
 		t.Fatalf("Grok image prompt lost: %+v, %v", input, err)
 	}
@@ -363,7 +363,7 @@ func TestFileSearchResultsKeepProviderFileID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode file search: %v", err)
 	}
-	output := items[0].HostedUse.Output
+	output := items[0].ProviderToolUse.Output
 	if len(output) != 2 || output[0].Text == nil ||
 		output[1].Document == nil ||
 		output[1].Document.Source.ID != "file_1" ||

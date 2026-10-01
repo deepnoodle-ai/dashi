@@ -71,7 +71,7 @@ func openAutomationProcessDescriptor(file *os.File, write bool) (automationProce
 			return
 		}
 		// Qualification exercises setting and restoring the shared flags
-		// before the controller can admit work.
+		// before the controller can accept work.
 		if _, setupErr = unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags|unix.O_NONBLOCK); setupErr != nil {
 			return
 		}

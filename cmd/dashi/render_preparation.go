@@ -32,5 +32,5 @@ func modelPreparationBlocks(step dashi.Step) []Block {
 	if len(lines) == 0 {
 		return nil
 	}
-	return []Block{{ID: "preparation:" + fact.AttemptID, Kind: KindNotice, Text: strings.Join(lines, "\n"), Done: true}}
+	return []Block{{ID: "preparation:" + fact.ModelCallID, Kind: KindNotice, Text: strings.Join(lines, "\n"), Done: true}}
 }

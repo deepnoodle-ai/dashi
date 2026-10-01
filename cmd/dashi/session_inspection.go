@@ -127,7 +127,7 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 	id := report.Metadata.ID
 	prefix := "Session " + id + ": "
 	if !owner.Owned || owner.ID != id {
-		return prefix + "worker liveness unknown. Reopen this target while idle with /sessions " + id + " and choose it, or exit and run dashi --resume " + id + ". Acquiring its lock and passing recovery checks are required before any action."
+		return prefix + "worker status unknown. Reopen this target while idle with /sessions " + id + " and choose it, or exit and run dashi --resume " + id + ". Acquiring its lock and passing recovery checks are required before any action."
 	}
 	switch owner.Mode {
 	case ModeRunning:
@@ -152,26 +152,26 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 	switch e.Next {
 	case dashi.NextNone:
 		return prefix + "owned and idle. Send a new request using the next-Turn preferences."
-	case dashi.NextRaiseAttempts:
+	case dashi.NextRaiseModelCalls:
 		return prefix + "owned and idle. Use /continue to raise the model-call limit for this target."
 	case dashi.NextContinue:
 		return prefix + "owned and idle. Press Enter to continue this target. Recovery and recorded destination checks still apply."
-	case dashi.NextResume:
+	case dashi.NextRecover:
 		if e.ReadyToContinue {
 			return prefix + "owned and idle. No run stop was recorded. Press Enter to recover this target after existing checks."
 		}
-	case dashi.NextResolve:
+	case dashi.NextFix:
 		if e.ReadyToContinue && e.Stop.Kind == dashi.StopFailed {
 			return prefix + "owned and idle. Review the recorded failure before pressing Enter to retry this target. Recorded destination checks still apply."
 		}
-	case dashi.NextAnswer:
+	case dashi.NextResolvePending:
 		return prefix + "owned and idle. Pending results or approvals are not ready to continue. Resolve them through existing recovery checks, or /discard this open Turn. Permission is not granted."
 	}
 	return prefix + "owned and idle. Resolve the recorded cause or verify pending outcomes before recovery. /discard discards this target's open Turn."
 }
 
 // Endpoint identity is displayed only when a current definition proves the
-// recorded fingerprint. This is pure metadata work, never client construction.
+// recorded hash. This is pure metadata work, never client construction.
 func (c *Controller) inspectionDestinations(report sessionstore.Inspection) string {
 	p := c.eng.cfg.Preferences
 	if p == nil {
@@ -181,8 +181,8 @@ func (c *Controller) inspectionDestinations(report sessionstore.Inspection) stri
 	if e := report.Latest; e != nil && e.Readable {
 		endpoint := "unavailable (recorded binding cannot be verified)"
 		if d, ok := p.routes.registry[e.Destination.Provider]; ok {
-			fingerprint, err := d.fingerprint()
-			if err == nil && e.Destination.Revision == cliRouteRevision+fingerprint && e.Destination.API == d.Definition.API {
+			hash, err := d.hash()
+			if err == nil && e.Destination.Version == cliRouteVersion+hash && e.Destination.API == d.Definition.API {
 				endpoint = sessionstore.PrintableEndpoint(d.Definition.Endpoint) + " (matching recorded binding)"
 			}
 		}

@@ -83,7 +83,7 @@ func TestBundleHooksDeliverCatalogOnceAsRuntimeContext(t *testing.T) {
 			if item.Name == "skills" {
 				delivered++
 				if item.Origin != dashi.ContextRuntime ||
-					!strings.HasSuffix(item.ID, bundle.Digest()) {
+					!strings.HasSuffix(item.ID, bundle.Hash()) {
 					t.Errorf("item = %+v", item)
 				}
 			}

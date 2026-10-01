@@ -38,24 +38,24 @@ type runtime struct {
 	// the source cannot signal.
 	listen *steerListener
 	// pendingWarnings and pendingHooks ride on the next committed step, so
-	// a warning or hook answer is saved with the step it leads to.
+	// a warning or hook decision is saved with the step it leads to.
 	pendingWarnings     []Warning
 	pendingHooks        []HookResult
 	compactionUsed      bool
 	compactionCandidate *llm.Input
 }
 
-// result pairs an Outcome with the recording failure that ended the run.
-func (r *runtime) result(out Outcome) (Outcome, error) {
+// result pairs an RunResult with the recording failure that ended the run.
+func (r *runtime) result(out RunResult) (RunResult, error) {
 	return out, r.err
 }
 
 var errTurnDeadline = errors.New("dashi: turn deadline reached")
 
-func (r *runtime) contextStop() Outcome {
+func (r *runtime) contextStop() RunResult {
 	cause := context.Cause(r.ctx)
 	if errors.Is(cause, errTurnDeadline) {
-		return r.stop(StopLimited, "deadline")
+		return r.stop(StopLimited, string(LimitDeadline))
 	}
 	if cause == nil {
 		cause = r.ctx.Err()
@@ -73,23 +73,23 @@ func (r *runtime) pauseRequested() bool {
 	return pauseClosed(r.opts.pause)
 }
 
-func (r *runtime) pauseStop() Outcome {
+func (r *runtime) pauseStop() RunResult {
 	return r.stop(StopInterrupted, "pause requested")
 }
 
-func (r *runtime) failureOrContext(err error) Outcome {
+func (r *runtime) failureOrContext(err error) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}
 	return r.stop(StopFailed, err.Error())
 }
 
-func (r *runtime) commit(step Step) *Outcome {
+func (r *runtime) commit(step Step) *RunResult {
 	if step.Context != nil && len(step.Context.Items) > 0 {
 		items := r.skipRecordedItems(step.Context.Items)
 		if len(items) == 0 {
-			if step.Kind == StepDelivered {
-				// Everything was delivered before; there is nothing to record.
+			if step.Kind == StepMessagesAdded {
+				// Everything was added before; there is nothing to record.
 				return nil
 			}
 			step.Context = nil
@@ -99,12 +99,12 @@ func (r *runtime) commit(step Step) *Outcome {
 			step.Context = &fact
 		}
 	}
-	if step.Model != nil && (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) {
-		step.Model.Purpose = modelPurpose(r.turn, step.Model.AttemptID)
+	if step.Model != nil && (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) {
+		step.Model.Purpose = modelPurpose(r.turn, step.Model.ModelCallID)
 	}
 	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
-		if step.Kind != StepStarted &&
+		if step.Kind != StepTurnStarted &&
 			!canonjson.SameValue(r.lastHooks, r.activeHooks) {
 			step.Warnings = append(step.Warnings, Warning{
 				Code:    WarningHooksChanged,
@@ -118,25 +118,26 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
-	if step.Kind == StepStopped && step.Stop != nil {
+	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
-		stop.Terminal = r.terminalAfter(stop)
+		stop.Ended = r.endsTurnAfter(stop)
 		step.Stop = &stop
 	}
-	if step.Kind == StepModelIntent {
-		// The fallback usage joins accounting before dispatch. Refuse an
-		// intent that would invalidate a token cap with either recorder.
+	if step.Kind == StepModelCallStarted {
+		// The fallback usage counts toward spend before the call is sent.
+		// Refuse a model_call_started step that would break a token cap,
+		// with either recorder.
 		candidate := r.turn
 		candidate.Steps = append(slices.Clone(r.turn.Steps), step)
 		state, err := replay(candidate)
 		if err == nil && incompleteUsageStop(state) != nil {
-			err = errors.New("dashi: model intent usage aggregation overflows")
+			err = errors.New("dashi: model call start usage aggregation overflows")
 		}
 		if err != nil {
 			r.err = &CommitError{
-				Persistence: PersistenceRejected,
-				Step:        &step,
-				Err:         err,
+				NothingWritten: true,
+				Step:           &step,
+				Err:            err,
 			}
 			o := r.current()
 			return &o
@@ -144,9 +145,9 @@ func (r *runtime) commit(step Step) *Outcome {
 	}
 	if _, err := json.Marshal(step); err != nil {
 		r.err = &CommitError{
-			Persistence: PersistenceRejected,
-			Step:        &step,
-			Err:         err,
+			NothingWritten: true,
+			Step:           &step,
+			Err:            err,
 		}
 		o := r.current()
 		return &o
@@ -177,7 +178,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
-			event.AttemptID = step.Model.AttemptID
+			event.ModelCallID = step.Model.ModelCallID
 			event.MessageID = step.Model.MessageID
 		}
 		r.emit(event)
@@ -185,15 +186,15 @@ func (r *runtime) commit(step Step) *Outcome {
 	return nil
 }
 
-// terminalAfter reports whether recording stop would end the turn. A stop
+// endsTurnAfter reports whether recording stop would end the turn. A stop
 // changes none of the state terminal reads except the stop itself.
-func (r *runtime) terminalAfter(stop Stop) bool {
+func (r *runtime) endsTurnAfter(stop Stop) bool {
 	state, err := replay(r.turn)
 	if err != nil {
-		// The commit's own replay check reports the broken record.
+		// The commit's own record check reports the broken record.
 		return false
 	}
-	return state.stopTerminal(stop)
+	return state.stopEnds(stop)
 }
 
 // emit stamps event.Seq with the number of recorded steps, so a step event
@@ -237,13 +238,13 @@ func cloneEvent(event Event) Event {
 	return event
 }
 
-func (r *runtime) current() Outcome {
+func (r *runtime) current() RunResult {
 	s, e := replay(r.turn)
 	if e != nil {
 		if r.err == nil {
 			r.err = fmt.Errorf("%w: %w: %v", ErrRecordInvalid, ErrInvalidTurn, e)
 		}
-		return Outcome{Turn: r.turn.Clone()}
+		return RunResult{Turn: r.turn.Clone()}
 	}
 	return outcome(r.turn, s)
 }
@@ -257,7 +258,7 @@ func hasStartedTool(s *replayState) bool {
 	return false
 }
 
-func (r *runtime) stop(kind StopKind, reason string) Outcome {
+func (r *runtime) stop(kind StopKind, reason string) RunResult {
 	stop := &Stop{Kind: kind, Reason: reason}
 	if kind == StopLimited {
 		// A limit kind is recorded even when the counts are unavailable,
@@ -266,26 +267,26 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 		if err != nil {
 			state = &replayState{}
 		}
-		switch reason {
-		case "model_attempts":
+		switch LimitKind(reason) {
+		case LimitModelCalls:
 			stop.Limit = &LimitDetail{
-				Kind:  LimitModelAttempts,
-				Limit: int64(state.attemptCap),
-				Used:  int64(state.ModelAttempts),
+				Kind:  LimitModelCalls,
+				Limit: int64(state.modelCallCap),
+				Used:  int64(state.ModelCalls),
 			}
-		case "interruptions":
+		case LimitResumes:
 			stop.Limit = &LimitDetail{
-				Kind:  LimitInterruptions,
-				Limit: int64(max(r.agent.Limits.Interruptions, 0)),
-				Used:  int64(state.Interruptions),
+				Kind:  LimitResumes,
+				Limit: int64(max(r.agent.Limits.Resumes, 0)),
+				Used:  int64(state.Resumes),
 			}
-		case "provider_pauses":
+		case LimitProviderPauses:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitProviderPauses,
 				Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
 				Used:  int64(state.ProviderPauses),
 			}
-		case "deadline":
+		case LimitDeadline:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitDeadline,
 				Limit: r.agent.Limits.Deadline.Unix(),
@@ -296,22 +297,22 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	return r.stopWith(stop)
 }
 
-func (r *runtime) stopWith(stop *Stop) Outcome {
-	o := r.commit(Step{Kind: StepStopped, Stop: stop})
+func (r *runtime) stopWith(stop *Stop) RunResult {
+	o := r.commit(Step{Kind: StepTurnStopped, Stop: stop})
 	if o != nil {
 		return *o
 	}
 	return r.current()
 }
 
-func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
+func (r *runtime) stopAfterReply(s *replayState) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}
 	// The reserved final call ends at the model-call limit. After Continue
-	// raises the limit, a recorded answer completes the turn.
-	if s.finalAnswerOnly && s.attemptCap <= s.ModelAttempts {
-		return r.stop(StopLimited, "model_attempts")
+	// raises the limit, a recorded reply completes the turn.
+	if s.finalReplyOnly && s.modelCallCap <= s.ModelCalls {
+		return r.stop(StopLimited, string(LimitModelCalls))
 	}
 	return r.stop(StopCompleted, "")
 }

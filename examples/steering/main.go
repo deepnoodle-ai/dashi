@@ -1,8 +1,8 @@
 // Command steering is a small chat CLI in which you can type while the agent
-// works. A line typed during a turn is a steer: Dashi delivers it before the
-// agent's next model call, or, if the agent was about to answer, asks it
+// works. A line typed during a turn is a steer: Dashi adds it before the
+// agent's next model call, or, if the agent was about to reply, asks it
 // again with the new message. A line starting with ! is urgent: it also cuts
-// short the answer being written. A line typed too late for the turn starts
+// short the reply being written. A line typed too late for the turn starts
 // the next one. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
 // optionally overrides the catalog's default model.
 //
@@ -69,7 +69,7 @@ func run(ctx context.Context) error {
 			"follow the latest one.",
 		// Steering can cost extra model calls, so allow more than the
 		// default.
-		Limits: dashi.Limits{ModelAttempts: 12},
+		Limits: dashi.Limits{ModelCalls: 12},
 	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{search}}
 
@@ -106,9 +106,9 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+		fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 
-		turn, err := dashi.Project(out.Turn)
+		turn, err := dashi.TurnMessagesFull(out.Turn)
 		if err != nil {
 			return err
 		}

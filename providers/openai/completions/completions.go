@@ -218,8 +218,8 @@ func (p *Client) Prepare(
 	}
 	defs := make([]any, 0, len(r.Tools))
 	for _, d := range r.Tools {
-		if d.Kind == tool.KindProviderHosted {
-			return llm.Request{}, wire.unsupported("provider-hosted tool %q", d.Name)
+		if d.Kind == tool.KindProviderTool {
+			return llm.Request{}, wire.unsupported("provider tool %q", d.Name)
 		}
 		if schema := bytes.TrimSpace(d.Schema); len(schema) == 0 ||
 			schema[0] != '{' {

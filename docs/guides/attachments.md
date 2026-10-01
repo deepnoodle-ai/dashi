@@ -28,8 +28,8 @@ dashi -p 'Compare @notes.txt with the screenshot' --attach screen.png
 
 Repeat `--attach` for more files; flags precede prompt mentions in selection
 order. The shell handles flag-path quotes and escapes; Dashi uses each flag
-argument literally. All selections must succeed before print mode starts work. Diagnostics
-go to stderr; the answer goes to stdout.
+argument literally. All selections must succeed before print mode starts work.
+Diagnostics go to stderr; the reply goes to stdout.
 
 In fullscreen and inline mode, a terminal can deliver a saved-file drop as
 bracketed paste containing only absolute, `~/`, or local `file://` paths.
@@ -57,24 +57,24 @@ unavailable. The CLI shows that warning and leaves acceptance to the provider.
 Cost limits still apply; an unavailable estimate does not prove the request fits.
 
 Before an ordinary Start, the CLI publishes private immutable snapshots in
-that session. Turn records contain only IDs, digests, sizes, and basenames.
-Resume resolves those snapshots under the same session, checks their size and
-digest, and never falls back to the source path. Secure local storage currently
+that session. Turn records contain only IDs, hashes, sizes, and basenames.
+Resume loads those snapshots under the same session, checks their size and
+hash, and never falls back to the source path. Secure local storage currently
 requires macOS or Linux; other platforms can still open attachment-free work.
 
 Only acknowledgement of the matching ordinary Start consumes the draft.
 Compaction and Continue do not consume independent selections. A rejected
-Start keeps a retryable draft. An uncertain Start freezes it until recorded
-facts reconcile the outcome. Attachments cannot become a steer, `/queue`
-text, or a delayed send during a running Turn. Exit and session changes warn
-before losing unsent selections. Published snapshots, including orphans, are
-retained; `/discard` does not delete them.
+Start keeps a retryable draft. A Start whose result is unknown freezes it
+until the recorded facts show what happened. Attachments cannot become a steer,
+`/queue` text, or a delayed send during a running Turn. Exit and session
+changes warn before losing unsent selections. Published snapshots, including
+orphans, are retained; `/discard` does not delete them.
 
 ## Stored files by reference
 
 Without a reference, the bytes of an upload enter the Turn record. They grow
 every checkpoint and log. With a reference, the record holds an ID, a SHA-256
-digest, and a size. The host keeps the bytes.
+hash, and a size. The host keeps the bytes.
 
 ```go
 ref := content.Ref{ID: "upl_1", SHA256: sum, Size: 812}
@@ -92,11 +92,11 @@ Rules for a reference:
 - A reference can appear in a start message, in a message from a hook or a
   steer, and in a tool result.
 
-Set `Runner.ContentResolver` to turn a reference into bytes:
+Set `Runner.ContentLoader` to turn a reference into bytes:
 
 ```go
-type ContentResolver interface {
-	Resolve(ctx context.Context, turnID string, ref content.Ref) ([]byte, error)
+type ContentLoader interface {
+	Load(ctx context.Context, turnID string, ref content.Ref) ([]byte, error)
 }
 ```
 
@@ -104,19 +104,20 @@ Before each model request, Dashi does these steps on a copy of the input:
 
 1. It compares the declared size of each reference with `Runner.ContentLimits`.
    This step does no I/O.
-2. It calls `Resolve` with the context of the `Run` or `Stream` call. Put the
-   tenant and session in that context. The resolver must check that the turn
+2. It calls `Load` with the context of the `Run` or `Stream` call. Put the
+   tenant and session in that context. The loader must check that the turn
    can read the reference. Check the tenant or session, not only the turn.
 3. It checks that the length and the SHA-256 of the result match the reference.
 4. It puts the bytes in the copy and prepares the request.
 
-Dashi keeps no cache. It calls `Resolve` again on every model call, every
+Dashi keeps no cache. It calls `Load` again on every model call, every
 retry, and every resume. A reference that the host revoked stops the turn at
-the next call. `Project`, replay, and inspection never call the resolver.
+the next call. `TurnMessagesFull`, replay, and inspection never call the
+loader.
 
 `BeforeModel` hooks see the reference. `BeforeSend` hooks see the prepared
-request with bytes. `ModelFact.RequestDigest` covers those bytes. The
-resolver must bound its own read, because Dashi checks the length only after
+request with bytes. `ModelFact.RequestHash` covers those bytes. The
+loader must bound its own read, because Dashi checks the length only after
 the read.
 
 ### Limits
@@ -128,32 +129,32 @@ reject the request. Its normal preparation error then ends the turn.
 
 ### Failures
 
-A problem with a reference ends the turn as failed. No model intent is
-recorded. `Stop.Reason` holds a stable code, and `Stop.RefID` names the
+A problem with a reference ends the turn as failed. No `model_call_started`
+step is recorded. `Stop.Reason` holds a stable code, and `Stop.RefID` names the
 reference. A host can branch on the code:
 
 | Code | Meaning |
 | --- | --- |
-| `StopReasonContentNoResolver` | `Runner.ContentResolver` is nil. |
-| `StopReasonContentUnavailable` | The resolver returned an error. Denied and deleted files look the same. |
+| `StopReasonContentNoLoader` | `Runner.ContentLoader` is nil. |
+| `StopReasonContentUnavailable` | The loader returned an error. Denied and deleted files look the same. |
 | `StopReasonContentTooLarge` | The declared size is over a limit. |
-| `StopReasonContentSizeMismatch` | The resolver returned a different number of bytes. |
-| `StopReasonContentDigestMismatch` | The bytes do not match the SHA-256. |
+| `StopReasonContentSizeMismatch` | The loader returned a different number of bytes. |
+| `StopReasonContentHashMismatch` | The bytes do not match the SHA-256. |
 
-The stop never contains bytes or the resolver's error text. Dashi never drops
+The stop never contains bytes or the loader's error text. Dashi never drops
 the block or falls back to another location.
 
-The stop is not terminal. To recover, fix the cause, then call `Run` with
-`Continue` on the same turn. Restore the bytes, grant access, raise
-`ContentLimits`, or set a resolver. `Continue` calls `Resolve` again and
+The stop does not end the turn. To recover, fix the cause, then call `Run`
+with `Continue` on the same turn. Restore the bytes, grant access, raise
+`ContentLimits`, or set a loader. `Continue` calls `Load` again and
 resumes the turn where it stopped. A turn that will not recover can stay
 failed.
 
 ### References in earlier messages
 
 A reference in `Start.History` or in a tool result from an earlier turn is
-resolved again on every later turn. It resolves under the ID of the current
-turn, not the turn that created it. The resolver must not check access by the
+loaded again on every later turn. It loads under the ID of the current
+turn, not the turn that created it. The loader must not check access by the
 turn ID alone. Check the tenant or session that it reads from `ctx`. Each use
 also counts toward `MaxTotalBytes`.
 
@@ -161,11 +162,11 @@ also counts toward `MaxTotalBytes`.
 
 `mention.Scan` finds explicit mention spans without reading files.
 `mention.ReadFileContext` makes one bounded, cancelable selection; `ReadFile`
-is its context-free wrapper. A front end can show a preview before dispatch.
+is its context-free wrapper. A front end can show a preview before sending.
 
-The legacy `mention.Expand` reads a message typed by a person and attaches files. The
-person picks each file, so there is no workspace boundary. A model tool that
-reads files must enforce its own boundary.
+The legacy `mention.Expand` reads a message typed by a person and attaches
+files. The person picks each file, so there is no workspace boundary. A model
+tool that reads files must enforce its own boundary.
 
 ```go
 res := mention.Expand("explain @internal/wake/wake.go", mention.Options{})
@@ -187,11 +188,11 @@ for _, w := range res.Warnings {
 | `me@example.com`, `main.go:12` | No change. |
 
 A word without `@` attaches only when it names an existing image or PDF.
-Images are PNG, JPEG, GIF, and WebP. The default limits are 3.75 MB for an image (Anthropic counts the base64
-text against a 5 MB limit),
-10 MB for a PDF, 256 KB for text, and 32 MB for one message. A skipped file
-gives a warning and never fails the message. The same file attaches once.
+Images are PNG, JPEG, GIF, and WebP. The default limits are 3.75 MB for an
+image (Anthropic counts the base64 text against a 5 MB limit), 10 MB for a
+PDF, 256 KB for text, and 32 MB for one message. A skipped file gives a
+warning and never fails the message. The same file attaches once.
 
 The blocks hold the bytes inline. A front end that keeps sessions can store
-them in the session file. Storing them by `content.Ref` needs a resolver and
+them in the session file. Storing them by `content.Ref` needs a loader and
 a file that cannot change.

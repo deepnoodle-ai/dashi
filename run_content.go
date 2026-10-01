@@ -18,7 +18,7 @@ const (
 	defaultMaxTotalBytes = 64 << 20
 )
 
-// ContentResolver turns an application reference into bytes. The application
+// ContentLoader turns an application reference into bytes. The application
 // owns the storage and the access rules; Dashi records only the reference.
 //
 // The runner calls Resolve before every model request that holds the
@@ -26,14 +26,14 @@ const (
 // failed with a StopReasonContent... code and Stop.RefID. Continue calls
 // Resolve again, so a host can restore the bytes or grant access and resume. It keeps no cache, so a
 // reference the application has revoked stops the turn at the next call.
-type ContentResolver interface {
-	// Resolve returns the bytes of ref. ctx is the context of the Run or
+type ContentLoader interface {
+	// Load returns the bytes of ref. ctx is the context of the Run or
 	// Stream call, so the application can read its tenant and session from
 	// it. turnID names the turn that asks. The application must check that
 	// the turn may read ref, and return an error when it may not. The runner
 	// checks the length and the SHA-256 of the result, but the application
 	// must bound its own read.
-	Resolve(
+	Load(
 		ctx context.Context,
 		turnID string,
 		ref content.Ref,
@@ -58,7 +58,7 @@ type ContentLimits struct {
 // returned input is a copy, so the recorded, reference-bearing messages stay
 // unchanged. A non-nil stop ends the turn as failed: the runner never drops a
 // reference or sends the request without it.
-func (r *runtime) hydrate(input llm.Input) (llm.Input, *Outcome) {
+func (r *runtime) hydrate(input llm.Input) (llm.Input, *RunResult) {
 	if !input.HasRef() {
 		return input, nil
 	}
@@ -114,8 +114,8 @@ func (r *runtime) checkRefSizes(sources []*content.Source) (string, string) {
 		}
 		total += size
 	}
-	if r.runner.ContentResolver == nil {
-		return StopReasonContentNoResolver, sources[0].Ref.ID
+	if r.runner.ContentLoader == nil {
+		return StopReasonContentNoLoader, sources[0].Ref.ID
 	}
 	return "", ""
 }
@@ -127,46 +127,46 @@ func limitOrDefault(limit, fallback int64) int64 {
 	return limit
 }
 
-// resolveRef calls the resolver and verifies the result against the
-// reference. It returns a reason, never the resolver's own error text.
+// resolveRef calls the ContentLoader and verifies the result against the
+// reference. It returns a reason, never the loader's own error text.
 func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
-	data, err := r.runner.ContentResolver.Resolve(r.ctx, r.turn.ID, ref)
+	data, err := r.runner.ContentLoader.Load(r.ctx, r.turn.ID, ref)
 	if err != nil {
 		return nil, StopReasonContentUnavailable
 	}
-	// Own the bytes: a resolver may reuse its buffer for the next call.
+	// Own the bytes: a loader may reuse its buffer for the next call.
 	data = bytes.Clone(data)
 	if int64(len(data)) != ref.Size {
 		return nil, StopReasonContentSizeMismatch
 	}
 	sum := sha256.Sum256(data)
 	if !bytes.Equal([]byte(hex.EncodeToString(sum[:])), []byte(ref.SHA256)) {
-		return nil, StopReasonContentDigestMismatch
+		return nil, StopReasonContentHashMismatch
 	}
 	return data, ""
 }
 
-func (r *runtime) refStop(id, reason string) *Outcome {
+func (r *runtime) refStop(id, reason string) *RunResult {
 	o := r.stopWith(&Stop{Kind: StopFailed, Reason: reason, RefID: id})
 	return &o
 }
 
 // contentSources returns pointers to every source in c, including the blocks
-// of tool results, hosted results, and hosted uses. They alias c, so the caller passes a
-// clone.
+// of tool results, provider tool results, and provider tool uses. They alias
+// c, so the caller passes a clone.
 func contentSources(c llm.Content) []*content.Source {
-	var block, result, hosted []content.Block
+	var block, result, providerTool []content.Block
 	if c.Block != nil {
 		block = []content.Block{*c.Block}
 	}
 	if c.ToolResult != nil {
 		result = c.ToolResult.Output.Content
 	}
-	if c.HostedResult != nil {
-		hosted = c.HostedResult.Output
+	if c.ProviderToolResult != nil {
+		providerTool = c.ProviderToolResult.Output
 	}
-	if c.HostedUse != nil {
-		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	if c.ProviderToolUse != nil {
+		providerTool = append(providerTool[:len(providerTool):len(providerTool)], c.ProviderToolUse.Output...)
 	}
-	return contentsrc.Blocks(block, result, hosted)
+	return contentsrc.Blocks(block, result, providerTool)
 }

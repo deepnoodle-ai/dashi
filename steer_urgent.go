@@ -10,7 +10,7 @@ import (
 )
 
 // errSteered is the private cause a model call's context ends with when an
-// urgent steer cuts it short. The settlement tells it apart from the run's
+// urgent steer cuts it short. The finish step tells it apart from the run's
 // own context ending, which stops the run.
 var errSteered = errors.New(
 	"dashi: an urgent steer interrupted the model call",
@@ -18,7 +18,7 @@ var errSteered = errors.New(
 
 // steeringInterruptedText is the reminder that follows a cut-off call's
 // partial response in the next request, so the model reads the partial as
-// unfinished rather than as its answer.
+// unfinished rather than as its reply.
 const steeringInterruptedText = "The user interrupted your previous response."
 
 // steerListener is one run's watcher of a SteeringNotifier. Its goroutine
@@ -45,7 +45,7 @@ type steerListener struct {
 	// interrupts at most once.
 	interrupted map[string]bool
 	// loopBack holds the IDs that already sent a request back to FR-6
-	// before dispatch, so a steer the source drops loops back only once.
+	// before it was sent, so a steer the source drops loops back only once.
 	loopBack map[string]bool
 	// seen lists the IDs the listener's Steers calls claimed; the run
 	// merges them into its claims after the join, before Release.
@@ -53,7 +53,7 @@ type steerListener struct {
 	seenSet map[string]bool
 	call    *steerableCall
 	// fetchCancel ends the listener's Steers call in flight. The run calls
-	// it when a model call settles and whenever it needs the source or the
+	// it when a model call finishes and whenever it needs the source or the
 	// listener's decision itself, so the listener's fetch never stalls the
 	// run. The run's own fetches (before a model call, and before a tool
 	// starts while a steer is pending) still wait on the source.
@@ -71,7 +71,7 @@ type steerListener struct {
 type steerableCall struct {
 	cancel context.CancelCauseFunc
 	// never is the reason the call can never be cut once handed off, such
-	// as a hosted tool unsafe to repeat; empty when it can. Before the
+	// as a provider tool unsafe to repeat; empty when it can. Before the
 	// hand-off nothing was sent, so a cut is always safe.
 	never string
 	// handedOff is set just before the request is handed to the client.
@@ -207,9 +207,9 @@ func (r *runtime) wasCut(c *steerableCall) bool {
 	return c.cut
 }
 
-// unregisterCall ends the listener's hold on c once the call settles. The
+// unregisterCall ends the listener's hold on c once the call finishes. The
 // first reason the listener gave for leaving a call running becomes a
-// warning on the next step, which is the call's settlement or the stop
+// warning on the next step, which is the call's finish step or the stop
 // that ends the run. A run that is ending gets no warning, since no next
 // model call of this run will deliver the steer.
 func (r *runtime) unregisterCall(c *steerableCall) {
@@ -225,7 +225,7 @@ func (r *runtime) unregisterCall(c *steerableCall) {
 }
 
 // dropCall ends the listener's hold on c without a warning, for exits that
-// never reach the call's settlement.
+// never reach the call's finish step.
 func (r *runtime) dropCall(c *steerableCall) {
 	if c == nil {
 		return
@@ -496,7 +496,7 @@ const (
 // starts, so the record alone decides a resumed batch the same way.
 // Otherwise the urgent set decides, and only when a later model call that
 // can offer tools will deliver the steer: a skip the model cannot act on
-// would only cancel its work. When only the reserved final-answer call
+// would only cancel its work. When only the reserved final-reply call
 // remains, the batch runs and that call receives the steer; when no call
 // remains, the batch runs and the steer waits with a warning. Earlier
 // calls, such as one awaiting approval, are not held back by the record.
@@ -508,12 +508,12 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 		status != ToolAllowed {
 		return false
 	}
-	attempt := s.callAttempts[id]
+	modelCall := s.modelCallOfTool[id]
 	for _, other := range s.callOrder {
 		if other == id {
 			break
 		}
-		if s.callAttempts[other] == attempt && s.Tools[other].steered {
+		if s.modelCallOfTool[other] == modelCall && s.Tools[other].steered {
 			return true
 		}
 	}
@@ -528,7 +528,7 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 	if r.nextCallPossible(s, extra) {
 		return true
 	}
-	// Only the reserved final-answer call remains. It offers no tools, so a
+	// Only the reserved final-reply call remains. It offers no tools, so a
 	// skip would only cancel the model's work; the batch runs and that call
 	// receives the steer, like any steer waiting before it.
 	if !r.pauseRequested() && r.callFits(s, extra, true) {
@@ -586,15 +586,15 @@ func (r *runtime) urgentSteers() []ContextItem {
 	return items
 }
 
-// skipForSteer settles a requested or allowed call as not executed, so the
+// skipForSteer finishes a requested or allowed call as not executed, so the
 // steer reaches the model before the batch goes on.
-func (r *runtime) skipForSteer(call tool.Call) *Outcome {
+func (r *runtime) skipForSteer(call tool.Call) *RunResult {
 	out := tool.Outcome{
 		State:  tool.StateNotExecuted,
 		Output: new(tool.TextOutput(steerSkipText)),
 	}
 	return r.commit(Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{Call: call, Outcome: &out, Reason: reasonSteering},
 	})
 }

@@ -49,7 +49,7 @@ func TestLiveBackgroundTask(t *testing.T) {
 		Instructions: "Start one explore task for the question, then " +
 			"answer from its result. Do not answer before the message " +
 			"about the task arrives.",
-		Limits: dashi.Limits{ModelAttempts: 16},
+		Limits: dashi.Limits{ModelCalls: 16},
 	}}
 	ended := make(chan delegate.TaskView, 4)
 	tasks := delegate.NewTasks(delegate.Config{OnTask: func(e delegate.TaskEvent) {
@@ -77,15 +77,15 @@ func TestLiveBackgroundTask(t *testing.T) {
 	}
 	select {
 	case v := <-ended:
-		t.Logf("task %s %s: %q", v.ID, v.State, v.Answer)
-		if v.State != "completed" || !strings.Contains(v.Answer, "Priya") {
+		t.Logf("task %s %s: %q", v.ID, v.State, v.Reply)
+		if v.State != "completed" || !strings.Contains(v.Reply, "Priya") {
 			t.Fatalf("task=%+v", v)
 		}
 	default:
 		t.Fatal("the task never ended")
 	}
-	t.Logf("answer: %s", out.Answer)
-	if !strings.Contains(out.Answer, "Priya") {
-		t.Fatalf("the agent never used the result: %q", out.Answer)
+	t.Logf("answer: %s", out.Reply)
+	if !strings.Contains(out.Reply, "Priya") {
+		t.Fatalf("the agent never used the result: %q", out.Reply)
 	}
 }

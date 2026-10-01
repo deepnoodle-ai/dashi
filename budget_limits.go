@@ -22,7 +22,7 @@ func checkSendBudget(
 	snapshot := request.Snapshot()
 	var atRisk *llm.Cost
 	if snapshot.ModelInfo != nil && snapshot.ModelInfo.Pricing != nil {
-		if value, ok := llm.MaxCostAtRisk(request, *snapshot.ModelInfo.Pricing); ok {
+		if value, ok := llm.WorstCaseCost(request, *snapshot.ModelInfo.Pricing); ok {
 			atRisk = &value
 		}
 	}
@@ -69,11 +69,11 @@ func checkSendBudget(
 				cap.Amount,
 				cap.Currency,
 			)
-		} else if hasHostedTools(request) {
+		} else if hasProviderTools(request) {
 			reason = fmt.Sprintf(
-				"cost risk unavailable for model %s: provider-hosted tools "+
+				"cost risk unavailable for model %s: provider tools "+
 					"can bill an unbounded number of requests and add "+
-					"unbounded input tokens within one call; remove hosted "+
+					"unbounded input tokens within one call; remove provider "+
 					"tools to enforce the %s %s cost cap, or run the turn "+
 					"without a cost cap",
 				model,
@@ -108,12 +108,12 @@ func checkSendBudget(
 				cap.Currency,
 			),
 			Limit: &LimitDetail{
-				Kind:       LimitCost,
-				CostLimit:  cap.Amount,
-				Currency:   cap.Currency,
-				CostUsed:   used,
-				CostAtRisk: atRisk.Total,
-				FitTokens:  fit,
+				Kind:                     LimitCost,
+				CostLimit:                cap.Amount,
+				Currency:                 cap.Currency,
+				CostUsed:                 used,
+				WorstCaseCost:            atRisk.Total,
+				SuggestedMaxOutputTokens: fit,
 			},
 		}
 	}
@@ -169,14 +169,14 @@ func uncheckableCostReason(spend Spend) string {
 	var causes []string
 	if len(priceable) > 0 {
 		causes = append(causes, fmt.Sprintf(
-			"a model call billed hosted requests with no price (%s); "+
+			"a model call billed provider tool requests with no price (%s); "+
 				"supply prices for them or remove the tools that cause them",
 			strings.Join(priceable, ", "),
 		))
 	}
 	if len(reserved) > 0 {
 		causes = append(causes, fmt.Sprintf(
-			"a model call ran hosted work whose billing could not be "+
+			"a model call ran provider tool work whose billing could not be "+
 				"attributed (%s)",
 			strings.Join(reserved, ", "),
 		))
@@ -194,9 +194,9 @@ func uncheckableCostReason(spend Spend) string {
 		"turn with this turn's history"
 }
 
-func hasHostedTools(request llm.Request) bool {
+func hasProviderTools(request llm.Request) bool {
 	for _, def := range request.Input().Tools {
-		if def.Kind == tool.KindProviderHosted {
+		if def.Kind == tool.KindProviderTool {
 			return true
 		}
 	}
@@ -225,7 +225,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			!overOnly && output == b.MaxOutputTokens) {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "output_tokens",
+			Reason: string(LimitOutputTokens),
 			Limit: &LimitDetail{
 				Kind:  LimitOutputTokens,
 				Limit: int64(b.MaxOutputTokens),
@@ -238,7 +238,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		!overOnly && total == b.MaxTotalTokens) {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "total_tokens",
+			Reason: string(LimitTotalTokens),
 			Limit: &LimitDetail{
 				Kind:  LimitTotalTokens,
 				Limit: int64(b.MaxTotalTokens),
@@ -266,7 +266,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		!overOnly && used == b.MaxCost.Amount {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "cost",
+			Reason: string(LimitCost),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,

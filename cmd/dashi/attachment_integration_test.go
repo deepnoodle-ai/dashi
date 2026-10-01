@@ -206,12 +206,12 @@ func TestAttachmentReopenAfterSourceDeletion(t *testing.T) {
 	}
 }
 
-func TestAttachmentUnknownStartRetainsAndReconcilesFullInput(t *testing.T) {
+func TestAttachmentUnknownStartRetainsAndResolvesFullInput(t *testing.T) {
 	cfg := testConfig(t, say("delivered once"))
 	fixtureSelectedText(t, cfg.Dir, "notes.txt", "frozen")
-	var lost *lostAdmission
+	var lost *lostStartRecord
 	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-		lost = &lostAdmission{Recorder: r, unreadable: true}
+		lost = &lostStartRecord{Recorder: r, unreadable: true}
 		return lost
 	}
 	u := newLineUI(&bytes.Buffer{})
@@ -238,7 +238,7 @@ func TestAttachmentUnknownStartRetainsAndReconcilesFullInput(t *testing.T) {
 	u.AttachmentInput("")
 	a.ctrl.Wait()
 	if cfg.Client.(*fakeClient).sends != 0 {
-		t.Fatal("unreadable uncertainty dispatched")
+		t.Fatal("unreadable unknown result dispatched")
 	}
 	lost.mu.Lock()
 	lost.unreadable = false
@@ -248,7 +248,7 @@ func TestAttachmentUnknownStartRetainsAndReconcilesFullInput(t *testing.T) {
 	u.attachmentMu.Lock()
 	u.drainAttachmentReceiptsLocked()
 	if u.attachments.unsaved() {
-		t.Fatal("reconciled Start did not consume draft")
+		t.Fatal("checked Start did not consume draft")
 	}
 	u.attachmentMu.Unlock()
 	if cfg.Client.(*fakeClient).sends != 1 || a.eng.Turns(t.Context()) != 1 {
@@ -301,8 +301,8 @@ func realisticAttachmentPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// Full prepared bodies exercise the accepted parent media-admission policy.
-func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
+// Full prepared bodies exercise the accepted parent media-acceptance policy.
+func TestAttachmentRealisticMediaKnownWindowCheck(t *testing.T) {
 	for _, kind := range []string{"png", "pdf"} {
 		for _, window := range []int{128000, 200000} {
 			t.Run(fmt.Sprintf("%s/%d", kind, window), func(t *testing.T) {
@@ -332,7 +332,7 @@ func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
 					t.Fatalf("full media body did not exercise window: bytes=%d estimate=%d window=%d", len(data), estimate, window)
 				}
 				if strings.Count(stderr.String(), "Active-Turn protection unavailable for media") != 1 {
-					t.Fatal("missing media admission warning", stderr.String())
+					t.Fatal("missing media acceptance warning", stderr.String())
 				}
 				t.Logf("bytes=%d prepared estimate=%d window=%d Send=1", len(data), llm.EstimatedInputTokens(req), window)
 				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
@@ -346,15 +346,15 @@ func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
 	}
 }
 
-type attachmentAdmissionFault struct {
+type attachmentAcceptFault struct {
 	*filerecorder.Recorder
 	mode   string
 	failed bool
 	target string
 }
 
-func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	if !r.failed && req.Step.Kind == dashi.StepStarted && req.Step.Started.Origin != dashi.StartCompaction {
+func (r *attachmentAcceptFault) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	if !r.failed && req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction {
 		r.failed = true
 		r.target = req.Step.TurnID
 		if r.mode == "conflict" {
@@ -362,28 +362,24 @@ func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitR
 				return err
 			}
 		}
-		persistence := dashi.PersistenceUnknown
-		if r.mode == "rejected" {
-			persistence = dashi.PersistenceRejected
-		}
-		return &dashi.CommitError{Persistence: persistence, Err: errors.New("fixture admission fault")}
+		return &dashi.CommitError{NothingWritten: r.mode == "rejected", Err: errors.New("fixture recording fault")}
 	}
 	return r.Recorder.Commit(ctx, req)
 }
-func (r *attachmentAdmissionFault) Load(ctx context.Context, id string) (dashi.Turn, error) {
+func (r *attachmentAcceptFault) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	turn, err := r.Recorder.Load(ctx, id)
 	if err == nil && r.mode == "conflict" && id == r.target && len(turn.Steps) > 0 {
 		turn.Steps[0].Started.Input = []llm.Message{llm.UserMessage(llm.Text("conflicting recorded input"))}
 	}
 	return turn, err
 }
-func TestAttachmentRejectedAbsentAndConflictingAdmission(t *testing.T) {
+func TestAttachmentRejectedAbsentAndConflictingAcceptance(t *testing.T) {
 	for _, mode := range []string{"rejected", "absent", "conflict"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfig(t, say("delivered once"))
 			fixtureSelectedText(t, cfg.Dir, "notes.txt", "frozen")
 			cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-				return &attachmentAdmissionFault{Recorder: r, mode: mode}
+				return &attachmentAcceptFault{Recorder: r, mode: mode}
 			}
 			u := newLineUI(&bytes.Buffer{})
 			a, err := buildApp(t.Context(), cfg, u)
@@ -406,7 +402,7 @@ func TestAttachmentRejectedAbsentAndConflictingAdmission(t *testing.T) {
 				t.Fatal("known rejection did not release draft")
 			}
 			if mode != "rejected" && !in.unknown {
-				t.Fatal("unknown did not block admission")
+				t.Fatal("unknown did not block acceptance")
 			}
 			u.attachmentMu.Unlock()
 			u.AttachmentInput("")
@@ -417,7 +413,7 @@ func TestAttachmentRejectedAbsentAndConflictingAdmission(t *testing.T) {
 			u.attachmentMu.Unlock()
 			if mode == "conflict" {
 				if cfg.Client.(*fakeClient).sends != 0 || remaining != 1 || !a.eng.HasPending() {
-					t.Fatal("conflict admitted or dropped request")
+					t.Fatal("conflict accepted or dropped request")
 				}
 				return
 			}
@@ -445,7 +441,7 @@ func (r *attachmentCrashRecorder) Commit(ctx context.Context, req dashi.CommitRe
 	if err := r.Recorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted && req.Step.Started.Origin != dashi.StartCompaction {
+	if req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction {
 		id := req.Step.TurnID[:strings.LastIndexByte(req.Step.TurnID, '-')]
 		if err := os.WriteFile(r.state, []byte(id), 0o600); err != nil {
 			return err
@@ -629,14 +625,14 @@ func TestAttachmentQueueRefusesMentionsWithoutReading(t *testing.T) {
 	h.app.ctrl.Input("/queue inspect @missing.txt")
 	h.app.ctrl.Wait()
 	if h.client.sends != 0 || h.app.eng.Queued() != 0 {
-		t.Fatal("idle /queue admitted attachment-bearing text")
+		t.Fatal("idle /queue accepted attachment-bearing text")
 	}
 	h.submit("ordinary running request")
 	<-started
 	h.app.ctrl.Input("/queue inspect @missing.txt")
 	h.app.ctrl.Input("!inspect @missing.txt")
 	if h.client.sends != 1 || h.app.eng.Queued() != 0 {
-		t.Fatal("running /queue or steer admitted attachment-bearing text")
+		t.Fatal("running /queue or steer accepted attachment-bearing text")
 	}
 	h.app.ctrl.CancelWork()
 	h.app.ctrl.Wait()
@@ -693,7 +689,7 @@ func (c *attachmentPricedClient) Prepare(ctx context.Context, in llm.Input) (llm
 	snap.ModelInfo.Pricing = &llm.Pricing{Currency: "USD", UpdatedAt: "2026-09-30", Base: llm.Rates{Input: money.MustParseAmount("1"), Output: money.MustParseAmount("1")}}
 	return llm.NewRequest(snap)
 }
-func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
+func TestAttachmentRealisticMediaCostCheckUnchanged(t *testing.T) {
 	for _, kind := range []string{"png", "pdf"} {
 		for _, affordable := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/affordable=%v", kind, affordable), func(t *testing.T) {
@@ -742,9 +738,9 @@ func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
 				observed := false
 				runner.Hooks.BeforeSend = append(runner.Hooks.BeforeSend, dashi.SendHook{Name: "verify unchanged risk", Func: func(_ context.Context, p dashi.SendPlan) (dashi.SendDecision, error) {
 					observed = true
-					expected, ok := llm.MaxCostAtRisk(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
-					if !ok || p.AtRisk == nil || p.AtRisk.Total != expected.Total {
-						t.Fatalf("risk changed: plan=%+v expected=%+v", p.AtRisk, expected)
+					expected, ok := llm.WorstCaseCost(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
+					if !ok || p.WorstCaseCost == nil || p.WorstCaseCost.Total != expected.Total {
+						t.Fatalf("risk changed: plan=%+v expected=%+v", p.WorstCaseCost, expected)
 					}
 					return dashi.SendDecision{}, nil
 				}})
@@ -758,14 +754,14 @@ func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
 					}
 				} else {
 					if c.sends != 0 || observed || out.Stop.Limit == nil || out.Stop.Limit.Kind != dashi.LimitCost {
-						t.Fatal("cost admission bypassed", c.sends, out.Stop)
+						t.Fatal("cost check bypassed", c.sends, out.Stop)
 					}
 				}
 				t.Logf("kind=%s bytes=%d affordable=%v Send=%d stop=%s", kind, len(data), affordable, c.sends, out.Stop.Kind)
 				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
 					proof := fmt.Sprintf("kind=%s bytes=%d cap=%sUSD affordable=%v Send=%d stop=%s BeforeSend=%v\n", kind, len(data), cap, affordable, c.sends, out.Stop.Kind, observed)
 					if out.Stop.Limit != nil {
-						proof += fmt.Sprintf("limit=%s cost_at_risk=%sUSD\n", out.Stop.Limit.Kind, out.Stop.Limit.CostAtRisk)
+						proof += fmt.Sprintf("limit=%s worst_case_cost=%sUSD\n", out.Stop.Limit.Kind, out.Stop.Limit.WorstCaseCost)
 					}
 					if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("cost-%s-affordable-%v.txt", kind, affordable)), []byte(proof), 0600); err != nil {
 						t.Fatal(err)

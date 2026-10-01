@@ -16,7 +16,7 @@ func startWithParent(
 	t *testing.T,
 	rec Recorder,
 	parent *CallRef,
-) (Outcome, error) {
+) (RunResult, error) {
 	t.Helper()
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	return (Runner{
@@ -48,7 +48,7 @@ func TestStartParentSurvivesReplayAndReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestStartParentSurvivesReplayAndReload(t *testing.T) {
 	}
 	// The view must not alias the recorded fact.
 	view.Parent.CallID = "changed"
-	again, err := Replay(saved)
+	again, err := saved.View()
 	if err != nil || again.Parent.CallID != "c1" {
 		t.Fatalf("parent link was shared: %+v %v", again.Parent, err)
 	}
@@ -73,11 +73,11 @@ func TestStartParentRejectsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := startWithParent(t, rec, &CallRef{TurnID: "p", CallID: "c2"})
-	if !errors.Is(err, ErrCommandConflict) {
+	if !errors.Is(err, ErrCommandIDReused) {
 		t.Fatalf("err=%v, want command conflict", err)
 	}
 	_, err = startWithParent(t, rec, nil)
-	if !errors.Is(err, ErrCommandConflict) {
+	if !errors.Is(err, ErrCommandIDReused) {
 		t.Fatalf("dropping the parent: err=%v, want command conflict", err)
 	}
 }

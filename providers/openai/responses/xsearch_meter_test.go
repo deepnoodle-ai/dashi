@@ -86,13 +86,13 @@ func TestXSearchItemCoveredByCounters(t *testing.T) {
 }
 
 // A custom_tool_call is a client tool call unless X search was declared.
-func TestCustomToolCallWithoutXSearchIsNotHosted(t *testing.T) {
+func TestCustomToolCallWithoutXSearchIsNotProviderTool(t *testing.T) {
 	wire := meterCodec("openai", []string{"web_search"})
-	requests := wire.hostedRequests(meterFields{}, []json.RawMessage{
+	requests := wire.providerToolRequests(meterFields{}, []json.RawMessage{
 		json.RawMessage(`{"type":"custom_tool_call","call_id":"c1","name":"grammar","input":"x"}`),
 	})
 	if len(requests) != 0 {
-		t.Fatalf("client custom tool counted as hosted: %v", requests)
+		t.Fatalf("client custom tool counted as provider tool: %v", requests)
 	}
 }
 

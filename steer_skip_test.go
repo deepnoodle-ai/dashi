@@ -135,15 +135,15 @@ func skipStart(concurrency int) Start {
 	return startAgent(agent)
 }
 
-// requireSkipped checks that call id settled as kept from starting by a
+// requireSkipped checks that call id finished as kept from starting by a
 // steer, and whether BeforeTool decided on it first.
 func requireSkipped(t *testing.T, turn Turn, id string, decided bool) {
 	t.Helper()
-	fact := settledFact(t, turn, id)
+	fact := finishedFact(t, turn, id)
 	if fact.Reason != reasonSteering || fact.Outcome == nil ||
 		fact.Outcome.State != tool.StateNotExecuted ||
 		modelText(modelToolResult(id, fact.Outcome)) != steerSkipText {
-		t.Fatalf("%s settled as %+v", id, fact)
+		t.Fatalf("%s finished as %+v", id, fact)
 	}
 	got := false
 	for _, step := range stepsOf(turn, StepToolDecision) {
@@ -156,9 +156,9 @@ func requireSkipped(t *testing.T, turn Turn, id string, decided bool) {
 
 func requireRan(t *testing.T, turn Turn, id string) {
 	t.Helper()
-	fact := settledFact(t, turn, id)
+	fact := finishedFact(t, turn, id)
 	if fact.Outcome == nil || fact.Outcome.State != tool.StateSucceeded {
-		t.Fatalf("%s settled as %+v", id, fact)
+		t.Fatalf("%s finished as %+v", id, fact)
 	}
 }
 
@@ -231,8 +231,8 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 	if len(out.Warnings) != 0 {
 		t.Fatalf("warnings: %+v", out.Warnings)
 	}
-	if out.ModelAttempts != 2 {
-		t.Fatalf("attempts = %d", out.ModelAttempts)
+	if out.ModelCalls != 2 {
+		t.Fatalf("attempts = %d", out.ModelCalls)
 	}
 	requireResultsThenSteer(
 		t,
@@ -241,14 +241,14 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 		[]string{"b", "c"},
 		"a",
 	)
-	// The record replays to the same view.
-	view, err := Replay(cloneTurn(out.Turn))
+	// The record builds the same view.
+	view, err := cloneTurn(out.Turn).View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"b", "c"} {
 		v := view.Tools[id]
-		if v.Status != ToolSettled || modelText(v.Result()) != steerSkipText {
+		if v.Status != ToolFinished || modelText(v.Result()) != steerSkipText {
 			t.Fatalf("replayed %s: %+v", id, v)
 		}
 	}
@@ -304,7 +304,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(decoded)
+	view, err := decoded.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,12 +314,12 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 			t.Fatalf("replay differs for %s", id)
 		}
 	}
-	projected, err := Project(decoded)
+	projected, err := TurnMessagesFull(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hasText(projected, "stop") < 0 {
-		t.Fatal("the steer is not projected from the decoded record")
+		t.Fatal("the steer is not inferred from the decoded record")
 	}
 }
 
@@ -366,7 +366,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 		Func: func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
 			switch plan.Call.ID {
 			case "p":
-				return Defer("needs a person"), nil
+				return NeedsApproval("needs a person"), nil
 			case "b":
 				once.Do(func() { close(release) })
 			}
@@ -410,25 +410,25 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 	}
 	requireRan(t, out.Turn, "a")
 	requireSkipped(t, out.Turn, "b", true)
-	for _, step := range stepsOf(out.Turn, StepDelivered) {
+	for _, step := range stepsOf(out.Turn, StepMessagesAdded) {
 		if step.Context.Steering {
 			t.Fatal("the steer was recorded with no model call to read it")
 		}
 	}
-	// The host answers both. The approved call runs: it came before the
+	// The host resolves both. The approved call runs: it came before the
 	// skip, and the steer reaches the next model call after its result.
 	for _, pending := range out.Pending {
-		var settle Settle
+		var finish Resolve
 		switch pending.ID {
 		case "p":
-			settle = pending.Approve()
+			finish = pending.Approve()
 		case "e":
-			settle = pending.Result(tool.Outcome{
+			finish = pending.Result(tool.Outcome{
 				State:  tool.StateSucceeded,
 				Output: new(tool.TextOutput("done e")),
 			})
 		}
-		out, err = runner.Run(t.Context(), out.Turn, settle, WithSteering(inbox))
+		out, err = runner.Run(t.Context(), out.Turn, finish, WithSteering(inbox))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -454,7 +454,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 	)
 }
 
-// crashOnSkip fails the commit of call id's steering settlement, as when a
+// crashOnSkip fails the commit of call id's steering finish step, as when a
 // worker dies right after an earlier skip was written.
 type crashOnSkip struct {
 	*MemoryRecorder
@@ -463,7 +463,7 @@ type crashOnSkip struct {
 }
 
 func (c *crashOnSkip) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepToolSettled && req.Step.Tool.Call.ID == c.id &&
+	if req.Step.Kind == StepToolFinished && req.Step.Tool.Call.ID == c.id &&
 		req.Step.Tool.Reason == reasonSteering && c.fired.CompareAndSwap(false, true) {
 		return errors.New("injected: worker crashed")
 	}
@@ -500,18 +500,18 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		skipStart(2),
 		WithSteering(inbox),
 	); err == nil {
-		t.Fatal("the lost settlement was not reported")
+		t.Fatal("the lost finish was not reported")
 	}
 	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Tools["b"].Status != ToolStarted ||
-		view.Tools["c"].Status != ToolSettled ||
+		view.Tools["c"].Status != ToolFinished ||
 		view.Tools["d"].Status != ToolRequested {
 		t.Fatalf(
 			"saved b=%s c=%s d=%s",
@@ -574,11 +574,11 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 	for _, reason := range []string{"", "tool unavailable", "not accepted: steering"} {
 		forged := cloneTurn(out.Turn)
 		for i, step := range forged.Steps {
-			if step.Kind == StepToolSettled && step.Tool.Call.ID == "b" {
+			if step.Kind == StepToolFinished && step.Tool.Call.ID == "b" {
 				forged.Steps[i].Tool.Reason = reason
 			}
 		}
-		if _, err := Replay(forged); err == nil ||
+		if _, err := forged.View(); err == nil ||
 			!strings.Contains(err.Error(), "only a steer") {
 			t.Fatalf("reason %q: replay err = %v", reason, err)
 		}
@@ -586,7 +586,7 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 }
 
 // A started call may have taken effect, so neither the record nor a steer
-// settles it as not run; a resumed start re-runs a call safe to repeat.
+// finishes it as not run; a resumed start re-runs a call safe to repeat.
 func TestSteerSkipsOnlyUnstartedCalls(t *testing.T) {
 	r := &runtime{}
 	for status, want := range map[ToolStatus]bool{
@@ -596,14 +596,14 @@ func TestSteerSkipsOnlyUnstartedCalls(t *testing.T) {
 		ToolWaiting:         false,
 		ToolApprovalPending: false,
 		ToolDenied:          false,
-		ToolUncertain:       false,
+		ToolResultUnknown:   false,
 	} {
 		s := &replayState{
-			callOrder:    []string{"a", "b"},
-			callAttempts: map[string]string{"a": "m1", "b": "m1"},
+			callOrder:       []string{"a", "b"},
+			modelCallOfTool: map[string]string{"a": "m1", "b": "m1"},
 		}
 		s.Tools = map[string]ToolView{
-			"a": {Status: ToolSettled, steered: true},
+			"a": {Status: ToolFinished, steered: true},
 			"b": {Status: status},
 		}
 		if got := r.steerSkips(s, "b"); got != want {
@@ -624,8 +624,8 @@ func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
 	inbox := newWatchedInbox()
 	agent := testAgent()
 	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
-	agent.Limits.ModelAttempts = 1
-	agent.Limits.NoReservedFinalAnswer = true
+	agent.Limits.ModelCalls = 1
+	agent.Limits.NoReservedFinalReply = true
 	submit := func(string) string { return SubmitOutputTool }
 	client := newUrgentClient(urgentCall{
 		during: func(ctx context.Context) {
@@ -638,7 +638,7 @@ func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || out.Output == nil {
 		t.Fatalf("stop=%+v output=%s", out.Stop, out.Output)
 	}
-	if fact := settledFact(t, out.Turn, "s1"); fact.Reason == reasonSteering {
+	if fact := finishedFact(t, out.Turn, "s1"); fact.Reason == reasonSteering {
 		t.Fatalf("submission skipped: %+v", fact)
 	}
 	if !hasWarning(out, WarningSteering) {
@@ -652,8 +652,8 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	inbox := newWatchedInbox()
 	bench := newSkipBench()
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 1
-	agent.Limits.NoReservedFinalAnswer = true
+	agent.Limits.ModelCalls = 1
+	agent.Limits.NoReservedFinalReply = true
 	client := newUrgentClient(urgentCall{
 		during: func(ctx context.Context) {
 			inbox.sendUrgent(t, "note")
@@ -679,14 +679,14 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	}
 }
 
-// On the last normal attempt, only the reserved final-answer call remains.
+// On the last normal model call, only the reserved final-reply call remains.
 // It offers no tools, so the batch runs, that call receives the steer, and
 // no warning claims the steer stays with its source.
-func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
+func TestUrgentSteerOnLastModelCallReachesFinalReplyCall(t *testing.T) {
 	inbox := newWatchedInbox()
 	bench := newSkipBench()
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	client := newUrgentClient(
 		urgentCall{
 			during: func(ctx context.Context) {
@@ -700,7 +700,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{bench.tool()}
 	})
-	// A reserved final answer ends the turn as limited by ModelAttempts.
+	// A reserved final reply ends the turn as limited by ModelCalls.
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
@@ -723,7 +723,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 	}
 	delivered := false
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered && step.Context != nil &&
+		if step.Kind == StepMessagesAdded && step.Context != nil &&
 			step.Context.Steering {
 			delivered = true
 		}
@@ -766,10 +766,10 @@ func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
 	requireRan(t, out.Turn, "a")
 	requireSkipped(t, out.Turn, "b", true)
 	requireSkipped(t, out.Turn, "c", false)
-	if fact := settledFact(t, out.Turn, "x"); fact.Reason != "unknown tool" {
-		t.Fatalf("x settled as %+v", fact)
+	if fact := finishedFact(t, out.Turn, "x"); fact.Reason != "unknown tool" {
+		t.Fatalf("x finished as %+v", fact)
 	}
-	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -807,28 +807,28 @@ func TestUrgentSteerSkipsExternalCallBeforeHandOff(t *testing.T) {
 	requireResultsThenSteer(t, client.inputs()[1], "stop", []string{"e"})
 }
 
-// steerOnModelSettled sends an urgent steer as the first model result is
+// steerOnModelFinished sends an urgent steer as the first model result is
 // recorded: the call no longer runs, so the steer cannot cut it and waits
 // for the batch.
-type steerOnModelSettled struct {
+type steerOnModelFinished struct {
 	*MemoryRecorder
 	t     *testing.T
 	inbox *watchedInbox
 	fired atomic.Bool
 }
 
-func (c *steerOnModelSettled) Commit(ctx context.Context, req CommitRequest) error {
+func (c *steerOnModelFinished) Commit(ctx context.Context, req CommitRequest) error {
 	if err := c.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == StepModelSettled && c.fired.CompareAndSwap(false, true) {
+	if req.Step.Kind == StepModelCallFinished && c.fired.CompareAndSwap(false, true) {
 		c.inbox.sendUrgent(c.t, "also mention the date")
 	}
 	return nil
 }
 
 // With room for another call, the finish point turns the submission down
-// for the steer, as it does a text answer; the skip never touches it.
+// for the steer, as it does a text reply; the skip never touches it.
 func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 	inbox := newWatchedInbox()
 	agent := testAgent()
@@ -838,7 +838,7 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 		urgentCall{result: batchResult(submit, "s1")},
 		urgentCall{result: batchResult(submit, "s2")},
 	)
-	rec := &steerOnModelSettled{
+	rec := &steerOnModelFinished{
 		MemoryRecorder: NewMemoryRecorder(),
 		t:              t,
 		inbox:          inbox,
@@ -849,14 +849,14 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || out.Output == nil {
 		t.Fatalf("stop=%+v output=%s", out.Stop, out.Output)
 	}
-	fact := settledFact(t, out.Turn, "s1")
+	fact := finishedFact(t, out.Turn, "s1")
 	if fact.Reason != "not accepted: "+sourceSteering {
-		t.Fatalf("s1 settled as %+v", fact)
+		t.Fatalf("s1 finished as %+v", fact)
 	}
 }
 
 // staleInbox is an Inbox with its own Ready signal. Once armed, its next
-// Steers call reads the queue, then holds its answer until its context
+// Steers call reads the queue, then holds its return until its context
 // ends: a slow listener fetch that began before a steer was queued.
 type staleInbox struct {
 	*Inbox
@@ -1040,10 +1040,10 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
 	}
-	// Forge: the allowed submission settles as skipped by a steer instead
+	// Forge: the allowed submission finishes as skipped by a steer instead
 	// of starting.
 	forged := cloneTurn(out.Turn)
 	var steps []Step
@@ -1052,7 +1052,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 			if step.Kind == StepToolStarted {
 				continue
 			}
-			if step.Kind == StepToolSettled {
+			if step.Kind == StepToolFinished {
 				skipped := tool.Outcome{
 					State:  tool.StateNotExecuted,
 					Output: new(tool.TextOutput(steerSkipText)),
@@ -1066,7 +1066,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 		steps = append(steps, step)
 	}
 	forged.Steps = steps
-	if _, err := Replay(forged); err == nil ||
+	if _, err := forged.View(); err == nil ||
 		!strings.Contains(err.Error(), "never skips the reserved output tool") {
 		t.Fatalf("replay err = %v", err)
 	}
@@ -1123,7 +1123,7 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 		return out
 	}
 	for _, name := range []string{"write", "ext"} {
-		run := func(t *testing.T, duringFetch bool) Outcome {
+		run := func(t *testing.T, duringFetch bool) RunResult {
 			t.Helper()
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -1168,7 +1168,7 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 			if writes.Load() != 0 {
 				t.Fatal("write ran")
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}

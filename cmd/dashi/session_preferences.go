@@ -1,7 +1,7 @@
 package main
 
 // selectionSourceTier retains the previous pair and source when interactive
-// preferences override it. Values remain next-turn intent, never recorded facts.
+// preferences override it. Values remain next-turn choices, never recorded facts.
 func selectionSourceTier(selection resolvedSelection) selectionTier {
 	source := selection.Source
 	if source == "" {

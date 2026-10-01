@@ -16,7 +16,7 @@ func TestAttachmentRejectedCorrectionNeverRetriesRemovedEvidence(t *testing.T) {
 			fixtureSelectedText(t, cfg.Dir, "wrong.txt", "removed evidence")
 			fixtureSelectedText(t, cfg.Dir, "right.txt", "correct evidence")
 			cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-				return &attachmentAdmissionFault{Recorder: r, mode: "rejected"}
+				return &attachmentAcceptFault{Recorder: r, mode: "rejected"}
 			}
 			var output bytes.Buffer
 			u := newLineUI(&output)
@@ -37,7 +37,7 @@ func TestAttachmentRejectedCorrectionNeverRetriesRemovedEvidence(t *testing.T) {
 			frozen := u.attachments.frozenBy
 			u.attachmentMu.Unlock()
 			if frozen != "" || a.eng.HasPending() || cfg.Client.(*fakeClient).sends != 0 {
-				t.Fatal("rejected request retained admission ownership or dispatched")
+				t.Fatal("rejected request retained ownership or dispatched")
 			}
 			if _, err := a.eng.Resume(t.Context()); err == nil {
 				t.Fatal("rejected request silently resumed")
@@ -72,9 +72,9 @@ func TestAttachmentRejectedAfterInterruptedSummaryKeepsPendingIdentity(t *testin
 	started := make(chan struct{})
 	cfg := testConfig(t, fullWindow, blockUntilDone(started), say("<summary>Retained project facts.</summary>"), say("Retried original evidence."))
 	compactWindow(cfg.Client.(*fakeClient))
-	var rec *attachmentAdmissionFault
+	var rec *attachmentAcceptFault
 	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-		rec = &attachmentAdmissionFault{Recorder: r, mode: "rejected", failed: true}
+		rec = &attachmentAcceptFault{Recorder: r, mode: "rejected", failed: true}
 		return rec
 	}
 	u := newLineUI(&bytes.Buffer{})

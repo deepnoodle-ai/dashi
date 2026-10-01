@@ -24,7 +24,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-type activeHostedDiagnosticClient struct {
+type activeProviderToolDiagnosticClient struct {
 	llm.Client
 	wantError, summaryHadEvidence bool
 	ordinary, summaries           int
@@ -35,7 +35,7 @@ type activeHostedDiagnosticClient struct {
 	status                        string
 }
 
-func (c *activeHostedDiagnosticClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+func (c *activeProviderToolDiagnosticClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	c.sent = append(c.sent, call.Request)
 	in := call.Request.Input()
 	var result llm.Result
@@ -50,12 +50,12 @@ func (c *activeHostedDiagnosticClient) Send(ctx context.Context, call llm.Call) 
 			if !c.empty {
 				evidence += " " + activeDiagnostic
 			}
-			result = dashitest.Reply("<summary>Hosted evidence retained. " + evidence + "</summary>")
+			result = dashitest.Reply("<summary>Provider tool evidence retained. " + evidence + "</summary>")
 		} else {
-			result = dashitest.Reply("<summary>Required hosted evidence was omitted.</summary>")
+			result = dashitest.Reply("<summary>Required provider tool evidence was omitted.</summary>")
 		}
 	} else if c.ordinary == 0 {
-		// Native decoding sees the original hosted item. The HTTP
+		// Native decoding sees the original provider tool item. The HTTP
 		// transport is a local fixture and cannot make a network request.
 		c.ordinary++
 		var err error
@@ -70,14 +70,14 @@ func (c *activeHostedDiagnosticClient) Send(ctx context.Context, call llm.Call) 
 		if c.status != "" {
 			body, _ := json.Marshal(in.Messages)
 			if (c.empty || activeHasDiagnostic(in.Messages)) && strings.Contains(string(body), c.status) {
-				result = dashitest.Reply("Checked hosted result. " + c.status)
+				result = dashitest.Reply("Checked provider tool result. " + c.status)
 			} else {
-				result = dashitest.Reply("Missing hosted result status.")
+				result = dashitest.Reply("Missing provider tool result status.")
 			}
 		} else if activeHasDiagnostic(in.Messages) {
 			result = dashitest.Reply("Fixed and verified. " + activeDiagnostic)
 		} else {
-			result = dashitest.Reply("Missing hosted diagnostic.")
+			result = dashitest.Reply("Missing provider tool diagnostic.")
 		}
 	}
 	result.Requested = llm.ModelRef{Provider: c.Provider(), Model: in.Model}
@@ -85,7 +85,7 @@ func (c *activeHostedDiagnosticClient) Send(ctx context.Context, call llm.Call) 
 	return result, nil
 }
 
-func TestActiveCompactionNativeSeparateHostedStatus(t *testing.T) {
+func TestActiveCompactionNativeSeparateProviderToolStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name, status   string
 		isError, empty bool
@@ -102,17 +102,17 @@ func TestActiveCompactionNativeSeparateHostedStatus(t *testing.T) {
 				output = fmt.Sprintf(`[{"type":"text","text":%q},{"type":"resource","uri":"https://example.test/evidence"}]`, activeDiagnostic+strings.Repeat(" diagnostic detail", 350))
 			}
 			transport := &wire{replies: []string{fmt.Sprintf(`{
-				"id":"msg_hosted","type":"message","role":"assistant","model":"claude-sonnet-4-5",
+				"id":"msg_provider_tool","type":"message","role":"assistant","model":"claude-sonnet-4-5",
 				"stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":2},"content":[
-					{"type":"mcp_tool_use","id":"hosted-1","name":"check","server_name":"fixture","input":{}},
-					{"type":"mcp_tool_result","tool_use_id":"hosted-1","is_error":%t,"content":%s},
+					{"type":"mcp_tool_use","id":"provider-tool-1","name":"check","server_name":"fixture","input":{}},
+					{"type":"mcp_tool_result","tool_use_id":"provider-tool-1","is_error":%t,"content":%s},
 					{"type":"tool_use","id":"read-1","name":"read","input":{}}
 				]}`, tc.isError, output)}}
 			native, err := messages.New(messages.Config{APIKey: "test", Client: &http.Client{Transport: transport}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := &activeHostedDiagnosticClient{Client: native, wantError: tc.isError, empty: tc.empty, status: tc.status, firstResultIndex: 1}
+			c := &activeProviderToolDiagnosticClient{Client: native, wantError: tc.isError, empty: tc.empty, status: tc.status, firstResultIndex: 1}
 			effects := 0
 			read := tool.MustFunc("read", "Read workspace evidence", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
 				effects++
@@ -122,20 +122,20 @@ func TestActiveCompactionNativeSeparateHostedStatus(t *testing.T) {
 				Agent: dashi.Agent{Model: "claude-sonnet-4-5", Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, Fraction: .5, MaxTokens: 256}},
 				Input: []llm.Message{llm.UserMessage(llm.Text("Check the remote result and report its status."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Answer != "Checked hosted result. "+tc.status {
-				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Reply != "Checked provider tool result. "+tc.status {
+				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
-			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 || len(transport.requests(t)) != 1 {
-				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelAttempts)
+			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 || len(transport.requests(t)) != 1 {
+				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d calls=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
 			}
 			if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 				t.Fatalf("accounting=%+v", out.Spend)
 			}
-			if c.first.HostedResult == nil || c.first.HostedResult.IsError != tc.isError || c.first.Replay == nil || (len(c.first.HostedResult.Output) == 0) != tc.empty {
+			if c.first.ProviderToolResult == nil || c.first.ProviderToolResult.IsError != tc.isError || c.first.Replay == nil || (len(c.first.ProviderToolResult.Output) == 0) != tc.empty {
 				t.Fatalf("native separate item=%+v", c.first)
 			}
 			original, _ := json.Marshal(c.first)
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,27 +148,27 @@ func TestActiveCompactionNativeSeparateHostedStatus(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			viewJSON, _ := json.Marshal(view)
 			if err != nil || !strings.Contains(string(viewJSON), tc.status) || activeHasDiagnostic(view) == tc.empty {
-				t.Fatalf("reloaded context lost hosted status or diagnostic: %v", err)
+				t.Fatalf("reloaded context lost provider tool status or diagnostic: %v", err)
 			}
 		})
 	}
 }
 
-func TestActiveCompactionNativeCombinedHostedDiagnostic(t *testing.T) {
+func TestActiveCompactionNativeCombinedProviderToolDiagnostic(t *testing.T) {
 	for _, isError := range []bool{false, true} {
 		status := "completed"
 		if isError {
 			status = "failed"
 		}
 		t.Run(status, func(t *testing.T) {
-			output := activeDiagnostic + strings.Repeat(" hosted evidence", 600)
+			output := activeDiagnostic + strings.Repeat(" provider tool evidence", 600)
 			transport := &wire{replies: []string{fmt.Sprintf(`{
-				"id":"resp_hosted", "object":"response", "model":"gpt-6-luna", "status":"completed",
+				"id":"resp_provider_tool", "object":"response", "model":"gpt-6-luna", "status":"completed",
 				"usage":{"input_tokens":100,"output_tokens":2}, "output":[
-					{"type":"mcp_call","id":"hosted-1","name":"diagnose","server_label":"fixture",
+					{"type":"mcp_call","id":"provider-tool-1","name":"diagnose","server_label":"fixture",
 					 "arguments":"{}","status":%q,"output":%q,
 					 "results":[{"url":"https://example.test/evidence","title":"Diagnostic source"}]},
 					{"type":"function_call","id":"fc-1","call_id":"read-1","name":"read","arguments":"{}"}
@@ -177,7 +177,7 @@ func TestActiveCompactionNativeCombinedHostedDiagnostic(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := &activeHostedDiagnosticClient{Client: native, wantError: isError}
+			c := &activeProviderToolDiagnosticClient{Client: native, wantError: isError}
 			effects := 0
 			read := tool.MustFunc("read", "Read workspace evidence", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
 				effects++
@@ -185,38 +185,38 @@ func TestActiveCompactionNativeCombinedHostedDiagnostic(t *testing.T) {
 			})
 			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}}).Run(t.Context(), dashi.Turn{}, dashi.Start{
 				Agent: dashi.Agent{Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
-				Input: []llm.Message{llm.UserMessage(llm.Text("Investigate and fix the failure from hosted diagnostics."))},
+				Input: []llm.Message{llm.UserMessage(llm.Text("Investigate and fix the failure from provider tool diagnostics."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Answer != "Fixed and verified. "+activeDiagnostic {
-				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Reply != "Fixed and verified. "+activeDiagnostic {
+				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
-			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 || len(transport.requests(t)) != 1 {
-				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelAttempts)
+			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 || len(transport.requests(t)) != 1 {
+				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d calls=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
 			}
 			if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 				t.Fatalf("accounting=%+v", out.Spend)
 			}
 			activeDocumentWarnings(t, out, 0)
-			if c.first.HostedUse == nil || c.first.HostedUse.IsError != isError || c.first.Replay == nil {
+			if c.first.ProviderToolUse == nil || c.first.ProviderToolUse.IsError != isError || c.first.Replay == nil {
 				t.Fatalf("native combined item=%+v", c.first)
 			}
 			original, _ := json.Marshal(c.first)
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
 			rawJSON, _ := json.Marshal(raw)
 			if !bytes.Contains(rawJSON, original) {
-				t.Fatal("summary rendering changed the recorded hosted item or native replay")
+				t.Fatal("summary rendering changed the recorded provider tool item or native replay")
 			}
 			encoded, _ := json.Marshal(out.Turn)
 			var loaded dashi.Turn
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			if err != nil || !activeHasDiagnostic(view) {
-				t.Fatalf("reloaded context lost hosted diagnostic: %v", err)
+				t.Fatalf("reloaded context lost provider tool diagnostic: %v", err)
 			}
 		})
 	}
@@ -245,12 +245,12 @@ func (r *stopAfterActiveApplication) Commit(ctx context.Context, req dashi.Commi
 
 func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 	for _, loseAck := range []bool{false, true} {
-		for _, attempts := range []int{3, 5} {
+		for _, modelCalls := range []int{3, 5} {
 			name := "interrupt"
 			if loseAck {
 				name = "lost acknowledgement"
 			}
-			if attempts == 3 {
+			if modelCalls == 3 {
 				name += "/one attempt left"
 			} else {
 				name += "/spare attempts"
@@ -263,7 +263,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				})
 				replies := []llm.Result{
 					dashitest.CallTool("read-1", "read", "{}"),
-					dashitest.Reply("<summary>Original objective retained. Evidence read finished. " + strings.Repeat("settled evidence ", 300) + "</summary>"),
+					dashitest.Reply("<summary>Original objective retained. Evidence read finished. " + strings.Repeat("finished evidence ", 300) + "</summary>"),
 					dashitest.Reply("Fixed and verified."),
 				}
 				for i := range replies {
@@ -277,7 +277,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				first, err := (dashi.Runner{Client: client, Tools: tool.List{read}, Recorder: fault}).Run(ctx, dashi.Turn{ID: "application-recovery"}, dashi.Start{
 					Agent: dashi.Agent{
 						Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256},
-						Limits: dashi.Limits{ModelAttempts: attempts, NoReservedFinalAnswer: true},
+						Limits: dashi.Limits{ModelCalls: modelCalls, NoReservedFinalReply: true},
 						// The applied replacement remains above this soft threshold.
 						ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, Fraction: .3, MaxTokens: 256},
 					},
@@ -305,12 +305,12 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				if err := json.Unmarshal(data, &restored); err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(restored)
-				if err != nil || view.ModelAttempts != 2 || len(view.ContextCompactions) != 1 {
-					t.Fatalf("reload: attempts=%d summaries=%d err=%v", view.ModelAttempts, len(view.ContextCompactions), err)
+				view, err := restored.View()
+				if err != nil || view.ModelCalls != 2 || len(view.ContextCompactions) != 1 {
+					t.Fatalf("reload: calls=%d summaries=%d err=%v", view.ModelCalls, len(view.ContextCompactions), err)
 				}
 				input := client.Inputs()[0]
-				input.Messages, err = dashi.ProjectContext(restored)
+				input.Messages, err = dashi.TurnMessages(restored)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -324,23 +324,23 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 					t.Fatalf("replacement must exceed soft threshold and fit hard limit: estimate=%d allowance=%d", estimate, allowance)
 				}
 				out, err := (dashi.Runner{Client: client, Tools: tool.List{read}, Recorder: recorder}).Run(t.Context(), restored, dashi.Continue{CommandID: "resume"})
-				if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Answer != "Fixed and verified." {
-					t.Fatalf("resume: stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+				if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Reply != "Fixed and verified." {
+					t.Fatalf("resume: stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 				}
-				if effects != 1 || len(client.Inputs()) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 {
-					t.Fatalf("resume repeated work: effects=%d sends=%d summaries=%d attempts=%d", effects, len(client.Inputs()), len(out.ContextCompactions), out.ModelAttempts)
+				if effects != 1 || len(client.Inputs()) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 {
+					t.Fatalf("resume repeated work: effects=%d sends=%d summaries=%d calls=%d", effects, len(client.Inputs()), len(out.ContextCompactions), out.ModelCalls)
 				}
 				if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 					t.Fatalf("resume accounting: %+v", out.Spend)
 				}
-				summaryIntents := 0
+				summaryCallStarts := 0
 				for _, step := range out.Turn.Steps {
-					if step.Kind == dashi.StepModelIntent && step.Model.Purpose == dashi.ModelPurposeCompaction {
-						summaryIntents++
+					if step.Kind == dashi.StepModelCallStarted && step.Model.Purpose == dashi.ModelPurposeCompaction {
+						summaryCallStarts++
 					}
 				}
-				if summaryIntents != 1 {
-					t.Fatalf("summary dispatches=%d", summaryIntents)
+				if summaryCallStarts != 1 {
+					t.Fatalf("summary dispatches=%d", summaryCallStarts)
 				}
 			})
 		}
@@ -404,7 +404,7 @@ type activeDiagnosticResolver struct {
 	calls int
 }
 
-func (r *activeDiagnosticResolver) Resolve(_ context.Context, _ string, ref content.Ref) ([]byte, error) {
+func (r *activeDiagnosticResolver) Load(_ context.Context, _ string, ref content.Ref) ([]byte, error) {
 	r.calls++
 	if ref != r.ref {
 		return nil, fmt.Errorf("unexpected reference: %+v", ref)
@@ -440,12 +440,12 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 				}
 				return tool.Outcome{State: tool.StateSucceeded, Output: &tool.Output{Content: blocks}}, nil
 			})
-			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}, ContentResolver: resolver}).Run(t.Context(), dashi.Turn{}, dashi.Start{
+			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}, ContentLoader: resolver}).Run(t.Context(), dashi.Turn{}, dashi.Start{
 				Agent: dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
 				Input: []llm.Message{llm.UserMessage(llm.Text("Read the diagnostic and fix the failure."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 1 || len(out.ContextCompactions) != 1 || c.summaries != 1 || !c.summaryHadDiagnostic || out.Answer != "Fixed and verified. "+activeDiagnostic {
-				t.Fatalf("stop=%+v effects=%d compactions=%d summaries=%d summary diagnostic=%v answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), c.summaries, c.summaryHadDiagnostic, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 1 || len(out.ContextCompactions) != 1 || c.summaries != 1 || !c.summaryHadDiagnostic || out.Reply != "Fixed and verified. "+activeDiagnostic {
+				t.Fatalf("stop=%+v effects=%d compactions=%d summaries=%d summary diagnostic=%v answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), c.summaries, c.summaryHadDiagnostic, out.Reply, err)
 			}
 			activeDocumentWarnings(t, out, 0)
 			wantReads := 0
@@ -459,7 +459,7 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 			if !bytes.Equal(original, after) {
 				t.Fatal("summary rendering changed the original document")
 			}
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +472,7 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			if err != nil || !activeHasDiagnostic(view) {
 				t.Fatalf("reloaded context lost diagnostic: %v", err)
 			}
@@ -515,7 +515,7 @@ func activeDocumentProviders(t *testing.T) []struct {
 	}{{"claude-sonnet-4-5", a}, {"gpt-6-luna", o}}
 }
 
-func activeDocumentWarnings(t *testing.T, out dashi.Outcome, want int) {
+func activeDocumentWarnings(t *testing.T, out dashi.RunResult, want int) {
 	t.Helper()
 	n := 0
 	for _, warning := range out.Warnings {
@@ -555,11 +555,11 @@ func TestActiveCompactionNativeTextDocumentLongRequest(t *testing.T) {
 			input := []llm.Message{llm.UserMessage(llm.Text(expanded.Text), llm.Block(expanded.Blocks[0]))}
 			original, _ := json.Marshal(input)
 			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}}).Run(t.Context(), dashi.Turn{}, dashi.Start{
-				Agent: dashi.Agent{Model: provider.model, Limits: dashi.Limits{ModelAttempts: 12}, Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
+				Agent: dashi.Agent{Model: provider.model, Limits: dashi.Limits{ModelCalls: 12}, Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
 				Input: input,
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 4 || len(out.ContextCompactions) != 2 || len(c.sent) != 7 || out.Answer != "Fixed and verified." {
-				t.Fatalf("stop=%+v effects=%d compactions=%d sends=%d answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), len(c.sent), out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 4 || len(out.ContextCompactions) != 2 || len(c.sent) != 7 || out.Reply != "Fixed and verified." {
+				t.Fatalf("stop=%+v effects=%d compactions=%d sends=%d answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), len(c.sent), out.Reply, err)
 			}
 			activeDocumentWarnings(t, out, 0)
 			for i, req := range c.sent {
@@ -581,7 +581,7 @@ func TestActiveCompactionNativeTextDocumentLongRequest(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.Replay(loaded)
+			view, err := loaded.View()
 			if err != nil || len(view.ContextCompactions) != 2 {
 				t.Fatalf("reload compactions=%d err=%v", len(view.ContextCompactions), err)
 			}

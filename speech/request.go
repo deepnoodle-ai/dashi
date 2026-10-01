@@ -6,7 +6,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 )
 
-// TranscriptionSummary is safe intent metadata for a prepared batch call. It
+// TranscriptionSummary is safe metadata about a prepared batch call. It
 // excludes audio bytes, prompt text, credentials, and the multipart body.
 type TranscriptionSummary struct {
 	Origin        content.Origin `json:"origin"`
@@ -16,7 +16,7 @@ type TranscriptionSummary struct {
 	ModelInfo     ModelInfo      `json:"model_info"`
 }
 
-// SynthesisSummary is safe intent metadata for a prepared batch call. It
+// SynthesisSummary is safe metadata about a prepared batch call. It
 // excludes spoken text, instructions, credentials, and the request body.
 type SynthesisSummary struct {
 	Origin         content.Origin `json:"origin"`

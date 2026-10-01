@@ -7,7 +7,7 @@
 > `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
 > are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
 > hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
-> carry a policy revision; and a tool with no hook opinion runs.
+> carry a policy version; and a tool with no hook opinion runs.
 
 Dashi becomes the place where LLM spend is measured and limited. A **turn** is
 one run of an agent answering one input; it may make many model calls and tool
@@ -16,8 +16,8 @@ gives it a **budget**: optional caps on output tokens, total tokens, and
 model-call cost. Before each model call Dashi works out the **worst case**,
 the most that call could cost under its supplied prices and output allowance.
 If spent model-call cost plus that bound would pass the cap, the turn stops as
-`limited` (a resumable stop) and keeps the answer so far. Local tool charges
-are reported separately; applications own their admission, ledgers, credit
+`limited` (a resumable stop) and keeps the reply so far. Local tool costs
+are reported separately; applications own their spending checks, ledgers, credit
 reservations, price overrides, and decisions about who may spend more.
 
 ## Users and jobs
@@ -27,9 +27,9 @@ a $0.50 cap and `max_output_tokens: 4000`. The gateway passes both to `Start`,
 the command that begins a turn. The agent makes several model and tool calls.
 At $0.45 spent, the next call would most likely cost $0.03 but could cost $0.12,
 so the turn stops `limited` before sending it. The stop gives the cap, the
-amount used, and the worst case. The gateway can promise a 50-cent model-call
-admission limit. To promise a 50-cent all-in bill, it must also bound and admit
-any charged local tools.
+amount used, and the worst case. The gateway can promise a 50-cent cap on
+model calls. To promise a 50-cent all-in bill, it must also bound and check
+any paid local tools before they run.
 
 **Caps chosen per caller, not per agent.** A support **agent** (its
 saved configuration: model, instructions, limits) carries no budget. The
@@ -64,8 +64,8 @@ Server behavior lives in nvoken-cloud (`nc/`); nvoken has SDK and CLI mirrors.
   times maximum output (`nc/internal/domain/budget_cost.go:8-87`).
   `PrepareModelCall` locks the tenant's `credit_accounts` row and holds the
   amount in one transaction (`nc/internal/services/credit_authority.go:42-222`).
-- **Call facts.** An uncertain call, or a settled call without a cost, is
-  charged its full hold (`nc/.../queries/credits.sql:180-197, 227-228`).
+- **Call facts.** A call whose result is unknown, or a finished call without a
+  cost, is charged its full hold (`nc/.../queries/credits.sql:180-197, 227-228`).
 - **Checks between steps.** `checkpointBudgetExceeded` compares iterations,
   output tokens, and summed cost after each step
   (`nc/internal/adapters/divegen/generator.go:1600-1628`). The turn's cost limit
@@ -81,8 +81,8 @@ Server behavior lives in nvoken-cloud (`nc/`); nvoken has SDK and CLI mirrors.
 
 Dashi keeps this shape and fixes two things: it compares the worst case with
 the turn's own cost cap, and it charges a best guess, not a full hold, for a
-call whose usage never arrived (nvoken classes every provider error as
-uncertain, `generator.go:2343-2348`).
+call whose usage never arrived (nvoken treats every provider error as
+result unknown, `generator.go:2343-2348`).
 
 **mobius-cloud** checked metered cost before each call, accepting a one-call
 overshoot and counting calls without usage as zero (removed in `41cf9a886`).
@@ -95,10 +95,10 @@ spending limits.
 `Start` takes an optional `Budget` with `MaxOutputTokens` (turn total),
 `MaxTotalTokens` (all input and output across calls), and `MaxCost` (model-call
 charges only). The turn-started step records it. Existing agent limits
-(`ModelAttempts`, `Deadline`, `Interruptions`) stay where they are; whether
+(`ModelCalls`, `Deadline`, `Resumes`) stay where they are; whether
 they should also move to the caller is not decided.
 
-**The check before each call.** `llm.MaxCostAtRisk(Request, Pricing)` values a
+**The check before each call.** `llm.WorstCaseCost(Request, Pricing)` values a
 prepared request: estimated input at the highest input-side rate, plus the
 effective `MaxTokens` at the output rate, in the price tier the input selects.
 Input size starts as a safe, size-based estimate (nvoken's byte bound); a
@@ -116,26 +116,27 @@ It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
   with `llm.DefaultMaxTokens`, so this arises only when that default is
   skipped: the model rejects an output limit, or strict policy lacks evidence
   of support.
-- **Provider-hosted requests with no count bound:** the turn stops `limited`
-  before dispatch. A hosted operation can add billable requests to the model
+- **Provider tool requests with no count bound:** the turn stops `limited`
+  before dispatch. A provider tool can add billable requests to the model
   call; without a count bound its worst case is unknown.
 - **Worst case does not fit:** the turn stops `limited` before the call. The
   reason says what to change: "next call could cost up to $1.02 (64,000 output
   tokens); $0.50 of the $0.50 cap remains; an output-token allowance of about
-  29,000 would fit." `LimitDetail.FitTokens` carries that number. When input
+  29,000 would fit." `LimitDetail.SuggestedMaxOutputTokens` carries that number. When input
   alone consumes the remainder, no positive output allowance fits; raise the
   cap or reduce input/history instead.
 - **It fits:** `BeforeSend` receives the worst case and the remaining budget in
-  a `SendPlan`, and the recorded call keeps it as `ModelFact.AtRisk`.
+  a `SendPlan`, and the recorded call keeps it as `ModelFact.WorstCaseCost`.
 
-These stops depart from warn-and-adjust (decision 4) on purpose: a model-call
-admission limit must fail closed, and the reason gives the application the fix.
+These stops depart from warn-and-adjust (decision 4) on purpose: a cap
+checked before each model call must fail closed, and the reason gives the
+application the fix.
 
-**The check between steps.** Where the runner checks attempts and the deadline
+**The check between steps.** Where the runner checks model calls and the deadline
 (`engine.go:456-461`), it compares recorded model-call totals with each cap.
-Local tools report their own costs after settlement. Those charges appear in
+Local tools report their own costs after they finish. Those costs appear in
 `Spend.ToolCost` but do not consume `MaxCost`; an application promising an
-all-in ceiling must bound and admit them before execution.
+all-in ceiling must bound and check them before execution.
 
 **How a stop is represented.** `StopLimited` gains a typed `Limit` detail:
 kind, cap, used, worst case. `ModelAuthorization` gains the same detail, so a
@@ -143,19 +144,19 @@ spending deny from `BeforeSend` becomes `StopLimited` with kind `host` and the
 application's code, not `StopRefused` (`engine.go:558-559`), which stays for
 refusals.
 
-**Actual and estimated spend.** After each call Dashi records its charge: the
+**Actual and estimated spend.** After each call Dashi records its cost: the
 provider-reported cost, else the price sheet applied to observed or estimated
 usage. A call without final usage (a crash or cut-off) keeps streamed counts,
 fills missing input, and counts the greater of streamed output and a
 visible-text estimate. The usage is marked estimated. The consequence,
-accepted: for such calls the cap is not a strict charge guarantee, since the
-guess can undercount. The admission check also relies on the supplied rates
+accepted: for such calls the cap is not a strict cost guarantee, since the
+guess can undercount. The pre-call check also relies on the supplied rates
 and the provider respecting its output allowance.
 `TurnView.Spend` replaces the token-only `Usage` (`state.go:115-121`): token
 totals, model and local-tool cost per currency, and counts of estimated calls
-and calls with unknown model cost. A model charge in another currency counts as
+and calls with unknown model cost. A model cost in another currency counts as
 unknown.
-`llm.Usage` gains hosted-tool request counts (such as web searches) and
+`llm.Usage` gains provider tool request counts (such as web searches) and
 `Pricing` per-request rates; `tool.Outcome` gains an optional `Cost`.
 
 **Raising a budget and resuming.** `Continue` takes an optional `Budget` that
@@ -166,20 +167,20 @@ up in an audit. `canContinue` (`state.go:603-609`) lets a limited turn continue
 once the reached cap has room. A host limit needs no raise.
 
 **What the application owns.** Price overrides, ledgers, markups, balances, and
-plan ceilings. The credit recipe: `BeforeSend` compares `AtRisk` with the
-balance, denies with a host limit when short, and returns `Admission` naming the
-account and amount. The recorder reserves that amount in the same transaction as
-the call's intent and rejects the write if it cannot. On the result step it
-calls `AttemptSpendOf(intent, settlement)`, the same per-attempt entry that
-`TurnView.Attempts` lists, with the usage and charge counted into `Spend`
-(which is their sum), a basis (measured, estimated, or not executed), and
-`Final`. A final attempt's hold becomes its charge. For the rest, such as a
-call whose usage never arrived or whose charge is partial (`Cost.Partial`:
-hosted requests without a price make `Total` a lower bound), the application
-settles the hold by its own rule, for example by keeping it. Dashi records no
-later bill. Dashi owns
+plan ceilings. The credit recipe: `BeforeSend` compares `WorstCaseCost` with
+the balance, denies with a host limit when short, and returns a `Reservation`
+naming the account and amount. The recorder reserves that amount in the same
+transaction as the call's `model_call_started` step and rejects the write if it
+cannot. On the finish step it calls `ModelCallCostOf(started, finished)`, the
+same per-call entry that `TurnView.ModelCallCosts` lists, with the usage and
+cost counted into `Spend` (which is their sum), a `UsageSource` (reported,
+estimated, or not sent), and `Exact`. An exact call's hold becomes its cost.
+For the rest, such as a call whose usage never arrived or whose cost is
+partial (`Cost.Partial`: provider tool requests without a price make `Total` a
+lower bound), the application releases or charges the hold by its own rule,
+for example by keeping it. Dashi records no later bill. Dashi owns
 that classification, so hosts do not re-derive it from model facts. The
-attempt ID is the idempotency key.
+model call ID is the idempotency key.
 
 ```go
 type Budget struct {
@@ -189,13 +190,13 @@ type Budget struct {
 }
 type BudgetRaise struct { Budget Budget; At time.Time }
 type LimitDetail struct {
-    Kind                LimitKind // model_attempts, deadline, interruptions,
+    Kind                LimitKind // model_calls, deadline, resumes,
                                   // output_tokens, total_tokens, cost, host
     Code                string    // application code for a host limit
     Limit, Used         int64     // counts, or Unix seconds for a deadline
-    CostLimit, CostUsed, CostAtRisk money.Amount // exact amounts
+    CostLimit, CostUsed, WorstCaseCost money.Amount // exact amounts
     Currency            string    // unit of the Cost fields (cap or host unit)
-    FitTokens           int       // output allowance that would fit a cost cap
+    SuggestedMaxOutputTokens           int       // output allowance that would fit a cost cap
     UnpricedModel       string
 }
 type Stop struct { Kind StopKind; Reason string; Limit *LimitDetail }
@@ -205,10 +206,10 @@ type Spend struct {
     ToolCost               map[string]money.Amount // local tools by currency
     Estimated, CostUnknown int
 }
-// Start.Budget, Continue.Budget *Budget; ModelFact.AtRisk, .Charge *llm.Cost;
-// TurnView.Budget, .Raises []BudgetRaise, .Spend, .Attempts []AttemptSpend;
-// AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend;
-// BeforeSend(ctx, SendPlan{Request, Turn, AtRisk, Remaining});
+// Start.Budget, Continue.Budget *Budget; ModelFact.WorstCaseCost, .Cost *llm.Cost;
+// TurnView.Budget, .Raises []BudgetRaise, .Spend, .ModelCallCosts []ModelCallCost;
+// ModelCallCostOf(started, finished *ModelFact) ModelCallCost;
+// BeforeSend(ctx, SendPlan{Request, Turn, WorstCaseCost, Remaining});
 // ModelAuthorization.Limit.
 ```
 
@@ -227,22 +228,22 @@ agent for life. Rejected ([decision 25](decisions.md)).
 
 ## Staged plan
 
-1. **Accounting.** Record each call's charge, add `TurnView.Spend` with
+1. **Accounting.** Record each call's cost, add `TurnView.Spend` with
    estimated and unknown counts, and add `Stop.Limit` for existing limits and
-   host denies. Test replay with missing usage, a best-guess charge, mixed
+   host denies. Test replay with missing usage, a best-guess cost, mixed
    currencies, and a spending deny.
 2. **Token caps and resume.** `Budget` on `Start` and `Continue`, recorded
    raises, `MaxOutputTokens`, `MaxTotalTokens`, the `MaxTokens` lowering, and
-   the between-step check. Test a raise after a stop and resume after an
-   attempt limit.
-3. **Cost caps.** `MaxCostAtRisk`, `SendPlan`, `ModelFact.AtRisk`, the stop
-   with `FitTokens`, unpriced and unbounded-output stops, a no-feasible-output
-   case, hosted request counts, separately reported tool cost, and a recorder
+   the between-step check. Test a raise after a stop and resume after a
+   model-call limit.
+3. **Cost caps.** `WorstCaseCost`, `SendPlan`, `ModelFact.WorstCaseCost`, the stop
+   with `SuggestedMaxOutputTokens`, unpriced and unbounded-output stops, a no-feasible-output
+   case, provider tool request counts, separately reported tool cost, and a recorder
    example that reserves credits.
 
 ## Open questions
 
-- Should `ModelAttempts`, `Deadline`, and `Interruptions` also move from the
+- Should `ModelCalls`, `Deadline`, and `Resumes` also move from the
   agent to the caller?
 - May `Continue` lower a budget, or only raise it?
 - Child turns: how their spend rolls up to a parent waits until Dashi has

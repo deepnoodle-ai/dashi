@@ -42,7 +42,7 @@ folder. Reads return complete UTF-8 text up to 64 KiB, or a failed outcome.
 The approval shows the selected skill source and canonical target. Allow once
 covers one call. Allow for this Dashi run remembers only those exact tool
 arguments, across session switches and `/new`. A changed canonical target
-requires approval again. Restarting Dashi forgets remembered answers.
+requires approval again. Restarting Dashi forgets remembered approvals.
 Skill folders do not expand workspace writes or shell permissions.
 
 ## File changes and session history

@@ -112,7 +112,7 @@ func (m *mcpRuntime) StartupSummary() string {
 }
 
 // startMCP runs after the UI can service dialogs. Until it completes, input
-// cannot admit turns, continuations, or queued prompts.
+// cannot start turns, continuations, or queued prompts.
 func (a *app) startMCP(interactive bool) {
 	c := a.ctrl
 	m := a.eng.cfg.MCP

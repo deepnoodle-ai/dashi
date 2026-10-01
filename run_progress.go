@@ -9,10 +9,10 @@ import (
 
 // ToolProgress is the latest snapshot a running tool reported with
 // tool.Report. It is a preview: never recorded, never replayed, and never
-// delivered after the call's tool_settled or tool_waiting step. Snapshots
+// delivered after the call's tool_finished or tool_waiting step. Snapshots
 // merge when the consumer is slower than the tool. While the turn runs,
 // Runner.Stream delivers each call's latest snapshot before the call
-// settles; Runner.Observer is lossy and may drop any snapshot, and a
+// finishes; Runner.Observer is lossy and may drop any snapshot, and a
 // canceled turn delivers no more.
 type ToolProgress struct {
 	// CallID identifies the call, as on its tool_started step.
@@ -35,7 +35,8 @@ type progressHub struct {
 }
 
 // progressSlot holds the latest unsent snapshot of one call. A closed slot
-// rejects new reports but keeps its last snapshot for delivery before settle.
+// rejects new reports but keeps its last snapshot for delivery before the
+// call finishes.
 type progressSlot struct {
 	hub  *progressHub
 	call tool.Call

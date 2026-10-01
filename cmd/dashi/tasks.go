@@ -109,7 +109,7 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 	return host
 }
 func taskNoticeReady(v dashi.TurnView) bool {
-	return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 }
 
 func (e *Engine) taskHost() *taskHost { e.mu.Lock(); defer e.mu.Unlock(); return e.tasks }
@@ -213,7 +213,7 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 				continue
 			}
 			problem := fmt.Sprintf("required parent %s unavailable: %v; restore its journal and reopen", parentID, err)
-			task.State, task.Answer, task.Reason = "record unavailable", "", problem
+			task.State, task.Reply, task.Reason = "record unavailable", "", problem
 			if host.recorded == nil {
 				host.recorded = map[string]taskSnapshot{}
 			}
@@ -256,7 +256,7 @@ func recordedTaskNotices(turns []dashi.Turn) map[string]bool {
 					delivered[item.ID] = true
 				}
 			}
-			if step.Kind == dashi.StepStarted {
+			if step.Kind == dashi.StepTurnStarted {
 				if list, ok := strings.CutPrefix(step.CommandID, "queue:"); ok {
 					var ids []string
 					if json.Unmarshal([]byte(list), &ids) == nil {
@@ -317,7 +317,7 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			state, err := dashi.Replay(turn)
+			state, err := turn.View()
 			if err != nil {
 				return err
 			}
@@ -350,7 +350,8 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 }
 
 // DriveTaskNotices is called only by the Controller's parent driver. A stopped
-// parent or pending admission holds notices without authorizing continuation.
+// parent or a parent Start whose recording is unconfirmed holds notices
+// without authorizing continuation.
 func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error) {
 	host := e.taskHost()
 	if host != nil {
@@ -359,7 +360,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 			host.deliveryErr = err
 			host.mu.Unlock()
 			if err != nil {
-				e.warn("Task notice delivery paused; press Enter to retry its recorded admission or reopen. No continuation was authorized: %v", err)
+				e.warn("Task notice delivery paused; press Enter to retry recording it or reopen. No continuation was authorized: %v", err)
 			}
 		}()
 	}
@@ -405,7 +406,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 				return Result{Outcome: out}, loadErr
 			}
 			for _, step := range turn.Steps {
-				if step.Kind == dashi.StepStarted {
+				if step.Kind == dashi.StepTurnStarted {
 					if saveErr := e.record(&step); saveErr != nil {
 						e.warn("Task queue header was not saved: %v", saveErr)
 					}
@@ -430,7 +431,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 }
 
 // QuietTasks drains permitted task notices. It never resumes a stopped parent,
-// resolves an uncertain child effect, or raises any recorded limit.
+// resolves a child effect with an unknown result, or raises any recorded limit.
 func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) {
 	if err := e.recoverTasks(ctx); err != nil {
 		return result, err
@@ -482,7 +483,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 		return errors.New("task recorder cannot load authoritative records")
 	}
 	for _, parent := range parents {
-		view, err := dashi.Replay(parent)
+		view, err := parent.View()
 		if err != nil {
 			return err
 		}
@@ -537,7 +538,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 					problems[id] = err.Error()
 					break
 				}
-				state, err := dashi.Replay(turn)
+				state, err := turn.View()
 				if err != nil {
 					problems[id] = err.Error()
 					break
@@ -551,18 +552,18 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 				task.State = delegate.TaskState(state.Stop.Kind)
 				task.Reason = state.Stop.Reason
 				task.Spend = task.Spend.Add(state.Spend)
-				task.ModelCalls += state.ModelAttempts
+				task.ModelCalls += state.ModelCalls
 				task.ToolCalls += len(state.Tools)
 				if state.Stop.Kind == dashi.StopCompleted {
-					task.Answer = state.Answer
+					task.Reply = state.Reply
 				}
-				last = taskSnapshot{Task: task, Turn: turn, View: state, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, Revision: state.Revision}}
+				last = taskSnapshot{Task: task, Turn: turn, View: state, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, LastSeq: state.LastSeq}}
 			}
 			if problems[id] != "" {
 				// A damaged latest record cannot borrow an earlier stop as
-				// completion. Keep the derived task visible with uncertainty.
+				// completion. Keep the derived task visible with its result unknown.
 				task.State = "record unavailable"
-				task.Answer = ""
+				task.Reply = ""
 				task.Reason = problems[id]
 				last.Task = task
 				recorded[id] = last

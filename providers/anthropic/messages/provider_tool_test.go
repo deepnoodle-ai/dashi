@@ -13,7 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-const hostedWebSearchResponse = `{
+const providerToolWebSearchResponse = `{
 	"id":"msg_1","type":"message","model":"test-model",
 	"stop_reason":"end_turn",
 	"content":[
@@ -26,7 +26,7 @@ const hostedWebSearchResponse = `{
 	]
 }`
 
-func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
+func TestProviderToolWebSearchReplayPreservesPrivateResult(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -36,19 +36,19 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 	}
 	wire := codec{origin: client.client.Origin("test-model")}
 	result, err := wire.decode(
-		[]byte(hostedWebSearchResponse),
+		[]byte(providerToolWebSearchResponse),
 		llm.ModelRef{Provider: "anthropic", Model: "test-model"},
 	)
 	if err != nil {
-		t.Fatalf("decode hosted response: %v", err)
+		t.Fatalf("decode provider tool response: %v", err)
 	}
 	if len(result.Message.Content) != 3 {
-		t.Fatal("hosted blocks or answer were lost")
+		t.Fatal("provider tool blocks or answer were lost")
 	}
-	if result.Message.Content[0].HostedUse == nil {
+	if result.Message.Content[0].ProviderToolUse == nil {
 		t.Fatal("server call became an executable client tool call")
 	}
-	resource := result.Message.Content[1].HostedResult.Output[0].Resource
+	resource := result.Message.Content[1].ProviderToolResult.Output[0].Resource
 	if resource == nil || resource.URI != "https://example.com" {
 		t.Fatal("search result reference was lost")
 	}
@@ -64,7 +64,7 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("prepare hosted history: %v", err)
+		t.Fatalf("prepare provider tool history: %v", err)
 	}
 	var body struct {
 		Messages []struct {
@@ -75,7 +75,7 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Messages) != 3 || len(body.Messages[1].Content) != 3 {
-		t.Fatal("hosted history did not retain its block order")
+		t.Fatal("provider tool history did not retain its block order")
 	}
 	var replay struct {
 		Content []struct {
@@ -90,7 +90,7 @@ func TestHostedWebSearchReplayPreservesPrivateResult(t *testing.T) {
 	}
 }
 
-func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
+func TestProviderToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -121,7 +121,7 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("prepare hosted definitions: %v", err)
+		t.Fatalf("prepare provider tool definitions: %v", err)
 	}
 	var body struct {
 		Tools []map[string]any `json:"tools"`
@@ -130,7 +130,7 @@ func TestHostedToolDefinitionsPrepareWithoutSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Tools) != 3 {
-		t.Fatal("hosted definitions were omitted")
+		t.Fatal("provider tool definitions were omitted")
 	}
 	if body.Tools[0]["type"] != WebSearchType {
 		t.Fatal("web search wire version changed")
@@ -212,7 +212,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	}
 }
 
-func TestHostedWebSearchStreamMatchesCompleteProjection(t *testing.T) {
+func TestProviderToolWebSearchStreamMatchesCompleteResult(t *testing.T) {
 	origin := content.Origin{
 		Provider: "anthropic",
 		API:      API,
@@ -248,15 +248,15 @@ data: {"type":"message_stop"}
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("decode hosted stream: %v", err)
+		t.Fatalf("decode provider tool stream: %v", err)
 	}
 	if len(result.Message.Content) != 2 ||
-		result.Message.Content[0].HostedUse == nil ||
-		result.Message.Content[1].HostedResult == nil {
-		t.Fatal("hosted stream lost the call or result")
+		result.Message.Content[0].ProviderToolUse == nil ||
+		result.Message.Content[1].ProviderToolResult == nil {
+		t.Fatal("provider tool stream lost the call or result")
 	}
-	if string(result.Message.Content[0].HostedUse.Input) != `{"query":"dashi"}` {
-		t.Fatal("streamed hosted arguments were lost")
+	if string(result.Message.Content[0].ProviderToolUse.Input) != `{"query":"dashi"}` {
+		t.Fatal("streamed provider tool arguments were lost")
 	}
 	if !strings.Contains(
 		string(result.Message.Content[1].Replay.Raw),
@@ -285,25 +285,25 @@ func TestMCPResultExposesImageAndResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode MCP result: %v", err)
 	}
-	if part.HostedResult == nil || len(part.HostedResult.Output) != 2 {
+	if part.ProviderToolResult == nil || len(part.ProviderToolResult.Output) != 2 {
 		t.Fatal("MCP image or resource was lost")
 	}
-	if part.HostedResult.Output[0].Image == nil {
+	if part.ProviderToolResult.Output[0].Image == nil {
 		t.Fatal("MCP image was not projected as image data")
 	}
-	resource := part.HostedResult.Output[1].Resource
+	resource := part.ProviderToolResult.Output[1].Resource
 	if resource == nil || resource.URI != "https://example.com/report" {
 		t.Fatal("MCP resource link was lost")
 	}
 }
 
-func TestHostedToolProviderBinding(t *testing.T) {
+func TestProviderToolProviderBinding(t *testing.T) {
 	code := NewCodeExecutionTool(CodeExecutionToolOptions{})
-	if code.Executor != nil || code.Definition.Hosted.Provider != "anthropic" {
+	if code.Executor != nil || code.Definition.ProviderTool.Provider != "anthropic" {
 		t.Fatalf("zero value = %+v", code)
 	}
 	fetch, err := NewWebFetchTool(WebFetchToolOptions{Provider: "proxy"})
-	if err != nil || fetch.Definition.Hosted.Provider != "proxy" {
+	if err != nil || fetch.Definition.ProviderTool.Provider != "proxy" {
 		t.Fatalf("fetch = %+v, err = %v", fetch, err)
 	}
 	if _, err := NewWebFetchTool(WebFetchToolOptions{MaxUses: -1}); err == nil {
@@ -317,9 +317,9 @@ func TestHostedToolProviderBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mcp.Definition.Hosted.Provider != "proxy" ||
-		string(mcp.Definition.Hosted.Options) !=
+	if mcp.Definition.ProviderTool.Provider != "proxy" ||
+		string(mcp.Definition.ProviderTool.Options) !=
 			`{"name":"docs","url":"https://example.com/mcp"}` {
-		t.Fatalf("mcp = %+v", mcp.Definition.Hosted)
+		t.Fatalf("mcp = %+v", mcp.Definition.ProviderTool)
 	}
 }

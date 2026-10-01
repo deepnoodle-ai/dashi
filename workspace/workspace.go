@@ -76,7 +76,7 @@ type Workspace struct {
 	scope *scope
 
 	mu    sync.Mutex
-	owned map[string]bool // definition fingerprint -> read-only
+	owned map[string]bool // definition hash -> read-only
 }
 
 // New returns a Workspace for dir. dir must be an existing directory.
@@ -137,7 +137,7 @@ func (w *Workspace) Tools(opts ...Option) tool.List {
 func (w *Workspace) register(t tool.Tool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.owned[fingerprint(t.Definition)] = ptrTrue(t.Definition.Annotations.ReadOnly)
+	w.owned[hash(t.Definition)] = ptrTrue(t.Definition.Annotations.ReadOnly)
 }
 
 // lookup reports whether def is exactly a tool that this Workspace built,
@@ -145,13 +145,13 @@ func (w *Workspace) register(t tool.Tool) {
 func (w *Workspace) lookup(def tool.Definition) (owned, readOnly bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	readOnly, owned = w.owned[fingerprint(def)]
+	readOnly, owned = w.owned[hash(def)]
 	return owned, readOnly
 }
 
-// fingerprint identifies a definition by all of its content. A tool from
+// hash identifies a definition by all of its content. A tool from
 // another package that copies only the name does not match.
-func fingerprint(def tool.Definition) string {
+func hash(def tool.Definition) string {
 	data, err := json.Marshal(def)
 	if err != nil {
 		return ""

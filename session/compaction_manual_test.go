@@ -24,7 +24,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			s.New = true
 			s.Compactor = keepLast{limit: 100000}
 			out, err := s.Compact(t.Context(), nil)
-			if !errors.Is(err, session.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.Outcome{}) {
+			if !errors.Is(err, session.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.RunResult{}) {
 				t.Fatalf("no work=%+v, %v", out, err)
 			}
 			sendAll(t, s, "first")
@@ -49,7 +49,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 				t.Fatal(out.SessionWarnings)
 			}
 			reopened := handle(rec, client)
-			projected, err := reopened.ProjectedHistory(t.Context())
+			projected, err := reopened.NextHistory(t.Context())
 			if err != nil || !slices.Equal(textsOf(projected), want) {
 				t.Fatalf("reopened=%q err=%v", textsOf(projected), err)
 			}
@@ -120,7 +120,7 @@ func TestSessionManualCompactionPreparationAndBusy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			cancel()
 			break
 		}
@@ -143,12 +143,12 @@ func TestSessionManualCompactionSlotRace(t *testing.T) {
 	b.New = true
 	b.Compactor = keepLast{limit: 10000}
 	sendAll(t, b, "first")
-	var winner dashi.Outcome
+	var winner dashi.RunResult
 	var winnerErr error
 	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() { winner, winnerErr = b.Compact(t.Context(), nil) }}, client)
 	a.Compactor = keepLast{limit: 10000}
 	loser, err := a.Compact(t.Context(), nil)
-	if err != nil || winnerErr != nil || loser.Turn.ID != winner.Turn.ID || loser.Answer != "summary" || len(client.Inputs()) != 2 {
+	if err != nil || winnerErr != nil || loser.Turn.ID != winner.Turn.ID || loser.Reply != "summary" || len(client.Inputs()) != 2 {
 		t.Fatalf("winner=%s/%v loser=%s/%v calls=%d", winner.Turn.ID, winnerErr, loser.Turn.ID, err, len(client.Inputs()))
 	}
 }
@@ -164,7 +164,7 @@ func TestSessionManualCompactionPreservesPendingApproval(t *testing.T) {
 	out := sendAll(t, s, "pay")
 	before := loadTurn(t, rec, out.Turn.ID)
 	var busy *session.TurnBusyError
-	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextAnswer {
+	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextResolvePending {
 		t.Fatalf("pending approval: %+v, %v", busy, err)
 	}
 	if !reflect.DeepEqual(before, loadTurn(t, rec, out.Turn.ID)) || len(client.Inputs()) != 1 {
@@ -199,7 +199,7 @@ func TestSessionManualCompactionConcurrentAndCanceled(t *testing.T) {
 	if !errors.Is(r.err, context.Canceled) || r.out.Origin != dashi.StartCompaction || r.out.Next() != dashi.NextContinue {
 		t.Fatalf("cancellation outcome=%+v err=%v", r.out, r.err)
 	}
-	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	projected, err := handle(rec, client).NextHistory(t.Context())
 	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "first answer"}) {
 		t.Fatalf("canceled history=%q err=%v", textsOf(projected), err)
 	}
@@ -214,14 +214,14 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 			s.New = true
 			sendAll(t, s, "first")
 			s.Compactor = keepLast{limit: 10000}
-			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: fault}
 			if _, err := s.Compact(t.Context(), nil); !errors.Is(err, dashitest.ErrInjected) {
 				t.Fatalf("recorder error=%v", err)
 			}
 			if len(client.Inputs()) != 1 {
-				t.Fatal("summary dispatched without acknowledged admission")
+				t.Fatal("summary dispatched without acknowledged reservation")
 			}
-			projected, err := handle(rec, client).ProjectedHistory(t.Context())
+			projected, err := handle(rec, client).NextHistory(t.Context())
 			if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
 				t.Fatalf("history=%q err=%v", textsOf(projected), err)
 			}
@@ -229,7 +229,7 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 	}
 }
 
-func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
+func TestSessionStreamManualCompactionStartFailure(t *testing.T) {
 	for _, fault := range []dashitest.Fault{dashitest.Reject, dashitest.LoseWrite, dashitest.LoseAck} {
 		t.Run(string(fault), func(t *testing.T) {
 			rec := dashi.NewMemoryRecorder()
@@ -238,11 +238,11 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 			s.New = true
 			sendAll(t, s, "first")
 			s.Compactor = keepLast{limit: 10000}
-			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: fault}
 			var gotErr error
 			for ev, err := range s.StreamCompact(t.Context(), nil) {
-				if ev.Outcome != nil || ev.Step != nil {
-					t.Fatalf("unacknowledged admission emitted record facts: %+v", ev)
+				if ev.Result != nil || ev.Step != nil {
+					t.Fatalf("unacknowledged reservation emitted record facts: %+v", ev)
 				}
 				gotErr = errors.Join(gotErr, err)
 			}
@@ -253,24 +253,24 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 	}
 }
 
-func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
+func TestSessionStreamAutomaticCompactionRejectedStart(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(used("answer", 100), dashitest.Reply("next answer"))
 	s := handle(rec, client)
 	s.New = true
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 100}
-	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: dashitest.Reject}
+	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: dashitest.Reject}
 	var outcomes []string
 	for ev, err := range s.Stream(t.Context(), dashi.Say("second")) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Outcome != nil {
+		if ev.Result != nil {
 			outcomes = append(outcomes, ev.TurnID)
-			if len(ev.Outcome.Turn.Steps) == 0 || ev.Outcome.Origin == dashi.StartCompaction ||
-				!slices.Contains(codes(ev.Outcome.SessionWarnings), session.WarningCompactionFailed) {
-				t.Fatalf("unrecorded summary outcome: %+v", ev.Outcome)
+			if len(ev.Result.Turn.Steps) == 0 || ev.Result.Origin == dashi.StartCompaction ||
+				!slices.Contains(codes(ev.Result.SessionWarnings), session.WarningCompactionFailed) {
+				t.Fatalf("unrecorded summary outcome: %+v", ev.Result)
 			}
 		}
 	}
@@ -293,7 +293,7 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	if err != nil || !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
-	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	projected, err := handle(rec, client).NextHistory(t.Context())
 	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
 		t.Fatalf("failed history=%q err=%v", textsOf(projected), err)
 	}

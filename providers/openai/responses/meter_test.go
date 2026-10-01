@@ -39,7 +39,7 @@ import (
 //   - meta-web-search.json: muse-spark-1.3, web_search. Four search items
 //     and two open_page items.
 
-func TestHostedRequestsFromCapturedResponses(t *testing.T) {
+func TestProviderToolRequestsFromCapturedResponses(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider string
@@ -105,7 +105,7 @@ func TestHostedRequestsFromCapturedResponses(t *testing.T) {
 			if result.Usage == nil {
 				t.Fatal("reported usage was dropped")
 			}
-			if !result.Usage.RequestsFinal {
+			if !result.Usage.RequestsComplete {
 				t.Fatal("a terminal response's counts are not marked final")
 			}
 			if !maps.Equal(result.Usage.Requests, tc.want) {
@@ -119,7 +119,7 @@ func TestHostedRequestsFromCapturedResponses(t *testing.T) {
 	}
 }
 
-func TestHostedRequestsFromItems(t *testing.T) {
+func TestProviderToolRequestsFromItems(t *testing.T) {
 	const usage = `"usage":{"input_tokens":1,"output_tokens":1}`
 	tests := []struct {
 		name     string
@@ -177,7 +177,7 @@ func TestHostedRequestsFromItems(t *testing.T) {
 			want: nil,
 		},
 		{
-			name:     "each hosted item type",
+			name:     "each provider tool item type",
 			provider: "openai",
 			body: `"output":[
 				{"id":"item_9","type":"file_search_call","queries":["a"]},
@@ -265,7 +265,7 @@ func TestHostedRequestsFromItems(t *testing.T) {
 	}
 }
 
-func TestHostedRequestsNeedReportedUsage(t *testing.T) {
+func TestProviderToolRequestsNeedReportedUsage(t *testing.T) {
 	wire := meterCodec("openai", []string{"web_search"})
 	raw := `{"object":"response","status":"completed","output":[
 		{"id":"item_25","type":"web_search_call","action":{"type":"search","query":"a"}}
@@ -338,7 +338,7 @@ func TestTicksToNanosRoundsHalfToEven(t *testing.T) {
 	}
 }
 
-func TestStreamedHostedRequestsMatchBlocking(t *testing.T) {
+func TestStreamedProviderToolRequestsMatchBlocking(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider string
@@ -426,7 +426,7 @@ func TestSendMetersSearchByDeclaredTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No constructor offers the legacy preview type, so build it directly.
-	preview := newHosted(
+	preview := newProviderTool(
 		"web_search",
 		"web_search_preview",
 		WebSearchToolOptions{},
@@ -460,7 +460,7 @@ func meterCodec(provider string, declared []string) codec {
 			Model:    "test-model",
 			Scope:    "test-scope",
 		},
-		hostedTypes: declared,
+		providerToolTypes: declared,
 	}
 }
 

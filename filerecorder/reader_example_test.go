@@ -16,7 +16,7 @@ func ExampleOpenReader() {
 	dir, _ := os.MkdirTemp("", "dashi-reader-")
 	defer os.RemoveAll(dir)
 	writer, _ := filerecorder.New(filerecorder.Config{Dir: filepath.Join(dir, "turns"), DisableSync: true})
-	step := dashi.Step{Version: 1, TurnID: "session-1", Seq: 1, Kind: dashi.StepDelivered}
+	step := dashi.Step{Version: 1, TurnID: "session-1", Seq: 1, Kind: dashi.StepMessagesAdded}
 	_ = writer.Commit(context.Background(), dashi.CommitRequest{Step: step})
 	reader, _ := filerecorder.OpenReader(filepath.Join(dir, "turns"))
 	defer reader.Close()

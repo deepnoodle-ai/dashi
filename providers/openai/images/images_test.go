@@ -257,7 +257,7 @@ func TestClientUnknownCapabilityIsExplicit(t *testing.T) {
 	}
 }
 
-func TestClientAllowsFutureModelWithExplicitUncertainty(t *testing.T) {
+func TestClientAllowsFutureModelWithExplicitUnknownResult(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: model.CapabilityAdjust,

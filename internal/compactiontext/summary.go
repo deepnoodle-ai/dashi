@@ -1,5 +1,5 @@
 // Package compactiontext supplies the recorded-summary interpretation shared
-// by history projection and presentation.
+// by history building and presentation.
 package compactiontext
 
 import "strings"

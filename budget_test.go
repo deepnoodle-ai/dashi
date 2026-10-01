@@ -79,7 +79,7 @@ func runBudgetTurn(
 	settings llm.Settings,
 	tools tool.Toolset,
 	hooks Hooks,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := runBudgetTurnErr(client, budget, settings, tools, hooks)
 	if err != nil {
@@ -94,7 +94,7 @@ func runBudgetTurnErr(
 	settings llm.Settings,
 	tools tool.Toolset,
 	hooks Hooks,
-) (Outcome, error) {
+) (RunResult, error) {
 	def := testAgent()
 	def.Settings = settings
 	return (Runner{
@@ -132,7 +132,7 @@ func budgetLookup(cost *tool.Cost) tool.Tool {
 
 func requireBudgetLimit(
 	t *testing.T,
-	out Outcome,
+	out RunResult,
 	kind LimitKind,
 ) *LimitDetail {
 	t.Helper()
@@ -165,7 +165,7 @@ func TestSpendCloneCopiesUsageAndCosts(t *testing.T) {
 	clone.Cost["USD"] = amount("2")
 	clone.ToolCost["EUR"] = amount("3")
 	if spend.Usage.Requests["web_search"] != 1 {
-		t.Fatal("spend clone shared hosted request counts")
+		t.Fatal("spend clone shared provider tool request counts")
 	}
 	if spend.Cost["USD"] != amount("1") {
 		t.Fatal("spend clone shared model cost totals")
@@ -238,8 +238,8 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
-	if limit.FitTokens != 0 {
-		t.Fatalf("fit tokens=%d", limit.FitTokens)
+	if limit.SuggestedMaxOutputTokens != 0 {
+		t.Fatalf("fit tokens=%d", limit.SuggestedMaxOutputTokens)
 	}
 	if client.sends != 0 {
 		t.Fatalf("unaffordable input sent %d calls", client.sends)
@@ -249,7 +249,7 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 	}
 }
 
-func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
+func TestBudgetStopsForUnboundedProviderToolRequests(t *testing.T) {
 	client := newPricedClient()
 	input := llm.Input{
 		Model:    "fixture",
@@ -257,8 +257,8 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 		Tools: []tool.Definition{
 			{
 				Name: "web_search",
-				Kind: tool.KindProviderHosted,
-				Hosted: &tool.HostedSpec{
+				Kind: tool.KindProviderTool,
+				ProviderTool: &tool.ProviderToolSpec{
 					Provider: "test",
 					API:      "test.chat",
 					Type:     "web_search",
@@ -277,9 +277,9 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 	}
 	_, _, stop := checkSendBudget(state, request, "fixture")
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
-		t.Fatalf("hosted cost was admitted: stop=%+v", stop)
+		t.Fatalf("provider tool cost was recorded: stop=%+v", stop)
 	}
-	if !strings.Contains(stop.Reason, "remove hosted tools") {
+	if !strings.Contains(stop.Reason, "remove provider tools") {
 		t.Fatalf("reason=%q", stop.Reason)
 	}
 }
@@ -295,8 +295,8 @@ func TestBudgetCostShortfallDoesNotShrinkRequest(t *testing.T) {
 		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
-	if limit.FitTokens <= 0 || limit.FitTokens >= 1000 {
-		t.Fatalf("fit tokens=%d", limit.FitTokens)
+	if limit.SuggestedMaxOutputTokens <= 0 || limit.SuggestedMaxOutputTokens >= 1000 {
+		t.Fatalf("fit tokens=%d", limit.SuggestedMaxOutputTokens)
 	}
 	if client.sends != 0 {
 		t.Fatalf("shortfall sent %d calls", client.sends)
@@ -327,7 +327,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	if client.inputs[0].Settings.MaxTokens != 50 {
 		t.Fatalf("effective max tokens=%d", client.inputs[0].Settings.MaxTokens)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,15 +343,15 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	if len(view.Warnings) != 1 || view.Warnings[0].Code != WarningBudgetClamp {
 		t.Fatalf("warnings=%+v", view.Warnings)
 	}
-	intent := out.Turn.Steps[1].Model
-	settled := out.Turn.Steps[2].Model
-	if intent.AtRisk == nil || settled.Charge == nil {
-		t.Fatalf("missing risk or charge: intent=%+v settled=%+v", intent, settled)
+	callStart := out.Turn.Steps[1].Model
+	finished := out.Turn.Steps[2].Model
+	if callStart.WorstCaseCost == nil || finished.Cost == nil {
+		t.Fatalf("missing risk or charge: start=%+v finished=%+v", callStart, finished)
 	}
-	if intent.AtRisk.Total <= settled.Charge.Total {
-		t.Fatalf("risk=%s charge=%s", intent.AtRisk.Total, settled.Charge.Total)
+	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
+		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)
 	}
-	if settled.EstimatedUsage {
+	if finished.EstimatedUsage {
 		t.Fatal("reported usage marked estimated")
 	}
 }
@@ -365,15 +365,15 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 	if out.Stop.Kind != StopFailed {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	settled := out.Turn.Steps[2].Model
-	if settled == nil || settled.Error == "" || settled.Result == nil ||
-		settled.Result.Stop.Kind != llm.StopFinished {
-		t.Fatalf("settlement=%+v", settled)
+	finished := out.Turn.Steps[2].Model
+	if finished == nil || finished.Error == "" || finished.Result == nil ||
+		finished.Result.Stop.Kind != llm.StopFinished {
+		t.Fatalf("finish=%+v", finished)
 	}
-	if settled.EstimatedUsage {
+	if finished.EstimatedUsage {
 		t.Fatal("finished provider usage was marked estimated")
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,8 +382,8 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 	wantCharge, ok := client.pricing.Estimate(answer.Usage)
-	if !ok || !reflect.DeepEqual(settled.Charge, &wantCharge) {
-		t.Fatalf("charge=%+v, want %+v", settled.Charge, wantCharge)
+	if !ok || !reflect.DeepEqual(finished.Cost, &wantCharge) {
+		t.Fatalf("charge=%+v, want %+v", finished.Cost, wantCharge)
 	}
 }
 
@@ -410,10 +410,10 @@ func TestInvalidStopKeepsPartialUsageEstimated(t *testing.T) {
 			if out.Stop.Kind != StopFailed {
 				t.Fatalf("stop=%+v", out.Stop)
 			}
-			settled := out.Turn.Steps[2].Model
-			if settled == nil || !settled.EstimatedUsage ||
-				settled.Error == "" {
-				t.Fatalf("settlement=%+v", settled)
+			finished := out.Turn.Steps[2].Model
+			if finished == nil || !finished.EstimatedUsage ||
+				finished.Error == "" {
+				t.Fatalf("finish=%+v", finished)
 			}
 			if out.Spend.Usage.OutputTokens != 12 ||
 				out.Spend.Estimated != 1 {
@@ -474,7 +474,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	if client.sends != 2 {
 		t.Fatalf("total sends=%d", client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,34 +499,34 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		nil,
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := out.Turn.Steps[1].Model
-	settled := out.Turn.Steps[2].Model
-	if view.Spend.Estimated != 1 || !settled.EstimatedUsage {
+	callStart := out.Turn.Steps[1].Model
+	finished := out.Turn.Steps[2].Model
+	if view.Spend.Estimated != 1 || !finished.EstimatedUsage {
 		t.Fatalf(
-			"missing estimation marker: spend=%+v settled=%+v",
+			"missing estimation marker: spend=%+v finished=%+v",
 			view.Spend,
-			settled,
+			finished,
 		)
 	}
-	if view.Spend.Usage.InputTokens != intent.EstimatedInputTokens {
+	if view.Spend.Usage.InputTokens != callStart.EstimatedInputTokens {
 		t.Fatalf(
 			"estimated input=%d, recorded=%d",
-			intent.EstimatedInputTokens,
+			callStart.EstimatedInputTokens,
 			view.Spend.Usage.InputTokens,
 		)
 	}
 	if view.Spend.Usage.OutputTokens != 3 {
 		t.Fatalf("estimated output=%d", view.Spend.Usage.OutputTokens)
 	}
-	if settled.Charge == nil || intent.AtRisk == nil {
-		t.Fatalf("missing charge or risk: intent=%+v settled=%+v", intent, settled)
+	if finished.Cost == nil || callStart.WorstCaseCost == nil {
+		t.Fatalf("missing charge or risk: start=%+v finished=%+v", callStart, finished)
 	}
-	if settled.Charge.Total >= intent.AtRisk.Total {
-		t.Fatalf("charge=%s risk=%s", settled.Charge.Total, intent.AtRisk.Total)
+	if finished.Cost.Total >= callStart.WorstCaseCost.Total {
+		t.Fatalf("charge=%s risk=%s", finished.Cost.Total, callStart.WorstCaseCost.Total)
 	}
 }
 
@@ -536,7 +536,7 @@ func hostBudgetHooks() Hooks {
 	return SendHook{
 		Name: "host-budget",
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
-			if plan.AtRisk == nil || plan.Remaining == nil {
+			if plan.WorstCaseCost == nil || plan.Remaining == nil {
 				return SendDecision{Deny: true, Reason: "missing estimate"}, nil
 			}
 			return SendDecision{
@@ -585,7 +585,7 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 		tool.List{lookup},
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,10 +693,10 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	}
 }
 
-func hostedUse(id string) llm.Content {
+func providerToolUse(id string) llm.Content {
 	return llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:   id,
 			Name: "web_search",
 			Type: "web_search_call",
@@ -710,28 +710,28 @@ func hostedUse(id string) llm.Content {
 	}
 }
 
-func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
+func TestBudgetProviderToolRequestsUseAdapterCounts(t *testing.T) {
 	client := newPricedClient()
 	client.pricing.Requests = map[string]money.Amount{
 		llm.MeterWebSearch: amount("0.01"),
 	}
 	result := final("answer")
 	// The adapter reports one billed search; the block count (two, one of
-	// them a failed attempt) does not override it.
+	// them a failed search) does not override it.
 	result.Usage = &llm.Usage{
 		InputTokens:  10,
 		OutputTokens: 10,
 		Requests:     map[string]int{llm.MeterWebSearch: 1},
 		// A complete adapter response carries final counts.
-		RequestsFinal: true,
+		RequestsComplete: true,
 	}
 	result.Message.Content = append(
-		[]llm.Content{hostedUse("search-1"), hostedUse("search-2")},
+		[]llm.Content{providerToolUse("search-1"), providerToolUse("search-2")},
 		result.Message.Content...,
 	)
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,11 +760,11 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 			llm.MeterWebSearch:     1,
 			llm.MeterCodeExecution: 2,
 		},
-		RequestsFinal: true,
+		RequestsComplete: true,
 	}
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -779,12 +779,12 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	}
 	var charge *llm.Cost
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled && step.Model != nil {
-			charge = step.Model.Charge
+		if step.Kind == StepModelCallFinished && step.Model != nil {
+			charge = step.Model.Cost
 		}
 	}
 	if charge == nil || !charge.Partial() {
-		t.Fatalf("settled charge=%+v", charge)
+		t.Fatalf("final cost=%+v", charge)
 	}
 	clone := spend.Clone()
 	clone.UnpricedRequests[llm.MeterCodeExecution] = 9
@@ -793,13 +793,13 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	}
 }
 
-func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
+func TestBudgetUnforeseenProviderToolRequestStopsCappedTurn(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{
-		InputTokens:   10,
-		OutputTokens:  10,
-		Requests:      map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
-		RequestsFinal: true,
+		InputTokens:      10,
+		OutputTokens:     10,
+		Requests:         map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
+		RequestsComplete: true,
 	}
 	client := newPricedClient(first, final("done"))
 	def := testAgent()
@@ -872,7 +872,7 @@ func (c *cancelingPricedClient) Send(
 	return llm.Result{}, ctx.Err()
 }
 
-func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
+func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) RunResult {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -909,7 +909,7 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
 
 func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	out := runInterruptedBudgetTurn(t, nil)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -922,9 +922,9 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	if view.Spend.Cost["USD"] <= 0 {
 		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
 	}
-	if out.Turn.Steps[2].Model.Charge == nil ||
+	if out.Turn.Steps[2].Model.Cost == nil ||
 		!out.Turn.Steps[2].Model.EstimatedUsage {
-		t.Fatalf("settlement=%+v", out.Turn.Steps[2].Model)
+		t.Fatalf("finish=%+v", out.Turn.Steps[2].Model)
 	}
 }
 
@@ -941,7 +941,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 				t,
 				&llm.Usage{InputTokens: 100, OutputTokens: tc.reportedOutput},
 			)
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -952,28 +952,28 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 				t.Fatalf("estimated output tokens=%d", view.Spend.Usage.OutputTokens)
 			}
 			if view.Spend.Estimated != 1 {
-				t.Fatalf("estimated attempts=%d", view.Spend.Estimated)
+				t.Fatalf("estimated calls=%d", view.Spend.Estimated)
 			}
 			if view.Spend.Cost["USD"] != amount("0.000102") {
 				t.Fatalf("replayed charge=%s", view.Spend.Cost["USD"])
 			}
-			settled := out.Turn.Steps[2].Model
-			if settled.Result == nil || settled.Result.Usage == nil {
-				t.Fatalf("partial usage was not recorded: %+v", settled)
+			finished := out.Turn.Steps[2].Model
+			if finished.Result == nil || finished.Result.Usage == nil {
+				t.Fatalf("partial usage was not recorded: %+v", finished)
 			}
 			// The recorded count is the larger of the reported count and
 			// the estimate from every streamed delta, for every cause.
-			if got := settled.Result.Usage.OutputTokens; got != 2 {
+			if got := finished.Result.Usage.OutputTokens; got != 2 {
 				t.Fatalf("recorded output tokens=%d, want the estimate 2", got)
 			}
-			if !settled.EstimatedUsage {
+			if !finished.EstimatedUsage {
 				t.Fatal("partial usage was not marked estimated")
 			}
-			if settled.Charge == nil {
+			if finished.Cost == nil {
 				t.Fatal("partial usage has no estimated charge")
 			}
-			if settled.Charge.Total != amount("0.000102") {
-				t.Fatalf("estimated charge=%s", settled.Charge.Total)
+			if finished.Cost.Total != amount("0.000102") {
+				t.Fatalf("estimated charge=%s", finished.Cost.Total)
 			}
 			client := newPricedClient(final("unused"))
 			continued, err := (Runner{Client: client}).Run(
@@ -992,7 +992,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 	}
 }
 
-func TestBudgetReportsProviderTokenOverrunOnFinalAnswer(t *testing.T) {
+func TestBudgetReportsProviderTokenOverrunOnFinalReply(t *testing.T) {
 	answer := final("answer")
 	answer.Usage = &llm.Usage{InputTokens: 20, OutputTokens: 60}
 	client := newPricedClient(answer)
@@ -1005,8 +1005,8 @@ func TestBudgetReportsProviderTokenOverrunOnFinalAnswer(t *testing.T) {
 		Hooks{},
 	)
 	requireBudgetLimit(t, out, LimitOutputTokens)
-	if out.Answer != "answer" {
-		t.Fatalf("answer=%q", out.Answer)
+	if out.Reply != "answer" {
+		t.Fatalf("answer=%q", out.Reply)
 	}
 }
 
@@ -1035,7 +1035,7 @@ func TestBudgetTotalTokensStopsBetweenCalls(t *testing.T) {
 	}
 }
 
-func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
+func TestBudgetCumulativeOverflowRejectsNextCallStart(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: math.MaxInt - 1}
 	second := final("done")
@@ -1048,16 +1048,16 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 		tool.List{budgetLookup(nil)},
 		Hooks{},
 	)
-	if persistence(err) != PersistenceRejected {
-		t.Fatalf("overflowing intent error=%v", err)
+	if !nothingWritten(err) {
+		t.Fatalf("overflowing call start error=%v", err)
 	}
-	if step := unacknowledged(err); step == nil || step.Kind != StepModelIntent {
-		t.Fatalf("overflowing intent was acknowledged: %+v", step)
+	if step := unacknowledged(err); step == nil || step.Kind != StepModelCallStarted {
+		t.Fatalf("overflowing call start was acknowledged: %+v", step)
 	}
 	if client.sends != 1 {
-		t.Fatalf("overflowing intent dispatched a call: sends=%d", client.sends)
+		t.Fatalf("overflowing call start dispatched a call: sends=%d", client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,12 +1069,12 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	}
 }
 
-type hostedCancelClient struct {
+type providerToolCancelClient struct {
 	*pricedClient
 	cancel context.CancelFunc
 }
 
-func (c *hostedCancelClient) Send(
+func (c *providerToolCancelClient) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (llm.Result, error) {
@@ -1082,17 +1082,17 @@ func (c *hostedCancelClient) Send(
 	// counts; the stream is cut off before the final usage arrives.
 	call.Sink(llm.Delta{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 100}})
 	for _, id := range []string{"search-1", "search-2"} {
-		use := hostedUse(id)
+		use := providerToolUse(id)
 		call.Sink(llm.Delta{Content: &use})
 	}
 	c.cancel()
 	return llm.Result{}, ctx.Err()
 }
 
-func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
+func TestBudgetInterruptedProviderToolUseRecordsUnreportedRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &hostedCancelClient{pricedClient: newPricedClient(), cancel: cancel}
+	client := &providerToolCancelClient{pricedClient: newPricedClient(), cancel: cancel}
 	client.pricing.Requests = map[string]money.Amount{
 		llm.MeterWebSearch: amount("0.01"),
 	}
@@ -1113,7 +1113,7 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	if out.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1124,32 +1124,34 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 	}
 }
 
-// hostedCollectedCancelClient streams nothing; after the run's context ends
-// it returns a message holding hosted-tool records, with no ID or usage.
-type hostedCollectedCancelClient struct {
+// providerToolCollectedCancelClient streams nothing; after the run's context
+// ends it returns a message holding provider tool records, with no ID or
+// usage.
+type providerToolCollectedCancelClient struct {
 	*pricedClient
 	cancel context.CancelFunc
 }
 
-func (c *hostedCollectedCancelClient) Send(
+func (c *providerToolCollectedCancelClient) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (llm.Result, error) {
 	c.cancel()
 	return llm.Result{Message: llm.AssistantMessage(
-		hostedUse("search-1"),
-		hostedUse("search-2"),
-		hostedUse("search-3"),
+		providerToolUse("search-1"),
+		providerToolUse("search-2"),
+		providerToolUse("search-3"),
 	)}, ctx.Err()
 }
 
-// A run-cancelled call is never projected, so it keeps the message the
-// client returned: its hosted-tool records stay for audit and count as
+// A run-cancelled call never goes into the messages the model sees, so it
+// keeps the message the client returned: its provider tool records stay for
+// audit and count as
 // unreported requests.
-func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
+func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &hostedCollectedCancelClient{
+	client := &providerToolCollectedCancelClient{
 		pricedClient: newPricedClient(),
 		cancel:       cancel,
 	}
@@ -1165,26 +1167,26 @@ func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var settled *ModelFact
+	var finished *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
-			settled = step.Model
+		if step.Kind == StepModelCallFinished {
+			finished = step.Model
 		}
 	}
-	if settled == nil || settled.Interrupted != InterruptRun ||
-		settled.Result == nil {
-		t.Fatalf("settled=%+v", settled)
+	if finished == nil || finished.Interrupted != InterruptRun ||
+		finished.Result == nil {
+		t.Fatalf("finished=%+v", finished)
 	}
 	uses := 0
-	for _, part := range settled.Result.Message.Content {
-		if part.Kind == llm.ContentHostedUse {
+	for _, part := range finished.Result.Message.Content {
+		if part.Kind == llm.ContentProviderToolUse {
 			uses++
 		}
 	}
 	if uses != 3 {
-		t.Fatalf("kept hosted uses=%d, want 3", uses)
+		t.Fatalf("kept provider tool uses=%d, want 3", uses)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1230,7 +1232,7 @@ func TestUncheckableCostReasonNamesEachCause(t *testing.T) {
 			name:    "missing charge",
 			spend:   Spend{CostUnknown: 1},
 			want:    []string{"unknown or in another currency"},
-			without: []string{"hosted"},
+			without: []string{"provider tool"},
 		},
 		{
 			name: "partial and missing charge",
@@ -1280,7 +1282,7 @@ func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
 		tool.List{budgetLookup(nil)},
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1291,14 +1293,14 @@ func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
 	}
 }
 
-func TestUnreportedRequestsSkipFailedUsesAndCoverSilentHostedTools(t *testing.T) {
-	failed := hostedUse("search-2")
+func TestUnreportedRequestsSkipFailedUsesAndCoverSilentProviderTools(t *testing.T) {
+	failed := providerToolUse("search-2")
 	result := &llm.Result{Message: llm.Message{Content: []llm.Content{
-		hostedUse("search-1"),
+		providerToolUse("search-1"),
 		failed,
 		{
-			Kind: llm.ContentHostedResult,
-			HostedResult: &llm.HostedResult{
+			Kind: llm.ContentProviderToolResult,
+			ProviderToolResult: &llm.ProviderToolResult{
 				CallID:  "search-2",
 				Type:    "web_search_tool_result",
 				IsError: true,
@@ -1311,24 +1313,24 @@ func TestUnreportedRequestsSkipFailedUsesAndCoverSilentHostedTools(t *testing.T)
 		t.Fatalf("a refused use counted as billed: %v", usage.Requests)
 	}
 
-	hosted := &ModelFact{Tools: []tool.Definition{{
+	providerTool := &ModelFact{Tools: []tool.Definition{{
 		Name: "google_search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "googleSearch",
 		},
 	}}}
 	usage = &llm.Usage{InputTokens: 10}
-	addUnreportedRequests(usage, hosted, nil)
+	addUnreportedRequests(usage, providerTool, nil)
 	if usage.Requests[llm.MeterUnreported] != 1 {
-		t.Fatalf("silent hosted tool left the call looking complete: %v", usage.Requests)
+		t.Fatalf("silent provider tool left the call looking complete: %v", usage.Requests)
 	}
 	usage = &llm.Usage{InputTokens: 10}
 	addUnreportedRequests(usage, &ModelFact{}, nil)
 	if len(usage.Requests) != 0 {
-		t.Fatalf("call without hosted tools marked unreported: %v", usage.Requests)
+		t.Fatalf("call without provider tools marked unreported: %v", usage.Requests)
 	}
 }
 
@@ -1349,7 +1351,7 @@ func (c *groundingCutClient) Send(
 	return llm.Result{}, ctx.Err()
 }
 
-func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
+func TestBudgetInterruptedSilentProviderToolIsPartial(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &groundingCutClient{pricedClient: newPricedClient(), cancel: cancel}
@@ -1357,8 +1359,8 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 	def.Settings.MaxTokens = 100
 	search := tool.Tool{Definition: tool.Definition{
 		Name: "google_search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "googleSearch",
@@ -1379,11 +1381,12 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A cut-off call with a hosted tool may have run it, so it is uncertain.
-	if out.Stop.Kind != StopUncertain {
+	// A cut-off call with a provider tool may have run it, so its result is
+	// unknown.
+	if out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1395,7 +1398,7 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 
 func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
 	inferred := &llm.Result{Message: llm.Message{Content: []llm.Content{
-		hostedUse("search-1"),
+		providerToolUse("search-1"),
 	}}}
 	// Counts inferred from the one visible block, with no final report.
 	usage := &llm.Usage{Requests: map[string]int{llm.MeterWebSearch: 1}}
@@ -1407,6 +1410,6 @@ func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
 	usage = &llm.Usage{InputTokens: 10}
 	addUnreportedRequests(usage, &ModelFact{}, &llm.Result{})
 	if len(usage.Requests) != 0 {
-		t.Fatalf("call without hosted activity marked unreported: %v", usage.Requests)
+		t.Fatalf("call without provider tool activity marked unreported: %v", usage.Requests)
 	}
 }

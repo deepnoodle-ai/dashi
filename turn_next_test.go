@@ -35,19 +35,19 @@ func nextRows() []nextRow {
 		return &Stop{Kind: StopLimited, Reason: string(kind), Limit: &LimitDetail{Kind: kind}}
 	}
 	usd := func(amount money.Amount) *Money { return &Money{Amount: amount, Currency: "USD"} }
-	attemptsSpent := func(s *replayState) { s.ModelAttempts = s.attemptCap }
+	modelCallsSpent := func(s *replayState) { s.ModelCalls = s.modelCallCap }
 	costSpent := func(s *replayState) {
 		s.Budget = &Budget{MaxCost: usd(100)}
 		s.Spend.Cost = map[string]money.Amount{"USD": 100}
 	}
 	failed := func(reason string) *Stop { return &Stop{Kind: StopFailed, Reason: reason} }
 	return []nextRow{
-		{name: "not started", setup: func(s *replayState) { s.Revision = 0 }, want: NextNone},
-		{name: "no stop", want: NextResume},
+		{name: "not started", setup: func(s *replayState) { s.LastSeq = 0 }, want: NextNone},
+		{name: "no stop", want: NextRecover},
 		{
-			name:  "no stop, model attempt in flight",
-			setup: func(s *replayState) { s.modelIntent = "m1" },
-			want:  NextResume,
+			name:  "no stop, model call in flight",
+			setup: func(s *replayState) { s.modelCallStart = "m1" },
+			want:  NextRecover,
 		},
 		{name: "completed", covers: []string{"completed/"}, stop: &Stop{Kind: StopCompleted}, want: NextNone},
 		{name: "canceled", covers: []string{"canceled/*"}, stop: &Stop{Kind: StopCanceled}, want: NextNone},
@@ -58,9 +58,9 @@ func nextRows() []nextRow {
 			want:   NextNone,
 		},
 		{
-			name:   "interruptions",
-			covers: []string{"limited/interruptions"},
-			stop:   limited(LimitInterruptions),
+			name:   "resumes",
+			covers: []string{"limited/resumes"},
+			stop:   limited(LimitResumes),
 			want:   NextNone,
 		},
 		{
@@ -70,11 +70,11 @@ func nextRows() []nextRow {
 			want:  NextNone,
 		},
 		{
-			name:   "model attempts",
-			covers: []string{"limited/model_attempts"},
-			stop:   limited(LimitModelAttempts),
-			setup:  attemptsSpent,
-			want:   NextRaiseAttempts,
+			name:   "model calls",
+			covers: []string{"limited/model_calls"},
+			stop:   limited(LimitModelCalls),
+			setup:  modelCallsSpent,
+			want:   NextRaiseModelCalls,
 		},
 		{
 			name:   "cost",
@@ -84,9 +84,9 @@ func nextRows() []nextRow {
 			want:   NextRaiseBudget,
 		},
 		{
-			name:  "cost after the last attempt",
+			name:  "cost after the last model call",
 			stop:  limited(LimitCost),
-			setup: func(s *replayState) { costSpent(s); attemptsSpent(s) },
+			setup: func(s *replayState) { costSpent(s); modelCallsSpent(s) },
 			want:  NextRaiseBudget,
 		},
 		{
@@ -99,7 +99,7 @@ func nextRows() []nextRow {
 				Limit:  &LimitDetail{Kind: LimitCost, UnpricedModel: "m"},
 			},
 			setup: func(s *replayState) { s.Budget = &Budget{MaxCost: usd(100)} },
-			want:  NextResolve,
+			want:  NextFix,
 		},
 		{
 			name:   "output tokens",
@@ -132,15 +132,14 @@ func nextRows() []nextRow {
 			name:   "host",
 			covers: []string{"limited/host", "limited/*"},
 			stop:   limited(LimitHost),
-			want:   NextResolve,
+			want:   NextFix,
 		},
-		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextResolve},
-		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextResolve},
+		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextFix},
+		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextFix},
 		{
-			name:   "one call hit its output or context window",
-			covers: []string{"limited/output", "limited/context"},
-			stop:   &Stop{Kind: StopLimited, Reason: "output"},
-			want:   NextResolve,
+			name: "one call hit its output or context window",
+			stop: &Stop{Kind: StopLimited, Reason: string(LimitOutputTokens)},
+			want: NextFix,
 		},
 		{
 			name:   "waiting, every answer recorded",
@@ -153,22 +152,22 @@ func nextRows() []nextRow {
 			covers: []string{"waiting/tool result or approval pending"},
 			stop:   &Stop{Kind: StopWaiting, Reason: "tool result or approval pending"},
 			setup:  pendingCall(ToolApprovalPending),
-			want:   NextAnswer,
+			want:   NextResolvePending,
 		},
 		{
 			name:  "waiting on an external result",
 			stop:  &Stop{Kind: StopWaiting, Reason: "tool result or approval pending"},
 			setup: pendingCall(ToolWaiting),
-			want:  NextAnswer,
+			want:  NextResolvePending,
 		},
 		{
 			name:   "waiting on a provider approval",
 			covers: []string{"waiting/provider approval pending"},
 			stop:   &Stop{Kind: StopWaiting, Reason: "provider approval pending"},
 			setup: func(s *replayState) {
-				s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"}
+				s.providerTool["h1"] = llm.ProviderToolApprovalRequest{ID: "h1"}
 			},
-			want: NextAnswer,
+			want: NextResolvePending,
 		},
 		{
 			name: "interrupted",
@@ -185,21 +184,21 @@ func nextRows() []nextRow {
 			stop: &Stop{Kind: StopInterrupted, Reason: "context canceled"},
 			setup: func(s *replayState) {
 				s.modelCalls = 1
-				s.Interruptions = s.Agent.Limits.Interruptions
+				s.Resumes = s.Agent.Limits.Resumes
 			},
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
-			name:  "interrupted, hosted approval pending",
+			name:  "interrupted, provider tool approval pending",
 			stop:  &Stop{Kind: StopInterrupted, Reason: "context canceled"},
-			setup: func(s *replayState) { s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"} },
-			want:  NextResolve,
+			setup: func(s *replayState) { s.providerTool["h1"] = llm.ProviderToolApprovalRequest{ID: "h1"} },
+			want:  NextFix,
 		},
 		{
 			name:   "refused",
 			covers: []string{"refused/*"},
 			stop:   &Stop{Kind: StopRefused, Reason: "refusal"},
-			want:   NextResolve,
+			want:   NextFix,
 		},
 		{
 			name: "failed by a tool or a hook",
@@ -210,19 +209,19 @@ func nextRows() []nextRow {
 				"failed/" + StopReasonOutputRejected,
 			},
 			stop: failed(StopReasonToolFatal),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name: "failed on a content reference",
 			covers: []string{
-				"failed/" + StopReasonContentNoResolver,
+				"failed/" + StopReasonContentNoLoader,
 				"failed/" + StopReasonContentUnavailable,
 				"failed/" + StopReasonContentTooLarge,
 				"failed/" + StopReasonContentSizeMismatch,
-				"failed/" + StopReasonContentDigestMismatch,
+				"failed/" + StopReasonContentHashMismatch,
 			},
 			stop: failed(StopReasonContentUnavailable),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name: "failed, free text",
@@ -232,39 +231,39 @@ func nextRows() []nextRow {
 				"failed/empty_response",
 				"failed/tool binding unavailable",
 				"failed/tool binding changed or unavailable",
-				"failed/hosted tool cannot execute locally",
+				"failed/provider tool cannot execute locally",
 				"failed/prepared request changed destination",
 				"failed/prepared request changed original model input",
 				"failed/untrusted stop with client calls",
-				"failed/untrusted stop with hosted approval",
+				"failed/untrusted stop with provider tool approval",
 				"failed/native output_schema is not supported in agent turns",
 				"failed/tool name is reserved for structured output",
 			},
 			stop: failed("provider rejected the request"),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
-			name:   "uncertain, settled by the host",
-			covers: []string{"uncertain/*"},
-			stop:   &Stop{Kind: StopUncertain, Reason: "tool outcome needs reconciliation"},
+			name:   "result unknown, finished by the host",
+			covers: []string{"result_unknown/*"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool call result unknown; the host must resolve it"},
 			want:   NextContinue,
 		},
 		{
-			name:   "uncertain tool call",
-			covers: []string{"uncertain/tool outcome needs reconciliation"},
-			stop:   &Stop{Kind: StopUncertain, Reason: "tool outcome needs reconciliation"},
-			setup:  pendingCall(ToolUncertain),
-			want:   NextResolve,
+			name:   "result unknown tool call",
+			covers: []string{"result_unknown/tool call result unknown; the host must resolve it"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool call result unknown; the host must resolve it"},
+			setup:  pendingCall(ToolResultUnknown),
+			want:   NextFix,
 		},
 		{
-			name: "uncertain model attempt",
+			name: "result unknown model call",
 			covers: []string{
-				"uncertain/model attempt needs reconciliation",
-				"uncertain/provider-hosted tool may have run",
+				"result_unknown/model call result unknown; the host must resolve it",
+				"result_unknown/provider tool may have run",
 			},
-			stop:  &Stop{Kind: StopUncertain, Reason: "model attempt needs reconciliation"},
+			stop:  &Stop{Kind: StopResultUnknown, Reason: "model call result unknown; the host must resolve it"},
 			setup: func(s *replayState) { s.unresolvedModel = "m1" },
-			want:  NextResolve,
+			want:  NextFix,
 		},
 		{
 			name:  "output recorded, interrupted",
@@ -273,16 +272,16 @@ func nextRows() []nextRow {
 			want:  NextContinue,
 		},
 		{
-			// The reserved final answer ends at the model-call limit; a
+			// The reserved final reply ends at the model-call limit; a
 			// raise, not a bare Continue, completes it.
 			name: "output recorded at the model-call limit",
-			stop: limited(LimitModelAttempts),
+			stop: limited(LimitModelCalls),
 			setup: func(s *replayState) {
-				attemptsSpent(s)
-				s.finalAnswerOnly = true
+				modelCallsSpent(s)
+				s.finalReplyOnly = true
 				s.Output = &StructuredOutput{}
 			},
-			want: NextRaiseAttempts,
+			want: NextRaiseModelCalls,
 		},
 	}
 }
@@ -296,24 +295,24 @@ func pendingCall(status ToolStatus) func(*replayState) {
 }
 
 // rowView builds the view of a turn at rest at the row's stop. Readiness
-// and Terminal come from the same code replay uses.
+// and Ended come from the same code View uses.
 func rowView(row nextRow) TurnView {
 	s := &replayState{
-		TurnView: TurnView{Tools: map[string]ToolView{}, Revision: 5},
-		hosted:   map[string]llm.HostedApprovalRequest{},
+		TurnView:     TurnView{Tools: map[string]ToolView{}, LastSeq: 5},
+		providerTool: map[string]llm.ProviderToolApprovalRequest{},
 	}
-	s.Agent.Limits.Interruptions = 2
-	s.attemptCap, s.ModelAttempts = 8, 1
+	s.Agent.Limits.Resumes = 2
+	s.modelCallCap, s.ModelCalls = 8, 1
 	if row.stop != nil {
 		s.Stop = *row.stop
 	}
 	if row.setup != nil {
 		row.setup(s)
 	}
-	s.Stop.Terminal = s.Stop.Kind != "" && s.terminal()
+	s.Stop.Ended = s.Stop.Kind != "" && s.ended()
 	s.ReadyToContinue = s.canContinue()
 	view := s.TurnView
-	view.Stop = s.projectedStop()
+	view.Stop = s.inferredStop()
 	return view
 }
 
@@ -365,7 +364,7 @@ func TestNextCoversEveryStop(t *testing.T) {
 }
 
 // stopSites reads the package source for every stop the code can record or
-// project, as "kind/reason" keys (see nextRow), and for the StopKind,
+// infer, as "kind/reason" keys (see nextRow), and for the StopKind,
 // LimitKind, and StopReason constants by name.
 func stopSites(t *testing.T) ([]string, map[string]string) {
 	t.Helper()
@@ -491,23 +490,23 @@ func limitKind(e ast.Expr) ast.Expr {
 	return e
 }
 
-// Next reads the recorded stop, not the one Replay projects for a record
+// Next reads the recorded stop, not the one View infers for a record
 // that ends mid-run.
 func TestNextReadsRecordedStop(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
-	view, err := Replay(crashed)
+	view, err := crashed.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Stop.Kind != StopInterrupted || view.Next() != NextResume {
+	if view.Stop.Kind != StopInterrupted || view.Next() != NextRecover {
 		t.Fatalf("crashed: stop=%+v next=%s", view.Stop, view.Next())
 	}
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	out, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredHooks())
-	if err != nil || out.Next() != NextAnswer {
+	if err != nil || out.Next() != NextResolvePending {
 		t.Fatalf("waiting: stop=%+v next=%s err=%v", out.Stop, out.Next(), err)
 	}
 	canceled, err := (Runner{Client: client}).Run(
@@ -556,7 +555,7 @@ func TestNextIsRunningInHookView(t *testing.T) {
 func TestNextSurvivesJSON(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client}).Run(
@@ -566,7 +565,7 @@ func TestNextSurvivesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, turn := range map[string]Turn{"crashed": crashed, "completed": done.Turn} {
-		view, err := Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}

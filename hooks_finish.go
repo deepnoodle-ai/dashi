@@ -8,26 +8,26 @@ import (
 )
 
 // finishResult is the combined BeforeFinish answer. A reason is a veto: the
-// answer is unacceptable. Items alone are a nudge: try once more.
+// reply is unacceptable. Items alone are a nudge: try once more.
 type finishResult struct {
 	// steers supersede the candidate before the hooks see it.
 	steers      []ContextItem
 	deliver     []ContextItem
 	acceptEmpty bool
 	// reason is the first nonempty Reason, bounded; hook is the first hook
-	// that turned the answer down.
+	// that turned the reply down.
 	reason string
 	hook   string
-	// noCall means the hooks vetoed the answer and no further model call can
+	// noCall means the hooks vetoed the reply and no further model call can
 	// happen: the caller records the rejection and stops the turn with
 	// StopReasonOutputRejected.
 	noCall bool
 }
 
-// beforeFinish runs the BeforeFinish chain for a candidate answer. A failing
+// beforeFinish runs the BeforeFinish chain for a candidate reply. A failing
 // hook stops the turn, since BeforeFinish guards what the turn accepts; the
 // candidate survives the stop, so Continue asks the hooks again.
-func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
+func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
 	var out finishResult
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeFinish {
@@ -36,7 +36,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		p.Output = slices.Clone(plan.Output)
 		d, err := callHook(hookContext(r.ctx, plan.Turn), h, p)
 		if err == nil {
-			for _, item := range d.Deliver {
+			for _, item := range d.AddMessages {
 				if e := item.Validate(); e != nil {
 					err = fmt.Errorf("invalid context item: %w", e)
 					break
@@ -57,9 +57,9 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			o := r.stopWith(hookFailedStop())
 			return finishResult{}, &o
 		}
-		if len(d.Deliver) > 0 || d.Reason != "" {
+		if len(d.AddMessages) > 0 || d.Reason != "" {
 			reason := boundedReason(d.Reason)
-			for _, item := range d.Deliver {
+			for _, item := range d.AddMessages {
 				out.deliver = append(out.deliver, cloneContextItem(item))
 			}
 			if out.hook == "" {
@@ -68,7 +68,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			if out.reason == "" {
 				out.reason = reason
 			}
-			verdict := VerdictDeliver
+			verdict := VerdictAddMessages
 			if reason != "" {
 				verdict = VerdictReject
 			}
@@ -91,7 +91,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 	return out, nil
 }
 
-// finishPoint is the one place a candidate final answer is decided, on both
+// finishPoint is the one place a candidate final reply is decided, on both
 // the final-text path and the dashi_submit_output path. Steering's check for
 // waiting steers belongs first here, before the BeforeFinish hooks: a steer
 // supersedes a candidate without asking the hooks about it, recorded with
@@ -100,13 +100,13 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 // When the hooks turn the candidate down, the caller records the rejection
 // and the model is asked again. When no further normal model call can
 // happen, a nudge (items alone) is dropped with a warning and the candidate
-// stands, since a finish hook never spends the last answer; a veto (a
+// stands, since a finish hook never spends the last reply; a veto (a
 // reason) is still recorded, and the turn stops with
-// StopReasonOutputRejected instead of accepting the answer.
+// StopReasonOutputRejected instead of accepting the reply.
 func (r *runtime) finishPoint(
 	s *replayState,
 	plan FinishPlan,
-) (finishResult, *Outcome) {
+) (finishResult, *RunResult) {
 	// A steer is a nudge: it supersedes the candidate only when a further
 	// model call can happen, and otherwise waits with its source.
 	if steers := r.waitingSteers(s); len(steers) > 0 {
@@ -133,8 +133,8 @@ func (r *runtime) finishPoint(
 	}
 	extra := estimatedItemTokens(finish.deliver) + len(finish.reason)
 	if finish.reason != "" {
-		// Once the answer is vetoed, the reserve protects nothing, so the
-		// reserved final-answer call may answer again.
+		// Once the reply is vetoed, the reserve protects nothing, so the
+		// reserved final-reply call may reply again.
 		finish.noCall = !r.callFits(s, extra, true)
 		return finish, nil
 	}
@@ -142,7 +142,7 @@ func (r *runtime) finishPoint(
 		return finish, nil
 	}
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
-		Code: WarningDeliveryDropped,
+		Code: WarningMessagesDropped,
 		Message: fmt.Sprintf(
 			"BeforeFinish hook %s asked for another model call, but none "+
 				"can happen before the reserved final answer or a limit; "+
@@ -158,7 +158,7 @@ func (f finishResult) rejects() bool {
 	return len(f.deliver) > 0 || f.reason != ""
 }
 
-// notAccepted is the model-visible text of a turned-down answer.
+// notAccepted is the model-visible text of a turned-down reply.
 func notAccepted(reason string) string {
 	return "Not accepted: " + reason
 }
@@ -167,28 +167,28 @@ func notAccepted(reason string) string {
 // down through rejectSubmission.
 const sourceSteering = "steering"
 
-// deliveryDropped warns that context delivered while an answer was kept
+// messagesDropped warns that messages added while a reply was kept
 // cannot reach the model, because no further model call can happen.
-func (r *runtime) deliveryDropped() {
+func (r *runtime) messagesDropped() {
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
-		Code: WarningDeliveryDropped,
-		Message: "context delivered after the answer was kept cannot " +
+		Code: WarningMessagesDropped,
+		Message: "messages added after the reply was kept cannot" +
 			"reach the model: no further model call can happen, so the " +
-			"answer is checked again",
+			"reply is checked again",
 	})
 }
 
-// rejectSubmission settles a started dashi_submit_output call that a hook
+// rejectSubmission finishes a started dashi_submit_output call that a hook
 // or a steer turned down, as failed with the model-visible output
-// "Not accepted: <reason>". The items to deliver ride on the same step, so
-// a crash cannot record the rejection without them; projection places them
-// after the call's result. source names who rejected it for the record,
-// such as "hook <name>" or "steering". It is the same started-to-settled
-// transition a schema rejection uses, so the next successful submission is
-// the one recorded as output.
+// "Not accepted: <reason>". The items to add ride on the same step, so
+// a crash cannot record the rejection without them; the turn's messages
+// place them after the call's result. source names who rejected it for the
+// record, such as "hook <name>" or "steering". It is the same
+// started-to-finished transition a schema rejection uses, so the next
+// successful submission is the one recorded as output.
 //
 // vetoed records a BeforeFinish veto, which keeps the text of the model
-// message that made the call out of TurnView.Answer until a new model result
+// message that made the call out of TurnView.Reply until a new model result
 // arrives.
 func (r *runtime) rejectSubmission(
 	call tool.Call,
@@ -196,13 +196,13 @@ func (r *runtime) rejectSubmission(
 	source string,
 	items []ContextItem,
 	vetoed bool,
-) *Outcome {
+) *RunResult {
 	out := tool.Outcome{
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput(notAccepted(reason))),
 	}
 	step := Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{
 			Call:    call,
 			Outcome: &out,

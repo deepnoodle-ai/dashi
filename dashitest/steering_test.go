@@ -67,17 +67,17 @@ func recordedSteers(turn dashi.Turn) map[string]int {
 // steer, and the commits around it, in each way a durable store can. A new
 // worker resumes from the reloaded record with the same steer table. The
 // steer must end up recorded exactly once, seen by the model, and consumed
-// from the table; it is never lost and never delivered twice.
+// from the table; it is never lost and never added twice.
 func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
-	// The record starts: start, the steer's delivery at 2, the first model
-	// intent at 3 and its settlement at 4.
+	// The record starts: start, the steer's messages_added step at 2, the
+	// first model_call_started at 3, and its model_call_finished at 4.
 	targets := []struct {
 		kind dashi.StepKind
 		seq  int64
 	}{
-		{kind: dashi.StepDelivered, seq: 2},
-		{kind: dashi.StepModelIntent, seq: 3},
-		{kind: dashi.StepStopped},
+		{kind: dashi.StepMessagesAdded, seq: 2},
+		{kind: dashi.StepModelCallStarted, seq: 3},
+		{kind: dashi.StepTurnStopped},
 	}
 	faults := []dashitest.Fault{
 		dashitest.Reject,
@@ -149,7 +149,7 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 }
 
 // TestInboxKeepsInDoubtSteersForTheirTurn fails the write that records a
-// steer so its outcome is unknown. The steer is in doubt: it cannot be
+// steer so its result is unknown. The steer is in doubt: it cannot be
 // cancelled and no other turn receives it. Leftovers on the reloaded turn
 // resolves it: returned once when the write did not land, and not at all
 // when it did, since the turn's history carries it.
@@ -159,7 +159,7 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 			store := dashi.NewMemoryRecorder()
 			rec := &dashitest.FaultRecorder{
 				Recorder: store,
-				Kind:     dashi.StepDelivered,
+				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
 			inbox := dashi.NewInbox()
@@ -277,7 +277,7 @@ func (m *draftModel) Send(ctx context.Context, call llm.Call) (llm.Result, error
 }
 
 // TestSteerSupersedingTextSurvivesEachCommitFault fails the loop
-// continuation that records a steer superseding a text answer, in each way
+// continuation that records a steer superseding a text reply, in each way
 // a durable store can, then resumes from the reloaded record with the same
 // inbox. The steer is recorded once, the model sees it, and nothing is left
 // over.
@@ -316,8 +316,8 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 				runner,
 				dashi.WithSteering(inbox),
 			)
-			if out.Stop.Kind != dashi.StopCompleted || out.Answer != "final" {
-				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+			if out.Stop.Kind != dashi.StopCompleted || out.Reply != "final" {
+				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 			}
 			final, err := store.Load(t.Context(), "t1")
 			if err != nil {
@@ -341,8 +341,8 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 	}
 }
 
-// TestInboxContinuesAfterInDoubtDelivery fails the write that delivers a
-// steer before the first model call, with an unknown outcome, then
+// TestInboxContinuesAfterInDoubtDelivery fails the write that adds a
+// steer before the first model call, with an unknown result, then
 // continues the same turn with the same inbox. The in-doubt steer goes to
 // that run and is recorded once.
 func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
@@ -351,7 +351,7 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 			store := dashi.NewMemoryRecorder()
 			rec := &dashitest.FaultRecorder{
 				Recorder: store,
-				Kind:     dashi.StepDelivered,
+				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
 			inbox := dashi.NewInbox()

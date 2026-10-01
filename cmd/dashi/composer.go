@@ -79,7 +79,7 @@ func (s *screen) editDraft() []tui.Cmd {
 	defer cleanup()
 	operationErr, restoreErr := s.handoff(run)
 	if restoreErr != nil {
-		// Wonton stops admission and returns this error from Run for stderr.
+		// Wonton stops accepting input and returns this error from Run for stderr.
 		s.quitting = true
 		return []tui.Cmd{tui.Quit()}
 	}

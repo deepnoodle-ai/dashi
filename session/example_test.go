@@ -31,7 +31,7 @@ func ExampleSession() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("warning:", out.SessionWarnings[0].Code)
 
 	out, err = s.Send(ctx, "And in Fahrenheit?")
@@ -39,7 +39,7 @@ func ExampleSession() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("messages sent:", len(client.Inputs()[1].Messages))
 	// Output:
@@ -78,7 +78,7 @@ func ExampleSession_Steer() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	last := client.Inputs()[1].Messages
 	fmt.Println("model saw:", last[len(last)-1].Text())
 	// Output:
@@ -88,7 +88,7 @@ func ExampleSession_Steer() {
 }
 
 // Enqueue holds input for the next turn. When the running turn ends, the
-// same Send starts a queue turn from it and returns that turn's outcome.
+// same Send starts a queue turn from it and returns that turn's result.
 func ExampleSession_Enqueue() {
 	ctx := context.Background()
 	client := dashitest.NewClient(
@@ -116,7 +116,7 @@ func ExampleSession_Enqueue() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("input:", out.Turn.Steps[0].Started.Input[0].Text())
 	// Output:

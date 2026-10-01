@@ -15,8 +15,8 @@ import (
 // ChildServices freezes a child's model and reference services. Nil fields
 // retain the inherited services. These do not change execution ownership.
 type ChildServices struct {
-	Client          llm.Client
-	ContentResolver dashi.ContentResolver
+	Client        llm.Client
+	ContentLoader dashi.ContentLoader
 }
 
 func copyValue[T any](value T) (T, error) {
@@ -53,7 +53,7 @@ func (ts *Tasks) prepareStart(ctx context.Context, ref dashi.CallRef, start dash
 		return dashi.Start{}, fmt.Errorf("delegate: prepare child: %w", err)
 	}
 	// Compare the protected fields after removing the explicitly allowed
-	// settings/revision changes. The original input is an unchanged prefix.
+	// settings and version changes. The original input is an unchanged prefix.
 	if len(prepared.Input) < len(start.Input) || !equalValue(start.Input, prepared.Input[:len(start.Input)]) {
 		return dashi.Start{}, errors.New("delegate: child preparation changed the task prompt")
 	}
@@ -61,7 +61,7 @@ func (ts *Tasks) prepareStart(ctx context.Context, ref dashi.CallRef, start dash
 	checked.Input = start.Input
 	checked.Agent.Settings = start.Agent.Settings
 	checked.Agent.ActiveCompaction = start.Agent.ActiveCompaction
-	checked.Agent.Revision = start.Agent.Revision
+	checked.Agent.Version = start.Agent.Version
 	checked.Agent.NoInheritedSettings = start.Agent.NoInheritedSettings
 	if !equalValue(checked, start) {
 		return dashi.Start{}, errors.New("delegate: child preparation changed protected Start fields")
@@ -91,8 +91,8 @@ func (ts *Tasks) bindServices(ctx context.Context, ref dashi.CallRef, agent dash
 	if services.Client != nil {
 		runner.Client = services.Client
 	}
-	if services.ContentResolver != nil {
-		runner.ContentResolver = services.ContentResolver
+	if services.ContentLoader != nil {
+		runner.ContentLoader = services.ContentLoader
 	}
 	return runner, nil
 }
@@ -104,7 +104,7 @@ func (ts *Tasks) deferNotice(turn dashi.Turn) bool {
 	if err != nil {
 		return true
 	}
-	view, err := dashi.Replay(owned)
+	view, err := owned.View()
 	if err != nil {
 		return true
 	}

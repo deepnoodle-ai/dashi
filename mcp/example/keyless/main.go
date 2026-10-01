@@ -104,7 +104,7 @@ func run(ctx context.Context, output io.Writer, server mcp.Server) (err error) {
 	if out.Stop.Kind != dashi.StopCompleted {
 		return fmt.Errorf("agent stopped: %s", out.Stop.Kind)
 	}
-	// Show the actual server result seen by the model. The final answer is
+	// Show the actual server result seen by the model. The final reply is
 	// scripted, so it alone cannot prove that the MCP call worked.
 	for _, input := range client.Inputs() {
 		for _, message := range input.Messages {
@@ -126,6 +126,6 @@ func run(ctx context.Context, output io.Writer, server mcp.Server) (err error) {
 			}
 		}
 	}
-	_, err = fmt.Fprintf(output, "Scripted answer: %s\n", out.Answer)
+	_, err = fmt.Fprintf(output, "Scripted reply: %s\n", out.Reply)
 	return err
 }

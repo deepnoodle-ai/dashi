@@ -16,9 +16,9 @@ func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
 		return errors.New("completed turn cannot change")
 	}
-	if s.Stop.Terminal {
+	if s.Stop.Ended {
 		switch step.Kind {
-		case StepModelSettled, StepModelReconciled, StepToolSettled:
+		case StepModelCallFinished, StepModelCallFinishedByHost, StepToolFinished:
 		default:
 			return errors.New("ended turn only accepts late results")
 		}
@@ -28,15 +28,15 @@ func (s *replayState) apply(step Step) error {
 	// Continue then completes the existing output without another model call.
 	if s.Output != nil {
 		switch {
-		case step.Kind == StepContinued:
-		case step.Kind == StepStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
-		case step.Kind == StepStopped && step.Stop != nil &&
+		case step.Kind == StepTurnContinued:
+		case step.Kind == StepTurnStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
+		case step.Kind == StepTurnStopped && step.Stop != nil &&
 			step.Stop.Kind == StopInterrupted:
-		case step.Kind == StepStopped && step.Stop != nil &&
+		case step.Kind == StepTurnStopped && step.Stop != nil &&
 			step.Stop.Kind == StopLimited && step.Stop.Limit != nil &&
 			(step.Stop.Limit.Kind == LimitDeadline ||
-				step.Stop.Limit.Kind == LimitInterruptions ||
-				step.Stop.Limit.Kind == LimitModelAttempts && s.finalAnswerOnly ||
+				step.Stop.Limit.Kind == LimitResumes ||
+				step.Stop.Limit.Kind == LimitModelCalls && s.finalReplyOnly ||
 				step.Stop.Limit.Kind == LimitOutputTokens ||
 				step.Stop.Limit.Kind == LimitTotalTokens ||
 				step.Stop.Limit.Kind == LimitCost):
@@ -45,7 +45,7 @@ func (s *replayState) apply(step Step) error {
 		}
 	}
 	switch step.Kind {
-	case StepStarted:
+	case StepTurnStarted:
 		if step.Started == nil {
 			return errors.New("missing start")
 		}
@@ -53,7 +53,7 @@ func (s *replayState) apply(step Step) error {
 			return e
 		}
 		// The runner records a resolved agent; only its ID may be empty.
-		if a := step.Started.Agent; a.Revision == "" || a.Provider == "" ||
+		if a := step.Started.Agent; a.Version == "" || a.Provider == "" ||
 			a.API == "" || a.Model == "" {
 			return errors.New("recorded agent requires revision, provider, API, and model")
 		}
@@ -117,7 +117,7 @@ func (s *replayState) apply(step Step) error {
 		if s.ActiveCompactionWindow < 0 || s.ActiveCompactionWindow > 0 && (s.ActiveCompactionWindow < 1024 || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || origin == StartCompaction) {
 			return errors.New("invalid active compaction window")
 		}
-		s.attemptCap = s.Agent.Limits.ModelAttempts
+		s.modelCallCap = s.Agent.Limits.ModelCalls
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -126,7 +126,7 @@ func (s *replayState) apply(step Step) error {
 			s.Budget = &budget
 		}
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
-	case StepDelivered:
+	case StepMessagesAdded:
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
@@ -138,18 +138,18 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-	case StepContinued:
+	case StepTurnContinued:
 		if err := s.calculateSpend(); err != nil {
 			return err
 		}
-		if !s.canContinueWith(step.Budget, step.ModelAttempts) {
+		if !s.canContinueWith(step.Budget, step.ModelCalls) {
 			return errors.New("turn cannot continue")
 		}
-		if step.ModelAttempts != 0 {
-			if step.ModelAttempts <= s.attemptCap {
-				return errors.New("model-attempt raise must exceed the cap")
+		if step.ModelCalls != 0 {
+			if step.ModelCalls <= s.modelCallCap {
+				return errors.New("model-call raise must exceed the cap")
 			}
-			s.attemptCap = step.ModelAttempts
+			s.modelCallCap = step.ModelCalls
 		}
 		if step.Budget != nil {
 			if step.At.IsZero() {
@@ -170,7 +170,7 @@ func (s *replayState) apply(step Step) error {
 			)
 		}
 		if s.resumeCounts() {
-			s.Interruptions++
+			s.Resumes++
 		}
 		if s.Stop.Kind == StopFailed {
 			s.failedModel = ""
@@ -194,20 +194,20 @@ func (s *replayState) apply(step Step) error {
 				s.answerVetoed = true
 			}
 		}
-	case StepModelIntent:
+	case StepModelCallStarted:
 		if step.Model == nil ||
-			step.Model.AttemptID == "" ||
+			step.Model.ModelCallID == "" ||
 			step.Model.MessageID == "" ||
-			step.Model.RequestDigest == "" ||
-			s.modelIntent != "" ||
+			step.Model.RequestHash == "" ||
+			s.modelCallStart != "" ||
 			s.Output != nil ||
 			len(s.pending()) > 0 {
-			return errors.New("invalid model intent")
+			return errors.New("invalid model call start")
 		}
-		if err := s.validateCompactionIntent(step); err != nil {
+		if err := s.validateCompactionCallStart(step); err != nil {
 			return err
 		}
-		if err := validateAdmission(step.Model.Admission); err != nil {
+		if err := validateReservation(step.Model.Reservation); err != nil {
 			return err
 		}
 		if err := validateHidden(step.Model); err != nil {
@@ -216,32 +216,32 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Provider != s.Agent.Provider ||
 			step.Model.API != s.Agent.API ||
 			step.Model.Model != s.Agent.Model {
-			return errors.New("model intent changed destination")
+			return errors.New("model call start changed destination")
 		}
 		if step.Model.EstimatedInputTokens < 0 {
 			return errors.New("negative estimated input")
 		}
-		if step.Model.AtRisk != nil {
-			if err := step.Model.AtRisk.Validate(); err != nil {
+		if step.Model.WorstCaseCost != nil {
+			if err := step.Model.WorstCaseCost.Validate(); err != nil {
 				return err
 			}
 		}
-		if step.Model.FinalAnswerOnly &&
-			(s.Agent.Limits.NoReservedFinalAnswer ||
-				s.ModelAttempts == 0 ||
-				s.ModelAttempts+1 != s.attemptCap) {
-			return errors.New("final-answer intent is not the last model attempt")
+		if step.Model.FinalReplyOnly &&
+			(s.Agent.Limits.NoReservedFinalReply ||
+				s.ModelCalls == 0 ||
+				s.ModelCalls+1 != s.modelCallCap) {
+			return errors.New("final-reply call start is not the last model call")
 		}
-		s.modelIntent = step.Model.AttemptID
-		s.modelIntents[step.Model.AttemptID] = step.Model
-		s.modelOrder = append(s.modelOrder, step.Model.AttemptID)
+		s.modelCallStart = step.Model.ModelCallID
+		s.startedModelCalls[step.Model.ModelCallID] = step.Model
+		s.modelOrder = append(s.modelOrder, step.Model.ModelCallID)
 		s.modelCalls++
-		s.finalAnswerOnly = step.Model.FinalAnswerOnly
+		s.finalReplyOnly = step.Model.FinalReplyOnly
 		s.unresolvedPartial = false
-		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
-			return errors.New("repeated model attempt ID")
+		if _, exists := s.modelMessages[step.Model.ModelCallID]; exists {
+			return errors.New("repeated model call ID")
 		}
-		s.modelMessages[step.Model.AttemptID] = step.Model.MessageID
+		s.modelMessages[step.Model.ModelCallID] = step.Model.MessageID
 		s.awaitingClassification = false
 		s.modelDefs = map[string]tool.Definition{}
 		outputTool := false
@@ -260,20 +260,20 @@ func (s *replayState) apply(step Step) error {
 					return errors.New("invalid reserved output tool")
 				}
 				outputTool = true
-			} else if step.Model.FinalAnswerOnly {
-				return errors.New("final-answer intent offers an application tool")
+			} else if step.Model.FinalReplyOnly {
+				return errors.New("final-reply call start offers an application tool")
 			}
 			s.modelDefs[d.Name] = d
 		}
 		if len(s.OutputSchema) > 0 && !outputTool && step.Model.Purpose != ModelPurposeCompaction {
 			return errors.New("output schema requires reserved output tool")
 		}
-	case StepModelSettled:
+	case StepModelCallFinished:
 		if step.Model == nil ||
-			step.Model.AttemptID == "" ||
-			step.Model.AttemptID != s.modelIntent ||
-			step.Model.MessageID != s.modelMessages[s.modelIntent] {
-			return errors.New("model settlement without intent")
+			step.Model.ModelCallID == "" ||
+			step.Model.ModelCallID != s.modelCallStart ||
+			step.Model.MessageID != s.modelMessages[s.modelCallStart] {
+			return errors.New("model result without a call start")
 		}
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
@@ -284,24 +284,24 @@ func (s *replayState) apply(step Step) error {
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
-		if step.Model.Failure != "" &&
-			step.Model.Failure != llm.FailureUnknown &&
-			step.Model.Failure != llm.FailureRejected &&
-			step.Model.Failure != llm.FailureNotDispatched {
-			return errors.New("invalid model failure disposition")
+		if step.Model.SendStatus != "" &&
+			step.Model.SendStatus != llm.SendStatusUnknown &&
+			step.Model.SendStatus != llm.SendStatusProviderRejected &&
+			step.Model.SendStatus != llm.SendStatusNotSent {
+			return errors.New("invalid model failure send status")
 		}
-		if step.Model.Uncertain &&
-			(step.Model.Failure == llm.FailureRejected ||
-				step.Model.Failure == llm.FailureNotDispatched) {
-			return errors.New("known model failure marked uncertain")
+		if step.Model.ResultUnknown &&
+			(step.Model.SendStatus == llm.SendStatusProviderRejected ||
+				step.Model.SendStatus == llm.SendStatusNotSent) {
+			return errors.New("known model failure marked result unknown")
 		}
 		if step.Model.Interrupted != InterruptNone &&
-			(step.Model.Failure == llm.FailureRejected ||
-				step.Model.Failure == llm.FailureNotDispatched) {
+			(step.Model.SendStatus == llm.SendStatusProviderRejected ||
+				step.Model.SendStatus == llm.SendStatusNotSent) {
 			return errors.New("interrupted model call cannot have known nonexecution")
 		}
-		if step.Model.Failure == llm.FailureRejected ||
-			step.Model.Failure == llm.FailureNotDispatched {
+		if step.Model.SendStatus == llm.SendStatusProviderRejected ||
+			step.Model.SendStatus == llm.SendStatusNotSent {
 			if step.Model.Error == "" ||
 				step.Model.Evidence == "" ||
 				(step.Model.Result != nil &&
@@ -311,30 +311,30 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("known model failure lacks evidence or has partial result")
 			}
 		}
-		if err := s.validateCompactionSettlement(step.Model); err != nil {
+		if err := s.validateCompactionFinish(step.Model); err != nil {
 			return err
 		}
-		s.modelIntent = ""
-		s.modelSettlements[step.Model.AttemptID] = step.Model
+		s.modelCallStart = ""
+		s.modelFinishes[step.Model.ModelCallID] = step.Model
 		if step.Model.Interrupted == InterruptNone {
-			s.ModelAttempts++
+			s.ModelCalls++
 		}
-		if step.Model.Uncertain {
-			s.unresolvedModel = step.Model.AttemptID
+		if step.Model.ResultUnknown {
+			s.unresolvedModel = step.Model.ModelCallID
 			s.unresolvedInterrupted = step.Model.Interrupted != InterruptNone
 			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
 		} else if step.Model.Error != "" &&
 			step.Model.Interrupted == InterruptNone &&
-			step.Model.Failure != llm.FailureRejected &&
-			step.Model.Failure != llm.FailureNotDispatched {
+			step.Model.SendStatus != llm.SendStatusProviderRejected &&
+			step.Model.SendStatus != llm.SendStatusNotSent {
 			s.failedModel = step.Model.Error
 		}
-		if step.Model.Result != nil && s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
+		if step.Model.Result != nil && s.startedModelCalls[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 			actionable := step.Model.Error == "" &&
 				step.Model.Interrupted == InterruptNone &&
-				!s.Stop.Terminal
+				!s.Stop.Ended
 			if err := s.recordResult(
-				step.Model.AttemptID,
+				step.Model.ModelCallID,
 				step.Model.Result,
 				actionable,
 			); err != nil {
@@ -343,8 +343,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
-			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
-				s.pendingCompaction = step.Model.AttemptID
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true
@@ -353,45 +353,46 @@ func (s *replayState) apply(step Step) error {
 		if err := s.checkStillOpen(); err != nil {
 			return err
 		}
-	case StepModelReconciled:
+	case StepModelCallFinishedByHost:
 		if step.Model == nil ||
-			step.Model.AttemptID != s.unresolvedModel ||
+			step.Model.ModelCallID != s.unresolvedModel ||
 			step.Model.MessageID != s.modelMessages[s.unresolvedModel] ||
 			(step.Model.Result == nil &&
 				step.Model.Error == "") {
-			return errors.New("model reconciliation without uncertain attempt")
+			return errors.New("host-supplied model result without an unknown-result call")
 		}
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
-		if err := s.validateCompactionSettlement(step.Model); err != nil {
+		if err := s.validateCompactionFinish(step.Model); err != nil {
 			return err
 		}
 		s.unresolvedModel = ""
-		s.modelSettlements[step.Model.AttemptID] = step.Model
-		// Verified nonexecution clears uncertainty; Continue may retry.
+		s.modelFinishes[step.Model.ModelCallID] = step.Model
+		// Proof that the call was never sent clears the unknown result;
+		// Continue may retry.
 		if step.Model.Error != "" &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
-				(step.Model.Failure != llm.FailureRejected &&
-					step.Model.Failure != llm.FailureNotDispatched) ||
+				(step.Model.SendStatus != llm.SendStatusProviderRejected &&
+					step.Model.SendStatus != llm.SendStatusNotSent) ||
 				step.Model.Evidence == "") {
-			return errors.New("model failure reconciliation lacks evidence")
+			return errors.New("host-supplied model failure lacks evidence")
 		}
 		if step.Model.Error == "" {
-			if s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 				if err := s.recordResult(
-					step.Model.AttemptID,
+					step.Model.ModelCallID,
 					step.Model.Result,
-					!s.Stop.Terminal,
+					!s.Stop.Ended,
 				); err != nil {
 					return err
 				}
 			}
 			if s.unresolvedInterrupted {
-				s.ModelAttempts++
+				s.ModelCalls++
 			}
-			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
-				s.pendingCompaction = step.Model.AttemptID
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true
@@ -434,7 +435,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if v.Call.Name == SubmitOutputTool &&
 			(v.Verdict.Kind != DecisionAllow ||
-				v.Verdict.Revision != "dashi-output-v1" ||
+				v.Verdict.RulesVersion != "dashi-output-v1" ||
 				len(step.Tool.Call.RequestedArgs) != 0 ||
 				!canonjson.Equal(
 					v.Call.Args,
@@ -446,7 +447,7 @@ func (s *replayState) apply(step Step) error {
 		switch v.Verdict.Kind {
 		case DecisionAllow:
 			v.Status = ToolAllowed
-		case DecisionDefer:
+		case DecisionNeedsApproval:
 			v.Status = ToolApprovalPending
 		case DecisionDeny:
 			v.Status = ToolDenied
@@ -496,10 +497,10 @@ func (s *replayState) apply(step Step) error {
 		v.Status = ToolWaiting
 		v.Outcome = step.Tool.Outcome
 		s.Tools[v.Call.ID] = v
-	case StepToolSettled:
+	case StepToolFinished:
 		s.awaitingClassification = false
 		if step.Tool == nil {
-			return errors.New("missing tool settlement")
+			return errors.New("missing tool result")
 		}
 		if step.Tool.Vetoed {
 			if step.Tool.Call.Name != SubmitOutputTool ||
@@ -527,26 +528,26 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status == ToolSettled || !canonjson.SameValue(v.Call, step.Tool.Call) {
-			return errors.New("tool settlement without pending call")
+		if !ok || v.Status == ToolFinished || !canonjson.SameValue(v.Call, step.Tool.Call) {
+			return errors.New("tool result without pending call")
 		}
 		if step.Tool.Outcome == nil {
 			// No outcome records a result the runner did not observe: a
 			// panic, or a start with no result after a crash. A returned
-			// error settles with a failed outcome instead. Replay does not
+			// error finishes with a failed outcome instead. View does not
 			// second-guess the reason text, so an older or forged record
-			// claiming uncertainty for an error still needs Settle.
+			// claiming an unknown result for an error still needs Resolve.
 			if v.Status != ToolStarted && v.Status != ToolWaiting {
-				return errors.New("uncertainty without start")
+				return errors.New("unknown result without start")
 			}
-			v.Status = ToolUncertain
+			v.Status = ToolResultUnknown
 		} else {
 			if e := step.Tool.Outcome.Validate(); e != nil {
 				return e
 			}
 			if step.Tool.Outcome.State == tool.StateWaiting ||
 				step.Tool.Outcome.State == tool.StateDetached {
-				return errors.New("wait is not settlement")
+				return errors.New("wait is not a final result")
 			}
 			if v.Call.Name == SubmitOutputTool {
 				// A steer never skips the submission; the finish point
@@ -577,9 +578,9 @@ func (s *replayState) apply(step Step) error {
 				// Only an urgent steer keeps an allowed call from starting.
 				if step.Tool.Outcome.State != tool.StateNotExecuted ||
 					step.Tool.Reason != reasonSteering {
-					return errors.New("only a steer settles an allowed call without running it")
+					return errors.New("only a steer finishes an allowed call without running it")
 				}
-			case ToolStarted, ToolWaiting, ToolUncertain:
+			case ToolStarted, ToolWaiting, ToolResultUnknown:
 			default:
 				return errors.New("tool result without execution or denial")
 			}
@@ -587,7 +588,7 @@ func (s *replayState) apply(step Step) error {
 				// Only a tool's or host's content passes AfterTool.
 				if v.Call.Name == SubmitOutputTool ||
 					(v.Status != ToolStarted && v.Status != ToolWaiting &&
-						v.Status != ToolUncertain) ||
+						v.Status != ToolResultUnknown) ||
 					step.Tool.Result.CallID != v.Call.ID {
 					return errors.New("result replacement without a tool result")
 				}
@@ -608,7 +609,7 @@ func (s *replayState) apply(step Step) error {
 			v.steered = (v.Status == ToolRequested || v.Status == ToolAllowed) &&
 				step.Tool.Outcome.State == tool.StateNotExecuted &&
 				step.Tool.Reason == reasonSteering
-			v.Status = ToolSettled
+			v.Status = ToolFinished
 			v.Outcome = step.Tool.Outcome
 		}
 		if step.Tool.Result != nil && step.Tool.Outcome == nil {
@@ -618,7 +619,7 @@ func (s *replayState) apply(step Step) error {
 		if err := s.checkStillOpen(); err != nil {
 			return err
 		}
-	case StepApprovalSettled:
+	case StepApprovalDecided:
 		s.awaitingClassification = false
 		if step.Approval == nil {
 			return errors.New("missing approval")
@@ -627,11 +628,11 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if step.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
+		if step.Approval.ArgsHash != ArgsHash(v.Call.Args) {
 			return errors.New("stale approval")
 		}
-		// Verdict stays the hooks'; the host's answer is kept beside it,
-		// so a denial's reason reaches the model when Continue settles the
+		// Verdict stays the hooks'; the host's decision is kept beside it,
+		// so a denial's reason reaches the model when Continue finishes the
 		// call.
 		answer := *step.Approval
 		v.Approval = &answer
@@ -641,16 +642,16 @@ func (s *replayState) apply(step Step) error {
 			v.Status = ToolDenied
 		}
 		s.Tools[v.Call.ID] = v
-	case StepHostedApprovalSettled:
+	case StepProviderToolApprovalDecided:
 		s.awaitingClassification = false
-		if step.HostedApproval == nil {
-			return errors.New("missing hosted approval")
+		if step.ProviderToolApproval == nil {
+			return errors.New("missing provider tool approval")
 		}
-		a, ok := s.hosted[step.HostedApproval.RequestID]
-		if !ok || a.Origin != step.HostedApproval.Origin {
-			return errors.New("hosted approval without matching request")
+		a, ok := s.providerTool[step.ProviderToolApproval.RequestID]
+		if !ok || a.Origin != step.ProviderToolApproval.Origin {
+			return errors.New("provider tool approval without matching request")
 		}
-		delete(s.hosted, a.ID)
+		delete(s.providerTool, a.ID)
 	case StepOutputRecorded:
 		if len(s.OutputSchema) == 0 ||
 			s.Output != nil ||
@@ -666,24 +667,24 @@ func (s *replayState) apply(step Step) error {
 			return err
 		}
 		switch step.Output.Source {
-		case OutputFromTool:
+		case OutputSourceToolCall:
 			v, ok := s.Tools[step.Output.ToolCallID]
 			if !ok ||
 				v.Call.Name != SubmitOutputTool ||
-				v.Status != ToolSettled ||
+				v.Status != ToolFinished ||
 				v.Outcome == nil ||
 				v.Outcome.State != tool.StateSucceeded ||
-				s.callAttempts[v.Call.ID] != step.Output.AttemptID ||
+				s.modelCallOfTool[v.Call.ID] != step.Output.ModelCallID ||
 				!canonjson.Equal(
 					v.Call.Args,
 					step.Output.Value,
 				) {
 				return errors.New("structured output does not match an accepted submission")
 			}
-		case OutputFromText:
+		case OutputSourceText:
 			if step.Output.ToolCallID != "" ||
-				step.Output.AttemptID == "" ||
-				step.Output.AttemptID != s.latestAttempt ||
+				step.Output.ModelCallID == "" ||
+				step.Output.ModelCallID != s.latestModelCall ||
 				!s.awaitingClassification ||
 				s.latestResult == nil ||
 				s.latestResult.Stop.Kind != llm.StopFinished {
@@ -700,12 +701,12 @@ func (s *replayState) apply(step Step) error {
 		value.Value = append(json.RawMessage(nil), value.Value...)
 		s.Output = &value
 		s.awaitingClassification = false
-	case StepStopped:
+	case StepTurnStopped:
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
-		if step.Stop.Projected {
-			return errors.New("a recorded stop cannot be projected")
+		if step.Stop.Inferred {
+			return errors.New("a recorded stop cannot be inferred")
 		}
 		if step.Stop.Limit != nil {
 			if step.Stop.Kind != StopLimited {
@@ -715,7 +716,7 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		// A candidate answer survives an interruption, and a BeforeFinish
+		// A candidate reply survives an interruption, and a BeforeFinish
 		// failure, so Continue can classify it again without another model
 		// call.
 		if step.Stop.Kind != StopInterrupted &&
@@ -725,7 +726,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		switch step.Stop.Kind {
 		case StopCompleted, StopWaiting, StopLimited, StopRefused,
-			StopCanceled, StopFailed, StopUncertain, StopInterrupted:
+			StopCanceled, StopFailed, StopResultUnknown, StopInterrupted:
 		default:
 			return errors.New("invalid stop kind")
 		}
@@ -739,31 +740,33 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.Stop = *step.Stop
 		if step.Stop.Kind == StopLimited {
-			// Cost and usage completeness determine prefix terminality.
+			// Whether cost and usage are complete decides whether the
+			// steps so far end the turn.
 			if err := s.calculateSpend(); err != nil {
 				return err
 			}
 		}
-		if s.stopTerminal(*step.Stop) != step.Stop.Terminal {
+		if s.stopEnds(*step.Stop) != step.Stop.Ended {
 			return fmt.Errorf(
-				"stop terminal=%t, but the turn's state gives %t",
-				step.Stop.Terminal,
-				s.stopTerminal(*step.Stop),
+				"stop ended=%t, but the turn's state gives %t",
+				step.Stop.Ended,
+				s.stopEnds(*step.Stop),
 			)
 		}
-		if step.Stop.Terminal {
+		if step.Stop.Ended {
 			// The stop is the evidence that calls without a start could not
-			// execute. Started calls remain pending for late reconciliation.
+			// run. Started calls stay pending until a late result arrives
+			// or the host resolves them.
 			for _, id := range s.callOrder {
 				v := s.Tools[id]
 				switch v.Status {
 				case ToolRequested, ToolApprovalPending, ToolAllowed, ToolDenied:
-					v.Status = ToolSettled
+					v.Status = ToolFinished
 					v.Outcome = &tool.Outcome{State: tool.StateNotExecuted}
 					s.Tools[id] = v
 				}
 			}
-			clear(s.hosted)
+			clear(s.providerTool)
 		}
 	default:
 		return fmt.Errorf("unknown step kind %q", step.Kind)

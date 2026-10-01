@@ -11,7 +11,7 @@ import (
 )
 
 // hostTurns is a host that keeps its own turns and runs each through a
-// Runner, with ProjectHistory as the history.
+// Runner, with BuildHistory as the history.
 type hostTurns struct {
 	t      *testing.T
 	client *dashitest.Client
@@ -41,7 +41,7 @@ func (h *hostTurns) send(text, answer string) {
 }
 
 // compact runs a compaction turn that keeps the last keep messages of the
-// projected history and answers with answer.
+// history and replies with answer.
 func (h *hostTurns) compact(keep int, answer string) {
 	h.t.Helper()
 	h.client.Add(dashitest.Reply(answer))
@@ -59,15 +59,15 @@ func (h *hostTurns) compact(keep int, answer string) {
 
 func (h *hostTurns) history() []llm.Message {
 	h.t.Helper()
-	history, warnings := dashi.ProjectHistory(h.turns)
+	history, warnings := dashi.BuildHistory(h.turns)
 	if len(warnings) > 0 {
 		h.t.Fatalf("warnings=%v", warnings)
 	}
 	return history
 }
 
-func TestProjectHistory(t *testing.T) {
-	if history, warnings := dashi.ProjectHistory(nil); history != nil || warnings != nil {
+func TestBuildHistory(t *testing.T) {
+	if history, warnings := dashi.BuildHistory(nil); history != nil || warnings != nil {
 		t.Fatalf("empty: history=%v warnings=%v", history, warnings)
 	}
 
@@ -94,7 +94,7 @@ func TestProjectHistory(t *testing.T) {
 	if got := textsOf(h.history()); !slices.Equal(got, want) {
 		t.Fatalf("after compaction: %q", got)
 	}
-	tail, _ := dashi.ProjectHistory(h.turns[3:])
+	tail, _ := dashi.BuildHistory(h.turns[3:])
 	if got := textsOf(tail); !slices.Equal(got, want) {
 		t.Fatalf("from the compaction turn: %q", got)
 	}
@@ -108,13 +108,13 @@ func TestProjectHistory(t *testing.T) {
 	}
 }
 
-func TestProjectHistoryUnreadableTurn(t *testing.T) {
+func TestBuildHistoryUnreadableTurn(t *testing.T) {
 	h := &hostTurns{t: t, client: dashitest.NewClient()}
 	h.send("first", "one")
 	h.send("second", "two")
 	turns := slices.Clone(h.turns)
 	turns[0].Steps = turns[0].Steps[1:] // no start fact
-	history, warnings := dashi.ProjectHistory(turns)
+	history, warnings := dashi.BuildHistory(turns)
 	if got := textsOf(history); !slices.Equal(got, []string{"second", "two"}) {
 		t.Fatalf("history=%q", got)
 	}

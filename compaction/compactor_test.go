@@ -10,8 +10,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// replaced is the replacement history a compaction turn with answer would
-// record.
+// replaced is the replacement history a compaction turn with the reply
+// answer would record.
 func replaced(t *testing.T, s dashi.Start, answer string) []llm.Message {
 	t.Helper()
 	f := s.Compaction

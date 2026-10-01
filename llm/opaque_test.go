@@ -176,7 +176,7 @@ func TestInputRejectsPartialDataInEveryReplayAttachment(t *testing.T) {
 				)
 			}
 			if err := input.Validate(); err == nil {
-				t.Fatal("partial data was admitted for replay")
+				t.Fatal("partial data was accepted for replay")
 			}
 		})
 	}

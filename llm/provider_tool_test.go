@@ -7,7 +7,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 )
 
-func TestHostedApprovalResponseRejectsProviderReplay(t *testing.T) {
+func TestProviderToolApprovalResponseRejectsProviderReplay(t *testing.T) {
 	origin := content.Origin{
 		Provider: "openai",
 		API:      "openai.responses",
@@ -15,8 +15,8 @@ func TestHostedApprovalResponseRejectsProviderReplay(t *testing.T) {
 		Scope:    "scope",
 	}
 	response := Content{
-		Kind: ContentHostedApprovalResponse,
-		HostedApprovalResponse: &HostedApprovalResponse{
+		Kind: ContentProviderToolApprovalResponse,
+		ProviderToolApprovalResponse: &ProviderToolApprovalResponse{
 			RequestID: "approval_1",
 			Origin:    origin,
 		},

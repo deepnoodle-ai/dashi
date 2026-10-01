@@ -278,7 +278,7 @@ func TestResponsesCacheKeyAndRetention(t *testing.T) {
 	if info == nil || info.Pricing == nil {
 		t.Fatal("grok-4.7 has no catalog pricing")
 	}
-	if _, ok := llm.MaxCostAtRisk(r, *info.Pricing); !ok {
+	if _, ok := llm.WorstCaseCost(r, *info.Pricing); !ok {
 		t.Fatal("grok cost risk was not bounded")
 	}
 }

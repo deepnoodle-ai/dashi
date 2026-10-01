@@ -42,8 +42,8 @@ func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 	if !reflect.DeepEqual(client.inputs[0].Messages, want) {
 		t.Fatalf("model request omitted history: %#v", client.inputs[0].Messages)
 	}
-	if out.Turn.Steps[0].Started.HistoryFingerprint == "" {
-		t.Fatal("start did not record a history fingerprint")
+	if out.Turn.Steps[0].Started.HistoryHash == "" {
+		t.Fatal("start did not record a history hash")
 	}
 	encoded, err := json.Marshal(out.Turn)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRunnerContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 		t.Fatal("continued turn did not save new steps")
 	}
 	continued := out.Turn.Steps[len(first.Turn.Steps)]
-	if continued.Kind != StepContinued {
+	if continued.Kind != StepTurnContinued {
 		t.Fatalf("first new step = %s, want continued", continued.Kind)
 	}
 	if len(continued.Warnings) != 1 {
@@ -213,7 +213,7 @@ func TestRunnerStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 			got = err
 			continue
 		}
-		if event.Outcome != nil {
+		if event.Result != nil {
 			events++
 		}
 	}
@@ -222,7 +222,7 @@ func TestRunnerStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 	}
 }
 
-func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
+func TestRunnerStrictContinueRejectsAtResumeLimit(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
 	changed := []llm.Message{llm.UserMessage(llm.Text("changed history"))}
 	recorder, limited := interruptionLimitedHistoryTurn(t, history)
@@ -243,7 +243,7 @@ func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	}
 	assertSavedSteps(t, recorder, limited)
 
-	// Warn mode still records the interruption-limit stop.
+	// Warn mode still records the resume-limit stop.
 	out, err := (Runner{
 		Client:   &scriptedClient{},
 		Recorder: recorder,
@@ -260,7 +260,7 @@ func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	}
 }
 
-func TestRunnerInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
+func TestRunnerInvalidHistoryAtResumeLimitCommitsNothing(t *testing.T) {
 	recorder, limited := interruptionLimitedHistoryTurn(t, nil)
 	_, err := (Runner{
 		Client:   &scriptedClient{},
@@ -277,16 +277,16 @@ func TestRunnerInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
 }
 
 // interruptionLimitedHistoryTurn returns a turn that has used its only
-// resume, so the next Continue reaches the interruption limit.
+// resume, so the next Continue reaches the resume limit.
 func interruptionLimitedHistoryTurn(
 	t *testing.T,
 	history []llm.Message,
 ) (*MemoryRecorder, Turn) {
 	t.Helper()
 	def := testAgent()
-	def.Limits.Interruptions = 1
+	def.Limits.Resumes = 1
 	recorder := NewMemoryRecorder()
-	// The first pause follows a model attempt, so resuming from it counts.
+	// The first pause follows a model call, so resuming from it counts.
 	paused := make(chan struct{})
 	runner := Runner{
 		Client:   &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}},
@@ -319,11 +319,11 @@ func interruptionLimitedHistoryTurn(
 	if out.Stop.Kind != StopInterrupted {
 		t.Fatalf("resume did not interrupt: %+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Interruptions != 1 || view.ReadyToContinue {
+	if view.Resumes != 1 || view.ReadyToContinue {
 		t.Fatalf("turn is not at its interruption limit: %+v", view)
 	}
 	return recorder, out.Turn
@@ -370,7 +370,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	recorder := NewMemoryRecorder()
 	first, err := (Runner{
 		Client:   client,
-		Recorder: failIntentRecorder{base: recorder},
+		Recorder: failCallStartRecorder{base: recorder},
 	}).Run(
 		t.Context(),
 		Turn{ID: "history-recovery"},
@@ -381,8 +381,8 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
 	)
-	if persistence(err) != PersistenceRejected {
-		t.Fatalf("model intent write was not rejected: %v", err)
+	if !nothingWritten(err) {
+		t.Fatalf("model call start write was not rejected: %v", err)
 	}
 	if first.Turn.ID != "history-recovery" {
 		t.Fatalf("outcome lost the turn: %+v", first.Turn)
@@ -391,7 +391,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepStarted {
+	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepTurnStarted {
 		t.Fatalf("saved prefix after crash = %#v", saved.Steps)
 	}
 	out, err := (Runner{
@@ -459,7 +459,7 @@ func startPausedHistoryTurn(
 	client *scriptedClient,
 	recorder Recorder,
 	history []llm.Message,
-) Outcome {
+) RunResult {
 	t.Helper()
 	paused := make(chan struct{})
 	close(paused)
@@ -513,10 +513,10 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{CommandID: "result", CallID: "call-1", Outcome: &result},
+		Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
-		t.Fatalf("settle: out=%+v err=%v sends=%d", accepted, err, client.sends)
+		t.Fatalf("finish: out=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Runner{
 		Client:   client,
@@ -524,7 +524,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		Recorder: rec,
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {
-		t.Fatalf("settle: stop=%+v err=%v", completed.Stop, err)
+		t.Fatalf("finish: stop=%+v err=%v", completed.Stop, err)
 	}
 	duplicate, err := (Runner{
 		Client:   client,
@@ -568,37 +568,37 @@ func (c noModelClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	return llm.Result{}, nil
 }
 
-func TestAdmitWithoutClient(t *testing.T) {
+func TestRecordWithoutClient(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
-	admit := Start{
+	recordOnly := Start{
 		CommandID: "start",
 		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	admitted, err := (Runner{Recorder: rec}).Run(
-		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+	recorded, err := (Runner{Recorder: rec}).Run(
+		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(admitted.Turn.Steps) != 2 ||
-		admitted.Stop.Kind != StopInterrupted ||
-		admitted.Stop.Reason != "pause requested" ||
-		admitted.Next() != NextContinue {
-		t.Fatalf("admitted=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
+	if len(recorded.Turn.Steps) != 2 ||
+		recorded.Stop.Kind != StopInterrupted ||
+		recorded.Stop.Reason != "pause requested" ||
+		recorded.Next() != NextContinue {
+		t.Fatalf("recorded=%+v steps=%d", recorded.Stop, len(recorded.Turn.Steps))
 	}
 
-	// The same admission with a Client records the same Start step.
+	// The same unrun Start with a Client records the same Start step.
 	withClient, err := (Runner{Client: &scriptedClient{}}).Run(
-		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, want := admitted.Turn.Steps[0], withClient.Turn.Steps[0]
-	if got.CommandDigest != want.CommandDigest ||
+	got, want := recorded.Turn.Steps[0], withClient.Turn.Steps[0]
+	if got.CommandHash != want.CommandHash ||
 		!reflect.DeepEqual(got.Started, want.Started) {
 		t.Fatalf("start step differs without a client:\n%+v\n%+v", got, want)
 	}
@@ -606,7 +606,7 @@ func TestAdmitWithoutClient(t *testing.T) {
 	// A retried Start with a Client is the same command.
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{Client: client, Recorder: rec}
-	retried, err := runner.Run(t.Context(), Turn{ID: "t1"}, admit)
+	retried, err := runner.Run(t.Context(), Turn{ID: "t1"}, recordOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,10 +622,10 @@ func TestAdmitWithoutClient(t *testing.T) {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 
-	// Continue with a Client runs an admitted turn.
+	// Continue with a Client runs a turn that was recorded without running.
 	rec2 := NewMemoryRecorder()
 	again, err := (Runner{Recorder: rec2}).Run(
-		t.Context(), Turn{ID: "t2"}, admit, WithPause(paused),
+		t.Context(), Turn{ID: "t2"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -697,14 +697,14 @@ func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
 
 	paused := make(chan struct{})
 	close(paused)
-	admitted, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+	recorded, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
 	}, WithPause(paused))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(t.Context(), admitted.Turn, Continue{})
+	_, err = runner.Run(t.Context(), recorded.Turn, Continue{})
 	if err == nil || !strings.Contains(err.Error(), "client is required to call the model") {
 		t.Fatalf("continue err=%v", err)
 	}
@@ -712,8 +712,8 @@ func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Steps) != len(admitted.Turn.Steps) {
-		t.Fatalf("continue recorded steps: %d, want %d", len(saved.Steps), len(admitted.Turn.Steps))
+	if len(saved.Steps) != len(recorded.Turn.Steps) {
+		t.Fatalf("continue recorded steps: %d, want %d", len(saved.Steps), len(recorded.Turn.Steps))
 	}
 }
 
@@ -750,7 +750,7 @@ func TestCancelRefusesTurnThatHasNotStarted(t *testing.T) {
 	}
 }
 
-func TestSettleAndDeliverWithoutClient(t *testing.T) {
+func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 	external := tool.Tool{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
@@ -767,7 +767,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		delivered, err := clientless(rec).Run(t.Context(), waiting.Turn, Deliver{
+		delivered, err := clientless(rec).Run(t.Context(), waiting.Turn, AddMessages{
 			CommandID: "note",
 			Items: []ContextItem{{
 				ID:      "note-1",
@@ -778,13 +778,13 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := tool.Succeeded("found")
-		settled, err := clientless(rec).Run(
+		finished, err := clientless(rec).Run(
 			t.Context(),
 			delivered.Turn,
-			Settle{CommandID: "result", CallID: "call-1", Outcome: &result},
+			Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 		)
-		if err != nil || !settled.ReadyToContinue || client.sends != 1 {
-			t.Fatalf("settled=%+v err=%v sends=%d", settled.Stop, err, client.sends)
+		if err != nil || !finished.ReadyToContinue || client.sends != 1 {
+			t.Fatalf("finished=%+v err=%v sends=%d", finished.Stop, err, client.sends)
 		}
 	})
 
@@ -801,7 +801,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 		}
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 		waiting, err := start(t, client, tool.List{local}, rec, RequireApproval())
-		if err != nil || waiting.Next() != NextAnswer {
+		if err != nil || waiting.Next() != NextResolvePending {
 			t.Fatalf("waiting=%+v err=%v", waiting.Stop, err)
 		}
 		approved, err := (Runner{Recorder: rec}).Run(
@@ -816,21 +816,21 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		settle Settle
+		finish Resolve
 	}{
-		{"model result", Settle{ModelResult: new(final("recovered"))}},
-		{"model failure", Settle{ModelFailure: &ModelFailure{
-			Disposition: llm.FailureNotDispatched,
-			Reason:      "worker did not send",
-			Evidence:    "dispatch log",
+		{"model result", Resolve{ModelResult: new(final("recovered"))}},
+		{"model failure", Resolve{ModelFailure: &ModelFailure{
+			SendStatus: llm.SendStatusNotSent,
+			Reason:     "worker did not send",
+			Evidence:   "dispatch log",
 		}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := NewMemoryRecorder()
-			turn := crashedModelIntent(t, rec)
-			tc.settle.CommandID = "reconcile"
-			tc.settle.CallID = "t1:model:1"
-			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.settle)
+			turn := crashedModelCallStart(t, rec)
+			tc.finish.CommandID = "resolve"
+			tc.finish.CallID = "t1:model:1"
+			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.finish)
 			if err != nil || !out.ReadyToContinue {
 				t.Fatalf("out=%+v err=%v", out.Stop, err)
 			}
@@ -838,26 +838,27 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 	}
 }
 
-// crashedModelIntent records a turn whose model attempt has an intent and
-// an uncertain stop, so a Settle must reconcile it.
-func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
+// crashedModelCallStart records a turn whose model call has a
+// model_call_started step and a result_unknown stop, so a Resolve must
+// supply its result.
+func crashedModelCallStart(t *testing.T, rec *MemoryRecorder) Turn {
 	t.Helper()
 	def := testAgent()
 	turn := Turn{ID: "t1"}
 	for _, step := range []Step{
-		{Kind: StepStarted, Started: &StartFact{
+		{Kind: StepTurnStarted, Started: &StartFact{
 			Agent: def,
 			Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		}},
-		{Kind: StepModelIntent, Model: &ModelFact{
-			AttemptID:     "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
+		{Kind: StepModelCallStarted, Model: &ModelFact{
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "hash",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
 		}},
-		{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"}},
+		{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown, Reason: "worker crashed"}},
 	} {
 		step.Version = 1
 		step.TurnID = turn.ID
@@ -873,11 +874,11 @@ func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 	return turn
 }
 
-func TestAdmitWithoutRunning(t *testing.T) {
+func TestRecordWithoutRunning(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
-	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	recorded, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
@@ -890,31 +891,31 @@ func TestAdmitWithoutRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps := admitted.Turn.Steps
+	steps := recorded.Turn.Steps
 	if len(steps) != 2 ||
-		steps[0].Kind != StepStarted ||
-		steps[1].Kind != StepStopped ||
+		steps[0].Kind != StepTurnStarted ||
+		steps[1].Kind != StepTurnStopped ||
 		steps[1].Stop.Kind != StopInterrupted ||
 		steps[1].Stop.Reason != "pause requested" {
 		t.Fatalf("steps=%+v", steps)
 	}
-	if admitted.Next() != NextContinue || !admitted.ReadyToContinue ||
-		admitted.ModelAttempts != 0 || admitted.Interruptions != 0 {
-		t.Fatalf("view=%+v next=%v", admitted.TurnView, admitted.Next())
+	if recorded.Next() != NextContinue || !recorded.ReadyToContinue ||
+		recorded.ModelCalls != 0 || recorded.Resumes != 0 {
+		t.Fatalf("view=%+v next=%v", recorded.TurnView, recorded.Next())
 	}
 
 	canceled, err := (Runner{Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
-		Cancel{CommandID: "cancel", Reason: "admission withdrawn"},
+		recorded.Turn,
+		Cancel{CommandID: "cancel", Reason: "reservation withdrawn"},
 	)
 	if err != nil || canceled.Stop.Kind != StopCanceled {
 		t.Fatalf("canceled=%+v err=%v", canceled.Stop, err)
 	}
 
-	// The same admission, continued later, runs normally.
+	// The same unrun Start, continued later, runs normally.
 	rec = NewMemoryRecorder()
-	admitted, err = (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	recorded, err = (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t2"},
 		Start{
@@ -930,25 +931,25 @@ func TestAdmitWithoutRunning(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
+		recorded.Turn,
 		Continue{CommandID: "run"},
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("done=%+v err=%v sends=%d", done.Stop, err, client.sends)
 	}
-	// A pause before the first model attempt interrupted no work.
-	if done.Interruptions != 0 {
-		t.Fatalf("interruptions=%d", done.Interruptions)
+	// A pause before the first model call interrupted no work.
+	if done.Resumes != 0 {
+		t.Fatalf("interruptions=%d", done.Resumes)
 	}
 }
 
-func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
+func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
 	agent := testAgent()
-	agent.Limits.Interruptions = -1
-	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	agent.Limits.Resumes = -1
+	recorded, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
@@ -958,22 +959,22 @@ func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
 		},
 		WithPause(paused),
 	)
-	if err != nil || admitted.Next() != NextContinue {
-		t.Fatalf("admitted=%+v err=%v", admitted.Stop, err)
+	if err != nil || recorded.Next() != NextContinue {
+		t.Fatalf("recorded=%+v err=%v", recorded.Stop, err)
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
+		recorded.Turn,
 		Continue{CommandID: "run"},
 	)
-	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 0 {
-		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 0 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Resumes, err)
 	}
 }
 
 // pausingTool is a local "lookup" tool that closes paused when it runs, so
-// a turn pauses after a model attempt, before its next model call.
+// a turn pauses after a model call, before its next model call.
 func pausingTool(paused chan struct{}) tool.Tool {
 	return tool.Tool{
 		Definition: tool.Definition{
@@ -987,7 +988,7 @@ func pausingTool(paused chan struct{}) tool.Tool {
 	}
 }
 
-func TestPauseAfterModelAttemptCountsAsInterruption(t *testing.T) {
+func TestPauseAfterModelCallCountsAsResume(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	local := pausingTool(paused)
@@ -1010,7 +1011,7 @@ func TestPauseAfterModelAttemptCountsAsInterruption(t *testing.T) {
 		t.Fatalf("stopped=%+v err=%v sends=%d", stopped.Stop, err, client.sends)
 	}
 	done, err := runner.Run(t.Context(), stopped.Turn, Continue{CommandID: "run"})
-	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 1 {
-		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 1 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Resumes, err)
 	}
 }

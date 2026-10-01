@@ -406,7 +406,7 @@ func TestLeaseTakeoverAcrossProcesses(t *testing.T) {
 		ExpectedSeq: 2,
 		Owner:       "old",
 	})
-	requireRejected(t, err, dashi.ErrRevisionConflict)
+	requireRejected(t, err, dashi.ErrStaleTurn)
 	requireSteps(t, r, "turn", 2)
 }
 
@@ -445,7 +445,7 @@ func TestChildProcess(t *testing.T) {
 	switch {
 	case err == nil:
 		fmt.Println("RESULT:ok")
-	case errors.Is(err, dashi.ErrRevisionConflict):
+	case errors.Is(err, dashi.ErrStaleTurn):
 		fmt.Println("RESULT:conflict")
 	default:
 		fmt.Printf("RESULT:error %v\n", err)
@@ -488,7 +488,7 @@ func step(turnID string, seq int64, text string) dashi.Step {
 		TurnID:  turnID,
 		Seq:     seq,
 		At:      stepTime.Add(time.Duration(seq) * time.Millisecond),
-		Kind:    dashi.StepDelivered,
+		Kind:    dashi.StepMessagesAdded,
 		Context: &dashi.ContextFact{
 			Items: []dashi.ContextItem{
 				{Origin: "user", Message: llm.UserMessage(llm.Text(text))},
@@ -496,9 +496,9 @@ func step(turnID string, seq int64, text string) dashi.Step {
 		},
 	}
 	if seq == 1 {
-		s.Kind = dashi.StepStarted
+		s.Kind = dashi.StepTurnStarted
 		s.CommandID = "start"
-		s.CommandDigest = "digest"
+		s.CommandHash = "hash"
 	}
 	return s
 }
@@ -540,7 +540,7 @@ func requireSteps(t *testing.T, r *filerecorder.Recorder, id string, n int) {
 func requireRejected(t *testing.T, err, target error) {
 	t.Helper()
 	commitErr, ok := errors.AsType[*dashi.CommitError](err)
-	if !ok || commitErr.Persistence != dashi.PersistenceRejected {
+	if !ok || !commitErr.NothingWritten {
 		t.Fatalf("commit returned %v; want a rejected *dashi.CommitError", err)
 	}
 	if !errors.Is(err, target) {

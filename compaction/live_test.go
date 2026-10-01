@@ -51,7 +51,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		Tools:  tool.List{note},
 	}
 	var turns []dashi.Turn
-	run := func(start dashi.Start) dashi.Outcome {
+	run := func(start dashi.Start) dashi.RunResult {
 		t.Helper()
 		id := fmt.Sprintf("live-%d", len(turns)+1)
 		start.CommandID = "run:" + id
@@ -65,9 +65,9 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		turns = append(turns, out.Turn)
 		return out
 	}
-	ask := func(prompt string) dashi.Outcome {
+	ask := func(prompt string) dashi.RunResult {
 		t.Helper()
-		history, warnings := dashi.ProjectHistory(turns)
+		history, warnings := dashi.BuildHistory(turns)
 		if len(warnings) > 0 {
 			t.Fatalf("warnings: %+v", warnings)
 		}
@@ -83,20 +83,20 @@ func TestLiveCompactionContinuity(t *testing.T) {
 
 	// Keep no turns, so only the summary holds the fact.
 	c := &Compactor{Model: model, TailFraction: -1}
-	history, _ := dashi.ProjectHistory(turns)
+	history, _ := dashi.BuildHistory(turns)
 	start, err := c.Start(history)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := run(start)
 	t.Logf("summary (%d output tokens, cost %v):\n%s",
-		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Answer)
-	view, _ := dashi.ProjectHistory(turns)
+		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Reply)
+	view, _ := dashi.BuildHistory(turns)
 	if len(view) != 1 {
 		t.Fatalf("view has %d messages, want the summary alone", len(view))
 	}
 	out := ask("What was the release codename? Answer with the codename only.")
-	if !strings.Contains(out.Answer, "PELICAN-4471") {
-		t.Fatalf("answer %q lacks the codename", out.Answer)
+	if !strings.Contains(out.Reply, "PELICAN-4471") {
+		t.Fatalf("answer %q lacks the codename", out.Reply)
 	}
 }

@@ -16,13 +16,13 @@ Task-oriented guides for building with Dashi. To build an agent, start with
 - [Prompt caching](prompt-caching.md): caching by default, cache lifetimes and
   keys, one-hour write pricing, and keeping the prefix stable.
 - [Tools](tools.md): defining typed tools, returning outcomes, reporting
-  progress, and adding provider-hosted tools.
+  progress, and adding provider tools.
 - [Hooks](hooks.md): checking or changing model calls, tool calls, and final
-  answers.
+  replies.
 - [Coding tools](coding-tools.md): read, search, edit, and shell tools for one
   directory, with an approval policy.
-- [Approving tool calls](approvals.md): asking a person inline, or deferring
-  calls and answering them later.
+- [Approving tool calls](approvals.md): asking a person inline, or holding
+  calls for approval and resolving them later.
 - [Recovering turns](recovering-turns.md): IDs, recorders, crash recovery,
   turn states, and limits.
 - [Live updates](live-updates.md): serving a turn to browsers and observing a

@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/wake"
 )
 
-// CommitRequest proposes one step at an expected turn revision and owner.
+// CommitRequest proposes one step at an expected sequence number and owner.
 type CommitRequest struct {
 	// Step is the fact to append. Its TurnID names the turn and its Seq is
 	// ExpectedSeq+1.
@@ -30,7 +30,7 @@ type CommitRequest struct {
 // before it acts on it, so a step the recorder acknowledged is the truth that
 // recovery, accounting, and live presentation rebuild from. A host recorder
 // can write its own rows in the same transaction: budget reservations,
-// accounting, projections, or an outbox.
+// accounting, derived views, or an outbox.
 //
 // Commit must follow these rules, which the runner relies on for recovery:
 //
@@ -38,18 +38,18 @@ type CommitRequest struct {
 //     the latest claim's (see CommitRequest.Owner), even a retry of a step
 //     already written.
 //   - Append only at ExpectedSeq+1, and only when the turn has exactly
-//     ExpectedSeq steps. Otherwise reject with ErrRevisionConflict, unless
+//     ExpectedSeq steps. Otherwise reject with ErrStaleTurn, unless
 //     a rule below accepts the commit as a retry.
 //   - A commit at an occupied sequence succeeds without appending when the
 //     recorded step has the same JSON meaning (Step.Equal), because a
 //     commit whose acknowledgement was lost is retried. Any other step there,
 //     even one that differs only in its time, is rejected with
-//     ErrRevisionConflict: it comes from a worker holding an old snapshot.
+//     ErrStaleTurn: it comes from a worker holding an old snapshot.
 //   - A step whose CommandID is already recorded in the turn succeeds without
-//     appending when its Kind and CommandDigest match the recorded step, and
-//     is rejected with ErrCommandConflict when they differ. Check this before
+//     appending when its Kind and CommandHash match the recorded step, and
+//     is rejected with ErrCommandIDReused when they differ. Check this before
 //     the sequence rules.
-//   - Return a *CommitError with PersistenceRejected only when this call
+//   - Return a *CommitError with NothingWritten set only when this call
 //     certainly wrote nothing. Any other error, including a timeout after
 //     the write was sent, is treated as unknown: the runner stops and the
 //     host loads the turn to learn whether it committed.
@@ -73,7 +73,8 @@ type Recorder interface {
 
 // Loader is an optional Recorder capability that returns the authoritative
 // record of a turn. Runner.Run uses it to recognize a command retried with
-// an old turn snapshot after a lost acknowledgement, and answers from the
+// an old turn snapshot after a lost acknowledgement, and returns the result
+// from the
 // stored record instead of applying the command again.
 //
 // Load reports a turn with no committed steps as an error matching
@@ -88,20 +89,22 @@ type Loader interface {
 
 // CommitError distinguishes a rejected write from a write whose commit status
 // must be checked by loading the turn. A recorder returns it without Step; a
-// plain error from Commit is treated as PersistenceUnknown. Wrap
-// ErrRevisionConflict or ErrCommandConflict in Err so callers can tell why a
+// plain error from Commit is treated as a write whose status is unknown. Wrap
+// ErrStaleTurn or ErrCommandIDReused in Err so callers can tell why a
 // commit was rejected.
 //
 // Runner.Run returns a CommitError, with Step set, whenever a step write is
-// not acknowledged. The run did execute: the Outcome returned with it holds
+// not acknowledged. The run did execute: the RunResult returned with it holds
 // the steps this run knows were saved, and recovery treats the failure as a
-// crash after them. Check errors.Is(err, ErrRevisionConflict) first, since
+// crash after them. Check errors.Is(err, ErrStaleTurn) first, since
 // another worker may own the turn.
 type CommitError struct {
-	// Persistence states whether this failed call could have committed a step.
-	Persistence Persistence
-	// Step is the step Run tried to record. A failed model_settled step
-	// carries the call's usage, which the Outcome's spend does not include.
+	// NothingWritten means the recorder confirmed that this call committed
+	// nothing. When false, the write may have committed: load the turn to
+	// find out.
+	NothingWritten bool
+	// Step is the step Run tried to record. A failed model_call_finished step
+	// carries the call's usage, which the RunResult's spend does not include.
 	Step *Step
 	Err  error
 }
@@ -120,13 +123,21 @@ func (e *CommitError) Error() string {
 	if e.Step != nil {
 		return fmt.Sprintf(
 			"dashi: %s commit of step %d (%s): %v",
-			e.Persistence,
+			e.status(),
 			e.Step.Seq,
 			e.Step.Kind,
 			e.Err,
 		)
 	}
-	return fmt.Sprintf("dashi: %s commit: %v", e.Persistence, e.Err)
+	return fmt.Sprintf("dashi: %s commit: %v", e.status(), e.Err)
+}
+
+// status names what is known about the failed write, for Error.
+func (e *CommitError) status() string {
+	if e.NothingWritten {
+		return "rejected"
+	}
+	return "unknown"
 }
 
 // Unwrap exposes the underlying persistence error.
@@ -240,17 +251,17 @@ func (r *MemoryRecorder) Wait(
 // Commit appends a step only when its expected sequence and owner are valid.
 func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if _, err := json.Marshal(req.Step); err != nil {
-		return &CommitError{Persistence: PersistenceRejected, Err: err}
+		return &CommitError{NothingWritten: true, Err: err}
 	}
 	if err := ctx.Err(); err != nil {
-		return &CommitError{Persistence: PersistenceRejected, Err: err}
+		return &CommitError{NothingWritten: true, Err: err}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if owner := r.owners[req.Step.TurnID]; owner != "" && owner != req.Owner {
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         ErrRevisionConflict,
+			NothingWritten: true,
+			Err:            ErrStaleTurn,
 		}
 	}
 	t := r.turns[req.Step.TurnID]
@@ -260,19 +271,19 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 				continue
 			}
 			if old.Kind == req.Step.Kind &&
-				old.CommandDigest == req.Step.CommandDigest {
+				old.CommandHash == req.Step.CommandHash {
 				return nil
 			}
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         ErrCommandConflict,
+				NothingWritten: true,
+				Err:            ErrCommandIDReused,
 			}
 		}
 	}
 	if req.ExpectedSeq < 0 || req.Step.Seq != req.ExpectedSeq+1 {
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         ErrRevisionConflict,
+			NothingWritten: true,
+			Err:            ErrStaleTurn,
 		}
 	}
 	if int64(len(t.Steps)) >= req.Step.Seq {
@@ -282,25 +293,25 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			return nil
 		}
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         ErrRevisionConflict,
+			NothingWritten: true,
+			Err:            ErrStaleTurn,
 		}
 	}
 	if int64(len(t.Steps)) != req.ExpectedSeq {
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         ErrRevisionConflict,
+			NothingWritten: true,
+			Err:            ErrStaleTurn,
 		}
 	}
 	if t.ID == "" {
 		t.ID = req.Step.TurnID
 	}
 	if t.ID != req.Step.TurnID {
-		return &CommitError{Persistence: PersistenceRejected, Err: ErrInvalidTurn}
+		return &CommitError{NothingWritten: true, Err: ErrInvalidTurn}
 	}
 	t.Steps = append(t.Steps, cloneStep(req.Step))
 	if _, err := replay(t); err != nil {
-		return &CommitError{Persistence: PersistenceRejected, Err: err}
+		return &CommitError{NothingWritten: true, Err: err}
 	}
 	r.turns[t.ID] = t
 	r.wakes.Notify(t.ID)

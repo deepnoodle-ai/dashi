@@ -13,17 +13,17 @@ import (
 )
 
 // beforeModel runs the BeforeModel chain, applying each hook's settings and
-// hides to input. It returns the items to deliver, the tools hidden from
+// hides to input. It returns the items to add, the tools hidden from
 // this call in the order they were first hidden, or a hook's stop. A hook
 // that fails or answers invalidly is skipped with a warning, since
-// BeforeModel only shapes the request. The returned Outcome is set when the
+// BeforeModel only shapes the request. The returned RunResult is set when the
 // run's context ended during a hook.
 func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
-	finalAnswerOnly bool,
+	finalReplyOnly bool,
 	purpose ModelPurpose,
-) ([]ContextItem, []string, *Stop, *Outcome) {
+) ([]ContextItem, []string, *Stop, *RunResult) {
 	var deliver []ContextItem
 	var hidden []string
 	ignored := hideIgnored{}
@@ -49,7 +49,7 @@ func (r *runtime) beforeModel(
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
 			}
-			if !finalAnswerOnly {
+			if !finalReplyOnly {
 				candidateHidden = hideTools(
 					&candidate,
 					hidden,
@@ -87,13 +87,13 @@ func (r *runtime) beforeModel(
 		ignored.merge(hookIgnored)
 		r.pendingWarnings = append(r.pendingWarnings, warnings...)
 		hid := len(candidateHidden) > len(hidden)
-		if d.Settings == nil && len(d.Deliver) == 0 && !hid {
+		if d.Settings == nil && len(d.AddMessages) == 0 && !hid {
 			continue
 		}
 		input.Settings = candidate.Settings
 		input.Tools = candidate.Tools
 		hidden = candidateHidden
-		for _, item := range d.Deliver {
+		for _, item := range d.AddMessages {
 			deliver = append(deliver, cloneContextItem(item))
 		}
 		r.addHookResult(HookResult{
@@ -147,7 +147,7 @@ func hideTools(
 
 // keepToolChoiceOffered clears a forced tool choice that names a hidden
 // tool, whichever hook hid it: the hide wins. When no tools remain, the tool
-// choice and ParallelTools are cleared, as on the reserved final-answer
+// choice and ParallelTools are cleared, as on the reserved final-reply
 // call, since providers reject them without tools. Only losing a forced
 // choice warns.
 func keepToolChoiceOffered(
@@ -240,7 +240,7 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 				"or token limit, and may not use a reserved stop reason",
 		)
 	}
-	for _, item := range d.Deliver {
+	for _, item := range d.AddMessages {
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("invalid context item: %w", err)
 		}
@@ -249,7 +249,7 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 }
 
 // beforeSend runs the BeforeSend chain for a prepared request. It returns
-// the admissions by hook name, or the stop that ends the run: a hook's
+// the reservations by hook name, or the stop that ends the run: a hook's
 // denial, or StopReasonHookFailed when a hook fails, since BeforeSend guards
 // spending.
 func (r *runtime) beforeSend(
@@ -258,14 +258,14 @@ func (r *runtime) beforeSend(
 	atRisk *llm.Cost,
 	remaining *Money,
 	purpose ModelPurpose,
-) (map[string]json.RawMessage, *Stop, *Outcome) {
-	var admission map[string]json.RawMessage
+) (map[string]json.RawMessage, *Stop, *RunResult) {
+	var terms map[string]json.RawMessage
 	total := 0
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeSend {
 		plan := SendPlan{Purpose: purpose, Request: req, Turn: snapshotView(s.TurnView)}
 		if atRisk != nil {
-			plan.AtRisk = new(*atRisk)
+			plan.WorstCaseCost = new(*atRisk)
 		}
 		if remaining != nil {
 			plan.Remaining = new(*remaining)
@@ -299,20 +299,20 @@ func (r *runtime) beforeSend(
 			r.addHookResult(result)
 			return nil, stop, nil
 		}
-		if len(d.Admission) > 0 {
-			if admission == nil {
-				admission = map[string]json.RawMessage{}
+		if len(d.Reservation) > 0 {
+			if terms == nil {
+				terms = map[string]json.RawMessage{}
 			}
-			admission[h.Name] = slices.Clone(d.Admission)
-			total += len(d.Admission)
+			terms[h.Name] = slices.Clone(d.Reservation)
+			total += len(d.Reservation)
 			r.addHookResult(HookResult{
 				Point:   HookBeforeSend,
 				Name:    h.Name,
-				Verdict: VerdictAdmit,
+				Verdict: VerdictReserve,
 			})
 		}
 	}
-	return admission, nil, nil
+	return terms, nil, nil
 }
 
 func validSendDecision(d SendDecision, used int) error {
@@ -321,11 +321,11 @@ func validSendDecision(d SendDecision, used int) error {
 			"invalid limit: a hook may report a host, cost, or token limit",
 		)
 	}
-	if len(d.Admission) > 0 && !json.Valid(d.Admission) {
-		return errors.New("admission is not valid JSON")
+	if len(d.Reservation) > 0 && !json.Valid(d.Reservation) {
+		return errors.New("reservation is not valid JSON")
 	}
-	if used+len(d.Admission) > maxAdmission {
-		return errors.New("admissions exceed 16 KiB")
+	if used+len(d.Reservation) > maxReservation {
+		return errors.New("reservations exceed 16 KiB")
 	}
 	return nil
 }

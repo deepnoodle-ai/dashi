@@ -113,9 +113,9 @@ func (s *screen) captureAttachmentEvidence() {
 	sends := client.sends
 	var docs []string
 	imageSize := 0
-	imageDigest := ""
+	imageHash := ""
 	pdfSize := 0
-	pdfDigest := ""
+	pdfHash := ""
 	if len(client.inputs) > 0 {
 		last := client.inputs[len(client.inputs)-1]
 		docs = hydratedDocuments(last)
@@ -124,14 +124,14 @@ func (s *screen) captureAttachmentEvidence() {
 				if c.Block != nil && c.Block.Document != nil && c.Block.Document.Source.MIMEType == "application/pdf" {
 					data := c.Block.Document.Source.Data
 					pdfSize = len(data)
-					digest := sha256.Sum256(data)
-					pdfDigest = hex.EncodeToString(digest[:])
+					hash := sha256.Sum256(data)
+					pdfHash = hex.EncodeToString(hash[:])
 				}
 				if c.Block != nil && c.Block.Image != nil {
 					data := c.Block.Image.Source.Data
 					imageSize = len(data)
-					digest := sha256.Sum256(data)
-					imageDigest = hex.EncodeToString(digest[:])
+					hash := sha256.Sum256(data)
+					imageHash = hex.EncodeToString(hash[:])
 				}
 			}
 		}
@@ -150,7 +150,7 @@ func (s *screen) captureAttachmentEvidence() {
 		PDFSHA256   string
 		Picker      string
 		Session     string
-	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest, pdfSize, pdfDigest, "", s.eng.Session().ID}
+	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageHash, pdfSize, pdfHash, "", s.eng.Session().ID}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 	}

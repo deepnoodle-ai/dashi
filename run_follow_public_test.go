@@ -47,7 +47,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if after > 0 {
 		last, err := s.store.StepsAfter(r.Context(), id, after-1, 1)
 		if err == nil && len(last) == 1 && last[0].Stop != nil &&
-			last[0].Stop.Terminal {
+			last[0].Stop.Ended {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -67,7 +67,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return // the client reconnects from its last id
 		case e.Step != nil:
 			send(w, strconv.FormatInt(e.Seq, 10), "step", project(*e.Step))
-			if e.Step.Stop != nil && e.Step.Stop.Terminal {
+			if e.Step.Stop != nil && e.Step.Stop.Ended {
 				send(w, "", "end", nil) // the page calls EventSource.close
 			}
 		case e.Gap:
@@ -104,10 +104,10 @@ func projectPreview(e dashi.Event) string {
 	return e.Progress.Message
 }
 
-// finalClient answers every call with one final message, streamed as three
+// finalClient replies to every call with one final message, streamed as three
 // deltas. When set, it streams only once following has begun (a reader that
 // joins mid-message rightly gets a gap), and it returns only once the client
-// has read the deltas (a preview after its settling step is rightly dropped).
+// has read the deltas (a preview after its finish step is rightly dropped).
 type finalClient struct{ following, read <-chan struct{} }
 
 func (finalClient) Provider() string                       { return "test" }
@@ -239,14 +239,14 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 		Agent: dashi.Agent{Model: "fixture"},
 		Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 	})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	var events []sse
 	select {
 	case events = <-got:
 	case <-time.After(10 * time.Second):
-		t.Fatal("handler did not end after the terminal stop")
+		t.Fatal("handler did not end after the ending stop")
 	}
 	var seqs []string
 	var text string
@@ -284,7 +284,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 		t.Fatalf("resume from 2 got %+v", events)
 	}
 
-	// A browser reconnecting with the terminal step's id is told to stop.
+	// A browser reconnecting with the ending step's id is told to stop.
 	resp := get(t, url, strconv.Itoa(len(out.Turn.Steps)))
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("reconnect after the end: status %d; want 204", resp.StatusCode)

@@ -76,7 +76,7 @@ func TestDeniedToolCallContinuesOnChatCompletions(t *testing.T) {
 			CommandID: "start",
 			Agent: dashi.Agent{
 				ID:       "agent",
-				Revision: "r1",
+				Version:  "r1",
 				Provider: "openai",
 				API:      completions.API,
 				Model:    "m",

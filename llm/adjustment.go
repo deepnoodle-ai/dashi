@@ -37,7 +37,8 @@ const (
 type AdjustmentAction string
 
 const (
-	// AdjustmentDefault fills an omitted setting without replacing user intent.
+	// AdjustmentDefault fills an omitted setting without replacing what the
+	// user asked for.
 	AdjustmentDefault AdjustmentAction = "default"
 	// AdjustmentClamp replaces a requested value with the nearest value the
 	// model or API is known to accept, such as effort "max" becoming "xhigh".
@@ -77,7 +78,7 @@ func (a Adjustment) Clone() Adjustment {
 
 // Warning reports whether this decision replaced a value the caller asked
 // for, and describes it for the caller. Defaults are not warnings because
-// they fill an omission rather than overriding intent.
+// they fill an omission rather than overriding what the caller asked for.
 func (a Adjustment) Warning() (Warning, bool) {
 	switch a.Action {
 	case AdjustmentClamp:
@@ -154,7 +155,7 @@ const (
 )
 
 // Warning describes something the caller asked for that was not sent as
-// asked. It is a projection of the recorded Adjustment, flattened so an
+// asked. It is a view of the recorded Adjustment, flattened so an
 // application can surface it without decoding raw setting values.
 type Warning struct {
 	// Code identifies the kind of warning.

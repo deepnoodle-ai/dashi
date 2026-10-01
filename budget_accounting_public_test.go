@@ -18,7 +18,7 @@ import (
 // An Anthropic stream cut off after a server_tool_use block, before the
 // message_delta that carries the final server_tool_use counters, must not
 // look fully priced: the adapter can only infer counts from the blocks it saw.
-func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
+func TestCutAnthropicProviderToolStreamCostIsPartial(t *testing.T) {
 	fixture, err := os.ReadFile(
 		"providers/anthropic/messages/testdata/websearch-max-uses-exceeded-stream.sse",
 	)
@@ -88,7 +88,7 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		Client: client,
 		Tools:  tool.List{search},
 	}
-	var outcome *dashi.Outcome
+	var outcome *dashi.RunResult
 	for event, err := range runner.Stream(
 		t.Context(),
 		dashi.Turn{ID: "cut-search"},
@@ -96,7 +96,7 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 			CommandID: "start",
 			Agent: dashi.Agent{
 				ID:       "agent",
-				Revision: "r1",
+				Version:  "r1",
 				Provider: provider,
 				API:      messages.API,
 				Model:    model,
@@ -109,8 +109,8 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Outcome != nil {
-			outcome = event.Outcome
+		if event.Result != nil {
+			outcome = event.Result
 		}
 	}
 	if outcome == nil {
@@ -122,15 +122,15 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 	}
 	if spend.CostPartial != 1 ||
 		spend.UnpricedRequests[llm.MeterUnreported] != 1 {
-		t.Fatalf("cut-off hosted call looks fully priced: %+v", spend)
+		t.Fatalf("cut-off provider tool call looks fully priced: %+v", spend)
 	}
 	var charge *llm.Cost
 	for _, step := range outcome.Turn.Steps {
-		if step.Kind == dashi.StepModelSettled && step.Model != nil {
-			charge = step.Model.Charge
+		if step.Kind == dashi.StepModelCallFinished && step.Model != nil {
+			charge = step.Model.Cost
 		}
 	}
 	if charge == nil || !charge.Partial() {
-		t.Fatalf("settled charge = %+v, want partial", charge)
+		t.Fatalf("final cost = %+v, want partial", charge)
 	}
 }

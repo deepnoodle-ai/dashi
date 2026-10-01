@@ -1,7 +1,7 @@
 # Image and video provider routes
 
 Status: adapter, model review, and selected live Gemini routes, 2026-09-27.
-This implements dedicated and provider-hosted routes from
+This implements dedicated and provider tool routes from
 [media and speech](media-and-speech-proposal.md).
 
 ## Scope and shape
@@ -15,8 +15,8 @@ model calls. Current documented routes include:
 
 | Provider | Image | Video |
 | --- | --- | --- |
-| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.5 Sunburst/Flare; Responses hosted image tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
-| Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) generate/edit; Responses [hosted image tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
+| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.5 Sunburst/Flare; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
+| Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) generate/edit; Responses [image generation provider tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
 | Gemini | [Nano Banana](https://ai.google.dev/gemini-api/docs/image-generation) via Interactions, plus GenerateContent | [Omni Flash](https://ai.google.dev/gemini-api/docs/omni) inline calls and URI-delivered jobs; [Veo 3.1](https://ai.google.dev/gemini-api/docs/veo) jobs |
 
 Gemini conversational editing still needs a qualified history and video-source
@@ -40,8 +40,9 @@ Video submission returns accepted, rejected, or unknown. A transport failure
 or ambiguous server response is unknown unless the provider proves rejection.
 Neither a retry hint nor a local timeout authorizes resubmission. Polling is a
 read-only observation of a known handle; fetching output is a separate step
-that can fail and be retried independently. Provider-specific reconciliation
-or idempotency can be added only when documented and qualified.
+that can fail and be retried independently. Provider-specific checks of an
+unknown submission against provider state, or idempotency, can be added only
+when documented and qualified.
 
 ## Boundaries and tradeoffs
 
@@ -52,11 +53,11 @@ evidence is scoped to one configured API and base endpoint. A missing claim
 requires an explicit unknown-support policy, matching `llm` preparation.
 
 The common request currently retains exact wire bytes as well as the original
-input. This makes one attempt reviewable at the cost of memory and record size;
+input. This makes one request reviewable at the cost of memory and record size;
 streaming upload plans can replace that representation when a qualified API
 requires larger inputs. No client internally polls to completion or retries a
 submission. Local-server tests verify wire shape, destination binding,
-uncertain outcomes, poll/fetch separation, and content conversion. Live
+unknown results, poll/fetch separation, and content conversion. Live
 provider interoperability remains a separate qualification step.
 
 ## Live Gemini qualification

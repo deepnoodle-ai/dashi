@@ -202,7 +202,7 @@ func TestCatalogOutputLimitLowersDefaultForGPT4o(t *testing.T) {
 			Output: money.MustParseAmount("10"),
 		},
 	}
-	risk, ok := llm.MaxCostAtRisk(prep, pricing)
+	risk, ok := llm.WorstCaseCost(prep, pricing)
 	if !ok {
 		t.Fatal("cost risk was not bounded")
 	}

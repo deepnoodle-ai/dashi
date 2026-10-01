@@ -186,7 +186,7 @@ func runAgent(
 	model *scripted,
 	ts *Toolset,
 	hooks dashi.Hooks,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	t.Helper()
 	return dashi.Runner{
 		Client: model,

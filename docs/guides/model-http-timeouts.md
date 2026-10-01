@@ -23,13 +23,13 @@ client, err := responses.New(responses.Config{
 | Gemini and Vertex AI | Not yet: model calls use the Google SDK path |
 | Image/video clients and application-defined `llm.Client` | Not covered by this option |
 
-`ResponseStart` runs from dispatch through response headers, including connect,
-TLS, request upload, and provider wait; it cannot identify which phase stalled.
-`StreamIdle` applies only to streaming model responses, while blocked in a raw
-body read. SSE comments and heartbeat bytes reset it; application processing
-time between reads does not consume it. `Total` spans startup and response body.
-Zero phase durations disable those bounds, and negative values fail
-construction.
+`ResponseStart` runs from sending the request through response headers,
+including connect, TLS, request upload, and provider wait; it cannot identify
+which phase stalled. `StreamIdle` applies only to streaming model responses,
+while blocked in a raw body read. SSE comments and heartbeat bytes reset it;
+application processing time between reads does not consume it. `Total` spans
+startup and response body. Zero phase durations disable those bounds, and
+negative values fail construction.
 
 With `Total == nil`, Dashi uses its existing five-minute default when
 `Config.Client` is nil. A supplied `http.Client` keeps its own `Timeout`
@@ -41,15 +41,15 @@ Only Dashi-owned expiries carry precise `llm.Error.Reason` values:
 `ReasonCallTimeout`. A supplied client's shorter timeout remains a transport
 error without a guessed Dashi reason.
 
-Custom `http.RoundTripper` implementations must return from dispatch and
+Custom `http.RoundTripper` implementations must return from sending and
 unblock response-body reads when the request context is canceled. Dashi cannot
 enforce a bound while a custom transport ignores cancellation in a blocked
 operation.
 
 On a failed stream, any received text, content, and usage remain provisional.
-A `dashi.Runner` stores them on the settled model attempt and records the typed
-reason in `ModelFact.ErrorReason`. The Turn may stop `uncertain` because a
-timeout cannot prove that a provider never received the request or ran a
-hosted action. Dashi does not resend automatically. The application's
+A `dashi.Runner` stores them on the finished model call and records the typed
+reason in `ModelFact.ErrorReason`. The Turn may stop `result_unknown` because
+a timeout cannot prove that a provider never received the request or ran a
+provider tool. Dashi does not resend automatically. The application's
 `Limits.Deadline` is a separate Turn limit; a host context cancellation keeps
 its existing interruption or cancellation behavior.

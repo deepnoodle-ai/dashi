@@ -222,7 +222,7 @@ func (c *Controller) commandHelp() string {
 		}
 		fmt.Fprintf(&out, "  %s %s%s — %s [%s]\n", entry.name, entry.usage, aliases, entry.description, availability)
 	}
-	out.WriteString("\nTask costs: recorded parent caps exclude children. Explore has 24 attempts; General has 32. Children have no monetary cap.\n")
+	out.WriteString("\nTask costs: recorded parent caps exclude children. Explore has 24 model calls; General has 32. Children have no monetary cap.\n")
 	out.WriteString(composerKeyboardHelp)
 	if _, ok := c.ui.(*screen); !ok {
 		if _, inline := c.ui.(*inlineScreen); !inline {

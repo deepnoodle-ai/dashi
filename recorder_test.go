@@ -8,16 +8,16 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
+func TestMemoryRecorderFencesOwnerAndSeq(t *testing.T) {
 	rec := NewMemoryRecorder()
 	rec.Claim(t.Context(), "t1", "worker-1")
 	start := Step{
-		Version:       1,
-		TurnID:        "t1",
-		Seq:           1,
-		Kind:          StepStarted,
-		CommandID:     "start",
-		CommandDigest: "digest",
+		Version:     1,
+		TurnID:      "t1",
+		Seq:         1,
+		Kind:        StepTurnStarted,
+		CommandID:   "start",
+		CommandHash: "hash",
 		Started: &StartFact{
 			Agent: testAgent(),
 			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
@@ -41,7 +41,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		Version: 1,
 		TurnID:  "t1",
 		Seq:     2,
-		Kind:    StepDelivered,
+		Kind:    StepMessagesAdded,
 		Context: &ContextFact{
 			Items: []ContextItem{
 				{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -53,13 +53,13 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		{Step: deliver, ExpectedSeq: 0, Owner: "worker-1"},
 		{
 			Step: Step{
-				Version:       1,
-				TurnID:        "t1",
-				Seq:           1,
-				Kind:          StepStarted,
-				CommandID:     "start",
-				CommandDigest: "different",
-				Started:       start.Started,
+				Version:     1,
+				TurnID:      "t1",
+				Seq:         1,
+				Kind:        StepTurnStarted,
+				CommandID:   "start",
+				CommandHash: "different",
+				Started:     start.Started,
 			},
 			ExpectedSeq: 0,
 			Owner:       "worker-1",
@@ -67,10 +67,10 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 	} {
 		err := rec.Commit(t.Context(), req)
 		commitErr, ok := errors.AsType[*CommitError](err)
-		if !ok || commitErr.Persistence != PersistenceRejected || (!errors.Is(
+		if !ok || !commitErr.NothingWritten || (!errors.Is(
 			err,
-			ErrRevisionConflict,
-		) && !errors.Is(err, ErrCommandConflict)) {
+			ErrStaleTurn,
+		) && !errors.Is(err, ErrCommandIDReused)) {
 			t.Fatalf("expected rejected write conflict, got %v", err)
 		}
 	}

@@ -214,14 +214,14 @@ func TestNewRequestRejectsUnresolvedContentReference(t *testing.T) {
 	}
 }
 
-func TestNewRequestRejectsUnresolvedReferenceInHostedUseOutput(t *testing.T) {
+func TestNewRequestRejectsUnresolvedReferenceInProviderToolUseOutput(t *testing.T) {
 	ref := content.Ref{ID: "upl_1", SHA256: strings.Repeat("a", 64), Size: 3}
 	origin := content.Origin{Provider: "p", API: "a", Model: "m", Scope: "s"}
 	input := Input{
 		Model: "m",
 		Messages: []Message{UserMessage(Content{
-			Kind: ContentHostedUse,
-			HostedUse: &HostedUse{
+			Kind: ContentProviderToolUse,
+			ProviderToolUse: &ProviderToolUse{
 				ID:     "h1",
 				Name:   "fetch",
 				Type:   "tool_use",
@@ -234,7 +234,7 @@ func TestNewRequestRejectsUnresolvedReferenceInHostedUseOutput(t *testing.T) {
 		})},
 	}
 	if !input.HasRef() {
-		t.Fatal("HasRef missed the hosted use reference")
+		t.Fatal("HasRef missed the provider tool use reference")
 	}
 
 	_, err := NewRequest(RequestSnapshot{
@@ -245,6 +245,6 @@ func TestNewRequestRejectsUnresolvedReferenceInHostedUseOutput(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("a request with an unresolved hosted use reference was accepted")
+		t.Fatal("a request with an unresolved provider tool use reference was accepted")
 	}
 }

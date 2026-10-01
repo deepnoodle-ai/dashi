@@ -61,9 +61,9 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	}
 	return tool.Tool{Definition: tool.Definition{
 		Name:        "web_search",
-		Kind:        tool.KindProviderHosted,
+		Kind:        tool.KindProviderTool,
 		Annotations: tool.Annotations{ReadOnly: new(true)},
-		Hosted: &tool.HostedSpec{
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "meta",
 			API:      responses.API,
 			Type:     "web_search",

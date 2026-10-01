@@ -115,7 +115,7 @@ func TestAutomationProcessChild(t *testing.T) {
 			if !errors.Is(readErr, context.DeadlineExceeded) || data != "" {
 				fail(errors.New("stdin cancellation failed"))
 			}
-			// Cancellation admits no input.
+			// Cancellation accepts no input.
 		} else if readErr != nil {
 			fail(readErr)
 		} else {

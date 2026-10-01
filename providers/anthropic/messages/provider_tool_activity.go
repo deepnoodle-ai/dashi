@@ -11,15 +11,15 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-type hostedOutputItem struct {
-	Type     string            `json:"type"`
-	Text     string            `json:"text"`
-	URL      string            `json:"url"`
-	Title    string            `json:"title"`
-	URI      string            `json:"uri"`
-	Stdout   string            `json:"stdout"`
-	Stderr   string            `json:"stderr"`
-	Source   hostedImageSource `json:"source"`
+type providerToolOutputItem struct {
+	Type     string                  `json:"type"`
+	Text     string                  `json:"text"`
+	URL      string                  `json:"url"`
+	Title    string                  `json:"title"`
+	URI      string                  `json:"uri"`
+	Stdout   string                  `json:"stdout"`
+	Stderr   string                  `json:"stderr"`
+	Source   providerToolImageSource `json:"source"`
 	Resource struct {
 		URI      string `json:"uri"`
 		MIMEType string `json:"mimeType"`
@@ -27,7 +27,7 @@ type hostedOutputItem struct {
 	} `json:"resource"`
 }
 
-type hostedImageSource struct {
+type providerToolImageSource struct {
 	Type      string `json:"type"`
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"`
@@ -37,7 +37,7 @@ type hostedImageSource struct {
 
 // Anthropic puts results in separate blocks. The original block, including
 // encrypted search data, is replayed unchanged; these fields are display only.
-func (wire codec) decodeHostedUse(
+func (wire codec) decodeProviderToolUse(
 	raw json.RawMessage,
 	replay *llm.Opaque,
 ) (llm.Content, error) {
@@ -50,7 +50,7 @@ func (wire codec) decodeHostedUse(
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return llm.Content{}, err
 	}
-	use := llm.HostedUse{
+	use := llm.ProviderToolUse{
 		ID:         value.ID,
 		Name:       value.Name,
 		ServerName: value.ServerName,
@@ -62,18 +62,18 @@ func (wire codec) decodeHostedUse(
 		return llm.Content{}, providerhttp.Failure(
 			wire.origin.Provider,
 			llm.ErrorProtocol,
-			"invalid hosted use: %w",
+			"invalid provider tool use: %w",
 			err,
 		)
 	}
 	return llm.Content{
-		Kind:      llm.ContentHostedUse,
-		HostedUse: &use,
-		Replay:    replay,
+		Kind:            llm.ContentProviderToolUse,
+		ProviderToolUse: &use,
+		Replay:          replay,
 	}, nil
 }
 
-func (wire codec) decodeHostedResult(
+func (wire codec) decodeProviderToolResult(
 	raw json.RawMessage,
 	replay *llm.Opaque,
 ) (llm.Content, error) {
@@ -85,36 +85,36 @@ func (wire codec) decodeHostedResult(
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return llm.Content{}, err
 	}
-	result := llm.HostedResult{
+	result := llm.ProviderToolResult{
 		CallID:  value.ToolUseID,
 		Type:    replay.Type,
 		Origin:  wire.origin,
-		Output:  wire.hostedOutput(value.Content),
-		IsError: value.IsError || hostedResultError(value.Content),
+		Output:  wire.providerToolOutput(value.Content),
+		IsError: value.IsError || providerToolResultError(value.Content),
 	}
 	if err := result.Validate(); err != nil {
 		return llm.Content{}, providerhttp.Failure(
 			wire.origin.Provider,
 			llm.ErrorProtocol,
-			"invalid hosted result: %w",
+			"invalid provider tool result: %w",
 			err,
 		)
 	}
 	return llm.Content{
-		Kind:         llm.ContentHostedResult,
-		HostedResult: &result,
-		Replay:       replay,
+		Kind:               llm.ContentProviderToolResult,
+		ProviderToolResult: &result,
+		Replay:             replay,
 	}, nil
 }
 
-func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
+func (wire codec) providerToolOutput(raw json.RawMessage) []content.Block {
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) != nil {
 		items = []json.RawMessage{raw}
 	}
 	var output []content.Block
 	for _, item := range items {
-		var value hostedOutputItem
+		var value providerToolOutputItem
 		if json.Unmarshal(item, &value) != nil {
 			continue
 		}
@@ -128,7 +128,7 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 			output = append(output, content.TextBlock(value.Stderr))
 		}
 		if value.Type == "image" {
-			if image := wire.hostedImage(value.Source); image != nil {
+			if image := wire.providerToolImage(value.Source); image != nil {
 				output = append(output, *image)
 			}
 		}
@@ -161,7 +161,7 @@ func (wire codec) hostedOutput(raw json.RawMessage) []content.Block {
 	return output
 }
 
-func (wire codec) hostedImage(value hostedImageSource) *content.Block {
+func (wire codec) providerToolImage(value providerToolImageSource) *content.Block {
 	source := content.Source{MIMEType: value.MediaType}
 	switch value.Type {
 	case "base64":
@@ -190,10 +190,10 @@ func (wire codec) hostedImage(value hostedImageSource) *content.Block {
 	return &block
 }
 
-func hostedResultError(raw json.RawMessage) bool {
+func providerToolResultError(raw json.RawMessage) bool {
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) == nil {
-		return slices.ContainsFunc(items, hostedResultError)
+		return slices.ContainsFunc(items, providerToolResultError)
 	}
 	var value struct {
 		Type string `json:"type"`

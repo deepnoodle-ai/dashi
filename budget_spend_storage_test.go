@@ -36,11 +36,11 @@ func accountingStorage(t *testing.T, file bool) (dashi.Recorder, func() dashi.Lo
 
 func storageAgent() dashi.Agent {
 	return dashi.Agent{
-		ID: "agent", Revision: "r1",
+		ID: "agent", Version: "r1",
 		Provider: dashitest.Provider,
 		API:      dashitest.API,
 		Model:    dashitest.Model,
-		Limits:   dashi.Limits{ModelAttempts: 4},
+		Limits:   dashi.Limits{ModelCalls: 4},
 	}
 }
 
@@ -65,7 +65,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					dashitest.Reply("done"),
 				}
 				for i := range replies {
-					replies[i].Usage = &llm.Usage{RequestsFinal: true}
+					replies[i].Usage = &llm.Usage{RequestsComplete: true}
 				}
 				modelCosts := []money.Amount{
 					money.MustParseAmount("0.5"), money.MustParseAmount("0.25"), 0,
@@ -118,8 +118,8 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					replies[0].Cost = storageCharge(modelCosts[0])
 					tools = tool.List{{Definition: tool.Definition{
 						Name: "search",
-						Kind: tool.KindProviderHosted,
-						Hosted: &tool.HostedSpec{
+						Kind: tool.KindProviderTool,
+						ProviderTool: &tool.ProviderToolSpec{
 							Provider: dashitest.Provider,
 							API:      dashitest.API,
 							Type:     "web_search",
@@ -142,7 +142,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(saved)
+				view, err := saved.View()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -159,7 +159,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					t.Fatal("usage-only failure changed exact monetary certainty")
 				}
 				if !usageFailed && view.Spend.CostUnknown != 1 {
-					t.Fatal("actual monetary overflow lost its uncertainty")
+					t.Fatal("actual monetary overflow lost its unknown result")
 				}
 				if scenario == "usage" &&
 					view.Spend.String() != "model: 0.75 USD; tools: 5 USD; usage incomplete" {
@@ -169,17 +169,17 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					view.Spend.Usage.Requests[llm.MeterUnreported] != math.MaxInt {
 					t.Fatal("failed enrichment changed the recorded request count")
 				}
-				if scenario == "token" && (!view.Stop.Terminal ||
+				if scenario == "token" && (!view.Stop.Ended ||
 					view.Stop.Limit.Kind != dashi.LimitOutputTokens ||
 					view.Next() != dashi.NextNone || view.ReadyToContinue) {
-					t.Fatal("reopening storage revived a terminal token stop")
+					t.Fatal("reopening storage revived a ending token stop")
 				}
 			})
 		}
 	}
 }
 
-func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
+func TestRecordersRejectUnsafeTokenCallStartBeforeStorage(t *testing.T) {
 	for _, file := range []bool{false, true} {
 		recorder, reopen := accountingStorage(t, file)
 		first := dashitest.CallTool("call-1", "lookup", `{}`)
@@ -202,35 +202,36 @@ func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
 		})
 		var rejected *dashi.CommitError
 		if !errors.As(err, &rejected) ||
-			rejected.Persistence != dashi.PersistenceRejected ||
-			rejected.Step.Kind != dashi.StepModelIntent {
-			t.Fatalf("unsafe intent was not rejected before admission: %v", err)
+			!rejected.NothingWritten ||
+			rejected.Step.Kind != dashi.StepModelCallStarted {
+			t.Fatalf("unsafe call start was not rejected before reservation: %v", err)
 		}
 		if len(client.Inputs()) != 1 {
-			t.Fatal("unsafe prospective intent reached model dispatch")
+			t.Fatal("unsafe prospective call start reached model dispatch")
 		}
 		saved, err := reopen().Load(t.Context(), out.Turn.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(saved.Steps) != len(out.Turn.Steps) {
-			t.Fatal("rejected intent reached storage")
+			t.Fatal("rejected call start reached storage")
 		}
-		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelIntent {
-			t.Fatal("rejected model intent is the stored last step")
+		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelCallStarted {
+			t.Fatal("rejected model call start is the stored last step")
 		}
 	}
 }
 
 // A host may record an open cost stop while external work remains pending.
-// Its late charge cannot silently change that recorded stop's terminality.
+// Its late cost cannot silently change whether that recorded stop ended the
+// turn.
 func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 	for _, kind := range []string{"memory", "file", "custom"} {
 		t.Run(kind, func(t *testing.T) {
 			reply := dashitest.CallTool("call-1", "lookup", `{}`)
 			reply.Message.Content = append(reply.Message.Content,
 				dashitest.CallTool("call-2", "lookup", `{}`).Message.Content...)
-			reply.Usage = &llm.Usage{RequestsFinal: true}
+			reply.Usage = &llm.Usage{RequestsComplete: true}
 			reply.Cost = storageCharge(money.MustParseAmount("1"))
 			lookup, err := tool.Func[struct{}]("lookup", "Fixture",
 				func(_ context.Context, call tool.Call, _ struct{}) (tool.Outcome, error) {
@@ -262,20 +263,20 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 					CostLimit: money.MustParseAmount("1"), CostUsed: money.MustParseAmount("1"),
 				},
 			}
-			before, err := dashi.Replay(turn)
-			if err != nil || before.Stop.Terminal || before.Spend.CostUnknown != 0 {
+			before, err := turn.View()
+			if err != nil || before.Stop.Ended || before.Spend.CostUnknown != 0 {
 				t.Fatalf("invalid fixture: view=%+v err=%v", before, err)
 			}
 			late := tool.Succeeded("done")
 			late.Cost = &tool.Cost{Amount: 1, Currency: "USD"}
 			bad := dashi.Step{
 				Version: 1, TurnID: turn.ID, Seq: int64(len(turn.Steps) + 1),
-				Kind: dashi.StepToolSettled,
+				Kind: dashi.StepToolFinished,
 				Tool: &dashi.ToolFact{Call: before.Tools["call-2"].Call, Outcome: &late},
 			}
 			candidate := turn
 			candidate.Steps = append(append([]dashi.Step(nil), turn.Steps...), bad)
-			if _, err := dashi.Replay(candidate); !errors.Is(err, dashi.ErrInvalidTurn) {
+			if _, err := candidate.View(); !errors.Is(err, dashi.ErrInvalidTurn) {
 				t.Fatalf("late overflow changed an open stop: %v", err)
 			}
 
@@ -296,7 +297,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 				}
 			}
 			runner.Recorder = recorder
-			if _, err := runner.Run(t.Context(), turn, dashi.Settle{
+			if _, err := runner.Run(t.Context(), turn, dashi.Resolve{
 				CommandID: "late", CallID: "call-2", Outcome: &late,
 			}); !errors.Is(err, dashi.ErrInvalidTurn) {
 				t.Fatalf("unsafe late charge was not rejected: %v", err)
@@ -308,10 +309,10 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.Replay(saved)
+			view, err := saved.View()
 			if err != nil || len(saved.Steps) != len(turn.Steps) ||
 				view.Tools["call-2"].Status != dashi.ToolWaiting ||
-				view.Spend.CostUnknown != 0 || view.Stop.Terminal {
+				view.Spend.CostUnknown != 0 || view.Stop.Ended {
 				t.Fatalf("rejection damaged the recorded turn: view=%+v err=%v", view, err)
 			}
 		})

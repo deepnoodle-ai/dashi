@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-const testDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+const testHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 func validRefSource() Source {
 	return Source{
-		Ref:      &Ref{ID: "upl_1", SHA256: testDigest, Size: 812},
+		Ref:      &Ref{ID: "upl_1", SHA256: testHash, Size: 812},
 		MIMEType: "image/png",
 	}
 }
@@ -88,7 +88,7 @@ func TestSourceValidateRef(t *testing.T) {
 		{
 			name: "uppercase digest",
 			mutate: func(s *Source) {
-				s.Ref.SHA256 = strings.ToUpper(testDigest)
+				s.Ref.SHA256 = strings.ToUpper(testHash)
 			},
 		},
 		{

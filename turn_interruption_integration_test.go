@@ -25,12 +25,12 @@ func (c *interruptionClient) Send(
 	return c.onSend(ctx, call.Sink, index)
 }
 
-func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
+func TestRepeatedModelInterruptionsKeepUsageAndModelCallAllowance(
 	t *testing.T,
 ) {
 	rec := NewMemoryRecorder()
 	def := testAgent()
-	def.Limits.Interruptions = 2
+	def.Limits.Resumes = 2
 	var cancel context.CancelCauseFunc
 	client := &interruptionClient{
 		scriptedClient: &scriptedClient{},
@@ -72,16 +72,16 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 			t.Fatalf("interruption %d: stop=%+v err=%v", i, out.Stop, err)
 		}
 		turn = out.Turn
-		view, err := Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if view.ModelAttempts != 0 || view.Interruptions != i ||
+		if view.ModelCalls != 0 || view.Resumes != i ||
 			view.Spend.Usage.InputTokens != 2*(i+1) ||
 			view.Spend.Usage.OutputTokens != 2*(i+1) {
 			t.Fatalf("interruption %d: view=%+v", i, view)
 		}
-		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||
+		if out.ReadyToContinue != (i < def.Limits.Resumes) ||
 			view.ReadyToContinue != out.ReadyToContinue ||
 			answerText(turn.Steps) != "" {
 			t.Fatalf("interruption %d: outcome=%+v view=%+v", i, out, view)
@@ -93,23 +93,23 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		Continue{CommandID: "over-limit"},
 	)
 	if err != nil || limited.Stop.Kind != StopLimited ||
-		limited.Stop.Reason != "interruptions" || client.sends != 3 {
+		limited.Stop.Reason != "resumes" || client.sends != 3 {
 		t.Fatalf("limit=%+v err=%v sends=%d", limited.Stop, err, client.sends)
 	}
-	view, err := Replay(limited.Turn)
-	if err != nil || view.ModelAttempts != 0 || view.Interruptions != 2 ||
+	view, err := limited.Turn.View()
+	if err != nil || view.ModelCalls != 0 || view.Resumes != 2 ||
 		view.Spend.Usage.InputTokens != 6 ||
 		view.ReadyToContinue || limited.ReadyToContinue {
 		t.Fatalf("limited view=%+v err=%v", view, err)
 	}
 	last := limited.Turn.Steps[len(limited.Turn.Steps)-1]
-	if last.Kind != StepStopped || last.CommandID != "over-limit" {
+	if last.Kind != StepTurnStopped || last.CommandID != "over-limit" {
 		t.Fatalf("excess continue ran work: %+v", last)
 	}
 	for _, step := range limited.Turn.Steps {
-		if step.Kind == StepModelSettled &&
+		if step.Kind == StepModelCallFinished &&
 			step.Model.Interrupted == InterruptNone {
-			t.Fatalf("model settlement was actionable: %+v", step.Model)
+			t.Fatalf("model call result was actionable: %+v", step.Model)
 		}
 	}
 }
@@ -146,7 +146,7 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 	}
 	var partial *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
+		if step.Kind == StepModelCallFinished {
 			partial = step.Model
 		}
 	}
@@ -156,8 +156,8 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 		partial.Result.Usage == nil || partial.Result.Usage.InputTokens != 5 {
 		t.Fatalf("partial result=%+v", partial)
 	}
-	messages, err := Project(out.Turn)
-	if err != nil || len(messages) != 1 || out.Answer != "" {
+	messages, err := TurnMessagesFull(out.Turn)
+	if err != nil || len(messages) != 1 || out.Reply != "" {
 		t.Fatalf(
 			"partial output reached model history: messages=%+v err=%v",
 			messages,
@@ -166,10 +166,10 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 	}
 }
 
-func TestContinueRecoversCrashedModelIntent(t *testing.T) {
+func TestContinueRecoversCrashedModelCallStart(t *testing.T) {
 	def := testAgent()
 	rec := NewMemoryRecorder()
-	turn := seedOpenModelIntent(t, rec, def, nil)
+	turn := seedOpenModelCallStart(t, rec, def, nil)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
@@ -179,13 +179,13 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out.Stop, err, client.sends)
 	}
-	view, err := Replay(out.Turn)
-	if err != nil || view.Interruptions != 1 || view.ModelAttempts != 1 {
+	view, err := out.Turn.View()
+	if err != nil || view.Resumes != 1 || view.ModelCalls != 1 {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 	var causes []InterruptCause
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled &&
+		if step.Kind == StepModelCallFinished &&
 			step.Model.Interrupted != InterruptNone {
 			causes = append(causes, step.Model.Interrupted)
 		}
@@ -195,34 +195,34 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	}
 }
 
-func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
+func TestCrashedModelWithUnsafeProviderToolRequiresReport(t *testing.T) {
 	def := testAgent()
 	rec := NewMemoryRecorder()
-	hosted := tool.Definition{
+	providerTool := tool.Definition{
 		Name: "remote",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "remote",
 		},
 	}
-	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{hosted})
+	turn := seedOpenModelCallStart(t, rec, def, []tool.Definition{providerTool})
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
 		Continue{CommandID: "recover"},
 	)
-	if err != nil || out.Stop.Kind != StopUncertain || client.sends != 0 ||
+	if err != nil || out.Stop.Kind != StopResultUnknown || client.sends != 0 ||
 		len(out.Pending) != 1 {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out, err, client.sends)
 	}
-	answer := final("reconciled")
+	answer := final("resolved")
 	accepted, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
-		Settle{
+		Resolve{
 			CommandID:   "report",
 			CallID:      "t1:model:1",
 			ModelResult: &answer,
@@ -295,8 +295,8 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 				out.Stop.Reason != test.wantReason {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
-			view, err := Replay(out.Turn)
-			if err != nil || view.ModelAttempts != 0 ||
+			view, err := out.Turn.View()
+			if err != nil || view.ModelCalls != 0 ||
 				view.Spend.Usage.InputTokens != 4 {
 				t.Fatalf("view=%+v err=%v", view, err)
 			}
@@ -379,7 +379,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 	}
 }
 
-func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
+func TestLeaseLossRejectsLateModelFinish(t *testing.T) {
 	rec := NewMemoryRecorder()
 	rec.Claim(t.Context(), "t1", "worker-a")
 	ctx, cancel := context.WithCancelCause(t.Context())
@@ -410,8 +410,8 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		},
 		WithOwner("worker-a"),
 	)
-	if persistence(err) != PersistenceRejected ||
-		!errors.Is(err, ErrRevisionConflict) {
+	if !nothingWritten(err) ||
+		!errors.Is(err, ErrStaleTurn) {
 		t.Fatalf("stale write=%+v err=%v", first, err)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
@@ -433,7 +433,7 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 	}
 }
 
-func seedOpenModelIntent(
+func seedOpenModelCallStart(
 	t *testing.T,
 	rec *MemoryRecorder,
 	def Agent,
@@ -443,22 +443,22 @@ func seedOpenModelIntent(
 	turn := Turn{ID: "t1"}
 	for _, step := range []Step{
 		{
-			Kind: StepStarted,
+			Kind: StepTurnStarted,
 			Started: &StartFact{
 				Agent: def,
 				Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 			},
 		},
 		{
-			Kind: StepModelIntent,
+			Kind: StepModelCallStarted,
 			Model: &ModelFact{
-				AttemptID:     "t1:model:1",
-				MessageID:     "t1:model:1:message",
-				RequestDigest: "request-digest",
-				Provider:      def.Provider,
-				API:           def.API,
-				Model:         def.Model,
-				Tools:         defs,
+				ModelCallID: "t1:model:1",
+				MessageID:   "t1:model:1:message",
+				RequestHash: "request-hash",
+				Provider:    def.Provider,
+				API:         def.API,
+				Model:       def.Model,
+				Tools:       defs,
 			},
 		},
 	} {

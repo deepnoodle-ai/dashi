@@ -205,7 +205,7 @@ func inputText(in llm.Input) string {
 	return sb.String()
 }
 
-// parentAfterTask answers parent calls after the task call settled.
+// parentAfterTask answers parent calls after the task call finished.
 func parentAfterTask(_ context.Context, in llm.Input) (llm.Result, error) {
 	if strings.Contains(inputText(in), "[task t_") {
 		return costed(text("parent read the notice"), "1"), nil
@@ -233,7 +233,7 @@ func answers(a string) modelFunc {
 	}
 }
 
-// script is the default model with an immediate child answer.
+// script is the default model with an immediate child reply.
 func script(childAnswer string) modelFunc {
 	return scripted(answers(childAnswer))
 }
@@ -251,7 +251,7 @@ func gated(g *gate, answer string) modelFunc {
 func agent(system string) dashi.Agent {
 	return dashi.Agent{
 		ID:           system,
-		Revision:     "r1",
+		Version:      "r1",
 		Provider:     "test",
 		API:          "test.chat",
 		Model:        "fixture",
@@ -322,11 +322,11 @@ func (c *crashRecorder) Commit(
 	if c.dead.Load() || c.trigger != nil && c.trigger(req) {
 		c.dead.Store(true)
 		return &dashi.CommitError{
-			Persistence: dashi.PersistenceRejected,
-			Err:         errors.New("crashed"),
+			NothingWritten: true,
+			Err:            errors.New("crashed"),
 		}
 	}
-	if req.Step.Kind == dashi.StepStarted &&
+	if req.Step.Kind == dashi.StepTurnStarted &&
 		strings.HasPrefix(req.Step.TurnID, "child-") {
 		c.starts.Add(1)
 	}
@@ -355,7 +355,7 @@ func (c *countingRecorder) Commit(
 	ctx context.Context,
 	req dashi.CommitRequest,
 ) error {
-	if req.Step.Kind == dashi.StepStarted &&
+	if req.Step.Kind == dashi.StepTurnStarted &&
 		strings.HasPrefix(req.Step.TurnID, "child-") {
 		c.starts.Add(1)
 	}
@@ -493,7 +493,7 @@ func cmpSubagents(in []delegate.Subagent) []delegate.Subagent {
 	return []delegate.Subagent{scout()}
 }
 
-func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
+func (h *harness) start(ctx context.Context) (dashi.RunResult, error) {
 	return h.runner.Run(
 		ctx,
 		dashi.Turn{ID: parentTurn},
@@ -506,10 +506,10 @@ func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
 	)
 }
 
-func (h *harness) resume(ctx context.Context) (dashi.Outcome, error) {
+func (h *harness) resume(ctx context.Context) (dashi.RunResult, error) {
 	turn, err := h.rec.Load(ctx, parentTurn)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	return h.runner.Run(ctx, turn, dashi.Continue{}, dashi.WithSteering(h.inbox))
 }
@@ -530,7 +530,7 @@ func (h *harness) view(t *testing.T, id string) dashi.TurnView {
 	if err != nil {
 		t.Fatalf("load %s: %v", id, err)
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func (h *harness) waitStop(t *testing.T, id string, kind dashi.StopKind) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if turn, err := h.rec.Load(t.Context(), id); err == nil {
-			view, err := dashi.Replay(turn)
+			view, err := turn.View()
 			if err == nil && view.Stop.Kind == kind {
 				return
 			}
@@ -633,7 +633,7 @@ func taskID() string {
 func toolResult(t *testing.T, v dashi.TurnView) string {
 	t.Helper()
 	view, ok := v.Tools[callID]
-	if !ok || view.Status != dashi.ToolSettled {
+	if !ok || view.Status != dashi.ToolFinished {
 		t.Fatalf("task call not settled: %+v", view.Status)
 	}
 	var sb strings.Builder
@@ -706,7 +706,7 @@ func TestTaskReturnsBeforeChildEnds(t *testing.T) {
 	g.waitStarted(t)
 	g.open()
 	ended := h.next(t, delegate.TaskEnded)
-	if ended.Task.State != "completed" || ended.Task.Answer != "found" {
+	if ended.Task.State != "completed" || ended.Task.Reply != "found" {
 		t.Fatalf("ended=%+v", ended.Task)
 	}
 	child := h.view(t, childTurnID())
@@ -735,7 +735,7 @@ func TestNoticeReachesRunningTurnOnce(t *testing.T) {
 	}, delegate.Config{}, nil)
 	h.notify.Store(true)
 
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(t.Context())
 		done <- out
@@ -749,8 +749,8 @@ func TestNoticeReachesRunningTurnOnce(t *testing.T) {
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("parent stop=%+v", out.Stop)
 	}
-	if out.Answer != "parent read the notice" {
-		t.Fatalf("answer=%q: the turn did not read the notice", out.Answer)
+	if out.Reply != "parent read the notice" {
+		t.Fatalf("answer=%q: the turn did not read the notice", out.Reply)
 	}
 	last := h.client.last("parent")
 	if !strings.Contains(inputText(last), "[task "+taskID()+" completed]") ||
@@ -801,8 +801,8 @@ func TestNoticesAfterTheTurnMakeOneQueueTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != dashi.StopCompleted || out.Answer != "parent done" {
-		t.Fatalf("parent stop=%+v answer=%q", out.Stop, out.Answer)
+	if out.Stop.Kind != dashi.StopCompleted || out.Reply != "parent done" {
+		t.Fatalf("parent stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	g1.open()
 	g2.open()
@@ -814,8 +814,8 @@ func TestNoticesAfterTheTurnMakeOneQueueTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Turn.ID != session.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
-		out.Answer != "parent read the notice" {
-		t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Answer)
+		out.Reply != "parent read the notice" {
+		t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Reply)
 	}
 	if len(h.tasks.List()) != 2 {
 		t.Fatalf("tasks=%+v", h.tasks.List())
@@ -871,7 +871,7 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	ended := h.next(t, delegate.TaskEnded)
-	if ended.Task.ID != taskID() || ended.Task.Answer != "answer" {
+	if ended.Task.ID != taskID() || ended.Task.Reply != "answer" {
 		t.Fatalf("ended=%+v", ended.Task)
 	}
 	// Recover again in the same process: the host was already told.
@@ -969,16 +969,16 @@ func TestCloseInterruptsAndRecoverResumesTheSameChild(t *testing.T) {
 		t.Fatalf("task ID after reopen=%q, want %q", started.Task.ID, before)
 	}
 	ended := h.next(t, delegate.TaskEnded)
-	if ended.Task.Answer != "finished after resume" {
+	if ended.Task.Reply != "finished after resume" {
 		t.Fatalf("ended=%+v", ended.Task)
 	}
 	if n := second.starts.Load(); n != 0 {
 		t.Fatalf("reopen started %d new children, want 0", n)
 	}
 	child := h.view(t, childTurnID())
-	if child.ModelAttempts != 1 || child.Interruptions != 1 {
+	if child.ModelCalls != 1 || child.Resumes != 1 {
 		t.Fatalf("child attempts=%d interruptions=%d",
-			child.ModelAttempts, child.Interruptions)
+			child.ModelCalls, child.Resumes)
 	}
 }
 
@@ -991,18 +991,18 @@ func TestKilledInsideTaskCallHoldsOneChild(t *testing.T) {
 		trigger func(*testing.T, *harness, dashi.CommitRequest) bool
 	}{
 		{"before the child is saved", func(_ *testing.T, _ *harness, r dashi.CommitRequest) bool {
-			return isChild(r) && r.Step.Kind == dashi.StepStarted
+			return isChild(r) && r.Step.Kind == dashi.StepTurnStarted
 		}},
 		{"after the child started", func(_ *testing.T, _ *harness, r dashi.CommitRequest) bool {
-			return isChild(r) && r.Step.Kind == dashi.StepModelIntent
+			return isChild(r) && r.Step.Kind == dashi.StepModelCallStarted
 		}},
 		{"before the call settled", func(t *testing.T, h *harness, r dashi.CommitRequest) bool {
-			if isChild(r) || r.Step.Kind != dashi.StepToolSettled {
+			if isChild(r) || r.Step.Kind != dashi.StepToolFinished {
 				return false
 			}
 			// The crash fails every later commit, the child's too. Crash
-			// once the child ended, so its one model call stays settled
-			// (#84: a child still running must repeat an unsettled call).
+			// once the child ended, so its one model call stays finished
+			// (#84: a child still running must repeat an unfinished call).
 			h.waitStop(t, childTurnID(), dashi.StopCompleted)
 			return true
 		}},
@@ -1125,7 +1125,7 @@ func TestCtrlCOnTheParentLeavesTasksRunning(t *testing.T) {
 		return handle(ctx, in)
 	}, delegate.Config{}, nil)
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(ctx)
 		done <- out
@@ -1139,7 +1139,7 @@ func TestCtrlCOnTheParentLeavesTasksRunning(t *testing.T) {
 		t.Fatal("Ctrl-C stopped the task")
 	}
 	g.open()
-	if h.next(t, delegate.TaskEnded).Task.Answer != "still done" {
+	if h.next(t, delegate.TaskEnded).Task.Reply != "still done" {
 		t.Fatal("the task did not finish after Ctrl-C")
 	}
 }
@@ -1392,7 +1392,7 @@ func TestTaskIsIdempotentWithLoader(t *testing.T) {
 }
 
 // A nil Recorder is a supported mode. The child runs, and the task ends. A
-// resumed parent reports the task call as uncertain.
+// resumed parent reports the task call as result_unknown.
 func TestTaskWithoutHostRecorder(t *testing.T) {
 	g := newGate()
 	h := newHarness(t, scripted(gated(g, "found it")), delegate.Config{}, nil)
@@ -1405,7 +1405,7 @@ func TestTaskWithoutHostRecorder(t *testing.T) {
 		t.Fatalf("parent stop=%+v", out.Stop)
 	}
 	g.open()
-	if h.next(t, delegate.TaskEnded).Task.Answer != "found it" {
+	if h.next(t, delegate.TaskEnded).Task.Reply != "found it" {
 		t.Fatal("the task lost its answer")
 	}
 	if err := h.tasks.Recover(t.Context(), h.runner, nil); err == nil {
@@ -1470,7 +1470,7 @@ func TestChildToolCallsPassHostHooksAfterTheTurnEnded(t *testing.T) {
 				p.Turn.Parent, p.Turn.Agent.ID)
 		}
 		child := h.view(t, childTurnID())
-		if v := child.Tools["c1"]; v.Status != dashi.ToolSettled ||
+		if v := child.Tools["c1"]; v.Status != dashi.ToolFinished ||
 			!strings.Contains(v.Verdict.Reason, "host said no") {
 			t.Fatalf("child write call=%+v", v.Status)
 		}
@@ -1487,7 +1487,7 @@ func TestDeferredApprovalInChildEndsTheTaskWaiting(t *testing.T) {
 			p dashi.ToolPlan,
 		) (dashi.ToolDecision, error) {
 			if p.Call.Name == "write" {
-				return dashi.Defer("needs a person"), nil
+				return dashi.NeedsApproval("needs a person"), nil
 			}
 			return dashi.ToolDecision{}, nil
 		},
@@ -1728,7 +1728,7 @@ func TestChildSeesOnlyItsPrompt(t *testing.T) {
 
 func TestNoticeCutsLongAnswer(t *testing.T) {
 	long := strings.Repeat("é", 100)
-	h := newHarness(t, script(long), delegate.Config{MaxAnswer: 51}, nil)
+	h := newHarness(t, script(long), delegate.Config{MaxReply: 51}, nil)
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -1744,7 +1744,7 @@ func TestNoticeCutsLongAnswer(t *testing.T) {
 
 func TestFailedChildEndsTheTaskAndIsNotRerun(t *testing.T) {
 	child := func(context.Context, llm.Input) (llm.Result, error) {
-		return text("  "), nil // an empty answer fails the child
+		return text("  "), nil // an empty reply fails the child
 	}
 	h := newHarness(t, scripted(child), delegate.Config{}, nil)
 	if _, err := h.start(t.Context()); err != nil {
@@ -1789,7 +1789,7 @@ func TestTaskRejectsUnknownSubagent(t *testing.T) {
 	}
 	// The enum makes the runner refuse the arguments before the tool runs.
 	view := out.Tools[callID]
-	if view.Status != dashi.ToolSettled || h.client.sends("child") != 0 ||
+	if view.Status != dashi.ToolFinished || h.client.sends("child") != 0 ||
 		len(h.tasks.List()) != 0 {
 		t.Fatalf("status=%v child sends=%d", view.Status,
 			h.client.sends("child"))
@@ -1816,8 +1816,8 @@ func TestParallelTaskCallsGetOwnChildren(t *testing.T) {
 		"call-2": "answer to second",
 	} {
 		v := h.view(t, session.TurnID(delegate.ChildID(parentTurn, id), 1))
-		if v.Answer != want || v.Parent.CallID != id {
-			t.Fatalf("child %s: answer=%q parent=%+v", id, v.Answer, v.Parent)
+		if v.Reply != want || v.Parent.CallID != id {
+			t.Fatalf("child %s: answer=%q parent=%+v", id, v.Reply, v.Parent)
 		}
 	}
 	if n := len(h.tasks.List()); n != 2 {
@@ -1927,7 +1927,7 @@ func TestSubagentModelOverridesParent(t *testing.T) {
 }
 
 // A crash during a child tool call, after the child's first model call
-// settled, must not repeat that model call after Recover.
+// finished, must not repeat that model call after Recover.
 func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 	child := func(_ context.Context, in llm.Input) (llm.Result, error) {
 		if len(in.Messages) == 1 {
@@ -1942,7 +1942,7 @@ func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 				r dashi.CommitRequest,
 			) bool {
 				return strings.HasPrefix(r.Step.TurnID, "child-") &&
-					r.Step.Kind == dashi.StepToolSettled
+					r.Step.Kind == dashi.StepToolFinished
 			}}
 			return crash
 		})
@@ -1958,7 +1958,7 @@ func TestCrashDuringChildToolCallRepeatsNoModelCall(t *testing.T) {
 	}
 	h.next(t, delegate.TaskStarted)
 	ended := h.next(t, delegate.TaskEnded)
-	if ended.Task.Answer != "child finished" {
+	if ended.Task.Reply != "child finished" {
 		t.Fatalf("ended=%+v", ended.Task)
 	}
 	// One call asked for the tool and one answered. Neither ran twice.
@@ -1985,7 +1985,7 @@ func TestTaskReturnsStructuredChildOutput(t *testing.T) {
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.next(t, delegate.TaskEnded).Task.Answer; got != `{"n":7}` {
+	if got := h.next(t, delegate.TaskEnded).Task.Reply; got != `{"n":7}` {
 		t.Fatalf("answer=%q", got)
 	}
 }
@@ -2023,7 +2023,7 @@ func TestUnrecordedNoticeComesBackOnceFromLeftovers(t *testing.T) {
 	})
 	notice := delegate.TaskView{
 		ID: "t_abcdef", TurnID: "child-x-1", Subagent: "scout",
-		Description: "look", State: "completed", Answer: "found",
+		Description: "look", State: "completed", Reply: "found",
 	}.Notice()
 	if _, err := h.inbox.Send(notice.Steer()); err != nil {
 		t.Fatal(err)
@@ -2061,7 +2061,7 @@ func TestEndedChildIsReportedInEitherReopenOrder(t *testing.T) {
 				func(m *dashi.MemoryRecorder) dashi.Recorder {
 					crash = &crashRecorder{Recorder: m,
 						trigger: func(r dashi.CommitRequest) bool {
-							if r.Step.Kind != dashi.StepToolSettled ||
+							if r.Step.Kind != dashi.StepToolFinished ||
 								strings.HasPrefix(r.Step.TurnID, "child-") {
 								return false
 							}
@@ -2096,7 +2096,7 @@ func TestEndedChildIsReportedInEitherReopenOrder(t *testing.T) {
 				}
 			}
 			ended := h.next(t, delegate.TaskEnded)
-			if ended.Task.Answer != "the answer" {
+			if ended.Task.Reply != "the answer" {
 				t.Fatalf("ended=%+v", ended.Task)
 			}
 			h.none(t, delegate.TaskEnded)
@@ -2238,7 +2238,7 @@ func TestRecoverKeepsTheToolsTheChildStartedWith(t *testing.T) {
 		t.Fatalf("a probe ran %d times; write must not run", n)
 	}
 	call := h.view(t, childTurnID()).Tools["w1"]
-	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+	if call.Status != dashi.ToolFinished || call.Outcome == nil ||
 		call.Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("write call=%+v, want settled without running", call)
 	}
@@ -2281,7 +2281,7 @@ func TestRecoverKeepsReadOnly(t *testing.T) {
 		t.Fatalf("a probe ran %d times; write must not run", n)
 	}
 	call := h.view(t, childTurnID()).Tools["w1"]
-	if call.Status != dashi.ToolSettled || call.Outcome == nil ||
+	if call.Status != dashi.ToolFinished || call.Outcome == nil ||
 		call.Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("write call=%+v, want settled without running", call)
 	}
@@ -2310,7 +2310,7 @@ func TestTaskKeepsCallerContextValuesButNotCancellation(t *testing.T) {
 	}, delegate.Config{}, nil)
 	parent, cancel := context.WithCancel(
 		context.WithValue(t.Context(), tenantKey{}, "acme"))
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(parent)
 		done <- out
@@ -2325,7 +2325,7 @@ func TestTaskKeepsCallerContextValuesButNotCancellation(t *testing.T) {
 		t.Fatal("canceling the parent stopped the task")
 	}
 	g.open()
-	if h.next(t, delegate.TaskEnded).Task.Answer != "done" {
+	if h.next(t, delegate.TaskEnded).Task.Reply != "done" {
 		t.Fatal("the task did not finish after the parent ended")
 	}
 }

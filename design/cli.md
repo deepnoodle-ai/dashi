@@ -64,7 +64,7 @@ The test expects "1,2" to give two items. Parse drops the last one.
 A slash command typed during a turn is not a steer. It waits, and the screen
 says so. Flags: `-c` or `--resume` reopens the last session of this
 directory that has a turn. `--resume ID` reopens session `ID`. `-p "prompt"`
-runs one turn without a UI and prints the answer. `--model NAME` sets the
+runs one turn without a UI and prints the reply. `--model NAME` sets the
 model. The order for the model is flag, `DASHI_MODEL`, settings file, then
 `gpt-6-luna`. Settings are in `~/.dashi/settings.json`, overridden by
 `.dashi/settings.json` in the repository.
@@ -81,9 +81,9 @@ model. The order for the model is flag, `DASHI_MODEL`, settings file, then
 streams into the scrollback. Each tool call shows one line: name, main argument,
 state, time. Paths inside the repository show relative to it, and a long path
 loses its left end. The `bash` line shows the last output lines from
-`workspace.ShellProgress`. A settled turn prints a footer with the model that
-ran it, calls, tokens, and cost. After `bash` settles, the CLI shows `git diff`,
-capped at 40 lines.
+`workspace.ShellProgress`. A finished turn prints a footer with the model
+that ran it, calls, tokens, and cost. After `bash` finishes, the CLI shows
+`git diff`, capped at 40 lines.
 
 **Safe text.** The model controls much of what the screen shows. Every block
 goes through `workspace.PrintableText` before a UI sees it. Approval requests
@@ -106,7 +106,7 @@ prompt for when the turn ends. When a command ends with prompts still queued,
 the screen says how many. Quitting, `/new`, and `/sessions` warn once before
 they drop them.
 
-**Limit stop.** The CLI sets `Limits.ModelAttempts` to 40. Enter or
+**Limit stop.** The CLI sets `Limits.ModelCalls` to 40. Enter or
 `/continue` continues the same turn with a limit twice as high. It adds no
 user line. A new prompt closes the limited turn instead.
 
@@ -179,8 +179,8 @@ providers.
    the life of the process.
 8. **Enter during a turn is a steer; `!` is urgent.** A slash command waits.
 9. **`/sessions` lists this directory only.**
-10. **The limit stop is not terminal** (library decision 34). The same turn
-    continues with a raised limit, doubling each time (40, 80, 160).
+10. **The limit stop does not end the turn** (library decision 34). The same
+    turn continues with a raised limit, doubling each time (40, 80, 160).
 11. **The `Controller` holds modes and commands.** The screen, line mode, and
     `-p` are thin `UI` values, so tests drive every mode without a terminal.
 12. **Line mode** runs when stdin or stdout is not a terminal, or with

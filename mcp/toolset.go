@@ -46,14 +46,14 @@ type Options struct {
 
 	// Approve runs once for each Untrusted server, in sorted name order, one
 	// at a time, before any server starts. It gets the raw entry and its
-	// fingerprint. A false result or an error declines the server. Nil
-	// declines every untrusted server. The package stores no answer: the host
-	// may remember one, keyed on the fingerprint.
+	// hash. A false result or an error declines the server. Nil declines
+	// every untrusted server. The package stores no answer: the host may
+	// remember one, keyed on the hash.
 	Approve func(
 		ctx context.Context,
 		name string,
 		s Server,
-		fingerprint string,
+		hash string,
 	) (bool, error)
 
 	// ConnectTimeout bounds each server's start and discovery. Zero means
@@ -190,7 +190,7 @@ func (t *Toolset) approve(ctx context.Context, c *conn) (bool, error) {
 	if t.opts.Approve == nil {
 		return false, nil
 	}
-	return t.opts.Approve(ctx, c.name, c.server, c.server.Fingerprint())
+	return t.opts.Approve(ctx, c.name, c.server, c.server.Hash())
 }
 
 // Tools returns the snapshot taken by Open or the last Refresh. It never

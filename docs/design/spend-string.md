@@ -7,7 +7,7 @@ Workflow: Spec, checkpoint, then build with independent implementation review.
 
 The [PRD](../prds/spend-string.md) defines a display method for issue #93.
 Existing examples duplicate currency loops. One also handles incomplete costs manually.
-`money.Amount.String()` supplies exact decimal text. `Spend` already contains the cost categories and uncertainty counters.
+`money.Amount.String()` supplies exact decimal text. `Spend` already contains the cost categories and incomplete-cost counters.
 The implementation must display those facts without changing accounting.
 
 ## Proposal
@@ -38,10 +38,10 @@ The [accounting spec](spend-usage-accounting.md) supersedes the original usage-o
 New usage failures set `UsageIncomplete`; its marker never qualifies exact monetary sums.
 Old positive `CostUnknown` values retain conservative display because their cause cannot be inferred.
 
-Replace cost loops in `examples/tools/main.go` and `examples/hosted_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
-The hosted example keeps its token, hosted-request, and unpriced-meter diagnostics. Remove duplicate unknown and partial counter prose.
+Replace cost loops in `examples/tools/main.go` and `examples/provider_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
+The provider tool example keeps its token, provider tool request, and unpriced-meter diagnostics. Remove duplicate unknown and partial counter prose.
 The existing unpriced-meter diagnostic may use the counter to decide when to print details.
-Update `docs/guides/budgets.md` with the method's purpose, category labels, missing-cost behavior, and uncertainty rules.
+Update `docs/guides/budgets.md` with the method's purpose, category labels, missing-cost behavior, and incomplete-cost rules.
 
 ## Verification
 
@@ -53,7 +53,7 @@ Assert retained exact amounts, the unknown flag, and lower-bound text on both ca
 Construct an actual usage-only overflow through `Spend.Add`, with otherwise exact model and tool sums.
 Assert exact monetary sums, unchanged retained usage, `CostUnknown == 0`, and the `usage incomplete` marker without `at least`.
 Check repeated formatting remains stable and preserves Spend maps and usage.
-The runnable example prints mixed model/tool charges and incomplete model costs without provider requests.
+The runnable example prints mixed model/tool costs and incomplete model costs without provider requests.
 
 Run focused Spend tests and the example, then root `go vet ./...`, `go build ./...`, and `go test -race ./...`.
 Verify changed Go files with `gofmt`. The implementation reviewer also runs the public example.
@@ -61,7 +61,7 @@ Verify changed Go files with `gofmt`. The implementation reviewer also runs the 
 ## Alternatives and tradeoffs
 
 - Extend the delegate formatter. It prints only model cost and has incompatible empty/partial semantics. A focused method avoids changing delegate behavior.
-- Reuse the CLI footer. It rounds money and omits missing charges. Exact library output needs a separate presentation.
+- Reuse the CLI footer. It rounds money and omits missing costs. Exact library output needs a separate presentation.
 - Print every Spend field. That preserves detail but defeats the short cost-summary job. Structured fields remain available.
 
 The method allocates sorted key slices and output strings. Cost maps are small, and deterministic human display warrants that cost.

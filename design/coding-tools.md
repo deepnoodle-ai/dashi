@@ -27,7 +27,7 @@ Success means:
 
 ## User
 
-The first user is a developer who builds a coding agent, starting with the `dashi` CLI. The second user is a developer who builds a server-side agent that works on a checked-out repository. This person defers approvals instead of asking inline.
+The first user is a developer who builds a coding agent, starting with the `dashi` CLI. The second user is a developer who builds a server-side agent that works on a checked-out repository. This person leaves approvals pending instead of asking inline.
 
 ## Public API
 
@@ -116,7 +116,7 @@ Each tool sets `Annotations.ReadOnly`. `ask_user` counts as read-only because th
 2. A remembered rule for the call allows it.
 3. Any other tool calls `ApprovalFunc`. This includes MCP tools, even when they carry a `ReadOnly` annotation. An annotation is a hint from the tool's author, so the policy does not trust it.
 4. `Approval.Allow` returns `dashi.Allow`. A refusal returns `dashi.Deny` with the reason. The default reason tells the model not to retry the same call.
-5. When `ask` is nil, the policy returns `dashi.Defer`. This supports the durable approval flow with no extra code.
+5. When `ask` is nil, the policy returns `dashi.NeedsApproval`. This supports the durable approval flow with no extra code.
 
 The request for `write_file` and `edit_file` carries a unified diff in `Preview`. For `edit_file` the diff comes from the file and the replacement. For `write_file` it compares the old file, or an empty file, with the new content. The request for `bash` carries the exact command and the working directory. The diff that the demo shows after a command is `git diff`, run by the CLI. It is not a library feature.
 
@@ -146,7 +146,7 @@ The request for `write_file` and `edit_file` carries a unified diff in `Preview`
 20. **grep and glob limits.** `grep` returns at most 250 lines by default (`head_limit`). `glob` returns at most 1000 files. Both say when they cut the result. Both skip `.git`, `node_modules`, and similar directories. The Go search also skips hidden files, as `rg` does. The tool `grep` output mode is `files`, not `files_with_matches`.
 21. **Glob patterns.** A pattern with no `/` matches at any depth. `{a,b}` groups work.
 22. **One value owns the directory.** `workspace.New(dir)` returns a `Workspace`; `ws.Tools(...)` and `ws.Policy(...)` share its directory, so previews and the shell `Dir` cannot be wrong. `InDir` and `NewPolicy` are gone. Reason: the review probe overwrote a 3-line file behind a prompt that showed a new-file diff. When the policy cannot read the old file, it shows no preview.
-23. **The policy recognizes tools by full definition.** A hook sees only the `Definition`, not the executor. The workspace records a fingerprint (name, description, schema, annotations) of every tool it builds, and only a match counts as its own. An outside tool with the same name, such as an MCP `grep` with `ReadOnly` set, asks. Remembered rules of the package tools are not shared with outside tools of the same name. Limit: an outside tool that copies the whole definition looks the same to a hook; that needs a host that registers hostile tools on purpose, and `TrustTools` has the same trust level.
+23. **The policy recognizes tools by full definition.** A hook sees only the `Definition`, not the executor. The workspace records a hash (name, description, schema, annotations) of every tool it builds, and only a match counts as its own. An outside tool with the same name, such as an MCP `grep` with `ReadOnly` set, asks. Remembered rules of the package tools are not shared with outside tools of the same name. Limit: an outside tool that copies the whole definition looks the same to a hook; that needs a host that registers hostile tools on purpose, and `TrustTools` has the same trust level.
 24. **Background processes do not fail the shell.** After the shell exits, the tool waits 500 ms for output and then returns the result with success and a note, instead of the `WaitDelay expired` error. The process is left running, and its pipe is closed; the note tells the model to redirect output to a file. A real non-zero exit still fails.
 25. **Shell output is capped in memory.** The tool keeps the first 512 KiB and last 512 KiB and says how many bytes it dropped. This is a need of the tool (2 GB probe), not generic bounding, which the tool-output track owns.
 26. **An `edit_file` call that cannot work skips the prompt.** The tool fails without a change and its text tells the model what to fix, so a prompt would ask the person to approve nothing.
@@ -156,7 +156,7 @@ The request for `write_file` and `edit_file` carries a unified diff in `Preview`
 
 - Package `workspace` with all eight tools, path scope, `New`, `Workspace.Tools`, `Workspace.Policy`, and the options above.
 - Unix process-group kill. Other platforms build with a plain kill of the child.
-- Tests: each tool; a table of path-escape cases (`..`, absolute path, symlink to outside, symlink to a new file, symlinked parent); edit uniqueness; shell timeout and kill; progress; policy decisions, including `Remember` and deferral.
+- Tests: each tool; a table of path-escape cases (`..`, absolute path, symlink to outside, symlink to a new file, symlinked parent); edit uniqueness; shell timeout and kill; progress; policy decisions, including `Remember` and needs-approval.
 - Example `examples/coding`. Guide `docs/guides/coding-tools.md`, linked from `tools.md` and `approvals.md`.
 - One live test, skipped without a key, that fixes a failing test in a temporary repository.
 - Update `design/remaining-work.md` when the PR is ready.

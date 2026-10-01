@@ -113,11 +113,11 @@ func copyRequest(blocks []Block, selection, arg string) (text, notice string) {
 	}
 	code := codeBlocks(lastAssistantText(blocks))
 	if len(code) == 0 {
-		return "", "Nothing selected, and the latest answer has no code blocks."
+		return "", "Nothing selected, and the latest reply has no code blocks."
 	}
 	if arg == "" {
 		var report strings.Builder
-		report.WriteString("Code blocks in the latest answer:\n")
+		report.WriteString("Code blocks in the latest reply:\n")
 		for i, b := range code {
 			fmt.Fprintf(&report, "%d. %s (%d lines): %s\n", i+1, orDefault(b.lang, "text"), b.lines(), truncate(b.summary(), 48))
 		}

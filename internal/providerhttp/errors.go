@@ -99,7 +99,7 @@ func RetryAfter(err error) (time.Duration, bool) {
 // though their status code normally would. OpenAI returns all of these with
 // 429, the same status as an ordinary rate limit, so the status code alone
 // cannot tell a request that is merely too fast from an account that is out of
-// money. Retrying a spend limit burns the attempt budget and delays the error
+// money. Retrying a spend limit burns the retry budget and delays the error
 // the caller needs to see.
 var terminalErrorCodes = map[string]bool{
 	"credit_balance_exhausted":          true,

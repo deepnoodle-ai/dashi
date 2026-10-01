@@ -33,12 +33,12 @@ func (r *engineAttachmentResolver) bind() (*sessionstore.AttachmentStore, error)
 	}
 	return r.bound, nil
 }
-func (r *engineAttachmentResolver) Resolve(ctx context.Context, id string, ref content.Ref) ([]byte, error) {
+func (r *engineAttachmentResolver) Load(ctx context.Context, id string, ref content.Ref) ([]byte, error) {
 	a, err := r.bind()
 	if err != nil {
 		return nil, err
 	}
-	return a.Resolve(ctx, id, ref)
+	return a.Load(ctx, id, ref)
 }
 func (r *engineAttachmentResolver) close() {
 	r.mu.Lock()
@@ -55,7 +55,7 @@ func (e *Engine) inputReceipt(p *pendingPrompt, state inputReceiptState) {
 	}
 }
 
-// PromptInput admits one owned media request. It never queues it as text or
+// PromptInput accepts one owned media request. It never queues it as text or
 // steers it into another Turn; unresolved work preserves the incoming draft.
 func (e *Engine) PromptInput(ctx context.Context, in *submittedInput) (res Result, err error) {
 	if in == nil {

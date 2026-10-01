@@ -29,7 +29,7 @@ func ExampleTurnView_Next() {
 	for {
 		fmt.Println(out.Stop.Kind, "->", out.Next())
 		switch out.Next() {
-		case dashi.NextAnswer:
+		case dashi.NextResolvePending:
 			out, _ = runner.Run(ctx, out.Turn, out.Pending[0].Approve())
 		case dashi.NextContinue:
 			out, _ = runner.Run(ctx, out.Turn, dashi.Continue{})
@@ -38,7 +38,7 @@ func ExampleTurnView_Next() {
 		}
 	}
 	// Output:
-	// waiting -> answer
+	// waiting -> resolve_pending
 	// waiting -> continue
 	// completed -> none
 }

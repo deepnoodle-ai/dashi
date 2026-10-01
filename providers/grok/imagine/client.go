@@ -183,7 +183,7 @@ func (c *Client) PrepareVideoWithOptions(
 }
 
 // SubmitVideo makes one remote submission attempt. Transport or server failure
-// can leave acceptance unknown; callers must record that uncertainty.
+// can leave acceptance unknown; callers must record that it is unknown.
 func (c *Client) SubmitVideo(
 	ctx context.Context,
 	request media.VideoRequest,
@@ -241,10 +241,9 @@ func (c *Client) SubmitVideo(
 	return media.Submission{State: media.SubmissionAccepted, Job: &job}, nil
 }
 
-// A status that may be produced after admission leaves the job outcome
-// unknown.
-// xAI does not document idempotent video submission or reconciliation by
-// token.
+// A status that may be produced after xAI accepts the job leaves the job
+// outcome unknown. xAI does not document idempotent video submission or
+// looking up a submission by token.
 func knownRejectedStatus(status int) bool {
 	if status < 400 || status >= 500 {
 		return false

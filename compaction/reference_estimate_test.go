@@ -19,8 +19,8 @@ func TestReferenceEstimateCountsEveryOccurrenceWithoutIO(t *testing.T) {
 	m := llm.Message{Role: llm.RoleUser, Content: []llm.Content{
 		llm.Image(source),
 		{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: "call", Output: tool.Output{Content: []content.Block{image, image}}}},
-		{Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{image}}},
-		{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{image}}},
+		{Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{image}}},
+		{Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{image}}},
 	}}
 	before := m.Clone()
 	encoded, err := json.Marshal(m)

@@ -79,7 +79,7 @@ for fd in (mi, si, mo, so): os.close(fd)
 		decodeResponses(t, format, string(data))
 	}
 }
-func TestAutomationInvocationSignalsCancelWholeInputBeforeAdmission(t *testing.T) {
+func TestAutomationInvocationSignalsCancelWholeInputBeforeAcceptance(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAutomationRunProcessFixture$")
@@ -121,6 +121,6 @@ func TestAutomationInvocationSignalsCancelWholeInputBeforeAdmission(t *testing.T
 		if err := json.Unmarshal(out.Bytes(), &object); err != nil || len(object.Messages) != 0 {
 			t.Fatalf("signal=%v out=%q err=%v", sig, out.String(), err)
 		}
-		fmt.Fprintf(os.Stderr, "signal %d: exit %d, empty response, no admission\n", sig, want)
+		fmt.Fprintf(os.Stderr, "signal %d: exit %d, empty response, nothing accepted\n", sig, want)
 	}
 }

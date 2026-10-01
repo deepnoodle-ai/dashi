@@ -21,7 +21,7 @@ type Adjustment struct {
 	Reason    string `json:"reason"`
 }
 
-// ImageRequestSnapshot records image preparation before any remote attempt.
+// ImageRequestSnapshot records image preparation before anything is sent.
 // Body is the exact JSON or multipart payload, including binary uploads, and
 // is encoded as base64 if this snapshot is serialized to JSON.
 type ImageRequestSnapshot struct {
@@ -53,8 +53,9 @@ func (s ImageRequestSnapshot) Clone() ImageRequestSnapshot {
 	return s
 }
 
-// ImageRequest owns destination-bound image intent. Its accessors detach
-// mutable data; sending it is a separate attempt that the caller must record.
+// ImageRequest holds what the caller asked to generate, bound to one
+// destination. Its accessors detach mutable data; each send is a separate call
+// that the caller must record.
 type ImageRequest struct {
 	snapshot ImageRequestSnapshot
 }
@@ -121,7 +122,7 @@ func (r ImageRequest) ContentType() string {
 	return r.snapshot.ContentType
 }
 
-// VideoRequestSnapshot records video intent before any remote attempt. A job
+// VideoRequestSnapshot records the video request before anything is sent. A job
 // submission response is recorded separately from this snapshot when used.
 type VideoRequestSnapshot struct {
 	Origin      content.Origin `json:"origin"`
@@ -152,8 +153,9 @@ func (s VideoRequestSnapshot) Clone() VideoRequestSnapshot {
 	return s
 }
 
-// VideoRequest owns destination-bound video intent. A job submission can
-// leave its outcome unknown if the provider's response is lost.
+// VideoRequest holds what the caller asked to generate, bound to one
+// destination. A job submission can leave its outcome unknown if the
+// provider's response is lost.
 type VideoRequest struct {
 	snapshot VideoRequestSnapshot
 }
@@ -234,7 +236,7 @@ type VideoCallClient interface {
 
 // VideoJobClient separates submission, polling, and output retrieval. A
 // SubmitVideo transport error may accompany SubmissionUnknown; callers must
-// record that uncertainty rather than resubmit automatically.
+// record that the result is unknown rather than resubmit automatically.
 type VideoJobClient interface {
 	PrepareVideo(context.Context, VideoInput) (VideoRequest, error)
 	SubmitVideo(context.Context, VideoRequest) (Submission, error)

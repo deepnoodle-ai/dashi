@@ -54,7 +54,7 @@ func TestClearedControlsStayClearedInRecordedAndDispatchedNextTurn(t *testing.T)
 				t.Fatalf("sent=%+v last=%+v", sent, last)
 			}
 			if !reflect.DeepEqual(last.View.Agent.Settings, sent[1]) {
-				t.Fatalf("record and sent intent disagree: recorded=%+v sent=%+v", last.View.Agent.Settings, sent[1])
+				t.Fatalf("record and sent settings disagree: recorded=%+v sent=%+v", last.View.Agent.Settings, sent[1])
 			}
 		})
 	}

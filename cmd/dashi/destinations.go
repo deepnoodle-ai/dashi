@@ -107,9 +107,9 @@ func (d configuredDestination) endpoint() (*url.URL, error) {
 	return u, nil
 }
 
-// fingerprint records the whole binding without its credential values. Model
+// hash records the whole binding without its credential values. Model
 // registration order does not change binding identity.
-func (d configuredDestination) fingerprint() (string, error) {
+func (d configuredDestination) hash() (string, error) {
 	if err := d.validate(); err != nil {
 		return "", err
 	}
@@ -143,8 +143,8 @@ func (d configuredDestination) trustedBy(user map[string]configuredDestination) 
 	if !ok {
 		return false
 	}
-	want, err := other.fingerprint()
-	got, gotErr := d.fingerprint()
+	want, err := other.hash()
+	got, gotErr := d.hash()
 	return err == nil && gotErr == nil && want == got
 }
 

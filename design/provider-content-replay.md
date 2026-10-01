@@ -15,7 +15,7 @@ Saved messages retain their original content and provenance. The configured
 client's single offline `Prepare` path derives a destination-specific
 representation, records changes, and freezes the exact body. `Send` makes at
 most one dispatch. Preparation and entering `Send` prove neither dispatch nor
-receipt; the caller owns attempts, retries, and execution records.
+receipt; the caller owns call identities, retries, and execution records.
 
 ## Content and provenance
 

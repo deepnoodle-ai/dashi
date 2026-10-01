@@ -31,7 +31,7 @@ type taskFixtureClient struct {
 	startOnce               sync.Once
 	effect                  bool
 	secondTask              bool
-	childAttempts           map[string]int
+	childModelCalls         map[string]int
 	loopUntil               int
 }
 
@@ -49,8 +49,8 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		n = c.childCalls
 		c.childCalls++
 		if c.secondTask {
-			if c.childAttempts == nil {
-				c.childAttempts = map[string]int{}
+			if c.childModelCalls == nil {
+				c.childModelCalls = map[string]int{}
 			}
 			key := "first"
 			for _, m := range in.Messages {
@@ -58,8 +58,8 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 					key = "second"
 				}
 			}
-			n = c.childAttempts[key]
-			c.childAttempts[key]++
+			n = c.childModelCalls[key]
+			c.childModelCalls[key]++
 		}
 	} else {
 		c.parentCalls++
@@ -172,8 +172,8 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Outcome.Answer != "Task result received." {
-		t.Fatalf("quiet answer=%q", result.Outcome.Answer)
+	if result.Outcome.Reply != "Task result received." {
+		t.Fatalf("quiet answer=%q", result.Outcome.Reply)
 	}
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
 	count := 0
@@ -182,7 +182,7 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 			t.Fatal(err)
 		}
 		for _, step := range turn.Steps {
-			if step.Kind == dashi.StepStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
+			if step.Kind == dashi.StepTurnStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
 				count++
 			}
 		}
@@ -191,7 +191,7 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 		t.Fatalf("recorded notices=%d", count)
 	}
 	beforeParent, beforeChild := client.counts()
-	// A callback duplicate and a fresh projection cannot deliver again.
+	// A callback duplicate and a fresh reload cannot deliver again.
 	item := task.Notice().Item()
 	host := a.eng.taskHost()
 	host.mu.Lock()
@@ -256,7 +256,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		t.Fatal("wrong call accepted")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "continue", ""); err == nil {
-		t.Fatal("uncertain effect retried")
+		t.Fatal("effect with unknown result retried")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err != nil {
 		t.Fatal(err)
@@ -265,7 +265,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		t.Fatalf("original confirmation=%+v", confirmations)
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err == nil {
-		t.Fatal("already settled effect accepted")
+		t.Fatal("already finished effect accepted")
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "continue", ""); err != nil {
 		t.Fatal(err)
@@ -303,7 +303,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		if loadErr != nil {
 			t.Fatal(loadErr)
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -341,7 +341,7 @@ func TestTaskStopDoesNotCancelForegroundParent(t *testing.T) {
 		t.Fatalf("parent stopped=%+v", last)
 	}
 	snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
-	if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled || snapshot.View.Stop.Projected {
+	if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled || snapshot.View.Stop.Inferred {
 		t.Fatalf("stop=%+v %v", snapshot.View.Stop, err)
 	}
 }
@@ -391,12 +391,12 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	}
 }
 func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
-	target := delegate.TaskTarget{ID: "t_fixture", TurnID: "child/1", Revision: 7}
-	a, err := taskCommandID(target, "continue", "", dashi.Continue{ModelAttempts: 64})
+	target := delegate.TaskTarget{ID: "t_fixture", TurnID: "child/1", LastSeq: 7}
+	a, err := taskCommandID(target, "continue", "", dashi.Continue{ModelCalls: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := taskCommandID(target, "continue", "", dashi.Continue{ModelAttempts: 65})
+	b, _ := taskCommandID(target, "continue", "", dashi.Continue{ModelCalls: 65})
 	if a == b {
 		t.Fatal("distinct limit changes shared command identity")
 	}
@@ -406,10 +406,10 @@ func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 		t.Fatal("different cancellation payload shared identity")
 	}
 	changed := target
-	changed.Revision++
-	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelAttempts: 64})
+	changed.LastSeq++
+	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelCalls: 64})
 	if e == a {
-		t.Fatal("revision excluded")
+		t.Fatal("step excluded")
 	}
 }
 
@@ -424,7 +424,7 @@ type taskQueueCrashRecorder struct {
 
 func (r *taskQueueCrashRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	r.mu.Lock()
-	lose := !r.lost && req.Step.Kind == dashi.StepStarted && strings.HasPrefix(req.Step.CommandID, "queue:")
+	lose := !r.lost && req.Step.Kind == dashi.StepTurnStarted && strings.HasPrefix(req.Step.CommandID, "queue:")
 	if lose {
 		r.lost = true
 		r.target = req.Step.TurnID
@@ -451,7 +451,7 @@ func (r *taskQueueCrashRecorder) Load(ctx context.Context, id string) (dashi.Tur
 	}
 	return r.Recorder.Load(ctx, id)
 }
-func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) {
+func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 	for _, mode := range []string{"absent", "committed"} {
 		t.Run(mode, func(t *testing.T) {
 			client := &taskFixtureClient{}
@@ -483,11 +483,11 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 				t.Fatal(err)
 			}
 			if _, err = a.eng.DriveTaskNotices(t.Context()); err == nil {
-				t.Fatal("unknown queue admission returned success")
+				t.Fatal("unconfirmed queue recording returned success")
 			}
 			parent, child := client.counts()
 			if parent != 2 || child != 1 {
-				t.Fatalf("unknown admission dispatched %d/%d", parent, child)
+				t.Fatalf("unconfirmed recording dispatched %d/%d", parent, child)
 			}
 			a.ctrl.mu.Lock()
 			a.ctrl.autoTaskDelivery = true
@@ -496,13 +496,13 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 			a.ctrl.Wait()
 			again, _ := client.counts()
 			if again != parent {
-				t.Fatal("automatic unknown-admission retry dispatched")
+				t.Fatal("automatic unconfirmed-recording retry dispatched")
 			}
 			a.ctrl.Input("unrelated new prompt")
 			a.ctrl.Wait()
 			again, _ = client.counts()
 			if again != parent {
-				t.Fatal("unrelated work replaced queued admission")
+				t.Fatal("unrelated work replaced queued recording")
 			}
 			recorder.mu.Lock()
 			recorder.unreadable = false
@@ -511,7 +511,7 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 			a.ctrl.Wait()
 			parent, child = client.counts()
 			if parent != 3 || child != 1 {
-				t.Fatalf("reconciled calls=%d/%d transcript=%s", parent, child, ui.text())
+				t.Fatalf("checked calls=%d/%d transcript=%s", parent, child, ui.text())
 			}
 			task := a.eng.taskHost().tasks.List()[0]
 			count := 0
@@ -520,37 +520,37 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 					t.Fatal(err)
 				}
 				for _, step := range turn.Steps {
-					if step.Kind == dashi.StepStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
+					if step.Kind == dashi.StepTurnStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
 						count++
 					}
 				}
 			}
 			if count != 1 {
-				t.Fatalf("completion admission count=%d", count)
+				t.Fatalf("completion recording count=%d", count)
 			}
 		})
 	}
 }
-func TestTaskDetailsSeparateAttemptEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
+func TestTaskDetailsSeparateModelCallEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
 	turn := dashi.Turn{ID: "child", Steps: []dashi.Step{
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "not-sent", EstimatedInputTokens: 1234}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "not-sent", NoDispatch: true, EstimatedUsage: true}},
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "unknown"}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "unknown", Failure: llm.FailureUnknown, Uncertain: true}},
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "sent"}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{Purpose: dashi.ModelPurposeCompaction, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("private summary"))}}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "not-sent", EstimatedInputTokens: 1234}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "not-sent", NotSent: true, EstimatedUsage: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "unknown"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "unknown", SendStatus: llm.SendStatusUnknown, ResultUnknown: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "sent"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{Purpose: dashi.ModelPurposeCompaction, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("private summary"))}}},
 	}}
 	calls, unresolved := taskDispatchCounts(turn)
 	if calls != 2 || unresolved != 1 {
 		t.Fatalf("counts=%d/%d", calls, unresolved)
 	}
 	details := taskDetails(taskSnapshot{Bound: true, Turn: turn, View: dashi.TurnView{ID: "child"}})
-	if strings.Contains(details, "private summary") || !strings.Contains(details, "public answer") || !strings.Contains(details, "2 confirmed model dispatches") {
+	if strings.Contains(details, "private summary") || !strings.Contains(details, "public answer") || !strings.Contains(details, "2 model calls confirmed sent") {
 		t.Fatal(details)
 	}
 	row := taskRow(delegate.TaskView{TurnID: "child", ModelCalls: 3})
-	if !strings.Contains(row.Text, "3 model attempts") {
+	if !strings.Contains(row.Text, "3 model calls") {
 		t.Fatal(row.Text)
 	}
 }
@@ -604,7 +604,7 @@ func TestTaskReopenInspectRecordedChildWithoutAvailableBinding(t *testing.T) {
 	}
 }
 
-func TestTaskAttemptLimitRequiresExactConfirmedRaise(t *testing.T) {
+func TestTaskModelCallLimitRequiresExactConfirmedRaise(t *testing.T) {
 	client := &taskFixtureClient{loopUntil: 32}
 	questions := 0
 	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(_ context.Context, q Question) (questionAnswer, error) {
@@ -620,7 +620,7 @@ func TestTaskAttemptLimitRequiresExactConfirmedRaise(t *testing.T) {
 	}
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopLimited) })
 	snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
-	if err != nil || snapshot.View.Next() != dashi.NextRaiseAttempts {
+	if err != nil || snapshot.View.Next() != dashi.NextRaiseModelCalls {
 		t.Fatalf("limit=%+v err=%v", snapshot.View.Stop, err)
 	}
 	oldTurn := snapshot.View.ID
@@ -640,7 +640,7 @@ func TestTaskDiscardExplicitlyClosesWaitingEffectWithoutRepeat(t *testing.T) {
 	installTaskEffect(t, &runs, true)
 	client := &taskFixtureClient{effect: true}
 	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(_ context.Context, q Question) (questionAnswer, error) {
-		if !strings.Contains(q.Prompt, "Uncertain effects may already have run") {
+		if !strings.Contains(q.Prompt, "Effects whose result is unknown may already have run") {
 			t.Error(q.Prompt)
 		}
 		return questionAnswer{choices: []int{1}}, nil
@@ -862,7 +862,7 @@ func TestChildApprovalInspectionAndStopRetainsOtherOriginalCall(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	if len(a.eng.taskHost().tasks.List()) != 2 {
-		t.Fatal("two children not admitted")
+		t.Fatal("two children not accepted")
 	}
 	close(childHold)
 	var first ApprovalRequest
@@ -1078,7 +1078,7 @@ func TestUnreadableParentBeforeNoticeBlocksHiddenChildAndAllowsNewSession(t *tes
 	}
 	defer b.eng.Close()
 	if _, err = b.eng.Prompt(t.Context(), "replacement"); err == nil || !strings.Contains(err.Error(), "may hide child") {
-		t.Fatal("hidden child admitted new work", err)
+		t.Fatal("hidden child accepted new work", err)
 	}
 	if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
 		t.Fatal("hidden child certified quiet")

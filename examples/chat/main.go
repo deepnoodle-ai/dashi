@@ -82,15 +82,15 @@ func run(ctx context.Context) error {
 		for _, w := range out.SessionWarnings {
 			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
 		}
-		if out.Next() == dashi.NextAnswer {
+		if out.Next() == dashi.NextResolvePending {
 			p := out.Pending[0]
 			fmt.Printf("  %s %s? no\n", p.Name, p.Args)
-			out, err = s.Answer(ctx, []dashi.Settle{p.Deny("the user declined")})
+			out, err = s.Resolve(ctx, []dashi.Resolve{p.Deny("the user declined")})
 			if err != nil {
 				return err
 			}
 		}
-		fmt.Println(out.Answer)
+		fmt.Println(out.Reply)
 	}
 	st, err := s.Open(ctx)
 	if err != nil {

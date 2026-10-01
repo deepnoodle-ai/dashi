@@ -55,7 +55,7 @@ func TestPromptStreamsTextAndFooter(t *testing.T) {
 	if h.turns() != 1 || s.Title != "fix the test" {
 		t.Fatalf("session=%+v", s)
 	}
-	// Streamed text and the settled text are one block.
+	// Streamed text and the finished text are one block.
 	assistants := 0
 	for _, b := range h.ui.blocks() {
 		if b.Kind == KindAssistant {
@@ -402,7 +402,7 @@ func TestSlashCommands(t *testing.T) {
 	}
 }
 
-// A settled bash call is followed by the diff of the working tree.
+// A finished bash call is followed by the diff of the working tree.
 func TestDiffShownAfterBash(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
@@ -496,10 +496,10 @@ func TestDiffIsCappedAt40Lines(t *testing.T) {
 func rejectWith(status int, category llm.ErrorCategory) reply {
 	return func(context.Context, llm.Call) (llm.Result, error) {
 		return llm.Result{}, &llm.Error{
-			Provider:    "test",
-			Category:    category,
-			Disposition: llm.FailureRejected,
-			Status:      status,
+			Provider:   "test",
+			Category:   category,
+			SendStatus: llm.SendStatusProviderRejected,
+			Status:     status,
 		}
 	}
 }
@@ -612,7 +612,7 @@ func (r *lockDirAfterStart) Commit(ctx context.Context, req dashi.CommitRequest)
 	if err := r.Recorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted {
+	if req.Step.Kind == dashi.StepTurnStarted {
 		id := req.Step.TurnID[:strings.LastIndex(req.Step.TurnID, "-")]
 		return os.Chmod(filepath.Join(r.root, id), 0o500)
 	}

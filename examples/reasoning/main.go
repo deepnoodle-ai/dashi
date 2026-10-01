@@ -1,6 +1,6 @@
 // Command reasoning makes one streamed model call with a reasoning effort
-// set and a public summary request, printing summaries apart from the answer. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// set and a public summary request, printing summaries apart from the
+// reply. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the model. It defaults to claude-sonnet-4-6. A successful response may
 // contain no summary; private signatures and replay data are not display text.
 package main
@@ -52,7 +52,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Each delta says what kind of output it carries, so thinking and answer
+	// Each delta says what kind of output it carries, so thinking and reply
 	// text can be shown apart as they stream.
 	labels := map[llm.DeltaKind]string{
 		llm.DeltaReasoning: "thinking",

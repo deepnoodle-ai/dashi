@@ -54,12 +54,12 @@ func requireTimeoutReason(t *testing.T, err error, want llm.ErrorReason) {
 	t.Helper()
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || failure.Category != llm.ErrorTransport || failure.Reason != want ||
-		failure.Disposition != "" || !errors.Is(err, context.DeadlineExceeded) {
+		failure.SendStatus != "" || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("failure=%+v err=%v, want reason %s", failure, err, want)
 	}
 }
 
-func TestResponseStartTimeoutKeepsDispatchUncertain(t *testing.T) {
+func TestResponseStartTimeoutKeepsDispatchResultUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():

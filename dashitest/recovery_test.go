@@ -22,23 +22,23 @@ import (
 // that the record shows committed, and a lost acknowledgement must be
 // reported as unknown rather than assumed to have failed or succeeded.
 func TestRecoveryFromEachCommitFault(t *testing.T) {
-	// Without a fault the record is: start, model intent and settlement,
-	// tool decision, start, and settlement, the answering model intent and
-	// settlement at 7 and 8, and the stop. A zero Seq targets the first step
+	// Without a fault the record is: start, model call started and
+	// finished, tool decision, started, and finished, the replying model
+	// call started and finished at 7 and 8, and the stop. A zero Seq targets the first step
 	// of that kind.
 	targets := []struct {
 		kind dashi.StepKind
 		seq  int64
 	}{
-		{kind: dashi.StepStarted},
-		{kind: dashi.StepModelIntent},
-		{kind: dashi.StepModelSettled},
+		{kind: dashi.StepTurnStarted},
+		{kind: dashi.StepModelCallStarted},
+		{kind: dashi.StepModelCallFinished},
 		{kind: dashi.StepToolDecision},
 		{kind: dashi.StepToolStarted},
-		{kind: dashi.StepToolSettled},
-		{kind: dashi.StepModelIntent, seq: 7},
-		{kind: dashi.StepModelSettled, seq: 8},
-		{kind: dashi.StepStopped},
+		{kind: dashi.StepToolFinished},
+		{kind: dashi.StepModelCallStarted, seq: 7},
+		{kind: dashi.StepModelCallFinished, seq: 8},
+		{kind: dashi.StepTurnStopped},
 	}
 	faults := []dashitest.Fault{
 		dashitest.Reject,
@@ -134,18 +134,18 @@ func testRecovery(
 	}
 	requireRecordAt(t, saved, fired, committed)
 	if len(saved.Steps) > 0 {
-		if _, err := dashi.Replay(saved); err != nil {
+		if _, err := saved.View(); err != nil {
 			t.Fatalf("record does not replay: %v", err)
 		}
 	}
 
 	// Nothing may depend on a step before it is acknowledged.
 	switch kind {
-	case dashi.StepModelIntent:
-		want := countIntents(saved, fired.Seq)
+	case dashi.StepModelCallStarted:
+		want := countCallStarts(saved, fired.Seq)
 		if model.calls() != want {
 			t.Fatalf(
-				"model called %d times before intent %d was acknowledged; want %d",
+				"model called %d times before call start %d was acknowledged; want %d",
 				model.calls(),
 				fired.Seq,
 				want,
@@ -158,11 +158,11 @@ func testRecovery(
 	}
 
 	out := resume(t, saved, begin, runner, dashi.WithOwner("worker-2"))
-	if uncertainTool(kind, committed) {
+	if resultUnknownTool(kind, committed) {
 		// The record cannot show whether the tool took effect, so the
 		// runner must stop and ask rather than run it again or assume.
-		if out.Stop.Kind != dashi.StopUncertain {
-			t.Fatalf("resumed stop is %+v; want uncertain", out.Stop)
+		if out.Stop.Kind != dashi.StopResultUnknown {
+			t.Fatalf("resumed stop is %+v; want result unknown", out.Stop)
 		}
 		result := tool.Outcome{
 			State:  tool.StateSucceeded,
@@ -171,14 +171,14 @@ func testRecovery(
 		out = run(
 			t,
 			out.Turn,
-			dashi.Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
+			dashi.Resolve{CommandID: "resolve", CallID: "call-1", Outcome: &result},
 			runner,
 			dashi.WithOwner("worker-2"),
 		)
 		out = run(
 			t,
 			out.Turn,
-			dashi.Continue{CommandID: "after-reconcile"},
+			dashi.Continue{CommandID: "after-resolve"},
 			runner,
 			dashi.WithOwner("worker-2"),
 		)
@@ -187,7 +187,7 @@ func testRecovery(
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("recovered stop is %+v; want completed", out.Stop)
 	}
-	if got := out.Answer; got != "done" {
+	if got := out.Reply; got != "done" {
 		t.Fatalf("answer is %q; want done", got)
 	}
 	final, err := store.Load(t.Context(), "t1")
@@ -206,7 +206,7 @@ func testRecovery(
 	// docs promise Continue resends an interrupted call. Anything recorded
 	// must not be repeated.
 	wantCalls := 2
-	if kind == dashi.StepModelSettled && !committed {
+	if kind == dashi.StepModelCallFinished && !committed {
 		wantCalls = 3
 	}
 	if model.calls() != wantCalls {
@@ -219,7 +219,7 @@ func testRecovery(
 	if work.calls() != wantRuns {
 		t.Fatalf("tool ran %d times; want %d", work.calls(), wantRuns)
 	}
-	requireEveryIntentSettled(t, final)
+	requireEveryCallStartFinished(t, final)
 }
 
 // TestStaleRetryAfterFailedLoadRepeatsNothing retries a command with an old
@@ -232,7 +232,7 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 		kind dashi.StepKind
 	}{
 		{name: "completed"},
-		{name: "after model intent", kind: dashi.StepModelIntent},
+		{name: "after model call start", kind: dashi.StepModelCallStarted},
 		{name: "after tool start", kind: dashi.StepToolStarted},
 	}
 	for _, tc := range tests {
@@ -391,17 +391,17 @@ func resume(
 	begin dashi.Start,
 	runner dashi.Runner,
 	opts ...dashi.RunOption,
-) dashi.Outcome {
+) dashi.RunResult {
 	t.Helper()
 	if len(saved.Steps) == 0 {
 		return run(t, dashi.Turn{ID: "t1"}, begin, runner, opts...)
 	}
-	view, err := dashi.Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Stop.Kind == dashi.StopCompleted {
-		// Retrying the original command returns the recorded outcome.
+		// Retrying the original command returns the recorded result.
 		return run(t, saved, begin, runner, opts...)
 	}
 	return run(t, saved, dashi.Continue{CommandID: "resume"}, runner, opts...)
@@ -413,7 +413,7 @@ func run(
 	command dashi.Command,
 	runner dashi.Runner,
 	opts ...dashi.RunOption,
-) dashi.Outcome {
+) dashi.RunResult {
 	t.Helper()
 	out, err := runner.Run(t.Context(), turn, command, opts...)
 	if err != nil {
@@ -422,31 +422,28 @@ func run(
 	return out
 }
 
-// uncertainTool reports whether the reloaded record shows a started tool
-// with no result. Only the host can reconcile that call.
-func uncertainTool(kind dashi.StepKind, committed bool) bool {
+// resultUnknownTool reports whether the reloaded record shows a started
+// tool with no result. Only the host can resolve that call.
+func resultUnknownTool(kind dashi.StepKind, committed bool) bool {
 	return kind == dashi.StepToolStarted && committed ||
-		kind == dashi.StepToolSettled && !committed
+		kind == dashi.StepToolFinished && !committed
 }
 
 func requireReported(
 	t *testing.T,
-	out dashi.Outcome,
+	out dashi.RunResult,
 	err error,
 	fired dashi.Step,
 	fault dashitest.Fault,
 ) {
 	t.Helper()
-	want := dashi.PersistenceUnknown
-	if fault == dashitest.Reject {
-		want = dashi.PersistenceRejected
-	}
+	want := fault == dashitest.Reject
 	commitErr, ok := errors.AsType[*dashi.CommitError](err)
 	if !ok {
 		t.Fatalf("run error %v is not a *dashi.CommitError", err)
 	}
-	if commitErr.Persistence != want {
-		t.Fatalf("reported persistence %q; want %q", commitErr.Persistence, want)
+	if commitErr.NothingWritten != want {
+		t.Fatalf("reported NothingWritten %t; want %t", commitErr.NothingWritten, want)
 	}
 	if commitErr.Step == nil {
 		t.Fatal("error does not name the unacknowledged step")
@@ -495,11 +492,11 @@ func requireRecordAt(
 	}
 }
 
-// countIntents counts the model intents recorded before seq.
-func countIntents(turn dashi.Turn, seq int64) int {
+// countCallStarts counts the model_call_started steps recorded before seq.
+func countCallStarts(turn dashi.Turn, seq int64) int {
 	n := 0
 	for _, step := range turn.Steps {
-		if step.Seq < seq && step.Kind == dashi.StepModelIntent {
+		if step.Seq < seq && step.Kind == dashi.StepModelCallStarted {
 			n++
 		}
 	}
@@ -508,31 +505,31 @@ func countIntents(turn dashi.Turn, seq int64) int {
 
 // requireEveryIntentSettled checks that the record explains every model call
 // it began, including calls interrupted by the fault.
-func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
+func requireEveryCallStartFinished(t *testing.T, turn dashi.Turn) {
 	t.Helper()
 	open := map[string]bool{}
 	for _, step := range turn.Steps {
 		switch step.Kind {
-		case dashi.StepModelIntent:
-			open[step.Model.AttemptID] = true
-		case dashi.StepModelSettled, dashi.StepModelReconciled:
-			delete(open, step.Model.AttemptID)
+		case dashi.StepModelCallStarted:
+			open[step.Model.ModelCallID] = true
+		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
+			delete(open, step.Model.ModelCallID)
 		}
 	}
 	if len(open) > 0 {
-		t.Fatalf("model attempts without a settlement: %v", open)
+		t.Fatalf("model calls without a finish: %v", open)
 	}
 }
 
 func testAgent() dashi.Agent {
 	return dashi.Agent{
 		ID:       "agent",
-		Revision: "r1",
+		Version:  "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 		Limits: dashi.Limits{
-			ModelAttempts:   4,
+			ModelCalls:      4,
 			ProviderPauses:  1,
 			ToolConcurrency: 1,
 		},

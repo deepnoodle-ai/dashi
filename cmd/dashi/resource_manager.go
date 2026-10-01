@@ -111,11 +111,11 @@ func (m *resourceManager) beforeModel(ctx context.Context, plan dashi.ModelPlan)
 	for _, hook := range hooks {
 		decision, err := hook.Func(ctx, plan)
 		if err != nil {
-			return dashi.ModelDecision{Stop: &dashi.Stop{Kind: dashi.StopFailed, Reason: "Resource delivery failed: " + err.Error()}}, nil
+			return dashi.ModelDecision{Stop: &dashi.Stop{Kind: dashi.StopFailed, Reason: "Adding resource messages failed: " + err.Error()}}, nil
 		}
-		delivery = append(delivery, decision.Deliver...)
+		delivery = append(delivery, decision.AddMessages...)
 	}
-	return dashi.ModelDecision{Deliver: delivery}, nil
+	return dashi.ModelDecision{AddMessages: delivery}, nil
 }
 func (m *resourceManager) beforeTool(ctx context.Context, plan dashi.ToolPlan) (dashi.ToolDecision, error) {
 	if plan.Call.Name != "read_skill_file" {

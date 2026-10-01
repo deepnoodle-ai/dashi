@@ -42,7 +42,7 @@ func refMessage(ref content.Ref) llm.Message {
 }
 
 // bodyClient encodes the prepared input as the request body, so the request
-// digest and BeforeSend see the exact bytes that would be sent.
+// hash and BeforeSend see the exact bytes that would be sent.
 type bodyClient struct {
 	scriptedClient
 }
@@ -78,7 +78,7 @@ type countingResolver struct {
 	turnIDs []string
 }
 
-func (r *countingResolver) Resolve(
+func (r *countingResolver) Load(
 	_ context.Context,
 	turnID string,
 	ref content.Ref,
@@ -107,7 +107,7 @@ func runWithRef(
 	t *testing.T,
 	runner Runner,
 	messages ...llm.Message,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := runner.Run(
 		t.Context(),
@@ -120,11 +120,11 @@ func runWithRef(
 	return out
 }
 
-func requireNoModelIntent(t *testing.T, out Outcome, client *scriptedClient) {
+func requireNoModelCallStart(t *testing.T, out RunResult, client *scriptedClient) {
 	t.Helper()
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent {
-			t.Fatal("a model intent was recorded")
+		if step.Kind == StepModelCallStarted {
+			t.Fatal("a model call start was recorded")
 		}
 	}
 	if len(client.inputs) != 0 || client.sends != 0 {
@@ -139,7 +139,7 @@ func TestRefHydratesBeforeModelRequest(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(ref),
 	)
 
@@ -165,7 +165,7 @@ func TestRefRecordHoldsNoBytes(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(ref),
 	)
 
@@ -189,7 +189,7 @@ func TestRefRecordSizeDoesNotGrowWithAttachment(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(refFor("upl_big", data)),
 	)
 
@@ -209,9 +209,9 @@ func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	runner := Runner{
-		Client:          client,
-		Recorder:        rec,
-		ContentResolver: resolver,
+		Client:        client,
+		Recorder:      rec,
+		ContentLoader: resolver,
 	}
 	first, err := runner.Run(
 		t.Context(),
@@ -219,7 +219,7 @@ func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
 		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{refMessage(ref)}},
 	)
 	if err != nil || first.Stop.Reason != StopReasonContentUnavailable ||
-		first.Stop.Terminal {
+		first.Stop.Ended {
 		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
 	}
 	// The host restores the bytes, then continues the same turn.
@@ -241,7 +241,7 @@ func TestRefInHistoryResolvesUnderTheCurrentTurnID(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	runner := Runner{Client: client, ContentResolver: resolver}
+	runner := Runner{Client: client, ContentLoader: resolver}
 
 	out, err := runner.Run(
 		t.Context(),
@@ -262,29 +262,29 @@ func TestRefInHistoryResolvesUnderTheCurrentTurnID(t *testing.T) {
 	}
 }
 
-func TestRefRequestDigestCoversHydratedBytes(t *testing.T) {
+func TestRefRequestHashCoversHydratedBytes(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &bodyClient{scriptedClient{results: []llm.Result{final("done")}}}
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(ref),
 	)
 
-	var digestOf string
+	var hashOf string
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent {
-			digestOf = step.Model.RequestDigest
+		if step.Kind == StepModelCallStarted {
+			hashOf = step.Model.RequestHash
 		}
 	}
 	body, err := json.Marshal(client.inputs[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digestOf != canonjson.Digest(body) {
-		t.Fatalf("digest %q does not cover the hydrated request", digestOf)
+	if hashOf != canonjson.Hash(body) {
+		t.Fatalf("hash %q does not cover the hydrated request", hashOf)
 	}
 	if !bytes.Contains(body, []byte(base64Of(refBytes))) {
 		t.Fatal("the hydrated request holds no bytes")
@@ -319,7 +319,7 @@ func TestRefHooksSeeRecordedAndHydratedInput(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver, Hooks: hooks},
+		Runner{Client: client, ContentLoader: resolver, Hooks: hooks},
 		refMessage(ref),
 	)
 
@@ -341,7 +341,7 @@ func TestRefFromHookIsHydrated(t *testing.T) {
 	hooks := Hooks{BeforeModel: []ModelHook{{
 		Name: "add-upload",
 		Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-			return ModelDecision{Deliver: []ContextItem{{
+			return ModelDecision{AddMessages: []ContextItem{{
 				ID:      "extra",
 				Message: refMessage(ref),
 			}}}, nil
@@ -350,7 +350,7 @@ func TestRefFromHookIsHydrated(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver, Hooks: hooks},
+		Runner{Client: client, ContentLoader: resolver, Hooks: hooks},
 		llm.UserMessage(llm.Text("hello")),
 	)
 
@@ -370,16 +370,16 @@ func TestRefFromHookIsHydrated(t *testing.T) {
 	}
 }
 
-func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
+func TestRefFailuresStopBeforeModelCallStart(t *testing.T) {
 	good := refFor("upl_1", refBytes)
 	wrongSize := good
 	wrongSize.Size++
-	wrongDigest := refFor("upl_1", []byte("other bytes at the same size!"))
-	wrongDigest.Size = int64(len(refBytes))
+	wrongHash := refFor("upl_1", []byte("other bytes at the same size!"))
+	wrongHash.Size = int64(len(refBytes))
 	tests := []struct {
 		name     string
 		ref      content.Ref
-		resolver ContentResolver
+		resolver ContentLoader
 		limits   ContentLimits
 		want     string
 		resolved int
@@ -387,7 +387,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 		{
 			name: "no resolver",
 			ref:  good,
-			want: StopReasonContentNoResolver,
+			want: StopReasonContentNoLoader,
 		},
 		{
 			name: "resolver error",
@@ -417,12 +417,12 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			resolved: 1,
 		},
 		{
-			name: "digest mismatch",
-			ref:  wrongDigest,
+			name: "hash mismatch",
+			ref:  wrongHash,
 			resolver: &countingResolver{
 				files: map[string][]byte{"upl_1": refBytes},
 			},
-			want:     StopReasonContentDigestMismatch,
+			want:     StopReasonContentHashMismatch,
 			resolved: 1,
 		},
 		{
@@ -451,18 +451,18 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			out := runWithRef(
 				t,
 				Runner{
-					Client:          client,
-					ContentResolver: tt.resolver,
-					ContentLimits:   tt.limits,
+					Client:        client,
+					ContentLoader: tt.resolver,
+					ContentLimits: tt.limits,
 				},
 				refMessage(tt.ref),
 			)
 
 			if out.Stop.Kind != StopFailed || out.Stop.Reason != tt.want ||
-				out.Stop.RefID != "upl_1" || out.Stop.Terminal {
+				out.Stop.RefID != "upl_1" || out.Stop.Ended {
 				t.Fatalf("stop = %+v, want %q", out.Stop, tt.want)
 			}
-			requireNoModelIntent(t, out, client)
+			requireNoModelCallStart(t, out, client)
 			if r, ok := tt.resolver.(*countingResolver); ok {
 				if r.count() != tt.resolved {
 					t.Fatalf("resolves = %d, want %d", r.count(), tt.resolved)
@@ -487,9 +487,9 @@ func TestRefSizeLimitNeedsNoResolverCall(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			ContentResolver: resolver,
-			ContentLimits:   ContentLimits{MaxRefBytes: 8},
+			Client:        client,
+			ContentLoader: resolver,
+			ContentLimits: ContentLimits{MaxRefBytes: 8},
 		},
 		refMessage(ref),
 	)
@@ -507,9 +507,9 @@ func TestRefNegativeLimitTurnsLimitOff(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			ContentResolver: resolver,
-			ContentLimits:   ContentLimits{MaxRefBytes: -1, MaxTotalBytes: -1},
+			Client:        client,
+			ContentLoader: resolver,
+			ContentLimits: ContentLimits{MaxRefBytes: -1, MaxTotalBytes: -1},
 		},
 		refMessage(ref),
 	)
@@ -526,7 +526,7 @@ func TestRefSameRefTwiceResolvesTwice(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		llm.UserMessage(llm.Block(refBlock(ref)), llm.Block(refBlock(ref))),
 	)
 
@@ -555,9 +555,9 @@ func TestRefResolvesAgainOnEachModelCall(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			Tools:           tool.List{echo},
-			ContentResolver: resolver,
+			Client:        client,
+			Tools:         tool.List{echo},
+			ContentLoader: resolver,
 		},
 		refMessage(ref),
 	)
@@ -590,9 +590,9 @@ func TestRefRevokedBetweenModelCallsStopsSecondCall(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			Tools:           tool.List{revoke},
-			ContentResolver: resolver,
+			Client:        client,
+			Tools:         tool.List{revoke},
+			ContentLoader: resolver,
 		},
 		refMessage(ref),
 	)
@@ -612,9 +612,9 @@ func TestRefPausedTurnResolvesAgainOnResume(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	runner := Runner{
-		Client:          client,
-		Recorder:        rec,
-		ContentResolver: resolver,
+		Client:        client,
+		Recorder:      rec,
+		ContentLoader: resolver,
 	}
 	pause := make(chan struct{})
 	var once sync.Once
@@ -673,9 +673,9 @@ func TestRefInToolResultIsHydrated(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			Tools:           tool.List{fetch},
-			ContentResolver: resolver,
+			Client:        client,
+			Tools:         tool.List{fetch},
+			ContentLoader: resolver,
 		},
 		llm.UserMessage(llm.Text("fetch it")),
 	)
@@ -701,18 +701,18 @@ func TestRefInToolResultIsHydrated(t *testing.T) {
 	}
 }
 
-func TestRefProjectAndReplayNeverResolve(t *testing.T) {
+func TestRefTurnMessagesAndViewNeverLoad(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(ref),
 	)
 	before := resolver.count()
 
-	projected, err := Project(out.Turn)
+	projected, err := TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,7 +725,7 @@ func TestRefProjectAndReplayNeverResolve(t *testing.T) {
 	}
 	source := projected[0].Content[1].Block.Document.Source
 	if source.Ref == nil || source.Data != nil {
-		t.Fatalf("projection holds %+v, want the reference only", source)
+		t.Fatalf("messages holds %+v, want the reference only", source)
 	}
 }
 
@@ -734,11 +734,11 @@ func TestRefStreamHydrates(t *testing.T) {
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
-		Client:          client,
-		ContentResolver: resolver,
+		Client:        client,
+		ContentLoader: resolver,
 	}
 
-	var last Outcome
+	var last RunResult
 	for event, err := range runner.Stream(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -747,8 +747,8 @@ func TestRefStreamHydrates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Outcome != nil {
-			last = *event.Outcome
+		if event.Result != nil {
+			last = *event.Result
 		}
 	}
 
@@ -770,7 +770,7 @@ func TestRefFreeTurnNeverCallsResolver(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		llm.UserMessage(
 			llm.Text("plain"),
 			llm.Document(content.Source{Data: refBytes}, "a.pdf"),
@@ -790,7 +790,7 @@ func TestRefHydrationLeavesRecordedInputUnchanged(t *testing.T) {
 
 	runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		message,
 	)
 
@@ -825,7 +825,7 @@ func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		refMessage(ref),
 	)
 
@@ -838,10 +838,10 @@ func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
 	}
 }
 
-func hostedUseMessage(ref content.Ref) llm.Message {
+func providerToolUseMessage(ref content.Ref) llm.Message {
 	return llm.UserMessage(llm.Text("read this"), llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:   "h1",
 			Name: "fetch",
 			Type: "tool_use",
@@ -856,15 +856,15 @@ func hostedUseMessage(ref content.Ref) llm.Message {
 	})
 }
 
-func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
+func TestRefInProviderToolUseOutputIsHydrated(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
-		hostedUseMessage(ref),
+		Runner{Client: client, ContentLoader: resolver},
+		providerToolUseMessage(ref),
 	)
 
 	if out.Stop.Kind != StopCompleted {
@@ -882,20 +882,20 @@ func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
 		}
 	}
 	if !found || client.inputs[0].HasRef() {
-		t.Fatal("the hosted use reference was not hydrated")
+		t.Fatal("the provider tool use reference was not hydrated")
 	}
 }
 
-func TestRefInHostedUseOutputStopsWithoutResolver(t *testing.T) {
+func TestRefInProviderToolUseOutputStopsWithoutResolver(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 
-	out := runWithRef(t, Runner{Client: client}, hostedUseMessage(ref))
+	out := runWithRef(t, Runner{Client: client}, providerToolUseMessage(ref))
 
-	if out.Stop.Reason != StopReasonContentNoResolver {
+	if out.Stop.Reason != StopReasonContentNoLoader {
 		t.Fatalf("stop = %+v", out.Stop)
 	}
-	requireNoModelIntent(t, out, client)
+	requireNoModelCallStart(t, out, client)
 }
 
 // reusedBuffer returns one scratch slice for every reference.
@@ -904,7 +904,7 @@ type reusedBuffer struct {
 	buf   []byte
 }
 
-func (r *reusedBuffer) Resolve(
+func (r *reusedBuffer) Load(
 	_ context.Context,
 	_ string,
 	ref content.Ref,
@@ -922,7 +922,7 @@ func TestRefResolverBufferReuseDoesNotCorruptEarlierRef(t *testing.T) {
 
 	out := runWithRef(
 		t,
-		Runner{Client: client, ContentResolver: resolver},
+		Runner{Client: client, ContentLoader: resolver},
 		llm.UserMessage(llm.Block(refBlock(refA)), llm.Block(refBlock(refB))),
 	)
 
@@ -950,9 +950,9 @@ func TestRefAggregateSizeOverflowStopsBeforeResolve(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{
-			Client:          client,
-			ContentResolver: resolver,
-			ContentLimits:   ContentLimits{MaxRefBytes: -1, MaxTotalBytes: math.MaxInt64},
+			Client:        client,
+			ContentLoader: resolver,
+			ContentLimits: ContentLimits{MaxRefBytes: -1, MaxTotalBytes: math.MaxInt64},
 		},
 		llm.UserMessage(llm.Block(refBlock(big("a"))), llm.Block(refBlock(big("b")))),
 	)

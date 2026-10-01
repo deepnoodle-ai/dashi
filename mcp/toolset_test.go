@@ -42,7 +42,7 @@ func TestOpenOffersPrefixedToolsOverStdio(t *testing.T) {
 
 // The test server marks echo read-only and idempotent. The runner repeats a
 // call of unknown outcome for such tools, so the client must ignore both
-// hints. An interrupted MCP call then ends the turn as uncertain.
+// hints. An interrupted MCP call then ends the turn with its result unknown.
 func TestServerHintsNeverMarkACallSafeToRepeat(t *testing.T) {
 	srv, _ := stdioServer(t)
 	ts := open(t, map[string]Server{"test": srv}, Options{})
@@ -133,7 +133,7 @@ func TestApproveRunsInSortedOrderOneAtATime(t *testing.T) {
 			mu.Lock()
 			running--
 			mu.Unlock()
-			if fp != s.Fingerprint() {
+			if fp != s.Hash() {
 				t.Errorf("fingerprint does not match the entry for %s", name)
 			}
 			return true, nil

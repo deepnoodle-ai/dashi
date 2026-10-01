@@ -48,10 +48,10 @@ func contextKey(item ContextItem) string {
 // ContextItem carries content whose origin and replacement behavior are
 // independent of its message role. All content needed for recovery is recorded.
 type ContextItem struct {
-	// ID identifies one delivery of this item. A turn records an ID at most
+	// ID identifies one addition of this item. A turn records an ID at most
 	// once, and a repeat with the same content is skipped, so a source that
-	// retries a delivery cannot deliver it twice. Name, by contrast, names a
-	// slot that a later snapshot replaces. ID is optional for Deliver and
+	// retries adding it cannot add it twice. Name, by contrast, names a
+	// slot that a later snapshot replaces. ID is optional for AddMessages and
 	// hook items and required for steers.
 	ID string `json:"id,omitempty"`
 	// Name identifies an item that a later snapshot may replace.

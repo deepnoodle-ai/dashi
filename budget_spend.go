@@ -13,7 +13,8 @@ import (
 
 // String returns a human-readable cost summary with exact amounts and currencies
 // in lexical order. Model and local tool costs remain separate. With no recorded
-// amount, it returns "no recorded cost", followed by any uncertainty counters.
+// amount, it returns "no recorded cost", followed by any partial or unknown
+// cost counters.
 //
 // Positive CostPartial and CostUnknown counters appear separately. Either marks
 // model amounts as "at least". CostUnknown also marks tool amounts because it
@@ -58,18 +59,19 @@ func formatSpendCosts(costs map[string]money.Amount, lowerBound bool) string {
 	return text
 }
 
-// Spend is reconstructed from committed model and tool settlements. MaxCost
-// applies to Cost, while ToolCost is reported separately for host admission.
+// Spend is rebuilt from the recorded results of model and tool calls.
+// MaxCost applies to Cost, while ToolCost is reported separately for the
+// host's own spending checks.
 // Estimated counts calls without final usage, including partial streamed
 // frames. UsageIncomplete marks failed usage aggregation, independently of
-// monetary uncertainty. Diagnostic counters saturate at math.MaxInt rather
+// unknown money amounts. Diagnostic counters saturate at math.MaxInt rather
 // than wrapping; saturated counts are lower bounds.
 type Spend struct {
-	// Usage aggregates disjoint token buckets across attempted model calls.
+	// Usage aggregates disjoint token buckets across model calls.
 	Usage llm.Usage `json:"usage"`
 	// UsageIncomplete means derivation or aggregation failed, so Usage is
 	// incomplete. Retained counts cannot enforce a token cap. It does not
-	// mark money uncertain or missing provider reports (see Estimated).
+	// mark money unknown or missing provider reports (see Estimated).
 	UsageIncomplete bool `json:"usage_incomplete,omitempty"`
 	// Cost contains exact model-call charges by currency, without
 	// conversion. It is a lower bound when CostPartial or CostUnknown is
@@ -83,12 +85,13 @@ type Spend struct {
 	// aggregation failures in either category. Old serialized values can
 	// also include unidentified usage failures and remain conservative.
 	CostUnknown int `json:"cost_unknown,omitempty"`
-	// CostPartial counts calls whose known charge is in Cost but whose hosted
-	// requests were partly unpriced.
+	// CostPartial counts calls whose known cost is in Cost but whose provider
+	// tool requests were partly unpriced.
 	CostPartial int `json:"cost_partial,omitempty"`
-	// UnpricedRequests sums, by meter key, the hosted requests of partial
-	// charges that had no price. Counts saturate at math.MaxInt and then give
-	// a lower bound, while CostPartial retains the missing-price evidence.
+	// UnpricedRequests sums, by meter key, the provider tool requests of
+	// partial costs that had no price. Counts saturate at math.MaxInt and
+	// then give a lower bound, while CostPartial retains the missing-price
+	// evidence.
 	UnpricedRequests map[string]int `json:"unpriced_requests,omitempty"`
 }
 
@@ -137,95 +140,98 @@ func addCosts(
 	return into
 }
 
-// SpendBasis says where an attempt's counted usage came from.
-type SpendBasis string
+// UsageSource says where a model call's counted usage came from.
+type UsageSource string
 
 const (
-	// SpendMeasured means the provider reported complete, final usage for
+	// UsageSourceReported means the provider reported complete, final usage for
 	// a call that finished.
-	SpendMeasured SpendBasis = "measured"
-	// SpendEstimated means Dashi filled in some usage: the call is still
-	// running, was cut short, is uncertain, or its final usage never
-	// arrived. A later reconciliation can replace the estimate.
-	SpendEstimated SpendBasis = "estimated"
-	// SpendNotExecuted means the provider verifiably never ran the request
+	UsageSourceReported UsageSource = "reported"
+	// UsageSourceEstimated means Dashi filled in some usage: the call is still
+	// running, was cut short, has an unknown result, or its final usage
+	// never arrived. A result the host supplies later can replace the
+	// estimate.
+	UsageSourceEstimated UsageSource = "estimated"
+	// UsageSourceNotSent means the provider verifiably never ran the request
 	// (not dispatched, or rejected before execution), so it costs nothing.
-	SpendNotExecuted SpendBasis = "not_executed"
+	UsageSourceNotSent UsageSource = "not_sent"
 )
 
-// AttemptSpend is what one model attempt counts toward Spend. Spend is the
-// sum of a turn's attempts plus local tool charges, so a host that charges
-// each attempt (rounding each, or settling a hold by attempt ID) reads these
+// ModelCallCost is what one model call counts toward Spend. Spend is the
+// sum of a turn's model calls plus local tool costs, so a host that charges
+// each call (rounding each, or releasing a hold by model call ID) reads these
 // rather than re-deriving them from model facts.
-type AttemptSpend struct {
-	AttemptID string       `json:"attempt_id"`
-	Purpose   ModelPurpose `json:"purpose,omitempty"`
-	Provider  string       `json:"provider,omitempty"`
-	Model     string       `json:"model,omitempty"`
-	// Settled means a result or failure is recorded. An unsettled attempt
+type ModelCallCost struct {
+	ModelCallID string       `json:"model_call_id"`
+	Purpose     ModelPurpose `json:"purpose,omitempty"`
+	Provider    string       `json:"provider,omitempty"`
+	Model       string       `json:"model,omitempty"`
+	// Finished means a result or failure is recorded. An unfinished call
 	// is still running or was lost with its worker; it counts its
-	// estimated input until it settles.
-	Settled bool       `json:"settled,omitempty"`
-	Basis   SpendBasis `json:"basis"`
+	// estimated input until it finishes.
+	Finished    bool        `json:"finished,omitempty"`
+	UsageSource UsageSource `json:"usage_source"`
 	// Usage is the usage counted into Spend.Usage, nil when not executed or
 	// when it could not be derived.
 	Usage *llm.Usage `json:"usage,omitempty"`
-	// Charge is the amount counted into Spend.Cost. Nil means zero for a
-	// not-executed attempt, and otherwise an unknown charge (an unpriced
-	// model, for example), counted in Spend.CostUnknown. A partial charge
-	// (Charge.Partial) is a lower bound.
-	Charge *llm.Cost `json:"charge,omitempty"`
-	// AtRisk is the worst case computed before the call was sent, nil when
+	// Cost is the amount counted into Spend.Cost. Nil means zero for a
+	// call that was never sent, and otherwise an unknown cost (an unpriced
+	// model, for example), counted in Spend.CostUnknown. A partial cost
+	// (Cost.Partial) is a lower bound.
+	Cost *llm.Cost `json:"cost,omitempty"`
+	// WorstCaseCost is the worst case computed before the call was sent, nil when
 	// the call had no cost bound.
-	AtRisk *llm.Cost `json:"at_risk,omitempty"`
-	// Final means the charge is exact: a measured, complete charge, or zero
-	// for an attempt that never ran. A charge that is not final is an
+	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
+	// Exact means the cost is exact: a measured, complete cost, or zero
+	// for a call that never ran. A cost that is not exact is an
 	// estimate, a lower bound, or unknown.
-	Final bool `json:"final,omitempty"`
+	Exact bool `json:"exact,omitempty"`
 }
 
-// AttemptSpendOf classifies one model attempt from its intent fact and its
-// settlement, or nil while the call is pending. It is the same derivation
-// TurnView.Attempts uses. A recorder that reserved credits on the
-// StepModelIntent step can call it in the commit of the StepModelSettled or
-// StepModelReconciled step, with the intent it stored at reservation, to
-// settle the hold in the same transaction. A nil intent gives the zero value.
-func AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend {
-	if intent == nil {
-		return AttemptSpend{}
+// ModelCallCostOf classifies one model call from the fact recorded when it
+// started and the fact recorded when it finished, or nil while the call is
+// pending. It is the same derivation
+// TurnView.ModelCallCosts uses. A recorder that reserved credits on the
+// StepModelCallStarted step can call it in the commit of the StepModelCallFinished or
+// StepModelCallFinishedByHost step, with the start fact it stored when it
+// reserved, to charge or release the hold in the same transaction. A nil
+// start fact gives the zero value.
+func ModelCallCostOf(callStart, finish *ModelFact) ModelCallCost {
+	if callStart == nil {
+		return ModelCallCost{}
 	}
-	a, _ := attemptSpendOf(intent, settlement)
+	a, _ := modelCallCostOf(callStart, finish)
 	return a
 }
 
-// attemptSpendOf is AttemptSpendOf that also reports whether usage
+// modelCallCostOf is ModelCallCostOf that also reports whether usage
 // derivation was incomplete, which sets Spend.UsageIncomplete.
-func attemptSpendOf(intent, settlement *ModelFact) (AttemptSpend, bool) {
-	a := AttemptSpend{
-		AttemptID: intent.AttemptID,
-		Purpose:   intent.Purpose,
-		Provider:  intent.Provider,
-		Model:     intent.Model,
-		Settled:   settlement != nil,
-		Basis:     SpendMeasured,
+func modelCallCostOf(callStart, finish *ModelFact) (ModelCallCost, bool) {
+	a := ModelCallCost{
+		ModelCallID: callStart.ModelCallID,
+		Purpose:     callStart.Purpose,
+		Provider:    callStart.Provider,
+		Model:       callStart.Model,
+		Finished:    finish != nil,
+		UsageSource: UsageSourceReported,
 	}
-	if intent.AtRisk != nil {
-		a.AtRisk = new(intent.AtRisk.Clone())
+	if callStart.WorstCaseCost != nil {
+		a.WorstCaseCost = new(callStart.WorstCaseCost.Clone())
 	}
-	usage, charge, estimated, counted, incomplete := attemptSpend(intent, settlement)
+	usage, charge, estimated, counted, incomplete := modelCallCost(callStart, finish)
 	if !counted {
-		a.Basis = SpendNotExecuted
-		a.Final = true
+		a.UsageSource = UsageSourceNotSent
+		a.Exact = true
 		return a, false
 	}
 	if estimated {
-		a.Basis = SpendEstimated
+		a.UsageSource = UsageSourceEstimated
 	}
 	a.Usage = usage
 	if charge != nil {
-		a.Charge = new(charge.Clone())
+		a.Cost = new(charge.Clone())
 	}
-	a.Final = a.Basis == SpendMeasured && a.Charge != nil && !a.Charge.Partial()
+	a.Exact = a.UsageSource == UsageSourceReported && a.Cost != nil && !a.Cost.Partial()
 	return a, incomplete
 }
 

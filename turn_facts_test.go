@@ -31,7 +31,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	started := first.Turn.Steps[0].Started
-	if started.Origin != StartScheduled || started.HistoryFingerprint == "" {
+	if started.Origin != StartScheduled || started.HistoryHash == "" {
 		t.Fatalf("start fact=%+v", first.Turn.Steps[0].Started)
 	}
 	encoded, err := json.Marshal(first.Turn.Steps[0])
@@ -42,10 +42,10 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		t.Fatalf("start step saved prior history: %s", encoded)
 	}
 	history[0] = llm.UserMessage(llm.Text("changed outside turn"))
-	projected, err := Project(first.Turn)
+	projected, err := TurnMessagesFull(first.Turn)
 	if err != nil || len(projected) != 2 ||
 		projected[0].Text() != "scheduled report" {
-		t.Fatalf("projected=%+v err=%v", projected, err)
+		t.Fatalf("inferred=%+v err=%v", projected, err)
 	}
 	again := Start{
 		CommandID: "start",
@@ -59,7 +59,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		first.Turn,
 		again,
 	)
-	if err != ErrCommandConflict {
+	if err != ErrCommandIDReused {
 		t.Fatalf("changed accepted history did not conflict: %v", err)
 	}
 }
@@ -93,30 +93,30 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 	}
 }
 
-func TestModelIntentRecordsResolvedCapabilityPolicy(t *testing.T) {
+func TestModelCallStartRecordsResolvedCapabilityPolicy(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var intent *ModelFact
+	var callStart *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent {
-			intent = step.Model
+		if step.Kind == StepModelCallStarted {
+			callStart = step.Model
 		}
 	}
-	if intent == nil {
-		t.Fatal("turn recorded no model intent")
+	if callStart == nil {
+		t.Fatal("turn recorded no model call start")
 	}
-	if intent.CapabilityPolicy != llm.CapabilityAdjust {
-		t.Fatalf("intent recorded policy %q", intent.CapabilityPolicy)
+	if callStart.CapabilityPolicy != llm.CapabilityAdjust {
+		t.Fatalf("call start recorded policy %q", callStart.CapabilityPolicy)
 	}
-	raw, err := json.Marshal(intent)
+	raw, err := json.Marshal(callStart)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(raw, []byte(`"capability_policy":"adjust"`)) {
-		t.Fatalf("intent omitted the resolved policy: %s", raw)
+		t.Fatalf("call start omitted the resolved policy: %s", raw)
 	}
 }
 
@@ -128,11 +128,11 @@ func TestReplayRejectsUnknownCapabilityPolicy(t *testing.T) {
 	}
 	turn := cloneTurn(out.Turn)
 	for _, step := range turn.Steps {
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			step.Model.CapabilityPolicy = "lenient"
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replayed an unknown capability policy: %v", err)
 	}
 }

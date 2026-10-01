@@ -304,7 +304,7 @@ func TestPolicyDefersWithoutAsk(t *testing.T) {
 	f := newPolicyFixture(t)
 	p := f.ws.Policy(nil)
 	d, err := p.decide(context.Background(), f.plan(t, ToolBash, map[string]any{"command": "ls"}))
-	if err != nil || d.Kind != dashi.DecisionDefer {
+	if err != nil || d.Kind != dashi.DecisionNeedsApproval {
 		t.Fatalf("decision = %+v, err = %v", d, err)
 	}
 	d, _ = p.decide(context.Background(), f.plan(t, ToolReadFile, map[string]any{}))

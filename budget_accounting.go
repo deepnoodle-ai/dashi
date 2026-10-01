@@ -8,49 +8,49 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func attemptSpend(
-	intent *ModelFact,
-	settlement *ModelFact,
+func modelCallCost(
+	callStart *ModelFact,
+	finish *ModelFact,
 ) (*llm.Usage, *llm.Cost, bool, bool, bool) {
-	if settlement != nil && (settlement.Failure == llm.FailureRejected ||
-		settlement.Failure == llm.FailureNotDispatched || settlement.NoDispatch) {
+	if finish != nil && (finish.SendStatus == llm.SendStatusProviderRejected ||
+		finish.SendStatus == llm.SendStatusNotSent || finish.NotSent) {
 		return nil, nil, false, false, false
 	}
 	var usage *llm.Usage
 	var reported *llm.Cost
-	if settlement != nil && settlement.Result != nil {
-		usage = settlement.Result.Usage
-		reported = settlement.Result.Cost
+	if finish != nil && finish.Result != nil {
+		usage = finish.Result.Usage
+		reported = finish.Result.Cost
 	}
 	hasReportedUsage := usage != nil
 	estimated := !hasReportedUsage
 	if estimated {
-		usage = &llm.Usage{InputTokens: intent.EstimatedInputTokens}
+		usage = &llm.Usage{InputTokens: callStart.EstimatedInputTokens}
 	} else {
 		usage = usage.Copy()
 	}
 	next := usage.Copy()
-	if estimated && settlement != nil && settlement.Result != nil {
-		next.OutputTokens = cappedOutputEstimate(intent, settlement.Result)
+	if estimated && finish != nil && finish.Result != nil {
+		next.OutputTokens = cappedOutputEstimate(callStart, finish.Result)
 	}
-	if modelUsageMayBePartial(settlement) {
+	if modelUsageMayBePartial(finish) {
 		// Streamed usage may describe only the input or an earlier output
 		// frame. Keep reported counts and include later visible output only
-		// when the model result is incomplete or uncertain.
+		// when the model result is incomplete or its outcome is unknown.
 		estimated = true
 		if next.TotalInputTokens() == 0 {
-			next.InputTokens = intent.EstimatedInputTokens
+			next.InputTokens = callStart.EstimatedInputTokens
 		}
-		if settlement.Result != nil {
+		if finish.Result != nil {
 			next.OutputTokens = max(
 				next.OutputTokens,
-				cappedOutputEstimate(intent, settlement.Result),
+				cappedOutputEstimate(callStart, finish.Result),
 			)
 		}
 	}
 	incomplete := false
-	if settlement != nil && !next.RequestsFinal {
-		incomplete = !addUnreportedRequests(next, intent, settlement.Result)
+	if finish != nil && !next.RequestsComplete {
+		incomplete = !addUnreportedRequests(next, callStart, finish.Result)
 	}
 	if err := next.Validate(); err != nil {
 		incomplete = true
@@ -62,33 +62,33 @@ func attemptSpend(
 	} else if !hasReportedUsage {
 		usage = nil
 	}
-	if settlement != nil && settlement.Charge != nil {
-		return usage, settlement.Charge, estimated, true, incomplete
+	if finish != nil && finish.Cost != nil {
+		return usage, finish.Cost, estimated, true, incomplete
 	}
 	if reported != nil {
 		return usage, reported, estimated, true, incomplete
 	}
-	if !incomplete && intent.ModelInfo != nil && intent.ModelInfo.Pricing != nil {
-		if charge, ok := intent.ModelInfo.Pricing.Estimate(usage); ok {
+	if !incomplete && callStart.ModelInfo != nil && callStart.ModelInfo.Pricing != nil {
+		if charge, ok := callStart.ModelInfo.Pricing.Estimate(usage); ok {
 			return usage, &charge, estimated, true, false
 		}
 	}
 	return usage, nil, estimated, true, incomplete
 }
 
-func modelUsageMayBePartial(settlement *ModelFact) bool {
-	if settlement == nil {
+func modelUsageMayBePartial(finish *ModelFact) bool {
+	if finish == nil {
 		return false
 	}
-	if settlement.Interrupted != InterruptNone || settlement.Uncertain {
+	if finish.Interrupted != InterruptNone || finish.ResultUnknown {
 		return true
 	}
-	if settlement.Result == nil {
+	if finish.Result == nil {
 		return false
 	}
 	// A validation error can follow a finished response with final usage.
-	// Missing or invalid stops, though, provide no terminal evidence.
-	switch settlement.Result.Stop.Kind {
+	// Missing or invalid stops, though, give no evidence that it ended.
+	switch finish.Result.Stop.Kind {
 	case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit,
 		llm.StopContextLimit, llm.StopRefusal, llm.StopPause, llm.StopOther:
 		return false
@@ -97,34 +97,35 @@ func modelUsageMayBePartial(settlement *ModelFact) bool {
 	}
 }
 
-// addUnreportedRequests covers hosted work whose billing the provider never
-// reported: the call's usage is missing or not final (Usage.RequestsFinal),
-// as for a stream cut off before its final usage. Counts an adapter inferred
+// addUnreportedRequests covers provider tool work whose billing the provider
+// never reported: the call's usage is missing or not final
+// (Usage.RequestsComplete), as for a stream cut off before its final usage. Counts an adapter inferred
 // from the blocks seen so far are kept, but they may miss billed work, so
 // the call gets at least one llm.MeterUnreported request, which no sheet
 // prices, and its cost shows as partial rather than complete. Visible uses
 // beyond the counted requests are all unreported. Uses with an error result
 // are skipped, since providers do not bill refused or failed uses.
 //
-// Some hosted work leaves no block at all: Gemini reports search grounding
-// only in metadata near the end of a stream. So a request that declared a
-// hosted tool counts as hosted activity even with no visible use.
+// Some provider tool work leaves no block at all: Gemini reports search
+// grounding only in metadata near the end of a stream. So a request that
+// declared a provider tool counts as provider tool use even with no visible
+// use.
 func addUnreportedRequests(
 	usage *llm.Usage,
-	intent *ModelFact,
+	callStart *ModelFact,
 	result *llm.Result,
 ) bool {
 	uses := 0
 	if result != nil {
 		failed := map[string]bool{}
 		for _, part := range result.Message.Content {
-			if part.HostedResult != nil && part.HostedResult.IsError {
-				failed[part.HostedResult.CallID] = true
+			if part.ProviderToolResult != nil && part.ProviderToolResult.IsError {
+				failed[part.ProviderToolResult.CallID] = true
 			}
 		}
 		for _, part := range result.Message.Content {
-			use := part.HostedUse
-			if part.Kind == llm.ContentHostedUse && use != nil &&
+			use := part.ProviderToolUse
+			if part.Kind == llm.ContentProviderToolUse && use != nil &&
 				!use.IsError && !failed[use.ID] {
 				uses++
 			}
@@ -134,7 +135,7 @@ func addUnreportedRequests(
 	for _, count := range usage.Requests {
 		counted = cappedCount(counted, max(count, 0))
 	}
-	if uses == 0 && counted == 0 && !declaresHostedTool(intent) {
+	if uses == 0 && counted == 0 && !declaresProviderTool(callStart) {
 		return true
 	}
 	count, ok := sumCounts(usage.Requests[llm.MeterUnreported],
@@ -149,12 +150,12 @@ func addUnreportedRequests(
 	return true
 }
 
-func declaresHostedTool(intent *ModelFact) bool {
-	if intent == nil {
+func declaresProviderTool(callStart *ModelFact) bool {
+	if callStart == nil {
 		return false
 	}
-	for _, def := range intent.Tools {
-		if def.Kind == tool.KindProviderHosted {
+	for _, def := range callStart.Tools {
+		if def.Kind == tool.KindProviderTool {
 			return true
 		}
 	}
@@ -166,26 +167,27 @@ func estimatedOutputTokens(result *llm.Result) int {
 	return runes/4 + min(1, runes%4)
 }
 
-// cappedOutputEstimate estimates a settled call's output from its text,
-// capped at the intent's effective max_tokens as the live settlement's
-// estimate is, since a provider bills no more output than the call allowed.
-// Replay then never counts more than the run did.
-func cappedOutputEstimate(intent *ModelFact, result *llm.Result) int {
+// cappedOutputEstimate estimates a finished call's output from its text,
+// capped at the effective max_tokens recorded when the call started, as the
+// live run's estimate is, since a provider bills no more output than the
+// call allowed. Rebuilding the view from the record then never counts more
+// than the run did.
+func cappedOutputEstimate(callStart *ModelFact, result *llm.Result) int {
 	estimate := estimatedOutputTokens(result)
-	if limit := intent.Effective.MaxTokens; limit > 0 {
+	if limit := callStart.Effective.MaxTokens; limit > 0 {
 		estimate = min(estimate, limit)
 	}
 	return estimate
 }
 
-func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
-	if intent == nil || settlement == nil {
+func setFinishCharge(callStart *ModelFact, finish *ModelFact) {
+	if callStart == nil || finish == nil {
 		return
 	}
-	_, charge, estimated, counted, _ := attemptSpend(intent, settlement)
+	_, charge, estimated, counted, _ := modelCallCost(callStart, finish)
 	if counted {
-		settlement.Charge = charge
-		settlement.EstimatedUsage = estimated
+		finish.Cost = charge
+		finish.EstimatedUsage = estimated
 	}
 }
 

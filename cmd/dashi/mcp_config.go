@@ -93,7 +93,7 @@ func selectMCP(home, dir, invocation string, explicit []string, read func(string
 			state, reason := preflightMCP(s, raw.Servers[name])
 			metadata[name] = mcpEntry{server: s, state: state, reason: reason}
 		}
-		// Keep metadata by fingerprint: explicitly naming the project file gives
+		// Keep metadata by hash: explicitly naming the project file gives
 		// the identical raw definition trusted status, so trust is also in the key.
 		for name, e := range metadata {
 			key := mcpEntryKey(e.server)
@@ -123,7 +123,7 @@ func selectMCP(home, dir, invocation string, explicit []string, read func(string
 	}
 	return out
 }
-func mcpEntryKey(s dashimcp.Server) string { return fmt.Sprintf("%s:%t", s.Fingerprint(), s.Untrusted) }
+func mcpEntryKey(s dashimcp.Server) string { return fmt.Sprintf("%s:%t", s.Hash(), s.Untrusted) }
 func preflightMCP(s dashimcp.Server, raw map[string]json.RawMessage) (string, string) {
 	if s.Disabled {
 		return "disabled", "disabled in configuration"

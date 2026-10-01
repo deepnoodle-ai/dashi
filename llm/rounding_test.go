@@ -60,7 +60,7 @@ func TestPricingEstimateRoundsHalfEvenOnce(t *testing.T) {
 func TestMaxCostAtRiskRoundsUp(t *testing.T) {
 	p := subNanoSheet()
 	request := riskRequest(t, 100, nil)
-	cost, ok := MaxCostAtRisk(request, p)
+	cost, ok := WorstCaseCost(request, p)
 	if !ok {
 		t.Fatal("priced request had no cost bound")
 	}
@@ -79,7 +79,7 @@ func TestMaxCostAtRiskRejectsOverflow(t *testing.T) {
 	p := pricedSheet()
 	p.Base.Output = money.AmountFromNanos(math.MaxInt64)
 	request := riskRequest(t, 2_000_000, nil)
-	if _, ok := MaxCostAtRisk(request, p); ok {
+	if _, ok := WorstCaseCost(request, p); ok {
 		t.Fatal("an overflowing risk bound was treated as known")
 	}
 	if fit := FitOutputTokens(request, p, amt("1")); fit != 0 {
@@ -123,7 +123,7 @@ func TestFitOutputTokensAtTheExactBoundary(t *testing.T) {
 	p := pricedSheet()
 	p.Base.Output = amt("3.3")
 	request := riskRequest(t, 1000, nil)
-	cost, ok := MaxCostAtRisk(request, p)
+	cost, ok := WorstCaseCost(request, p)
 	if !ok {
 		t.Fatal("priced request had no cost bound")
 	}
@@ -137,7 +137,7 @@ func TestFitOutputTokensAtTheExactBoundary(t *testing.T) {
 	}
 	for _, tokens := range []int{fit, fit + 1} {
 		smaller := riskRequest(t, tokens, nil)
-		risk, ok := MaxCostAtRisk(smaller, p)
+		risk, ok := WorstCaseCost(smaller, p)
 		if !ok {
 			t.Fatal("smaller request had no cost bound")
 		}

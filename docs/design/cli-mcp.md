@@ -10,13 +10,13 @@ The CLI lacks MCP composition. The separate `mcp` module already owns parsing, p
 
 | Location | Responsibility |
 | --- | --- |
-| `cmd/dashi/mcp.go` | Concrete runtime, source selection, preflight, consent projection, status/tool inventory, and module composition. |
+| `cmd/dashi/mcp.go` | Concrete runtime, source selection, preflight, consent display, status/tool inventory, and module composition. |
 | `options.go`, `app.go`, `wire.go`, `main.go` | Scheduled flags/configuration and two-phase startup/ownership. |
 | `control.go`, `screen.go`, `ui_line.go` | `/mcp`, startup interaction, and printable presentation. |
 | `mcp/toolset.go` | Small `Options.Dir` prerequisite; no CLI dependencies. |
 | CLI/module guides and `go.mod` | User contract, separate-module dependency, and examples. |
 
-Use concrete structs/functions, not a resource framework or transport implementation. The resource slice consumes the MCP inventory projection beside its own facts.
+Use concrete structs/functions, not a resource framework or transport implementation. The resource slice consumes the MCP inventory view beside its own facts.
 
 ## Configuration and preflight
 
@@ -38,27 +38,27 @@ Supply an owned `http.Client` through `Options.HTTPClient`. Set `CheckRedirect` 
 
 ## Startup consent and UI ordering
 
-Build the runtime with its frozen raw configuration and an initially empty forwarding Toolset. Building adapters opens no servers. Construct the Engine/Controller, bind the UI, and open the selected session before starting resource initialization. Start the initialization worker only after the screen event loop or line input loop can service prompts. The controller gates new prompts, queue admission, and continuation until initialization completes. Cancellation exits without admitting a turn. Print/unattended mode uses a startup callback that declines project entries without reading stdin.
+Build the runtime with its frozen raw configuration and an initially empty forwarding Toolset. Building adapters opens no servers. Construct the Engine/Controller, bind the UI, and open the selected session before starting resource initialization. Start the initialization worker only after the screen event loop or line input loop can service prompts. The controller gates new prompts, queue additions, and continuation until initialization completes. Cancellation exits without recording a turn. Print/unattended mode uses a startup callback that declines project entries without reading stdin.
 
-Use a distinct startup request/presentation, not a model question or a remembered tool-call grant. Its two choices are “Start for this Dashi run” and “Do not start”. The module calls it serially in sorted name order before starting any eligible server. The callback's consent key is server name, raw `Server.Fingerprint()`, and canonical workspace root. Keep it in memory only. Denials remain blocked for this runtime. `/new` and session changes retain the runtime; process reopening creates fresh consent and connections.
+Use a distinct startup request/presentation, not a model question or a remembered tool-call grant. Its two choices are “Start for this Dashi run” and “Do not start”. The module calls it serially in sorted name order before starting any eligible server. The callback's consent key is server name, raw `Server.Hash()`, and canonical workspace root. Keep it in memory only. Denials remain blocked for this runtime. `/new` and session changes retain the runtime; process reopening creates fresh consent and connections.
 
 Project review shows raw command/argv, source, canonical stdio directory, HTTP scheme/destination, and configured environment/header binding names. For each binding, show variable tokens such as `${OPENAI_API_KEY}` without resolving them. Replace literal fragments and `:-default` contents with a redacted indication. Show bindings containing only literals as `configured literal value (redacted)`. Redact configured literal credential fragments if repeated in command/argv. State that stdio inherits the process environment. Never enumerate inherited values. URL presentation shows only scheme/host/port and never expands references.
 
-Publish the opened module Toolset once, before turn admission; thereafter the forwarding set returns its fixed snapshot. No config reload or `Refresh` command exists. Notifications can mark a catalog changed for inspection without mutating it. MCP joins workspace/resource tools and existing hooks. Duplicate names cannot replace workspace tools. The workspace external policy approves exact qualified name/arguments, regardless of startup source or server annotations.
+Publish the opened module Toolset once, before any turn starts; thereafter the forwarding set returns its fixed snapshot. No config reload or `Refresh` command exists. Notifications can mark a catalog changed for inspection without mutating it. MCP joins workspace/resource tools and existing hooks. Duplicate names cannot replace workspace tools. The workspace external policy approves exact qualified name/arguments, regardless of startup source or server annotations.
 
 ## Working-directory prerequisite and ownership
 
-Add `Dir string` to module `Options`: the working directory of every stdio child. Empty preserves inherited process cwd for existing callers. Set `exec.Cmd.Dir` before constructing `CommandTransport`; do not change process cwd or resolve commands through a shell. The CLI always supplies the canonical selected workspace. Existing raw fingerprints retain source paths; host consent adds workspace identity. The field changes no HTTP behavior, tool schema, record format, or transport policy.
+Add `Dir string` to module `Options`: the working directory of every stdio child. Empty preserves inherited process cwd for existing callers. Set `exec.Cmd.Dir` before constructing `CommandTransport`; do not change process cwd or resolve commands through a shell. The CLI always supplies the canonical selected workspace. Existing raw hashes retain source paths; host consent adds workspace identity. The field changes no HTTP behavior, tool schema, record format, or transport policy.
 
 Add a runnable module `Example*` with a keyless self-hosted stdio fixture. Supply a temporary `Options.Dir`, call a tool that reports its cwd, and print a stable equality result. Include a relative server argument and an invocation directory outside the selected root in CLI acceptance. This small public module prerequisite stays in the reviewed MCP track.
 
-The concrete runtime owns the module Toolset and an idempotent `Close`. Register its closer before initialization. On build failure, close already-built adapters in reverse order. On `Open` cancellation, the module closes any started sessions; host rollback remains safe. Later session/UI failures, normal exit, and startup interruption close the runtime before process exit. Preserve each run mode's orderly controller stop/wait so cancellation records settle before connections close.
+The concrete runtime owns the module Toolset and an idempotent `Close`. Register its closer before initialization. On build failure, close already-built adapters in reverse order. On `Open` cancellation, the module closes any started sessions; host rollback remains safe. Later session/UI failures, normal exit, and startup interruption close the runtime before process exit. Preserve each run mode's orderly controller stop/wait so cancellation records finish before connections close.
 
 ## Safe inventory and recovery
 
 `/mcp` reads host metadata plus `Status`, `Tools`, and `Info`; it never opens a connection or changes a tool snapshot. Render sorted rows with source/selection, trust scope, transport, stdio directory, timeout, state, and exposed/remote tool names. Merge host blocked/unsupported/preflight statuses with module connected/failed/disabled states. Show starting until initialization finishes; zero tools is an explicit connected result. Print notices use stderr. `/resources` consumes these same facts.
 
-Use an allowlisted diagnostic projection. Never stringify raw config, `ServerStatus.Err`, or stderr. Classify known timeout/cancellation/authentication/status codes when available; otherwise show `connection failed; check server configuration`. Warnings use host-generated templates and printable server/tool/source names, not raw remote exception text. Startup and inventory never enter credentials into records. Keep ordinary tool-call/result recording unchanged; model-visible connection diagnostics must use the same safe projection, without a raw wrapped URL/config exception.
+Use an allowlisted diagnostic summary. Never stringify raw config, `ServerStatus.Err`, or stderr. Classify known timeout/cancellation/authentication/status codes when available; otherwise show `connection failed; check server configuration`. Warnings use host-generated templates and printable server/tool/source names, not raw remote exception text. Startup and inventory never enter credentials into records. Keep ordinary tool-call/result recording unchanged; model-visible connection diagnostics must use the same safe summary, without a raw wrapped URL/config exception.
 
 The forwarding Toolset clones snapshot tools and wraps each MCP executor's returned error with a safe `Error()` message. Retain the original cause through `Unwrap()` for cancellation/fatal classification; never include it in display text. Do not alter definitions, arguments, ordinary result content, outcomes, or retry decisions. This host boundary prevents failed-connection stderr and raw URL exceptions from becoming recorded/model-visible diagnostic text. Secret-marker fixtures cover both failed startup and later disconnected calls.
 
@@ -66,7 +66,7 @@ For continued work, retain existing runner definition matching, approvals, and u
 
 ## Alternatives, costs, and rollout
 
-- Persistent grants reduce prompts but stale names can approve changed commands. Use raw fingerprints and process consent.
+- Persistent grants reduce prompts but stale names can approve changed commands. Use raw hashes and process consent.
 - Changing process cwd avoids a module field but changes path behavior for unrelated features and concurrent work. Use zero-compatible `Options.Dir`.
 - A separate HTTP transport could own credentials but duplicates the module. Use its client hook and preflight exclusion.
 - Reconnect/refresh improves availability but changes catalog and consent lifecycle. Keep fixed startup snapshots for this slice.
@@ -75,7 +75,7 @@ Costs include startup prompts, waiting for bounded discovery, and restarting aft
 
 ## Verification and integration
 
-Keyless stdio/HTTP fixtures cover all PRD groups, sorted pre-start consent, binding redaction/defaults, fingerprint/source changes, trusted-source collisions, failed/unknown tools, denial/cancellation, cleanup rollback, and fixed catalogs. A fixture changes the file after its sole read. Assert preflight and `mcp.ParseConfig` receive identical captured bytes, and `Open` receives only eligible parsed entries with correct source/trust metadata.
+Keyless stdio/HTTP fixtures cover all PRD groups, sorted pre-start consent, binding redaction/defaults, hash/source changes, trusted-source collisions, failed/unknown tools, denial/cancellation, cleanup rollback, and fixed catalogs. A fixture changes the file after its sole read. Assert preflight and `mcp.ParseConfig` receive identical captured bytes, and `Open` receives only eligible parsed entries with correct source/trust metadata.
 
 Fixtures cover literal URL userinfo and `https://${MCP_AUTHORITY}/mcp` with `MCP_AUTHORITY=user:secret@host`, using empty and configured headers. Assert zero environment lookups/expansions, clients, and requests. Cover scheme substitutions with the same counters. Verify path substitution preserves a validated literal scheme/authority. Assert credential lookup/request counters stay zero for rejected remote HTTP and `localhost` entries, even with unset/empty header variables. Exercise literal `127/8`, `::1`, header-free HTTP, HTTPS, and redirects 301/302/303/307/308 to same/different origin or HTTP: one initial request, zero target requests. A project-header fixture verifies binding review precedes requests.
 

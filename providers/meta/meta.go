@@ -1,5 +1,5 @@
 // Package meta configures Meta's Responses endpoint so signed reasoning can
-// survive tool turns. Hosted web search is adapted from Dive's
+// survive tool turns. The web search provider tool is adapted from Dive's
 // tool_web_search.go (65c393f), Apache-2.0.
 package meta
 

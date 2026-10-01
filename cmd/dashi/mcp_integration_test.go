@@ -127,7 +127,7 @@ func TestMCPPrintAndPipedModesStartupBeforePrompt(t *testing.T) {
 		})
 	}
 }
-func TestMCPReopenApprovalDoesNotRepeatSettledSearch(t *testing.T) {
+func TestMCPReopenApprovalDoesNotRepeatFinishedSearch(t *testing.T) {
 	cfg := testConfig(t, callTool("search", "mcp__docs__search", `{}`), callTool("fetch", "mcp__docs__fetch", `{}`), say("Fetched after reopen."))
 	entry, log := mcpTestEntry(t)
 	writeMCPConfig(t, filepath.Join(cfg.Dir, ".mcp.json"), map[string]any{"docs": entry})
@@ -226,6 +226,6 @@ func TestMCPWontonStartupPreservesRejectedDraft(t *testing.T) {
 	})
 	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && s.input == "kept draft" })
 	if cfg.Client.(*fakeClient).sends != 0 || h.app.eng.Queued() != 0 || h.app.eng.Saved() {
-		t.Fatal("startup admitted input")
+		t.Fatal("startup accepted input")
 	}
 }

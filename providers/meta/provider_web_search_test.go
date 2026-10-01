@@ -13,7 +13,7 @@ func TestWebSearchToolOmitsUnsetUserLocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var options map[string]json.RawMessage
-	if err := json.Unmarshal(definition.Definition.Hosted.Options, &options); err != nil {
+	if err := json.Unmarshal(definition.Definition.ProviderTool.Options, &options); err != nil {
 		t.Fatal(err)
 	}
 	if location, ok := options["user_location"]; ok {

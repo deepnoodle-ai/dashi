@@ -18,7 +18,7 @@ type GoogleSearchToolOptions struct {
 
 // NewGoogleSearchTool enables Google's managed grounding search.
 func NewGoogleSearchTool(options GoogleSearchToolOptions) tool.Tool {
-	return newHosted(options.Provider, "google_search", "googleSearch", nil)
+	return newProviderTool(options.Provider, "google_search", "googleSearch", nil)
 }
 
 // URLContextToolOptions binds URL context retrieval to a destination.
@@ -30,7 +30,7 @@ type URLContextToolOptions struct {
 
 // NewURLContextTool enables retrieval of URLs supplied in the prompt.
 func NewURLContextTool(options URLContextToolOptions) tool.Tool {
-	return newHosted(options.Provider, "url_context", "urlContext", nil)
+	return newProviderTool(options.Provider, "url_context", "urlContext", nil)
 }
 
 // CodeExecutionToolOptions binds Gemini code execution to a destination.
@@ -42,7 +42,7 @@ type CodeExecutionToolOptions struct {
 
 // NewCodeExecutionTool enables Gemini's provider-managed code execution.
 func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
-	return newHosted(options.Provider, "code_execution", "codeExecution", nil)
+	return newProviderTool(options.Provider, "code_execution", "codeExecution", nil)
 }
 
 // FileSearchToolOptions selects indexed stores and optional retrieval
@@ -71,10 +71,10 @@ func NewFileSearchTool(options FileSearchToolOptions) (tool.Tool, error) {
 	if err != nil {
 		return tool.Tool{}, err
 	}
-	return newHosted(options.Provider, "file_search", "fileSearch", raw), nil
+	return newProviderTool(options.Provider, "file_search", "fileSearch", raw), nil
 }
 
-func newHosted(
+func newProviderTool(
 	provider string,
 	name string,
 	toolType string,
@@ -85,8 +85,8 @@ func newHosted(
 	}
 	definition := tool.Definition{
 		Name: name,
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: provider,
 			API:      API,
 			Type:     toolType,
@@ -104,7 +104,7 @@ func newHosted(
 // provider. Binding is exact, except that an option-free tool bound to the
 // default "google" destination also serves "google-vertex": it carries no
 // destination-specific data, such as file search stores.
-func boundTo(spec *tool.HostedSpec, provider string) bool {
+func boundTo(spec *tool.ProviderToolSpec, provider string) bool {
 	if spec.Provider == provider {
 		return true
 	}
@@ -119,13 +119,13 @@ func boundTo(spec *tool.HostedSpec, provider string) bool {
 	return false
 }
 
-func (wire codec) hostedTool(
+func (wire codec) providerTool(
 	definition tool.Definition,
 ) (map[string]any, error) {
-	spec := definition.Hosted
+	spec := definition.ProviderTool
 	if !boundTo(spec, wire.origin.Provider) || spec.API != API {
 		return nil, wire.unsupported(
-			"hosted tool %q requires its own destination",
+			"provider tool %q requires its own destination",
 			definition.Name,
 		)
 	}
@@ -157,7 +157,7 @@ func (wire codec) hostedTool(
 		}
 		config["fileSearch"] = options
 	default:
-		return nil, wire.unsupported("hosted tool type %q", spec.Type)
+		return nil, wire.unsupported("provider tool type %q", spec.Type)
 	}
 	return config, nil
 }

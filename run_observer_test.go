@@ -32,15 +32,15 @@ func parkedEmitter(t *testing.T) (*emitter, func() []Event) {
 		mu.Lock()
 		got = append(got, event)
 		mu.Unlock()
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(done)
 		}
 	})
-	e.send(Event{Step: &Step{Kind: StepContinued}})
+	e.send(Event{Step: &Step{Kind: StepTurnContinued}})
 	<-entered
 	return e, func() []Event {
 		close(release)
-		e.send(Event{Step: &Step{Kind: StepStopped}})
+		e.send(Event{Step: &Step{Kind: StepTurnStopped}})
 		e.close()
 		select {
 		case <-done:
@@ -55,15 +55,15 @@ func parkedEmitter(t *testing.T) (*emitter, func() []Event) {
 
 func delta(i int) Event {
 	return Event{
-		TurnID:    "t1",
-		AttemptID: "t1:model:1",
-		MessageID: "t1:model:1:message",
-		Delta:     &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))},
+		TurnID:      "t1",
+		ModelCallID: "t1:model:1",
+		MessageID:   "t1:model:1:message",
+		Delta:       &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))},
 	}
 }
 
 func stepEvent(seq int64) Event {
-	return Event{TurnID: "t1", Step: &Step{Seq: seq, Kind: StepDelivered}}
+	return Event{TurnID: "t1", Step: &Step{Seq: seq, Kind: StepMessagesAdded}}
 }
 
 // kinds summarizes events as "d" (delta), "p" (progress), "g" (gap), or
@@ -78,7 +78,7 @@ func kinds(events []Event) []string {
 			out = append(out, "p")
 		case e.Delta != nil:
 			out = append(out, "d")
-		case e.Step != nil && e.Step.Kind != StepStopped:
+		case e.Step != nil && e.Step.Kind != StepTurnStopped:
 			out = append(out, "s"+string(rune('0'+e.Step.Seq)))
 		}
 	}
@@ -103,7 +103,7 @@ func TestObserverKeepsEveryStep(t *testing.T) {
 				t.Fatalf("gap turn=%q", event.TurnID)
 			}
 		}
-		if event.Step != nil && event.Step.Kind != StepStopped {
+		if event.Step != nil && event.Step.Kind != StepTurnStopped {
 			seqs = append(seqs, event.Step.Seq)
 		}
 	}
@@ -154,7 +154,7 @@ func TestObserverGapNamesMessage(t *testing.T) {
 		t.Fatalf("events=%v\nwant %v", got, want)
 	}
 	gap := events[observerQueue]
-	if gap.TurnID != "t1" || gap.AttemptID != "t1:model:1" ||
+	if gap.TurnID != "t1" || gap.ModelCallID != "t1:model:1" ||
 		gap.MessageID != "t1:model:1:message" || gap.Delta != nil {
 		t.Fatalf("gap=%+v", gap)
 	}
@@ -290,7 +290,7 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 			}
 			if event.Step != nil {
 				seqs = append(seqs, event.Step.Seq)
-				if event.Step.Kind == StepStopped {
+				if event.Step.Kind == StepTurnStopped {
 					stopped <- struct{}{}
 				}
 			}
@@ -330,26 +330,26 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 	}
 }
 
-// loseSettle fails the n-th model_settled commit as a lost write, so the
-// record ends at its model_requested step, as after a crash.
-type loseSettle struct {
+// loseFinish fails the n-th model_call_finished commit as a lost write, so the
+// record ends at its model_call_started step, as after a crash.
+type loseFinish struct {
 	*MemoryRecorder
 	n, seen int
 }
 
-func (r *loseSettle) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepModelSettled {
+func (r *loseFinish) Commit(ctx context.Context, req CommitRequest) error {
+	if req.Step.Kind == StepModelCallFinished {
 		r.seen++
 		if r.seen == r.n {
-			return &CommitError{Persistence: PersistenceUnknown, Err: errors.New("lost")}
+			return &CommitError{Err: errors.New("lost")}
 		}
 	}
 	return r.MemoryRecorder.Commit(ctx, req)
 }
 
 // Event.Seq places each preview after the step it follows: a delta at its
-// message's model_requested step, a progress snapshot between its call's
-// tool_started and tool_settled steps. This holds only while commit and
+// message's model_call_started step, a progress snapshot between its call's
+// tool_started and tool_finished steps. This holds only while commit and
 // emit share the run goroutine; a change that emits from a tool goroutine
 // or commits from another goroutine breaks it.
 func TestEventSeqPlacesPreviews(t *testing.T) {
@@ -362,7 +362,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{
 			namedCallsResult("work", "work", "work"),
-			final("lost"), // its settle is lost, so the next run resends it
+			final("lost"), // its finish is lost, so the next run resends it
 			final("done"),
 		},
 		deltas: []llm.Delta{{Kind: llm.DeltaText, Text: "a"}, {Kind: llm.DeltaText, Text: "b"}},
@@ -373,11 +373,11 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	runner := Runner{
 		Client:   client,
 		Tools:    tool.List{work},
-		Recorder: &loseSettle{MemoryRecorder: mem, n: 2},
+		Recorder: &loseFinish{MemoryRecorder: mem, n: 2},
 	}
 	var events []Event
 	for e, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart(agent)) {
-		if e.Outcome == nil && err == nil {
+		if e.Result == nil && err == nil {
 			events = append(events, e)
 		}
 	}
@@ -385,14 +385,14 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := saved.Steps[len(saved.Steps)-1]; last.Kind != StepModelIntent {
-		t.Fatalf("record ends at %s; want a model_requested to recover", last.Kind)
+	if last := saved.Steps[len(saved.Steps)-1]; last.Kind != StepModelCallStarted {
+		t.Fatalf("record ends at %s; want a model_call_started to recover", last.Kind)
 	}
 	for e, err := range runner.Stream(t.Context(), saved, Continue{CommandID: "resume"}) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if e.Outcome == nil {
+		if e.Result == nil {
 			events = append(events, e)
 		}
 	}
@@ -402,15 +402,15 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	}
 	requested := map[string]int64{}
 	started := map[string]int64{}
-	settled := map[string]int64{}
+	finished := map[string]int64{}
 	for _, step := range final.Steps {
 		switch step.Kind {
-		case StepModelIntent:
+		case StepModelCallStarted:
 			requested[step.Model.MessageID] = step.Seq
 		case StepToolStarted:
 			started[step.Tool.Call.ID] = step.Seq
-		case StepToolSettled:
-			settled[step.Tool.Call.ID] = step.Seq
+		case StepToolFinished:
+			finished[step.Tool.Call.ID] = step.Seq
 		}
 	}
 	var deltas, progress int
@@ -423,13 +423,13 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 		case e.Delta != nil:
 			deltas++
 			if want, ok := requested[e.MessageID]; !ok || e.Seq != want {
-				t.Fatalf("delta of %s at Seq %d; its model_requested is %d", e.MessageID, e.Seq, want)
+				t.Fatalf("delta of %s at Seq %d; its model_call_started is %d", e.MessageID, e.Seq, want)
 			}
 		case e.Progress != nil:
 			progress++
 			id := e.Progress.CallID
-			if e.Seq < started[id] || e.Seq >= settled[id] {
-				t.Fatalf("progress of %s at Seq %d; want [%d, %d)", id, e.Seq, started[id], settled[id])
+			if e.Seq < started[id] || e.Seq >= finished[id] {
+				t.Fatalf("progress of %s at Seq %d; want [%d, %d)", id, e.Seq, started[id], finished[id])
 			}
 		}
 	}

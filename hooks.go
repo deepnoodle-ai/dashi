@@ -17,8 +17,8 @@ import (
 // and FinishHook, one per point. Every hook at a point runs, one at a time and in
 // order, and their answers combine by the point's rule; see Hooks. A zero
 // answer means no opinion. Dashi records each hook's answer with the step it
-// leads to, and replay reads that record instead of calling hooks again, so a
-// hook may be called again only when a crash came before its answer was
+// leads to, and a later run reads that record instead of calling hooks again,
+// so a hook may be called again only when a crash came before its answer was
 // saved.
 //
 // A hook receives copies and returns a value: it cannot change the turn in
@@ -68,11 +68,11 @@ func (h ToolHook) Hooks() Hooks {
 	return Hooks{BeforeTool: []ToolHook{h}}
 }
 
-// FinishHook sees each candidate final answer, final text or output
+// FinishHook sees each candidate final reply, final text or output
 // submitted with dashi_submit_output, and may turn it down so the model
 // continues. It fails closed: an error stops the turn as StopFailed with
 // StopReasonHookFailed, and Continue runs the hooks again on the same
-// answer, unless context was delivered since and a normal model call
+// reply, unless messages were added since and a normal model call
 // remains, in which case the model is asked again.
 type FinishHook Hook[FinishPlan, FinishDecision]
 
@@ -98,16 +98,16 @@ func (h ResultHook) Hooks() Hooks {
 // Combining rules, applied in list order:
 //
 //   - BeforeModel: each hook sees the settings as changed by earlier hooks,
-//     deliveries append, and the first Stop ends the chain without
-//     committing any deliveries.
-//   - BeforeSend: the first denial stops the turn. Each hook's Admission is
+//     added messages append, and the first Stop ends the chain without
+//     committing any added messages.
+//   - BeforeSend: the first denial stops the turn. Each hook's Reservation is
 //     recorded under its name. An urgent steer that arrives before the
 //     request is recorded sends the run back for the steer, so BeforeSend
 //     may be asked again for the same reply.
-//   - BeforeTool: the first denial ends the chain; otherwise a deferral wins
+//   - BeforeTool: the first denial ends the chain; otherwise NeedsApproval wins
 //     over an allow. A Rewrite restarts the chain on the new arguments.
 //   - AfterTool: each hook sees the result as earlier hooks replaced it.
-//   - BeforeFinish: deliveries append, the first Reason is kept, and
+//   - BeforeFinish: added messages append, the first Reason is kept, and
 //     AcceptEmpty holds if any hook says so.
 //
 // When the run's context has ended, a hook's error gives the normal context
@@ -191,22 +191,22 @@ const (
 	// VerdictFailed is a hook error, panic or invalid answer, at any point.
 	VerdictFailed HookVerdict = "failed"
 	// VerdictChange and VerdictStop are BeforeModel answers: changed
-	// settings or delivered context, or a stop.
+	// settings or added messages, or a stop.
 	VerdictChange HookVerdict = "change"
 	VerdictStop   HookVerdict = "stop"
-	// VerdictAdmit and VerdictLimit are BeforeSend answers: admission terms,
-	// or a denial with a limit. VerdictDeny is also a BeforeTool answer.
-	VerdictAdmit HookVerdict = "admit"
-	VerdictLimit HookVerdict = "limit"
-	VerdictDeny  HookVerdict = "deny"
-	// VerdictAllow, VerdictDefer and VerdictRewrite are BeforeTool answers.
-	VerdictAllow   HookVerdict = "allow"
-	VerdictDefer   HookVerdict = "defer"
-	VerdictRewrite HookVerdict = "rewrite"
-	// VerdictDeliver, VerdictReject and VerdictAcceptEmpty are BeforeFinish
-	// answers: delivered items, a reason alone, or accepting an empty
-	// answer.
-	VerdictDeliver     HookVerdict = "deliver"
+	// VerdictReserve and VerdictLimit are BeforeSend answers: reservation
+	// terms, or a denial with a limit. VerdictDeny is also a BeforeTool answer.
+	VerdictReserve HookVerdict = "reserve"
+	VerdictLimit   HookVerdict = "limit"
+	VerdictDeny    HookVerdict = "deny"
+	// VerdictAllow, VerdictNeedsApproval and VerdictRewrite are BeforeTool answers.
+	VerdictAllow         HookVerdict = "allow"
+	VerdictNeedsApproval HookVerdict = "needs_approval"
+	VerdictRewrite       HookVerdict = "rewrite"
+	// VerdictAddMessages, VerdictReject and VerdictAcceptEmpty are BeforeFinish
+	// answers: added messages, a reason alone, or accepting an empty
+	// reply.
+	VerdictAddMessages HookVerdict = "add_messages"
 	VerdictReject      HookVerdict = "reject"
 	VerdictAcceptEmpty HookVerdict = "accept_empty"
 	// VerdictReplace is an AfterTool answer: the model sees a replaced
@@ -222,16 +222,16 @@ type HookResult struct {
 	Name    string      `json:"name"`
 	Verdict HookVerdict `json:"verdict"`
 	// Pass counts the rewrite restarts before a BeforeTool answer.
-	Pass     int    `json:"pass,omitempty"`
-	Revision string `json:"revision,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	Pass         int    `json:"pass,omitempty"`
+	RulesVersion string `json:"rules_version,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 	// Error is the hook's error text for a failed verdict. The model never
 	// sees it.
 	Error string `json:"error,omitempty"`
 }
 
 // ActiveHooks lists the names of the Runner's hooks per point, recorded on
-// the first step of each Start and Continue and on a Settle with a tool
+// the first step of each Start and Continue and on a Resolve with a tool
 // result, the commands that run hooks.
 // Hooks added with WithHooks are left out, since they are per-command by
 // design.
@@ -250,7 +250,7 @@ type ModelPlan struct {
 	// Input is the proposed request, with settings as changed by earlier
 	// hooks.
 	Input llm.Input
-	// Turn is the committed state projected before the next model call.
+	// Turn is the committed state as it stands before the next model call.
 	Turn TurnView
 }
 
@@ -258,8 +258,8 @@ type ModelPlan struct {
 type ModelDecision struct {
 	// Settings replaces the input settings when non-nil.
 	Settings *llm.Settings
-	// Deliver records additional context before preparing the model request.
-	Deliver []ContextItem
+	// AddMessages records additional context before preparing the model request.
+	AddMessages []ContextItem
 	// Hide removes the named tools from this call; every hook's list
 	// applies, and names must match exactly. Names no tool of this call has,
 	// and dashi_submit_output, which cannot be hidden, are ignored with one
@@ -268,7 +268,7 @@ type ModelDecision struct {
 	// WarningToolChoiceCleared. When no tools are left, the tool choice and
 	// ParallelTools are cleared too, since providers reject them without
 	// tools. The hidden names are recorded in ModelFact.Hidden. Hide has no
-	// effect on the reserved final-answer call, which offers no application
+	// effect on the reserved final-reply call, which offers no application
 	// tools.
 	//
 	// Hide shapes what the model is offered; it does not forbid a call. A
@@ -286,15 +286,16 @@ type ModelDecision struct {
 }
 
 // SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
-// and the cost of allowing this call. A nil AtRisk is not a zero-cost call.
+// and the cost of allowing this call. A nil WorstCaseCost is not a zero-cost
+// call.
 type SendPlan struct {
 	Purpose ModelPurpose
 	// Request is the immutable provider request after preparation.
 	Request llm.Request
-	// Turn is a snapshot of committed spend and state before admission.
+	// Turn is a snapshot of committed spend and state before the reservation.
 	Turn TurnView
-	// AtRisk is nil when the call cannot be bounded by available prices.
-	AtRisk *llm.Cost
+	// WorstCaseCost is nil when the call cannot be bounded by available prices.
+	WorstCaseCost *llm.Cost
 	// Remaining is nil when the turn has no cost cap.
 	Remaining *Money
 }
@@ -308,12 +309,13 @@ type SendDecision struct {
 	// can resume after funding. It implies Deny, and its kind must be host,
 	// cost, or a token cap.
 	Limit *LimitDetail
-	// Admission is host-owned, non-secret JSON recorded with the model intent
-	// under this hook's name, so a recorder can atomically reserve spending
-	// against these exact terms. All hooks' admissions share a 16 KiB limit.
-	// BeforeSend may be asked again for the same reply, so reserve in the
-	// recorder with the intent, not in the hook.
-	Admission json.RawMessage
+	// Reservation is host-owned, non-secret JSON recorded on the
+	// model_call_started step under this hook's name, so a recorder can
+	// atomically reserve spending against these exact terms. All hooks'
+	// reservations share a 16 KiB limit. BeforeSend may be asked again for
+	// the same reply, so reserve in the recorder when it commits the
+	// model_call_started step, not in the hook.
+	Reservation json.RawMessage
 }
 
 // ToolPlan gives BeforeTool a call whose arguments already match the tool's
@@ -333,20 +335,21 @@ const (
 	DecisionAllow DecisionKind = "allow"
 	// DecisionDeny records a denied tool call.
 	DecisionDeny DecisionKind = "deny"
-	// DecisionDefer leaves authorization to a later host decision.
-	DecisionDefer DecisionKind = "defer"
+	// DecisionNeedsApproval leaves authorization to a later host decision.
+	DecisionNeedsApproval DecisionKind = "needs_approval"
 )
 
-// ToolDecision is a BeforeTool answer; build it with Allow, Deny, Defer or
-// Rewrite. The zero value is no opinion. When every hook has no opinion, the
-// call runs: binding a tool is the app's statement that the model may use it.
+// ToolDecision is a BeforeTool answer; build it with Allow, Deny,
+// NeedsApproval or Rewrite. The zero value is no opinion. When every hook has
+// no opinion, the call runs: binding a tool is the app's statement that the
+// model may use it.
 type ToolDecision struct {
 	Kind DecisionKind
 	// Reason is recorded; for a denial it is also the result the model sees.
 	Reason string
-	// Revision is audit data naming the rules that decided, such as a policy
+	// RulesVersion is audit data naming the rules that decided, such as a policy
 	// version.
-	Revision string
+	RulesVersion string
 	// Rewrite replaces the call's arguments. The new arguments are checked
 	// against the tool's schema, and every hook is asked again about them.
 	// Kind is ignored.
@@ -355,12 +358,13 @@ type ToolDecision struct {
 
 // ToolVerdict is the combined BeforeTool result recorded for a call. An allow
 // names the first hook that returned Allow; when none did, Hook is empty and
-// Reason is "no hook opinion". A deny or defer names the hook that decided.
+// Reason is "no hook opinion". A deny or needs-approval names the hook that
+// decided.
 type ToolVerdict struct {
-	Kind     DecisionKind `json:"kind"`
-	Reason   string       `json:"reason,omitempty"`
-	Hook     string       `json:"hook,omitempty"`
-	Revision string       `json:"revision,omitempty"`
+	Kind         DecisionKind `json:"kind"`
+	Reason       string       `json:"reason,omitempty"`
+	Hook         string       `json:"hook,omitempty"`
+	RulesVersion string       `json:"rules_version,omitempty"`
 }
 
 // ResultPlan gives AfterTool one final tool result. Outcome is what
@@ -368,7 +372,7 @@ type ToolVerdict struct {
 // the model will see, as earlier hooks left it.
 //
 // A result hook changes only what the model sees: the next model call, and
-// the next turn's history through Project. The record, Observer and Stream
+// the next turn's history through TurnMessagesFull. The record, Observer and Stream
 // events, and ToolView.Outcome keep the raw output, so a result hook is not
 // storage redaction; keep a secret out of the record in the executor.
 type ResultPlan struct {
@@ -388,16 +392,16 @@ type ResultDecision struct {
 	Replace *llm.ToolResult
 }
 
-// FinishPlan gives BeforeFinish a candidate final answer: model text that
+// FinishPlan gives BeforeFinish a candidate final reply: model text that
 // would end the turn, or a schema-valid dashi_submit_output call.
 type FinishPlan struct {
-	Turn      TurnView
-	AttemptID string
+	Turn        TurnView
+	ModelCallID string
 	// CallID is the dashi_submit_output call for a submitted output, and
-	// empty for a final text answer.
+	// empty for a final text reply.
 	CallID string
-	// Answer is the candidate model message's text.
-	Answer string
+	// Reply is the candidate model message's text.
+	Reply string
 	// Output is the structured result on a turn with an output schema: the
 	// submitted value, or the value parsed from the text. It is nil when
 	// parsing failed, in which case OutputErr says why.
@@ -408,18 +412,18 @@ type FinishPlan struct {
 // FinishDecision is a BeforeFinish answer. The zero value accepts the
 // candidate.
 type FinishDecision struct {
-	// Deliver, when nonempty, asks the model again with these items instead
+	// AddMessages, when nonempty, asks the model again with these items instead
 	// of accepting the candidate. When no further normal model call can
-	// happen, such as on the reserved final-answer call, the items are
+	// happen, such as on the reserved final-reply call, the items are
 	// dropped with a warning and the candidate stands.
-	Deliver []ContextItem
+	AddMessages []ContextItem
 	// Reason vetoes the candidate: it is unacceptable. The model sees "Not
-	// accepted: " and the reason, on either path, and answers again, using
-	// the reserved final-answer call if that is the only one left. When no
-	// model call at all can happen, or the reserved answer itself is vetoed,
+	// accepted: " and the reason, on either path, and replies again, using
+	// the reserved final-reply call if that is the only one left. When no
+	// model call at all can happen, or the reserved reply itself is vetoed,
 	// the veto still holds: the rejection is recorded and the turn stops as
 	// StopFailed with StopReasonOutputRejected, instead of accepting the
-	// answer. Deliver alone is a nudge, which never spends the reserved call
+	// reply. AddMessages alone is a nudge, which never spends the reserved call
 	// and is dropped when no normal call remains. The first hook's
 	// reason is used, bounded to 1 KiB. An empty reason on a submission
 	// turned down by items gives "a check did not accept this output".
@@ -533,7 +537,7 @@ func callHook[H hookShape[P, D], P, D any](
 
 // validHookStop reports whether a hook may end the turn with stop. A hook may
 // refuse, fail, or report a host, cost or token limit; the other limit kinds
-// make a stop terminal, and a completed or waiting stop would misstate the
+// make a stop end the turn, and a completed or waiting stop would misstate the
 // turn.
 func validHookStop(stop Stop) bool {
 	if reservedStopReason(stop.Reason) {
@@ -561,13 +565,13 @@ func validHookLimit(limit LimitDetail) bool {
 func reservedStopReason(reason string) bool {
 	switch reason {
 	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
-		StopReasonToolOutcomeInvalid, StopReasonContentNoResolver,
+		StopReasonToolOutcomeInvalid, StopReasonContentNoLoader,
 		StopReasonContentUnavailable, StopReasonContentTooLarge,
-		StopReasonContentSizeMismatch, StopReasonContentDigestMismatch:
+		StopReasonContentSizeMismatch, StopReasonContentHashMismatch:
 		return true
 	}
 	return false
 }
 
-// maxAdmission bounds all hooks' admission JSON on one model intent.
-const maxAdmission = 16 << 10
+// maxReservation bounds all hooks' reservation JSON on one model call.
+const maxReservation = 16 << 10

@@ -72,7 +72,7 @@ func validAttachmentSession(id string) bool {
 func (a *AttachmentStore) Close() { a.session.close() }
 
 // SaveSessionHeader persists non-authoritative discovery/preferences metadata
-// before attachment Start admission. Only Turn records acknowledge submitted
+// before the attachment Start is recorded. Only Turn records acknowledge submitted
 // input. The caller holds this same session's lease; no new session is created.
 func (a *AttachmentStore) SaveSessionHeader(ctx context.Context, s *Session) error {
 	if s == nil || s.ID != a.sessionID {
@@ -140,8 +140,8 @@ func (a *AttachmentStore) Publish(ctx context.Context, id, name, mime string, da
 	if !attachmentIDPattern.MatchString(id) || !attachmentMIME(mime) || len(data) == 0 || len(data) > attachmentBlobLimit || name == "" || name != filepath.Base(name) || !utf8.ValidString(name) || strings.ContainsAny(name, "\x00/\\") || len(name) > 1024 {
 		return content.Ref{}, fmt.Errorf("session: invalid attachment snapshot")
 	}
-	digest := sha256.Sum256(data)
-	ref := content.Ref{ID: id, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data))}
+	hash := sha256.Sum256(data)
+	ref := content.Ref{ID: id, SHA256: hex.EncodeToString(hash[:]), Size: int64(len(data))}
 	meta := attachmentMetadata{1, name, mime, ref.SHA256, ref.Size}
 	dir, err := a.directory(true)
 	if err != nil {
@@ -153,8 +153,8 @@ func (a *AttachmentStore) Publish(ctx context.Context, id, name, mime string, da
 		if err != nil {
 			return content.Ref{}, err
 		}
-		oldDigest := sha256.Sum256(oldData)
-		if oldMeta != meta || hex.EncodeToString(oldDigest[:]) != ref.SHA256 || int64(len(oldData)) != ref.Size {
+		oldHash := sha256.Sum256(oldData)
+		if oldMeta != meta || hex.EncodeToString(oldHash[:]) != ref.SHA256 || int64(len(oldData)) != ref.Size {
 			return content.Ref{}, fmt.Errorf("session: attachment retry conflicts with its publication")
 		}
 		if err := dir.file.Sync(); err != nil {
@@ -239,9 +239,9 @@ func writeAttachment(ctx context.Context, dir *attachmentDir, name string, data 
 	return errors.Join(err, f.Close())
 }
 
-// Resolve reads only a strictly identified snapshot in this bound session.
-// The runner verifies the returned bytes' final size and digest.
-func (a *AttachmentStore) Resolve(ctx context.Context, turnID string, ref content.Ref) ([]byte, error) {
+// Load reads only a strictly identified snapshot in this bound session.
+// The runner verifies the returned bytes' final size and hash.
+func (a *AttachmentStore) Load(ctx context.Context, turnID string, ref content.Ref) ([]byte, error) {
 	prefix := a.sessionID + "-"
 	if !strings.HasPrefix(turnID, prefix) {
 		return nil, fmt.Errorf("session: attachment belongs to another session")

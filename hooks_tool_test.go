@@ -83,18 +83,18 @@ func TestAfterToolChainsReplacements(t *testing.T) {
 		t.Fatalf("the outcome changed: %q", got)
 	}
 	if seen := toolResultText(t, out.Turn, "call-1"); seen != "KEY=[REDACTED] OK" {
-		t.Fatalf("projection = %q", seen)
+		t.Fatalf("messages = %q", seen)
 	}
 	sent := client.inputs[1].Messages
 	if !strings.Contains(sent[len(sent)-1].Content[0].ToolResult.Output.Content[0].Text.Text, "REDACTED") {
 		t.Fatalf("the model saw the raw result")
 	}
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result == nil || len(settled.HookResults) != 2 ||
-		settled.HookResults[0].Verdict != VerdictReplace {
-		t.Fatalf("settled = %+v", settled)
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result == nil || len(finished.HookResults) != 2 ||
+		finished.HookResults[0].Verdict != VerdictReplace {
+		t.Fatalf("finished = %+v", finished)
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -109,9 +109,9 @@ func TestAfterToolEqualReplacementIsNoOpinion(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result != nil || len(settled.HookResults) != 0 {
-		t.Fatalf("recorded a no-op replacement: %+v", settled)
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result != nil || len(finished.HookResults) != 0 {
+		t.Fatalf("recorded a no-op replacement: %+v", finished)
 	}
 }
 
@@ -213,12 +213,12 @@ func TestAfterToolWithholdsWhenTheRunEnds(t *testing.T) {
 		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
 	}
 	view := out.Tools["call-1"]
-	if view.Status != ToolSettled || view.Outcome.State != tool.StateSucceeded ||
+	if view.Status != ToolFinished || view.Outcome.State != tool.StateSucceeded ||
 		!strings.Contains(modelText(view.Result()), "withheld") ||
 		!hasWarning(out, WarningHookFailed) {
 		t.Fatalf("view=%+v result=%+v warnings=%+v", view, view.Result(), out.Warnings)
 	}
-	if _, err := Project(out.Turn); err != nil {
+	if _, err := TurnMessagesFull(out.Turn); err != nil {
 		t.Fatalf("project: %v", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestAfterToolRunsOnlyForToolAndHostContent(t *testing.T) {
 	}
 }
 
-func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
+func TestAfterToolRunsOnFinishedHostResults(t *testing.T) {
 	redact := replaceText("redact", func(s string) string {
 		return strings.ReplaceAll(s, "sk-123", "[redacted]")
 	})
@@ -347,12 +347,12 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
 			t.Fatalf("result=%+v err=%v", out.Tools["call-1"].Result(), err)
 		}
-		settled := settlementOf(t, out.Turn, "call-1")
-		if settled.ActiveHooks == nil || len(settled.ActiveHooks.AfterTool) != 1 ||
+		finished := finishOf(t, out.Turn, "call-1")
+		if finished.ActiveHooks == nil || len(finished.ActiveHooks.AfterTool) != 1 ||
 			hasWarning(out, WarningHooksChanged) {
-			t.Fatalf("settled=%+v warnings=%+v", settled, out.Warnings)
+			t.Fatalf("finished=%+v warnings=%+v", finished, out.Warnings)
 		}
-		// A Settle from a handler without the hooks is recorded as a change.
+		// A Resolve from a handler without the hooks is recorded as a change.
 		bare := runner
 		bare.Hooks = Hooks{}
 		out2, err := bare.Run(t.Context(), cloneTurn(out.Turn), Continue{CommandID: "go"})
@@ -360,7 +360,7 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 			t.Fatalf("continue stop=%+v err=%v", out2.Stop, err)
 		}
 	})
-	t.Run("hookless settle warns", func(t *testing.T) {
+	t.Run("hookless finish warns", func(t *testing.T) {
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
@@ -394,12 +394,12 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		if err != nil || out.Stop.Kind != StopCanceled {
 			t.Fatalf("cancel stop=%+v err=%v", out.Stop, err)
 		}
-		late := Settle{CommandID: "late", CallID: "call-1", Outcome: &result}
+		late := Resolve{CommandID: "late", CallID: "call-1", Outcome: &result}
 		out, err = runner.Run(t.Context(), out.Turn, late)
 		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
 			t.Fatalf("late result=%+v err=%v", out.Tools["call-1"].Result(), err)
 		}
-		if _, err := Project(out.Turn); err != nil {
+		if _, err := TurnMessagesFull(out.Turn); err != nil {
 			t.Fatalf("project: %v", err)
 		}
 	})
@@ -419,14 +419,14 @@ func TestReplayRejectsAResultOnRunnerWrittenOutcomes(t *testing.T) {
 	}
 	turn := cloneTurn(out.Turn)
 	for i, step := range turn.Steps {
-		if step.Kind == StepToolSettled {
+		if step.Kind == StepToolFinished {
 			turn.Steps[i].Tool.Result = &llm.ToolResult{
 				CallID: "call-1",
 				Output: tool.TextOutput("forged"),
 			}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -540,7 +540,7 @@ func TestAfterToolFailOpenKeepsTheResultWhenTheRunEnds(t *testing.T) {
 	}
 }
 
-func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
+func TestAfterToolOnResolveIgnoresTheTurnDeadline(t *testing.T) {
 	strictRedact := ResultHook{Name: "redact", Func: func(
 		ctx context.Context,
 		p ResultPlan,
@@ -579,7 +579,7 @@ func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
 	}
 }
 
-func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
+func TestAfterToolRunsOnFatalAndResultUnknownResults(t *testing.T) {
 	calls := 0
 	watch := ResultHook{Name: "watch", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
 		calls++
@@ -603,7 +603,7 @@ func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
 			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
 		}
 	})
-	t.Run("uncertain", func(t *testing.T) {
+	t.Run("result unknown", func(t *testing.T) {
 		calls = 0
 		panicky := tool.Tool{
 			Definition: tool.Definition{
@@ -622,18 +622,18 @@ func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
 			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
-		if err != nil || out.Stop.Kind != StopUncertain || calls != 0 {
+		if err != nil || out.Stop.Kind != StopResultUnknown || calls != 0 {
 			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
 		}
-		result := tool.Succeeded("reconciled")
+		result := tool.Succeeded("resolved")
 		out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(result))
-		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolSettled {
+		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolFinished {
 			t.Fatalf("status=%s calls=%d err=%v", out.Tools["call-1"].Status, calls, err)
 		}
 	})
 }
 
-func TestReplayRejectsAResultOffASettlement(t *testing.T) {
+func TestReplayRejectsAResultOffAFinish(t *testing.T) {
 	runs := 0
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
@@ -651,7 +651,7 @@ func TestReplayRejectsAResultOffASettlement(t *testing.T) {
 			}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }

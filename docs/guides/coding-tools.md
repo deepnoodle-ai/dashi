@@ -94,23 +94,23 @@ While a command runs, `bash` calls `tool.Report` up to four times a second.
 1. A read-only tool that this `Workspace` built runs with no prompt. The
    policy matches the full tool definition, not the name, so an MCP tool named
    `grep` still asks. `TrustTools` names more tools that run with no prompt.
-2. A remembered answer for the call allows it.
+2. A remembered decision for the call allows it.
 3. Any other tool calls your `ApprovalFunc`. This includes MCP tools, also when
    they carry a `ReadOnly` annotation. The tool's author sets that annotation,
    so the policy does not trust it.
 4. `Allow` runs the call. A refusal denies it, and the model sees `Reason`.
-5. A nil `ApprovalFunc` defers the call. The [durable
-   flow](approvals.md#deferring-for-later) then applies.
+5. A nil `ApprovalFunc` holds the call for approval. The [durable
+   flow](approvals.md#holding-calls-for-later-approval) then applies.
 
 `ApprovalRequest` carries a one-line `Summary`. For `write_file` and
 `edit_file` it carries a unified diff in `Preview`. For `bash` it carries the
-exact `Command` and the workspace `Dir`. The fields hold text that the model controls. A host must not print them raw:
-an escape sequence or a carriage return can rewrite the prompt. Show
-`ApprovalRequest.Printable()` instead. It replaces control characters with
-visible marks and keeps newline and tab. The policy reads the files in the
-workspace to build previews. An `edit_file` call that cannot work (the text is
-missing or not unique) runs with no prompt, because the tool fails and tells
-the model.
+exact `Command` and the workspace `Dir`. The fields hold text that the model
+controls. A host must not print them raw: an escape sequence or a carriage
+return can rewrite the prompt. Show `ApprovalRequest.Printable()` instead. It
+replaces control characters with visible marks and keeps newline and tab. The
+policy reads the files in the workspace to build previews. An `edit_file` call
+that cannot work (the text is missing or not unique) runs with no prompt,
+because the tool fails and tells the model.
 
 `Remember: true` on an allow stores a rule in the `Policy`. The rule lives as
 long as the `Policy`. A new `Policy` starts with none. For `write_file` and

@@ -1,5 +1,5 @@
 // Command documents asks a model a question about a document and prints the
-// answer with the passages it cited. The document is a short built-in text by
+// reply with the passages it cited. The document is a short built-in text by
 // default, or a PDF or text file given by URL or local path. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the catalog's small model.
@@ -82,8 +82,8 @@ func run(ctx context.Context, doc, prompt string) error {
 		fmt.Printf("Warning (%s): %s\n", w.Code, w.Message)
 	}
 
-	// A cited answer arrives as several text blocks, one per cited passage;
-	// Text joins them into the answer.
+	// A cited reply arrives as several text blocks, one per cited passage;
+	// Text joins them into the reply.
 	fmt.Println(result.Message.Text())
 	n := 0
 	for _, c := range result.Message.Content {

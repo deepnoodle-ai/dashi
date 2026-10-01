@@ -18,8 +18,8 @@ import (
 //
 // A steer the inbox hands to a run is claimed: Cancel no longer removes it.
 // When the run ends, claims it did not record are released. A steer in a
-// write whose outcome is unknown is in doubt: it goes only to runs of the
-// same turn until Leftovers reconciles it against the reloaded turn.
+// write whose result is unknown is in doubt: it goes only to runs of the
+// same turn until Leftovers checks it against the reloaded turn.
 //
 // Inbox is a SteeringNotifier: an urgent steer signals Ready, so the run
 // can cut short the model call in flight. The zero value is ready to use.
@@ -152,7 +152,7 @@ func (in *Inbox) Steers(_ context.Context, turnID string) ([]Steer, error) {
 }
 
 // Delivered removes steers the turn recorded. From then on they belong to
-// the turn's history, which reaches the next turn through Project.
+// the turn's history, which reaches the next turn through TurnMessagesFull.
 func (in *Inbox) Delivered(_ context.Context, _ string, ids []string) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
@@ -186,7 +186,7 @@ func (in *Inbox) Release(_ context.Context, turnID string, unrecorded, inDoubt [
 // removes them from the inbox, so the app can start its next turn with
 // them: those still queued, those the turn claimed but did not record, and
 // in-doubt steers the reloaded turn shows were never written. Recorded
-// steers are never returned: they reach the next turn through Project, with
+// steers are never returned: they reach the next turn through TurnMessagesFull, with
 // the rest of the turn's history, whether or not a model call saw them.
 // Steers claimed by another turn stay queued.
 //
@@ -196,7 +196,7 @@ func (in *Inbox) Release(_ context.Context, turnID string, unrecorded, inDoubt [
 // copy, recorded steers look unrecorded and would be sent twice. An invalid
 // turn returns an error and changes nothing.
 func (in *Inbox) Leftovers(turn Turn) ([]Steer, error) {
-	if _, err := Replay(turn); err != nil {
+	if _, err := turn.View(); err != nil {
 		return nil, err
 	}
 	recorded := map[string]ContextItem{}

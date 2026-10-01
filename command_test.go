@@ -48,7 +48,7 @@ func codecCommands() map[string]Command {
 			CommandID: "cmd-start",
 			Agent: Agent{
 				ID:           "agent",
-				Revision:     "r1",
+				Version:      "r1",
 				Instructions: "be brief",
 				Provider:     "p",
 				API:          "a",
@@ -62,9 +62,9 @@ func codecCommands() map[string]Command {
 				OutputSchema:        json.RawMessage(`{"type":"object"}`),
 				Tools:               []string{"lookup"},
 				Limits: Limits{
-					ModelAttempts: 3,
-					Interruptions: -1,
-					Deadline:      expires,
+					ModelCalls: 3,
+					Resumes:    -1,
+					Deadline:   expires,
 				},
 				ActiveCompaction: &ActiveCompactionPolicy{Window: 2048, Fraction: 0.5},
 			},
@@ -76,14 +76,14 @@ func codecCommands() map[string]Command {
 			Parent:       &CallRef{TurnID: "t0", CallID: "c0"},
 			Compaction: &CompactionFact{
 				Through:   2,
-				Digest:    "d",
+				Hash:      "d",
 				Keep:      history[:1],
 				SummaryAt: 1,
 				Frame:     "summary:",
 			},
 		},
-		"deliver/empty": Deliver{},
-		"deliver/full": Deliver{
+		"add_messages/empty": AddMessages{},
+		"add_messages/full": AddMessages{
 			CommandID: "cmd-deliver",
 			Items: []ContextItem{{
 				ID:           "i1",
@@ -99,12 +99,12 @@ func codecCommands() map[string]Command {
 			CommandID:         "cmd-continue",
 			History:           history,
 			Budget:            budget,
-			ModelAttempts:     9,
+			ModelCalls:        9,
 			OnHistoryMismatch: HistoryMismatchReject,
 		},
-		"settle/empty": Settle{},
-		"settle/outcome": Settle{
-			CommandID: "cmd-settle",
+		"resolve/empty": Resolve{},
+		"resolve/outcome": Resolve{
+			CommandID: "cmd-finish",
 			CallID:    "c1",
 			Outcome: &tool.Outcome{
 				State:  tool.StateSucceeded,
@@ -112,16 +112,16 @@ func codecCommands() map[string]Command {
 				Cost:   &tool.Cost{Amount: money.MustParseAmount("0.01"), Currency: "USD"},
 			},
 		},
-		"settle/approval": Settle{
+		"resolve/approval": Resolve{
 			CommandID: "cmd-approve",
 			CallID:    "c1",
-			Approval:  &ApprovalFact{CallID: "c1", Approve: false, ArgsDigest: ArgsDigest(call.Args), Reason: "no"},
+			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsHash: ArgsHash(call.Args), Reason: "no"},
 		},
-		"settle/hosted": Settle{
-			CommandID:      "cmd-hosted",
-			HostedApproval: &llm.HostedApprovalResponse{RequestID: "r1", Approve: true, Reason: "fine", Origin: origin},
+		"resolve/provider tool": Resolve{
+			CommandID:            "cmd-provider tool",
+			ProviderToolApproval: &llm.ProviderToolApprovalResponse{RequestID: "r1", Approve: true, Reason: "fine", Origin: origin},
 		},
-		"settle/result": Settle{
+		"resolve/result": Resolve{
 			CommandID: "cmd-result",
 			ModelResult: &llm.Result{
 				ID:      "resp",
@@ -137,12 +137,12 @@ func codecCommands() map[string]Command {
 				},
 			},
 		},
-		"settle/failure": Settle{
+		"resolve/failure": Resolve{
 			CommandID: "cmd-failure",
 			ModelFailure: &ModelFailure{
-				Disposition: llm.FailureNotDispatched,
-				Reason:      "dial failed",
-				Evidence:    "connection refused",
+				SendStatus: llm.SendStatusNotSent,
+				Reason:     "dial failed",
+				Evidence:   "connection refused",
 			},
 		},
 		"cancel/empty": Cancel{},
@@ -171,12 +171,12 @@ func TestCommandCodecRoundTrip(t *testing.T) {
 			if CommandKindOf(got) != CommandKind(kind) || CommandIDOf(got) != CommandIDOf(c) {
 				t.Fatalf("identity = %q %q", CommandKindOf(got), CommandIDOf(got))
 			}
-			want, err := commandDigest(c)
+			want, err := commandHash(c)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d, _ := commandDigest(got); d != want {
-				t.Fatalf("digest changed: %s != %s", d, want)
+			if d, _ := commandHash(got); d != want {
+				t.Fatalf("hash changed: %s != %s", d, want)
 			}
 			// A second round trip is byte-stable.
 			again, err := MarshalCommand(got)
@@ -203,10 +203,10 @@ func TestCommandCodecCompactsRawJSON(t *testing.T) {
 	if s := string(got.(Start).OutputSchema); s != `{"type":"object"}` {
 		t.Fatalf("schema = %s", s)
 	}
-	a, _ := commandDigest(c)
-	b, _ := commandDigest(got)
+	a, _ := commandHash(c)
+	b, _ := commandHash(got)
 	if a != b {
-		t.Fatal("compacting raw JSON changed the digest")
+		t.Fatal("compacting raw JSON changed the hash")
 	}
 }
 
@@ -232,11 +232,11 @@ func TestCommandJSONUsesSnakeCase(t *testing.T) {
 	}
 }
 
-func TestCommandDigestIgnoresOnHistoryMismatch(t *testing.T) {
-	a, _ := commandDigest(Continue{CommandID: "c"})
-	b, _ := commandDigest(Continue{CommandID: "c", OnHistoryMismatch: HistoryMismatchReject})
+func TestCommandHashIgnoresOnHistoryMismatch(t *testing.T) {
+	a, _ := commandHash(Continue{CommandID: "c"})
+	b, _ := commandHash(Continue{CommandID: "c", OnHistoryMismatch: HistoryMismatchReject})
 	if a != b {
-		t.Fatal("OnHistoryMismatch changed the digest")
+		t.Fatal("OnHistoryMismatch changed the hash")
 	}
 }
 
@@ -268,7 +268,7 @@ func TestUnmarshalCommandRejectsBadInput(t *testing.T) {
 
 func TestCommandIdentityOfPointers(t *testing.T) {
 	for _, c := range []Command{
-		(*Start)(nil), (*Deliver)(nil), (*Continue)(nil), (*Settle)(nil), (*Cancel)(nil),
+		(*Start)(nil), (*AddMessages)(nil), (*Continue)(nil), (*Resolve)(nil), (*Cancel)(nil),
 		&Start{CommandID: "s"}, &Cancel{CommandID: "c"},
 	} {
 		if id, kind := CommandIDOf(c), CommandKindOf(c); id != "" || kind != "" {

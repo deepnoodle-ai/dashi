@@ -129,7 +129,7 @@ func (p *Policy) decide(
 		return dashi.Allow("the call cannot change a file"), nil
 	}
 	if p.ask == nil {
-		return dashi.Defer("The call needs approval."), nil
+		return dashi.NeedsApproval("The call needs approval."), nil
 	}
 	key := ruleKey(owned, plan.Call.Name, plan.Call.Args)
 	p.mu.Lock()

@@ -26,15 +26,15 @@ var errInspectionMetadataTooLarge = errors.New("session: metadata exceeds 1 MiB"
 // contain raw decoder errors or content from metadata of an unknown workspace.
 type Problem struct{ SessionID, TurnID, Message string }
 
-// MessagePreview identifies ordinary recorded text, never a projected history.
+// MessagePreview identifies ordinary recorded text, never built history.
 type MessagePreview struct {
-	TurnID   string
-	Revision int64
-	Role     llm.Role
-	Text     string
+	TurnID  string
+	LastSeq int64
+	Role    llm.Role
+	Text    string
 }
 
-type Destination struct{ Provider, API, Model, Revision string }
+type Destination struct{ Provider, API, Model, Version string }
 type PendingObservation struct {
 	Kind         dashi.PendingKind
 	ID           string
@@ -43,11 +43,11 @@ type PendingObservation struct {
 }
 
 // Execution describes the latest indexed Turn, even if its record is unreadable.
-// Stop.Projected distinguishes replay's inference from a recorded run stop.
+// Stop.Inferred distinguishes replay's inference from a recorded run stop.
 // It says nothing about a live worker or permission to execute a command.
 type Execution struct {
 	TurnID          string
-	Revision        int64
+	LastSeq         int64
 	Readable        bool
 	Summary         bool
 	Destination     Destination
@@ -60,7 +60,7 @@ type Execution struct {
 }
 
 // Inspection contains one read-only scan through the captured indexed boundary.
-// A concurrently running worker can append facts after any loaded revision.
+// A concurrently running worker can append facts after any loaded step.
 type Inspection struct {
 	Metadata                                  Session
 	IndexedTurns, ReadableTurns, OmittedTurns int
@@ -211,7 +211,7 @@ func readInspectionMetadata(ctx context.Context, dir *attachmentDir) ([]byte, er
 }
 
 // Search scans ordinary recorded text once per candidate. Card facts and text
-// evidence share the same loaded revisions. It does not resolve content refs.
+// evidence share the same loaded steps. It does not resolve content refs.
 func (st *Store) Search(ctx context.Context, selectedWorkspace, query string) (SearchResult, error) {
 	var out SearchResult
 	selected, err := workspace.New(selectedWorkspace)
@@ -371,7 +371,7 @@ func scanInspection(ctx context.Context, dir *attachmentDir, metadata Session, q
 		turn, loadErr := reader.Load(ctx, id)
 		var view dashi.TurnView
 		if loadErr == nil {
-			view, loadErr = dashi.Replay(turn)
+			view, loadErr = turn.View()
 		}
 		if loadErr != nil {
 			if ctx.Err() != nil {
@@ -392,13 +392,13 @@ func scanInspection(ctx context.Context, dir *attachmentDir, metadata Session, q
 		if view.Origin == dashi.StartCompaction {
 			continue
 		}
-		out.Request = &MessagePreview{TurnID: id, Revision: view.Revision, Role: llm.RoleUser, Text: "[request has no public text]"}
+		out.Request = &MessagePreview{TurnID: id, LastSeq: view.LastSeq, Role: llm.RoleUser, Text: "[request has no public text]"}
 		out.RequestIncomplete = false
 		for _, message := range ordinaryText(turn) {
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
-			preview := MessagePreview{id, view.Revision, message.Role, previewText(message.Text, "")}
+			preview := MessagePreview{id, view.LastSeq, message.Role, previewText(message.Text, "")}
 			if message.initial && message.Role == llm.RoleUser {
 				out.Request = &preview
 				out.RequestIncomplete = false

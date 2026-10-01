@@ -375,7 +375,7 @@ func TestInputHistoryOversizedEncodedEntryPreservesPreviousFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This 11 MiB draft fits the editor's raw-text limit. JSON HTML escaping
-	// requires more than 64 MiB, so encoded size must decide admission.
+	// requires more than 64 MiB, so encoded size must decide acceptance.
 	oversized := strings.Repeat("&", 11<<20)
 	var warnings []error
 	history := &inputHistory{path: path, warn: func(err error) { warnings = append(warnings, err) }}

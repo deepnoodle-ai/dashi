@@ -10,7 +10,8 @@ import (
 var errAttachmentUnsupported = errors.New("session: secure attachments are unavailable on this platform")
 
 // Unsupported storage can still establish absence. Check every ancestor
-// without following links; existing directories and uncertain paths stay.
+// without following links; existing directories and paths in an unknown
+// state stay.
 func attachmentPathAbsent(path string) bool {
 	full, err := filepath.Abs(path)
 	if err != nil {

@@ -10,19 +10,19 @@ import (
 
 func (s *replayState) pending() []string {
 	var out []string
-	if s.modelIntent != "" {
-		out = append(out, s.modelIntent)
+	if s.modelCallStart != "" {
+		out = append(out, s.modelCallStart)
 	}
 	if s.unresolvedModel != "" {
 		out = append(out, s.unresolvedModel)
 	}
 	for _, id := range s.callOrder {
-		if s.Tools[id].Status != ToolSettled {
+		if s.Tools[id].Status != ToolFinished {
 			out = append(out, id)
 		}
 	}
-	for _, id := range s.hostedOrder {
-		if _, ok := s.hosted[id]; ok {
+	for _, id := range s.providerToolOrder {
+		if _, ok := s.providerTool[id]; ok {
 			out = append(out, id)
 		}
 	}
@@ -33,9 +33,9 @@ func (s *replayState) pending() []string {
 // requested, allowed, or denied are left out: Continue alone runs them.
 func (s *replayState) pendingItems() []Pending {
 	var out []Pending
-	for _, id := range []string{s.modelIntent, s.unresolvedModel} {
+	for _, id := range []string{s.modelCallStart, s.unresolvedModel} {
 		if id != "" {
-			out = append(out, Pending{Kind: PendingModel, ID: id, AttemptID: id})
+			out = append(out, Pending{Kind: PendingModel, ID: id, ModelCallID: id})
 		}
 	}
 	for _, id := range s.callOrder {
@@ -44,75 +44,75 @@ func (s *replayState) pendingItems() []Pending {
 		switch v.Status {
 		case ToolApprovalPending:
 			kind = PendingApproval
-		case ToolStarted, ToolWaiting, ToolUncertain:
+		case ToolStarted, ToolWaiting, ToolResultUnknown:
 		default:
 			continue
 		}
 		out = append(out, Pending{
-			Kind:      kind,
-			ID:        id,
-			AttemptID: s.callAttempts[id],
-			Name:      v.Call.Name,
-			Args:      v.Call.Args,
-			Tool:      &v,
+			Kind:        kind,
+			ID:          id,
+			ModelCallID: s.modelCallOfTool[id],
+			Name:        v.Call.Name,
+			Args:        v.Call.Args,
+			Tool:        &v,
 		})
 	}
-	for _, id := range s.hostedOrder {
-		a, ok := s.hosted[id]
+	for _, id := range s.providerToolOrder {
+		a, ok := s.providerTool[id]
 		if !ok {
 			continue
 		}
 		out = append(out, Pending{
-			Kind:      PendingApproval,
-			ID:        id,
-			AttemptID: s.hostedAttempts[id],
-			Name:      a.Name,
-			Args:      a.Arguments,
-			Hosted:    &a,
+			Kind:         PendingApproval,
+			ID:           id,
+			ModelCallID:  s.providerToolModelCalls[id],
+			Name:         a.Name,
+			Args:         a.Arguments,
+			ProviderTool: &a,
 		})
 	}
 	return out
 }
 
-// projectedStop is the stop a caller sees for a turn at rest. A record
+// inferredStop is the stop a caller sees for a turn at rest. A record
 // without a stop step ended mid-run, so the stop is inferred as Run would
-// have recorded it and marked Projected.
-func (s *replayState) projectedStop() Stop {
+// have recorded it and marked Inferred.
+func (s *replayState) inferredStop() Stop {
 	switch {
 	case s.Stop.Kind != "":
 		return s.Stop
 	case s.unresolvedModel != "":
 		return Stop{
-			Kind:      StopUncertain,
-			Reason:    "model attempt needs reconciliation",
-			Projected: true,
+			Kind:     StopResultUnknown,
+			Reason:   "model call result unknown; the host must resolve it",
+			Inferred: true,
 		}
-	case s.modelIntent != "" || hasStartedTool(s):
+	case s.modelCallStart != "" || hasStartedTool(s):
 		return Stop{
-			Kind:      StopInterrupted,
-			Reason:    "worker stopped before result",
-			Projected: true,
+			Kind:     StopInterrupted,
+			Reason:   "worker stopped before result",
+			Inferred: true,
 		}
 	case len(s.Pending) > 0:
-		return Stop{Kind: StopWaiting, Projected: true}
+		return Stop{Kind: StopWaiting, Inferred: true}
 	case len(s.pending()) > 0:
 		// Requested or authorized calls wait only for a worker.
 		return Stop{
-			Kind:      StopInterrupted,
-			Reason:    "worker stopped before result",
-			Projected: true,
+			Kind:     StopInterrupted,
+			Reason:   "worker stopped before result",
+			Inferred: true,
 		}
 	}
-	return Stop{Projected: true}
+	return Stop{Inferred: true}
 }
 
 func (s *replayState) recordResult(
-	attempt string,
+	modelCall string,
 	result *llm.Result,
 	actionable bool,
 ) error {
 	s.latestResult = result
-	s.latestAttempt = attempt
+	s.latestModelCall = modelCall
 	if !actionable {
 		return nil
 	}
@@ -123,7 +123,7 @@ func (s *replayState) recordResult(
 	if result.Stop.Kind == llm.StopPause {
 		s.ProviderPauses++
 	}
-	s.pausedHosted = pausedMidHostedCall(*result)
+	s.pausedProviderTool = pausedMidProviderToolCall(*result)
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
@@ -139,29 +139,29 @@ func (s *replayState) recordResult(
 				Definition: s.modelDefs[c.Name],
 				Status:     ToolRequested,
 			}
-			s.callAttempts[c.ID] = attempt
+			s.modelCallOfTool[c.ID] = modelCall
 			s.callOrder = append(s.callOrder, c.ID)
 		}
 	}
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
-			if part.Kind == llm.ContentHostedApprovalRequest &&
-				part.HostedApprovalRequest != nil {
-				a := part.HostedApprovalRequest.Clone()
-				if _, ok := s.hosted[a.ID]; ok {
-					return errors.New("repeated hosted approval ID")
+			if part.Kind == llm.ContentProviderToolApprovalRequest &&
+				part.ProviderToolApprovalRequest != nil {
+				a := part.ProviderToolApprovalRequest.Clone()
+				if _, ok := s.providerTool[a.ID]; ok {
+					return errors.New("repeated provider tool approval ID")
 				}
 				// A provider may reuse an ID once its earlier request was
-				// answered. The attempt tells the two requests apart, so
-				// each gets its own answer command.
-				s.hosted[a.ID] = a
-				s.hostedAttempts[a.ID] = attempt
-				s.hostedOrder = slices.DeleteFunc(
-					s.hostedOrder,
+				// resolved. The model call ID tells the two requests apart,
+				// so each gets its own Resolve command.
+				s.providerTool[a.ID] = a
+				s.providerToolModelCalls[a.ID] = modelCall
+				s.providerToolOrder = slices.DeleteFunc(
+					s.providerToolOrder,
 					func(id string) bool { return id == a.ID },
 				)
-				s.hostedOrder = append(s.hostedOrder, a.ID)
+				s.providerToolOrder = append(s.providerToolOrder, a.ID)
 			}
 		}
 	}
@@ -173,29 +173,30 @@ func (s *replayState) canContinue() bool {
 }
 
 // canContinueWith reports whether Continue can run, given the raised budget
-// and model-attempt cap it carries (nil and zero when it raises nothing).
-func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
-	if s.Revision == 0 || s.terminal() || s.unresolvedModel != "" ||
-		len(s.hosted) > 0 {
+// and model call limit it carries (nil and zero when it raises nothing).
+func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
+	if s.LastSeq == 0 || s.ended() || s.unresolvedModel != "" ||
+		len(s.providerTool) > 0 {
 		return false
 	}
 	budget := s.Budget
 	if raise != nil {
 		budget = raise
 	}
-	// Continue can reconcile recorded work or record a terminal stop after
-	// a crash. Dispatch guards prevent fresh work with incomplete usage.
-	if s.Interruptions > max(s.Agent.Limits.Interruptions, 0) {
+	// Continue can resolve recorded work or record an ending stop after
+	// a crash. The checks before each send prevent new work with
+	// incomplete usage.
+	if s.Resumes > max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}
-	if s.interruptionLimitReached() {
+	if s.resumeLimitReached() {
 		return false
 	}
-	if s.Stop.Kind == StopUncertain {
-		// An explicit uncertain stop is evidence that the host must report
-		// the outcome. A missing stop means the worker may have crashed and
+	if s.Stop.Kind == StopResultUnknown {
+		// A recorded result_unknown stop means the host must report the
+		// result. A missing stop means the worker may have crashed and
 		// Continue may first establish which work can safely be repeated.
-		if s.modelIntent != "" {
+		if s.modelCallStart != "" {
 			return false
 		}
 		for _, id := range s.callOrder {
@@ -206,7 +207,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
 		limit := s.Stop.Limit
-		spent := s.ModelAttempts >= max(s.attemptCap, attempts)
+		spent := s.ModelCalls >= max(s.modelCallCap, raisedCap)
 		switch limit.Kind {
 		case LimitCost, LimitOutputTokens, LimitTotalTokens:
 			// A budget raise alone cannot run pending tools when no model
@@ -216,8 +217,8 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 			}
 		}
 		switch limit.Kind {
-		case LimitModelAttempts:
-			if s.ModelAttempts >= max(s.attemptCap, attempts) {
+		case LimitModelCalls:
+			if s.ModelCalls >= max(s.modelCallCap, raisedCap) {
 				return false
 			}
 		case LimitCost:
@@ -231,10 +232,10 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 				return false
 			}
 			used, known := s.Spend.costIn(budget.MaxCost.Currency)
-			after, ok := used.Add(limit.CostAtRisk)
-			if !known || !ok || limit.CostAtRisk > 0 &&
+			after, ok := used.Add(limit.WorstCaseCost)
+			if !known || !ok || limit.WorstCaseCost > 0 &&
 				after > budget.MaxCost.Amount ||
-				limit.CostAtRisk == 0 && used >= budget.MaxCost.Amount {
+				limit.WorstCaseCost == 0 && used >= budget.MaxCost.Amount {
 				return false
 			}
 		case LimitOutputTokens:
@@ -253,7 +254,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
 		switch v.Status {
-		case ToolSettled, ToolRequested, ToolAllowed, ToolDenied:
+		case ToolFinished, ToolRequested, ToolAllowed, ToolDenied:
 		case ToolStarted:
 		default:
 			return false
@@ -262,15 +263,16 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	return true
 }
 
-// terminal preserves an accepted ended stop even when late reconciliation
-// corrects its accounting. New stops validate their flag with stopTerminal.
-func (s *replayState) terminal() bool {
-	return s.Stop.Terminal || s.stopTerminal(s.Stop)
+// terminal reports whether the turn has ended. It keeps an accepted ended
+// stop even when a late result corrects its accounting. New stops check
+// their Ended flag with stopEnds.
+func (s *replayState) ended() bool {
+	return s.Stop.Ended || s.stopEnds(s.Stop)
 }
 
-// stopTerminal derives terminality from the facts at the proposed stop's
-// prefix. It deliberately ignores the supplied Terminal flag.
-func (s *replayState) stopTerminal(stop Stop) bool {
+// stopEnds works out whether stop ends the turn, from the steps up to the
+// proposed stop. It deliberately ignores the supplied Ended flag.
+func (s *replayState) stopEnds(stop Stop) bool {
 	switch stop.Kind {
 	case StopCompleted, StopCanceled:
 		return true
@@ -282,7 +284,7 @@ func (s *replayState) stopTerminal(stop Stop) bool {
 		return false
 	}
 	switch stop.Limit.Kind {
-	case LimitDeadline, LimitInterruptions:
+	case LimitDeadline, LimitResumes:
 		return true
 	case LimitCost:
 		return s.Spend.CostUnknown > 0
@@ -296,22 +298,22 @@ func (s *replayState) stopTerminal(stop Stop) bool {
 	return false
 }
 
-// acceptsAfterEnd rejects a command on an ended turn unless it is a Settle
+// acceptsAfterEnd rejects a command on an ended turn unless it is a Resolve
 // reporting the result of work that had already started.
 func (s *replayState) acceptsAfterEnd(command Command) error {
-	if !s.Stop.Terminal {
+	if !s.Stop.Ended {
 		return nil
 	}
-	if c, ok := command.(Settle); ok &&
-		c.Approval == nil && c.HostedApproval == nil {
+	if c, ok := command.(Resolve); ok &&
+		c.Approval == nil && c.ProviderToolApproval == nil {
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID != "" &&
-				(c.CallID == s.modelIntent || c.CallID == s.unresolvedModel) {
+				(c.CallID == s.modelCallStart || c.CallID == s.unresolvedModel) {
 				return nil
 			}
 		} else if v, ok := s.Tools[c.CallID]; ok &&
 			(v.Status == ToolStarted || v.Status == ToolWaiting ||
-				v.Status == ToolUncertain) {
+				v.Status == ToolResultUnknown) {
 			return nil
 		}
 	}
@@ -322,12 +324,13 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 }
 
 // checkLateResultStep refuses, before anything is saved, a late result
-// that replay would reject because it makes an open limited stop terminal
-// (checkStillOpen). A host recorder need not replay what it commits, so
-// without this the step would be stored and the turn would fail replay from
-// then on. It replays only when the turn rests at an open limited stop.
+// that View would reject because it makes an open limited stop end the
+// turn (checkStillOpen). A host recorder need not rebuild the view of what
+// it commits, so without this the step would be stored and the turn would
+// fail View from then on. It rebuilds the view only when the turn rests at
+// an open limited stop.
 func checkLateResultStep(turn Turn, s *replayState, step Step) error {
-	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+	if s.Stop.Kind != StopLimited || s.Stop.Ended {
 		return nil
 	}
 	step.Version = 1
@@ -341,36 +344,36 @@ func checkLateResultStep(turn Turn, s *replayState, step Step) error {
 	return nil
 }
 
-// checkStillOpen enforces that a turn becomes non-continuable only through
-// a recorded stop: a late result after a limited stop that was not
-// terminal must not make it terminal, or the recorded Terminal would be
-// stale. The runner records uncertain before any budget stop while a model
-// call is unresolved, so no record it writes fails this.
+// checkStillOpen enforces that a turn ends only through a recorded stop: a
+// late result after a limited stop that did not end the turn must not end
+// it, or the recorded Ended flag would be stale. The runner records a
+// result_unknown stop before any budget stop while a model call has no
+// result, so no record it writes fails this.
 func (s *replayState) checkStillOpen() error {
-	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+	if s.Stop.Kind != StopLimited || s.Stop.Ended {
 		return nil
 	}
 	if err := s.calculateSpend(); err != nil {
 		return err
 	}
-	if s.terminal() || incompleteUsageStop(s) != nil {
+	if s.ended() || incompleteUsageStop(s) != nil {
 		return errors.New("late result ended the turn without a stop")
 	}
 	return nil
 }
 
-func (s *replayState) interruptionLimitReached() bool {
-	if s.Revision == 0 ||
-		s.Interruptions < max(s.Agent.Limits.Interruptions, 0) {
+func (s *replayState) resumeLimitReached() bool {
+	if s.LastSeq == 0 ||
+		s.Resumes < max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}
 	return s.resumeCounts()
 }
 
 // resumeCounts reports whether continuing from the current stop counts
-// toward Limits.Interruptions. A crash (no stop) always counts. An
-// interrupted stop counts once the turn has made a model attempt; one
-// recorded before any, such as a Start admitted with a closed pause,
+// toward Limits.Resumes. A crash (no stop) always counts. An
+// interrupted stop counts once the turn has made a model call; one
+// recorded before any, such as a Start recorded with a closed pause,
 // interrupted no work.
 func (s *replayState) resumeCounts() bool {
 	switch s.Stop.Kind {
@@ -386,8 +389,8 @@ func validateModelAccounting(fact *ModelFact) error {
 	if !fact.Interrupted.valid() {
 		return errors.New("unknown model interrupt cause")
 	}
-	if fact.NoDispatch && (fact.Interrupted == InterruptNone ||
-		fact.Result != nil || fact.Charge != nil || fact.Uncertain) {
+	if fact.NotSent && (fact.Interrupted == InterruptNone ||
+		fact.Result != nil || fact.Cost != nil || fact.ResultUnknown) {
 		return errors.New("known nondispatch cannot have a model result or charge")
 	}
 	if fact.Result != nil {
@@ -402,15 +405,15 @@ func validateModelAccounting(fact *ModelFact) error {
 			}
 		}
 	}
-	if fact.Charge != nil {
-		if err := fact.Charge.Validate(); err != nil {
+	if fact.Cost != nil {
+		if err := fact.Cost.Validate(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// trackHooks notes the hooks that answered in step; see HookActed.
+// trackHooks notes the hooks that made a decision in step; see HookActed.
 func (s *replayState) trackHooks(step Step) {
 	for _, r := range step.HookResults {
 		if r.Verdict == VerdictFailed {
@@ -425,10 +428,10 @@ func (s *replayState) trackHooks(step Step) {
 
 // trackContext keeps the named items the next model call would see: the
 // latest item per origin and name, less NextCallOnly items once a model call
-// that was dispatched follows them, as Project does.
+// that was sent follows them, as TurnMessagesFull does.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepDelivered, StepLoopContinued, StepToolSettled:
+	case StepMessagesAdded, StepLoopContinued, StepToolFinished:
 		if step.Context == nil {
 			return
 		}
@@ -444,30 +447,30 @@ func (s *replayState) trackContext(step Step) {
 			s.live[key] = cloneContextItem(item)
 			s.liveSeq[key] = step.Seq
 		}
-	case StepModelIntent:
-		if s.intentSeq == nil {
-			s.intentSeq = map[string]int64{}
+	case StepModelCallStarted:
+		if s.callStartSeq == nil {
+			s.callStartSeq = map[string]int64{}
 		}
-		s.intentSeq[step.Model.AttemptID] = step.Seq
-	case StepModelSettled, StepModelReconciled:
-		if intent := s.modelIntents[step.Model.AttemptID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
+		s.callStartSeq[step.Model.ModelCallID] = step.Seq
+	case StepModelCallFinished, StepModelCallFinishedByHost:
+		if callStart := s.startedModelCalls[step.Model.ModelCallID]; callStart != nil && callStart.Purpose == ModelPurposeCompaction {
 			return
 		}
 		if !modelDispatched(step.Model) {
 			return
 		}
-		intent := s.intentSeq[step.Model.AttemptID]
+		callStart := s.callStartSeq[step.Model.ModelCallID]
 		for key, item := range s.live {
-			if item.NextCallOnly && s.liveSeq[key] < intent {
+			if item.NextCallOnly && s.liveSeq[key] < callStart {
 				delete(s.live, key)
 			}
 		}
 	}
 }
 
-// keptFinishCandidate reports a final text answer kept by a stop before it
+// keptFinishCandidate reports a final text reply kept by a stop before it
 // was accepted: a BeforeFinish failure, an interruption, or a worker that
-// stopped with no stop recorded. Context delivered while it is kept is
+// stopped with no stop recorded. Context added while it is kept is
 // counted in deliveredOnKept, and Continue decides at run time whether the
 // model can be asked again.
 func (s *replayState) keptFinishCandidate() bool {
@@ -506,33 +509,34 @@ func (s *replayState) trackIDs(step Step) error {
 }
 
 // hiddenAt reports whether a BeforeModel hook hid the named tool from the
-// model call that made the call id, according to its recorded intent.
+// model call that made the call id, according to its model_call_started
+// step.
 func (s *replayState) hiddenAt(id, name string) bool {
-	intent := s.modelIntents[s.callAttempts[id]]
-	return intent != nil && slices.Contains(intent.Hidden, name)
+	callStart := s.startedModelCalls[s.modelCallOfTool[id]]
+	return callStart != nil && slices.Contains(callStart.Hidden, name)
 }
 
-// roomForAnyCall reports whether one more model call fits ModelAttempts,
-// the reserved final-answer call included. A call in flight counts as used.
+// roomForAnyCall reports whether one more model call fits ModelCalls,
+// the reserved final-reply call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {
-	used := s.ModelAttempts
-	if s.modelIntent != "" {
+	used := s.ModelCalls
+	if s.modelCallStart != "" {
 		used++
 	}
-	return used < s.attemptCap
+	return used < s.modelCallCap
 }
 
 // roomForNormalCall reports whether one more model call fits before the
-// reserved final-answer call, or within ModelAttempts when there is no
-// reserve. A model call in flight, requested but not settled, counts as
-// used, since ModelAttempts counts only settled calls.
+// reserved final-reply call, or within ModelCalls when there is no
+// reserve. A model call in flight, started but not finished, counts as
+// used, since ModelCalls counts only finished calls.
 func (s *replayState) roomForNormalCall() bool {
-	used := s.ModelAttempts
-	if s.modelIntent != "" {
+	used := s.ModelCalls
+	if s.modelCallStart != "" {
 		used++
 	}
-	limit := s.attemptCap
-	if s.Agent.Limits.NoReservedFinalAnswer {
+	limit := s.modelCallCap
+	if s.Agent.Limits.NoReservedFinalReply {
 		return used < limit
 	}
 	return used+1 < limit

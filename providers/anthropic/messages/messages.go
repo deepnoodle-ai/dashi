@@ -3,9 +3,9 @@
 // contracts.
 // This package owns API conversion and dispatch, not agent or session state.
 //
-// # Hosted tools
+// # Provider tools
 //
-// Hosted tool constructors return a definition-only tool.Tool: Anthropic runs
+// Provider tool constructors return a definition-only tool.Tool: Anthropic runs
 // it inside the model call, so it has no Executor and no hook sees its calls.
 // Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid.
@@ -13,7 +13,7 @@
 // Each options struct has a Provider field that binds the tool to one
 // configured destination. Empty means "anthropic", the default name of
 // Config.Provider; set it to the client's Provider() for a destination with a
-// custom name, since a destination refuses hosted tools bound to another.
+// custom name, since a destination refuses provider tools bound to another.
 package messages
 
 import (
@@ -257,15 +257,15 @@ func (p *Client) Prepare(
 	var defs []any
 	var mcpServers []any
 	for _, d := range r.Tools {
-		if d.Kind == tool.KindProviderHosted {
-			config, err := wire.hostedTool(d)
+		if d.Kind == tool.KindProviderTool {
+			config, err := wire.providerTool(d)
 			if err != nil {
 				return llm.Request{}, err
 			}
 			defs = append(defs, config)
-			if d.Hosted.Type == MCPToolsetType {
+			if d.ProviderTool.Type == MCPToolsetType {
 				var options MCPToolOptions
-				if err := decodeHostedOptions(d.Hosted.Options, &options); err != nil {
+				if err := decodeProviderToolOptions(d.ProviderTool.Options, &options); err != nil {
 					return llm.Request{}, wire.unsupported("MCP toolset options: %v", err)
 				}
 				mcpServers = append(
@@ -309,9 +309,9 @@ func (p *Client) Prepare(
 		if c.Mode == llm.ToolChoiceTool {
 			for _, definition := range r.Tools {
 				if definition.Name == c.Name &&
-					definition.Kind == tool.KindProviderHosted {
+					definition.Kind == tool.KindProviderTool {
 					return llm.Request{}, wire.unsupported(
-						"named choice of hosted tool %q",
+						"named choice of provider tool %q",
 						c.Name,
 					)
 				}
@@ -530,8 +530,8 @@ func (p *Client) Send(
 	}
 	client := p.client
 	for _, definition := range prepared.Input().Tools {
-		if definition.Hosted != nil &&
-			definition.Hosted.Type == MCPToolsetType {
+		if definition.ProviderTool != nil &&
+			definition.ProviderTool.Type == MCPToolsetType {
 			client.Headers = client.Headers.Clone()
 			client.Headers.Set("Anthropic-Beta", "mcp-client-2025-11-20")
 			break
@@ -669,14 +669,14 @@ func (wire codec) encode(c llm.Content) (map[string]any, error) {
 			"is_error":    c.ToolResult.IsError,
 			"content":     blocks,
 		}
-	case llm.ContentHostedUse, llm.ContentHostedResult,
-		llm.ContentHostedApprovalRequest:
+	case llm.ContentProviderToolUse, llm.ContentProviderToolResult,
+		llm.ContentProviderToolApprovalRequest:
 		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitContentBlock {
-			return nil, wire.unsupported("hosted activity needs original replay data")
+			return nil, wire.unsupported("provider tool activity needs original replay data")
 		}
 		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
-	case llm.ContentHostedApprovalResponse:
-		return nil, wire.unsupported("Anthropic hosted approval response")
+	case llm.ContentProviderToolApprovalResponse:
+		return nil, wire.unsupported("Anthropic provider tool approval response")
 	case llm.ContentReasoning:
 		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitContentBlock {
 			return nil, wire.unsupported("reasoning needs its original replay data")
@@ -774,19 +774,19 @@ func (wire codec) decode(
 		r.Message.Content = append(r.Message.Content, c)
 	}
 	// A response without usage gets no counts; the runner accounts for its
-	// hosted uses.
+	// provider tool uses.
 	if r.Usage != nil {
 		if r.Usage.Requests == nil {
 			r.Usage.Requests = map[string]int{}
 		}
-		countHostedBlocks(r.Usage.Requests, reported, v.Content)
+		countProviderToolBlocks(r.Usage.Requests, reported, v.Content)
 		if len(r.Usage.Requests) == 0 {
 			r.Usage.Requests = nil
 		}
 		// A stop reason arrives with the final usage (in message_delta when
 		// streaming). Without one, the response was cut off and its counts
 		// may be inferred from the blocks seen so far.
-		r.Usage.RequestsFinal = v.StopReason != ""
+		r.Usage.RequestsComplete = v.StopReason != ""
 	}
 	return r, nil
 }
@@ -892,11 +892,11 @@ func (wire codec) decodeContent(raw json.RawMessage) (llm.Content, error) {
 			Replay:   replay,
 		}, nil
 	case "server_tool_use", "mcp_tool_use":
-		return wire.decodeHostedUse(raw, replay)
+		return wire.decodeProviderToolUse(raw, replay)
 	case "web_search_tool_result", "web_fetch_tool_result",
 		"code_execution_tool_result", "bash_code_execution_tool_result",
 		"text_editor_code_execution_tool_result", "mcp_tool_result":
-		return wire.decodeHostedResult(raw, replay)
+		return wire.decodeProviderToolResult(raw, replay)
 	case "thinking":
 		return llm.Content{
 			Kind:      llm.ContentReasoning,

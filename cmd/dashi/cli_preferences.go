@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
-// cliPreferences keeps new-turn intent separate from the client driving an
+// cliPreferences keeps new-turn choices separate from the client driving an
 // existing turn. The Controller changes it only while no turn is running.
 type cliPreferences struct {
 	mu                 sync.RWMutex
@@ -35,7 +35,7 @@ func (p *cliPreferences) agent() dashi.Agent {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	agent, _ := selectionAgent(p.launch.Selection, p.launch.Controls.Settings)
-	// Own pointers even when admission waits behind queued work.
+	// Own pointers even when the Start waits behind queued work.
 	raw, _ := json.Marshal(agent)
 	var owned dashi.Agent
 	_ = json.Unmarshal(raw, &owned)
@@ -47,15 +47,15 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 	if !ok {
 		return nil, fmt.Errorf("recorded destination %q is no longer configured", agent.Provider)
 	}
-	fingerprint, err := d.fingerprint()
+	hash, err := d.hash()
 	if err != nil {
 		return nil, err
 	}
 	// Check the recorded binding before presenting or granting new trust.
-	if strings.HasPrefix(agent.Revision, cliRouteRevision) && agent.Revision != cliRouteRevision+fingerprint {
+	if strings.HasPrefix(agent.Version, cliRouteVersion) && agent.Version != cliRouteVersion+hash {
 		return nil, errors.New("recorded destination binding changed; restore its configuration before continuing")
 	}
-	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(fingerprint) {
+	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(hash) {
 		if !p.interactive || p.ask == nil {
 			return nil, fmt.Errorf("destination %q needs project binding trust; configure its reviewed binding in user settings or use an interactive run", d.ID)
 		}
@@ -67,7 +67,7 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 		if answer.Text != "Allow binding" {
 			return nil, errors.New("project destination binding declined")
 		}
-		p.routes.grant(fingerprint)
+		p.routes.grant(hash)
 	}
 	client, err := p.routes.clientFor(agent)
 	if err != nil {
@@ -177,7 +177,7 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 	for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
 		d := p.routes.registry[id]
 		status := "configured"
-		if !d.trustedBy(p.routes.user) && !p.routes.granted(mustFingerprint(d)) {
+		if !d.trustedBy(p.routes.user) && !p.routes.granted(mustHash(d)) {
 			status = "needs project binding trust"
 		} else if key, err := d.credential(p.routes.lookup, true); err != nil {
 			status = "invalid configuration"
@@ -203,7 +203,7 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 	})
 	return choices
 }
-func mustFingerprint(d configuredDestination) string {
-	fingerprint, _ := d.fingerprint()
-	return fingerprint
+func mustHash(d configuredDestination) string {
+	hash, _ := d.hash()
+	return hash
 }

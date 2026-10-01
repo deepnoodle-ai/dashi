@@ -17,7 +17,7 @@ import (
 // TaskStorageAbsent establishes that no child could have started in this
 // session. PrepareStart durably creates children before recording any child
 // turn, even without attachments, and the CLI never removes that directory.
-// Existing storage or an uncertain path cannot establish absence.
+// Existing storage or a path in an unknown state cannot establish absence.
 func (st *Store) TaskStorageAbsent(s *Session) bool {
 	if s == nil || !validAttachmentSession(s.ID) {
 		return false
@@ -51,7 +51,7 @@ func (a *AttachmentStore) ChildAttachments(parent dashi.CallRef, create bool) (*
 		return nil, fmt.Errorf("session: task parent belongs to another session")
 	}
 	childID := delegate.ChildID(parent.TurnID, parent.CallID)
-	digest := sha256.Sum256([]byte(childID))
+	hash := sha256.Sum256([]byte(childID))
 	if create {
 		if err := a.session.root.Mkdir("children", 0700); err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, err
@@ -62,7 +62,7 @@ func (a *AttachmentStore) ChildAttachments(parent dashi.CallRef, create bool) (*
 		return nil, err
 	}
 	defer children.close()
-	name := hex.EncodeToString(digest[:])
+	name := hex.EncodeToString(hash[:])
 	if create {
 		if err := children.root.Mkdir(name, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, err

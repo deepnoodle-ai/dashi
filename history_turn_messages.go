@@ -10,21 +10,22 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Project returns this turn's own model messages without modifying the record.
-// It excludes prior conversation history, which the application owns. Unsettled
-// client calls and model intents cannot be projected into a new request, so
-// Project fails on a turn that has them, unless the turn has ended.
+// TurnMessagesFull returns this turn's own model messages without modifying the record.
+// It excludes prior conversation history, which the application owns.
+// Unfinished client calls and started model calls cannot go into a new
+// request, so TurnMessagesFull fails on a turn that has them, unless the turn
+// has ended.
 //
-// An ended turn (Stop.Terminal) always projects, and only up to its terminal
-// stop: results recorded after it count in Spend but never change the
-// projection. Each tool call still started, waiting, or uncertain there
-// projects as an error result, and a model attempt with no recorded result
-// projects nothing.
-func Project(t Turn) ([]llm.Message, error) {
-	return projectedPublic(t, nil, false)
+// An ended turn (Stop.Ended) always gives its messages, and only up to the
+// stop that ended it: results recorded after it count in Spend but never
+// change the messages. Each tool call still started, waiting, or with an
+// unknown result there shows as an error result, and a model call with no
+// recorded result shows nothing.
+func TurnMessagesFull(t Turn) ([]llm.Message, error) {
+	return publicTurnMessages(t, nil, false)
 }
 
-// modelToolResult is the result the model sees for a settled outcome when
+// modelToolResult is the result the model sees for a finished outcome when
 // no result hook replaced it.
 func modelToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 	output := tool.TextOutput("Tool was not executed.")
@@ -52,18 +53,19 @@ func sharedToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 	}
 }
 
-// projectWithHistory assembles one model request from the current call's prior
-// history and this turn's recorded messages. It never stores that history.
-func projectWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
-	return projectedPublic(t, history, true)
+// turnMessagesWithHistory assembles one model request from the current
+// call's prior history and this turn's recorded messages. It never stores
+// that history.
+func turnMessagesWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
+	return publicTurnMessages(t, history, true)
 }
 
-// ProjectContext returns this Turn's model context with recorded replacements.
-// Source messages remain available through Project and the immutable facts.
-func ProjectContext(t Turn) ([]llm.Message, error) { return projectedPublic(t, nil, true) }
+// TurnMessages returns this Turn's model context with recorded replacements.
+// Source messages remain available through TurnMessagesFull and the immutable facts.
+func TurnMessages(t Turn) ([]llm.Message, error) { return publicTurnMessages(t, nil, true) }
 
-func projectedPublic(t Turn, history []llm.Message, compact bool) ([]llm.Message, error) {
-	messages, err := projectedMessages(t, history, compact)
+func publicTurnMessages(t Turn, history []llm.Message, compact bool) ([]llm.Message, error) {
+	messages, err := turnMessages(t, history, compact)
 	if err != nil {
 		return nil, err
 	}
@@ -74,41 +76,41 @@ func projectedPublic(t Turn, history []llm.Message, compact bool) ([]llm.Message
 	return out, nil
 }
 
-func projectedMessages(
+func turnMessages(
 	t Turn,
 	history []llm.Message,
 	compact bool,
 ) ([]contextMessage, error) {
-	return projectedMessagesCached(t, history, compact, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
+	return turnMessagesCached(t, history, compact, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
 }
 
-func projectedMessagesCached(t Turn, history []llm.Message, compact bool, cache *contextValidationCache) ([]contextMessage, error) {
+func turnMessagesCached(t Turn, history []llm.Message, compact bool, cache *contextValidationCache) ([]contextMessage, error) {
 	state, err := replayCached(t, cache)
 	if err != nil {
 		return nil, err
 	}
-	return projectedMessagesState(t, history, compact, state, cache)
+	return turnMessagesState(t, history, compact, state, cache)
 }
 
-func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
+func turnMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
 	var err error
-	ended := state.Stop.Terminal
+	ended := state.Stop.Ended
 	if ended {
 		t.Steps = t.Steps[:endedLength(t.Steps, state.Stop)]
 		if state, err = replayCached(t, cache); err != nil {
 			return nil, err
 		}
 	} else {
-		if state.modelIntent != "" || state.unresolvedModel != "" {
-			return nil, errors.New("dashi: model intent needs reconciliation")
+		if state.modelCallStart != "" || state.unresolvedModel != "" {
+			return nil, errors.New("dashi: model call result unknown; the host must resolve it")
 		}
 		for _, id := range state.callOrder {
-			if state.Tools[id].Status != ToolSettled {
+			if state.Tools[id].Status != ToolFinished {
 				return nil, errors.New("dashi: client tool call is unresolved")
 			}
 		}
-		if len(state.hosted) > 0 {
-			return nil, errors.New("dashi: hosted approval is unresolved")
+		if len(state.providerTool) > 0 {
+			return nil, errors.New("dashi: provider tool approval is unresolved")
 		}
 	}
 	out := make([]contextMessage, 0, len(history)+len(t.Steps))
@@ -123,34 +125,34 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 	for _, m := range history {
 		emit(m.Clone())
 	}
-	settledHosted := map[string]bool{}
+	finishedProviderTool := map[string]bool{}
 	for _, step := range t.Steps {
-		if step.Kind == StepHostedApprovalSettled && step.HostedApproval != nil {
-			settledHosted[step.HostedApproval.RequestID] = true
+		if step.Kind == StepProviderToolApprovalDecided && step.ProviderToolApproval != nil {
+			finishedProviderTool[step.ProviderToolApproval.RequestID] = true
 		}
 	}
 	// A NextCallOnly item expires once a model call that was dispatched
-	// follows it. A request settled without dispatch, or not settled at all,
-	// showed the model nothing.
-	lastDispatched := lastDispatchedIntent(t)
+	// follows it. A request finished without being sent, or not finished at
+	// all, showed the model nothing.
+	lastDispatched := lastDispatchedCallStart(t)
 	resumed := lastCrashResume(t.Steps)
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
 		switch step.Kind {
-		case StepStarted:
+		case StepTurnStarted:
 			for _, m := range step.Started.Input {
 				emit(m.Clone())
 			}
-		case StepContinued:
+		case StepTurnContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
 			// ended turn makes none.
 			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
 				emit(crashResumeReminder())
 			}
-		case StepDelivered, StepLoopContinued, StepToolSettled:
+		case StepMessagesAdded, StepLoopContinued, StepToolFinished:
 			// A turned-down submission's items follow its result, which is
-			// projected with the model message that made the call.
+			// shown with the model message that made the call.
 			if step.Context == nil {
 				continue
 			}
@@ -173,8 +175,8 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				}
 				emit(message)
 			}
-		case StepModelSettled, StepModelReconciled:
-			if modelPurpose(t, step.Model.AttemptID) == ModelPurposeCompaction {
+		case StepModelCallFinished, StepModelCallFinishedByHost:
+			if modelPurpose(t, step.Model.ModelCallID) == ModelPurposeCompaction {
 				continue
 			}
 			if step.Model.Interrupted == InterruptSteering {
@@ -187,17 +189,18 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			}
 			m := step.Model.Result.Message.Clone()
 			// An incomplete result may contain a partial client call. It was
-			// recorded for audit but never admitted as an actionable tool request.
-			// Keep its other content without creating a dangling call in history.
+			// recorded for audit but never accepted as an actionable tool
+			// request. Keep its other content without creating a dangling call
+			// in history.
 			content := make([]llm.Content, 0, len(m.Content))
 			for _, part := range m.Content {
-				if part.Kind == llm.ContentHostedApprovalRequest {
+				if part.Kind == llm.ContentProviderToolApprovalRequest {
 					if step.Model.Result.Stop.Kind != llm.StopToolUse &&
 						step.Model.Result.Stop.Kind != llm.StopFinished {
 						continue
 					}
-					if part.HostedApprovalRequest == nil ||
-						!settledHosted[part.HostedApprovalRequest.ID] {
+					if part.ProviderToolApprovalRequest == nil ||
+						!finishedProviderTool[part.ProviderToolApprovalRequest.ID] {
 						continue
 					}
 				}
@@ -210,7 +213,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 						continue
 					}
 					v, ok := state.Tools[part.ToolCall.ID]
-					if !ok || v.Status != ToolSettled && !ended {
+					if !ok || v.Status != ToolFinished && !ended {
 						continue
 					}
 				}
@@ -231,8 +234,8 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				}
 				var result llm.ToolResult
 				switch {
-				case v.Status != ToolSettled:
-					// Only an ended turn projects an unsettled call.
+				case v.Status != ToolFinished:
+					// Only an ended turn shows an unfinished call.
 					result = endedToolResult(v.Call.ID)
 				case v.Outcome == nil:
 					continue
@@ -251,16 +254,16 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			}
 		case StepContextCompacted:
 			if compact {
-				out = replaceContext(out, compactionPlan(t, step.Compacted.AttemptID), *step.Compacted, step.Seq)
+				out = replaceContext(out, compactionPlan(t, step.Compacted.ModelCallID), *step.Compacted, step.Seq)
 			}
-		case StepHostedApprovalSettled:
-			response := *step.HostedApproval
+		case StepProviderToolApprovalDecided:
+			response := *step.ProviderToolApproval
 			emit(llm.Message{
 				Role: llm.RoleUser,
 				Content: []llm.Content{
 					{
-						Kind:                   llm.ContentHostedApprovalResponse,
-						HostedApprovalResponse: &response,
+						Kind:                         llm.ContentProviderToolApprovalResponse,
+						ProviderToolApprovalResponse: &response,
 					},
 				},
 			})
@@ -269,15 +272,15 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 	return out, nil
 }
 
-// endedLength is how many steps an ended turn's history and answer read:
-// all of them, up to its terminal stop. Nothing but late results follows a
-// terminal stop, so the last stop is the terminal one.
+// endedLength is how many steps an ended turn's history and reply read:
+// all of them, up to the stop that ended it. Nothing but late results follows
+// that stop, so the last stop is the one that ended the turn.
 func endedLength(steps []Step, stop Stop) int {
 	end := len(steps)
-	if !stop.Terminal {
+	if !stop.Ended {
 		return end
 	}
-	for end > 0 && steps[end-1].Kind != StepStopped {
+	for end > 0 && steps[end-1].Kind != StepTurnStopped {
 		end--
 	}
 	return end
@@ -291,9 +294,9 @@ func lastCrashResume(steps []Step) int64 {
 	stopped := false
 	for _, step := range steps {
 		switch step.Kind {
-		case StepStopped:
+		case StepTurnStopped:
 			stopped = true
-		case StepContinued:
+		case StepTurnContinued:
 			if !stopped {
 				last = step.Seq
 			}
@@ -304,8 +307,8 @@ func lastCrashResume(steps []Step) int64 {
 }
 
 // endedToolResult is what the model sees for a call still started, waiting,
-// or uncertain when its turn ended. Its effect is unknown, so it is an
-// error, never a made-up success.
+// or with an unknown result when its turn ended. Its effect is unknown, so it
+// is an error, never a made-up success.
 func endedToolResult(callID string) llm.ToolResult {
 	return llm.ToolResult{
 		CallID:  callID,
@@ -318,9 +321,10 @@ const endedToolText = "Result unknown; the turn ended."
 
 // crashResumeReminder follows a Continue that resumed a turn with no
 // recorded stop, whose worker stopped mid-turn. The runner reruns only
-// read-only or idempotent calls and marks the rest uncertain; the reminder
-// covers the model's side. Like steeringReminder it is projected, never
-// recorded, and a later dispatched call drops it.
+// read-only or idempotent calls and marks the rest result unknown; the
+// reminder covers the model's side. Like steeringReminder it is added to the
+// messages the model sees, never recorded, and a later dispatched call drops
+// it.
 func crashResumeReminder() llm.Message {
 	return llm.ReminderMessage(llm.Reminder{
 		Name:    "worker-restarted",
@@ -332,7 +336,7 @@ func crashResumeReminder() llm.Message {
 const crashResumeText = "The previous worker stopped in the middle of " +
 	"this turn. Check the current state before you repeat any action."
 
-// steeredPartial projects a call an urgent steer cut short: its partial
+// steeredPartial shows a call an urgent steer cut short: its partial
 // text as one assistant message, then a reminder that the user interrupted
 // it; the steer itself follows in its own step. This refines decision 9,
 // which keeps interrupted output from the model, for steering only: the
@@ -359,7 +363,8 @@ func steeredPartial(result *llm.Result) []llm.Message {
 }
 
 // steeringReminder tells the model its previous response was cut short. It
-// is projected, never recorded, so its wording can change between versions.
+// is added to the messages the model sees, never recorded, so its wording
+// can change between versions.
 func steeringReminder() llm.Message {
 	return llm.ReminderMessage(llm.Reminder{
 		Name:    "steering-interrupted",
@@ -368,17 +373,17 @@ func steeringReminder() llm.Message {
 	})
 }
 
-// lastDispatchedIntent returns the sequence number of the latest model
-// request whose call was dispatched, or zero.
-func lastDispatchedIntent(t Turn) int64 {
-	intents := map[string]int64{}
+// lastDispatchedCallStart returns the sequence number of the latest
+// model_call_started step whose call was dispatched, or zero.
+func lastDispatchedCallStart(t Turn) int64 {
+	callStarts := map[string]int64{}
 	var last int64
 	for _, step := range t.Steps {
 		switch step.Kind {
-		case StepModelIntent:
-			intents[step.Model.AttemptID] = step.Seq
-		case StepModelSettled, StepModelReconciled:
-			if seq := intents[step.Model.AttemptID]; modelPurpose(t, step.Model.AttemptID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
+		case StepModelCallStarted:
+			callStarts[step.Model.ModelCallID] = step.Seq
+		case StepModelCallFinished, StepModelCallFinishedByHost:
+			if seq := callStarts[step.Model.ModelCallID]; modelPurpose(t, step.Model.ModelCallID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
 				seq > last {
 				last = seq
 			}
@@ -387,21 +392,21 @@ func lastDispatchedIntent(t Turn) int64 {
 	return last
 }
 
-// modelDispatched reports whether a settlement shows evidence that the call
-// reached the provider: any part of a provider response (an ID, content,
+// modelDispatched reports whether a recorded result shows evidence that the
+// call reached the provider: any part of a provider response (an ID, content,
 // usage, or a stop), or a rejection, which only a provider gives. A
-// settlement without such evidence, such as a call stopped before dispatch
+// recorded result without such evidence, such as a call stopped before dispatch
 // or one recovered after a worker crash, does not count; a recovered call is
 // resent on resume, so an item kept for it goes with the resend, and a
 // NextCallOnly item may reach the model twice rather than never. A call an
 // urgent steer cut short does not count either: its replacement is the
 // call the item was meant for.
 func modelDispatched(f *ModelFact) bool {
-	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched ||
+	if f == nil || f.NotSent || f.SendStatus == llm.SendStatusNotSent ||
 		f.Interrupted == InterruptSteering {
 		return false
 	}
-	if f.Failure == llm.FailureRejected {
+	if f.SendStatus == llm.SendStatusProviderRejected {
 		return true
 	}
 	r := f.Result

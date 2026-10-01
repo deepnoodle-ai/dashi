@@ -214,7 +214,8 @@ func (c Client) Prepare(
 }
 
 // Post performs at most one dispatch, without retries or redirects. Errors
-// include retry hints for the caller that owns attempt recording and admission.
+// include retry hints for the caller that owns recording each model call and
+// reserving its cost.
 func (c Client) Post(
 	ctx context.Context,
 	p llm.Request,
@@ -340,9 +341,9 @@ func (c Client) Post(
 	case pe.statusCode >= 500:
 		category = llm.ErrorOverloaded
 	}
-	disposition := llm.FailureUnknown
+	sendStatus := llm.SendStatusUnknown
 	if KnownRejection(pe.statusCode) {
-		disposition = llm.FailureRejected
+		sendStatus = llm.SendStatusProviderRejected
 	}
 	rejection := ParseRejection(pe.statusCode, body)
 	rejection.HasMedia = HasMedia(request)
@@ -353,13 +354,13 @@ func (c Client) Post(
 			c.Classify,
 			rejection,
 		),
-		Disposition: disposition,
-		Status:      pe.statusCode,
-		Code:        pe.code,
-		Body:        body,
-		RetryAfter:  pe.retryAfter,
-		Retryable:   shouldRetry(pe.statusCode, pe.code),
-		Cause:       pe,
+		SendStatus: sendStatus,
+		Status:     pe.statusCode,
+		Code:       pe.code,
+		Body:       body,
+		RetryAfter: pe.retryAfter,
+		Retryable:  shouldRetry(pe.statusCode, pe.code),
+		Cause:      pe,
 	}
 }
 
@@ -373,9 +374,9 @@ func NoAPIKey(provider, key string, public bool, env string) error {
 		return nil
 	}
 	return &llm.Error{
-		Provider:    provider,
-		Category:    llm.ErrorAuthentication,
-		Disposition: llm.FailureNotDispatched,
+		Provider:   provider,
+		Category:   llm.ErrorAuthentication,
+		SendStatus: llm.SendStatusNotSent,
 		Cause: fmt.Errorf(
 			"%w: set %s or Config.APIKey",
 			llm.ErrNoAPIKey,
@@ -402,7 +403,7 @@ func NotDispatched(
 	args ...any,
 ) error {
 	err := Failure(provider, category, format, args...)
-	err.(*llm.Error).Disposition = llm.FailureNotDispatched
+	err.(*llm.Error).SendStatus = llm.SendStatusNotSent
 	return err
 }
 

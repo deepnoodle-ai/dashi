@@ -8,7 +8,7 @@ Dependency: Active-context [#147](https://github.com/deepnoodle-ai/dashi/pull/14
 
 The composer owns editable text and numbered attachment entries; Engine owns pending submission, Start identity, FIFO, and acknowledgement.
 Session-private storage owns immutable bytes. Turn records remain the authority for submitted input.
-The runner's existing resolver verification and active-context guard own model admission.
+The runner's existing content-loader verification and active-context guard decide whether a model request is sent.
 Do not create an upload service, attachment queue, transcript journal, or additional tool permission.
 
 Composer helpers: `cmd/dashi/attachments.go`, `attachment_input.go`; storage: `cmd/dashi/sessionstore/attachments.go`.
@@ -104,7 +104,7 @@ Reserve loading entries before returning; the existing serial worker resolves/re
 Reuse bounds, canonical deduplication, generation guards, immutable snapshots, and outside-workspace disclosure.
 Enter cannot overtake staging or bypass readiness/errors. Ready snapshots send normally; only fresh mentions retain the two-Enter rule.
 
-During work or frozen admission, consume recognized path runs without selection/reads, preserve draft/cursor, and request idle resubmission.
+During work or while a submission is frozen for recording, consume recognized path runs without selection/reads, preserve draft/cursor, and request idle resubmission.
 Dialogs retain ordinary paste. Completion, recall, editor return, model/tool output, and rendering remain read-free.
 Both Wonton modes share the hook. Unbracketed typing lacks provenance; `/attach` and `@file` remain the fallback, including plain mode.
 Paths must exist on Dashi's host; SSH transfers no desktop bytes. Clipboard image extraction remains separate.
@@ -114,37 +114,37 @@ While foreground work runs, an attachment mutation or attachment-bearing submiss
 Lexical detection may identify mentions without reads; ordinary attachment-free text steering remains unchanged.
 Selected entries count as unsaved draft state in exit/session-switch controls. Clear them only after the user accepts disclosed draft loss.
 
-## Storage and resolver contract
+## Storage and loader contract
 
 Use `SESSION/attachments/att_<32 lowercase hex>/` with `blob` and `metadata.json`.
-Allocate random IDs per snapshot, never paths or digests as access authority.
-Metadata contains version, display basename, MIME type, digest, and size; source paths remain draft-only.
+Allocate random IDs per snapshot, never paths or hashes as access authority.
+Metadata contains version, display basename, MIME type, SHA-256 hash, and size; source paths remain draft-only.
 Record a bounded attachment label in the submitted text for inspection, including name/type/size, so images need no new core record field.
 Document titles use display basenames. Inspection uses recorded labels, never opens blobs or source files.
 
 Under the existing session lock, write a private same-parent temporary directory, 0600 files, and 0700 directories.
 Write and sync both files, close them, rename to the final unused ID, then sync the parent directory before allowing Start recording.
-Publication failure stops admission and retains the ready draft bytes for correction; never record a partially published reference.
+Publication failure stops the submission and retains the ready draft bytes for correction; never record a partially published reference.
 If publication succeeds, reuse that immutable ID for this submission's retry. Do not republish by rereading the source.
 Session metadata saving does not establish or revoke submission.
 After publication, save the non-authoritative header under its lease with the next-turn destination/model, permitting crash reopen.
 A header alone never lists completed work or authorizes acknowledgement; recorded Start facts do.
 
-Bind a resolver to each Engine-opened session and wire it into that session's `Runner.ContentResolver`.
-`Resolve(ctx, turnID, ref)` requires a valid session Turn ID matching the bound session and a strictly parsed attachment ID.
+Bind a loader to each Engine-opened session and wire it into that session's `Runner.ContentLoader`.
+`Load(ctx, turnID, ref)` requires a valid session Turn ID matching the bound session and a strictly parsed attachment ID.
 Prior-Turn references remain usable under later Turns in that same session; no creation-Turn-only authorization.
 Open only the fixed session attachment directory through a descriptor-relative, no-follow storage helper using `os.Root` and platform no-follow opens.
 Reject symlinks in the store path, ID directory, metadata, or blob at open time; a check-then-open path sequence is insufficient.
-Require regular files, version-1 metadata bounded to 16 KiB, matching metadata/ref digest and size, supported MIME metadata, and `size <= 10 MiB`.
-Read at most `ref.Size+1` bytes with context checks. The runner performs final size/digest verification; never cache source bytes across requests or fall back to a path/URL.
+Require regular files, version-1 metadata bounded to 16 KiB, matching metadata/ref hash and size, supported MIME metadata, and `size <= 10 MiB`.
+Read at most `ref.Size+1` bytes with context checks. The runner performs final size/hash verification; never cache source bytes across requests or fall back to a path/URL.
 Keep default runner reference limits, including aggregate 64 MiB across historical uses; typed failures remain resumable through normal Continue.
 
 Remove only this operation's unpublished temporary directory on failure/cancellation.
-Published snapshots, including unreferenced or uncertain ones, are never opportunistically deleted in this slice.
+Published snapshots, including unreferenced ones or ones whose submission result is unknown, are never opportunistically deleted in this slice.
 `Store.Discard` must preserve a session with published attachment directories or an unresolved submission even when session metadata is absent.
 This favors recovery over disk reclamation; future retention can use authoritative complete Turn scans.
 
-## Submission, pending work, and admission
+## Submission, pending work, and recording
 
 Construct one immutable `submittedInput` containing draft revision, ordered reference-bearing `llm.Message`, display text, and published snapshot IDs.
 Flags precede prompt mentions; deduplicate canonical paths and preserve first-selection order.
@@ -152,22 +152,22 @@ Print mode stages directly, rejects any failure before dispatch, and calls the s
 
 Add `Engine.PromptInput(ctx, input)` beside the existing text wrapper; it clones messages into `pendingPrompt.start.Input`.
 Generate CommandID once using the existing pending Start path. Never flatten media into `pendingLine.text` or an inbox steer.
-If another pending Start prevents admission, return retry-after-pending and preserve this draft; attachment inputs do not enter `later` or Session's volatile queue.
+If another pending Start prevents recording this one, return retry-after-pending and preserve this draft; attachment inputs do not enter `later` or Session's volatile queue.
 Existing attachment-free text FIFO behavior remains intact.
 
 Publish blobs before entering this pending Start; preserve full reference input while between-Turn compaction runs.
 Drive a submission receipt through the UI event loop using submission ID and draft revision, distinguishing pre-record failure, pending/unknown, and recorded.
-Do not clear the composer at OnSubmit. Freeze the submitted draft during admission; acknowledge it only from the matching ordinary `StepStarted` or reconciled loaded Start.
+Do not clear the composer at OnSubmit. Freeze the submitted draft while its Start is recorded; acknowledge it only from the matching ordinary `StepTurnStarted` or a loaded Start matched against it.
 Clear its entries once on acknowledgement, even when later model execution fails. Never clear an independently edited/new draft.
 Known pre-record failure releases the frozen draft unchanged. Summary Start acknowledgement does not consume it.
-Unknown writes retain the pending identity and snapshots; existing `reconcilePrompt` loads and compares the full reference-bearing input before allowing another Start.
-Established absence permits retry under existing command identity rules. Conflicts/unreadable records keep admission blocked.
+Unknown writes retain the pending identity and snapshots; existing `resolvePrompt` loads and compares the full reference-bearing input before allowing another Start.
+Established absence permits retry under existing command identity rules. Conflicts/unreadable records keep new submissions blocked.
 Continue operates on recorded references, not a composer snapshot; it cannot resend or consume an independent draft.
 
-Pass the actual reference-bearing input into all existing Session admission and compaction paths.
-Active-context admission hydrates/prepares complete requests; preview labels cannot replace attachments. Preserve its media-estimate-unavailable warning and context-sizing exception.
-Preserve monetary admission and provider preparation; that exception never proves tokenizer fit.
-Extend between-Turn compaction's rough tail estimator to count reference bytes from declared size conservatively, without resolving content or changing coverage digests.
+Pass the actual reference-bearing input into all existing Session start-check and compaction paths.
+The active-context check hydrates/prepares complete requests; preview labels cannot replace attachments. Preserve its media-estimate-unavailable warning and context-sizing exception.
+Preserve the spending reservation and provider preparation; that exception never proves tokenizer fit.
+Extend between-Turn compaction's rough tail estimator to count reference bytes from declared size conservatively, without resolving content or changing coverage hashes.
 Provider preparation remains authoritative; known incompatibility checks are early diagnostics, not a replacement for it.
 An oversized protected original attachment request can stop at the existing context limit; do not silently remove evidence or summarize the objective away.
 
@@ -178,7 +178,7 @@ Local immutable references preserve recovery but require disk retention and repe
 Rejected: whole-value diffs confuse paste with recall/completion; injecting `@file` tokens changes the draft unnecessarily.
 
 Ship in the root dependency chain after active context; existing text-only records require no migration.
-Update attachment and CLI guides for explicit selection, private storage, outside-workspace evidence, detach, print flags, and unknown admission.
+Update attachment and CLI guides for explicit selection, private storage, outside-workspace evidence, detach, print flags, and a submission whose recording is unknown.
 Drop integration requires a reviewed public hook commit in the official Wonton repository.
 Require native input proof in fullscreen/inline before Dashi integration; then pin its exact SHA through a Go pseudo-version.
 The upstream PR may remain pending; no merge, release, or tag is required. Wonton v0.3.0 lacks this hook.

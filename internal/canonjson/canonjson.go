@@ -1,13 +1,13 @@
 // Package canonjson encodes JSON values in one canonical spelling, so values
 // that mean the same thing produce the same bytes and therefore the same
-// digest.
+// hash.
 //
-// Dashi digests recorded values (tool definitions, call arguments, commands,
+// Dashi hashes recorded values (tool definitions, call arguments, commands,
 // history) and later compares them with live values. A recorder may store a
 // step in a form that keeps only the JSON meaning, such as a Postgres jsonb
 // column, which reorders keys, drops whitespace, and respells numbers and
 // strings. Hashing the canonical form instead of json.Marshal output makes the
-// digest survive that round trip.
+// hash survive that round trip.
 //
 // The form follows RFC 8785, the JSON Canonicalization Scheme (JCS):
 //

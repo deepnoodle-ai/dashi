@@ -6,17 +6,17 @@
 
 ## Problem
 
-People type while an agent works: "stop, wrong file". Part 1 delivers such a
-message, a *steer*, at safe points. But a model call can stream a wrong answer
+People type while an agent works: "stop, wrong file". Part 1 adds such a
+message, a *steer*, at safe points. But a model call can stream a wrong reply
 for a minute. Part 2 lets an *urgent* steer cut that call short.
 
 ## Part 1 (merged, unchanged)
 
 The turn record is the authority: a steer ID is recorded at most once, and
 sources present a steer until `Delivered`. `Inbox` claims steers per run and
-keeps writes of unknown outcome in doubt; `Leftovers(turn)` returns unrecorded
-steers. Steers are delivered before each model call (FR-6, one
-`StepDelivered` before `BeforeModel`) and at a candidate answer when
+keeps a steer in doubt when its write has an unknown result; `Leftovers(turn)`
+returns unrecorded steers. Steers are added before each model call (FR-6, one
+`StepMessagesAdded` before `BeforeModel`) and at a candidate final reply when
 `nextCallPossible` holds, never between a tool call and its result. A steer is
 a nudge, never a veto. Non-goals: queueing follow-up turns, cancelling running
 tools, waking a waiting turn, rewriting steer text.
@@ -45,14 +45,14 @@ func (in *Inbox) SendUrgent(text string) (string, error)
 `SendUrgent`, and `Send` with `Urgent` set, signal `Ready`: a channel with a
 buffer of one, created lazily under the mutex so `Inbox{}` works. `SendText`
 does not signal. A source without a notifier gets no interrupts; the first
-urgent steer FR-6 delivers from it records one `WarningSteering` per run.
+urgent steer FR-6 adds from it records one `WarningSteering` per run.
 
 ### The listener
 
 - **U-1. One listener per run.** When the source is a notifier with a non-nil
   `Ready`, the run starts one goroutine, the only reader of `Ready`. A source
   lock serializes all calls to the source. The listener's `Steers` runs
-  under a context cancelled when the model call settles, when the run needs
+  under a context cancelled when the model call finishes, when the run needs
   the source or the listener's decision, or when the run ends; a fetch the
   run cut short is retried. A slow source can delay a cut, never stall the
   run. On every exit path the run cancels the listener's context, joins it,
@@ -64,31 +64,31 @@ urgent steer FR-6 delivers from it records one `WarningSteering` per run.
   guards the snapshot, the urgent set, the registered call, and the reason
   the listener last declined to interrupt; commits take only it. The
   listener writes no warnings; the run attaches that reason to the call's
-  `StepModelSettled`, or at the latest to the stop step.
+  `StepModelCallFinished`, or at the latest to the stop step.
 - **U-3. What a signal does.** The listener calls `Steers`. For a fresh
   urgent steer, it adds the ID to the run's *urgent set* and cancels the
   registered model call if eligible (U-4). Each ID causes at most one
   interrupt. FR-6 removes an ID from the urgent set when it records the steer
   or when the source no longer returns it.
-- **U-4. Eligibility.** The run registers the call after preparation,
-  before `BeforeSend`. Until the hand-off nothing was sent, so a cut is free
-  and always allowed. After it, a call offering a provider-hosted tool
-  unsafe to repeat (decision 10) is never cut, and otherwise a replacement
-  must fit: the run hands the listener a private replay taken at the
-  hand-off, and `replacementFits` is `nextCallPossible` without the attempt
-  term (U-8). Token caps use recorded spend (the output cap already clamps
-  `max_tokens`). The cost cap also counts the call in flight at its worst
-  case, so a call with unknown worst case (`AtRisk` nil) is ineligible. At
-  signal time the listener adds the size of the steers and the reminder, and
-  rechecks pause, deadline, and context; the partial is covered by the
-  call's `max_tokens`. An ineligible call is not cut; the steer waits for
-  FR-6, with one `WarningSteering` per run naming the reason, unless the run
-  is ending.
+- **U-4. Eligibility.** The run registers the call after preparation, before
+  `BeforeSend`. Until the hand-off nothing was sent, so a cut is free and
+  always allowed. After it, a call offering a provider tool unsafe to repeat
+  (decision 10) is never cut, and otherwise a replacement must fit: the run
+  hands the listener a private replay taken at the hand-off, and
+  `replacementFits` is `nextCallPossible` without the model-call term (U-8).
+  Token caps use recorded spend (the output cap already clamps `max_tokens`).
+  The cost cap also counts the call in flight at its worst case, so a call
+  with unknown worst case (`WorstCaseCost` nil) is ineligible. At signal time
+  the listener adds the size of the steers and the reminder, and rechecks
+  pause, deadline, and context; the partial is covered by the call's
+  `max_tokens`. An ineligible call is not cut; the steer waits for FR-6, with
+  one `WarningSteering` per run naming the reason, unless the run is ending.
 - **U-5. Before dispatch.** After `BeforeModel` and request preparation, but
-  before `BeforeSend` admits the call, the run reads the urgent set. The run
-  also keeps a *loop-back set*: IDs that already caused a loop-back. If the
-  urgent set holds an ID not in the loop-back set, the run adds it there,
-  drops the pass's hook results (`dropHooks(mark)`), and loops back to FR-6.
+  before `BeforeSend` reserves the call's cost, the run reads the urgent set.
+  The run also keeps a *loop-back set*: IDs that already caused a loop-back.
+  If the urgent set holds an ID not in the loop-back set, the run adds it
+  there, drops the pass's hook results (`dropHooks(mark)`), and loops back to
+  FR-6.
 
 ### Interrupting a model call
 
@@ -97,63 +97,64 @@ urgent steer FR-6 delivers from it records one `WarningSteering` per run.
   `errSteered`. The stream loop emits and accumulates partial text only while
   that context is live; later frames still count toward usage and the
   estimate, as does a message returned after the cut; only a run-cancelled
-  call (never projected) keeps that message. The run marks the attempt
+  call (never shown to the model) keeps that message. The run marks the call
   *handed off* just before it calls `llm.Stream`.
-- **U-7. Settlement order.** After the call returns:
+- **U-7. Finish order.** After the call returns:
   1. The run's context ended: cause `run`, as today.
   2. The result is complete (no error, a stop kind other than
      `incomplete`, `validateModelResult` passes): the call stands and the
      steer waits for FR-6. If that result stops the turn (an `output` or
      `context` limit), the steer goes to `Leftovers`.
   3. The call context's cause is `errSteered`: cause `steering`. It is
-     `NoDispatch` only if the cancel came before the hand-off mark or the
-     client reports `FailureNotDispatched`; a missing response proves
+     `NotSent` only if the cancel came before the hand-off mark or the
+     client reports `SendStatusNotSent`; a missing response proves
      nothing. Every other cut call counts as sent. A Dashi timeout reason
      means that timer fired first: the timeout wins.
   4. Otherwise, today's error path.
 - **U-8. Counting.** A call cut off by a steer does **not** count toward
-  `ModelAttempts` (replay already skips interrupted calls; no change). It is
-  recorded as an attempt and counts toward spend and every cost cap. Each
+  `ModelCalls` (replay already skips interrupted calls; no change). It is
+  recorded as a model call and counts toward spend and every cost cap. Each
   interrupt needs a new urgent steer, so user input bounds them, and even the
-  reserved final-answer call may be cut and asked again.
-- **U-9. Billing.** The settlement keeps the response ID, partial output, and
+  reserved final-reply call may be cut and asked again.
+- **U-9. Billing.** The finish step keeps the response ID, partial output, and
   observed usage. The output estimate counts every streamed delta (text,
   reasoning, tool arguments). Under a `MaxCost` cap, every sent call cut off
-  by a steer is charged the worst case reserved at admission, written into
-  the settlement's `Charge` (which `attemptSpend` prefers, so replay needs no
+  by a steer is charged the worst case reserved by `BeforeSend`, written into
+  the finish step's `Cost` (which `modelCallCost` prefers, so replay needs no
   cap logic). Without a cap, decision 24's estimate applies. For every
   interrupt cause, `Result.Usage.OutputTokens` records the larger of the
   reported count and the delta estimate (capped at `max_tokens`, in replay
-  too), so token caps and replay see it with no new field; the settlement is
+  too), so token caps and replay see it with no new field; the finish step is
   `EstimatedUsage`. Crash recovery keeps decision 24's rule.
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
 
 ### What the model sees next
 
-- **U-11. Partial text.** Projection includes a steering-interrupted call's
-  partial as one assistant text block: text parts joined, trailing whitespace
-  trimmed, with no citations, tool calls, reasoning, or replay data. An empty
-  or whitespace-only partial adds nothing, reminder included (Anthropic
-  rejects a blank message). A projected, unrecorded contextual reminder named
-  `steering-interrupted` follows ("The user interrupted your previous
-  response."), then the steer as a user message. This refines decision 9 for
-  steering only. Other interrupted calls stay out of projection.
+- **U-11. Partial text.** The turn's messages include a steering-interrupted
+  call's partial as one assistant text block: text parts joined, trailing
+  whitespace trimmed, with no citations, tool calls, reasoning, or replay
+  data. An empty or whitespace-only partial adds nothing, reminder included
+  (Anthropic rejects a blank message). An unrecorded contextual reminder,
+  added when building messages, named `steering-interrupted` follows ("The
+  user interrupted your previous response."), then the steer as a user
+  message. This refines decision 9 for steering only. Other interrupted calls
+  stay out of the messages.
 - **U-12. `NextCallOnly`.** A steering-interrupted call does not expire
   `NextCallOnly` items; `modelDispatched` excludes it.
-- **U-13. Answers and vetoes.** An interrupted call is never an answer:
-  `Answer` and the finish point ignore it, and a veto that hides an earlier
-  answer stays in force. No hook runs for the interrupt itself.
+- **U-13. Replies and vetoes.** An interrupted call is never a final reply:
+  `Reply` and the finish point ignore it, and a veto that hides an earlier
+  reply stays in force. No hook runs for the interrupt itself.
 
 ### Choices made in the code
 
 - U-5's check runs where the call is registered. A cut before the request
   is recorded goes back to FR-6 and records nothing, so `BeforeModel` and
   `BeforeSend` may run again for the same reply; hosts reserve spending in
-  the recorder with the intent.
-- An answer's provider-pause chain restarts after a steering interrupt, so
-  text from before the steer is never joined to the answer after it.
-- A provider pause that leaves a hosted call unfinished (an Anthropic
+  the recorder with the `model_call_started` step.
+- A reply's provider-pause chain restarts after a steering interrupt, so
+  text from before the steer is never joined to the reply after it.
+- A provider pause that leaves a provider tool call unfinished (an Anthropic
   `pause_turn` during web search) is treated like a tool call awaiting its
   result. FR-6 holds steers and the listener does not cut the continuation,
   since providers reject a request that does not end with the paused
@@ -161,10 +162,10 @@ urgent steer FR-6 delivers from it records one `WarningSteering` per run.
 
 ### Recovery and record format
 
-A crash after the cancel but before the settlement leaves an open request;
-recovery settles it with cause `worker` and resends it, and a durable source
-still presents the steer for FR-6. The settlement closes the attempt's preview
-(`Step.Settles`), and its cause tells a UI why the text stopped.
+A crash after the cancel but before the finish step leaves an open request;
+recovery finishes it with cause `worker` and resends it, and a durable source
+still presents the steer for FR-6. The finish step closes the call's preview
+(`Step.Finishes`), and its cause tells a UI why the text stopped.
 
 - `ModelFact.Interrupted` is an `InterruptCause`
   (`json:"interrupted,omitempty"`): `InterruptNone` (`""`),
@@ -182,15 +183,15 @@ call starts or goes to the host. A steer queued before that check counts
 even if the listener has not fetched it: the run asks the listener, and on a
 pending signal or a cut fetch it fetches itself; otherwise it makes no
 source call. Once the set is non-empty, no later call in the batch starts:
-each settles not executed with reason `steering` (replay accepts `allowed`
+each finishes as not executed with reason `steering` (replay accepts `allowed`
 to `not_executed` only then) and output "Not run: the user sent new input."
 A steer during the model call can skip the whole batch; the model sees each
 skipped result plus the steer. A recorded skip skips the rest of its batch
 on resume. Started calls finish or re-run; approvals and external waits stay
 pending. `dashi_submit_output` is left to the finish point, and replay
 rejects a steering skip of it. Calls skip only if a later call can offer
-tools: on the last normal attempt the batch runs and the steer goes to the
-final-answer call; with no call left, the batch runs, with a warning.
+tools: on the last normal model call the batch runs and the steer goes to the
+final-reply call; with no call left, the batch runs, with a warning.
 
 ## Plan and tests
 
@@ -198,21 +199,22 @@ final-answer call; with no call left, the batch runs, with a warning.
   partial, reminder, and steer, in order; blank partials add nothing;
   citations stripped.
 - A result completing as the cancel arrives stands; a cancel before hand-off
-  is `NoDispatch`; a buffered signal skips the request; a dropped steer loops
+  is `NotSent`; a buffered signal skips the request; a dropped steer loops
   back once.
-- Counting and billing: attempts unchanged, spend grows; the final-answer
+- Counting and billing: model calls unchanged, spend grows; the final-reply
   call can be cut; one interrupt per ID; reasoning deltas raise the
-  estimate; under `MaxCost`, `Charge` is the worst case and the cap holds.
-- No interrupt from unsafe hosted tools, a paused hosted call, a non-urgent
-  steer, or a source without a notifier; each warning once. `NextCallOnly`
-  items survive; vetoes hold.
+  estimate; under `MaxCost`, `Cost` is the worst case and the cap holds.
+- No interrupt from unsafe provider tools, a paused provider tool call, a
+  non-urgent steer, or a source without a notifier; each warning once.
+  `NextCallOnly` items survive; vetoes hold.
 - Skips: sequential and parallel batches, external calls, a crash and
   resume, forged replay reasons, a steer not yet fetched at the start;
   submissions (also on replay) and last calls never skip.
-- Faults: a crash after the cancel; rejected and unknown settlement writes;
-  a blocking `Steers`. `-race` on the listener, source lock, and `Inbox`.
+- Faults: a crash after the cancel; rejected and unknown-result writes of the
+  finish step; a blocking `Steers`. `-race` on the listener, source lock, and
+  `Inbox`.
 - Live (Anthropic, OpenAI Responses, Gemini, one Chat Completions route): cut
-  a long streamed answer; the provider accepts partial, reminder, and steer.
+  a long streamed reply; the provider accepts partial, reminder, and steer.
   An Anthropic `pause_turn` mid-search declines the cut with a warning.
 
 ## Risks

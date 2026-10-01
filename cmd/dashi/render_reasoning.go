@@ -15,7 +15,7 @@ func (r *Renderer) reasoningDelta(event dashi.Event) []Block {
 	if event.Delta.Text == "" {
 		return nil
 	}
-	id := "reasoning:" + messageKey(event.MessageID, event.AttemptID)
+	id := "reasoning:" + messageKey(event.MessageID, event.ModelCallID)
 	parts := r.reasoning[id]
 	if parts == nil {
 		parts = map[summaryPart]string{}
@@ -38,12 +38,12 @@ func (r *Renderer) reasoningDelta(event dashi.Event) []Block {
 	}
 	return []Block{{ID: id, Kind: KindReasoning, Text: strings.Join(text, "\n\n")}}
 }
-func (r *Renderer) reasoningSettled(step dashi.Step) []Block {
+func (r *Renderer) reasoningFinished(step dashi.Step) []Block {
 	if !r.showReasoning || r.Origin == dashi.StartCompaction || step.Model == nil {
 		return nil
 	}
 	model := step.Model
-	id := "reasoning:" + messageKey(model.MessageID, model.AttemptID)
+	id := "reasoning:" + messageKey(model.MessageID, model.ModelCallID)
 	var summaries []string
 	if model.Result != nil {
 		for _, part := range model.Result.Message.Content {

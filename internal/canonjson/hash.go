@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 )
 
-// DigestPrefix names the hash and the canonical encoding a digest covers.
-const DigestPrefix = "v2:sha256:"
+// HashPrefix names the hash function and the canonical encoding a hash covers.
+const HashPrefix = "v2:sha256:"
 
-// Digest identifies v by the SHA-256 of its canonical JSON.
-func Digest(v any) string {
+// Hash identifies v by the SHA-256 of its canonical JSON.
+func Hash(v any) string {
 	b, err := Marshal(v)
 	if err != nil {
 		// Unreachable for values that encode: canonicalization only fails on
@@ -19,10 +19,10 @@ func Digest(v any) string {
 		b, _ = json.Marshal(v)
 	}
 	h := sha256.Sum256(b)
-	return DigestPrefix + hex.EncodeToString(h[:])
+	return HashPrefix + hex.EncodeToString(h[:])
 }
 
 // SameValue reports whether a and b encode to the same JSON meaning.
 func SameValue(a, b any) bool {
-	return Digest(a) == Digest(b)
+	return Hash(a) == Hash(b)
 }

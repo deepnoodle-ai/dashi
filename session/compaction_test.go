@@ -55,9 +55,9 @@ func textsOf(msgs []llm.Message) []string {
 	return out
 }
 
-func sendAll(t *testing.T, s *session.Session, texts ...string) dashi.Outcome {
+func sendAll(t *testing.T, s *session.Session, texts ...string) dashi.RunResult {
 	t.Helper()
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for _, text := range texts {
 		var err error
 		if out, err = s.Send(t.Context(), text); err != nil {
@@ -115,15 +115,15 @@ func TestSessionCompactionTurn(t *testing.T) {
 	s.New = true
 	s.Compactor = keepLast{limit: 100, keep: 1}
 	out := sendAll(t, s, "first", "second", "third")
-	if out.Turn.ID != "s-4" || out.Answer != "three" || len(out.SessionWarnings) != 0 {
-		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
+	if out.Turn.ID != "s-4" || out.Reply != "three" || len(out.SessionWarnings) != 0 {
+		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Reply, out.SessionWarnings)
 	}
 
 	c := load(t, rec, "s-3")
 	start := loadTurn(t, rec, "s-3").Steps[0]
 	if c.Origin != dashi.StartCompaction || start.CommandID != "compact:s-3" ||
 		!c.Agent.NoTools || c.Compaction == nil || c.Compaction.Through != 2 ||
-		c.Compaction.Digest == "" {
+		c.Compaction.Hash == "" {
 		t.Fatalf("origin=%q key=%q noTools=%v fact=%+v",
 			c.Origin, start.CommandID, c.Agent.NoTools, c.Compaction)
 	}
@@ -143,12 +143,12 @@ func TestSessionCompactionTurn(t *testing.T) {
 		[]string{"first", "one", "second", "two", "third", "three"}) {
 		t.Fatalf("history=%q", got)
 	}
-	projected, err := s.ProjectedHistory(t.Context())
+	projected, err := s.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := textsOf(projected); !slices.Equal(got, append(replaced, "third", "three")) {
-		t.Fatalf("projected=%q", got)
+		t.Fatalf("inferred=%q", got)
 	}
 	n := 0
 	for turn, err := range s.Turns(t.Context()) {
@@ -164,14 +164,14 @@ func TestSessionCompactionTurn(t *testing.T) {
 
 	counting := &countingRecorder{MemoryRecorder: rec}
 	fresh := handle(counting, client)
-	again, err := fresh.ProjectedHistory(t.Context())
+	again, err := fresh.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	a, _ := json.Marshal(projected)
 	b, _ := json.Marshal(again)
 	if string(a) != string(b) {
-		t.Fatalf("fresh handle projected\n%s\nwant\n%s", b, a)
+		t.Fatalf("fresh handle inferred\n%s\nwant\n%s", b, a)
 	}
 	if slices.Contains(counting.loaded, "s-1") || slices.Contains(counting.loaded, "s-2") {
 		t.Fatalf("fresh handle loaded %q", counting.loaded)
@@ -201,7 +201,7 @@ func (r tampered) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	return turn, err
 }
 
-// A digest mismatch warns only on a handle that holds the covered turns,
+// A hash mismatch warns only on a handle that holds the covered turns,
 // and changes nothing else: the replacement history is still sent.
 func TestSessionCompactionMismatch(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -216,7 +216,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 	s.New = true
 	s.Compactor = keepLast{limit: 100, keep: 0}
 	sendAll(t, s, "first", "second")
-	want, err := s.ProjectedHistory(t.Context())
+	want, err := s.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 		t.Fatalf("warnings=%v", out.SessionWarnings)
 	}
 
-	// History loads turn 1, so the next turn checks the digest.
+	// History loads turn 1, so the next turn checks the hash.
 	full := handle(tampered{rec}, client)
 	if _, err := full.History(t.Context()); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 }
 
 // A summary that fails closes the compaction turn, keeps the previous
-// projected history, and warns; the next completed turn tries again.
+// history, and warns; the next completed turn tries again.
 func TestSessionCompactionFailed(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	refusal := llm.Result{
@@ -320,7 +320,7 @@ func TestSessionCompactionSkipped(t *testing.T) {
 		s := handle(rec, client)
 		s.New = true
 		s.Runner.Tools = (&chargeTool{}).tools()
-		s.Agent.Limits = dashi.Limits{ModelAttempts: 2}
+		s.Agent.Limits = dashi.Limits{ModelCalls: 2}
 		start := dashi.Say("first")
 		start.OutputSchema = json.RawMessage(`{"type":"object"}`)
 		if out, err := s.Run(t.Context(), start); err != nil || out.Output == nil {
@@ -336,11 +336,11 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			if ev.TurnID == "s-1" && ev.Step != nil {
 				closing = true
 			}
-			if ev.Outcome != nil {
+			if ev.Result != nil {
 				outcomes = append(outcomes, ev.TurnID)
-				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Outcome.SessionWarnings),
+				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Result.SessionWarnings),
 					[]dashi.WarningCode{session.WarningTurnClosed}) {
-					t.Fatalf("warnings=%v", ev.Outcome.SessionWarnings)
+					t.Fatalf("warnings=%v", ev.Result.SessionWarnings)
 				}
 			}
 		}
@@ -473,7 +473,7 @@ func TestSessionCompactionFailsBeforeQueueTurn(t *testing.T) {
 	}
 }
 
-// Stream yields the compaction turn's events, ending with its Outcome
+// Stream yields the compaction turn's events, ending with its RunResult
 // event, ahead of the caller's turn.
 func TestSessionStreamCompaction(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -494,8 +494,8 @@ func TestSessionStreamCompaction(t *testing.T) {
 		if ev.TurnID != "s-2" && ev.TurnID != "s-3" {
 			t.Fatalf("event of turn %q", ev.TurnID)
 		}
-		if ev.Outcome != nil {
-			outcomes = append(outcomes, ev.TurnID+" "+ev.Outcome.Answer)
+		if ev.Result != nil {
+			outcomes = append(outcomes, ev.TurnID+" "+ev.Result.Reply)
 		}
 	}
 	if !slices.Equal(outcomes, []string{"s-2 summary", "s-3 two"}) {
@@ -536,8 +536,8 @@ func TestSessionContinueCompaction(t *testing.T) {
 	cancel()
 	<-done
 	out, err := s.Run(t.Context(), dashi.Continue{})
-	if err != nil || out.Turn.ID != "s-2" || out.Answer != "summary" {
-		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+	if err != nil || out.Turn.ID != "s-2" || out.Reply != "summary" {
+		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 	}
 	for _, w := range out.Warnings {
 		if w.Code == dashi.WarningHistoryMismatch {
@@ -568,7 +568,7 @@ func TestSessionCompactionRace(t *testing.T) {
 	b.Compactor = keepLast{limit: 100}
 	sendAll(t, b, "first")
 
-	var bOut dashi.Outcome
+	var bOut dashi.RunResult
 	var bErr error
 	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() {
 		bOut, bErr = b.Send(t.Context(), "from b")
@@ -578,10 +578,10 @@ func TestSessionCompactionRace(t *testing.T) {
 	if bErr != nil || bOut.Turn.ID != "s-3" {
 		t.Fatalf("b: turn=%s err=%v", bOut.Turn.ID, bErr)
 	}
-	if err != nil || out.Turn.ID != "s-4" || out.Answer != "a" ||
+	if err != nil || out.Turn.ID != "s-4" || out.Reply != "a" ||
 		len(out.SessionWarnings) != 0 {
 		t.Fatalf("a: turn=%s answer=%q warnings=%v err=%v",
-			out.Turn.ID, out.Answer, out.SessionWarnings, err)
+			out.Turn.ID, out.Reply, out.SessionWarnings, err)
 	}
 	if n := len(client.Inputs()); n != 4 {
 		t.Fatalf("%d model calls; want 4", n)
@@ -633,16 +633,16 @@ func TestSessionCompactionBudget(t *testing.T) {
 	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopCanceled {
 		t.Fatalf("s-2 stop=%s", v.Stop.Kind)
 	}
-	if out.Turn.ID != "s-3" || out.Answer != "two" || !slices.Equal(
+	if out.Turn.ID != "s-3" || out.Reply != "two" || !slices.Equal(
 		codes(out.SessionWarnings),
 		[]dashi.WarningCode{session.WarningCompactionFailed},
 	) {
-		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
+		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Reply, out.SessionWarnings)
 	}
 }
 
-// The summary is the text inside the answer's <summary> tags when it has
-// them, and the whole answer otherwise; a handle with no Compactor reads
+// The summary is the text inside the reply's <summary> tags when it has
+// them, and the whole reply otherwise; a handle with no Compactor reads
 // the same. Empty tags replace nothing.
 func TestSessionCompactionSummaryTags(t *testing.T) {
 	for _, tc := range []struct{ answer, want string }{
@@ -665,12 +665,12 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 			want = []string{"first", "one", "second", "two"}
 		}
 		for _, h := range []*session.Session{s, handle(rec, client)} {
-			projected, err := h.ProjectedHistory(t.Context())
+			projected, err := h.NextHistory(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got := textsOf(projected); !slices.Equal(got, want) {
-				t.Fatalf("answer %q: projected=%q", tc.answer, got)
+				t.Fatalf("answer %q: inferred=%q", tc.answer, got)
 			}
 		}
 	}
@@ -716,8 +716,8 @@ func TestSessionCompactionSameHandleRace(t *testing.T) {
 	}
 }
 
-// Only the session's Compactor starts compaction turns: the projection
-// trusts them, so a caller's Start cannot claim the origin or the fact.
+// Only the session's Compactor starts compaction turns: building the
+// history trusts them, so a caller's Start cannot claim the origin or the fact.
 func TestSessionRefusesCallerCompaction(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	s := handle(rec, dashitest.NewClient())

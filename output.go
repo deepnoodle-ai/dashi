@@ -45,7 +45,7 @@ func MustOutputSchema[T any]() json.RawMessage {
 // output, the error wraps ErrNoOutput and says why: the turn stopped without
 // completing (waiting, limited, refused, failed, and so on, with the stop
 // reason), or it completed without an output schema.
-func DecodeOutput[T any](o Outcome) (T, error) {
+func DecodeOutput[T any](o RunResult) (T, error) {
 	var value T
 	if o.Output == nil {
 		if o.Stop.Kind != StopCompleted {

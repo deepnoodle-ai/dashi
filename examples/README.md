@@ -12,9 +12,9 @@ optional. Every example but those two needs a provider key.
 | `compaction`        | None      | A session that runs a compaction turn when its window fills    |
 | `agent`             | OpenAI    | One recorded agent turn                                        |
 | `basic`             | OpenAI    | One streamed model call, without an agent                      |
-| `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the answer    |
+| `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the reply     |
 | `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
-| `hooks`             | Anthropic | Hooks that deliver context, deny a call, and nudge an answer   |
+| `hooks`             | Anthropic | Hooks that add messages, deny a call, and nudge a reply        |
 | `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
 | `approval`          | Anthropic | A person approves or denies a tool call during the run         |
 | `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
@@ -27,12 +27,12 @@ optional. Every example but those two needs a provider key.
 | `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |
 | `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
 | `live_follow`       | Anthropic | Two readers following one running turn, with streamed text     |
-| `hosted_tools`      | Anthropic | Provider-hosted web search and code execution, with sources    |
-| `structured_output` | OpenAI    | A final answer that matches a JSON schema, decoded into a type |
+| `provider_tools`    | Anthropic | Provider tools: web search and code execution, with sources    |
+| `structured_output` | OpenAI    | A final reply that matches a JSON schema, decoded into a type  |
 | `providers`         | Any       | The same call on each provider; only the client changes        |
 | `vision`            | Anthropic | Describing an image from a URL or a local file                 |
 | `documents`         | Anthropic | Asking about a text or PDF document, with cited passages       |
-| `attachment_refs`   | Anthropic | A stored upload named by ID and digest, resolved per request   |
+| `attachment_refs`   | Anthropic | A stored upload named by ID and hash, loaded per request       |
 | `batch_speech`      | OpenAI    | Synthesizing a short speech clip, then transcribing it         |
 
 The MCP examples are in their own Go module. From `mcp/`, run
