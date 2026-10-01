@@ -636,6 +636,7 @@ func (s *screen) inputView(mode Mode) tui.View {
 		Multiline(true).
 		MaxHeight(maxHeight).
 		OnKey(s.inputKey).
+		OnPaste(s.inputPaste(s.promptID)).
 		OnChange(func(value string) {
 			s.exitGuard.reset()
 			if s.promptActive {

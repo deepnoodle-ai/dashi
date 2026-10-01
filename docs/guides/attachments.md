@@ -29,9 +29,22 @@ dashi -p 'Compare @notes.txt with the screenshot' --attach screen.png
 Repeat `--attach` for more files; flags precede prompt mentions in selection
 order. The shell handles flag-path quotes and escapes; Dashi uses each flag
 argument literally. All selections must succeed before print mode starts work. Diagnostics
-go to stderr; the answer goes to stdout. For terminal drops or pasted paths,
-use `/attach PATH` or an explicit `@path`; the editor does not infer attachment
-authority from arbitrary pasted text.
+go to stderr; the answer goes to stdout.
+
+In fullscreen and inline mode, a terminal can deliver a saved-file drop as
+bracketed paste containing only absolute, `~/`, or local `file://` paths.
+Quoted or escaped spaces and multiple paths are supported. Dashi consumes
+that path segment, preserves the draft and cursor, and shows numbered selections.
+Once ready, ordinary Enter sends; loading or error entries block submission.
+Mixed prose stays text. For unbracketed terminals or plain mode, use `/attach`
+or `@path`. Clipboard image bytes require saving a file first; SSH paths must
+exist on Dashi's host and transfer no desktop bytes.
+
+Recognition accepts at most 64 KiB of UTF-8 paste and 64 candidate paths,
+with at most 64 resulting draft entries. Count overflow selects nothing and
+preserves the draft; use `/attachments`, `/detach N`, or a smaller batch.
+Larger paste remains ordinary text with a notice to undo it and select fewer
+files or use `/attach`. Existing file-byte limits still apply.
 
 The CLI accepts UTF-8 text without NUL bytes, PNG, JPEG, GIF, WebP, and PDF.
 Defaults are 256 KiB per text file, 3.75 MB per image, 10 MB per PDF, and 32 MB
