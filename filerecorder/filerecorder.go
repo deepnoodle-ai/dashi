@@ -41,8 +41,6 @@ package filerecorder
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,8 +190,7 @@ func (r *Recorder) syncPath(dir string) error {
 // Operators use it to inspect a turn; the host must not change the file
 // while the turn may run.
 func (r *Recorder) Path(turnID string) string {
-	sum := sha256.Sum256([]byte(turnID))
-	name := hex.EncodeToString(sum[:])
+	name := logName(turnID)
 	return filepath.Join(r.dir, name[:2], name+".jsonl")
 }
 
@@ -205,32 +202,8 @@ func (r *Recorder) Path(turnID string) string {
 // then searches between, so it looks at about 2·log2(n) files. An empty
 // log, left by a rejected first write, is no turn; a log that holds only a
 // lease claim (Claim) counts as one, since only a read could tell.
-func (r *Recorder) LastTurn(_ context.Context, sessionID string) (int, error) {
-	lo, hi := 0, 0
-	for n := 1; hi == 0; n *= 2 {
-		ok, err := r.hasLog(dashi.TurnID(sessionID, n))
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			lo = n
-		} else {
-			hi = n
-		}
-	}
-	for hi-lo > 1 {
-		mid := lo + (hi-lo)/2
-		ok, err := r.hasLog(dashi.TurnID(sessionID, mid))
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	return lo, nil
+func (r *Recorder) LastTurn(ctx context.Context, sessionID string) (int, error) {
+	return lastTurn(ctx, sessionID, r.hasLog)
 }
 
 // hasLog reports whether turnID's log exists with content.
@@ -261,26 +234,7 @@ func (r *Recorder) Load(
 		return dashi.Turn{}, fmt.Errorf("filerecorder: open log: %w", err)
 	}
 	defer f.Close()
-	if err := lock(ctx, f, false); err != nil {
-		return dashi.Turn{}, fmt.Errorf("filerecorder: lock log: %w", err)
-	}
-	log, data, err := scan(f, turnID, turnLog{})
-	if err != nil {
-		return dashi.Turn{}, err
-	}
-	if len(log.steps) == 0 {
-		return dashi.Turn{}, dashi.ErrTurnNotFound
-	}
-	turn := dashi.NewTurn(turnID)
-	turn.Steps = make([]dashi.Step, len(log.steps))
-	for i, entry := range log.steps {
-		step, err := entry.decode(f, data, 0)
-		if err != nil {
-			return dashi.Turn{}, err
-		}
-		turn.Steps[i] = step
-	}
-	return turn, nil
+	return loadLog(ctx, f, turnID)
 }
 
 // Claim makes owner the only token whose commits the turn accepts, as a lease
