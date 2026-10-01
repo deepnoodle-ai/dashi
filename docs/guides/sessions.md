@@ -205,7 +205,8 @@ iteration goes on. A turn the session closed has a canceled stop with the
 reason `CloseReason`. `s.History(ctx)` is the conversation: every message of
 every turn but compaction turns. `s.ProjectedHistory(ctx)` is what the next
 turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
-see [Compaction](compaction.md)). `s.Compact(ctx, nil)` requests a summary
+see [Compaction](compaction.md)). A host that keeps its own turns gets the
+same projected history from `dashi.ProjectHistory(turns)`. `s.Compact(ctx, nil)` requests a summary
 while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
 queued input and refuse an unended last turn.
 

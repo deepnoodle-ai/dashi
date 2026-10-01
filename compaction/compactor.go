@@ -10,10 +10,11 @@ import (
 
 // Compactor implements dashi.Compactor. Set it as Session.Compactor, and
 // the session runs a compaction turn when the last model call used
-// Policy's share of the window. The Compactor chooses what to summarize and
-// builds the summary request; the session's turn makes the model call, so
-// its spend and recovery are those of any turn, and the caller's
-// Start.Budget caps it. The zero value works, with the defaults of Policy,
+// Policy's share of the window. A host that keeps its own turns calls
+// Needed and Start itself and runs the Start with its own Runner. The
+// Compactor chooses what to summarize and builds the summary request; the
+// compaction turn makes the model call, so its spend and recovery are those
+// of any turn, and its Start.Budget caps it. The zero value works, with the defaults of Policy,
 // but its window is DefaultWindow (128,000 tokens) whatever the session's
 // model is: set Policy.Model to the session model's ModelInfo.
 type Compactor struct {
@@ -57,7 +58,9 @@ func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 // messages before the cut are sent as a text transcript with the prompt,
 // without their reminders, but with agent mail (a reminder with a From).
 // Their system and developer messages are kept ahead of the summary, with
-// their own role.
+// their own role. The Start has origin StartCompaction and no tools, and
+// its fact's Digest is the fingerprint of projected. The caller sets its
+// CommandID and may set Budget; a Session also sets the fact's Through.
 func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()
 	cut := c.cut(projected, window)
@@ -74,6 +77,10 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	if err != nil {
 		return dashi.Start{}, err
 	}
+	digest, err := dashi.HistoryFingerprint(projected)
+	if err != nil {
+		return dashi.Start{}, err
+	}
 	kept := authoritative(projected[:cut])
 	return dashi.Start{
 		Agent: dashi.Agent{
@@ -81,11 +88,13 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 			Settings: llm.Settings{MaxTokens: maxTokens},
 			NoTools:  true,
 		},
-		Input: []llm.Message{request},
+		Origin: dashi.StartCompaction,
+		Input:  []llm.Message{request},
 		Compaction: &dashi.CompactionFact{
 			Keep:      append(slices.Clone(kept), projected[cut:]...),
 			SummaryAt: len(kept),
 			Frame:     summaryFrame,
+			Digest:    digest,
 		},
 	}, nil
 }
@@ -125,8 +134,7 @@ func (c *Compactor) cut(projected []llm.Message, window int) int {
 			starts = append(starts, i)
 		}
 	}
-	cut, _ := chooseCut(projected, starts, 0, sizes, budget)
-	return cut
+	return chooseCut(projected, starts, sizes, budget)
 }
 
 func isResult(c llm.Content) bool {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -305,44 +304,25 @@ func (s *Session) store(n int, turn Turn) error {
 	return nil
 }
 
-// history returns the projected history of turns 1 through n: the
-// replacement history of the newest completed compaction turn among them,
-// then the projections of the other turns after it, so a fresh handle loads
-// turns back to that compaction turn only. A turn that fails to load or
-// project is skipped with a WarningTurnUnreadable, as a history that loses
-// one old turn is still worth sending. The caller holds mu.
+// history returns the projected history of turns 1 through n by the rule
+// of ProjectHistory, so a fresh handle loads turns back to the newest
+// completed compaction turn only. A turn that fails to load is unreadable
+// too. The caller holds mu.
 func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []Warning) {
-	var parts [][]llm.Message // newest first
-	var warnings []Warning    // newest first
-	for i := n; i >= 1; i-- {
-		t, err := s.load(ctx, i)
-		if err == nil && t.view.Origin == StartCompaction {
-			msgs, ok := replacement(t.view)
-			if !ok {
-				continue // a failed compaction replaces nothing
-			}
-			if w := s.checkDigest(ctx, t); w != nil {
-				warnings = append(warnings, *w)
-			}
-			parts = append(parts, msgs)
-			break
-		}
-		var msgs []llm.Message
-		if err == nil {
-			msgs, err = s.contextProjection(t)
-		}
+	at := func(i int) (historyTurn, error) {
+		h := historyTurn{id: TurnID(s.ID, i+1)}
+		t, err := s.load(ctx, i+1)
 		if err != nil {
-			warnings = append(warnings, unreadable(s.ID, i, err))
-			continue
+			return h, err
 		}
-		parts = append(parts, msgs)
+		h.view = t.view
+		h.messages = func() ([]llm.Message, error) { return s.contextProjection(t) }
+		return h, nil
 	}
-	var out []llm.Message
-	for i := len(parts) - 1; i >= 0; i-- {
-		out = append(out, parts[i]...)
+	check := func(i int, _ historyTurn) *Warning {
+		return s.checkDigest(ctx, s.turns[i+1])
 	}
-	slices.Reverse(warnings)
-	return out, warnings
+	return projectHistory(n, at, check)
 }
 
 // conversation returns the conversation history of turns 1 through n:
@@ -375,17 +355,6 @@ func (s *Session) historyFor(
 		return nil, nil
 	}
 	return s.history(ctx, n-1)
-}
-
-func unreadable(sessionID string, n int, err error) Warning {
-	return Warning{
-		Code: WarningTurnUnreadable,
-		Message: fmt.Sprintf(
-			"turn %s was left out of the history: %v",
-			TurnID(sessionID, n),
-			err,
-		),
-	}
 }
 
 // projection returns a turn's own messages. The caller holds mu.

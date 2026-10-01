@@ -94,45 +94,44 @@ still uses the compaction turn, so every reader sends the same history.
 
 ## Without a session
 
-A host that drives `Runner.Run` itself and owns its history uses `Compact`,
-`Project`, and a stored `Record`. Keep the raw history, the index where each
-Turn starts, and the newest `Record` (nil at first):
+A host that keeps its own turns uses the same two pieces as a session:
+`dashi.ProjectHistory` for the history, and `Compactor.Start` for the
+compaction turn, which it runs through its own `Runner`. The summary call is
+then an ordinary model call in the host's recorder, hooks, and budget
+accounting.
 
 ```go
-view, err := compaction.Project(history, rec) // before each Turn
-if errors.Is(err, compaction.ErrCoverageMismatch) {
-	rec = nil // the history changed; the raw history is in view
-}
-// ... run the Turn with Start.History = view, then append its messages
-// and note where it started ...
-if last := compaction.LastUsage(out.Turn); policy.Due(last) {
-	next, err := compaction.Compact(ctx, summarizer, history, rec,
-		compaction.Options{Policy: policy, TurnStarts: starts, Last: last})
+history, warnings := dashi.ProjectHistory(turns) // stored turns, oldest first
+if compactor.Needed(history, compaction.LastUsage(last)) {
+	start, err := compactor.Start(history) // origin compaction, no tools
 	if err == nil {
-		rec = next // store it
+		start.CommandID = "compact:" + id // the host's own turn ID
+		out, err := runner.Run(ctx, dashi.NewTurn(id), start)
+		// ... store out.Turn with the other turns ...
+		history, warnings = dashi.ProjectHistory(turns) // starts from the summary
 	}
 }
+// ... run the next turn with Start.History = history ...
 ```
 
-The summarizer is `compaction.NewSummarizer(client,
-compaction.SummarizerConfig{})`; it runs one Turn with no tools and discards
-its record. `Compact` cuts as the Compactor does, but only at the Turn starts
-you pass; bad starts are corrected and listed in `Record.Warnings`. Do not
-use `Spend.Usage` for `Due`: it sums every call, and each call in a tool loop
-sends the whole history again. Do not compact while a Turn waits to continue:
-`Continue` must get the history the Turn started with.
+`ProjectHistory` is the rule a session uses. It walks back from the newest
+turn; at the newest compaction turn that completed with a summary it uses that
+turn's replacement history and stops, so the host may pass only the turns
+from there on. A failed compaction turn replaces nothing. A turn that cannot
+be replayed is left out with `turn_unreadable`. `ExampleCompactor_Start` runs
+this without an API key.
 
-`Record.Covers` names the messages the summary replaces: a count and a
-digest. `Project` checks the digest each time and, on a mismatch, returns the
-raw history with `ErrCoverageMismatch`. Each Record covers from message 0, so
-store only the newest one.
-
-| Error | Meaning | Action |
-| --- | --- | --- |
-| `ErrNothingToCompact` | Fewer than two Turns, or nothing new to cover. No model call was made. | Tell the user. |
-| `ErrNoSavings` | The summary is not smaller than what it replaces. | Keep the old view. |
-| `ErrCoverageMismatch` | The Record does not match the history. | Warn. Use the raw history. |
-| Any other error | The summarizer failed. The history and Record are unchanged. | Warn. Run the Turn with the old view. |
+Set `Compactor.Model`, or the Start's `Agent`, when the Runner has no default
+model; a session fills in its own. `Compactor.Start` records the
+`HistoryFingerprint` of the history it replaces as the fact's `Digest`, and
+`ProjectHistory` checks it against the turns before the compaction turn, for
+a host's turns and a session's alike; a mismatch warns `compaction_mismatch`.
+A session fills an empty `Digest` itself. A host with a custom compactor sets
+it with `dashi.HistoryFingerprint(history)`; a fact without one is not
+checked. `Through` is optional; a session sets it. Use `compaction.LastUsage`, not
+`Spend.Usage`, for `Needed`: the spend sums every call, and each call in a
+tool loop sends the whole history again. Do not compact while a turn waits to
+continue: `Continue` must get the history the turn started with.
 
 ## Persistent context
 
@@ -148,7 +147,7 @@ and receive one new identified delivery.
 
 A summary can leave out a detail that the agent needs later. The raw history
 stays in the record: compaction erases nothing. The summary call has a price,
-in the compaction turn's `Spend` (or `Record.Cost`).
+in the compaction turn's `Spend`.
 
 ## Manual Session compaction
 

@@ -295,9 +295,12 @@ turn starts to go by, it cuts only where a user message that is not a tool
 result starts, never splitting a tool call from its result. The kept tail is
 sized by `Policy`'s window; the transcript by the smaller of that window and the
 catalog window of `Model`, when set. It cannot check savings before the summary
-exists, so `ErrNoSavings` has no counterpart. `Compactor` makes no model call.
-`Compact`, `Project`, `Record`, `LastUsage`, and `NewSummarizer` stay for hosts
-that drive the engine directly.
+exists. `Compactor` makes no model call. A host that keeps its own turns
+builds history with `dashi.ProjectHistory`, the rule `Session` uses, and runs
+`Compactor.Start` through its own `Runner`, so the summary call is recorded
+and charged like any turn. The earlier `Compact`, `Project`, `Record`, and
+`NewSummarizer` path, whose summary call bypassed the host's recorder, was
+removed (2026-10-01).
 
 **Precedent.** pi makes compaction an operation that goes through the same
 admission as a prompt; Codex runs an unsteerable `Compact` task and stores

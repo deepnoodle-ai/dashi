@@ -158,3 +158,29 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 		t.Fatalf("max tokens=%d", got)
 	}
 }
+
+func TestCompactorKeepsTailWithinBudget(t *testing.T) {
+	history, starts := session(4, 2_000)
+	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameJSON(t, s.Compaction.Keep, history[starts[3]:]) {
+		t.Fatalf("kept %d messages, want the last turn", len(s.Compaction.Keep))
+	}
+	if s.Origin != dashi.StartCompaction {
+		t.Fatalf("origin = %q", s.Origin)
+	}
+}
+
+func TestCompactorSummarizesAllWhenNewestTurnIsTooLarge(t *testing.T) {
+	history, _ := session(3, 100)
+	history = append(history, exchange(3, 60_000)...)
+	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Compaction.Keep) != 0 {
+		t.Fatalf("kept %d messages, want none", len(s.Compaction.Keep))
+	}
+}

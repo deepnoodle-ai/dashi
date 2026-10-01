@@ -4,6 +4,7 @@ package compaction
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -49,64 +50,52 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		Client: client,
 		Tools:  tool.List{note},
 	}
-	var history []llm.Message
-	var starts []int
-	var last llm.Usage
-	ask := func(prompt string) dashi.Outcome {
+	var turns []dashi.Turn
+	run := func(start dashi.Start) dashi.Outcome {
 		t.Helper()
-		out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-			Agent:   agent,
-			History: history,
-			Input:   []llm.Message{llm.UserMessage(llm.Text(prompt))},
-		})
+		id := fmt.Sprintf("live-%d", len(turns)+1)
+		start.CommandID = "run:" + id
+		out, err := runner.Run(ctx, dashi.NewTurn(id), start)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if out.Stop.Kind != dashi.StopCompleted {
 			t.Fatalf("turn stopped %s: %s", out.Stop.Kind, out.Stop.Reason)
 		}
-		msgs, err := dashi.Project(out.Turn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		starts = append(starts, len(history))
-		history = append(history, msgs...)
-		last = LastUsage(out.Turn)
+		turns = append(turns, out.Turn)
 		return out
+	}
+	ask := func(prompt string) dashi.Outcome {
+		t.Helper()
+		history, warnings := dashi.ProjectHistory(turns)
+		if len(warnings) > 0 {
+			t.Fatalf("warnings: %+v", warnings)
+		}
+		return run(dashi.Start{
+			Agent:   agent,
+			History: history,
+			Input:   []llm.Message{llm.UserMessage(llm.Text(prompt))},
+		})
 	}
 	ask("Call read_note, then tell me in one sentence what it says.")
 	ask("Name one prime number greater than 100. Answer in one sentence.")
 	ask("Name one planet with rings. Answer in one sentence.")
 
-	sum := NewSummarizer(client, SummarizerConfig{Model: model})
-	rec, err := Compact(ctx, sum, history, nil, Options{
-		Policy:       Policy{},
-		TurnStarts:   starts,
-		Last:         last,
-		TailFraction: -1, // keep no Turns, so only the summary holds the fact
-	})
+	// Keep no turns, so only the summary holds the fact.
+	c := &Compactor{Model: model, TailFraction: -1}
+	history, _ := dashi.ProjectHistory(turns)
+	start, err := c.Start(history)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("summary (%s, %d output tokens, cost %v):\n%s",
-		rec.Model, rec.Usage.OutputTokens, rec.Cost, rec.Summary)
-	view, err := Project(history, rec)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sum := run(start)
+	t.Logf("summary (%d output tokens, cost %v):\n%s",
+		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Answer)
+	view, _ := dashi.ProjectHistory(turns)
 	if len(view) != 1 {
 		t.Fatalf("view has %d messages, want the summary alone", len(view))
 	}
-	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-		Agent:   agent,
-		History: view,
-		Input: []llm.Message{llm.UserMessage(llm.Text(
-			"What was the release codename? Answer with the codename only.",
-		))},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := ask("What was the release codename? Answer with the codename only.")
 	if !strings.Contains(out.Answer, "PELICAN-4471") {
 		t.Fatalf("answer %q lacks the codename", out.Answer)
 	}
