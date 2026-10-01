@@ -55,7 +55,7 @@ func TestBudgetIncompleteUsageEndsTokenCappedTurn(t *testing.T) {
 			out := runBudgetTurn(t, client, &tc.budget,
 				llm.Settings{MaxTokens: 10}, tool.List{budgetLookup(nil)}, Hooks{})
 			requireBudgetLimit(t, out, tc.kind)
-			if !out.Stop.Terminal || !out.Spend.UsageIncomplete {
+			if !out.Stop.Ended || !out.Spend.UsageIncomplete {
 				t.Fatal("uncheckable token cap did not end the turn")
 			}
 			if out.ReadyToContinue || out.Next() != NextNone {
@@ -75,7 +75,7 @@ func TestBudgetIncompleteUsageEndsTokenCappedTurn(t *testing.T) {
 				t.Fatal("stop does not explain the host's next action")
 			}
 			view, err := Replay(out.Turn)
-			if err != nil || !view.Stop.Terminal || view.Next() != NextNone {
+			if err != nil || !view.Stop.Ended || view.Next() != NextNone {
 				t.Fatalf("recorded terminal stop changed in replay: %v", err)
 			}
 			raise := tc.budget.Clone()
@@ -192,7 +192,7 @@ func TestBudgetLateReconciliationNeverRevivesEndedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	stop := incompleteUsageStop(state)
-	stop.Terminal = true
+	stop.Ended = true
 	turn = appendAccountingStop(turn, stop)
 	before, err := Replay(turn)
 	if err != nil {
@@ -229,15 +229,15 @@ func TestReplayValidatesTokenTerminalFlagAtStopPrefix(t *testing.T) {
 			turn = usageReconciliationRecord()
 		}
 		stop := &Stop{
-			Kind:     StopLimited,
-			Limit:    &LimitDetail{Kind: LimitOutputTokens, Limit: 10, Used: 2},
-			Terminal: incomplete,
+			Kind:  StopLimited,
+			Limit: &LimitDetail{Kind: LimitOutputTokens, Limit: 10, Used: 2},
+			Ended: incomplete,
 		}
 		valid := appendAccountingStop(turn, stop)
 		if _, err := Replay(valid); err != nil {
 			t.Fatalf("valid legacy/new token stop rejected: %v", err)
 		}
-		stop.Terminal = !incomplete
+		stop.Ended = !incomplete
 		invalid := appendAccountingStop(turn, stop)
 		if _, err := Replay(invalid); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("invalid terminal flag accepted: %v", err)
@@ -261,7 +261,7 @@ func TestBudgetIncompleteSettlementRecoversToTerminalStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopLimited || !out.Stop.Terminal ||
+	if out.Stop.Kind != StopLimited || !out.Stop.Ended ||
 		out.Stop.Limit.Kind != LimitOutputTokens || out.ReadyToContinue ||
 		out.Next() != NextNone {
 		t.Fatal("settled prefix did not recover to a terminal token stop")
@@ -298,7 +298,7 @@ func TestBudgetIncompleteIntentRecoversBeforeTokenStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopResultUnknown || out.Stop.Terminal {
+	if out.Stop.Kind != StopResultUnknown || out.Stop.Ended {
 		t.Fatal("token accounting ended the turn before dispatch reconciliation")
 	}
 	if len(out.Pending) != 1 || out.Pending[0].Kind != PendingModel {

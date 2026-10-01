@@ -97,7 +97,7 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 			return handle(ctx, in)
 		}, delegate.Config{}, nil)
 		s := sessionTasks(t, h)
-		done := make(chan dashi.Outcome, 1)
+		done := make(chan dashi.RunResult, 1)
 		go func() {
 			out, _ := s.Send(t.Context(), "go")
 			done <- out
@@ -417,7 +417,7 @@ func interruptTurnTwo(t *testing.T, h *harness, g *gate) dashi.CallRef {
 		},
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := s.Run(ctx, dashi.Start{
 			CommandID: "msg:parent-turn-7/send-1",

@@ -98,7 +98,7 @@ type Session struct {
 const CloseReason = "a new message moved on"
 
 // A session's own warnings. No turn records them; they arrive on
-// dashi.Outcome.SessionWarnings, beside the dashi.WarningTurnUnreadable and
+// dashi.RunResult.SessionWarnings, beside the dashi.WarningTurnUnreadable and
 // dashi.WarningCompactionMismatch of the session's projected history.
 const (
 	// WarningTurnClosed means a new Start closed the session's last turn,
@@ -174,7 +174,7 @@ func (e *TurnBusyError) Error() string {
 			"session: turn %s is running; steer it, or stop it and send again",
 			e.TurnID,
 		)
-	case e.Next == dashi.NextResume:
+	case e.Next == dashi.NextRecover:
 		return fmt.Sprintf(
 			"session: turn %s may still be running; if its worker is lost, "+
 				"take it over with Continue{} or discard it with Cancel{}",
@@ -216,7 +216,7 @@ func (s *Session) Send(
 	ctx context.Context,
 	text string,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	return s.Run(ctx, dashi.Say(text), opts...)
 }
 
@@ -232,7 +232,7 @@ func (s *Session) Resolve(
 	ctx context.Context,
 	answers []dashi.Resolve,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	ids := make([]string, 0, len(answers))
 	for _, answer := range answers {
 		if answer.CommandID == "" && answer.CallID != "" {
@@ -280,14 +280,14 @@ func (s *Session) Resolve(
 // WarningCompactionFailed when it fails.
 //
 // The outcome and error mean what dashi.Runner.Run's do, and
-// Outcome.SessionWarnings adds the session's own warnings.
+// RunResult.SessionWarnings adds the session's own warnings.
 func (s *Session) Run(
 	ctx context.Context,
 	c dashi.Command,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	if err := checkCommand(c); err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	return (&call{s: s, opts: opts}).run(ctx, c)
 }
@@ -440,7 +440,7 @@ type startPlan struct {
 	// compact marks a compaction turn, which runs before the planned turn.
 	compact bool
 	// done is the result when no turn runs: a retried command's outcome.
-	done *dashi.Outcome
+	done *dashi.RunResult
 }
 
 func (s *Session) planStart(
@@ -558,13 +558,13 @@ func (s *Session) checkExists(last int) error {
 // compaction turns never end the window, since they run after the caller's
 // turn. A match with the same input returns the turn's current outcome,
 // as the first call returned it, unless the turn may still be running
-// (NextRunning or NextResume): then waiting helps, and it returns a
+// (NextRunning or NextRecover): then waiting helps, and it returns a
 // duplicate busy error. A match with other input conflicts.
 func (s *Session) duplicate(
 	ctx context.Context,
 	c dashi.Start,
 	last int,
-) (*dashi.Outcome, error) {
+) (*dashi.RunResult, error) {
 	for n := last; n >= 1; n-- {
 		t, err := s.load(ctx, n)
 		if err != nil {
@@ -583,7 +583,7 @@ func (s *Session) duplicate(
 				)
 			}
 			r := s.refine(ctx, t)
-			if r.next == dashi.NextRunning || r.next == dashi.NextResume {
+			if r.next == dashi.NextRunning || r.next == dashi.NextRecover {
 				return nil, &TurnBusyError{
 					TurnID:    t.turn.ID,
 					Next:      r.next,
@@ -591,7 +591,7 @@ func (s *Session) duplicate(
 					Duplicate: true,
 				}
 			}
-			return &dashi.Outcome{Turn: t.turn.Clone(), TurnView: t.view}, nil
+			return &dashi.RunResult{Turn: t.turn.Clone(), TurnView: t.view}, nil
 		}
 		if !internalKey(start.CommandID) {
 			return nil, nil
@@ -654,7 +654,7 @@ func (s *Session) closeLast(
 		cont.History, _ = s.historyFor(ctx, last, t)
 		closing = cont
 	}
-	var out dashi.Outcome
+	var out dashi.RunResult
 	var events []dashi.Event
 	var err error
 	if stream {
@@ -688,12 +688,12 @@ func (s *Session) finish(
 	ctx context.Context,
 	n int,
 	id string,
-	out dashi.Outcome,
+	out dashi.RunResult,
 	err error,
 	warnings []dashi.Warning,
 	reserved *reservation,
 	started bool,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running[id]--; s.running[id] <= 0 {
@@ -742,13 +742,13 @@ func (s *Session) recorder() dashi.Recorder {
 	return s.memory
 }
 
-func (s *Session) withMemoryWarning(out dashi.Outcome) dashi.Outcome {
+func (s *Session) withMemoryWarning(out dashi.RunResult) dashi.RunResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.withMemoryWarningLocked(out)
 }
 
-func (s *Session) withMemoryWarningLocked(out dashi.Outcome) dashi.Outcome {
+func (s *Session) withMemoryWarningLocked(out dashi.RunResult) dashi.RunResult {
 	if s.Runner.Recorder == nil && !s.warnedMemory {
 		s.warnedMemory = true
 		out.SessionWarnings = append(out.SessionWarnings, dashi.Warning{

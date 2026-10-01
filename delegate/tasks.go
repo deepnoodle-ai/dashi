@@ -721,7 +721,7 @@ func (ts *Tasks) launchLocked(
 	go ts.run(ctx, t, cmd)
 }
 
-// run ranges over the child session's Stream. Each turn's Outcome event ends
+// run ranges over the child session's Stream. Each turn's RunResult event ends
 // that turn; the goroutine exits when the call returns.
 func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	defer ts.wg.Done()
@@ -733,8 +733,8 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	var runErr error
 	for ev, err := range t.session.Stream(ctx, cmd) {
 		switch {
-		case ev.Outcome != nil:
-			out := *ev.Outcome
+		case ev.Result != nil:
+			out := *ev.Result
 			id := cmp.Or(out.Turn.ID, current)
 			if ts.isStopping(t) {
 				out, err = ts.recordCancel(t, id, out, err)
@@ -759,7 +759,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	ts.mu.Unlock()
 	if unended {
 		// The session failed before the turn recorded an outcome.
-		out, err := dashi.Outcome{}, cmp.Or(runErr, errNoOutcome)
+		out, err := dashi.RunResult{}, cmp.Or(runErr, errNoOutcome)
 		if ts.isStopping(t) {
 			out, err = ts.recordCancel(t, current, out, err)
 		}
@@ -788,30 +788,30 @@ func (ts *Tasks) isStopping(t *task) bool {
 func (ts *Tasks) recordCancel(
 	t *task,
 	id string,
-	out dashi.Outcome,
+	out dashi.RunResult,
 	runErr error,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	if runErr == nil && out.Stop.Kind != dashi.StopInterrupted &&
 		out.Stop.Kind != dashi.StopWaiting {
 		return out, nil
 	}
 	canceled, err := ts.cancelTurn(t, id)
 	if err != nil || canceled.Turn.ID != id {
-		return dashi.Outcome{}, errCanceled
+		return dashi.RunResult{}, errCanceled
 	}
 	return canceled, nil
 }
 
 // cancelTurn preserves the actual write acknowledgement for explicit control.
 // recordCancel retains Stop's established synthetic fallback for old callers.
-func (ts *Tasks) cancelTurn(t *task, id string) (dashi.Outcome, error) {
+func (ts *Tasks) cancelTurn(t *task, id string) (dashi.RunResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 	defer cancel()
 	cmd := dashi.Cancel{CommandID: id + "/cancel", Reason: "stopped on request"}
 	if loader, ok := t.session.Runner.Recorder.(dashi.Loader); ok {
 		turn, err := loader.Load(ctx, id)
 		if err != nil {
-			return dashi.Outcome{}, err
+			return dashi.RunResult{}, err
 		}
 		return t.session.Runner.Run(ctx, turn, cmd)
 	}
@@ -822,7 +822,7 @@ func (ts *Tasks) cancelTurn(t *task, id string) (dashi.Outcome, error) {
 var errCanceled = errors.New("stopped on request")
 
 // endTurn records the end of turn id and reports it, unless Close caused it.
-func (ts *Tasks) endTurn(t *task, id string, out dashi.Outcome, err error) {
+func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	deferred := ts.deferNotice(out.Turn)
 	ts.mu.Lock()
 	c := t.turn(id)

@@ -106,7 +106,7 @@ callers never write `new(...)`. Command IDs derive from the item
 answer is a duplicate, and a different second answer is `ErrCommandConflict`.
 Local call IDs are unique within a turn (replay rejects a repeat), but a
 provider may reuse a hosted request ID once the first was answered, so
-`Pending.AttemptID` scopes that command. A builder on the wrong kind of item
+`Pending.ModelCallID` scopes that command. A builder on the wrong kind of item
 produces a command `Run` rejects.
 
 `dashi.RequireApproval(tools ...string)` is a policy that allows local tools

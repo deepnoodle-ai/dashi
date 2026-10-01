@@ -156,7 +156,7 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 		return prefix + "owned and idle. Use /continue to raise the model-call limit for this target."
 	case dashi.NextContinue:
 		return prefix + "owned and idle. Press Enter to continue this target. Recovery and recorded destination checks still apply."
-	case dashi.NextResume:
+	case dashi.NextRecover:
 		if e.ReadyToContinue {
 			return prefix + "owned and idle. No run stop was recorded. Press Enter to recover this target after existing checks."
 		}

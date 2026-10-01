@@ -27,7 +27,7 @@ type finishResult struct {
 // beforeFinish runs the BeforeFinish chain for a candidate answer. A failing
 // hook stops the turn, since BeforeFinish guards what the turn accepts; the
 // candidate survives the stop, so Continue asks the hooks again.
-func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
+func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
 	var out finishResult
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeFinish {
@@ -106,7 +106,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 func (r *runtime) finishPoint(
 	s *replayState,
 	plan FinishPlan,
-) (finishResult, *Outcome) {
+) (finishResult, *RunResult) {
 	// A steer is a nudge: it supersedes the candidate only when a further
 	// model call can happen, and otherwise waits with its source.
 	if steers := r.waitingSteers(s); len(steers) > 0 {
@@ -196,7 +196,7 @@ func (r *runtime) rejectSubmission(
 	source string,
 	items []ContextItem,
 	vetoed bool,
-) *Outcome {
+) *RunResult {
 	out := tool.Outcome{
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput(notAccepted(reason))),

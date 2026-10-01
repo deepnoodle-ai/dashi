@@ -172,7 +172,7 @@ func runBig(
 	text string,
 	state tool.State,
 	hooks Hooks,
-) (*scriptedClient, Outcome) {
+) (*scriptedClient, RunResult) {
 	t.Helper()
 	runs := 0
 	client := &scriptedClient{
@@ -403,7 +403,7 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		Tools:  tool.List{bigTool(text, tool.StateSucceeded, &runs)},
 	}
 	var streamed *ToolFact
-	var final Outcome
+	var final RunResult
 	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
@@ -414,8 +414,8 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		if event.Step != nil && event.Step.Kind == StepToolFinished {
 			streamed = event.Step.Tool
 		}
-		if event.Outcome != nil {
-			final = *event.Outcome
+		if event.Result != nil {
+			final = *event.Result
 		}
 	}
 	if streamed == nil || streamed.Outcome == nil ||
@@ -576,7 +576,7 @@ func TestShortenResultKeepsLargeMediaWithoutCopyingDiscardedText(t *testing.T) {
 	}
 }
 
-func runBlocks(t *testing.T, blocks []content.Block) Outcome {
+func runBlocks(t *testing.T, blocks []content.Block) RunResult {
 	t.Helper()
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 2048

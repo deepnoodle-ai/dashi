@@ -147,7 +147,7 @@ in place of the follow-up prefix. One `Tasks` serves one session.
 // returns when no task is pending and the queue is empty, with the outcome
 // of the last turn it ran, or of the session's last turn when it ran none.
 func RunUntilQuiet(ctx context.Context, s *session.Session, tasks *Tasks,
-    opts ...dashi.RunOption) (dashi.Outcome, error)
+    opts ...dashi.RunOption) (dashi.RunResult, error)
 ```
 
 It loops over `s.RunQueue` and `tasks.Wait`, which returns false after each

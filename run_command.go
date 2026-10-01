@@ -16,31 +16,31 @@ func (r Runner) apply(
 	turn Turn,
 	command Command,
 	opts runOptions,
-) (Outcome, error) {
+) (RunResult, error) {
 	if command == nil {
-		return Outcome{}, errors.New("dashi: command is required")
+		return RunResult{}, errors.New("dashi: command is required")
 	}
 	if r.OnContextDone != "" && r.OnContextDone != ContextInterrupt &&
 		r.OnContextDone != ContextCancel {
-		return Outcome{}, errors.New("dashi: invalid context-done behavior")
+		return RunResult{}, errors.New("dashi: invalid context-done behavior")
 	}
 	// Empty IDs are generated before anything reads them: the turn ID before
 	// replay, recorder setup, and loading, and the command ID before its
 	// digest, which covers the ID.
 	if turn.ID == "" {
 		if _, ok := command.(Start); !ok {
-			return Outcome{}, errors.New("dashi: turn ID is required for commands other than Start")
+			return RunResult{}, errors.New("dashi: turn ID is required for commands other than Start")
 		}
 		turn.ID = NewID()
 	}
 	command = normalizeCommand(command)
 	hooks := JoinHooks(r.Hooks, opts.hooks)
 	if err := hooks.validate(); err != nil {
-		return Outcome{}, err
+		return RunResult{}, err
 	}
 	state, err := replay(turn)
 	if err != nil {
-		return Outcome{}, err
+		return RunResult{}, err
 	}
 	// A Start's agent may leave its destination, model, and revision to
 	// defaults. The filled values are pinned like explicit ones, so a retried
@@ -48,7 +48,7 @@ func (r Runner) apply(
 	// agent.
 	agent, err := r.agentFor(command, state)
 	if err != nil {
-		return Outcome{}, err
+		return RunResult{}, err
 	}
 	_, isStart := command.(Start)
 	implicitRecorder := r.Recorder == nil
@@ -57,7 +57,7 @@ func (r Runner) apply(
 	}
 	if isStart && len(turn.Steps) > 0 {
 		if err := agentChanged(agent, state.Agent); err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 	}
 	// A Start's digest covers its resolved agent, so a retry that spells out
@@ -69,28 +69,28 @@ func (r Runner) apply(
 	}
 	d, err := commandDigest(digested)
 	if err != nil {
-		return Outcome{}, err
+		return RunResult{}, err
 	}
 	if old, ok := state.commandDigests[command.commandID()]; ok {
 		if old != d {
-			return Outcome{}, ErrCommandConflict
+			return RunResult{}, ErrCommandConflict
 		}
 		if loader, ok := r.Recorder.(Loader); ok {
 			saved, loadErr := loader.Load(ctx, turn.ID)
 			if loadErr != nil {
-				return Outcome{}, loadErr
+				return RunResult{}, loadErr
 			}
 			current, replayErr := replay(saved)
 			if replayErr != nil {
-				return Outcome{}, replayErr
+				return RunResult{}, replayErr
 			}
 			if isStart {
 				if err := agentChanged(agent, current.Agent); err != nil {
-					return Outcome{}, err
+					return RunResult{}, err
 				}
 			}
 			if current.commandDigests[command.commandID()] != d {
-				return Outcome{}, ErrRevisionConflict
+				return RunResult{}, ErrRevisionConflict
 			}
 			return outcome(saved, current), nil
 		}
@@ -102,21 +102,21 @@ func (r Runner) apply(
 	if loader, ok := r.Recorder.(Loader); ok {
 		saved, loadErr := loader.Load(ctx, turn.ID)
 		if loadErr != nil && !errors.Is(loadErr, ErrTurnNotFound) {
-			return Outcome{}, loadErr
+			return RunResult{}, loadErr
 		}
 		if loadErr == nil {
 			current, replayErr := replay(saved)
 			if replayErr != nil {
-				return Outcome{}, replayErr
+				return RunResult{}, replayErr
 			}
 			if old, found := current.commandDigests[command.commandID()]; found {
 				if isStart {
 					if err := agentChanged(agent, current.Agent); err != nil {
-						return Outcome{}, err
+						return RunResult{}, err
 					}
 				}
 				if old != d {
-					return Outcome{}, ErrCommandConflict
+					return RunResult{}, ErrCommandConflict
 				}
 				return outcome(saved, current), nil
 			}
@@ -124,7 +124,7 @@ func (r Runner) apply(
 			// recorded agent, so it must be the recorder's.
 			if len(turn.Steps) > 0 && len(saved.Steps) > 0 &&
 				!sameAgent(state.Agent, current.Agent) {
-				return Outcome{}, fmt.Errorf(
+				return RunResult{}, fmt.Errorf(
 					"%w: the turn's recorded agent differs from the recorder's; load the turn from the recorder",
 					ErrAgentChanged,
 				)
@@ -134,7 +134,7 @@ func (r Runner) apply(
 	// Checked after the retry checks, so a retried command on an ended turn
 	// still gets its recorded answer.
 	if err := state.acceptsAfterEnd(command); err != nil {
-		return Outcome{}, err
+		return RunResult{}, err
 	}
 	runCtx := ctx
 	if !agent.Limits.Deadline.IsZero() {
@@ -163,32 +163,32 @@ func (r Runner) apply(
 	switch c := command.(type) {
 	case Start:
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
-			return Outcome{}, errors.New("dashi: start requires a new turn and input")
+			return RunResult{}, errors.New("dashi: start requires a new turn and input")
 		}
 		if c.Budget != nil {
 			if err := c.Budget.Validate(); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 		}
 		if c.Parent != nil {
 			if err := c.Parent.Validate(); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 		}
 		if err := validateHistory(c.History); err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		fingerprint, err := historyFingerprint(c.History)
 		if err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		rt.history = llmclone.Messages(c.History)
 		if len(c.OutputSchema) > 0 {
 			if _, err := compileOutputSchema(c.OutputSchema); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 			if err := validateOutputToolChoice(agent.Settings); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 		}
 		origin := c.Origin
@@ -196,7 +196,7 @@ func (r Runner) apply(
 			origin = StartUser
 		}
 		if err := validateCompaction(origin, c.Compaction); err != nil {
-			return Outcome{}, fmt.Errorf("dashi: %w", err)
+			return RunResult{}, fmt.Errorf("dashi: %w", err)
 		}
 		if n := c.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
@@ -211,13 +211,13 @@ func (r Runner) apply(
 		}
 		window, err := activeWindow(agent, r.Client, origin)
 		if err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		if agent.ActiveCompaction != nil && !agent.ActiveCompaction.Disabled && origin != StartCompaction && window == 0 {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{Code: WarningActiveCompactionUnavailable, Message: "Active context protection has no recorded window; set ActiveCompactionPolicy.Window or provide model context evidence."})
 		}
 		if err := r.checkModelClient(opts, state); err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		if o := rt.commit(Step{
 			Kind:          StepTurnStarted,
@@ -241,11 +241,11 @@ func (r Runner) apply(
 		if len(turn.Steps) == 0 ||
 			state.Output != nil ||
 			len(c.Items) == 0 {
-			return Outcome{}, errors.New("dashi: turn cannot receive context")
+			return RunResult{}, errors.New("dashi: turn cannot receive context")
 		}
 		items, err := newDeliveries(state, c.Items)
 		if err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		if len(items) == 0 {
 			// Every item is already recorded: a retried delivery.
@@ -263,12 +263,12 @@ func (r Runner) apply(
 		return rt.result(rt.current())
 	case Continue:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, fmt.Errorf("%w: turn has not started", ErrNotReady)
+			return RunResult{}, fmt.Errorf("%w: turn has not started", ErrNotReady)
 		}
 		if c.OnHistoryMismatch != "" &&
 			c.OnHistoryMismatch != HistoryMismatchWarn &&
 			c.OnHistoryMismatch != HistoryMismatchReject {
-			return Outcome{}, errors.New("dashi: invalid history-mismatch behavior")
+			return RunResult{}, errors.New("dashi: invalid history-mismatch behavior")
 		}
 		if c.Budget != nil {
 			old := Budget{}
@@ -276,22 +276,22 @@ func (r Runner) apply(
 				old = *state.Budget
 			}
 			if err := c.Budget.raisedFrom(old); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 		}
 		// History is checked before any path that can commit, so a rejected
 		// Continue never changes the record.
 		if err := validateHistory(c.History); err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		fingerprint, err := historyFingerprint(c.History)
 		if err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		stored := turn.Steps[0].Started.HistoryFingerprint
 		mismatch := stored != fingerprint
 		if mismatch && c.OnHistoryMismatch == HistoryMismatchReject {
-			return Outcome{}, ErrHistoryMismatch
+			return RunResult{}, ErrHistoryMismatch
 		}
 		if state.interruptionLimitReached() {
 			step := Step{
@@ -315,16 +315,16 @@ func (r Runner) apply(
 		}
 		if c.ModelCalls < 0 ||
 			c.ModelCalls != 0 && c.ModelCalls <= state.attemptCap {
-			return Outcome{}, fmt.Errorf(
+			return RunResult{}, fmt.Errorf(
 				"dashi: model-attempt raise must exceed the current limit of %d",
 				state.attemptCap,
 			)
 		}
 		if !state.canContinueWith(c.Budget, c.ModelCalls) {
-			return Outcome{}, notReady(state)
+			return RunResult{}, notReady(state)
 		}
 		if err := r.checkModelClient(opts, state); err != nil {
-			return Outcome{}, err
+			return RunResult{}, err
 		}
 		rt.history = llmclone.Messages(c.History)
 		step := Step{
@@ -347,7 +347,7 @@ func (r Runner) apply(
 		}
 	case Resolve:
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("dashi: cannot settle before start")
+			return RunResult{}, errors.New("dashi: cannot settle before start")
 		}
 		n := 0
 		if c.Outcome != nil {
@@ -361,7 +361,7 @@ func (r Runner) apply(
 		}
 		if c.ModelResult != nil {
 			if err := validateModelResult(*c.ModelResult, agent); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 			n++
 		}
@@ -370,18 +370,18 @@ func (r Runner) apply(
 				c.ModelFailure.SendStatus != llm.SendStatusProviderRejected) ||
 				c.ModelFailure.Reason == "" ||
 				c.ModelFailure.Evidence == "" {
-				return Outcome{}, errors.New("dashi: model failure requires verified nonexecution evidence")
+				return RunResult{}, errors.New("dashi: model failure requires verified nonexecution evidence")
 			}
 			n++
 		}
 		if n != 1 {
-			return Outcome{}, errors.New("dashi: settle requires one fact")
+			return RunResult{}, errors.New("dashi: settle requires one fact")
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" ||
 				(c.CallID != state.modelIntent &&
 					c.CallID != state.unresolvedModel) {
-				return Outcome{}, errors.New("dashi: model attempt is not pending")
+				return RunResult{}, errors.New("dashi: model attempt is not pending")
 			}
 			kind := StepModelCallFinished
 			if c.CallID == state.unresolvedModel {
@@ -405,18 +405,18 @@ func (r Runner) apply(
 				Model:         fact,
 			}
 			if err := checkLateResultStep(turn, state, step); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
 			}
 		} else if c.HostedApproval != nil {
 			if c.CallID != "" && c.CallID != c.HostedApproval.RequestID {
-				return Outcome{}, errors.New("dashi: hosted approval ID mismatch")
+				return RunResult{}, errors.New("dashi: hosted approval ID mismatch")
 			}
 			a, ok := state.hosted[c.HostedApproval.RequestID]
 			if !ok || a.Origin != c.HostedApproval.Origin {
-				return Outcome{}, errors.New("dashi: hosted approval is not pending")
+				return RunResult{}, errors.New("dashi: hosted approval is not pending")
 			}
 			if o := rt.commit(Step{
 				Kind:           StepProviderToolApprovalDecided,
@@ -429,10 +429,10 @@ func (r Runner) apply(
 		} else if c.Approval != nil {
 			v, ok := state.Tools[c.Approval.CallID]
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
-				return Outcome{}, errors.New("dashi: tool approval is not pending")
+				return RunResult{}, errors.New("dashi: tool approval is not pending")
 			}
 			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
-				return Outcome{}, errors.New("dashi: stale tool approval")
+				return RunResult{}, errors.New("dashi: stale tool approval")
 			}
 			if o := rt.commit(Step{
 				Kind:          StepApprovalDecided,
@@ -448,17 +448,17 @@ func (r Runner) apply(
 				(v.Status != ToolStarted &&
 					v.Status != ToolWaiting &&
 					v.Status != ToolResultUnknown) {
-				return Outcome{}, errors.New("dashi: tool result is not pending")
+				return RunResult{}, errors.New("dashi: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
-				return Outcome{}, errors.New("dashi: structured output is settled by the runner")
+				return RunResult{}, errors.New("dashi: structured output is settled by the runner")
 			}
 			if e := c.Outcome.Validate(); e != nil {
-				return Outcome{}, e
+				return RunResult{}, e
 			}
 			if c.Outcome.State == tool.StateWaiting ||
 				c.Outcome.State == tool.StateDetached {
-				return Outcome{}, errors.New("dashi: settle requires a final tool outcome")
+				return RunResult{}, errors.New("dashi: settle requires a final tool outcome")
 			}
 			fact := &ToolFact{Call: v.Call, Outcome: c.Outcome}
 			// The turn deadline limits the turn's own work, not the host
@@ -472,7 +472,7 @@ func (r Runner) apply(
 				Tool:          fact,
 			}
 			if err := checkLateResultStep(turn, state, step); err != nil {
-				return Outcome{}, err
+				return RunResult{}, err
 			}
 			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
@@ -483,10 +483,10 @@ func (r Runner) apply(
 		// A turn with no steps has not started: a host that admitted work
 		// and never ran it cancels its own admission.
 		if len(turn.Steps) == 0 {
-			return Outcome{}, errors.New("dashi: cannot cancel: turn has not started")
+			return RunResult{}, errors.New("dashi: cannot cancel: turn has not started")
 		}
 		if state.Output != nil {
-			return Outcome{}, errors.New("dashi: turn cannot cancel")
+			return RunResult{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
 			Kind:          StepTurnStopped,
@@ -498,7 +498,7 @@ func (r Runner) apply(
 		}
 		return rt.result(rt.current())
 	default:
-		return Outcome{}, errors.New("dashi: unknown command")
+		return RunResult{}, errors.New("dashi: unknown command")
 	}
 	return rt.result(rt.run())
 }

@@ -577,7 +577,7 @@ func TestAttemptsSumToSpend(t *testing.T) {
 				}
 			}
 			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("AttemptSpendOf=%+v, view=%+v", got, want)
+				t.Fatalf("ModelCallCostOf=%+v, view=%+v", got, want)
 			}
 		}
 	}

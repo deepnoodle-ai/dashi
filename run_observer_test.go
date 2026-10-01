@@ -377,7 +377,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	}
 	var events []Event
 	for e, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart(agent)) {
-		if e.Outcome == nil && err == nil {
+		if e.Result == nil && err == nil {
 			events = append(events, e)
 		}
 	}
@@ -392,7 +392,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if e.Outcome == nil {
+		if e.Result == nil {
 			events = append(events, e)
 		}
 	}

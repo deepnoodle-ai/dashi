@@ -27,7 +27,7 @@ func RunUntilQuiet(
 	s *session.Session,
 	tasks *Tasks,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	quiet := false
 	for {
 		out, ran, err := s.RunQueue(ctx, opts...)

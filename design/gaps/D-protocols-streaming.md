@@ -31,7 +31,7 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 |---|---|---|---|
 | Lifecycle | v1: `session/prompt` RPC is the turn. v2: prompt returns `{messageId}` on insertion; `state_update` running / requires_action / idle(+stopReason); session-scoped, no turn ID | `TurnChange.status`: queued, running, waiting, budget_hold → completed, incomplete, failed, cancelled; server-computed `terminal` flag; `current` marks latest revision | Steps `turn_started`, `turn_continued`, `approval_accepted`, … `turn_stopped{Stop}` (turn.go:118-134). No running/queued signal; phase is implicit in the step sequence. `Outcome` exists only at the end of `Apply`/`Stream` |
 | Update kinds | message/thought/user chunks and upserts; `tool_call_update`, `tool_call_content_chunk`, terminal, plan, usage, commands, config, info | Durable `transcript.update{messages[], turn_changes[]}`; ephemeral `message.delta{text,thinking,tool_arguments}`, `stream.resync`, `connection.closing` | `Event{Step xor Delta xor Outcome}` (policy.go:73-83); `llm.Delta` kinds text, reasoning, tool_arguments, content, usage (llm/llm.go:231-245) |
-| Identity & ordering | `messageId`, `toolCallId`; per-ID receipt order; cross-ID placement by first sight | Message `sequence` + change `(turn_id, revision)`, two gap-free counters per log; changes never precede their messages (R17) | One gap-free `Seq` per turn over all facts (recorder.go:85); `AttemptID`/`MessageID` minted before send (engine.go:564-565); tool call ID from provider |
+| Identity & ordering | `messageId`, `toolCallId`; per-ID receipt order; cross-ID placement by first sight | Message `sequence` + change `(turn_id, revision)`, two gap-free counters per log; changes never precede their messages (R17) | One gap-free `Seq` per turn over all facts (recorder.go:85); `ModelCallID`/`MessageID` minted before send (engine.go:564-565); tool call ID from provider |
 | Resumption | v1 `load` = full replay, `resume` = none; v2 `replayFrom{start}` only; #2208 in-memory per-connection cursor | Opaque scope-bound cursor = exact position; "repeats nothing, skips nothing"; any number of readers; Turn and Conversation scopes | None in the API. The recorder holds the steps; `Seq` could act as a cursor, but there is no read-after/follow surface, and `Stream` is used once (engine.go:30-40) |
 | Approvals | `session/request_permission` RPC bound to one connection; v2 `title`/`subject`; not re-issued | Approval is a host tool: Turn `waiting`, and the current change carries `arguments` and `deadline_at` (R24) | `tool_decision{defer}` then `turn_stopped{waiting}`; `Accept{Approval}` bound to args digest + policy revision (engine.go:239-248). No title, options, or deadline |
 | Cancel | Notification; flush, then `idle{cancelled}`; client cancels pending permissions | Separate cancel op; terminal `cancelled` change; disconnect never cancels (R45) | `Cancel` command or breaking the range → `turn_stopped{canceled}`; late `model_call_finished`/`tool_finished` may follow the stop (state.go:130-136) |
@@ -84,7 +84,7 @@ reliably available.
 | budget_hold | `StopRefused` from `BeforeSend` (engine.go:557-559), or a host recorder rejection | Partial |
 | completed / incomplete / failed / cancelled | completed; limited → incomplete; failed; canceled. **uncertain** has no nvoken status | OK, with a mapping choice for uncertain |
 | `terminal`, `current` | Not on the stop. Final = completed or canceled (state.go:603-606); canceled still accepts late facts | Gap: consumer must hard-code (violates R21) |
-| `stop_reason` enum | `Stop.Reason` strings "model_attempts", "deadline", "output", "context", "provider_pauses" (engine.go:408-685) | Partial: uncontracted strings |
+| `stop_reason` enum | `Stop.Reason` strings "model_calls", "deadline", "output", "context", "provider_pauses" (engine.go:408-685) | Partial: uncontracted strings |
 | `error{code,message}` | `Stop.Reason` = free `err.Error()` | Gap: no code |
 | `through_message_sequence` | Implicit: one `Seq` counter | OK (simpler) |
 | `tool_calls[]` id, name, status | `TurnView.Tools` (state.go:25-31): requested/allowed→pending, started/waiting→running, settled→completed/failed, not_executed→cancelled, uncertain→failed | OK via fold |
@@ -92,7 +92,7 @@ reliably available.
 | `arguments`, `deadline_at` while settleable | `Call.Args` yes; per-wait deadline no (only `Limits.Deadline`) | Partial |
 | `usage` summed, `provenance` | `Replay` sums `modelUsages`; `ModelFact` provider/API/model | OK |
 | `structured_output`, `final_answer_message_id` | `output_recorded` step; last `model_call_finished.MessageID` when completed | OK |
-| `message.delta.attempt` (execution epoch) | `AttemptID` is a model call, not a lease epoch; `Owner` is not recorded on steps or events | Gap / Host |
+| `message.delta.attempt` (execution epoch) | `ModelCallID` is a model call, not a lease epoch; `Owner` is not recorded on steps or events | Gap / Host |
 | `content_index` | `Delta.Index` (provider block index, same caveat as nvoken) | OK |
 | `offset` | — (host can count only if it sees every delta) | Gap |
 | `kind` text / thinking / tool_arguments | `DeltaText`/`DeltaReasoning`/`DeltaToolArguments` | OK |
@@ -125,7 +125,7 @@ Direction: never drop a committed step (or split a lossless post-commit hook
 from a lossy preview hook), and emit a `Gap` signal when previews are dropped.
 This is the three-class split (committed, preview, signal) from acp-v2 §6.1.
 
-**3. Preview identity is incomplete.** Deltas carry `TurnID`, `AttemptID`, and
+**3. Preview identity is incomplete.** Deltas carry `TurnID`, `ModelCallID`, and
 `MessageID`, but not a byte `offset`, not the tool-call ID or name on
 `tool_arguments` (except Anthropic's block-start content), not an emission time,
 and not an execution epoch that voids previews from a dead worker. The host

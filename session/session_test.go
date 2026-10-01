@@ -33,7 +33,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		case l == session.LivenessStopped || exclusive:
 			return expect{closed: true}
 		}
-		return expect{busy: dashi.NextResume}
+		return expect{busy: dashi.NextRecover}
 	}
 	rows := []struct {
 		name  string
@@ -50,13 +50,13 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "uncertain call, no stop",
 			build: buildCrashInTool("charge"),
-			next:  dashi.NextResume,
+			next:  dashi.NextRecover,
 			want: func(l session.Liveness, _ bool) expect {
 				if l == session.LivenessLive {
 					// A live worker runs the call: no CallID to settle.
 					return expect{busy: dashi.NextRunning}
 				}
-				return expect{busy: dashi.NextResume, callID: true}
+				return expect{busy: dashi.NextRecover, callID: true}
 			},
 		},
 		{
@@ -70,13 +70,13 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "no stop, in a model call",
 			build: buildCrashInModel,
-			next:  dashi.NextResume,
+			next:  dashi.NextRecover,
 			want:  resume,
 		},
 		{
 			name:  "no stop, in a read-only call",
 			build: buildCrashInTool("lookup"),
-			next:  dashi.NextResume,
+			next:  dashi.NextRecover,
 			want:  resume,
 		},
 		{
@@ -157,7 +157,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 						t.Fatalf("open: %v", err)
 					}
 					want := row.want(l, exclusive)
-					if row.next == dashi.NextResume && l == session.LivenessLive {
+					if row.next == dashi.NextRecover && l == session.LivenessLive {
 						if st.Next != dashi.NextRunning {
 							t.Fatalf("open next = %s; want running", st.Next)
 						}
@@ -202,7 +202,7 @@ func TestSessionBusyMessages(t *testing.T) {
 		want []string
 	}{
 		{
-			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextResume},
+			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextRecover},
 			[]string{"s-7", "Continue{}", "Cancel{}"},
 		},
 		{
@@ -216,7 +216,7 @@ func TestSessionBusyMessages(t *testing.T) {
 		{
 			session.TurnBusyError{
 				TurnID: "s-7",
-				Next:   dashi.NextResume,
+				Next:   dashi.NextRecover,
 				CallID: "c-3",
 			},
 			[]string{"c-3", "s-7", "Resolve{}", "Cancel{}"},
@@ -224,7 +224,7 @@ func TestSessionBusyMessages(t *testing.T) {
 		{
 			session.TurnBusyError{
 				TurnID:    "s-7",
-				Next:      dashi.NextResume,
+				Next:      dashi.NextRecover,
 				Duplicate: true,
 			},
 			[]string{"s-7", "already runs this command"},
@@ -253,7 +253,7 @@ func TestSessionUncertainCallCancel(t *testing.T) {
 	s := handle(rec.MemoryRecorder, dashitest.NewClient(dashitest.Reply("ok")))
 	s.Exclusive = true
 	_, err := s.Send(t.Context(), "next")
-	busy := requireBusy(t, err, dashi.NextResume, true)
+	busy := requireBusy(t, err, dashi.NextRecover, true)
 	if busy.CallID != "call-1" {
 		t.Fatalf("busy call = %q; want call-1", busy.CallID)
 	}
@@ -296,7 +296,7 @@ func TestSessionLostWorker(t *testing.T) {
 		claim(t, rec, first, "b") // a's lease expired; b took it
 		b := handle(rec, dashitest.NewClient(dashitest.Reply("done")))
 		_, err := b.Send(t.Context(), "again")
-		requireBusy(t, err, dashi.NextResume, false)
+		requireBusy(t, err, dashi.NextRecover, false)
 		out, err := b.Run(t.Context(), dashi.Continue{}, dashi.WithOwner("b"))
 		if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Reply != "done" {
 			t.Fatalf("takeover: %v, %s %q", err, out.Stop.Kind, out.Reply)
@@ -332,7 +332,7 @@ func TestSessionLostWorker(t *testing.T) {
 		b.Runner.Tools = charge.tools()
 		b.Exclusive = true
 		_, err := b.Send(t.Context(), "again")
-		requireBusy(t, err, dashi.NextResume, true)
+		requireBusy(t, err, dashi.NextRecover, true)
 		out, err := b.Run(t.Context(), dashi.Continue{}, dashi.WithOwner("b"))
 		if err != nil || out.Stop.Kind != dashi.StopResultUnknown {
 			t.Fatalf("takeover: %v, stop %+v", err, out.Stop)
@@ -463,7 +463,7 @@ func TestSessionRunningCallNamesNoCall(t *testing.T) {
 
 	rec.set(session.LivenessUnknown)
 	_, err := handle(rec, dashitest.NewClient()).Send(t.Context(), "again")
-	if busy := requireBusy(t, err, dashi.NextResume, true); busy.CallID != "call-1" {
+	if busy := requireBusy(t, err, dashi.NextRecover, true); busy.CallID != "call-1" {
 		t.Fatalf("unknown liveness: call = %q; want call-1", busy.CallID)
 	}
 

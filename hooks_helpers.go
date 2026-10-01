@@ -102,7 +102,7 @@ func Deny(reason string) ToolDecision {
 }
 
 // Defer makes the call wait for approval: the turn stops waiting, and the
-// call is listed in Outcome.Pending. The host answers with Pending.Approve or
+// call is listed in RunResult.Pending. The host answers with Pending.Approve or
 // Pending.Deny, then Continue runs or refuses the call.
 func Defer(reason string) ToolDecision {
 	return ToolDecision{Kind: DecisionDefer, Reason: reason}

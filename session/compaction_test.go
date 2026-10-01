@@ -55,9 +55,9 @@ func textsOf(msgs []llm.Message) []string {
 	return out
 }
 
-func sendAll(t *testing.T, s *session.Session, texts ...string) dashi.Outcome {
+func sendAll(t *testing.T, s *session.Session, texts ...string) dashi.RunResult {
 	t.Helper()
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for _, text := range texts {
 		var err error
 		if out, err = s.Send(t.Context(), text); err != nil {
@@ -336,11 +336,11 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			if ev.TurnID == "s-1" && ev.Step != nil {
 				closing = true
 			}
-			if ev.Outcome != nil {
+			if ev.Result != nil {
 				outcomes = append(outcomes, ev.TurnID)
-				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Outcome.SessionWarnings),
+				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Result.SessionWarnings),
 					[]dashi.WarningCode{session.WarningTurnClosed}) {
-					t.Fatalf("warnings=%v", ev.Outcome.SessionWarnings)
+					t.Fatalf("warnings=%v", ev.Result.SessionWarnings)
 				}
 			}
 		}
@@ -473,7 +473,7 @@ func TestSessionCompactionFailsBeforeQueueTurn(t *testing.T) {
 	}
 }
 
-// Stream yields the compaction turn's events, ending with its Outcome
+// Stream yields the compaction turn's events, ending with its RunResult
 // event, ahead of the caller's turn.
 func TestSessionStreamCompaction(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -494,8 +494,8 @@ func TestSessionStreamCompaction(t *testing.T) {
 		if ev.TurnID != "s-2" && ev.TurnID != "s-3" {
 			t.Fatalf("event of turn %q", ev.TurnID)
 		}
-		if ev.Outcome != nil {
-			outcomes = append(outcomes, ev.TurnID+" "+ev.Outcome.Reply)
+		if ev.Result != nil {
+			outcomes = append(outcomes, ev.TurnID+" "+ev.Result.Reply)
 		}
 	}
 	if !slices.Equal(outcomes, []string{"s-2 summary", "s-3 two"}) {
@@ -568,7 +568,7 @@ func TestSessionCompactionRace(t *testing.T) {
 	b.Compactor = keepLast{limit: 100}
 	sendAll(t, b, "first")
 
-	var bOut dashi.Outcome
+	var bOut dashi.RunResult
 	var bErr error
 	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() {
 		bOut, bErr = b.Send(t.Context(), "from b")

@@ -252,7 +252,7 @@ func validActiveSummary(result *llm.Result) (string, error) {
 }
 func (s *replayState) applyContextCompaction(step Step) error {
 	f := step.Compacted
-	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Terminal {
+	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Ended {
 		return errors.New("context replacement has no unapplied summary")
 	}
 	intent := s.modelIntents[f.ModelCallID]

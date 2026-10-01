@@ -39,7 +39,7 @@ func TestSessionIdempotency(t *testing.T) {
 		// Another worker's handle cannot know the turn is live.
 		b := handle(rec, dashitest.NewClient())
 		_, err := b.Run(t.Context(), keyed("k", "hello"))
-		busy := requireBusy(t, err, dashi.NextResume, false)
+		busy := requireBusy(t, err, dashi.NextRecover, false)
 		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("busy = %+v; want a duplicate of turn 1", busy)
 		}
@@ -202,7 +202,7 @@ func TestSessionIdempotency(t *testing.T) {
 		c := handle(held, cClient)
 		c.New = true
 		type result struct {
-			out dashi.Outcome
+			out dashi.RunResult
 			err error
 		}
 		cDone := make(chan result, 1)
@@ -224,7 +224,7 @@ func TestSessionIdempotency(t *testing.T) {
 		close(held.proceed)
 
 		got := <-cDone
-		busy := requireBusy(t, got.err, dashi.NextResume, false)
+		busy := requireBusy(t, got.err, dashi.NextRecover, false)
 		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("c: busy = %+v; want a duplicate of turn 1", busy)
 		}

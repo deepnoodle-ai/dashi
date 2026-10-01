@@ -113,7 +113,7 @@ but is never acted on. A context end uses a bounded commit context to save an
 interrupted stop with the context cause. `Cancel` (or a caller's explicit
 `ContextCancel` option) ends the turn; unstarted calls become known not
 executed. `WithPause` requests interruption before the next effect
-without cutting off current work. `Limits.Interruptions` bounds resumes
+without cutting off current work. `Limits.Resumes` bounds resumes
 independently of model attempts; `Limits.Deadline` is a limit, while a host
 deadline interrupts the turn.
 `BeforeSend` may supply bounded, non-secret metadata derived from the exact

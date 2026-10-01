@@ -16,7 +16,7 @@ func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
 
 // nextCallFits reports whether a further normal model call can happen: one
 // that still leaves the reserved final-answer call available (or fits in
-// ModelAttempts when there is no reserve), before the deadline, with the
+// ModelCalls when there is no reserve), before the deadline, with the
 // context live, and within every Budget cap for its worst case.
 // extraInputTokens is the size of input the caller would add, such as
 // delivered items, estimated as Dashi estimates request input. A pause is
@@ -33,7 +33,7 @@ func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
 }
 
 // callFits is nextCallFits, with the reserved final-answer call counted as
-// available when reserved is true: any call that fits ModelAttempts.
+// available when reserved is true: any call that fits ModelCalls.
 func (r *runtime) callFits(
 	s *replayState,
 	extraInputTokens int,
@@ -49,7 +49,7 @@ func (r *runtime) callFits(
 	return r.callBlocked(s, extraInputTokens) == ""
 }
 
-// callBlocked is callFits without the ModelAttempts term: it reports why no
+// callBlocked is callFits without the ModelCalls term: it reports why no
 // further model call fits the deadline, the run's context, and every Budget
 // cap, or "" when one does. A model call in flight counts at its worst
 // case against a cost cap, and a cap it cannot price blocks the call. It

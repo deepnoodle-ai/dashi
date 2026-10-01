@@ -79,7 +79,7 @@ func (v TaskView) Notice() Notice
 func (n Notice) Text() string; func (n Notice) Steer() dashi.Steer
 func NoticeID(childID string) string        // "task-done:" + childID
 func RunUntilQuiet(ctx context.Context, s *session.Session, t *Tasks,
-    opts ...dashi.RunOption) (dashi.Outcome, error)
+    opts ...dashi.RunOption) (dashi.RunResult, error)
 ```
 
 `FollowUp` and `FollowUpTurnID` were replaced by the session's queue turns

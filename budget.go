@@ -93,7 +93,7 @@ const (
 )
 
 // LimitDetail gives machine-readable amounts and an application code for a
-// host limit. FitTokens is advice, not an automatic request change.
+// host limit. SuggestedMaxOutputTokens is advice, not an automatic request change.
 //
 // Counts and money are separate fields so that neither passes through a
 // binary float: Limit and Used hold whole counts, and the Cost fields hold

@@ -391,7 +391,7 @@ func resume(
 	begin dashi.Start,
 	runner dashi.Runner,
 	opts ...dashi.RunOption,
-) dashi.Outcome {
+) dashi.RunResult {
 	t.Helper()
 	if len(saved.Steps) == 0 {
 		return run(t, dashi.Turn{ID: "t1"}, begin, runner, opts...)
@@ -413,7 +413,7 @@ func run(
 	command dashi.Command,
 	runner dashi.Runner,
 	opts ...dashi.RunOption,
-) dashi.Outcome {
+) dashi.RunResult {
 	t.Helper()
 	out, err := runner.Run(t.Context(), turn, command, opts...)
 	if err != nil {
@@ -431,7 +431,7 @@ func uncertainTool(kind dashi.StepKind, committed bool) bool {
 
 func requireReported(
 	t *testing.T,
-	out dashi.Outcome,
+	out dashi.RunResult,
 	err error,
 	fired dashi.Step,
 	fault dashitest.Fault,

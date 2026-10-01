@@ -39,7 +39,7 @@ gap.** The emitter keeps one ordered queue. Steps always enter it; only
 previews count against the 64-slot bound. A preview that does not fit, after
 evicting the oldest queued progress as today, is dropped and sets a flag. The
 next event *enqueued*, or `close`, first enqueues one `Event{TurnID,
-AttemptID, MessageID, Gap: true}` naming the message that lost deltas;
+ModelCallID, MessageID, Gap: true}` naming the message that lost deltas;
 markers do not count against the bound, and consecutive drops make one
 marker. Evicted progress sets no gap: each snapshot replaces the last and the
 settled step follows (tool-progress.md). Consumer rules: after a gap, discard
@@ -93,7 +93,7 @@ cursor is owner-independent: a `Claim` or a new worker continues the same
 Correctness comes from paging, never from the wake. The intervals are
 constants.
 
-**4. A terminal stop means the turn is over.** `Stop.Terminal` (recorded as
+**4. A terminal stop means the turn is over.** `Stop.Ended` (recorded as
 `"terminal"`, omitted when false) is set in one place, `rt.commit` of a
 `StepTurnStopped` step, from `replayState.terminal()` on the state after that step.
 That covers `stop`, `stopWith`, `Cancel`, the interruptions stop inside
@@ -106,7 +106,7 @@ against the code:
 - `completed` and `canceled`;
 - `limited` with `Limit.Kind` `deadline` or `interruptions` (keyed on the
   kind, not the reason string);
-- any `limited` stop once `ModelAttempts` reaches the agent's limit;
+- any `limited` stop once `ModelCalls` reaches the agent's limit;
 - `limited` by `cost` when spend includes an unknown cost.
 
 Not terminal: `waiting`, `interrupted`, `failed` (including reason
@@ -214,7 +214,7 @@ after LIMIT limit+1` to detect `ErrCursorAhead` in one query (special-casing
 ## Plan
 
 **PR A** (#48, merged): `Event`/`Observer` moved to `observer.go`; lossless
-steps and the gap; `Stop.Terminal` and the terminal-stop tightening.
+steps and the gap; `Stop.Ended` and the terminal-stop tightening.
 
 **PR B**: `StepReader`, `StepWaiter`, `Follow`, `Step.Settles`, the memory
 and file implementations, conformance, the guide's web handler (run by

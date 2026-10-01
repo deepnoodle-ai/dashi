@@ -648,11 +648,11 @@ func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
 	if len(s.Pending) != 0 {
 		t.Fatalf("requested call listed as host work: %v", s.Pending)
 	}
-	if stop := s.projectedStop(); stop.Kind != StopInterrupted || !stop.Projected {
+	if stop := s.projectedStop(); stop.Kind != StopInterrupted || !stop.Inferred {
 		t.Fatalf("stop=%+v", stop)
 	}
 	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolFinished}
-	if stop := s.projectedStop(); stop.Kind != "" || !stop.Projected {
+	if stop := s.projectedStop(); stop.Kind != "" || !stop.Inferred {
 		t.Fatalf("settled turn without a stop step projected %+v", stop)
 	}
 }
@@ -687,7 +687,7 @@ func TestRequireApprovalDefersNamedTools(t *testing.T) {
 	}
 }
 
-func deniedDeploy(t *testing.T, reason string) (Outcome, *scriptedClient) {
+func deniedDeploy(t *testing.T, reason string) (RunResult, *scriptedClient) {
 	t.Helper()
 	client := &scriptedClient{results: []llm.Result{
 		toolUse(toolCall("call-1", "deploy", `{}`)),

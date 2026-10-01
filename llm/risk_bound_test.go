@@ -35,7 +35,7 @@ func TestModelInfoCanBoundCost(t *testing.T) {
 				test.pricing.Validate() != nil {
 				return
 			}
-			// The answer matches MaxCostAtRisk on a call with default
+			// The answer matches WorstCaseCost on a call with default
 			// settings, as preparation fits them.
 			fitted, _, err := info.Capabilities.Fit(
 				Input{Model: "fixture"},
@@ -47,7 +47,7 @@ func TestModelInfoCanBoundCost(t *testing.T) {
 			}
 			request := riskRequest(t, fitted.Settings.MaxTokens, nil)
 			if _, ok := WorstCaseCost(request, *test.pricing); ok != got {
-				t.Fatalf("MaxCostAtRisk ok=%v, CanBoundCost=%v", ok, got)
+				t.Fatalf("WorstCaseCost ok=%v, CanBoundCost=%v", ok, got)
 			}
 		})
 	}

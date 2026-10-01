@@ -43,7 +43,7 @@ type PendingObservation struct {
 }
 
 // Execution describes the latest indexed Turn, even if its record is unreadable.
-// Stop.Projected distinguishes replay's inference from a recorded run stop.
+// Stop.Inferred distinguishes replay's inference from a recorded run stop.
 // It says nothing about a live worker or permission to execute a command.
 type Execution struct {
 	TurnID          string

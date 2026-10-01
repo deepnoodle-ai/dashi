@@ -574,7 +574,7 @@ func busyText(err error) string {
 	case busy.Next == dashi.NextResolvePending:
 		return fmt.Sprintf("Turn %d waits for an answer. Press Enter to "+
 			"continue it, or type /discard to discard it.", n)
-	case busy.Next == dashi.NextContinue || busy.Next == dashi.NextResume:
+	case busy.Next == dashi.NextContinue || busy.Next == dashi.NextRecover:
 		return fmt.Sprintf("Turn %d is still open. Press Enter to continue it, "+
 			"or type /discard to discard it before compacting.", n)
 	case busy.Next == dashi.NextRaiseModelCalls:

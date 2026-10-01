@@ -114,7 +114,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 	}
-	var outcome *dashi.Outcome
+	var outcome *dashi.RunResult
 	previews, committed := 0, 0
 	for event, err := range (dashi.Runner{
 		Client:   client,
@@ -139,8 +139,8 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		if event.Step != nil {
 			committed++
 		}
-		if event.Outcome != nil {
-			outcome = event.Outcome
+		if event.Result != nil {
+			outcome = event.Result
 		}
 	}
 	if outcome == nil || outcome.Stop.Kind != dashi.StopCompleted || !strings.Contains(
@@ -514,16 +514,16 @@ func streamOutcome(
 	runner dashi.Runner,
 	turn dashi.Turn,
 	command dashi.Command,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	for event, err := range runner.Stream(ctx, turn, command) {
-		if event.Outcome != nil {
-			return *event.Outcome, err
+		if event.Result != nil {
+			return *event.Result, err
 		}
 		if err != nil {
-			return dashi.Outcome{}, err
+			return dashi.RunResult{}, err
 		}
 	}
-	return dashi.Outcome{}, errors.New(
+	return dashi.RunResult{}, errors.New(
 		"providertest: stream ended without an outcome",
 	)
 }
@@ -608,7 +608,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	}
 	var streamed strings.Builder
 	sent := false
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
@@ -629,8 +629,8 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 		if event.Delta == nil || event.Delta.Kind != llm.DeltaText || sent {
 			continue
@@ -687,7 +687,7 @@ func UrgentSteerPartialEndsInWhitespace(
 	runner := dashi.Runner{
 		Client: cutter,
 	}
-	var out dashi.Outcome
+	var out dashi.RunResult
 	// Stream, since only a streamed call hands the client a delta sink.
 	for event, err := range runner.Stream(
 		ctx,
@@ -710,8 +710,8 @@ func UrgentSteerPartialEndsInWhitespace(
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 	}
 	cut := steeringCut(out.Turn)
@@ -818,7 +818,7 @@ func UrgentSteerAfterPause(
 	}
 	paused := ""
 	sent := false
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
@@ -846,8 +846,8 @@ func UrgentSteerAfterPause(
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 		if step := event.Step; paused == "" && step != nil &&
 			step.Kind == dashi.StepModelCallFinished && step.Model.Result != nil &&

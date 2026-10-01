@@ -59,7 +59,7 @@ func WorstCaseCost(request Request, pricing Pricing) (Cost, bool) {
 	return cost, cost.Validate() == nil
 }
 
-// CanBoundCost reports whether MaxCostAtRisk can bound, in currency, a call
+// CanBoundCost reports whether WorstCaseCost can bound, in currency, a call
 // to this model that uses default settings under CapabilityAdjust (the
 // default policy). It answers a readiness check from model knowledge alone,
 // without preparing a request. It is true when the model has a valid price
@@ -88,7 +88,7 @@ func (m ModelInfo) CanBoundCost(currency string) bool {
 	return m.Capabilities.acceptsDefaultMaxTokens(CapabilityAdjust)
 }
 
-// FitOutputTokens returns the largest output allowance whose MaxCostAtRisk
+// FitOutputTokens returns the largest output allowance whose WorstCaseCost
 // total would fit in the given remaining amount. It uses exact arithmetic, so
 // the returned allowance fits even at the nano boundary.
 func FitOutputTokens(

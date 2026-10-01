@@ -43,7 +43,7 @@ own work. When the running Go context ends, Dashi normally records
 `StopInterrupted` with the context cause. Reload the record and call `Continue`
 with the earlier conversation on any worker. `Continue` also recovers a crash
 that happened before the stop was written; such a turn's `Next()` is
-`NextResume`, and the next model call gets a reminder that the previous worker
+`NextRecover`, and the next model call gets a reminder that the previous worker
 stopped mid-turn, so the model checks the current state before repeating any
 action. Repeated crashes before that call still add one reminder. Close the
 channel passed with
@@ -61,7 +61,7 @@ To record an admitted turn before any paid request, pass a `Start` with an
 already-closed pause channel. Dashi records the `Start` step and a
 `StopInterrupted` stop ("pause requested"), prepares and sends no model
 request, and `Next()` gives `NextContinue`. A later `Continue` runs the turn;
-it does not count toward `Limits.Interruptions`, because no work was cut
+it does not count toward `Limits.Resumes`, because no work was cut
 short. A `Cancel` withdraws it.
 
 A command is applied once per recorder. Running the same command again, with
@@ -122,7 +122,7 @@ should pick up ready turns with no active worker.
 
 A turn is in one of three states between runs: **ready** (`ReadyToContinue`),
 **waiting on the host** ([approvals](approvals.md), results, a [budget raise](budgets.md)), or **ended**
-(`Stop.Terminal`). A stop is terminal when nothing can run the turn again:
+(`Stop.Ended`). A stop is terminal when nothing can run the turn again:
 completed, canceled, limited by its deadline or its interruptions, or a cost
 cap that can no longer be checked, including a token cap with incomplete usage.
 Before that stop is recorded, Continue can recover existing work or record the
@@ -144,11 +144,11 @@ answer, and no deadline. Set only the fields you want to change; a negative
 `Interruptions` or `ProviderPauses` allows none. Dashi records the resolved
 numbers at `Start`, so a saved turn keeps its limits if the defaults change.
 A turn that stopped at its model-attempt limit is not ended. Call
-`Continue{ModelAttempts: n}` with `n` above the limit now in force, and the
+`Continue{ModelCalls: n}` with `n` above the limit now in force, and the
 same turn goes on with the new limit. The record keeps the raise, and the
 agent's own `Limits` stay as they were. A `Continue` with no raise, or a raise
 that leaves no room, returns an error and changes nothing. A stop after the
 last attempt for another reason, such as a budget, needs the budget raise and
 the attempt raise together.
-Resumes after interruption do not consume `ModelAttempts`. The turn's
+Resumes after interruption do not consume `ModelCalls`. The turn's
 `Limits.Deadline` stops it as limited; a host context deadline interrupts it.

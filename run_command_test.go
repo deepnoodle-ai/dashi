@@ -213,7 +213,7 @@ func TestRunnerStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 			got = err
 			continue
 		}
-		if event.Outcome != nil {
+		if event.Result != nil {
 			events++
 		}
 	}
@@ -459,7 +459,7 @@ func startPausedHistoryTurn(
 	client *scriptedClient,
 	recorder Recorder,
 	history []llm.Message,
-) Outcome {
+) RunResult {
 	t.Helper()
 	paused := make(chan struct{})
 	close(paused)

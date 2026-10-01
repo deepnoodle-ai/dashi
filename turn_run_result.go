@@ -11,16 +11,16 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Outcome is what Run returns: the turn's record and what it means now.
+// RunResult is what Run returns: the turn's record and what it means now.
 //
-// An Outcome is always the latest known state, and Run's error says whether
+// An RunResult is always the latest known state, and Run's error says whether
 // the command applied. After a rejected command it holds the caller's turn,
 // unchanged. After a step write that was not acknowledged (a *CommitError),
 // it holds the steps this run knows were saved.
 //
 // The embedded TurnView gives the stop, answer text, structured output,
 // spend, pending work, and per-call state without a replay.
-type Outcome struct {
+type RunResult struct {
 	// Turn is the record to pass to the next Run.
 	Turn Turn
 	TurnView
@@ -131,20 +131,20 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 	}
 }
 
-// restingOutcome is the Outcome for a command that did not apply: the
+// restingOutcome is the RunResult for a command that did not apply: the
 // caller's turn and its view. A turn that fails replay has no view.
-func restingOutcome(turn Turn) Outcome {
+func restingOutcome(turn Turn) RunResult {
 	s, err := replay(turn)
 	if err != nil {
-		return Outcome{Turn: turn.Clone()}
+		return RunResult{Turn: turn.Clone()}
 	}
 	return outcome(turn, s)
 }
 
-func outcome(t Turn, s *replayState) Outcome {
+func outcome(t Turn, s *replayState) RunResult {
 	view := snapshotView(s.TurnView)
 	view.Stop = s.projectedStop()
-	return Outcome{Turn: cloneTurn(t), TurnView: view}
+	return RunResult{Turn: cloneTurn(t), TurnView: view}
 }
 
 // notReady explains why Continue cannot run the turn.

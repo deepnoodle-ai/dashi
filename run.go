@@ -121,9 +121,9 @@ const (
 
 // Stream advances a turn when iteration begins, requesting streamed model
 // output and tool progress. Events carry committed steps, model deltas, and
-// tool.Report snapshots. A fully read sequence ends with one Outcome event. A
+// tool.Report snapshots. A fully read sequence ends with one RunResult event. A
 // rejected command yields only an error; a write the recorder did not
-// acknowledge yields the Outcome event and its *CommitError together.
+// acknowledge yields the RunResult event and its *CommitError together.
 // Breaking the range ends the context. By default, the turn records an
 // interruption; ContextCancel on the Runner makes the break a final cancel.
 // Reload the turn by ID to inspect committed facts, since no final event
@@ -163,26 +163,26 @@ func (r Runner) Stream(
 			yield(Event{}, err)
 			return
 		}
-		yield(Event{TurnID: out.Turn.ID, Outcome: &out}, err)
+		yield(Event{TurnID: out.Turn.ID, Result: &out}, err)
 	}
 }
 
-// Run advances one turn from an explicit command. The Outcome is always the
+// Run advances one turn from an explicit command. The RunResult is always the
 // latest known state, and the error says whether the command applied:
 //
 //   - nil: every step was recorded. Execution failures, limits, and waits
-//     are results, reported in Outcome.Stop with any partial work.
+//     are results, reported in RunResult.Stop with any partial work.
 //   - ErrRevisionConflict or ErrCommandConflict (check with errors.Is, which
 //     also matches them inside a *CommitError): another worker owns or
 //     advanced the turn, or the command ID was reused. Reload the turn.
 //   - *CommitError: the run executed, but CommitError.Step was not saved,
-//     or may have been. The Outcome holds the steps this run knows were
+//     or may have been. The RunResult holds the steps this run knows were
 //     saved; see CommitError.
 //   - ErrRecordInvalid (which also matches ErrInvalidTurn): steps this run
 //     recorded fail replay, a bug in the runner or recorder. Something was
-//     recorded; the Outcome holds the steps without a view.
+//     recorded; the RunResult holds the steps without a view.
 //   - any other error: the command was rejected and nothing was recorded.
-//     The Outcome is the caller's turn and its view, unchanged. An invalid
+//     The RunResult is the caller's turn and its view, unchanged. An invalid
 //     input turn gives ErrInvalidTurn alone.
 //
 // Run requests streamed model output only when the Runner has an Observer,
@@ -192,21 +192,21 @@ func (r Runner) Run(
 	turn Turn,
 	command Command,
 	opts ...RunOption,
-) (Outcome, error) {
+) (RunResult, error) {
 	o := newRunOptions(opts)
 	o.stream = r.Observer != nil
 	return r.run(ctx, turn, command, o)
 }
 
 // run applies a command. A command rejected before any commit returns the
-// caller's turn and its view, so a loop that reassigns its Outcome keeps
+// caller's turn and its view, so a loop that reassigns its RunResult keeps
 // the turn.
 func (r Runner) run(
 	ctx context.Context,
 	turn Turn,
 	command Command,
 	opts runOptions,
-) (Outcome, error) {
+) (RunResult, error) {
 	out, err := r.apply(ctx, turn, command, opts)
 	if err != nil && !Recorded(err) {
 		out = restingOutcome(turn)
@@ -216,9 +216,9 @@ func (r Runner) run(
 
 // Recorded reports whether err, returned by Run or Stream, came after the
 // run began recording: a *CommitError with a Step, or ErrRecordInvalid. The
-// Outcome then holds what was recorded, and Stream yields its Outcome event
+// RunResult then holds what was recorded, and Stream yields its RunResult event
 // together with err. Any other error rejected the command before anything
-// was recorded, and the Outcome holds the caller's turn, unchanged.
+// was recorded, and the RunResult holds the caller's turn, unchanged.
 func Recorded(err error) bool {
 	var ce *CommitError
 	return errors.As(err, &ce) && ce.Step != nil ||

@@ -99,7 +99,7 @@ name: `TestLiveStructuredOutput`, `TestLiveReservedFinalAnswer`,
 On 2026-09-27, the reserved final-answer attempt passed live on the same three
 routes: each turn used a local multiplication tool once, sent a second request
 without application tools, and returned an answer with `StopLimited` and
-`model_attempts`. With the same keys and model names, repeat the two-call check
+`model_calls`. With the same keys and model names, repeat the two-call check
 per provider:
 
 ```sh

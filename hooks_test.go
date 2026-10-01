@@ -42,7 +42,7 @@ func runHooked(
 	tools tool.Toolset,
 	hooks Hooks,
 	opts ...RunOption,
-) (Outcome, error) {
+) (RunResult, error) {
 	t.Helper()
 	return (Runner{
 		Client: client,
@@ -75,7 +75,7 @@ func allHookResults(turn Turn) []HookResult {
 	return out
 }
 
-func hasWarning(out Outcome, code WarningCode) bool {
+func hasWarning(out RunResult, code WarningCode) bool {
 	return slices.ContainsFunc(out.Warnings, func(w Warning) bool {
 		return w.Code == code
 	})
@@ -1022,7 +1022,7 @@ func TestHookCallOrder(t *testing.T) {
 				Tools:  tool.List{remote.binding()},
 				Hooks:  hooks,
 			}
-			run := func(turn Turn, command Command) Outcome {
+			run := func(turn Turn, command Command) RunResult {
 				t.Helper()
 				if !streamed {
 					out, err := runner.Run(t.Context(), turn, command)
@@ -1031,13 +1031,13 @@ func TestHookCallOrder(t *testing.T) {
 					}
 					return out
 				}
-				var out Outcome
+				var out RunResult
 				for event, err := range runner.Stream(t.Context(), turn, command) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if event.Outcome != nil {
-						out = *event.Outcome
+					if event.Result != nil {
+						out = *event.Result
 					}
 				}
 				return out

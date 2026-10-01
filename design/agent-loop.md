@@ -115,7 +115,7 @@ boundary; it cannot mutate a model call already prepared or sent.
 
 Limits count across starts, retries, waits, continuations, and hook-driven
 extra calls. An interruption has its own resume limit (default 10), separate
-from `ModelAttempts`. A turn deadline persists across invocations and stops the
+from `ModelCalls`. A turn deadline persists across invocations and stops the
 turn as limited; a host context deadline interrupts it. Account for known usage
 without promising a hard token/cost ceiling from post-call measurements. A host
 can refuse a model intent when it cannot reserve spending authority. Closing the
@@ -131,10 +131,10 @@ By default, Dashi reserves the last attempt, after earlier attempts, for a
 final answer. It removes application and hosted tools from that request while keeping
 the internal structured-output submission tool when required. The prepared
 request and its final-only intent are recorded before dispatch. A useful answer
-at this boundary has stop kind `limited` with reason `model_attempts`, so hosts
+at this boundary has stop kind `limited` with reason `model_calls`, so hosts
 can show the answer and the exhausted budget together. `NoReservedFinalReply`
 opts out; a one-attempt turn cannot reserve a later call. This keeps the total
-call count strict. The stop is not terminal: `Continue.ModelAttempts` raises
+call count strict. The stop is not terminal: `Continue.ModelCalls` raises
 the limit for that turn and the same turn goes on (decision 34).
 
 The first implementation should prove: ordinary and streamed results agree;

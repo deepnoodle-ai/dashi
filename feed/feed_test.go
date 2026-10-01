@@ -592,7 +592,7 @@ func TestSettledMessageStaysClosed(t *testing.T) {
 	hub.unsubscribe("t1", late)
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 4, Step: &dashi.Step{
 		TurnID: "t1", Seq: 4, Kind: dashi.StepTurnStopped,
-		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Terminal: true},
+		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Ended: true},
 	}})
 	if n := hub.entries(); n != 0 {
 		t.Fatalf("hub holds %d turns after a terminal stop", n)
@@ -620,7 +620,7 @@ func TestRestingTurnSeesOtherProcessCommits(t *testing.T) {
 	out, err := runner(&streamClient{words: []string{"b"}}, rec, nil).Run(
 		t.Context(), first.Turn, dashi.Continue{CommandID: "resume"},
 	)
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	events, err := follow(t)
@@ -631,7 +631,7 @@ func TestRestingTurnSeesOtherProcessCommits(t *testing.T) {
 		t.Fatalf("the reader saw the other process's steps after %v", waited)
 	}
 	last := events[len(events)-1]
-	if last.Step == nil || last.Step.Stop == nil || !last.Step.Stop.Terminal {
+	if last.Step == nil || last.Step.Stop == nil || !last.Step.Stop.Ended {
 		t.Fatalf("follow ended at %q", shape(events))
 	}
 }

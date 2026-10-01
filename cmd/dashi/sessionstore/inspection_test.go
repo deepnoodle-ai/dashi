@@ -85,7 +85,7 @@ func savedSession(t *testing.T, st *Store, dir, title string) (*Session, *filere
 	}
 	return s, rec
 }
-func runInspectionTurn(t *testing.T, rec dashi.Recorder, id string, client *inspectionClient, start dashi.Start, tools tool.Toolset) dashi.Outcome {
+func runInspectionTurn(t *testing.T, rec dashi.Recorder, id string, client *inspectionClient, start dashi.Start, tools tool.Toolset) dashi.RunResult {
 	t.Helper()
 	if start.Agent.Model == "" {
 		start.Agent = dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model"}

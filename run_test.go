@@ -121,7 +121,7 @@ func start(
 	tools tool.Toolset,
 	rec Recorder,
 	hooks Hooks,
-) (Outcome, error) {
+) (RunResult, error) {
 	t.Helper()
 	return (Runner{
 		Client:   client,
@@ -803,7 +803,7 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 		Recorder: NewMemoryRecorder(),
 		Observer: func(e Event) { observed <- e },
 	}
-	var got *Outcome
+	var got *RunResult
 	deltas := 0
 	for event, err := range runner.Stream(
 		t.Context(),
@@ -817,8 +817,8 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Outcome != nil {
-			got = event.Outcome
+		if event.Result != nil {
+			got = event.Result
 		}
 		if event.Delta != nil {
 			deltas++

@@ -16,7 +16,7 @@ func runStructured(
 	agent Agent,
 	client llm.Client,
 	hooks Hooks,
-) (Runner, Outcome, error) {
+) (Runner, RunResult, error) {
 	t.Helper()
 	runner := Runner{Client: client, Hooks: hooks}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
@@ -168,7 +168,7 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 		// Call 2 is the reserved final answer; it is vetoed too.
 		if err != nil || out.Stop.Kind != StopFailed ||
 			out.Stop.Reason != StopReasonOutputRejected || out.Output != nil ||
-			out.Stop.Terminal || client.sends != 2 {
+			out.Stop.Ended || client.sends != 2 {
 			t.Fatalf("stop=%+v output=%+v sends=%d err=%v", out.Stop, out.Output, client.sends, err)
 		}
 		if seen := toolResultText(t, out.Turn, "out-2"); seen != "Not accepted: contains PII" {

@@ -43,11 +43,11 @@ func nextRows() []nextRow {
 	failed := func(reason string) *Stop { return &Stop{Kind: StopFailed, Reason: reason} }
 	return []nextRow{
 		{name: "not started", setup: func(s *replayState) { s.Revision = 0 }, want: NextNone},
-		{name: "no stop", want: NextResume},
+		{name: "no stop", want: NextRecover},
 		{
 			name:  "no stop, model attempt in flight",
 			setup: func(s *replayState) { s.modelIntent = "m1" },
-			want:  NextResume,
+			want:  NextRecover,
 		},
 		{name: "completed", covers: []string{"completed/"}, stop: &Stop{Kind: StopCompleted}, want: NextNone},
 		{name: "canceled", covers: []string{"canceled/*"}, stop: &Stop{Kind: StopCanceled}, want: NextNone},
@@ -309,7 +309,7 @@ func rowView(row nextRow) TurnView {
 	if row.setup != nil {
 		row.setup(s)
 	}
-	s.Stop.Terminal = s.Stop.Kind != "" && s.terminal()
+	s.Stop.Ended = s.Stop.Kind != "" && s.terminal()
 	s.ReadyToContinue = s.canContinue()
 	view := s.TurnView
 	view.Stop = s.projectedStop()
@@ -501,7 +501,7 @@ func TestNextReadsRecordedStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Stop.Kind != StopInterrupted || view.Next() != NextResume {
+	if view.Stop.Kind != StopInterrupted || view.Next() != NextRecover {
 		t.Fatalf("crashed: stop=%+v next=%s", view.Stop, view.Next())
 	}
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}

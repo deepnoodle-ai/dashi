@@ -60,7 +60,7 @@ Record `active_compaction_media_estimate_unavailable` once per Turn using existi
 Skip proactive compaction and byte-based `LimitContextWindow` for that candidate, including mixed text/media, even with a known window or cap.
 Do not disable the recorded policy: later text-only candidates use ordinary checks, and applied replacements remain valid.
 Provider content/capability preparation and actual window acceptance govern media requests; overflow keeps existing failure semantics with no compaction retry.
-`llm.EstimatedInputTokens`, `MaxCostAtRisk`, monetary admission, limits, and settlement remain unchanged.
+`llm.EstimatedInputTokens`, `WorstCaseCost`, monetary admission, limits, and settlement remain unchanged.
 This separates unavailable context sizing from conservative financial risk; an insufficient cost budget can still refuse the media request.
 
 The private projector annotates messages with `TurnMessageRef` before cloning them for public callers.
@@ -90,7 +90,7 @@ Settlements inherit the intent's purpose; reject any explicit mismatch.
 | Fact | Recorded fields and validation |
 | --- | --- |
 | `ContextCompactionPlan` | `Through int64`, ordered `Covered []TurnMessageRef`, `Digest string`, `Window int`, `EstimatedBefore int`. `Through` ends before the intent. Coverage names visible eligible messages at that revision. Digest uses the existing canonical message fingerprint. |
-| `StepContextCompacted` (`context_compacted`) | `Step.Compacted *ContextCompactionFact`, containing `AttemptID string`, `Summary string`, `EstimatedAfter int`. The attempt must have an acknowledged complete summary result and an unapplied plan. |
+| `StepContextCompacted` (`context_compacted`) | `Step.Compacted *ContextCompactionFact`, containing `ModelCallID string`, `Summary string`, `EstimatedAfter int`. The attempt must have an acknowledged complete summary result and an unapplied plan. |
 
 Replay validates coverage, group closure, protected messages, digest, summary extraction, and strict estimate savings.
 Validation operates on the frozen prefix through `Through`, including earlier replacements.
@@ -129,7 +129,7 @@ Replay retains that guard after recorded application until ordinary work succeed
 Reapply media detection after preparation; if unavailable, dispatch subject to ordinary admission. Otherwise enforce text-only fit.
 New ordinary model/tool work permits the next compaction cycle; explicit continuation permits a new attempt after failure.
 
-Summary attempts use existing `ModelAttempts`, interruption, and cumulative budget rules.
+Summary attempts use existing `ModelCalls`, interruption, and cumulative budget rules.
 Do not dispatch a summary when fewer than two ordinary attempt slots remain: leave one ordinary response attempt available.
 This permits a final response but does not guarantee completion if the model selects another tool.
 The existing final-answer reserve applies only under its documented conditions; active compaction adds no forced-answer contract.

@@ -169,7 +169,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					view.Spend.Usage.Requests[llm.MeterUnreported] != math.MaxInt {
 					t.Fatal("failed enrichment changed the recorded request count")
 				}
-				if scenario == "token" && (!view.Stop.Terminal ||
+				if scenario == "token" && (!view.Stop.Ended ||
 					view.Stop.Limit.Kind != dashi.LimitOutputTokens ||
 					view.Next() != dashi.NextNone || view.ReadyToContinue) {
 					t.Fatal("reopening storage revived a terminal token stop")
@@ -263,7 +263,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 				},
 			}
 			before, err := dashi.Replay(turn)
-			if err != nil || before.Stop.Terminal || before.Spend.CostUnknown != 0 {
+			if err != nil || before.Stop.Ended || before.Spend.CostUnknown != 0 {
 				t.Fatalf("invalid fixture: view=%+v err=%v", before, err)
 			}
 			late := tool.Succeeded("done")
@@ -311,7 +311,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			view, err := dashi.Replay(saved)
 			if err != nil || len(saved.Steps) != len(turn.Steps) ||
 				view.Tools["call-2"].Status != dashi.ToolWaiting ||
-				view.Spend.CostUnknown != 0 || view.Stop.Terminal {
+				view.Spend.CostUnknown != 0 || view.Stop.Ended {
 				t.Fatalf("rejection damaged the recorded turn: view=%+v err=%v", view, err)
 			}
 		})

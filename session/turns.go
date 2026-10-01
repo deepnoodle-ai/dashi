@@ -46,7 +46,7 @@ const (
 
 // TurnLiveness is an optional dashi.Recorder capability for hosts that lease
 // turns. A session asks it about a last turn with no recorded stop: live
-// refines NextResume to NextRunning, and stopped lets a new Start close the
+// refines NextRecover to NextRunning, and stopped lets a new Start close the
 // turn. An error counts as unknown, which keeps the turn busy.
 type TurnLiveness interface {
 	Liveness(ctx context.Context, turnID string) (Liveness, error)
@@ -69,7 +69,7 @@ type sessionTurn struct {
 }
 
 func (t *sessionTurn) ended() bool {
-	return t.view.Stop.Terminal
+	return t.view.Stop.Ended
 }
 
 // refined is a turn's Next with the liveness that refined it.
@@ -78,7 +78,7 @@ type refined struct {
 	liveness Liveness
 }
 
-// refine reads a turn's Next and refines NextResume with liveness: this
+// refine reads a turn's Next and refines NextRecover with liveness: this
 // handle running the turn, or the recorder's TurnLiveness. The caller
 // holds mu.
 func (s *Session) refine(ctx context.Context, t *sessionTurn) refined {
@@ -88,7 +88,7 @@ func (s *Session) refine(ctx context.Context, t *sessionTurn) refined {
 		return refined{next: next, liveness: LivenessUnknown}
 	case s.running[t.turn.ID] > 0:
 		return refined{next: dashi.NextRunning, liveness: LivenessLive}
-	case next != dashi.NextResume:
+	case next != dashi.NextRecover:
 		return refined{next: next, liveness: LivenessUnknown}
 	}
 	l := LivenessUnknown
@@ -124,7 +124,7 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	switch r.next {
 	case dashi.NextRunning, dashi.NextResolvePending:
 		return e
-	case dashi.NextResume:
+	case dashi.NextRecover:
 		if r.liveness == LivenessStopped || exclusive {
 			return nil
 		}

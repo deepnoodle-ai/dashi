@@ -133,13 +133,13 @@ func taskCommandID(target delegate.TaskTarget, action, call string, command dash
 	digest := sha256.Sum256([]byte(dashi.ArgsDigest(raw)))
 	return "cli-task:" + hex.EncodeToString(digest[:]), nil
 }
-func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, action, call string, command dashi.Command) (dashi.Outcome, error) {
+func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, action, call string, command dashi.Command) (dashi.RunResult, error) {
 	if err := c.eng.recoverTasks(ctx); err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	id, err := taskCommandID(snapshot.Target, action, call, command)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	switch cmd := command.(type) {
 	case dashi.Continue:
@@ -195,7 +195,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		if err != nil {
 			return err
 		}
-		if fresh.View.Stop.Kind != dashi.StopCanceled || fresh.View.Stop.Projected {
+		if fresh.View.Stop.Kind != dashi.StopCanceled || fresh.View.Stop.Inferred {
 			return fmt.Errorf("cancellation acknowledgement unresolved; inspect this exact task again")
 		}
 		c.emit(taskRow(fresh.Task))
@@ -204,7 +204,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 	if snapshot.Task.Running() {
 		return delegate.ErrTaskBusy
 	}
-	if snapshot.View.Stop.Terminal {
+	if snapshot.View.Stop.Ended {
 		return fmt.Errorf("task is terminal")
 	}
 	switch action {
@@ -258,7 +258,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		cmd := dashi.Continue{}
 		switch snapshot.View.Next() {
 		case dashi.NextContinue:
-		case dashi.NextResume:
+		case dashi.NextRecover:
 			if !snapshot.View.ReadyToContinue {
 				return fmt.Errorf("recorded recovery is not ready")
 			}

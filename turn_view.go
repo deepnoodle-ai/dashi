@@ -123,7 +123,7 @@ type TurnView struct {
 	// Reply is the text of the latest assistant message. On a completed
 	// turn it is the final answer, and valid tool-only work can leave it
 	// empty; on a waiting turn it is text the model wrote alongside its
-	// tool calls. On an ended turn (Stop.Terminal) it is fixed at the
+	// tool calls. On an ended turn (Stop.Ended) it is fixed at the
 	// terminal stop, as Project is: a late model result does not change it.
 	Reply string
 	// Pending lists the work awaiting a host action or settlement: model

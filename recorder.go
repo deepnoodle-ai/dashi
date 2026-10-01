@@ -93,7 +93,7 @@ type Loader interface {
 // commit was rejected.
 //
 // Runner.Run returns a CommitError, with Step set, whenever a step write is
-// not acknowledged. The run did execute: the Outcome returned with it holds
+// not acknowledged. The run did execute: the RunResult returned with it holds
 // the steps this run knows were saved, and recovery treats the failure as a
 // crash after them. Check errors.Is(err, ErrRevisionConflict) first, since
 // another worker may own the turn.
@@ -101,7 +101,7 @@ type CommitError struct {
 	// Persistence states whether this failed call could have committed a step.
 	Persistence Persistence
 	// Step is the step Run tried to record. A failed model_call_finished step
-	// carries the call's usage, which the Outcome's spend does not include.
+	// carries the call's usage, which the RunResult's spend does not include.
 	Step *Step
 	Err  error
 }

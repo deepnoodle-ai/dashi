@@ -89,7 +89,7 @@ required host approval. Compose a separate judge turn with deferred approval:
    turn on retries. Dashi does not store this association for you.
 3. Outside the parent's hook, run a judge `Runner` with a durable
    [recorder](recovering-turns.md#recorders). Give it no application or
-   provider-hosted tools. Set its own `MaxTokens`, `Limits.ModelAttempts`,
+   provider-hosted tools. Set its own `MaxTokens`, `Limits.ModelCalls`,
    deadline, and `Budget`. Configure any host credit policy on its
    `BeforeSend` too.
 4. Give the judge the proposed call and only the relevant task context.

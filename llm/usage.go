@@ -339,7 +339,7 @@ func (u *Usage) Absorb(other *Usage) {
 
 // Add sums usage from a separate request into u. It rejects overflow without
 // changing u. Use Absorb for cumulative frames within one streamed response.
-// The sum is not one provider's report, so Add clears RequestsFinal.
+// The sum is not one provider's report, so Add clears RequestsComplete.
 func (u *Usage) Add(other *Usage) error {
 	if other == nil {
 		return nil

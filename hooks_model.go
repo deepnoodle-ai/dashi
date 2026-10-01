@@ -16,14 +16,14 @@ import (
 // hides to input. It returns the items to deliver, the tools hidden from
 // this call in the order they were first hidden, or a hook's stop. A hook
 // that fails or answers invalidly is skipped with a warning, since
-// BeforeModel only shapes the request. The returned Outcome is set when the
+// BeforeModel only shapes the request. The returned RunResult is set when the
 // run's context ended during a hook.
 func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
 	finalAnswerOnly bool,
 	purpose ModelPurpose,
-) ([]ContextItem, []string, *Stop, *Outcome) {
+) ([]ContextItem, []string, *Stop, *RunResult) {
 	var deliver []ContextItem
 	var hidden []string
 	ignored := hideIgnored{}
@@ -258,7 +258,7 @@ func (r *runtime) beforeSend(
 	atRisk *llm.Cost,
 	remaining *Money,
 	purpose ModelPurpose,
-) (map[string]json.RawMessage, *Stop, *Outcome) {
+) (map[string]json.RawMessage, *Stop, *RunResult) {
 	var admission map[string]json.RawMessage
 	total := 0
 	mark := r.hookMark()

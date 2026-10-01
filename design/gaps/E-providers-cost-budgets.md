@@ -154,13 +154,13 @@ caller receives:
 | Turn cost total | Summed `Usage.Cost` | Summed on the turn | **Missing** (tokens only) | `TurnView` has `Usage` but no `Cost` (`state.go:32-44`) | Add `TurnView.Cost` per currency, with a completeness flag |
 | Unknown usage in the total | `UsageUnknown` | Charged the full hold | **Partial**: per-call nil and `StopResultUnknown`, but calls with nil usage are dropped from the sum | `state.go:115-121`; `engine.go:385` | Add unknown and uncertain attempt counts to `TurnView` |
 | Budget declared | None | Turn, agent (narrow only), install ceiling | **Missing** | `Limits` has attempts, pauses, concurrency, deadline (`turn.go:35-43`) | Add `Limits.MaxOutputTokens` and `MaxCost`. Allow Start to narrow the Definition's limits |
-| Pre-call check / reservation | – | Worst-case at-risk hold | **Partial**: hook plus atomic Admission, no estimate | `policy.go` BeforeSend; `design/turn.md:88-94` | Add `llm.MaxCostAtRisk(Request, Pricing)` (input estimate plus max output) |
+| Pre-call check / reservation | – | Worst-case at-risk hold | **Partial**: hook plus atomic Admission, no estimate | `policy.go` BeforeSend; `design/turn.md:88-94` | Add `llm.WorstCaseCost(Request, Pricing)` (input estimate plus max output) |
 | Post-usage check between steps | Hooks only | `checkpointBudgetExceeded` | **Partial**: `BeforeModel` can stop the turn, but has no built-in check | `policy.go` ModelDecision.Stop | Check the new limits in the engine before each attempt, using recorded usage and cost |
 | Budget-stop representation | Hook abort error | Typed reasons and statuses | **Partial**: `StopRefused` or `StopLimited` with a string reason | `engine.go:559,681`; `turn.go:244-258` | Typed limit reasons. Keep the answer produced alongside the limit, as reserved final-answer already does |
-| Resume after raising a budget | – | `resume` endpoint, credit-resume worker | **Partial**: a refused turn can continue, but `model_attempts` is terminal and a definition revision cannot change mid-turn | `state.go:603-609` | Add a `RaiseLimits` command that is recorded, validated as monotonic, and continues the turn |
+| Resume after raising a budget | – | `resume` endpoint, credit-resume worker | **Partial**: a refused turn can continue, but `model_calls` is terminal and a definition revision cannot change mid-turn | `state.go:603-609` | Add a `RaiseLimits` command that is recorded, validated as monotonic, and continues the turn |
 | Tool and hosted-tool cost | None | Counts only | **Missing** | `HostedUse` has no metering | Record hosted request counts in `Usage`. Let local tools report cost in `tool.Outcome` |
 | Child / subagent roll-up | – | – (mobius `addChild`) | **Missing** | – | Add a parent reference to the turn view so a host can aggregate child turns |
-| Billing identity per attempt | Invented keys | `model_call_facts` IDs | **Covered** | `engine.go:564`; `ModelFact.Admission` | Keep as is. This is what recs2 asked for |
+| Billing identity per attempt | Invented keys | `model_call_facts` IDs | **Covered** | `engine.go:564`; `ModelFact.Reservation` | Keep as is. This is what recs2 asked for |
 | Tenant ledgers, credits, markups | App | App | **Correctly the app's job** | Opaque `Admission`; Recorder transaction | Document the recipe (reserve in the Recorder, settle on the result) |
 
 ## Top gaps

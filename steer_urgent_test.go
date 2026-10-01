@@ -157,7 +157,7 @@ func runUrgent(
 	client llm.Client,
 	source Steering,
 	opts ...func(*Runner),
-) Outcome {
+) RunResult {
 	t.Helper()
 	return runUrgentAgent(t, client, source, testAgent(), opts...)
 }
@@ -168,7 +168,7 @@ func runUrgentAgent(
 	source Steering,
 	agent Agent,
 	opts ...func(*Runner),
-) Outcome {
+) RunResult {
 	t.Helper()
 	runner := Runner{Client: client}
 	for _, opt := range opts {

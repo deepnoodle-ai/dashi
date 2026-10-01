@@ -51,7 +51,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		Tools:  tool.List{note},
 	}
 	var turns []dashi.Turn
-	run := func(start dashi.Start) dashi.Outcome {
+	run := func(start dashi.Start) dashi.RunResult {
 		t.Helper()
 		id := fmt.Sprintf("live-%d", len(turns)+1)
 		start.CommandID = "run:" + id
@@ -65,7 +65,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 		turns = append(turns, out.Turn)
 		return out
 	}
-	ask := func(prompt string) dashi.Outcome {
+	ask := func(prompt string) dashi.RunResult {
 		t.Helper()
 		history, warnings := dashi.ProjectHistory(turns)
 		if len(warnings) > 0 {

@@ -28,7 +28,7 @@ type toolResult struct {
 // is persisted with every turn.
 const maxPanicReason = 4 << 10
 
-func (r *runtime) tools(s *replayState) (Outcome, bool) {
+func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	ctx, cancel := context.WithCancel(r.ctx)
 	defer cancel()
 	results := make(chan toolResult, len(s.callOrder))
@@ -37,7 +37,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	// fatal holds the stop reason of the first result that ends the turn.
 	// Once set, no further call starts; running calls still settle.
 	fatal := ""
-	settle := func(v toolResult) *Outcome {
+	settle := func(v toolResult) *RunResult {
 		if ctx.Err() != nil {
 			o := r.contextStop()
 			return &o
@@ -56,7 +56,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		return nil
 	}
-	drainOne := func() *Outcome {
+	drainOne := func() *RunResult {
 		if ctx.Err() != nil {
 			o := r.contextStop()
 			return &o
@@ -266,7 +266,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				Revision: "dashi-output-v1",
 			}
 			if call.Name != SubmitOutputTool {
-				var o *Outcome
+				var o *RunResult
 				call, verdict, o = r.authorizeTool(
 					ctx,
 					v.Definition,
@@ -457,7 +457,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	if r.pauseRequested() {
 		return r.pauseStop(), true
 	}
-	return Outcome{}, false
+	return RunResult{}, false
 }
 
 // execute runs one call and always yields a result, so a panicking executor
@@ -542,7 +542,7 @@ func panicReason(v any) string {
 	return strings.ToValidUTF8(reason, "\uFFFD")
 }
 
-func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
+func (r *runtime) settleOutputSubmission(call tool.Call) *RunResult {
 	state, replayErr := replay(r.turn)
 	if replayErr != nil {
 		out := r.stop(StopFailed, replayErr.Error())

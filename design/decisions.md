@@ -84,9 +84,9 @@ it is uncertain and the application reports it. This does not wait for
 execution-identity work.
 
 **12. Interruptions have their own limit.** Decided. A new
-`Limits.Interruptions` (zero means the default, 10; negative means none) counts
+`Limits.Resumes` (zero means the default, 10; negative means none) counts
 resumes; exceeding it stops the turn
-as `limited`. Interruptions do not consume `ModelAttempts`: a model call
+as `limited`. Interruptions do not consume `ModelCalls`: a model call
 recorded as interrupted is not counted as an attempt, though its usage and cost
 still count toward spend. Rationale: they are
 usually the hosting's fault, a different budget from model retries. A resume
@@ -188,7 +188,7 @@ early after a bad day of deploys.
 **25. The caller sets a turn's budget; the agent carries none.** Decided.
 Cost and token caps are passed on `Start` and raised on `Continue`; there is no
 agent ceiling that `Start` narrows. Plan and tenant ceilings stay in the
-application. Existing agent limits (`ModelAttempts`, `Deadline`,
+application. Existing agent limits (`ModelCalls`, `Deadline`,
 `Interruptions`) are unchanged; whether they should also move to the caller is
 not decided. Rationale: a budget depends on who is calling and what they paid
 for, which the application knows and the agent's configuration does not.
@@ -227,7 +227,7 @@ One rounding rule: a cost at risk rounds up, so rounding never breaches a cap,
 and a settled charge rounds half to even; each rounds the exact sum of its
 token-rate products once per call. An overflow makes the amount unknown rather
 than wrapping. `LimitDetail` splits counts (`Limit`, `Used`) from money
-(`CostLimit`, `CostUsed`, `CostAtRisk`). Rationale: integrators keep exact
+(`CostLimit`, `CostUsed`, `WorstCaseCost`). Rationale: integrators keep exact
 ledgers keyed by attempt ID, and float sums drift and can misjudge a cap at its
 boundary. The type lives in a stdlib-only `money` package because `llm`
 imports `tool`, so `tool` cannot import `llm`.
@@ -265,7 +265,7 @@ serializable configuration like ours). Dashi's turn matches ACP's prompt turn,
 the turn in the Codex App Server's thread, turn, and item, and Anthropic's
 `end_turn`. Some SDKs (OpenAI Agents, Claude Agent, pi) count one model call
 plus its tool calls as a turn; Dashi calls that a model attempt, as in
-`Limits.ModelAttempts`. `Accept` read like "approve", which is confusing for a
+`Limits.ModelCalls`. `Accept` read like "approve", which is confusing for a
 denial; `Resolve` matches the step names `model_call_finished` and `tool_finished`. A
 command's `ID` looked like the turn ID; `CommandID` names its idempotency role.
 Dashi had no users, so there is no migration.
@@ -282,7 +282,7 @@ fail. Dashi had no users, so there is no migration.
 **32. Steering interrupts are replaced, not counted.** Decided 2026-09-28;
 refines decisions 9, 12, and 24. The design is [steering.md](steering.md). A
 model call cut short by an urgent steer is settled with `Interrupted:
-"steering"` (`InterruptSteering`). It counts toward neither `ModelAttempts`
+"steering"` (`InterruptSteering`). It counts toward neither `ModelCalls`
 nor `Interruptions`, but counts toward spend and every cap. Under a
 `MaxCost` cap it is charged the worst case reserved at admission (`AtRisk`),
 not decision 24's estimate. The next request projects its trimmed partial
@@ -321,9 +321,9 @@ on it. Dashi had no users, so there is no migration.
 The nil-Policy default is now "no hook opinion" (decision 31).
 
 **34. A turn that reached its model-attempt limit continues as the same turn.**
-Decided 2026-09-28. `Continue.ModelAttempts` is the complete raised limit and
+Decided 2026-09-28. `Continue.ModelCalls` is the complete raised limit and
 must exceed the limit in force. The runner records it on the `turn_continued`
-step (`Step.ModelAttempts`), and replay keeps it as the turn's cap. The
+step (`Step.ModelCalls`), and replay keeps it as the turn's cap. The
 agent's recorded `Limits` do not change, so `ErrAgentChanged` checks stay the
 same. A stop at this limit is no longer terminal, and a budget stop after the
 last attempt is no longer terminal either: a raise of both continues it. A

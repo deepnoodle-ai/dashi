@@ -57,7 +57,7 @@ func run(ctx context.Context) error {
 	}
 
 	// Stream runs the turn like Run, yielding committed steps, model text
-	// deltas, and tool progress as they happen, then the Outcome.
+	// deltas, and tool progress as they happen, then the RunResult.
 	for event, err := range runner.Stream(ctx, dashi.Turn{}, start) {
 		if err != nil {
 			return err
@@ -74,8 +74,8 @@ func run(ctx context.Context) error {
 			)
 		case event.Step != nil && event.Step.Kind == dashi.StepToolFinished:
 			fmt.Println()
-		case event.Outcome != nil:
-			out := event.Outcome
+		case event.Result != nil:
+			out := event.Result
 			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 		}
 	}

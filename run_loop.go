@@ -9,13 +9,13 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func (r *runtime) run() Outcome {
+func (r *runtime) run() RunResult {
 	for {
 		s, e := replay(r.turn)
 		if e != nil {
 			return r.stop(StopFailed, e.Error())
 		}
-		if s.Stop.Terminal {
+		if s.Stop.Ended {
 			return r.current()
 		}
 		r.startSteering(s)
@@ -133,7 +133,7 @@ func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
 	return selected
 }
 
-func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
+func (r *runtime) recoverModelIntent(s *replayState) *RunResult {
 	unsafe := false
 	for _, def := range s.modelDefs {
 		if def.Kind == tool.KindProviderHosted && !tooldef.SafeRepeat(def) {

@@ -54,7 +54,7 @@ Spend.Add retains caller order and never mutates either operand. Do not promise 
 `budgetStop` checks UsageIncomplete before reading output allowance or total tokens whenever a token cap is active.
 Choose `LimitOutputTokens` when that cap exists; otherwise choose `LimitTotalTokens`.
 Use the reason: `usage aggregation is incomplete; this token cap cannot be enforced; resolve outstanding effects as required, then start a new turn with prior history`.
-Retained counts in `LimitDetail.Used` are lower bounds, not complete consumption. Do not derive remaining allowance or FitTokens from them.
+Retained counts in `LimitDetail.Used` are lower bounds, not complete consumption. Do not derive remaining allowance or SuggestedMaxOutputTokens from them.
 Apply this check to both spent and overshot checks, preparation clamping, and steering admission.
 Unknown cumulative usage with only MaxCost does not block independently exact monetary admission.
 Keep current monetary risk bounds and uncertainty checks.
@@ -109,7 +109,7 @@ Update public comments, the budgets guide, and the formatter's earlier design/PR
 Use real overflow fixtures with independently valid inputs, including tokens, request meters, modality detail, and both monetary categories.
 Test operand independence, zero/clone propagation, counter saturation, and retained totals in deterministic replay order.
 Round-trip new and old Spend JSON. Round-trip turns through MemoryRecorder and reopened FileRecorder, then compare replayed signals and money.
-Add a valid report with `Requests[llm.MeterUnreported] == math.MaxInt`, `RequestsFinal == false`, and a declared hosted tool.
+Add a valid report with `Requests[llm.MeterUnreported] == math.MaxInt`, `RequestsComplete == false`, and a declared hosted tool.
 Its inferred increment must not wrap or reject the settlement. Assert unchanged reported Usage and retained original counts after discarded enrichment mutations.
 Both recorders and replay retain the raw fact, signal incomplete usage, and preserve independent charges.
 Repeat without an independent charge and with pricing configured. Assert that incomplete derivation bypasses pricing and retains monetary uncertainty.

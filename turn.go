@@ -207,7 +207,7 @@ var (
 	// turn that can never run again gives ErrTurnEnded instead.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
 	// ErrTurnEnded rejects a command on a turn whose stop is terminal (see
-	// Stop.Terminal). Only a Resolve reporting the result of work that had
+	// Stop.Ended). Only a Resolve reporting the result of work that had
 	// already started is accepted after the turn ends.
 	ErrTurnEnded = errors.New("dashi: turn has ended")
 	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug

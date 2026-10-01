@@ -107,7 +107,7 @@ func runWithRef(
 	t *testing.T,
 	runner Runner,
 	messages ...llm.Message,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := runner.Run(
 		t.Context(),
@@ -120,7 +120,7 @@ func runWithRef(
 	return out
 }
 
-func requireNoModelIntent(t *testing.T, out Outcome, client *scriptedClient) {
+func requireNoModelIntent(t *testing.T, out RunResult, client *scriptedClient) {
 	t.Helper()
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
@@ -219,7 +219,7 @@ func TestRefContinueAfterFailureResolvesAgainAndResumes(t *testing.T) {
 		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{refMessage(ref)}},
 	)
 	if err != nil || first.Stop.Reason != StopReasonContentUnavailable ||
-		first.Stop.Terminal {
+		first.Stop.Ended {
 		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
 	}
 	// The host restores the bytes, then continues the same turn.
@@ -459,7 +459,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 			)
 
 			if out.Stop.Kind != StopFailed || out.Stop.Reason != tt.want ||
-				out.Stop.RefID != "upl_1" || out.Stop.Terminal {
+				out.Stop.RefID != "upl_1" || out.Stop.Ended {
 				t.Fatalf("stop = %+v, want %q", out.Stop, tt.want)
 			}
 			requireNoModelIntent(t, out, client)
@@ -738,7 +738,7 @@ func TestRefStreamHydrates(t *testing.T) {
 		ContentLoader: resolver,
 	}
 
-	var last Outcome
+	var last RunResult
 	for event, err := range runner.Stream(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -747,8 +747,8 @@ func TestRefStreamHydrates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Outcome != nil {
-			last = *event.Outcome
+		if event.Result != nil {
+			last = *event.Result
 		}
 	}
 

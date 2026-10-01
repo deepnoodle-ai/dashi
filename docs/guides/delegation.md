@@ -96,7 +96,7 @@ gets the notice. Two cases:
   `StartScheduled`, which claims no user authority. The queue turn's command ID
   is `queue:` and the JSON list of the item IDs it carries, and that also
   counts as delivery. A steer that missed its turn moves to the queue too.
-  Interactive hosts should raise `Limits.ModelAttempts`.
+  Interactive hosts should raise `Limits.ModelCalls`.
 
 A host that drives turns with `Runner.Run` and its own `dashi.Inbox` can still
 send the steer to the inbox; notices left over when no turn runs need a turn

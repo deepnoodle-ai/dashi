@@ -427,6 +427,6 @@ None is counted among the 24 items above.
 - **MCP example with no setup:** a runnable variant that starts its own stdio
   server. #92
 - **`Spend.String()`**, so examples stop looping over currencies. #93
-- **Name collisions:** `dashi.Outcome` and `tool.Outcome`, and `Stop` in both
+- **Name collisions:** `dashi.RunResult` and `tool.Outcome`, and `Stop` in both
   `llm` and `dashi`; check against the glossary. #94
 - **README order:** show the `agent` example before `basic`. #95

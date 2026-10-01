@@ -47,7 +47,7 @@ blocks.
 Two **reserved keys** are never priced (`Pricing.Validate` rejects them):
 `unrecognized:<wire type>` for hosted work an adapter does not recognize, and
 `unreported` for hosted work in a call whose final usage never arrived (a
-cut-off stream, or a response without usage). Adapters set `Usage.RequestsFinal`
+cut-off stream, or a response without usage). Adapters set `Usage.RequestsComplete`
 only when counts come from the provider's complete response: Anthropic when the
 stop reason (sent with the final `server_tool_use` counters) arrived, Responses
 on the terminal response object, Gemini when the candidate has a `finishReason`.

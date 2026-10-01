@@ -109,7 +109,7 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 	return host
 }
 func taskNoticeReady(v dashi.TurnView) bool {
-	return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 }
 
 func (e *Engine) taskHost() *taskHost { e.mu.Lock(); defer e.mu.Unlock(); return e.tasks }

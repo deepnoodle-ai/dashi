@@ -26,9 +26,9 @@ func testStop(kind StopKind, limit LimitKind) *Stop {
 	}
 	switch {
 	case kind == StopCompleted, kind == StopCanceled:
-		stop.Terminal = true
+		stop.Ended = true
 	case limit == LimitDeadline, limit == LimitResumes:
-		stop.Terminal = true
+		stop.Ended = true
 	}
 	return stop
 }
@@ -95,7 +95,7 @@ func TestTerminalStops(t *testing.T) {
 func TestRecordedStopsCarryTerminal(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
-	if err != nil || !out.Stop.Terminal || !out.TurnView.Stop.Terminal {
+	if err != nil || !out.Stop.Ended || !out.TurnView.Stop.Ended {
 		t.Fatalf("completed stop=%+v err=%v", out.Stop, err)
 	}
 	last := out.Turn.Steps[len(out.Turn.Steps)-1]
@@ -103,7 +103,7 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != `{"kind":"completed","terminal":true}` {
+	if string(raw) != `{"kind":"completed","ended":true}` {
 		t.Fatalf("recorded stop=%s", raw)
 	}
 
@@ -112,7 +112,7 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 	paused, err := (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "p"}, limitsStart(testAgent()), WithPause(pause),
 	)
-	if err != nil || paused.Stop.Kind != StopInterrupted || paused.Stop.Terminal {
+	if err != nil || paused.Stop.Kind != StopInterrupted || paused.Stop.Ended {
 		t.Fatalf("interrupted stop=%+v err=%v", paused.Stop, err)
 	}
 	raw, err = json.Marshal(paused.Turn.Steps[len(paused.Turn.Steps)-1].Stop)
@@ -127,13 +127,13 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 func TestReplayRejectsMisstatedTerminal(t *testing.T) {
 	for _, stop := range []*Stop{
 		{Kind: StopCompleted},
-		{Kind: StopWaiting, Terminal: true},
+		{Kind: StopWaiting, Ended: true},
 		{Kind: StopLimited, Reason: "deadline", Limit: &LimitDetail{Kind: LimitDeadline}},
 		{
-			Kind:     StopLimited,
-			Reason:   "cost",
-			Limit:    &LimitDetail{Kind: LimitCost, CostLimit: 100, Currency: "USD"},
-			Terminal: true,
+			Kind:   StopLimited,
+			Reason: "cost",
+			Limit:  &LimitDetail{Kind: LimitCost, CostLimit: 100, Currency: "USD"},
+			Ended:  true,
 		},
 	} {
 		turn := interruptionRecord(
@@ -153,7 +153,7 @@ func TestDeadlineStopEndsTurn(t *testing.T) {
 	rec := NewMemoryRecorder()
 	runner := Runner{Client: client, Recorder: rec}
 	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, limitsStart(def))
-	if err != nil || out.Stop.Kind != StopLimited || !out.Stop.Terminal {
+	if err != nil || out.Stop.Kind != StopLimited || !out.Stop.Ended {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	commands := map[string]Command{
@@ -185,7 +185,7 @@ func TestCancelOnEndedTurn(t *testing.T) {
 	runner := Runner{Client: client, Recorder: rec}
 	cancel := Cancel{CommandID: "cancel", Reason: "user"}
 	canceled, err := runner.Run(t.Context(), first.Turn, cancel)
-	if err != nil || !canceled.Stop.Terminal {
+	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 	again, err := runner.Run(t.Context(), canceled.Turn, cancel)
@@ -250,7 +250,7 @@ func TestCanceledTurnRecordsLateToolResult(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", first.Stop, err)
 	}
 	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
-	if err != nil || !canceled.Stop.Terminal {
+	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 	late, err := runner.Run(t.Context(), canceled.Turn, Resolve{
@@ -346,7 +346,7 @@ func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
 		CallID:    "call-1",
 		Outcome:   new(tool.Succeeded("done late")),
 	})
-	if err != nil || late.Tools["call-1"].Status != ToolFinished || !late.Stop.Terminal {
+	if err != nil || late.Tools["call-1"].Status != ToolFinished || !late.Stop.Ended {
 		t.Fatalf("late=%+v err=%v", late.Stop, err)
 	}
 	_, err = runner.Run(t.Context(), late.Turn, Cancel{CommandID: "cancel"})
@@ -378,7 +378,7 @@ func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
 		out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitOutputTokens {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if out.Stop.Terminal {
+	if out.Stop.Ended {
 		t.Fatal("budget stop after the last attempt is terminal")
 	}
 	if _, err := Replay(out.Turn); err != nil {
@@ -412,7 +412,7 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	if err := s.checkStillOpen(); err != nil {
 		t.Fatalf("spent cap: %v", err)
 	}
-	s.Stop.Terminal = true
+	s.Stop.Ended = true
 	if err := s.checkStillOpen(); err != nil {
 		t.Fatalf("terminal stop: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestCheckLateResultStep(t *testing.T) {
 		turn,
 		Resolve{CommandID: "late", CallID: "t1:model:1", ModelResult: &late},
 	)
-	if err != nil || out.Stop.Kind != StopLimited || out.Stop.Terminal {
+	if err != nil || out.Stop.Kind != StopLimited || out.Stop.Ended {
 		t.Fatalf("valid late result: stop=%+v err=%v", out.Stop, err)
 	}
 }

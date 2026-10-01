@@ -515,7 +515,7 @@ func activeDocumentProviders(t *testing.T) []struct {
 	}{{"claude-sonnet-4-5", a}, {"gpt-6-luna", o}}
 }
 
-func activeDocumentWarnings(t *testing.T, out dashi.Outcome, want int) {
+func activeDocumentWarnings(t *testing.T, out dashi.RunResult, want int) {
 	t.Helper()
 	n := 0
 	for _, warning := range out.Warnings {

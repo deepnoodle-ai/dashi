@@ -286,9 +286,9 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		last := a.eng.Last(execCtx)
 		if last != nil && last.Next == dashi.NextNone {
 			if err = a.eng.recoverTasks(execCtx); err == nil {
-				result = Result{Outcome: dashi.Outcome{TurnView: last.View}}
+				result = Result{Outcome: dashi.RunResult{TurnView: last.View}}
 			}
-		} else if last != nil && (last.Next == dashi.NextContinue || last.Next == dashi.NextResume && last.View.ReadyToContinue) {
+		} else if last != nil && (last.Next == dashi.NextContinue || last.Next == dashi.NextRecover && last.View.ReadyToContinue) {
 			result, err = a.eng.continueLast(execCtx, dashi.Continue{}, last)
 		} else {
 			diagnostic("recorded work does not permit automatic continuation")

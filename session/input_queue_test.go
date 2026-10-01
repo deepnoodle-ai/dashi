@@ -49,12 +49,12 @@ func sendAsync(
 }
 
 type result struct {
-	out dashi.Outcome
+	out dashi.RunResult
 	err error
 }
 
 // awaitSend returns the result, failing the test on an error.
-func awaitSend(t *testing.T, done <-chan result) dashi.Outcome {
+func awaitSend(t *testing.T, done <-chan result) dashi.RunResult {
 	t.Helper()
 	r := <-done
 	if r.err != nil {

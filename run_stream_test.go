@@ -31,7 +31,7 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 		t.Fatal("constructing iterator dispatched model")
 	}
 	var got []string
-	var terminal *Outcome
+	var terminal *RunResult
 	for event, err := range sequence {
 		if err != nil {
 			t.Fatal(err)
@@ -41,9 +41,9 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 			got = append(got, string(event.Step.Kind))
 		case event.Delta != nil:
 			got = append(got, "delta:"+event.Delta.Text)
-		case event.Outcome != nil:
+		case event.Result != nil:
 			got = append(got, "outcome")
-			terminal = event.Outcome
+			terminal = event.Result
 		default:
 			t.Fatal("empty stream event")
 		}
@@ -76,7 +76,7 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 		if !errors.Is(
 			err,
 			ErrStreamConsumed,
-		) || event.Step != nil || event.Outcome != nil {
+		) || event.Step != nil || event.Result != nil {
 			t.Fatalf("second range event=%+v err=%v", event, err)
 		}
 	}
@@ -95,7 +95,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 		Turn{ID: "t1"},
 		Start{CommandID: "start", Agent: testAgent()}, // no input
 	) {
-		if err == nil || event.Step != nil || event.Outcome != nil {
+		if err == nil || event.Step != nil || event.Result != nil {
 			t.Fatalf("validation event=%+v err=%v", event, err)
 		}
 	}
@@ -111,12 +111,12 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 		if event.Step != nil {
 			steps++
 		}
-		if event.Outcome != nil {
+		if event.Result != nil {
 			terminals++
 			// The final event carries the outcome and the write failure
 			// together.
 			if persistence(err) != PersistenceRejected {
-				t.Fatalf("outcome=%+v err=%v", event.Outcome, err)
+				t.Fatalf("outcome=%+v err=%v", event.Result, err)
 			}
 		} else if err != nil {
 			t.Fatal(err)

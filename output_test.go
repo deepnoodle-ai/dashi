@@ -72,6 +72,6 @@ func TestDecodeOutput(t *testing.T) {
 
 // outcomeOf builds the result Run returns, whose Stop and Output are promoted
 // from the embedded TurnView.
-func outcomeOf(stop Stop, output *StructuredOutput) Outcome {
-	return Outcome{TurnView: TurnView{Stop: stop, Output: output}}
+func outcomeOf(stop Stop, output *StructuredOutput) RunResult {
+	return RunResult{TurnView: TurnView{Stop: stop, Output: output}}
 }

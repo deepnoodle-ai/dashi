@@ -63,7 +63,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	report(out)
-	if out.Stop.Kind != dashi.StopLimited || out.Stop.Terminal {
+	if out.Stop.Kind != dashi.StopLimited || out.Stop.Ended {
 		return nil
 	}
 
@@ -84,7 +84,7 @@ func usd(amount string) *dashi.Money {
 	return &dashi.Money{Amount: money.MustParseAmount(amount), Currency: "USD"}
 }
 
-func report(out dashi.Outcome) {
+func report(out dashi.RunResult) {
 	fmt.Printf("Stop: %s; model calls: %d; spent: %s USD\n",
 		out.Stop.Kind, out.ModelCalls, out.Spend.Cost["USD"])
 	// Limit carries the numbers, so a host need not parse Reason.

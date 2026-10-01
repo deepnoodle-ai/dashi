@@ -150,10 +150,10 @@ a tool declared safe to repeat, is the normal recovery.
 
 ## Limits and deadlines
 
-**Interruptions have their own limit.** A new `Limits.Interruptions` counts
+**Interruptions have their own limit.** A new `Limits.Resumes` counts
 resumes after an interruption or crash, with a default of 10. Interruptions are
 usually the hosting's fault, not the model's, so they do not consume
-`ModelAttempts`: a model call recorded as interrupted is not counted as an
+`ModelCalls`: a model call recorded as interrupted is not counted as an
 attempt, so its resend on resume uses the attempt the cut-off call would have
 used. Its token usage and cost still count toward spend and budgets. A day of
 deploys therefore cannot exhaust a turn's model budget. When a
@@ -208,7 +208,7 @@ interruption and after a crash, with an interrupted model call, a started safe
 tool, and a started unsafe tool; a hosted tool of unknown safety; the `Pause`
 channel during a model call and during a tool loop; `ContextCancel` with a
 broken `Stream`; `Resolve` on an interrupted turn; repeated interruptions
-during model calls, which reach the interruption limit while `ModelAttempts`
+during model calls, which reach the interruption limit while `ModelCalls`
 is unchanged and usage still accumulates; a
 deadline cutting off a running call; and a lease loss rejected by the store.
 

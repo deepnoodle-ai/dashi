@@ -80,7 +80,7 @@ func requireFollowed(t *testing.T, got []Step, first int64, turn Turn) {
 
 // pausedTurn records an interrupted turn and returns the runner that
 // finishes it.
-func pausedTurn(t *testing.T, rec *MemoryRecorder) (Outcome, Runner) {
+func pausedTurn(t *testing.T, rec *MemoryRecorder) (RunResult, Runner) {
 	t.Helper()
 	runner := Runner{
 		Client:   &scriptedClient{results: []llm.Result{final("done")}},
@@ -104,7 +104,7 @@ func TestFollowReplaysThenFollowsLive(t *testing.T) {
 	fromTwo := collect(t.Context(), rec, "t1", 2)
 	time.Sleep(20 * time.Millisecond)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	got, err := fromStart(t)
@@ -211,7 +211,7 @@ func TestFollowPollsWithoutWaiter(t *testing.T) {
 	follow := collect(t.Context(), readerOnly{rec}, "t1", 0)
 	time.Sleep(30 * time.Millisecond)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	got, err := follow(t)
@@ -378,7 +378,7 @@ func TestFollowFromTerminalCursorEndsAtOnce(t *testing.T) {
 	rec := NewMemoryRecorder()
 	first, runner := pausedTurn(t, rec)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	last := int64(len(out.Turn.Steps))

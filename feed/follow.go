@@ -105,7 +105,7 @@ func Follow(
 				if !yield(event, nil) {
 					return
 				}
-				if step.Stop != nil && step.Stop.Terminal {
+				if step.Stop != nil && step.Stop.Ended {
 					return
 				}
 				m.cursor = step.Seq

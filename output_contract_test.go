@@ -37,7 +37,7 @@ func applyStructured(
 	client *scriptedClient,
 	tools tool.Toolset,
 	rec Recorder,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := applyStructuredErr(client, tools, rec)
 	if err != nil {
@@ -50,7 +50,7 @@ func applyStructuredErr(
 	client *scriptedClient,
 	tools tool.Toolset,
 	rec Recorder,
-) (Outcome, error) {
+) (RunResult, error) {
 	return (Runner{
 		Client:   client,
 		Tools:    tools,

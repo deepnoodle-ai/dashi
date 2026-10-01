@@ -700,7 +700,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{bench.tool()}
 	})
-	// A reserved final answer ends the turn as limited by ModelAttempts.
+	// A reserved final answer ends the turn as limited by ModelCalls.
 	if out.Stop.Kind != StopLimited {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
@@ -1123,7 +1123,7 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 		return out
 	}
 	for _, name := range []string{"write", "ext"} {
-		run := func(t *testing.T, duringFetch bool) Outcome {
+		run := func(t *testing.T, duringFetch bool) RunResult {
 			t.Helper()
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

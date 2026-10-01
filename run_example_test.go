@@ -41,14 +41,14 @@ func (o *hostOutbox) unapplied(turn dashi.Turn) dashi.Command {
 func plan(turn dashi.Turn, view dashi.TurnView, history []llm.Message) dashi.Command {
 	id := fmt.Sprintf("%s@%d", turn.ID, view.Revision)
 	switch view.Next() {
-	case dashi.NextContinue, dashi.NextResume: // Resume once the old worker is gone.
+	case dashi.NextContinue, dashi.NextRecover: // Resume once the old worker is gone.
 		return dashi.Continue{CommandID: id, History: history}
 	case dashi.NextResolvePending:
 		// The host settles each pending item when its answer arrives; here a
 		// person approves the call.
 		return view.Pending[0].Approve()
 	case dashi.NextRaiseBudget, dashi.NextRaiseModelCalls:
-		// Or Continue with a raised Budget or ModelAttempts.
+		// Or Continue with a raised Budget or ModelCalls.
 		return dashi.Cancel{CommandID: id, Reason: "limit reached"}
 	case dashi.NextFix:
 		// Host-specific: fix the cause and Continue, or Cancel.

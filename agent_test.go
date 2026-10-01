@@ -93,10 +93,10 @@ func TestStreamCarriesGeneratedTurnID(t *testing.T) {
 		if event.Step != nil {
 			steps++
 		}
-		if event.Outcome != nil {
+		if event.Result != nil {
 			finals++
-			if event.Outcome.Turn.ID != id {
-				t.Fatalf("outcome turn ID %q", event.Outcome.Turn.ID)
+			if event.Result.Turn.ID != id {
+				t.Fatalf("outcome turn ID %q", event.Result.Turn.ID)
 			}
 		}
 	}

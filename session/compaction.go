@@ -20,13 +20,13 @@ var ErrNothingToCompact = errors.New("compaction: nothing to compact")
 // It requires a Compactor and an ended last turn. A non-nil budget overrides
 // the compactor's budget. It never consumes queued input or dispatches it.
 // A recorded failed or empty summary warns WarningCompactionFailed and keeps
-// the previous history. No eligible history returns zero Outcome and
+// the previous history. No eligible history returns zero RunResult and
 // ErrNothingToCompact. Preparation and recorder failures remain Go errors.
 func (s *Session) Compact(
 	ctx context.Context,
 	budget *dashi.Budget,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	return (&call{s: s, opts: opts}).manualCompact(ctx, budget)
 }
 
@@ -50,13 +50,13 @@ func (s *Session) StreamCompact(
 	}
 }
 
-func (cl *call) manualCompact(ctx context.Context, budget *dashi.Budget) (dashi.Outcome, error) {
+func (cl *call) manualCompact(ctx context.Context, budget *dashi.Budget) (dashi.RunResult, error) {
 	s := cl.s
 	s.mu.Lock()
 	p, err := s.planManualCompaction(ctx, budget)
 	s.mu.Unlock()
 	if err != nil {
-		return dashi.Outcome{}, cl.fail(err)
+		return dashi.RunResult{}, cl.fail(err)
 	}
 	out, lost, err := cl.runCompaction(ctx, *p)
 	if lost {
@@ -127,24 +127,24 @@ func (s *Session) planManualCompaction(
 
 // compactionSlot resolves a lost manual reservation without allocating a
 // second summary slot. The recorder remains the authority about the winner.
-func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.Outcome, error) {
+func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.RunResult, error) {
 	t, err := s.load(ctx, p.n)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	if t.view.Origin != dashi.StartCompaction ||
 		t.turn.Steps[0].CommandID != p.command.CommandID {
-		return dashi.Outcome{}, dashi.ErrRevisionConflict
+		return dashi.RunResult{}, dashi.ErrRevisionConflict
 	}
 	r := s.refine(ctx, t)
-	if r.next == dashi.NextRunning || r.next == dashi.NextResume {
-		return dashi.Outcome{}, &TurnBusyError{
+	if r.next == dashi.NextRunning || r.next == dashi.NextRecover {
+		return dashi.RunResult{}, &TurnBusyError{
 			TurnID: t.turn.ID,
 			Origin: dashi.StartCompaction,
 			Next:   r.next,
 		}
 	}
-	out := dashi.Outcome{Turn: t.turn.Clone(), TurnView: t.view}
+	out := dashi.RunResult{Turn: t.turn.Clone(), TurnView: t.view}
 	if _, ok := t.view.ReplacementHistory(); !ok {
 		out.SessionWarnings = append(out.SessionWarnings, closedWarning(t))
 	}
@@ -268,7 +268,7 @@ func (s *Session) buildCompaction(
 }
 
 // compact runs a planned compaction turn. For Stream, it reports the
-// turn's Outcome event. A compaction turn that fails or ends without an
+// turn's RunResult event. A compaction turn that fails or ends without an
 // answer adds WarningCompactionFailed to the call, and one that stopped
 // without ending is closed first. It reports lost when another worker took
 // the slot, so the caller plans again and finds that worker's turn. It
@@ -304,11 +304,11 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 func (cl *call) runCompaction(
 	ctx context.Context,
 	p startPlan,
-) (dashi.Outcome, bool, error) {
+) (dashi.RunResult, bool, error) {
 	s := cl.s
 	out, err := cl.exec(ctx, p.runner, dashi.NewTurn(p.id), p.command)
 	out, err = s.finish(ctx, p.n, p.id, out, err, p.warnings, nil, false)
-	if takenSlot(err) || err == nil && out.Stop.Projected {
+	if takenSlot(err) || err == nil && out.Stop.Inferred {
 		return out, true, nil
 	}
 	if cl.stopped {

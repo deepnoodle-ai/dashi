@@ -393,7 +393,7 @@ const (
 //
 // Dashi applies one rounding rule to the amounts it computes: a cost at risk
 // rounds up to the nano, so rounding can never let a cap be breached
-// (MaxCostAtRisk), and a settled charge rounds half to even (Pricing.Estimate).
+// (WorstCaseCost), and a settled charge rounds half to even (Pricing.Estimate).
 // Each rounds the exact sum of its token-rate products once per call.
 type Cost struct {
 	// Input values uncached input excluding cache writes and cache reads.

@@ -106,7 +106,7 @@ prompt for when the turn ends. When a command ends with prompts still queued,
 the screen says how many. Quitting, `/new`, and `/sessions` warn once before
 they drop them.
 
-**Limit stop.** The CLI sets `Limits.ModelAttempts` to 40. Enter or
+**Limit stop.** The CLI sets `Limits.ModelCalls` to 40. Enter or
 `/continue` continues the same turn with a limit twice as high. It adds no
 user line. A new prompt closes the limited turn instead.
 

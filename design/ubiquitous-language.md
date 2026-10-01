@@ -43,7 +43,7 @@ Session contracts remain proposed; see the
   one process or request, with its runner, steering, and cache. It holds no
   durable state: anything that must outlast it belongs in the turn records. Many
   handles, in many processes, can refer to one session over its life.
-- **Turn outcome** (`dashi.Outcome`): The returned turn record and its current
+- **Turn outcome** (`dashi.RunResult`): The returned turn record and its current
   view, including its stop, answer, spend, and pending work. The separate Go
   error reports command and recording failures.
 - **Turn stop** (`dashi.Stop`): Why turn execution paused or ended. `Terminal`

@@ -6,19 +6,19 @@ type Next string
 
 const (
 	// NextNone means there is nothing to do: the turn completed, or it
-	// ended for good (Stop.Terminal), or it has not started.
+	// ended for good (Stop.Ended), or it has not started.
 	NextNone Next = "none"
 	// NextRunning means no stop is recorded and the turn is known to be
 	// live: the view is one a hook got during a run. A caller that tracks
-	// workers can also refine NextResume to it.
+	// workers can also refine NextRecover to it.
 	NextRunning Next = "running"
-	// NextResume means no stop follows the latest Start or Continue, and
+	// NextRecover means no stop follows the latest Start or Continue, and
 	// the turn is not known to be live: its worker may have crashed. Once
 	// the worker is known to be gone, Continue resumes it if
 	// ReadyToContinue is true. Otherwise Continue gives ErrNotReady: first
 	// settle each Pending item (for example, reconcile a model attempt
 	// whose result is unknown), or Cancel the turn.
-	NextResume Next = "resume"
+	NextRecover Next = "recover"
 	// NextResolvePending means the turn waits for approvals or tool results; see
 	// TurnView.Pending. Resolve each one, then Continue.
 	NextResolvePending Next = "resolve_pending"
@@ -26,10 +26,10 @@ const (
 	NextContinue Next = "continue"
 	// NextRaiseBudget means a cost or token cap stopped the turn. Continue
 	// with a raised Budget; when Stop shows no model attempts left, raise
-	// Continue.ModelAttempts as well.
+	// Continue.ModelCalls as well.
 	NextRaiseBudget Next = "raise_budget"
 	// NextRaiseModelCalls means the model-call limit stopped the turn.
-	// Continue with a higher Continue.ModelAttempts.
+	// Continue with a higher Continue.ModelCalls.
 	NextRaiseModelCalls Next = "raise_model_calls"
 	// NextFix means a cause outside the turn must be fixed first: a
 	// failure, a refusal, a host limit, an uncertain effect to settle, or
@@ -39,8 +39,8 @@ const (
 )
 
 // Next maps the turn's recorded stop to the host's next action. A stop
-// that Replay or Outcome projected (Stop.Projected) was never recorded, so
-// it gives NextResume. A hook's view during a run has no stop and gives
+// that Replay or Outcome projected (Stop.Inferred) was never recorded, so
+// it gives NextRecover. A hook's view during a run has no stop and gives
 // NextRunning. A refusal never gives NextContinue, so a host is never told
 // to ask the model again after it refused. Next reads only the view's
 // fields, so a view decoded from JSON gives the same answer.
@@ -49,13 +49,13 @@ func (v TurnView) Next() Next {
 	switch {
 	case v.Revision == 0:
 		return NextNone
-	case stop.Projected:
-		return NextResume
+	case stop.Inferred:
+		return NextRecover
 	case stop.Kind == "":
 		return NextRunning
 	}
 	switch {
-	case stop.Terminal, stop.Kind == StopCompleted, stop.Kind == StopCanceled:
+	case stop.Ended, stop.Kind == StopCompleted, stop.Kind == StopCanceled:
 		return NextNone
 	case stop.Kind == StopRefused, stop.Kind == StopFailed:
 		return NextFix

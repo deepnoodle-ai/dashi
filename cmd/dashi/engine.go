@@ -267,7 +267,7 @@ func (l *LastTurn) CanGoOn() bool {
 	return l != nil && (l.Next == dashi.NextContinue ||
 		l.LimitStopped() ||
 		l.Retryable() ||
-		l.Next == dashi.NextResume && l.View.ReadyToContinue)
+		l.Next == dashi.NextRecover && l.View.ReadyToContinue)
 }
 
 // Retryable reports whether the turn failed and Continue can run it again.
@@ -389,7 +389,7 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 // ran. Input queued while a turn ran, and steers that missed it, run as the
 // next turns in the same command.
 type Result struct {
-	Outcome dashi.Outcome
+	Outcome dashi.RunResult
 }
 
 // Prompt starts a new turn with text. Input queued earlier goes first. If
@@ -465,7 +465,7 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 	return e.continueLast(ctx, dashi.Continue{ModelCalls: raised}, last)
 }
 
-// Continuing a summary authorizes only that summary. Stop at its Outcome
+// Continuing a summary authorizes only that summary. Stop at its RunResult
 // before Session dispatches any queued user turn, including after reopening.
 func (e *Engine) continueLast(ctx context.Context, cmd dashi.Continue, last *LastTurn) (Result, error) {
 	if last != nil && last.View.Origin == dashi.StartCompaction {
@@ -657,26 +657,26 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			runErr = err
 			e.rememberPromptError(err)
 		}
-		if ev.Outcome != nil {
-			if len(ev.Outcome.Turn.Steps) > 0 {
-				if err := e.acknowledgePrompt(&ev.Outcome.Turn.Steps[0]); err != nil {
+		if ev.Result != nil {
+			if len(ev.Result.Turn.Steps) > 0 {
+				if err := e.acknowledgePrompt(&ev.Result.Turn.Steps[0]); err != nil {
 					e.warn("%v.", err)
 				}
 			}
-			res.Outcome, have = *ev.Outcome, true
-			if e.cfg.ParentStopped != nil && ev.Outcome.Origin != dashi.StartCompaction {
+			res.Outcome, have = *ev.Result, true
+			if e.cfg.ParentStopped != nil && ev.Result.Origin != dashi.StartCompaction {
 				e.cfg.ParentStopped(turnNumber(ev.TurnID))
 			}
-			e.settled(renderer(ev.TurnID), *ev.Outcome)
+			e.settled(renderer(ev.TurnID), *ev.Result)
 			if stopOutcome {
 				break
 			}
-			if p := e.cfg.Preferences; p != nil && ev.Outcome.Next() == dashi.NextNone {
+			if p := e.cfg.Preferences; p != nil && ev.Result.Next() == dashi.NextNone {
 				var next *dashi.Agent
-				if ev.Outcome.Origin == dashi.StartCompaction && len(admission) > 0 {
+				if ev.Result.Origin == dashi.StartCompaction && len(admission) > 0 {
 					next = admission[0]
 				}
-				if ev.Outcome.Origin != dashi.StartCompaction && e.Queued() > 0 {
+				if ev.Result.Origin != dashi.StartCompaction && e.Queued() > 0 {
 					agent := p.agent()
 					next = &agent
 				}
@@ -687,7 +687,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 					}
 				}
 			}
-			if stopCompaction && ev.Outcome.Origin == dashi.StartCompaction {
+			if stopCompaction && ev.Result.Origin == dashi.StartCompaction {
 				break
 			}
 			continue
@@ -768,7 +768,7 @@ func (e *Engine) Queued() int {
 
 // settled shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
-func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
+func (e *Engine) settled(r *Renderer, out dashi.RunResult) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable ||
 			w.Code == session.WarningCompactionFailed ||

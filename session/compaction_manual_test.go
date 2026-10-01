@@ -24,7 +24,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			s.New = true
 			s.Compactor = keepLast{limit: 100000}
 			out, err := s.Compact(t.Context(), nil)
-			if !errors.Is(err, session.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.Outcome{}) {
+			if !errors.Is(err, session.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.RunResult{}) {
 				t.Fatalf("no work=%+v, %v", out, err)
 			}
 			sendAll(t, s, "first")
@@ -143,7 +143,7 @@ func TestSessionManualCompactionSlotRace(t *testing.T) {
 	b.New = true
 	b.Compactor = keepLast{limit: 10000}
 	sendAll(t, b, "first")
-	var winner dashi.Outcome
+	var winner dashi.RunResult
 	var winnerErr error
 	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() { winner, winnerErr = b.Compact(t.Context(), nil) }}, client)
 	a.Compactor = keepLast{limit: 10000}
@@ -241,7 +241,7 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: fault}
 			var gotErr error
 			for ev, err := range s.StreamCompact(t.Context(), nil) {
-				if ev.Outcome != nil || ev.Step != nil {
+				if ev.Result != nil || ev.Step != nil {
 					t.Fatalf("unacknowledged admission emitted record facts: %+v", ev)
 				}
 				gotErr = errors.Join(gotErr, err)
@@ -266,11 +266,11 @@ func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Outcome != nil {
+		if ev.Result != nil {
 			outcomes = append(outcomes, ev.TurnID)
-			if len(ev.Outcome.Turn.Steps) == 0 || ev.Outcome.Origin == dashi.StartCompaction ||
-				!slices.Contains(codes(ev.Outcome.SessionWarnings), session.WarningCompactionFailed) {
-				t.Fatalf("unrecorded summary outcome: %+v", ev.Outcome)
+			if len(ev.Result.Turn.Steps) == 0 || ev.Result.Origin == dashi.StartCompaction ||
+				!slices.Contains(codes(ev.Result.SessionWarnings), session.WarningCompactionFailed) {
+				t.Fatalf("unrecorded summary outcome: %+v", ev.Result)
 			}
 		}
 	}

@@ -341,7 +341,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 }
 
 // startTurn starts turn "t1" with a fixed user input.
-func startTurn(def Agent, runner Runner) (Outcome, error) {
+func startTurn(def Agent, runner Runner) (RunResult, error) {
 	command := Start{
 		CommandID: "start",
 		Agent:     def,
@@ -350,7 +350,7 @@ func startTurn(def Agent, runner Runner) (Outcome, error) {
 	return apply(Turn{ID: "t1"}, command, runner)
 }
 
-func apply(turn Turn, command Command, runner Runner) (Outcome, error) {
+func apply(turn Turn, command Command, runner Runner) (RunResult, error) {
 	return runner.Run(context.Background(), turn, command)
 }
 
@@ -630,7 +630,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	def.Limits.ToolConcurrency = 1
 	rec := NewMemoryRecorder()
 	type result struct {
-		out Outcome
+		out RunResult
 		err error
 	}
 	finished := make(chan result, 1)

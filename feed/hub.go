@@ -169,7 +169,7 @@ func (h *Hub) observeStep(e dashi.Event) {
 			t.open = nil
 		}
 	}
-	if e.Step.Stop != nil && e.Step.Stop.Terminal {
+	if e.Step.Stop != nil && e.Step.Stop.Ended {
 		// Nothing streams after the end; forget the turn's messages.
 		t.open = nil
 		clear(t.settled)

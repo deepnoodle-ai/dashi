@@ -95,10 +95,10 @@ spending limits.
 `Start` takes an optional `Budget` with `MaxOutputTokens` (turn total),
 `MaxTotalTokens` (all input and output across calls), and `MaxCost` (model-call
 charges only). The turn-started step records it. Existing agent limits
-(`ModelAttempts`, `Deadline`, `Interruptions`) stay where they are; whether
+(`ModelCalls`, `Deadline`, `Interruptions`) stay where they are; whether
 they should also move to the caller is not decided.
 
-**The check before each call.** `llm.MaxCostAtRisk(Request, Pricing)` values a
+**The check before each call.** `llm.WorstCaseCost(Request, Pricing)` values a
 prepared request: estimated input at the highest input-side rate, plus the
 effective `MaxTokens` at the output rate, in the price tier the input selects.
 Input size starts as a safe, size-based estimate (nvoken's byte bound); a
@@ -122,11 +122,11 @@ It never lowers `MaxTokens` to fit a cost shortfall. Then, if `MaxCost` is set:
 - **Worst case does not fit:** the turn stops `limited` before the call. The
   reason says what to change: "next call could cost up to $1.02 (64,000 output
   tokens); $0.50 of the $0.50 cap remains; an output-token allowance of about
-  29,000 would fit." `LimitDetail.FitTokens` carries that number. When input
+  29,000 would fit." `LimitDetail.SuggestedMaxOutputTokens` carries that number. When input
   alone consumes the remainder, no positive output allowance fits; raise the
   cap or reduce input/history instead.
 - **It fits:** `BeforeSend` receives the worst case and the remaining budget in
-  a `SendPlan`, and the recorded call keeps it as `ModelFact.AtRisk`.
+  a `SendPlan`, and the recorded call keeps it as `ModelFact.WorstCaseCost`.
 
 These stops depart from warn-and-adjust (decision 4) on purpose: a model-call
 admission limit must fail closed, and the reason gives the application the fix.
@@ -170,8 +170,8 @@ plan ceilings. The credit recipe: `BeforeSend` compares `AtRisk` with the
 balance, denies with a host limit when short, and returns `Admission` naming the
 account and amount. The recorder reserves that amount in the same transaction as
 the call's intent and rejects the write if it cannot. On the result step it
-calls `AttemptSpendOf(intent, settlement)`, the same per-attempt entry that
-`TurnView.Attempts` lists, with the usage and charge counted into `Spend`
+calls `ModelCallCostOf(intent, settlement)`, the same per-attempt entry that
+`TurnView.ModelCallCosts` lists, with the usage and charge counted into `Spend`
 (which is their sum), a basis (measured, estimated, or not executed), and
 `Final`. A final attempt's hold becomes its charge. For the rest, such as a
 call whose usage never arrived or whose charge is partial (`Cost.Partial`:
@@ -189,13 +189,13 @@ type Budget struct {
 }
 type BudgetRaise struct { Budget Budget; At time.Time }
 type LimitDetail struct {
-    Kind                LimitKind // model_attempts, deadline, interruptions,
+    Kind                LimitKind // model_calls, deadline, interruptions,
                                   // output_tokens, total_tokens, cost, host
     Code                string    // application code for a host limit
     Limit, Used         int64     // counts, or Unix seconds for a deadline
-    CostLimit, CostUsed, CostAtRisk money.Amount // exact amounts
+    CostLimit, CostUsed, WorstCaseCost money.Amount // exact amounts
     Currency            string    // unit of the Cost fields (cap or host unit)
-    FitTokens           int       // output allowance that would fit a cost cap
+    SuggestedMaxOutputTokens           int       // output allowance that would fit a cost cap
     UnpricedModel       string
 }
 type Stop struct { Kind StopKind; Reason string; Limit *LimitDetail }
@@ -205,9 +205,9 @@ type Spend struct {
     ToolCost               map[string]money.Amount // local tools by currency
     Estimated, CostUnknown int
 }
-// Start.Budget, Continue.Budget *Budget; ModelFact.AtRisk, .Charge *llm.Cost;
-// TurnView.Budget, .Raises []BudgetRaise, .Spend, .Attempts []AttemptSpend;
-// AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend;
+// Start.Budget, Continue.Budget *Budget; ModelFact.WorstCaseCost, .Charge *llm.Cost;
+// TurnView.Budget, .Raises []BudgetRaise, .Spend, .Attempts []ModelCallCost;
+// ModelCallCostOf(intent, settlement *ModelFact) ModelCallCost;
 // BeforeSend(ctx, SendPlan{Request, Turn, AtRisk, Remaining});
 // ModelAuthorization.Limit.
 ```
@@ -235,14 +235,14 @@ agent for life. Rejected ([decision 25](decisions.md)).
    raises, `MaxOutputTokens`, `MaxTotalTokens`, the `MaxTokens` lowering, and
    the between-step check. Test a raise after a stop and resume after an
    attempt limit.
-3. **Cost caps.** `MaxCostAtRisk`, `SendPlan`, `ModelFact.AtRisk`, the stop
-   with `FitTokens`, unpriced and unbounded-output stops, a no-feasible-output
+3. **Cost caps.** `WorstCaseCost`, `SendPlan`, `ModelFact.WorstCaseCost`, the stop
+   with `SuggestedMaxOutputTokens`, unpriced and unbounded-output stops, a no-feasible-output
    case, hosted request counts, separately reported tool cost, and a recorder
    example that reserves credits.
 
 ## Open questions
 
-- Should `ModelAttempts`, `Deadline`, and `Interruptions` also move from the
+- Should `ModelCalls`, `Deadline`, and `Interruptions` also move from the
   agent to the caller?
 - May `Continue` lower a budget, or only raise it?
 - Child turns: how their spend rolls up to a parent waits until Dashi has

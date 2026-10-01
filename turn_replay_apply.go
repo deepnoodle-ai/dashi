@@ -16,7 +16,7 @@ func (s *replayState) apply(step Step) error {
 	if s.Stop.Kind == StopCompleted {
 		return errors.New("completed turn cannot change")
 	}
-	if s.Stop.Terminal {
+	if s.Stop.Ended {
 		switch step.Kind {
 		case StepModelCallFinished, StepModelCallFinishedByHost, StepToolFinished:
 		default:
@@ -332,7 +332,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Result != nil && s.modelIntents[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 			actionable := step.Model.Error == "" &&
 				step.Model.Interrupted == InterruptNone &&
-				!s.Stop.Terminal
+				!s.Stop.Ended
 			if err := s.recordResult(
 				step.Model.ModelCallID,
 				step.Model.Result,
@@ -382,7 +382,7 @@ func (s *replayState) apply(step Step) error {
 				if err := s.recordResult(
 					step.Model.ModelCallID,
 					step.Model.Result,
-					!s.Stop.Terminal,
+					!s.Stop.Ended,
 				); err != nil {
 					return err
 				}
@@ -704,7 +704,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
-		if step.Stop.Projected {
+		if step.Stop.Inferred {
 			return errors.New("a recorded stop cannot be projected")
 		}
 		if step.Stop.Limit != nil {
@@ -744,14 +744,14 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if s.stopTerminal(*step.Stop) != step.Stop.Terminal {
+		if s.stopTerminal(*step.Stop) != step.Stop.Ended {
 			return fmt.Errorf(
 				"stop terminal=%t, but the turn's state gives %t",
-				step.Stop.Terminal,
+				step.Stop.Ended,
 				s.stopTerminal(*step.Stop),
 			)
 		}
-		if step.Stop.Terminal {
+		if step.Stop.Ended {
 			// The stop is the evidence that calls without a start could not
 			// execute. Started calls remain pending for late reconciliation.
 			for _, id := range s.callOrder {

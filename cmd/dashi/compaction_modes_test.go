@@ -18,7 +18,7 @@ func TestCompactBusyRecoveryInstructions(t *testing.T) {
 		want string
 	}{
 		{dashi.NextContinue, "Press Enter to continue"},
-		{dashi.NextResume, "Press Enter to continue"},
+		{dashi.NextRecover, "Press Enter to continue"},
 		{dashi.NextRaiseModelCalls, "Type /continue"},
 	} {
 		got := busyText(&session.TurnBusyError{TurnID: "session-2", Next: tc.next})

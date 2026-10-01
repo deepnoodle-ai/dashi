@@ -108,7 +108,7 @@ func FormatInspection(report Inspection) string {
 			out.WriteString("\nLatest execution unreadable; stop and destination unavailable.")
 		} else {
 			fmt.Fprintf(&out, "\nRecorded destination: %s; API: %s; model: %s", known(e.Destination.Provider), known(e.Destination.API), known(e.Destination.Model))
-			if e.Stop.Projected {
+			if e.Stop.Inferred {
 				fmt.Fprintf(&out, "\nNo run stop recorded; replay observation: %s", known(string(e.Stop.Kind)))
 			} else {
 				fmt.Fprintf(&out, "\nRecorded stop: %s", known(string(e.Stop.Kind)))
@@ -163,7 +163,7 @@ func RecordedStopSummary(e *Execution) string {
 	if !e.Readable {
 		return "latest record unreadable"
 	}
-	if e.Stop.Projected {
+	if e.Stop.Inferred {
 		return "no run stop recorded; worker liveness unknown"
 	}
 	switch e.Stop.Kind {

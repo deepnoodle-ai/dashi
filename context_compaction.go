@@ -24,7 +24,7 @@ func (r *runtime) summaryMaxTokens(ordinary int) int {
 	}
 	return n
 }
-func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) Outcome {
+func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) RunResult {
 	used := llm.EstimatedInputTokens(req)
 	reserve := req.Snapshot().Effective.MaxTokens
 	if reserve > math.MaxInt-used {
@@ -35,15 +35,15 @@ func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) O
 	r.pendingWarnings = append(r.pendingWarnings, Warning{Code: WarningActiveCompactionBlocked, Message: "Active context cannot fit: " + reason + ". Preserve the work and start a new Turn with a larger window or smaller fixed input."})
 	return r.stopWith(&Stop{Kind: StopLimited, Reason: string(LimitContextWindow), Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
 }
-func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (Outcome, bool, bool) {
+func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (RunResult, bool, bool) {
 	window := s.ActiveCompactionWindow
 	if window == 0 {
-		return Outcome{}, false, false
+		return RunResult{}, false, false
 	}
 	allowance := max(0, window-req.Snapshot().Effective.MaxTokens)
 	estimate := llm.EstimatedInputTokens(req)
 	if float64(estimate) < r.agent.ActiveCompaction.Fraction*float64(allowance) {
-		return Outcome{}, false, false
+		return RunResult{}, false, false
 	}
 	if !r.compactionUsed && !s.compactionUsed {
 		plan, err := r.activePlan(s, estimate, allowance)
@@ -63,14 +63,14 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 				if estimate > allowance {
 					return r.contextLimit(s, req, "protected context cannot fit even with a minimal summary"), false, true
 				}
-				return Outcome{}, false, false
+				return RunResult{}, false, false
 			}
 			if _, err := r.activeSummaryMessages(plan); err != nil {
 				r.compactionCandidate = nil
 				if estimate > allowance {
 					return r.contextLimit(s, req, "bounded summary evidence cannot fit"), false, true
 				}
-				return Outcome{}, false, false
+				return RunResult{}, false, false
 			}
 			r.compactionUsed = true
 			// Re-read deliveries committed by ordinary BeforeModel before the summary.
@@ -85,7 +85,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 	if estimate > allowance {
 		return r.contextLimit(s, req, "protected input, prior history, replay dependencies, or retained exchanges dominate"), false, true
 	}
-	return Outcome{}, false, false
+	return RunResult{}, false, false
 }
 func (r *runtime) activePlan(s *replayState, estimate, allowance int) (*ContextCompactionPlan, error) {
 	visible, err := projectedMessages(r.turn, nil, true)
@@ -256,7 +256,7 @@ func (r *runtime) activeOrdinaryDefinitions(s *replayState) ([]tool.Definition, 
 	}
 	return defs, nil
 }
-func (r *runtime) applyActiveCompaction(s *replayState) *Outcome {
+func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
 	attempt := s.pendingCompaction
 	plan := s.modelIntents[attempt].Compaction
 	result := s.modelSettlements[attempt].Result

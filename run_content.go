@@ -58,7 +58,7 @@ type ContentLimits struct {
 // returned input is a copy, so the recorded, reference-bearing messages stay
 // unchanged. A non-nil stop ends the turn as failed: the runner never drops a
 // reference or sends the request without it.
-func (r *runtime) hydrate(input llm.Input) (llm.Input, *Outcome) {
+func (r *runtime) hydrate(input llm.Input) (llm.Input, *RunResult) {
 	if !input.HasRef() {
 		return input, nil
 	}
@@ -146,7 +146,7 @@ func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
 	return data, ""
 }
 
-func (r *runtime) refStop(id, reason string) *Outcome {
+func (r *runtime) refStop(id, reason string) *RunResult {
 	o := r.stopWith(&Stop{Kind: StopFailed, Reason: reason, RefID: id})
 	return &o
 }

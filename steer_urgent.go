@@ -588,7 +588,7 @@ func (r *runtime) urgentSteers() []ContextItem {
 
 // skipForSteer settles a requested or allowed call as not executed, so the
 // steer reaches the model before the batch goes on.
-func (r *runtime) skipForSteer(call tool.Call) *Outcome {
+func (r *runtime) skipForSteer(call tool.Call) *RunResult {
 	out := tool.Outcome{
 		State:  tool.StateNotExecuted,
 		Output: new(tool.TextOutput(steerSkipText)),

@@ -257,7 +257,7 @@ func (s automationSnapshot) canContinue() bool {
 		if a.TaskID == "" && s.missingNotice && a.Stop.Kind == dashi.StopWaiting && a.Next == dashi.NextContinue {
 			continue
 		}
-		if a.Next == dashi.NextContinue || a.Next == dashi.NextResume && a.Ready {
+		if a.Next == dashi.NextContinue || a.Next == dashi.NextRecover && a.Ready {
 			continue
 		}
 		return false

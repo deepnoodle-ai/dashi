@@ -69,7 +69,7 @@ func run(ctx context.Context, mode, dir string) error {
 	if err != nil {
 		return err
 	}
-	var out dashi.Outcome
+	var out dashi.RunResult
 	switch mode {
 	case "start":
 		// Running start again repeats the same command, which returns the
@@ -140,20 +140,20 @@ func deliver(
 	ctx context.Context,
 	runner dashi.Runner,
 	recorder dashi.Loader,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	turn, err := recorder.Load(ctx, turnID)
 	if errors.Is(err, dashi.ErrTurnNotFound) {
-		return dashi.Outcome{}, errors.New("no saved turn; run -mode=start first")
+		return dashi.RunResult{}, errors.New("no saved turn; run -mode=start first")
 	}
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	view, err := dashi.Replay(turn)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	if view.Stop.Kind != dashi.StopWaiting {
-		return dashi.Outcome{Turn: turn, TurnView: view}, nil // already done
+		return dashi.RunResult{Turn: turn, TurnView: view}, nil // already done
 	}
 	for _, p := range view.Pending {
 		fmt.Printf("Webhook: %s delivered\n", messageID(p))

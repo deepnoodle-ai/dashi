@@ -30,7 +30,7 @@ every provider. Dashi estimates the full input and output cost before
 `BeforeSend`. If it cannot bound the call or the call would exceed the cap, the
 turn stops `limited` before dispatch. It does not shrink the reply to fit a cost
 cap. The stop's `Limit` gives the cap, spent amount, worst case (`CostLimit`,
-`CostUsed`, `CostAtRisk`), and the output-token allowance that would fit. A call
+`CostUsed`, `WorstCaseCost`), and the output-token allowance that would fit. A call
 whose worst case reaches the cap exactly is admitted. If input alone consumes
 the remaining cap, no positive allowance fits; raise the cap or reduce
 input/history. A model without prices has an explicit `UnpricedModel` detail. A
@@ -122,7 +122,7 @@ arrive, `Continue` makes `BeforeSend` check the balance again.
 
 An application can reserve credits in its recorder. `BeforeSend` receives a
 `SendPlan` with the prepared request, `AtRisk`, and the remaining turn cost
-allowance. It can return `SendDecision.Admission` with the account and
+allowance. It can return `SendDecision.Reservation` with the account and
 amount to hold. The recorder atomically saves the model intent and reserves
 that amount, using the attempt ID as the idempotency key. A credit denial
 returns a `Limit` of kind `host` and an application code such as
@@ -132,8 +132,8 @@ or the host's credit unit) and keeps `Limit` and `Used` for counts. Credit
 balances and plan ceilings remain with the application.
 
 To settle, let Dashi classify each attempt rather than reading the model
-facts. `dashi.AttemptSpendOf(intent, settlement)` returns the attempt's
-`AttemptSpend`: the `Usage` and `Charge` that Dashi counts into `Spend`, so
+facts. `dashi.ModelCallCostOf(intent, settlement)` returns the attempt's
+`ModelCallCost`: the `Usage` and `Charge` that Dashi counts into `Spend`, so
 per-attempt charges sum to `Spend.Cost`. `Basis` says where the usage came
 from: `measured` (complete provider usage), `estimated` (Dashi filled some in:
 the call was cut short, is uncertain, still running, or its final usage never
@@ -152,13 +152,13 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 		// ...append req.Step, and reserve on StepModelCallStarted...
 		switch req.Step.Kind {
 		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
-			intent := tx.ReservedIntent(req.Step.Model.AttemptID)
-			a := dashi.AttemptSpendOf(intent, req.Step.Model)
+			intent := tx.ReservedIntent(req.Step.Model.ModelCallID)
+			a := dashi.ModelCallCostOf(intent, req.Step.Model)
 			switch {
-			case a.Basis == dashi.SpendNotExecuted:
-				return tx.Release(a.AttemptID)
+			case a.Basis == dashi.UsageSourceNotSent:
+				return tx.Release(a.ModelCallID)
 			case a.Final:
-				return tx.Resolve(a.AttemptID, roundUpToMicros(a.Charge.Total))
+				return tx.Resolve(a.ModelCallID, roundUpToMicros(a.Charge.Total))
 			}
 			// Estimated, partial, or unknown: the host's rule, here
 			// keeping the hold.
@@ -168,5 +168,5 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 }
 ```
 
-The same entries are on `TurnView.Attempts`, in record order and including a
+The same entries are on `TurnView.ModelCallCosts`, in record order and including a
 pending attempt, for a host that settles after each run instead.

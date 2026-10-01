@@ -63,7 +63,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	defer cancel()
 	def := testAgent()
 	def.Limits.ToolConcurrency = 1
-	finished := make(chan Outcome, 1)
+	finished := make(chan RunResult, 1)
 	go func() {
 		out, _ := (Runner{
 			Client:   client,
@@ -82,7 +82,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		t.Fatal("first executor did not start")
 	}
 	cancel()
-	var out Outcome
+	var out RunResult
 	select {
 	case out = <-finished:
 	case <-time.After(5 * time.Second):
@@ -173,7 +173,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	finished := make(chan Outcome, 1)
+	finished := make(chan RunResult, 1)
 	rec := NewMemoryRecorder()
 	go func() {
 		out, _ := (Runner{
@@ -195,7 +195,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 		}
 	}
 	cancel()
-	var out Outcome
+	var out RunResult
 	select {
 	case out = <-finished:
 	case <-time.After(5 * time.Second):

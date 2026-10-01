@@ -22,7 +22,7 @@ out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
 if err != nil {
 	return err
 }
-if out.Stop.Terminal {
+if out.Stop.Ended {
 	next, _ := inbox.Leftovers(out.Turn) // input for the next turn, if any
 }
 // otherwise: Continue with the inbox, or call Leftovers to abandon the turn
@@ -42,13 +42,13 @@ if out.Stop.Terminal {
   planned call adds none. Steering never spends the
   [reserved final-answer call](recovering-turns.md#turn-states-and-limits) or goes past a limit, the deadline, or a pause: the steer then waits
   for the next turn, and a `WarningSteering` on the record says why.
-  Interactive agents should raise `Limits.ModelAttempts` from its
+  Interactive agents should raise `Limits.ModelCalls` from its
   [default of 8](recovering-turns.md#turn-states-and-limits).
 - **Urgent steers.** `inbox.SendUrgent(text)` also cuts short the model call
   in flight, when a replacement call fits the turn's limits. The next call
   sees the partial text, a reminder that the user interrupted it, and the
   steer. The cut call is recorded with `Interrupted: "steering"`; it does not
-  count toward `ModelAttempts`, but its cost counts, and under a `MaxCost`
+  count toward `ModelCalls`, but its cost counts, and under a `MaxCost`
   cap it is charged its worst case. A call that offers a provider-hosted
   tool unsafe to repeat is never cut once sent. A cut that does not happen
   leaves one `WarningSteering` saying why, and the steer waits for the next

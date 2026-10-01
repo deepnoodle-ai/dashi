@@ -13,15 +13,15 @@ import (
 // Stream is Run with events. It yields the events of every turn the call
 // runs, in order: the step that closes a stopped last turn, a compaction
 // turn, the command's own turn, and the queue turns that follow it. Each event carries its
-// TurnID, and each turn ends with its own Outcome event, with the session's
-// warnings; the last Outcome event is the call's result. An error the
+// TurnID, and each turn ends with its own RunResult event, with the session's
+// warnings; the last RunResult event is the call's result. An error the
 // session returns before any turn runs, such as *TurnBusyError, is yielded
 // alone.
 //
 // A retried Start whose turn is running (a duplicate with NextRunning) is
 // followed instead, when the recorder is a dashi.StepReader and a
 // dashi.Loader: Stream yields that turn's steps as they commit and ends
-// with its Outcome event once it stops.
+// with its RunResult event once it stops.
 //
 // Breaking the range ends the context, which records an interruption (or a
 // cancel under dashi.ContextCancel), and no further queue turn starts. The
@@ -68,7 +68,7 @@ func (s *Session) Stream(
 func (s *Session) RunQueue(
 	ctx context.Context,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, bool, error) {
+) (dashi.RunResult, bool, error) {
 	cl := &call{s: s, opts: opts}
 	out, ran, err := cl.queueTurn(ctx)
 	if err != nil {
@@ -100,8 +100,8 @@ type call struct {
 	warnings []dashi.Warning
 }
 
-func (cl *call) run(ctx context.Context, c dashi.Command) (dashi.Outcome, error) {
-	var out dashi.Outcome
+func (cl *call) run(ctx context.Context, c dashi.Command) (dashi.RunResult, error) {
+	var out dashi.RunResult
 	var err error
 	switch c := c.(type) {
 	case dashi.Start:
@@ -121,9 +121,9 @@ func (cl *call) run(ctx context.Context, c dashi.Command) (dashi.Outcome, error)
 // turns before it.
 func (cl *call) dispatch(
 	ctx context.Context,
-	out dashi.Outcome,
+	out dashi.RunResult,
 	err error,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	for err == nil && !cl.stopped && ctx.Err() == nil &&
 		out.Next() == dashi.NextNone {
 		next, ran, qerr := cl.queueTurn(ctx)
@@ -146,7 +146,7 @@ func (cl *call) dispatch(
 // start runs a new turn. A Start that loses a race on its turn ID, or a
 // keyed Start that finds its command ID taken, reloads and applies the
 // rules once more.
-func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.Outcome, error) {
+func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.RunResult, error) {
 	s := cl.s
 	fresh := c.CommandID == ""
 	if fresh {
@@ -163,9 +163,9 @@ func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.Outcome, error)
 			if err == nil && p.done == nil {
 				// The turn was planned but never ran: release it, and put
 				// the queued items it carried back.
-				s.finish(ctx, p.n, p.id, dashi.Outcome{}, context.Canceled, nil, p.reserved, false)
+				s.finish(ctx, p.n, p.id, dashi.RunResult{}, context.Canceled, nil, p.reserved, false)
 			}
-			return dashi.Outcome{}, context.Canceled
+			return dashi.RunResult{}, context.Canceled
 		}
 		if p.done != nil {
 			out := s.withMemoryWarning(*p.done)
@@ -178,14 +178,14 @@ func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.Outcome, error)
 				busy.Next == dashi.NextRunning {
 				return cl.follow(ctx, busy.TurnID, err)
 			}
-			return dashi.Outcome{}, cl.fail(err)
+			return dashi.RunResult{}, cl.fail(err)
 		}
 		if p.compact {
 			// The compaction turn runs first; then the Start is planned
 			// again, after it.
 			lost, err := cl.compact(ctx, p)
 			if err != nil {
-				return dashi.Outcome{}, err
+				return dashi.RunResult{}, err
 			}
 			// A lost slot leaves the check to the next plan, after the
 			// other worker's turns.
@@ -202,7 +202,7 @@ func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.Outcome, error)
 		// turn gets that turn's outcome from the engine, as a retry. With
 		// no stop recorded, the turn may still be running, so plan again:
 		// the idempotency check then refuses it as a duplicate.
-		if attempt < 2 && !fresh && err == nil && out.Stop.Projected {
+		if attempt < 2 && !fresh && err == nil && out.Stop.Inferred {
 			attempt++
 			continue
 		}
@@ -212,13 +212,13 @@ func (cl *call) start(ctx context.Context, c dashi.Start) (dashi.Outcome, error)
 }
 
 // command routes a command other than Start to the last turn.
-func (cl *call) command(ctx context.Context, c dashi.Command) (dashi.Outcome, error) {
+func (cl *call) command(ctx context.Context, c dashi.Command) (dashi.RunResult, error) {
 	s := cl.s
 	s.mu.Lock()
 	p, err := s.planCommand(ctx, &c)
 	s.mu.Unlock()
 	if err != nil {
-		return dashi.Outcome{}, cl.fail(err)
+		return dashi.RunResult{}, cl.fail(err)
 	}
 	out, err := cl.exec(ctx, p.runner, p.turn, c)
 	out, err = s.finish(ctx, p.n, p.turn.ID, out, err, p.warnings, nil, false)
@@ -229,7 +229,7 @@ func (cl *call) command(ctx context.Context, c dashi.Command) (dashi.Outcome, er
 // queueTurn starts one queue turn from every queued item, when the session
 // is idle. It reports false when it started none. A queue turn that loses
 // the race for its turn ID tries once more.
-func (cl *call) queueTurn(ctx context.Context) (dashi.Outcome, bool, error) {
+func (cl *call) queueTurn(ctx context.Context) (dashi.RunResult, bool, error) {
 	s := cl.s
 	compacted := false
 	for attempt := 0; ; {
@@ -238,18 +238,18 @@ func (cl *call) queueTurn(ctx context.Context) (dashi.Outcome, bool, error) {
 		s.mu.Unlock()
 		if errors.Is(err, errReserved) {
 			// The queue waits; each outcome warns WarningQueueBlocked.
-			return dashi.Outcome{}, false, err
+			return dashi.RunResult{}, false, err
 		}
 		if err != nil {
-			return dashi.Outcome{}, false, cl.fail(err)
+			return dashi.RunResult{}, false, cl.fail(err)
 		}
 		if !ok {
-			return dashi.Outcome{}, false, nil
+			return dashi.RunResult{}, false, nil
 		}
 		if p.compact {
 			lost, err := cl.compact(ctx, p)
 			if err != nil {
-				return dashi.Outcome{}, false, err
+				return dashi.RunResult{}, false, err
 			}
 			compacted = !lost
 			continue
@@ -268,14 +268,14 @@ func (cl *call) queueTurn(ctx context.Context) (dashi.Outcome, bool, error) {
 // exec runs one command on the engine, with the handle's steering source
 // ahead of the caller's options, so an explicit WithSteering still wins,
 // except on a compaction turn, which gets no steering.
-// For Stream it forwards the events, tagged with the turn ID; the Outcome
+// For Stream it forwards the events, tagged with the turn ID; the RunResult
 // event waits for report, after the session adds its warnings.
 func (cl *call) exec(
 	ctx context.Context,
 	r dashi.Runner,
 	turn dashi.Turn,
 	c dashi.Command,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	cl.s.mu.Lock()
 	source := cl.s.steering()
 	cl.s.mu.Unlock()
@@ -296,14 +296,14 @@ func (cl *call) exec(
 	// load them.
 	runCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
-	var out dashi.Outcome
+	var out dashi.RunResult
 	var runErr error
 	have := false
 	seen := turn
 	seen.Steps = slices.Clone(turn.Steps)
 	for ev, err := range r.Stream(runCtx, turn, c, opts...) {
-		if ev.Outcome != nil {
-			out, have, runErr = *ev.Outcome, true, err
+		if ev.Result != nil {
+			out, have, runErr = *ev.Result, true, err
 			continue
 		}
 		if err != nil {
@@ -330,7 +330,7 @@ func (cl *call) exec(
 	if !have {
 		// The engine yielded no outcome: the turn holds the committed
 		// steps this call saw, if any.
-		out = dashi.Outcome{Turn: seen}
+		out = dashi.RunResult{Turn: seen}
 		if runErr == nil && cl.stopped {
 			runErr = errStreamStopped
 		}
@@ -354,15 +354,15 @@ func (cl *call) takeWarnings(warnings []dashi.Warning) []dashi.Warning {
 	return out
 }
 
-// report yields a turn's Outcome event, or the error alone when nothing
+// report yields a turn's RunResult event, or the error alone when nothing
 // was recorded.
-func (cl *call) report(out dashi.Outcome, err error) {
+func (cl *call) report(out dashi.RunResult, err error) {
 	if cl.yield == nil || cl.stopped {
 		return
 	}
 	var ev dashi.Event
 	if err == nil || dashi.Recorded(err) {
-		ev = dashi.Event{TurnID: out.Turn.ID, Outcome: &out}
+		ev = dashi.Event{TurnID: out.Turn.ID, Result: &out}
 	}
 	if !cl.yield(ev, err) {
 		cl.stopped = true
@@ -392,14 +392,14 @@ func (cl *call) forward(events []dashi.Event) bool {
 }
 
 // follow yields the steps of a running turn this call is a retry of, then
-// each new step as it commits, and ends with the turn's Outcome event at
+// each new step as it commits, and ends with the turn's RunResult event at
 // its next stop, or at once when the loaded turn already rests at one.
 // Without a recorder that can read steps, it returns busy.
 func (cl *call) follow(
 	ctx context.Context,
 	turnID string,
 	busy error,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	s := cl.s
 	s.mu.Lock()
 	rec := s.recorder()
@@ -407,18 +407,18 @@ func (cl *call) follow(
 	reader, reads := rec.(dashi.StepReader)
 	loader, loads := rec.(dashi.Loader)
 	if !reads || !loads {
-		return dashi.Outcome{}, cl.fail(busy)
+		return dashi.RunResult{}, cl.fail(busy)
 	}
 	turn, err := loader.Load(ctx, turnID)
 	if err != nil {
-		return dashi.Outcome{}, cl.fail(err)
+		return dashi.RunResult{}, cl.fail(err)
 	}
 	var after int64
 	for i := range turn.Steps {
 		step := turn.Steps[i]
 		after = step.Seq
 		if !cl.forward([]dashi.Event{{TurnID: turnID, Seq: step.Seq, Step: &step}}) {
-			return dashi.Outcome{}, context.Canceled
+			return dashi.RunResult{}, context.Canceled
 		}
 	}
 	// The turn stopped after the duplicate check. Follow would wait while
@@ -428,55 +428,55 @@ func (cl *call) follow(
 	}
 	for step, err := range dashi.Follow(ctx, reader, turnID, after) {
 		if err != nil {
-			return dashi.Outcome{}, cl.fail(err)
+			return dashi.RunResult{}, cl.fail(err)
 		}
 		if !cl.forward([]dashi.Event{{TurnID: turnID, Seq: step.Seq, Step: &step}}) {
-			return dashi.Outcome{}, context.Canceled
+			return dashi.RunResult{}, context.Canceled
 		}
 		if step.Kind == dashi.StepTurnStopped {
 			break
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	turn, err = loader.Load(ctx, turnID)
 	if err != nil {
-		return dashi.Outcome{}, cl.fail(err)
+		return dashi.RunResult{}, cl.fail(err)
 	}
 	return cl.reportTurn(turn)
 }
 
-// reportTurn yields the Outcome event of a followed turn.
-func (cl *call) reportTurn(turn dashi.Turn) (dashi.Outcome, error) {
+// reportTurn yields the RunResult event of a followed turn.
+func (cl *call) reportTurn(turn dashi.Turn) (dashi.RunResult, error) {
 	view, err := dashi.Replay(turn)
 	if err != nil {
-		return dashi.Outcome{}, cl.fail(err)
+		return dashi.RunResult{}, cl.fail(err)
 	}
-	out := dashi.Outcome{Turn: turn, TurnView: view}
+	out := dashi.RunResult{Turn: turn, TurnView: view}
 	cl.report(out, nil)
 	return out, nil
 }
 
 // collectRun runs a command with Runner.Stream and returns its events,
-// including its Outcome event, for a caller that holds the handle lock.
+// including its RunResult event, for a caller that holds the handle lock.
 func collectRun(
 	ctx context.Context,
 	r dashi.Runner,
 	turn dashi.Turn,
 	c dashi.Command,
 	opts []dashi.RunOption,
-) (dashi.Outcome, []dashi.Event, error) {
-	out := dashi.Outcome{Turn: turn}
+) (dashi.RunResult, []dashi.Event, error) {
+	out := dashi.RunResult{Turn: turn}
 	var events []dashi.Event
 	var runErr error
 	for ev, err := range r.Stream(ctx, turn, c, opts...) {
-		if ev.Outcome != nil {
-			out = *ev.Outcome
+		if ev.Result != nil {
+			out = *ev.Result
 		}
 		if err != nil {
 			runErr = err
-			if ev.Outcome == nil {
+			if ev.Result == nil {
 				continue
 			}
 		}
@@ -489,20 +489,20 @@ func collectRun(
 }
 
 // lastOutcome returns the current outcome of the session's last turn, or a
-// zero Outcome when it has none.
-func (s *Session) lastOutcome(ctx context.Context) (dashi.Outcome, error) {
+// zero RunResult when it has none.
+func (s *Session) lastOutcome(ctx context.Context) (dashi.RunResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ID == "" {
-		return dashi.Outcome{}, nil
+		return dashi.RunResult{}, nil
 	}
 	last, err := s.findLast(ctx)
 	if err != nil || last == 0 {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
-	return dashi.Outcome{Turn: t.turn.Clone(), TurnView: t.view}, nil
+	return dashi.RunResult{Turn: t.turn.Clone(), TurnView: t.view}, nil
 }

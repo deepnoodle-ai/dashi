@@ -16,7 +16,7 @@ func startWithParent(
 	t *testing.T,
 	rec Recorder,
 	parent *CallRef,
-) (Outcome, error) {
+) (RunResult, error) {
 	t.Helper()
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	return (Runner{

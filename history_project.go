@@ -15,7 +15,7 @@ import (
 // client calls and model intents cannot be projected into a new request, so
 // Project fails on a turn that has them, unless the turn has ended.
 //
-// An ended turn (Stop.Terminal) always projects, and only up to its terminal
+// An ended turn (Stop.Ended) always projects, and only up to its terminal
 // stop: results recorded after it count in Spend but never change the
 // projection. Each tool call still started, waiting, or uncertain there
 // projects as an error result, and a model attempt with no recorded result
@@ -92,7 +92,7 @@ func projectedMessagesCached(t Turn, history []llm.Message, compact bool, cache 
 
 func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
 	var err error
-	ended := state.Stop.Terminal
+	ended := state.Stop.Ended
 	if ended {
 		t.Steps = t.Steps[:endedLength(t.Steps, state.Stop)]
 		if state, err = replayCached(t, cache); err != nil {
@@ -274,7 +274,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 // terminal stop, so the last stop is the terminal one.
 func endedLength(steps []Step, stop Stop) int {
 	end := len(steps)
-	if !stop.Terminal {
+	if !stop.Ended {
 		return end
 	}
 	for end > 0 && steps[end-1].Kind != StepTurnStopped {

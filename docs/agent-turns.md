@@ -67,10 +67,10 @@ Check the conflicts with `errors.Is` first; they may arrive inside a
 turn waits on, when it cannot. `Outcome.ReadyToContinue`, and the same flag on
 a replayed turn, tells a host's sweeper when to schedule `Continue`. `AddMessages`
 records context without running. `Cancel` ends a started turn. Only `Start`
-and `Continue` need `Runner.Client`. `Stop.Terminal`
+and `Continue` need `Runner.Client`. `Stop.Ended`
 marks every stop that ends a turn: completed, canceled, a deadline or
 interruptions limit, or a cost cap over an unknown cost. A stop at the
-model-attempt limit is not terminal: `Continue{ModelAttempts: n}` raises the
+model-attempt limit is not terminal: `Continue{ModelCalls: n}` raises the
 limit to `n` and runs the same turn on. At any terminal stop, unstarted calls become known
 not executed, while started effects can still receive late results; other
 commands return `ErrTurnEnded`.
@@ -79,11 +79,11 @@ An ended Go context records `StopInterrupted` with its cause; a crash may leave
 no stop, and `Continue` recovers that too. `dashi.WithPause(ch)` requests a
 stop before the next model or tool call. `Runner.OnContextDone: ContextCancel`
 makes an ended context record `StopCanceled`. `Limits.Deadline` stops the turn
-as limited, and `Limits.Interruptions` bounds resumptions (default 10).
+as limited, and `Limits.Resumes` bounds resumptions (default 10).
 
 By default the last allowed model attempt, after earlier ones, is reserved for
 a final answer: it omits tools and ends with `StopLimited` and reason
-`model_attempts`, with its text in `Outcome.Reply`. Set
+`model_calls`, with its text in `Outcome.Reply`. Set
 `Limits.NoReservedFinalReply` to turn this off.
 
 ## Structured final results
@@ -130,12 +130,12 @@ model call keeps its partial result and usage for display and accounting, and
 `Continue` resends it under a new attempt ID unless a provider-hosted tool may
 have had an effect. `ModelFact.Interrupted` records why a call was cut short
 (`run`, `worker`, or `steering` for an urgent steer, which the run replaces
-at once). Interrupted calls do not use `ModelAttempts`. A started
+at once). Interrupted calls do not use `ModelCalls`. A started
 tool with no result is rerun only when declared `ReadOnly` or `Idempotent`;
 otherwise the effect is uncertain until the host reconciles it with
 `Resolve{Outcome}` or `Resolve{ModelResult}`. `Resolve{ModelFailure}` requires
 verified nonexecution evidence; never infer nonexecution from an unclassified
-transport error. `llm.Call.Attempt` carries the recorded attempt ID, sent at
+transport error. `llm.Call.Identity` carries the recorded attempt ID, sent at
 most once, so a client can key durable jobs by it.
 
 ## Tool and hook boundaries
@@ -171,7 +171,7 @@ recorded, typed context.
 tool progress that it may drop when it falls behind, reporting dropped deltas
 with an `Event.Gap` that names the message. `Runner.Stream` is a
 backpressured iterator over acknowledged steps, provisional deltas, and tool
-progress, ending with one `Event.Outcome`. Leaving the range interrupts the
+progress, ending with one `Event.Result`. Leaving the range interrupts the
 turn by default; do not range it in an HTTP handler for a durable turn (see
 [serving live updates](guides/live-updates.md#serving-live-updates)).
 

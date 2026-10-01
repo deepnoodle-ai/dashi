@@ -80,7 +80,7 @@ runner.Hooks = ask.Hooks()
 
 - `ModelPlan{Input, Turn}` and `SendPlan{Request, Turn, AtRisk, Remaining}`
   are unchanged; `ToolPlan{Call, Definition, Turn}`;
-  `FinishPlan{Turn, AttemptID, Answer, Output, OutputErr}`, where on a
+  `FinishPlan{Turn, ModelCallID, Answer, Output, OutputErr}`, where on a
   structured turn `Output` is the parsed value or `OutputErr` says why parsing
   failed.
 - `ModelDecision{Settings, AddMessages, Stop}`;
@@ -114,7 +114,7 @@ nothing is recorded for that hook.
   After a `BeforeFinish` failure, `Continue` runs the finish point again on the
   recorded answer, without another model call, unless context was delivered
   since: then the model is asked again. The runner sets
-  `Stop.Terminal`; hooks never do.
+  `Stop.Ended`; hooks never do.
 - **Rewrites.** A rewrite equal to the current arguments by JSON meaning is no
   opinion. After 3 restarts the call is denied ("Not run: a check kept changing
   the arguments.", with `WarningHookFailed`) and the turn continues.
@@ -179,6 +179,6 @@ answer.
 - The first step of each `Start` and `Continue`, the commands that run hooks,
   records `ActiveHooks`, the `Runner.Hooks` names per point; `WithHooks` extras
   are left out. `WarningHooksChanged` notes a change from the previous one.
-- `ModelFact.Admission` becomes a map by hook name.
+- `ModelFact.Reservation` becomes a map by hook name.
 - Warnings, buffered by the runtime, ride on the next step of any kind.
   `TurnView.Context(origin, name)` returns a live named item.

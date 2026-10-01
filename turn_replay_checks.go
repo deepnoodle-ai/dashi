@@ -83,27 +83,27 @@ func (s *replayState) projectedStop() Stop {
 		return s.Stop
 	case s.unresolvedModel != "":
 		return Stop{
-			Kind:      StopResultUnknown,
-			Reason:    "model attempt needs reconciliation",
-			Projected: true,
+			Kind:     StopResultUnknown,
+			Reason:   "model attempt needs reconciliation",
+			Inferred: true,
 		}
 	case s.modelIntent != "" || hasStartedTool(s):
 		return Stop{
-			Kind:      StopInterrupted,
-			Reason:    "worker stopped before result",
-			Projected: true,
+			Kind:     StopInterrupted,
+			Reason:   "worker stopped before result",
+			Inferred: true,
 		}
 	case len(s.Pending) > 0:
-		return Stop{Kind: StopWaiting, Projected: true}
+		return Stop{Kind: StopWaiting, Inferred: true}
 	case len(s.pending()) > 0:
 		// Requested or authorized calls wait only for a worker.
 		return Stop{
-			Kind:      StopInterrupted,
-			Reason:    "worker stopped before result",
-			Projected: true,
+			Kind:     StopInterrupted,
+			Reason:   "worker stopped before result",
+			Inferred: true,
 		}
 	}
-	return Stop{Projected: true}
+	return Stop{Inferred: true}
 }
 
 func (s *replayState) recordResult(
@@ -265,7 +265,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 // terminal preserves an accepted ended stop even when late reconciliation
 // corrects its accounting. New stops validate their flag with stopTerminal.
 func (s *replayState) terminal() bool {
-	return s.Stop.Terminal || s.stopTerminal(s.Stop)
+	return s.Stop.Ended || s.stopTerminal(s.Stop)
 }
 
 // stopTerminal derives terminality from the facts at the proposed stop's
@@ -299,7 +299,7 @@ func (s *replayState) stopTerminal(stop Stop) bool {
 // acceptsAfterEnd rejects a command on an ended turn unless it is a Resolve
 // reporting the result of work that had already started.
 func (s *replayState) acceptsAfterEnd(command Command) error {
-	if !s.Stop.Terminal {
+	if !s.Stop.Ended {
 		return nil
 	}
 	if c, ok := command.(Resolve); ok &&
@@ -327,7 +327,7 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 // without this the step would be stored and the turn would fail replay from
 // then on. It replays only when the turn rests at an open limited stop.
 func checkLateResultStep(turn Turn, s *replayState, step Step) error {
-	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+	if s.Stop.Kind != StopLimited || s.Stop.Ended {
 		return nil
 	}
 	step.Version = 1
@@ -347,7 +347,7 @@ func checkLateResultStep(turn Turn, s *replayState, step Step) error {
 // stale. The runner records uncertain before any budget stop while a model
 // call is unresolved, so no record it writes fails this.
 func (s *replayState) checkStillOpen() error {
-	if s.Stop.Kind != StopLimited || s.Stop.Terminal {
+	if s.Stop.Kind != StopLimited || s.Stop.Ended {
 		return nil
 	}
 	if err := s.calculateSpend(); err != nil {
@@ -368,7 +368,7 @@ func (s *replayState) interruptionLimitReached() bool {
 }
 
 // resumeCounts reports whether continuing from the current stop counts
-// toward Limits.Interruptions. A crash (no stop) always counts. An
+// toward Limits.Resumes. A crash (no stop) always counts. An
 // interrupted stop counts once the turn has made a model attempt; one
 // recorded before any, such as a Start admitted with a closed pause,
 // interrupted no work.
@@ -512,7 +512,7 @@ func (s *replayState) hiddenAt(id, name string) bool {
 	return intent != nil && slices.Contains(intent.Hidden, name)
 }
 
-// roomForAnyCall reports whether one more model call fits ModelAttempts,
+// roomForAnyCall reports whether one more model call fits ModelCalls,
 // the reserved final-answer call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {
 	used := s.ModelCalls
@@ -523,9 +523,9 @@ func (s *replayState) roomForAnyCall() bool {
 }
 
 // roomForNormalCall reports whether one more model call fits before the
-// reserved final-answer call, or within ModelAttempts when there is no
+// reserved final-answer call, or within ModelCalls when there is no
 // reserve. A model call in flight, requested but not settled, counts as
-// used, since ModelAttempts counts only settled calls.
+// used, since ModelCalls counts only settled calls.
 func (s *replayState) roomForNormalCall() bool {
 	used := s.ModelCalls
 	if s.modelIntent != "" {

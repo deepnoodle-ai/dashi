@@ -33,9 +33,9 @@ type Event struct {
 	// makes no gap, since each snapshot replaces the last. Runner.Stream
 	// never drops, so it never yields a gap.
 	Gap bool
-	// Outcome is set only on the final Runner.Stream event. Observer receives
+	// Result is set only on the final Runner.Stream event. Observer receives
 	// steps, deltas, progress, and gaps, not this terminal event.
-	Outcome *Outcome
+	Result *RunResult
 }
 
 // Observer receives events while a run is in progress. It runs on its own

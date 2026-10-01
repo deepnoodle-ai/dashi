@@ -48,7 +48,7 @@ func intentOf(t *testing.T, turn Turn, n int) *ModelFact {
 	return prefix.Steps[len(prefix.Steps)-1].Model
 }
 
-func countWarnings(out Outcome, code WarningCode) int {
+func countWarnings(out RunResult, code WarningCode) int {
 	n := 0
 	for _, w := range out.Warnings {
 		if w.Code == code {
@@ -64,7 +64,7 @@ func runAgent(
 	client *scriptedClient,
 	tools tool.Toolset,
 	hooks Hooks,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := (Runner{Client: client, Tools: tools, Hooks: hooks}).Run(
 		t.Context(),

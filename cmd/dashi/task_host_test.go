@@ -341,7 +341,7 @@ func TestTaskStopDoesNotCancelForegroundParent(t *testing.T) {
 		t.Fatalf("parent stopped=%+v", last)
 	}
 	snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
-	if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled || snapshot.View.Stop.Projected {
+	if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled || snapshot.View.Stop.Inferred {
 		t.Fatalf("stop=%+v %v", snapshot.View.Stop, err)
 	}
 }

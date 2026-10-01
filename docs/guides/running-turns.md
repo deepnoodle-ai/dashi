@@ -82,10 +82,10 @@ complete. Check `out.Stop` before showing it.
 
 `out.Next()` says what to do next, so a host need not decode `out.Stop`:
 `NextNone` (completed or ended), `NextResolvePending` (settle `out.Pending`, then
-`Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseAttempts`
+`Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseModelCalls`
 (`Continue` with a raise), `NextFix` (fix a failure, refusal, or uncertain
-effect, then `Continue`, or `Cancel`), and `NextResume` (no stop was recorded,
-so `out.Stop.Projected` is true: the worker may have crashed; `Continue`
+effect, then `Continue`, or `Cancel`), and `NextRecover` (no stop was recorded,
+so `out.Stop.Inferred` is true: the worker may have crashed; `Continue`
 resumes it when `ReadyToContinue`, and otherwise settle `out.Pending` first;
 see [recovering turns](recovering-turns.md)). A hook's view of a running turn
 gives `NextRunning`.
@@ -133,11 +133,11 @@ command again; a repeated command returns the recorded result.
    ([recovering turns](recovering-turns.md#resuming-after-a-stop-or-crash)).
    It needs no `Client` when the Agent names its provider, API, and model.
 2. **Advance.** Load the turn and map `view.Next()` to a command.
-   `NextContinue` and `NextResume` give `Continue` with the same history;
+   `NextContinue` and `NextRecover` give `Continue` with the same history;
    resume only once the old worker is known to be gone. `NextResolvePending` waits
    for the host to `Resolve` each pending call or approval.
-   `NextRaiseBudget` and `NextRaiseAttempts` are the host's choice: `Continue`
-   with a raised `Budget` or `ModelAttempts`, or `Cancel`. `NextFix`
+   `NextRaiseBudget` and `NextRaiseModelCalls` are the host's choice: `Continue`
+   with a raised `Budget` or `ModelCalls`, or `Cancel`. `NextFix`
    depends on the cause, such as a host limit code the host owns: fix it and
    `Continue`, or `Cancel`. `NextNone` means done.
 3. **Run.** Save the command, then run it with
@@ -172,7 +172,7 @@ Here `plan` is the switch on `view.Next()`, with
 and running, without an API key.
 
 The rest of a host's work has its own guide: settling each model attempt in
-the recorder with `dashi.AttemptSpendOf` ([budgets](budgets.md)); history
+the recorder with `dashi.ModelCallCostOf` ([budgets](budgets.md)); history
 across turns and compaction with `dashi.ProjectHistory`
 ([compaction without a session](compaction.md#without-a-session)); and
 leases, crashes, and limits ([recovering turns](recovering-turns.md)).

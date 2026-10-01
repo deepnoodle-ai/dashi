@@ -186,7 +186,7 @@ type ModelCallCost struct {
 
 // ModelCallCostOf classifies one model attempt from its intent fact and its
 // settlement, or nil while the call is pending. It is the same derivation
-// TurnView.Attempts uses. A recorder that reserved credits on the
+// TurnView.ModelCallCosts uses. A recorder that reserved credits on the
 // StepModelCallStarted step can call it in the commit of the StepModelCallFinished or
 // StepModelCallFinishedByHost step, with the intent it stored at reservation, to
 // settle the hold in the same transaction. A nil intent gives the zero value.
@@ -198,7 +198,7 @@ func ModelCallCostOf(intent, settlement *ModelFact) ModelCallCost {
 	return a
 }
 
-// attemptSpendOf is AttemptSpendOf that also reports whether usage
+// attemptSpendOf is ModelCallCostOf that also reports whether usage
 // derivation was incomplete, which sets Spend.UsageIncomplete.
 func attemptSpendOf(intent, settlement *ModelFact) (ModelCallCost, bool) {
 	a := ModelCallCost{

@@ -440,7 +440,7 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	}
 	runner := Runner{Client: &scriptedClient{}}
 	canceled, err := runner.Run(t.Context(), turn, Cancel{CommandID: "close"})
-	if err != nil || !canceled.Stop.Terminal {
+	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 	messages, err := Project(canceled.Turn)
@@ -568,7 +568,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	}
 	runner := Runner{Client: client}
 	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "close"})
-	if err != nil || !canceled.Stop.Terminal {
+	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
 	before, err := Project(canceled.Turn)
@@ -629,7 +629,7 @@ func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 	}
 	crashedAgain := cloneTurn(first.Turn)
 	crashedAgain.Steps = crashedAgain.Steps[:cut+1]
-	if view, err := Replay(crashedAgain); err != nil || view.Next() != NextResume {
+	if view, err := Replay(crashedAgain); err != nil || view.Next() != NextRecover {
 		t.Fatalf("second crash: next=%s err=%v", view.Next(), err)
 	}
 

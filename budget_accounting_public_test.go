@@ -88,7 +88,7 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		Client: client,
 		Tools:  tool.List{search},
 	}
-	var outcome *dashi.Outcome
+	var outcome *dashi.RunResult
 	for event, err := range runner.Stream(
 		t.Context(),
 		dashi.Turn{ID: "cut-search"},
@@ -109,8 +109,8 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Outcome != nil {
-			outcome = event.Outcome
+		if event.Result != nil {
+			outcome = event.Result
 		}
 	}
 	if outcome == nil {

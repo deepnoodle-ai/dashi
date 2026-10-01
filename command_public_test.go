@@ -47,7 +47,7 @@ func TestDecodedStartRunsLikeOriginal(t *testing.T) {
 		c.Agent.OutputSchema = json.RawMessage("null")
 		return c
 	}
-	run := func(t *testing.T, turn dashi.Turn, c dashi.Command) dashi.Outcome {
+	run := func(t *testing.T, turn dashi.Turn, c dashi.Command) dashi.RunResult {
 		t.Helper()
 		r := dashi.Runner{Client: dashitest.NewClient(dashitest.Reply("done"))}
 		out, err := r.Run(context.Background(), turn, c)

@@ -15,7 +15,7 @@ import (
 )
 
 func finalNotice(v dashi.TurnView) bool {
-	return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 }
 func target(h *harness, t *testing.T) delegate.TaskTarget {
 	t.Helper()

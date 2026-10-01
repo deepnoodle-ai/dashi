@@ -79,7 +79,7 @@ type progressOrder struct {
 	started  map[string]bool
 	settled  map[string]bool
 	progress []ToolProgress
-	outcome  *Outcome
+	outcome  *RunResult
 }
 
 func newProgressOrder(t *testing.T) *progressOrder {
@@ -115,8 +115,8 @@ func (o *progressOrder) add(event Event) {
 			)
 		}
 		o.progress = append(o.progress, *p)
-	case event.Outcome != nil:
-		o.outcome = event.Outcome
+	case event.Result != nil:
+		o.outcome = event.Result
 	}
 }
 

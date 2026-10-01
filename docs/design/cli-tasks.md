@@ -24,7 +24,7 @@ type ChildServices struct {
     ContentLoader dashi.ContentLoader
 }
 type TaskTarget struct { ID, TurnID string; Revision int64 }
-func (*Tasks) Run(context.Context, TaskTarget, dashi.Command) (dashi.Outcome, error)
+func (*Tasks) Run(context.Context, TaskTarget, dashi.Command) (dashi.RunResult, error)
 ```
 
 Run accepts only Continue, Resolve, and Cancel with a nonempty CommandID.
@@ -90,7 +90,7 @@ On process restart, derive state from records; no retained UI confirmation impli
 
 | Action | Child behavior |
 | --- | --- |
-| `/task ID continue` | Continue ready/interrupted work. Pending approval opens its original attributed approval, records its answer, and requires all pending items settled. For `NextRaiseAttempts`, disclose checked doubling of the effective recorded cap; overflow rejects. Other limits retain their required remedy; no child monetary raise. |
+| `/task ID continue` | Continue ready/interrupted work. Pending approval opens its original attributed approval, records its answer, and requires all pending items settled. For `NextRaiseModelCalls`, disclose checked doubling of the effective recorded cap; overflow rejects. Other limits retain their required remedy; no child monetary raise. |
 | `/task ID done CALL_ID` | Require an already-started pending external/uncertain tool call. Display exact child Turn/tool/args and require operator affirmation of completion. Resolve `tool.Succeeded("Operator verified this exact call completed; its output was not captured.")`; no tool execution, model settlement, or unexecuted approval bypass. Do not continue automatically. |
 | `/task ID discard` | Cancel the stopped nonterminal child with recorded operator reason; uncertain effects may have run. Terminal/running/stale/wrong-call targets reject. |
 | `/task-stop ID` | Existing live Stop, with cancellation confirmed from authoritative record; unresolved timeout/write remains visible. |
@@ -102,7 +102,7 @@ After Stop, reload even on apparent success: a synthetic task state or returned 
 
 ## Progress, notice deferral, and queue ownership
 
-CLI sets NoticeReady to `Stop.Terminal || Stop.Kind==completed || Stop.Kind==canceled`.
+CLI sets NoticeReady to `Stop.Ended || Stop.Kind==completed || Stop.Kind==canceled`.
 Nil retains existing Go consumers' stopped-Turn notice and callback behavior.
 Under this policy, withheld nonterminal stops update task state/OnChild progress, without setting final `notified/reported` flags or consuming NoticeID.
 Recheck on subsequent Run/reload; resolution/discard emits the one final notice.
@@ -122,8 +122,8 @@ Before claiming quiet, check live children, attention states, pending notices, p
 Pending Start, compaction, stopped parent work, or lost acknowledgement cannot be overtaken.
 
 Render stable task rows/announcements by task/child Turn ID. Deltas remain provisional and never join the parent answer.
-Label `TaskView.ModelCalls` as model attempts: it sums `TurnView.ModelAttempts`, not recorded dispatched calls.
-Details retain recorded dispatch evidence, `NoDispatch`, and unresolved intents; interrupted dispatches cannot disappear behind the attempt count.
+Label `TaskView.ModelCalls` as model attempts: it sums `TurnView.ModelCalls`, not recorded dispatched calls.
+Details retain recorded dispatch evidence, `NotSent`, and unresolved intents; interrupted dispatches cannot disappear behind the attempt count.
 Inspection uses recorded child messages/metadata and the existing bounded viewer, never resolver reads.
 Print progress/errors use stderr; stdout remains the existing answer contract.
 

@@ -186,7 +186,7 @@ stopped renewing it: the worker may still be inside a provider call or a tool,
 and `WithOwner` fences its commits, not that effect. A host reports stopped
 only when it knows no worker drives the turn (its process exited, or host
 fencing guarantees it); an expired lease, an error, and a missing capability
-are unknown. The session refines `NextResume` to `NextRunning` when this handle
+are unknown. The session refines `NextRecover` to `NextRunning` when this handle
 runs the turn or `Liveness` reports live.
 
 **`Exclusive`** promises that no other process drives the session and that
@@ -225,11 +225,11 @@ The first matching row applies:
 | Cannot be read, without `Exclusive` | unknown | Returns the load error |
 | Live, or running on this handle | `NextRunning` | Refuses, no `CallID` |
 | Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
-| No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
-| No stop recorded; liveness unknown (an expired lease included) | `NextResume` | Refuses |
+| No stop recorded; stopped, or `Exclusive` | `NextRecover` | Closes, starts |
+| No stop recorded; liveness unknown (an expired lease included) | `NextRecover` | Refuses |
 | Waiting on approvals or results | `NextResolvePending` | Refuses |
 | Interrupted, provider-pause limit, or answered and ready | `NextContinue` | Closes, starts |
-| At a budget or model-call limit | `NextRaiseBudget`, `NextRaiseAttempts` | Closes, starts |
+| At a budget or model-call limit | `NextRaiseBudget`, `NextRaiseModelCalls` | Closes, starts |
 | Refused, failed, or other limits | `NextFix` | Closes, starts |
 
 A turn is **busy** when a `Start` refuses on it: live, possibly live, waiting on
@@ -251,7 +251,7 @@ type TurnBusyError struct {
 func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
 ```
 
-The message names the way out. For `NextResume`: "dashi: turn S-7 may still be
+The message names the way out. For `NextRecover`: "dashi: turn S-7 may still be
 running; if its worker is lost, take it over with Continue{} or discard it with
 Cancel{}". For `NextResolvePending`: "answer its pending work or Cancel{} it". With
 `CallID`: "call c-3 in turn S-7 may still be running; Resolve{} it after checking
@@ -265,7 +265,7 @@ refuses `Cancel` once structured output is recorded (`runner.go`), so the
 session closes such a turn, whatever its `Next`, with `Continue{CommandID:
 "close:" + turnID}`, which completes it without a model call
 (`stopAfterAnswer`). At a model-call limit, the reserved final answer, that
-`Continue` raises `ModelAttempts` by one, or it would stop limited again. A
+`Continue` raises `ModelCalls` by one, or it would stop limited again. A
 close that leaves the turn open refuses with `*TurnBusyError`. Steers the
 closed turn never recorded move to the queue
 ([session-input.md](session-input.md)). Closing relies on track 1: ended turns
@@ -301,10 +301,10 @@ usual retry arrives while its turn still runs.
    first call returned it: ended (`NextNone`), or stopped without ending
    (waiting on an answer, at a limit, needing a decision), since waiting would
    not change it.
-5. A duplicate whose turn may still be running (`NextRunning`, `NextResume`)
+5. A duplicate whose turn may still be running (`NextRunning`, `NextRecover`)
    returns `*TurnBusyError{Duplicate: true}` naming it. `Stream` instead follows
    a `NextRunning` turn with `Follow` until its next stop, when the recorder is
-   a `StepReader` and a `Loader`; a `NextResume` turn may have lost its worker,
+   a `StepReader` and a `Loader`; a `NextRecover` turn may have lost its worker,
    and following it could wait forever, so it refuses.
 6. Two workers racing to `S-(n+1)` with the same key: with different histories,
    the engine's command digest covers `History` and the agent, so the loser gets

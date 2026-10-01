@@ -198,7 +198,7 @@ func taskDetails(snapshot taskSnapshot) string {
 	if !snapshot.Bound {
 		b.WriteString("Recorded child; live binding is unavailable. Restore its destination/tools and reopen this session before task controls.\n")
 	}
-	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.Revision, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Terminal, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
+	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.Revision, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Ended, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
 	if snapshot.Prompt != nil {
 		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
 	}
@@ -242,7 +242,7 @@ func taskDetails(snapshot taskSnapshot) string {
 	}
 	if snapshot.Task.Running() {
 		fmt.Fprintf(&b, "Live lower bounds. Stop: /task-stop %s\n", snapshot.Task.ID)
-	} else if !v.Stop.Terminal {
+	} else if !v.Stop.Ended {
 		fmt.Fprintf(&b, "Target controls: /task %s continue · /task %s done CALL_ID · /task %s discard\nContinue requires the recorded remedy; done requires verified completion of the exact started call.\n", snapshot.Task.ID, snapshot.Task.ID, snapshot.Task.ID)
 	}
 	for _, step := range snapshot.Turn.Steps {

@@ -80,7 +80,7 @@ func receipt(turn dashi.Turn, id, digest string) (bool, error) {
 // receipts are checked before Revision, so an acknowledged retry is safe even
 // after later child work. Stop and Close own this worker as they own task starts.
 // A recorder implementing Loader is required for authoritative reconciliation.
-func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.Outcome, runErr error) {
+func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.RunResult, runErr error) {
 	owned, id, digest, err := ownedCommand(cmd)
 	if err != nil {
 		return out, err
@@ -130,7 +130,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	}
 	turn := rec.turns[len(rec.turns)-1]
 	view := rec.views[len(rec.views)-1]
-	out = dashi.Outcome{Turn: turn, TurnView: view}
+	out = dashi.RunResult{Turn: turn, TurnView: view}
 	if turn.ID != currentID || target.TurnID != turn.ID ||
 		!equalValue(rec.views[0].Parent, &t.parent) || !equalValue(view.Parent, parent) {
 		return out, dashi.ErrRevisionConflict
@@ -176,8 +176,8 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 				ts.onTask(TaskStarted, started)
 			}
 		}
-		if ev.Outcome != nil {
-			out = *ev.Outcome
+		if ev.Result != nil {
+			out = *ev.Result
 		}
 		if e != nil {
 			runErr = e
@@ -208,7 +208,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 		if e == nil {
 			v, e := dashi.Replay(loaded)
 			if e == nil {
-				out = dashi.Outcome{Turn: loaded, TurnView: v}
+				out = dashi.RunResult{Turn: loaded, TurnView: v}
 			}
 		}
 	}
@@ -218,7 +218,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	return out, runErr
 }
 
-func (ts *Tasks) controlResult(t *task, out dashi.Outcome, unknown bool) {
+func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	deferred := unknown || ts.deferNotice(out.Turn)
 	ts.mu.Lock()
 	c := t.last()

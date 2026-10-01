@@ -13,9 +13,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func (r *runtime) model(s *replayState) (Outcome, bool) { return r.modelPurpose(s, "", nil) }
+func (r *runtime) model(s *replayState) (RunResult, bool) { return r.modelPurpose(s, "", nil) }
 
-func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *ContextCompactionPlan) (Outcome, bool) {
+func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *ContextCompactionPlan) (RunResult, bool) {
 	// Runner.apply rejects a run that could get here without a Client
 	// before it records anything; this guards the invariant.
 	if r.runner.Client == nil {
@@ -242,7 +242,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	defer r.dropCall(call)
 	if back {
 		r.dropHooks(mark)
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	atRisk, remainingCost, costStop := checkSendBudget(s, req, r.agent.Model)
 	if costStop != nil {
@@ -264,7 +264,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if r.wasCut(call) {
 		// Nothing was recorded or sent: go back for the steer.
 		r.dropHooks(mark)
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
 	messageID := attempt + ":message"
@@ -332,7 +332,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		r.runner.Client,
 		llm.Call{
 			Request: req,
-			// The client may key durable work by this ID; see llm.Attempt.
+			// The client may key durable work by this ID; see llm.CallIdentity.
 			Identity: llm.CallIdentity{TurnID: r.turn.ID, ModelCallID: attempt},
 		},
 	) {
@@ -507,7 +507,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		return r.stopWith(stop), false
 	}
 	if purpose == ModelPurposeCompaction {
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	r.compactionUsed = false
 	r.compactionCandidate = nil
@@ -519,7 +519,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 // outcome, going back for the steer when again is set.
 type handOffResult struct {
 	done    bool
-	outcome Outcome
+	outcome RunResult
 	again   bool
 }
 
@@ -570,7 +570,7 @@ func (r *runtime) handOff(
 // settleSteered records a call an urgent steer cut short after the hand-off
 // and goes back for the steer. The call counts as sent unless the client
 // reports it was not dispatched: a missing response proves nothing. It
-// does not count toward ModelAttempts (U-8). Under a cost cap it is charged
+// does not count toward ModelCalls (U-8). Under a cost cap it is charged
 // the worst case reserved at admission, since a client may keep generating
 // after the cancel and the usage it reports so far is not final (U-9).
 func (r *runtime) settleSteered(
@@ -580,10 +580,10 @@ func (r *runtime) settleSteered(
 	partial *llm.Result,
 	sendErr error,
 	result llm.Result,
-) (Outcome, bool) {
+) (RunResult, bool) {
 	settled.Interrupted = InterruptSteering
 	settled.Error = errSteered.Error()
-	// A FailureRejected error that coincides with the cut settles as sent,
+	// A SendStatusProviderRejected error that coincides with the cut settles as sent,
 	// and under a cap is charged the worst case. That over-charges a call
 	// the provider refused, which is harmless and keeps the rule simple.
 	switch {
@@ -601,7 +601,7 @@ func (r *runtime) settleSteered(
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 		return *o, false
 	}
-	return Outcome{}, true
+	return RunResult{}, true
 }
 
 // streamedOutput sizes every generated delta of a call, including those

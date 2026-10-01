@@ -283,7 +283,7 @@ func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
 // A capped turn with a one-hour lifetime reserves at the one-hour write
 // rate, and cannot run on a sheet that lacks it.
 func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
-	run := func(oneHour *money.Amount) dashi.Outcome {
+	run := func(oneHour *money.Amount) dashi.RunResult {
 		t.Helper()
 		w := &wire{replies: []string{claudeText("Hi.")}}
 		pricing := &llm.Pricing{

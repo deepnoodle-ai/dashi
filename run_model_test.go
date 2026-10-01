@@ -384,7 +384,7 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 		Agent:     def,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 	})
-	if err != nil || !limitedForAttempts(out.Stop) || out.Stop.Terminal {
+	if err != nil || !limitedForAttempts(out.Stop) || out.Stop.Ended {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 

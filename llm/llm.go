@@ -647,7 +647,7 @@ type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.
 // Its caller owns attempt identity, recording, and retry decisions, and passes
-// that identity to Send in Call.Attempt. Deltas are
+// that identity to Send in Call.Identity. Deltas are
 // provisional; inspect the final result and stop before executing tool calls.
 // An error may accompany partial data or leave provider receipt uncertain.
 type Client interface {

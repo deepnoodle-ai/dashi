@@ -97,7 +97,7 @@ func run(ctx context.Context) error {
 			llm.UserMessage(llm.Text("What is the weather in Lisbon and in Oslo?")),
 		},
 	})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		stopFollowing()
 	}
 	wg.Wait()

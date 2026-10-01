@@ -45,14 +45,14 @@ type runtime struct {
 	compactionCandidate *llm.Input
 }
 
-// result pairs an Outcome with the recording failure that ended the run.
-func (r *runtime) result(out Outcome) (Outcome, error) {
+// result pairs an RunResult with the recording failure that ended the run.
+func (r *runtime) result(out RunResult) (RunResult, error) {
 	return out, r.err
 }
 
 var errTurnDeadline = errors.New("dashi: turn deadline reached")
 
-func (r *runtime) contextStop() Outcome {
+func (r *runtime) contextStop() RunResult {
 	cause := context.Cause(r.ctx)
 	if errors.Is(cause, errTurnDeadline) {
 		return r.stop(StopLimited, string(LimitDeadline))
@@ -73,18 +73,18 @@ func (r *runtime) pauseRequested() bool {
 	return pauseClosed(r.opts.pause)
 }
 
-func (r *runtime) pauseStop() Outcome {
+func (r *runtime) pauseStop() RunResult {
 	return r.stop(StopInterrupted, "pause requested")
 }
 
-func (r *runtime) failureOrContext(err error) Outcome {
+func (r *runtime) failureOrContext(err error) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}
 	return r.stop(StopFailed, err.Error())
 }
 
-func (r *runtime) commit(step Step) *Outcome {
+func (r *runtime) commit(step Step) *RunResult {
 	if step.Context != nil && len(step.Context.Items) > 0 {
 		items := r.skipRecordedItems(step.Context.Items)
 		if len(items) == 0 {
@@ -120,7 +120,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.At = time.Now().UTC()
 	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
-		stop.Terminal = r.terminalAfter(stop)
+		stop.Ended = r.terminalAfter(stop)
 		step.Stop = &stop
 	}
 	if step.Kind == StepModelCallStarted {
@@ -237,13 +237,13 @@ func cloneEvent(event Event) Event {
 	return event
 }
 
-func (r *runtime) current() Outcome {
+func (r *runtime) current() RunResult {
 	s, e := replay(r.turn)
 	if e != nil {
 		if r.err == nil {
 			r.err = fmt.Errorf("%w: %w: %v", ErrRecordInvalid, ErrInvalidTurn, e)
 		}
-		return Outcome{Turn: r.turn.Clone()}
+		return RunResult{Turn: r.turn.Clone()}
 	}
 	return outcome(r.turn, s)
 }
@@ -257,7 +257,7 @@ func hasStartedTool(s *replayState) bool {
 	return false
 }
 
-func (r *runtime) stop(kind StopKind, reason string) Outcome {
+func (r *runtime) stop(kind StopKind, reason string) RunResult {
 	stop := &Stop{Kind: kind, Reason: reason}
 	if kind == StopLimited {
 		// A limit kind is recorded even when the counts are unavailable,
@@ -296,7 +296,7 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 	return r.stopWith(stop)
 }
 
-func (r *runtime) stopWith(stop *Stop) Outcome {
+func (r *runtime) stopWith(stop *Stop) RunResult {
 	o := r.commit(Step{Kind: StepTurnStopped, Stop: stop})
 	if o != nil {
 		return *o
@@ -304,7 +304,7 @@ func (r *runtime) stopWith(stop *Stop) Outcome {
 	return r.current()
 }
 
-func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
+func (r *runtime) stopAfterAnswer(s *replayState) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}

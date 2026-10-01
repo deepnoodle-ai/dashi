@@ -106,13 +106,13 @@ urgent steer FR-6 delivers from it records one `WarningSteering` per run.
      steer waits for FR-6. If that result stops the turn (an `output` or
      `context` limit), the steer goes to `Leftovers`.
   3. The call context's cause is `errSteered`: cause `steering`. It is
-     `NoDispatch` only if the cancel came before the hand-off mark or the
-     client reports `FailureNotDispatched`; a missing response proves
+     `NotSent` only if the cancel came before the hand-off mark or the
+     client reports `SendStatusNotSent`; a missing response proves
      nothing. Every other cut call counts as sent. A Dashi timeout reason
      means that timer fired first: the timeout wins.
   4. Otherwise, today's error path.
 - **U-8. Counting.** A call cut off by a steer does **not** count toward
-  `ModelAttempts` (replay already skips interrupted calls; no change). It is
+  `ModelCalls` (replay already skips interrupted calls; no change). It is
   recorded as an attempt and counts toward spend and every cost cap. Each
   interrupt needs a new urgent steer, so user input bounds them, and even the
   reserved final-answer call may be cut and asked again.
@@ -198,7 +198,7 @@ final-answer call; with no call left, the batch runs, with a warning.
   partial, reminder, and steer, in order; blank partials add nothing;
   citations stripped.
 - A result completing as the cancel arrives stands; a cancel before hand-off
-  is `NoDispatch`; a buffered signal skips the request; a dropped steer loops
+  is `NotSent`; a buffered signal skips the request; a dropped steer loops
   back once.
 - Counting and billing: attempts unchanged, spend grows; the final-answer
   call can be cut; one interrupt per ID; reasoning deltas raise the

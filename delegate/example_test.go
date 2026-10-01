@@ -80,7 +80,7 @@ func ExampleTasks_Run() {
 		Subagents: []delegate.Subagent{{Name: "worker", Description: "Applies a change", Agent: dashi.Agent{Model: dashitest.Model}}},
 		Runner:    dashi.Runner{Client: child, Recorder: recorder},
 		NoticeReady: func(v dashi.TurnView) bool {
-			return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+			return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 		},
 		OnTask: func(e delegate.TaskEvent) {
 			if e.Kind == delegate.TaskEnded {

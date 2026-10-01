@@ -74,7 +74,7 @@ the `Func` godoc. **High.**
 
 **4. Failure causes become strings, and `Stop.Reason` mixes tokens with prose.**
 Evidence: `Stop{Kind, Reason string}` (`turn.go:256-259`). Machine tokens
-(`"model_attempts"`, `"deadline"`, `"output"`, `"context"`, `"provider_pauses"`,
+(`"model_calls"`, `"deadline"`, `"output"`, `"context"`, `"provider_pauses"`,
 `"empty_response"`; `engine.go:408,457-460,655-667`) share the field with prose
 (`"tool binding unavailable"`, `tools_loop.go:191`) and raw `err.Error()`
 (`engine.go:617-619`). A provider `*llm.Error` (Category, RetryAfter,
@@ -203,7 +203,7 @@ polling helpers (an iterator candidate). **Low.**
 | Term | Where used | Conflict | Suggested direction |
 | --- | --- | --- | --- |
 | Stop / StopKind | `llm.Stop{Kind,Raw}` (finished, refusal, output_limit); `dashi.Stop{Kind,Reason}` (completed, refused, limited) | Two same-named types with parallel but different enums (`StopRefusal` vs `StopRefused`). `StopRefused` also covers a host `BeforeSend` denial (`engine.go:559`). | Rename the llm one to `Finish`/`FinishKind`; split policy refusal from model refusal. |
-| Outcome | `dashi.Outcome` (invocation result); `tool.Outcome` (execution state); `Accept.Outcome`, `ToolFact.Outcome` | `Accept{Outcome: …}` means a *tool* outcome passed to a call that returns a *turn* Outcome. | Keep `tool.Outcome`; call the turn one `Result` or `Report`. |
+| Outcome | `dashi.RunResult` (invocation result); `tool.Outcome` (execution state); `Accept.Outcome`, `ToolFact.Outcome` | `Accept{Outcome: …}` means a *tool* outcome passed to a call that returns a *turn* Outcome. | Keep `tool.Outcome`; call the turn one `Result` or `Report`. |
 | Result | `llm.Result`, `media.Result`, `Accept.ModelResult`, `llm.ToolResult` (a model content item) | `llm.ToolResult` vs `tool.Outcome`/`tool.Output` are two shapes for the same fact (`project.go:125-132` converts). | One tool-result term per layer. |
 | Definition | `dashi.Definition` (agent), `tool.Definition`, `StartFact.Definition`, `ToolFact.Definition` | The glossary says "Agent definition… tools" (`ubiquitous-language.md:10-11`), but the type has no tools, and no `Agent` type exists. | `AgentDefinition`, or an `Agent` facade. |
 | Origin | `content.Origin` (endpoint/credential scope struct); `StartOrigin` (user/scheduled/operator, typed); `ContextItem.Origin string` (user/library/tool/operator, untyped, `state.go:709-720`) | Three meanings, two overlapping closed vocabularies, one of them untyped. | `content.Scope` for replay; one typed `Authority` enum for starts and context. |

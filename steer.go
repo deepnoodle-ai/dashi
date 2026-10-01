@@ -235,14 +235,14 @@ func classifySteers(
 
 // commitSteers records a step that carries steers and settles the steers'
 // fate from the commit's result.
-func (r *runtime) commitSteers(step Step, steers []ContextItem) *Outcome {
+func (r *runtime) commitSteers(step Step, steers []ContextItem) *RunResult {
 	return r.afterSteerWrite(steers, r.commit(step))
 }
 
 // afterSteerWrite acknowledges steers the record now holds. When the write
 // failed, a confirmed rejection leaves the steers unrecorded; any other
 // failure leaves them in doubt, since the record may hold them.
-func (r *runtime) afterSteerWrite(steers []ContextItem, o *Outcome) *Outcome {
+func (r *runtime) afterSteerWrite(steers []ContextItem, o *RunResult) *RunResult {
 	ids := make([]string, 0, len(steers))
 	for _, item := range steers {
 		ids = append(ids, item.ID)

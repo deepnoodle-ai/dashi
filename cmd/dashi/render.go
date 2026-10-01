@@ -296,7 +296,7 @@ func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
 	}
 	switch stop.Kind {
 	case "":
-		if !stop.Projected {
+		if !stop.Inferred {
 			return b
 		}
 		b.State, b.Text = "interrupted", "Compaction interrupted. Press Enter to continue."

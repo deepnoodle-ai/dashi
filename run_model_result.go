@@ -107,7 +107,7 @@ func failureDisposition(err error, result llm.Result) llm.SendStatus {
 	return llm.SendStatusUnknown
 }
 
-func (r *runtime) classify(result llm.Result) (Outcome, bool) {
+func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 	if r.ctx.Err() != nil {
 		return r.contextStop(), false
 	}
@@ -147,7 +147,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
 	}
 	if calls > 0 {
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	if hosted > 0 {
 		return r.stop(StopWaiting, "provider approval pending"), false
@@ -161,7 +161,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 		if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 			return *o, false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	case llm.StopRefusal:
 		return r.stop(StopRefused, result.Stop.Raw), false
 	case llm.StopOutputLimit:
@@ -179,7 +179,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 // runs the BeforeFinish hooks, and then either asks the model again with the
 // hooks' items or accepts the answer. The parse comes first so hooks see the
 // value, or why it failed, and can ask for a correction.
-func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
+func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	state, err := replay(r.turn)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
@@ -208,7 +208,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 				return *o, false
 			}
-			return Outcome{}, true
+			return RunResult{}, true
 		}
 		r.deliveryDropped()
 	}
@@ -227,7 +227,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		if o != nil {
 			return *o, false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	if finish.rejects() {
 		var items []ContextItem
@@ -251,7 +251,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		if finish.noCall {
 			return r.stop(StopFailed, StopReasonOutputRejected), false
 		}
-		return Outcome{}, true
+		return RunResult{}, true
 	}
 	if !structured {
 		if !useful && !finish.acceptEmpty {

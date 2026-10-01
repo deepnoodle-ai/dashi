@@ -98,7 +98,7 @@ func modelUsageMayBePartial(settlement *ModelFact) bool {
 }
 
 // addUnreportedRequests covers hosted work whose billing the provider never
-// reported: the call's usage is missing or not final (Usage.RequestsFinal),
+// reported: the call's usage is missing or not final (Usage.RequestsComplete),
 // as for a stream cut off before its final usage. Counts an adapter inferred
 // from the blocks seen so far are kept, but they may miss billed work, so
 // the call gets at least one llm.MeterUnreported request, which no sheet

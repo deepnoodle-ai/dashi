@@ -163,7 +163,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 		cmd = dashi.Continue{ModelCalls: int(last.View.Stop.Limit.Limit) * 2}
 	}
 	chat := e.configureChat()
-	// The Outcome is yielded after Session.finish. Breaking here prevents
+	// The RunResult is yielded after Session.finish. Breaking here prevents
 	// Continue's queue dispatch from putting older queued items ahead of the
 	// caller's retained Start in a different turn.
 	if err := e.bindCommand(ctx, cmd); err != nil {

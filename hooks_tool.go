@@ -16,7 +16,7 @@ import (
 // authorizeTool runs the BeforeTool chain for a call whose arguments match
 // its schema, and returns the call as rewritten and the combined verdict. A
 // failing hook denies the call, since BeforeTool guards execution, and the
-// model sees only the hook's name. The returned Outcome is set when the
+// model sees only the hook's name. The returned RunResult is set when the
 // run's context ended during a hook.
 //
 // Steering's check for a pending urgent steer belongs just before this call
@@ -26,7 +26,7 @@ func (r *runtime) authorizeTool(
 	def tool.Definition,
 	call tool.Call,
 	ex tool.Executor,
-) (tool.Call, ToolVerdict, *Outcome) {
+) (tool.Call, ToolVerdict, *RunResult) {
 	pass := 0
 	mark := r.hookMark()
 	// A mid-run view: its Stop stays empty, unlike Replay's. Nothing is

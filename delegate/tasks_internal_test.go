@@ -58,7 +58,7 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	}
 	var notices atomic.Int32
 	ts := NewTasks(Config{NoticeReady: func(v dashi.TurnView) bool {
-		return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+		return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 	}, OnTask: func(e TaskEvent) {
 		if e.Kind == TaskEnded {
 			notices.Add(1)

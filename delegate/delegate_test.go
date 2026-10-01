@@ -493,7 +493,7 @@ func cmpSubagents(in []delegate.Subagent) []delegate.Subagent {
 	return []delegate.Subagent{scout()}
 }
 
-func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
+func (h *harness) start(ctx context.Context) (dashi.RunResult, error) {
 	return h.runner.Run(
 		ctx,
 		dashi.Turn{ID: parentTurn},
@@ -506,10 +506,10 @@ func (h *harness) start(ctx context.Context) (dashi.Outcome, error) {
 	)
 }
 
-func (h *harness) resume(ctx context.Context) (dashi.Outcome, error) {
+func (h *harness) resume(ctx context.Context) (dashi.RunResult, error) {
 	turn, err := h.rec.Load(ctx, parentTurn)
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	return h.runner.Run(ctx, turn, dashi.Continue{}, dashi.WithSteering(h.inbox))
 }
@@ -735,7 +735,7 @@ func TestNoticeReachesRunningTurnOnce(t *testing.T) {
 	}, delegate.Config{}, nil)
 	h.notify.Store(true)
 
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(t.Context())
 		done <- out
@@ -1125,7 +1125,7 @@ func TestCtrlCOnTheParentLeavesTasksRunning(t *testing.T) {
 		return handle(ctx, in)
 	}, delegate.Config{}, nil)
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(ctx)
 		done <- out
@@ -2310,7 +2310,7 @@ func TestTaskKeepsCallerContextValuesButNotCancellation(t *testing.T) {
 	}, delegate.Config{}, nil)
 	parent, cancel := context.WithCancel(
 		context.WithValue(t.Context(), tenantKey{}, "acme"))
-	done := make(chan dashi.Outcome, 1)
+	done := make(chan dashi.RunResult, 1)
 	go func() {
 		out, _ := h.start(parent)
 		done <- out

@@ -156,7 +156,7 @@ func Follow(
 					yield(Step{}, discontinuous(turnID, cursor-1, last))
 					return
 				}
-				if last.Stop != nil && last.Stop.Terminal {
+				if last.Stop != nil && last.Stop.Ended {
 					return
 				}
 				resting = last.Kind == StepTurnStopped
@@ -171,7 +171,7 @@ func Follow(
 					return
 				}
 				cursor = step.Seq
-				if step.Stop != nil && step.Stop.Terminal {
+				if step.Stop != nil && step.Stop.Ended {
 					return
 				}
 				resting = step.Kind == StepTurnStopped

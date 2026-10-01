@@ -21,10 +21,10 @@ type streamed struct {
 	order []string
 	// steps holds the kinds of step events per turn.
 	steps map[string][]dashi.StepKind
-	// outcomes lists the turns of the Outcome events, in order.
+	// outcomes lists the turns of the RunResult events, in order.
 	outcomes []string
-	byTurn   map[string]dashi.Outcome
-	last     dashi.Outcome
+	byTurn   map[string]dashi.RunResult
+	last     dashi.RunResult
 	errs     []error
 }
 
@@ -32,13 +32,13 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 	t.Helper()
 	got := streamed{
 		steps:  map[string][]dashi.StepKind{},
-		byTurn: map[string]dashi.Outcome{},
+		byTurn: map[string]dashi.RunResult{},
 	}
 	for ev, err := range seq {
 		if err != nil {
 			got.errs = append(got.errs, err)
 		}
-		if ev.Outcome == nil && ev.Step == nil && ev.Delta == nil &&
+		if ev.Result == nil && ev.Step == nil && ev.Delta == nil &&
 			ev.Progress == nil {
 			continue
 		}
@@ -49,13 +49,13 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 			got.order = append(got.order, ev.TurnID)
 		}
 		switch {
-		case ev.Outcome != nil:
-			if ev.Outcome.Turn.ID != ev.TurnID {
-				t.Fatalf("outcome of %s tagged %s", ev.Outcome.Turn.ID, ev.TurnID)
+		case ev.Result != nil:
+			if ev.Result.Turn.ID != ev.TurnID {
+				t.Fatalf("outcome of %s tagged %s", ev.Result.Turn.ID, ev.TurnID)
 			}
 			got.outcomes = append(got.outcomes, ev.TurnID)
-			got.byTurn[ev.TurnID] = *ev.Outcome
-			got.last = *ev.Outcome
+			got.byTurn[ev.TurnID] = *ev.Result
+			got.last = *ev.Result
 		case ev.Step != nil:
 			if ev.Step.TurnID != ev.TurnID {
 				t.Fatalf("step of %s tagged %s", ev.Step.TurnID, ev.TurnID)
@@ -68,7 +68,7 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 
 // A session Stream spans the closing step, the caller's turn, and the
 // queue turn after it; each event carries its turn ID and each turn ends
-// with its own Outcome event.
+// with its own RunResult event.
 func TestSessionStreamAcrossTurns(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := held(1, dashitest.Reply("two"), dashitest.Reply("three"))

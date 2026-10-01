@@ -79,7 +79,7 @@ func runBudgetTurn(
 	settings llm.Settings,
 	tools tool.Toolset,
 	hooks Hooks,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := runBudgetTurnErr(client, budget, settings, tools, hooks)
 	if err != nil {
@@ -94,7 +94,7 @@ func runBudgetTurnErr(
 	settings llm.Settings,
 	tools tool.Toolset,
 	hooks Hooks,
-) (Outcome, error) {
+) (RunResult, error) {
 	def := testAgent()
 	def.Settings = settings
 	return (Runner{
@@ -132,7 +132,7 @@ func budgetLookup(cost *tool.Cost) tool.Tool {
 
 func requireBudgetLimit(
 	t *testing.T,
-	out Outcome,
+	out RunResult,
 	kind LimitKind,
 ) *LimitDetail {
 	t.Helper()
@@ -872,7 +872,7 @@ func (c *cancelingPricedClient) Send(
 	return llm.Result{}, ctx.Err()
 }
 
-func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) Outcome {
+func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) RunResult {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

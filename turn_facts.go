@@ -207,7 +207,7 @@ const (
 	InterruptRun InterruptCause = "run"
 	// InterruptSteering settles a call an urgent steer cut short. Unlike the
 	// other causes it does not stop the run: the next call sees the partial
-	// output and the steer. It does not count toward ModelAttempts, but it
+	// output and the steer. It does not count toward ModelCalls, but it
 	// does count toward spend and every Budget cap.
 	InterruptSteering InterruptCause = "steering"
 )
@@ -235,7 +235,7 @@ type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
 	Verdict    ToolVerdict     `json:"verdict,omitzero"`
-	// Result is what the model sees instead of Outcome's output. It is set
+	// Result is what the model sees instead of RunResult's output. It is set
 	// only when an AfterTool hook or Limits.ToolResultBytes changed it;
 	// Outcome stays the record of what happened.
 	Result *llm.ToolResult `json:"result,omitempty"`
@@ -300,13 +300,13 @@ type Stop struct {
 	RefID string `json:"ref_id,omitempty"`
 	// Limit enables callers to handle a limited stop without parsing Reason.
 	Limit *LimitDetail `json:"limit,omitempty"`
-	// Terminal means the turn has ended: no command can run it again,
+	// Ended means the turn has ended: no command can run it again,
 	// whatever the host settles or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline or its
 	// interruptions limit; and for a turn limited by cost whose spend
 	// includes a cost that cannot be priced; or a token-capped turn whose
 	// usage aggregation is incomplete. A turn stopped at its model
-	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
+	// attempt limit is not terminal: Continue.ModelCalls raises the limit.
 	// The runner sets it when it records the stop.
 	//
 	// After a terminal stop the record accepts only late results of work
@@ -314,13 +314,13 @@ type Stop struct {
 	// live reader that stops at a terminal stop can miss those results; a
 	// reload shows them. Project ignores them: an ended turn's projection
 	// is fixed at its terminal stop, and so is TurnView.Reply.
-	Terminal bool `json:"terminal,omitempty"`
-	// Projected means the record holds no stop after the latest Start or
+	Ended bool `json:"ended,omitempty"`
+	// Inferred means the record holds no stop after the latest Start or
 	// Continue: the run ended without recording one, or is still going.
 	// Replay and Outcome then infer Kind from the work in flight, and Kind
 	// is empty when none is. A recorded stop is never projected. A hook's
 	// view of a live run has an empty Stop that is not projected.
-	Projected bool `json:"projected,omitempty"`
+	Inferred bool `json:"inferred,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool or a hook. The reason
@@ -343,13 +343,13 @@ const (
 	// StopReasonHookFailed means a BeforeSend or BeforeFinish hook returned
 	// an error or an invalid answer; the step's HookResults name the hook.
 	// Fix the cause, then Continue: the turn resumes where it stopped. A
-	// failed stop does not count toward Limits.Interruptions.
+	// failed stop does not count toward Limits.Resumes.
 	StopReasonHookFailed = "hook_failed"
 
 	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
 	// answer with a Reason when no further model call could happen, or
 	// vetoed the reserved final answer itself. The
-	// rejection is recorded and no output is accepted; Outcome.Reply is
+	// rejection is recorded and no output is accepted; RunResult.Reply is
 	// empty. Continue after raising the limit that stopped it (such as the
 	// Budget) lets the model see the rejection and answer again; with no
 	// model attempts left, Continue ends the turn limited.
