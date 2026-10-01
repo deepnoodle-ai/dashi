@@ -9,7 +9,7 @@ already ahead of Dive and the surveyed projects. The gaps sit around it. Gaps
 are directions, not decisions.
 
 **Names:** written before [decision 30](decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
 `ID` as `CommandID`.
 
 ## Summary table
@@ -142,7 +142,7 @@ replay; an app still loses these Dive basics:
 - No automatic retry, service tier, stop sequences, top_p, or seed
   (`llm/llm.go:327-345`); no typed escape hatch for provider controls.
 - Reasoning controls are not normalized; MCP has no credentials
-  (`providers/anthropic/messages/provider_tools.go:161-168`); no computer use.
+  (`providers/anthropic/messages/hosted_tools.go:161-168`); no computer use.
 - The completions reader keys tool calls by index only
   (`providers/openai/completions/stream.go:118-133`); empty arguments fail
   `Call.Validate` (`tool/tool.go:178`); one 5-minute total HTTP timeout and no

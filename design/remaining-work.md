@@ -315,7 +315,7 @@ only with their own timeout and interruption semantics.
 
 **Status:** Open. A call declaring unbounded provider tool work stops before
 dispatch under `MaxCost`; reporting its finished partial cost works. **Size:** M.
-**Difficulty:** High. **Reference:** [provider tool pricing](provider-tool-pricing.md)
+**Difficulty:** High. **Reference:** [provider tool pricing](hosted-tool-pricing.md)
 and [finding 11.2](gaps/F-example-ports.md). **Next:** Qualify a provider-enforced
 pass bound and its full rebilling behavior before allowing that route under a
 hard cap. Other routes may remain excluded.

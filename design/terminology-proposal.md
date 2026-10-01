@@ -4,7 +4,7 @@ Status: accepted, 2026-09-27. Implemented across the foundation; public contract
 remain provisional. This decision follows the [conceptual model][model] and
 includes changes to stored JSON and replay validation.
 
-The agent-layer names (`Agent`, `Runner`, `Resolve`, `CommandID`) came later; see
+The agent-layer names (`Agent`, `Runner`, `Settle`, `CommandID`) came later; see
 [decision 30](decisions.md).
 
 ## Public vocabulary

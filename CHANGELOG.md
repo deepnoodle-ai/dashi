@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
     `Resumes`, `FitTokens` → `SuggestedMaxOutputTokens`.
   - Tools: every `Hosted*` name → `ProviderTool*`, `Defer` →
     `NeedsApproval`, a hook decision's `Revision` → `RulesVersion`.
+    `OutputFromTool`/`OutputFromText` → `OutputSourceToolCall`/`OutputSourceText`.
   - History and recording: `ProjectContext` → `TurnMessages`, `Project` →
     `TurnMessagesFull`, `ProjectHistory` → `BuildHistory`,
     `Session.ProjectedHistory` → `NextHistory`, digest and fingerprint →
