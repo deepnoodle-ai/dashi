@@ -67,3 +67,65 @@ func TestAttachmentRejectedCorrectionNeverRetriesRemovedEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestAttachmentRejectedAfterInterruptedSummaryKeepsPendingIdentity(t *testing.T) {
+	started := make(chan struct{})
+	cfg := testConfig(t, fullWindow, blockUntilDone(started), say("<summary>Retained project facts.</summary>"), say("Retried original evidence."))
+	compactWindow(cfg.Client.(*fakeClient))
+	var rec *attachmentAdmissionFault
+	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
+		rec = &attachmentAdmissionFault{Recorder: r, mode: "rejected", failed: true}
+		return rec
+	}
+	u := newLineUI(&bytes.Buffer{})
+	a, err := buildApp(t.Context(), cfg, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.eng.Close()
+	u.ctrl = a.ctrl
+	if _, err := a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.eng.Prompt(t.Context(), compactionSeed()); err != nil {
+		t.Fatal(err)
+	}
+	rec.failed = false
+	fixtureSelectedText(t, cfg.Dir, "notes.txt", "summary-held evidence")
+	a.ctrl.Input("/attach notes.txt")
+	a.ctrl.Input("inspect original")
+	<-started
+	a.ctrl.CancelWork()
+	a.ctrl.Wait()
+	original := a.eng.pending
+	key := original.start.CommandID
+	a.ctrl.Input("")
+	a.ctrl.Wait()
+	u.attachmentMu.Lock()
+	u.drainAttachmentReceiptsLocked()
+	frozen := u.attachments.frozenBy
+	u.attachmentMu.Unlock()
+	if a.eng.pending != original || a.eng.pending.start.CommandID != key || frozen == "" || cfg.Client.(*fakeClient).sends != 3 {
+		t.Fatal("ordinary rejection released summary-owned draft or changed identity")
+	}
+	a.ctrl.Input("/detach 1")
+	u.attachmentMu.Lock()
+	remaining := len(u.attachments.entries)
+	u.attachmentMu.Unlock()
+	if remaining != 1 {
+		t.Fatal("summary-owned snapshot removed")
+	}
+	a.ctrl.Input("")
+	a.ctrl.Wait()
+	u.attachmentMu.Lock()
+	u.drainAttachmentReceiptsLocked()
+	remaining = len(u.attachments.entries)
+	u.attachmentMu.Unlock()
+	if a.eng.HasPending() || remaining != 0 || cfg.Client.(*fakeClient).sends != 4 || a.eng.Turns(t.Context()) != 3 {
+		t.Fatal("explicit summary retry lost or duplicated input")
+	}
+	docs := hydratedDocuments(cfg.Client.(*fakeClient).inputAt(3))
+	if len(docs) != 1 || docs[0] != "summary-held evidence" {
+		t.Fatalf("documents=%v", docs)
+	}
+}

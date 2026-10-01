@@ -121,7 +121,7 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	if e.pending == p && p.input != nil {
 		if p.uncertain != "" {
 			e.inputReceipt(p, inputPendingUnknown)
-		} else if (!p.summary || p.attempted) && res.Outcome.Origin != dashi.StartCompaction {
+		} else if !p.summary && res.Outcome.Origin != dashi.StartCompaction {
 			e.inputReceipt(p, inputPreRecordFailure)
 		}
 	}
