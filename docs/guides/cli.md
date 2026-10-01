@@ -45,7 +45,14 @@ The CLI summarizes history before new work when the last model call uses
 80% of the selected model's context window. `/compact` requests a summary
 while idle, without sending queued prompts. The transcript shows compaction
 states and its usage footer; it hides the summary request and text. Unknown
-windows use 128,000 tokens and warn once per selected model.
+windows use 128,000 tokens for this between-Turn history workflow and warn
+once per selected model.
+
+Active-Turn protection checks text-only requests against their recorded model window.
+Media requests show one “protection unavailable for media” marker, including after reopen.
+Provider content preparation and actual window acceptance govern these requests; a known
+window does not prove media fit. Cost limits still apply. See
+[active context](compaction.md#protect-one-long-request).
 
 Input submitted during compaction waits in order, including `!text`. The
 urgent prefix cannot interrupt a summary; use Ctrl-C. If automatic compaction

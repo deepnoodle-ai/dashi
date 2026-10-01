@@ -60,6 +60,8 @@ type Agent struct {
 	// schema.
 	NoTools bool   `json:"no_tools,omitempty"`
 	Limits  Limits `json:"limits"`
+	// ActiveCompaction protects a long single Turn. Nil disables it.
+	ActiveCompaction *ActiveCompactionPolicy `json:"active_compaction,omitempty"`
 }
 
 // Limits bounds model calls, interruptions, pauses, tool concurrency, and time
@@ -107,6 +109,9 @@ const (
 // Validate checks limits and output settings. Every identity field may be
 // empty, since the Runner fills them; a zero Agent is valid.
 func (a Agent) Validate() error {
+	if err := a.ActiveCompaction.validate(); err != nil {
+		return err
+	}
 	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
 			"dashi: model attempts and tool concurrency cannot be negative",
@@ -129,6 +134,7 @@ func (a Agent) Validate() error {
 // equal to its record, whatever order a host built its tool list in. Runtime
 // checks read -1 as zero allowed, through max(count, 0).
 func (a Agent) resolved() Agent {
+	a.ActiveCompaction = a.ActiveCompaction.resolved()
 	if len(a.Tools) > 0 {
 		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
 	}
@@ -199,6 +205,8 @@ const (
 	StepLoopContinued StepKind = "loop_continued"
 	// StepModelIntent records a prepared model call before dispatch.
 	StepModelIntent StepKind = "model_requested"
+	// StepContextCompacted records an applied active-Turn context replacement.
+	StepContextCompacted StepKind = "context_compacted"
 	// StepModelSettled records the result of a model call.
 	StepModelSettled StepKind = "model_settled"
 	// StepModelReconciled records a host-supplied result for an uncertain call.
@@ -241,6 +249,7 @@ type Step struct {
 	Budget *Budget `json:"budget,omitempty"`
 	// ModelAttempts on a continuation records the raised model-attempt cap.
 	ModelAttempts  int                         `json:"model_attempts,omitempty"`
+	Compacted      *ContextCompactionFact      `json:"compacted,omitempty"`
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`
 	Tool           *ToolFact                   `json:"tool,omitempty"`
@@ -308,7 +317,12 @@ const (
 	// WarningToolNotOffered means Agent.Tools names a tool that the Runner's
 	// Tools did not offer for a model call. The call runs without it. Each
 	// name warns once per turn.
-	WarningToolNotOffered WarningCode = "tool_not_offered"
+	WarningToolNotOffered              WarningCode = "tool_not_offered"
+	WarningActiveCompactionUnavailable WarningCode = "active_compaction_unavailable"
+	WarningActiveCompactionBlocked     WarningCode = "active_compaction_blocked"
+	// WarningActiveCompactionMediaEstimateUnavailable means this request has
+	// prepared media, whose context size cannot be estimated from wire bytes.
+	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
 
 	// The warnings below are a Session's own. No turn records them; they
 	// arrive on Outcome.SessionWarnings.
@@ -365,7 +379,8 @@ type StructuredOutput struct {
 
 // StartFact pins the agent, inputs, and optional cap for a turn.
 type StartFact struct {
-	Agent Agent `json:"agent"`
+	Agent                  Agent `json:"agent"`
+	ActiveCompactionWindow int   `json:"active_compaction_window,omitempty"`
 	// Budget pins the caller's cap at the start of the turn.
 	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
@@ -414,6 +429,8 @@ type ContextFact struct {
 // wire body. An unresolved intent must be reconciled, not reconstructed from
 // this digest and dispatched again.
 type ModelFact struct {
+	Purpose    ModelPurpose           `json:"purpose,omitempty"`
+	Compaction *ContextCompactionPlan `json:"compaction,omitempty"`
 	// AttemptID is stable across the intent and its settlement.
 	AttemptID string `json:"attempt_id"`
 	MessageID string `json:"message_id,omitempty"`
@@ -606,7 +623,8 @@ type Stop struct {
 const (
 	// StopReasonToolFatal means an executor returned an error wrapped with
 	// tool.Fatal.
-	StopReasonToolFatal = "tool_fatal"
+	StopReasonToolFatal        = "tool_fatal"
+	StopReasonCompactionFailed = "compaction_failed"
 
 	// StopReasonToolOutcomeInvalid means an executor returned an outcome
 	// that fails tool.Outcome.Validate. This is a bug in the executor, not

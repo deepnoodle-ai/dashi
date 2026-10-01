@@ -20,7 +20,7 @@ import (
 // projects as an error result, and a model attempt with no recorded result
 // projects nothing.
 func Project(t Turn) ([]llm.Message, error) {
-	return projectWithHistory(t, nil)
+	return projectedPublic(t, nil, false)
 }
 
 // modelToolResult is the result the model sees for a settled outcome when
@@ -58,18 +58,48 @@ func cloneToolResult(r llm.ToolResult) llm.ToolResult {
 
 // projectWithHistory assembles one model request from the current call's prior
 // history and this turn's recorded messages. It never stores that history.
-func projectWithHistory(
-	t Turn,
-	history []llm.Message,
-) ([]llm.Message, error) {
-	state, err := replay(t)
+func projectWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
+	return projectedPublic(t, history, true)
+}
+
+// ProjectContext returns this Turn's model context with recorded replacements.
+// Source messages remain available through Project and the immutable facts.
+func ProjectContext(t Turn) ([]llm.Message, error) { return projectedPublic(t, nil, true) }
+
+func projectedPublic(t Turn, history []llm.Message, compact bool) ([]llm.Message, error) {
+	messages, err := projectedMessages(t, history, compact)
 	if err != nil {
 		return nil, err
 	}
+	out := make([]llm.Message, len(messages))
+	for i, m := range messages {
+		out[i] = m.Message.Clone()
+	}
+	return out, nil
+}
+
+func projectedMessages(
+	t Turn,
+	history []llm.Message,
+	compact bool,
+) ([]contextMessage, error) {
+	return projectedMessagesCached(t, history, compact, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
+}
+
+func projectedMessagesCached(t Turn, history []llm.Message, compact bool, cache *contextValidationCache) ([]contextMessage, error) {
+	state, err := replayCached(t, cache)
+	if err != nil {
+		return nil, err
+	}
+	return projectedMessagesState(t, history, compact, state, cache)
+}
+
+func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
+	var err error
 	ended := state.Stop.Terminal
 	if ended {
 		t.Steps = t.Steps[:endedLength(t.Steps, state.Stop)]
-		if state, err = replay(t); err != nil {
+		if state, err = replayCached(t, cache); err != nil {
 			return nil, err
 		}
 	} else {
@@ -85,9 +115,17 @@ func projectWithHistory(
 			return nil, errors.New("dashi: hosted approval is unresolved")
 		}
 	}
-	out := make([]llm.Message, 0, len(history)+len(t.Steps))
+	out := make([]contextMessage, 0, len(history)+len(t.Steps))
+	var seq int64
+	index := 0
+	emit := func(messages ...llm.Message) {
+		for _, m := range messages {
+			out = append(out, contextMessage{Ref: TurnMessageRef{Seq: seq, Index: index}, Message: m})
+			index++
+		}
+	}
 	for _, m := range history {
-		out = append(out, m.Clone())
+		emit(m.Clone())
 	}
 	settledHosted := map[string]bool{}
 	for _, step := range t.Steps {
@@ -101,17 +139,18 @@ func projectWithHistory(
 	lastDispatched := lastDispatchedIntent(t)
 	resumed := lastCrashResume(t.Steps)
 	for _, step := range t.Steps {
+		seq, index = step.Seq, 0
 		switch step.Kind {
 		case StepStarted:
 			for _, m := range step.Started.Input {
-				out = append(out, m.Clone())
+				emit(m.Clone())
 			}
 		case StepContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
 			// ended turn makes none.
 			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
-				out = append(out, crashResumeReminder())
+				emit(crashResumeReminder())
 			}
 		case StepDelivered, StepLoopContinued, StepToolSettled:
 			// A turned-down submission's items follow its result, which is
@@ -136,11 +175,14 @@ func projectWithHistory(
 					}
 					message.Context = &llm.MessageContext{Origin: string(origin), Name: item.Name}
 				}
-				out = append(out, message)
+				emit(message)
 			}
 		case StepModelSettled, StepModelReconciled:
+			if modelPurpose(t, step.Model.AttemptID) == ModelPurposeCompaction {
+				continue
+			}
 			if step.Model.Interrupted == InterruptSteering {
-				out = append(out, steeredPartial(step.Model.Result)...)
+				emit(steeredPartial(step.Model.Result)...)
 				continue
 			}
 			if step.Model.Result == nil || step.Model.Error != "" ||
@@ -182,7 +224,7 @@ func projectWithHistory(
 			if len(m.Content) == 0 {
 				continue
 			}
-			out = append(out, m)
+			emit(m)
 			for _, part := range m.Content {
 				if part.Kind != llm.ContentToolCall || part.ToolCall == nil {
 					continue
@@ -201,33 +243,31 @@ func projectWithHistory(
 				default:
 					result = v.Result()
 				}
-				out = append(
-					out,
-					llm.Message{
-						Role: llm.RoleUser,
-						Content: []llm.Content{
-							{
-								Kind:       llm.ContentToolResult,
-								ToolResult: &result,
-							},
-						},
-					},
-				)
-			}
-		case StepHostedApprovalSettled:
-			response := *step.HostedApproval
-			out = append(
-				out,
-				llm.Message{
+				emit(llm.Message{
 					Role: llm.RoleUser,
 					Content: []llm.Content{
 						{
-							Kind:                   llm.ContentHostedApprovalResponse,
-							HostedApprovalResponse: &response,
+							Kind:       llm.ContentToolResult,
+							ToolResult: &result,
 						},
 					},
+				})
+			}
+		case StepContextCompacted:
+			if compact {
+				out = replaceContext(out, compactionPlan(t, step.Compacted.AttemptID), *step.Compacted, step.Seq)
+			}
+		case StepHostedApprovalSettled:
+			response := *step.HostedApproval
+			emit(llm.Message{
+				Role: llm.RoleUser,
+				Content: []llm.Content{
+					{
+						Kind:                   llm.ContentHostedApprovalResponse,
+						HostedApprovalResponse: &response,
+					},
 				},
-			)
+			})
 		}
 	}
 	return out, nil
@@ -342,7 +382,7 @@ func lastDispatchedIntent(t Turn) int64 {
 		case StepModelIntent:
 			intents[step.Model.AttemptID] = step.Seq
 		case StepModelSettled, StepModelReconciled:
-			if seq := intents[step.Model.AttemptID]; modelDispatched(step.Model) &&
+			if seq := intents[step.Model.AttemptID]; modelPurpose(t, step.Model.AttemptID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
 				seq > last {
 				last = seq
 			}

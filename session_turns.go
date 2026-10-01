@@ -54,10 +54,12 @@ type TurnLiveness interface {
 // projection. A turn that has ended never changes its projection, so the
 // cached projection is final.
 type sessionTurn struct {
-	turn      Turn
-	view      TurnView
-	messages  []llm.Message
-	projected bool
+	turn             Turn
+	view             TurnView
+	messages         []llm.Message
+	projected        bool
+	contextMessages  []llm.Message
+	contextProjected bool
 	// checked is set once a compaction turn's digest was compared, and
 	// mismatch holds the warning when it differed.
 	checked  bool
@@ -327,7 +329,7 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []Warning)
 		}
 		var msgs []llm.Message
 		if err == nil {
-			msgs, err = s.projection(t)
+			msgs, err = s.contextProjection(t)
 		}
 		if err != nil {
 			warnings = append(warnings, unreadable(s.ID, i, err))
@@ -407,4 +409,18 @@ func (s *Session) ready() {
 		s.turns = map[int]*sessionTurn{}
 		s.running = map[string]int{}
 	}
+}
+
+func (s *Session) contextProjection(t *sessionTurn) ([]llm.Message, error) {
+	if t.contextProjected {
+		return t.contextMessages, nil
+	}
+	msgs, err := ProjectContext(t.turn)
+	if err != nil {
+		return nil, err
+	}
+	if t.ended() {
+		t.contextMessages, t.contextProjected = msgs, true
+	}
+	return msgs, nil
 }

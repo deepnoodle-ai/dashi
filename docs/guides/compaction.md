@@ -170,8 +170,81 @@ projection. Preparation and recorder failures remain Go errors.
 The CLI enables automatic compaction and offers `/compact`. See the
 [CLI guide](cli.md) for markers, pending input, and recovery.
 
+## Protect one long request
+
+Set `Agent.ActiveCompaction` when a single request makes many tool calls:
+
+```go
+agent := dashi.Agent{
+    Model: model,
+    ActiveCompaction: &dashi.ActiveCompactionPolicy{},
+}
+```
+
+Before a text-only ordinary dispatch, the Runner sizes the prepared provider body,
+including tools, hooks, and replay data. At the default 80%
+threshold it can summarize complete settled exchanges. It keeps the original
+request, caller-owned history, operator steering, and named context. A summary
+retains the objective, findings, changed files, verification, and remaining work.
+Completed tools remain recorded and are not executed again by compaction.
+
+The policy uses the client's context-window evidence. Set `Window` when the
+client has no window; a known smaller client window still caps that value.
+If neither is known, the Turn records `active_compaction_unavailable` and runs
+without active protection. `Fraction` defaults to 0.8 and `MaxTokens` to 2048.
+`Disabled: true` explicitly overrides inherited protection in a Session.
+
+The threshold is proactive, not a hard refusal. Without eligible coverage, a
+request that still fits can dispatch. A hard no-fit stops with
+`LimitContextWindow` and reason `context_window`. Protected input may fill the
+window even after all eligible exchanges are replaced. Preserve the recorded
+work and start a new Turn with a larger model or smaller input. Estimates use
+prepared bytes plus a margin; they do not guarantee provider acceptance. Dashi
+does not compact and retry after a provider overflow.
+
+Prepared image, document, audio, or video content makes active context sizing
+unavailable for that request, including media in history, verified references,
+and tool results. The Turn records `active_compaction_media_estimate_unavailable`
+once. It skips proactive compaction and the byte-based context limit for that
+request. The recorded policy stays active for later text-only requests. Provider
+content preparation and actual window acceptance govern media requests; neither
+preparation nor a known window proves token fit. Cost-risk estimates and budget
+admission stay unchanged, so a cost cap can still refuse the request.
+
+Summary attempts use the same sender, hooks, billing identities, attempts,
+and cumulative budget as ordinary work. `ModelPlan.Purpose`,
+`SendPlan.Purpose`, and `ModelFact.Purpose` identify `ModelPurposeCompaction`.
+Summary calls offer no tools or structured output and never become the Turn's
+answer. They leave one ordinary attempt available, which permits a final
+response but does not guarantee completion after another tool selection.
+
+`Project` and `Session.History` retain ordinary messages and omit summary work.
+`ProjectContext` and `Session.ProjectedHistory` apply recorded replacements.
+`TurnView.ContextCompactions` exposes the applied text and estimated savings;
+actual summary usage and money remain in `Spend`. The two summary mechanisms
+can coexist: `Session.Compactor` works between Turns and never recursively
+starts active protection inside its own summary Turn.
+
+Failed, empty, tool-requesting, or non-shrinking summaries record their raw
+result and accounting, then stop with `compaction_failed`. Explicit `Continue`
+can admit a new summary attempt. After a successful recorded settlement,
+reload applies its replacement without another model call. An interrupted
+no-tools summary follows existing safe recovery. An ambiguous recorder write
+requires authoritative reload before any further dispatch. Cancellation ends
+work; interruption preserves continuation. The raw facts always remain.
+
+Readers must understand the new `context_compacted` step and compaction-purpose
+model records. Upgrade readers before producing these records; older readers
+reject unfamiliar step kinds. Existing records and between-Turn behavior stay
+compatible. `ExampleActiveCompactionPolicy` runs the workflow without keys.
+
 ## Limits
 
-- Compaction does not run inside a Turn. One Turn that fills the window is not
-  helped. Overflow recovery is a later feature.
-- Token counts for the kept tail are estimates.
+- The optional `compaction` package manages history between Turns. Enable
+  `Agent.ActiveCompaction` separately for the current Turn.
+- Token counts for the kept tail and prepared-body sizing are estimates.
+
+A summary hook can add media too. Its request receives the same unavailable-size
+handling. Application still requires strict savings in the prepared replacement:
+large new hook content can reject the summary with `compaction_failed`. The raw
+result and accounting remain recorded, and no replacement is applied.

@@ -94,6 +94,7 @@ type Renderer struct {
 	summary       string
 	showReasoning bool
 	reasoning     map[string]map[summaryPart]string
+	activeContext map[string]*activeContextAttempt
 }
 
 type callState struct {
@@ -138,7 +139,7 @@ func (r *Renderer) Event(ev dashi.Event) []Block {
 }
 
 func (r *Renderer) delta(ev dashi.Event) []Block {
-	if r.Origin == dashi.StartCompaction {
+	if r.Origin == dashi.StartCompaction || r.isActiveSummary(ev.AttemptID) {
 		return nil
 	}
 	if ev.Delta.Kind == llm.DeltaReasoning && r.showReasoning {
@@ -206,9 +207,15 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Text: joinMessages(s.Started.Input),
 			Done: true,
 		})
+		out = append(out, activeContextProtection(s)...)
 	case dashi.StepModelIntent:
+		out = append(out, r.activeContextIntent(s)...)
 		out = append(out, modelPreparationBlocks(s)...)
 	case dashi.StepModelSettled, dashi.StepModelReconciled:
+		if r.isActiveSummaryFact(s.Model) {
+			out = append(out, r.activeContextSettled(s)...)
+			break
+		}
 		out = append(out, r.reasoningSettled(s)...)
 		out = append(out, r.modelSettled(s)...)
 	case dashi.StepToolDecision:
@@ -234,13 +241,20 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			}
 		}
 	case dashi.StepStopped:
+		out = append(out, r.activeContextStopped(*s.Stop)...)
 		if r.Origin == dashi.StartCompaction {
 			out = append(out, r.compactionBlock(s.TurnID, *s.Stop))
 		} else {
 			out = append(out, r.stopped(s)...)
 		}
+	case dashi.StepContextCompacted:
+		out = append(out, r.activeContextApplied(s)...)
 	}
 	for _, w := range s.Warnings {
+		if block, ok := activeContextUnavailable(s, w); ok {
+			out = append(out, block)
+			continue
+		}
 		out = append(out, Block{
 			Kind: KindWarning,
 			Text: w.Message,
@@ -401,6 +415,9 @@ func (r *Renderer) stopped(s dashi.Step) []Block {
 }
 
 func limitText(st *dashi.Stop) string {
+	if st.Limit != nil && st.Limit.Kind == dashi.LimitContextWindow {
+		return "The next request cannot fit its recorded context window. Full work is retained. Use a larger-window model or smaller input for a new Turn; compact earlier session history when needed."
+	}
 	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelAttempts {
 		return fmt.Sprintf(
 			"Stopped after %d model calls. Press Enter or type /continue to go on.",
@@ -497,6 +514,7 @@ func RenderTurn(
 		}
 	}
 	if view.Stop.Kind != "" {
+		out = append(out, r.activeContextStopped(view.Stop)...)
 		out = append(out, r.Footer(view))
 	}
 	if view.Origin == dashi.StartCompaction {

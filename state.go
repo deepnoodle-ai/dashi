@@ -85,8 +85,10 @@ func (v ToolView) Result() llm.ToolResult {
 
 // TurnView is the current state reconstructed from acknowledged steps.
 type TurnView struct {
-	ID    string
-	Agent Agent
+	ID                     string
+	Agent                  Agent
+	ActiveCompactionWindow int
+	ContextCompactions     []ContextCompactionFact
 	// OutputSchema is the schema pinned at Start for this turn.
 	OutputSchema json.RawMessage
 	// Parent is the tool call that caused this turn, or nil for a root
@@ -179,6 +181,12 @@ func (v TurnView) Context(
 }
 
 type replayState struct {
+	contextCache      *contextValidationCache
+	source            Turn
+	pendingCompaction string
+	// compactionUsed holds an applied summary's guard until ordinary work
+	// succeeds. Replay preserves the guard across interruption and reload.
+	compactionUsed bool
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
 	modelCalls             int
@@ -263,8 +271,25 @@ func snapshotView(v TurnView) TurnView {
 }
 
 func replay(t Turn) (*replayState, error) {
+	return replayCached(t, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
+}
+
+func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
+	if cache.states == nil {
+		cache.states = map[int64]*replayState{}
+	}
+	if cache.needed == nil {
+		cache.needed = map[int64]bool{}
+	}
+	for _, step := range t.Steps {
+		if step.Kind == StepModelIntent && step.Model != nil && step.Model.Compaction != nil {
+			cache.needed[step.Model.Compaction.Through] = true
+		}
+	}
 	s := &replayState{
 		TurnView:         TurnView{ID: t.ID, Tools: map[string]ToolView{}},
+		source:           t,
+		contextCache:     cache,
 		modelDefs:        map[string]tool.Definition{},
 		hosted:           map[string]llm.HostedApprovalRequest{},
 		hostedAttempts:   map[string]string{},
@@ -324,6 +349,9 @@ func replay(t Turn) (*replayState, error) {
 			s.deliveredOnKept = 0
 		}
 		s.Revision = step.Seq
+		if cache.needed[step.Seq] {
+			cache.states[step.Seq] = s.projectionSnapshot()
+		}
 	}
 	// Derive ArgsDigest from the final status, so no transition out of
 	// approval can leave a stale digest behind.
@@ -349,7 +377,7 @@ func replay(t Turn) (*replayState, error) {
 		// answer is fixed there, as Project's history is.
 		prefix := t
 		prefix.Steps = t.Steps[:end]
-		ended, err := replay(prefix)
+		ended, err := replayCached(prefix, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -529,6 +557,10 @@ func (s *replayState) apply(step Step) error {
 		s.Origin = origin
 		s.Compaction = step.Started.Compaction.clone()
 		s.Agent = step.Started.Agent.resolved()
+		s.ActiveCompactionWindow = step.Started.ActiveCompactionWindow
+		if s.ActiveCompactionWindow < 0 || s.ActiveCompactionWindow > 0 && (s.ActiveCompactionWindow < 1024 || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || origin == StartCompaction) {
+			return errors.New("invalid active compaction window")
+		}
 		s.attemptCap = s.Agent.Limits.ModelAttempts
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
@@ -616,6 +648,9 @@ func (s *replayState) apply(step Step) error {
 			len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
+		if err := s.validateCompactionIntent(step); err != nil {
+			return err
+		}
 		if err := validateAdmission(step.Model.Admission); err != nil {
 			return err
 		}
@@ -673,7 +708,7 @@ func (s *replayState) apply(step Step) error {
 			}
 			s.modelDefs[d.Name] = d
 		}
-		if len(s.OutputSchema) > 0 && !outputTool {
+		if len(s.OutputSchema) > 0 && !outputTool && step.Model.Purpose != ModelPurposeCompaction {
 			return errors.New("output schema requires reserved output tool")
 		}
 	case StepModelSettled:
@@ -719,6 +754,9 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("known model failure lacks evidence or has partial result")
 			}
 		}
+		if err := s.validateCompactionSettlement(step.Model); err != nil {
+			return err
+		}
 		s.modelIntent = ""
 		s.modelSettlements[step.Model.AttemptID] = step.Model
 		if step.Model.Interrupted == InterruptNone {
@@ -734,7 +772,7 @@ func (s *replayState) apply(step Step) error {
 			step.Model.Failure != llm.FailureNotDispatched {
 			s.failedModel = step.Model.Error
 		}
-		if step.Model.Result != nil {
+		if step.Model.Result != nil && s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
 			actionable := step.Model.Error == "" &&
 				step.Model.Interrupted == InterruptNone &&
 				!s.Stop.Terminal
@@ -748,7 +786,12 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
-			s.awaitingClassification = true
+			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.AttemptID
+			} else {
+				s.compactionUsed = false
+				s.awaitingClassification = true
+			}
 		}
 		if err := s.checkStillOpen(); err != nil {
 			return err
@@ -764,6 +807,9 @@ func (s *replayState) apply(step Step) error {
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
+		if err := s.validateCompactionSettlement(step.Model); err != nil {
+			return err
+		}
 		s.unresolvedModel = ""
 		s.modelSettlements[step.Model.AttemptID] = step.Model
 		// Verified nonexecution clears uncertainty; Continue may retry.
@@ -775,21 +821,32 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("model failure reconciliation lacks evidence")
 		}
 		if step.Model.Error == "" {
-			if err := s.recordResult(
-				step.Model.AttemptID,
-				step.Model.Result,
-				!s.Stop.Terminal,
-			); err != nil {
-				return err
+			if s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
+				if err := s.recordResult(
+					step.Model.AttemptID,
+					step.Model.Result,
+					!s.Stop.Terminal,
+				); err != nil {
+					return err
+				}
 			}
 			if s.unresolvedInterrupted {
 				s.ModelAttempts++
 			}
-			s.awaitingClassification = true
+			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.AttemptID
+			} else {
+				s.compactionUsed = false
+				s.awaitingClassification = true
+			}
 		}
 		s.unresolvedPartial = false
 		s.unresolvedInterrupted = false
 		if err := s.checkStillOpen(); err != nil {
+			return err
+		}
+	case StepContextCompacted:
+		if err := s.applyContextCompaction(step); err != nil {
 			return err
 		}
 	case StepToolDecision:
@@ -1584,6 +1641,9 @@ func (s *replayState) trackContext(step Step) {
 		}
 		s.intentSeq[step.Model.AttemptID] = step.Seq
 	case StepModelSettled, StepModelReconciled:
+		if intent := s.modelIntents[step.Model.AttemptID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
+			return
+		}
 		if !modelDispatched(step.Model) {
 			return
 		}
@@ -1790,7 +1850,7 @@ func validateStepPayload(step Step) error {
 			valid = step.Kind == StepContinued
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelIntent
-		case WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
+		case WarningActiveCompactionUnavailable, WarningActiveCompactionBlocked, WarningActiveCompactionMediaEstimateUnavailable, WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
 			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored,
 			WarningToolNotOffered:
 			valid = true
@@ -1843,6 +1903,7 @@ func validateStepPayload(step Step) error {
 	count := 0
 	for _, present := range []bool{
 		step.Started != nil,
+		step.Compacted != nil,
 		step.Context != nil,
 		step.Model != nil,
 		step.Tool != nil,
@@ -1904,6 +1965,10 @@ func validateStepPayload(step Step) error {
 	case StepOutputRecorded:
 		if step.Output == nil {
 			return errors.New("output payload missing")
+		}
+	case StepContextCompacted:
+		if step.Compacted == nil {
+			return errors.New("compaction payload missing")
 		}
 	case StepStopped:
 		if step.Stop == nil {
@@ -2000,4 +2065,10 @@ func validateContext(item ContextItem) error {
 		}
 	}
 	return validateMessage(item.Message)
+}
+
+// projectionSnapshot captures only immutable facts needed by the pure projector.
+// It does not calculate accounting or recursively validate a prefix.
+func (s *replayState) projectionSnapshot() *replayState {
+	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), hosted: maps.Clone(s.hosted)}
 }

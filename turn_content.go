@@ -62,7 +62,11 @@ func (t Turn) HostedUses() []llm.HostedUse {
 // settled or reconciled calls that neither failed nor were interrupted.
 func settledResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
+	turn := Turn{Steps: steps}
 	for _, step := range steps {
+		if step.Model != nil && modelPurpose(turn, step.Model.AttemptID) == ModelPurposeCompaction {
+			continue
+		}
 		if result := actionableResult(step); result != nil {
 			out = append(out, result)
 		}
@@ -76,6 +80,7 @@ func actionableResult(step Step) *llm.Result {
 	if (step.Kind != StepModelSettled &&
 		step.Kind != StepModelReconciled) ||
 		step.Model == nil ||
+		step.Model.Purpose == ModelPurposeCompaction ||
 		step.Model.Result == nil ||
 		step.Model.Error != "" ||
 		step.Model.Interrupted != InterruptNone {
@@ -91,7 +96,11 @@ func actionableResult(step Step) *llm.Result {
 // from before the cut is not part of that answer.
 func answerText(steps []Step) string {
 	var chain []*llm.Result
+	turn := Turn{Steps: steps}
 	for _, step := range steps {
+		if step.Model != nil && modelPurpose(turn, step.Model.AttemptID) == ModelPurposeCompaction {
+			continue
+		}
 		if step.Kind == StepModelSettled && step.Model != nil &&
 			step.Model.Interrupted == InterruptSteering {
 			chain = nil
