@@ -55,7 +55,7 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 	if strings.HasPrefix(agent.Revision, cliRouteRevision) && agent.Revision != cliRouteRevision+fingerprint {
 		return nil, errors.New("recorded destination binding changed; restore its configuration before continuing")
 	}
-	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.grants[fingerprint] {
+	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(fingerprint) {
 		if !p.interactive || p.ask == nil {
 			return nil, fmt.Errorf("destination %q needs project binding trust; configure its reviewed binding in user settings or use an interactive run", d.ID)
 		}
@@ -67,7 +67,7 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 		if answer.Text != "Allow binding" {
 			return nil, errors.New("project destination binding declined")
 		}
-		p.routes.grants[fingerprint] = true
+		p.routes.grant(fingerprint)
 	}
 	client, err := p.routes.clientFor(agent)
 	if err != nil {
@@ -177,7 +177,7 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 	for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
 		d := p.routes.registry[id]
 		status := "configured"
-		if !d.trustedBy(p.routes.user) && !p.routes.grants[mustFingerprint(d)] {
+		if !d.trustedBy(p.routes.user) && !p.routes.granted(mustFingerprint(d)) {
 			status = "needs project binding trust"
 		} else if key, err := d.credential(p.routes.lookup, true); err != nil {
 			status = "invalid configuration"

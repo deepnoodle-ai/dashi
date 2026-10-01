@@ -135,7 +135,11 @@ Before applying a response, revalidate that request and worker still exist. Canc
 Remembered permissions retain existing scopes. Task creation approval grants no child effects.
 Controller foreground mode is derived from its actual worker/dialog owners, not restored unconditionally to running after a child prompt.
 
-Recover once before unrelated admission, binding each original child. Ctrl-C interrupts only foreground work; explicit task-stop cancels a child.
+Recover workers once before unrelated admission; revalidate required records before later driver actions.
+A successful parent task admission, recorded notice, or child index requires the corresponding journal.
+Missing/corrupt journals retain an unavailable task and block dispatch, replacement, quiet success, and precise inclusive accounting until restoration and reopen.
+Dialog inspection and exact task-stop preserve the original prompt/drafts; child resolution waits for its own confirmation.
+Ctrl-C interrupts only foreground work and retains child approvals; task-stop cancels only its child.
 Quit/new/session switch closes Tasks, waits for interrupted records, then releases tools/clients/session lock.
 Shutdown timeout reports unresolved shutdown and admits no replacement session; no daemon promise.
 Print waits through permitted notice Turns; AttentionError/parent resolution stops close remaining children and return non-success with exact action guidance.

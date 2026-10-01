@@ -147,9 +147,7 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 	if h.app.ctrl.Mode() != ModeApproval {
 		t.Fatalf("mode=%v", h.app.ctrl.Mode())
 	}
-	if h.app.ctrl.Interrupt() {
-		t.Fatal("Ctrl-C in approval must cancel first, then quit")
-	}
+	h.app.ctrl.QuitDuringRun("/quit")
 	h.app.ctrl.Wait()
 	select {
 	case <-h.ui.quit:
@@ -394,7 +392,7 @@ func TestSlashCommands(t *testing.T) {
 	h.input("/bogus")
 	mustHave(t, h.ui.text(), "Unknown command /bogus.")
 	h.input("/sessions")
-	mustHave(t, h.ui.text(), "There are no sessions for this directory.")
+	mustHave(t, h.ui.text(), "There are no saved sessions for this workspace.")
 	h.input("/quit")
 	select {
 	case <-h.ui.quit:

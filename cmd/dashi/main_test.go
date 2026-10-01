@@ -15,10 +15,14 @@ import (
 
 func testConfig(t *testing.T, script ...reply) appConfig {
 	t.Helper()
+	dir, err := canonicalWorkspace(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := session.NewStore(t.TempDir())
 	store.DisableSync()
 	return appConfig{
-		Dir:     t.TempDir(),
+		Dir:     dir,
 		HomeDir: t.TempDir(),
 		Model:   "fixture",
 		Client:  &fakeClient{script: script},

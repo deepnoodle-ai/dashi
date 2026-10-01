@@ -3,6 +3,7 @@ package filerecorder
 import (
 	"bytes"
 	"container/list"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,6 +81,13 @@ type turnLog struct {
 // from the start. Only newline-terminated lines count: a final line without
 // one is a torn write that was never acknowledged.
 func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
+	return scanContext(context.Background(), f, turnID, log)
+}
+
+func scanContext(ctx context.Context, f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return turnLog{}, nil, err
+	}
 	info, err := f.Stat()
 	if err != nil {
 		return turnLog{}, nil, fmt.Errorf("filerecorder: read log: %w", err)
@@ -95,7 +103,7 @@ func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
 	log.file = info
 	log.steps = slices.Clip(log.steps)
 	unread := io.NewSectionReader(f, log.end, info.Size()-log.end)
-	data, err := io.ReadAll(unread)
+	data, err := io.ReadAll(contextLogReader{ctx, unread})
 	if err != nil {
 		return turnLog{}, nil, fmt.Errorf("filerecorder: read log: %w", err)
 	}
@@ -103,6 +111,9 @@ func scan(f *os.File, turnID string, log turnLog) (turnLog, []byte, error) {
 	complete := bytes.LastIndexByte(data, '\n') + 1
 	log.size = base + int64(len(data))
 	for rest, off := data[:complete], base; len(rest) > 0; {
+		if err := ctx.Err(); err != nil {
+			return turnLog{}, nil, err
+		}
 		n := bytes.IndexByte(rest, '\n') + 1
 		line := rest[:n]
 		log.lines++
@@ -249,4 +260,17 @@ func (c *indexCache) put(turnID string, log turnLog) {
 		c.order.Remove(oldest)
 		delete(c.items, oldest.Value.(*cacheItem).turnID)
 	}
+}
+
+// Chunk bounds give cancellation a chance even for a large recorded step.
+type contextLogReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextLogReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p[:min(len(p), 32<<10)])
 }

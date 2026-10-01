@@ -39,6 +39,11 @@ type app struct {
 
 // buildApp wires the adapters, the engine, and the controller around ui.
 func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
+	canonical, err := canonicalWorkspace(cfg.Dir, "")
+	if err != nil {
+		return nil, err
+	}
+	cfg.Dir = canonical
 	var ctrl *Controller
 	home := cfg.HomeDir
 	if home == "" {
@@ -72,6 +77,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.Hooks = attributeToolHooks(w.Hooks)
+	if w.Scopes == nil {
+		w.Scopes = map[string]string{}
+	}
+	w.Scopes["task"] = "CLI delegated work; creation approval grants no child effects; no child monetary cap"
+	w.Scopes["task_status"] = "CLI recorded child state; read-only; no reference resolution"
+	w.Scopes["task_stop"] = "CLI live child cancellation; verify the recorded acknowledgement"
 	eng := NewEngine(EngineConfig{
 		Dir:           cfg.Dir,
 		Client:        cfg.Client,
@@ -92,6 +104,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	})
 	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
+	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask
 	}
@@ -112,10 +125,14 @@ func (a *app) openSession(
 	dir string,
 	o Options,
 ) (notice string, err error) {
+	dir, err = canonicalWorkspace(dir, "")
+	if err != nil {
+		return "", err
+	}
 	var s *session.Session
 	if o.Resume {
 		if o.ResumeID != "" {
-			s, err = store.Load(o.ResumeID)
+			s, err = store.LoadScoped(context.Background(), dir, o.ResumeID)
 		} else {
 			s, err = store.Latest(dir)
 		}

@@ -33,6 +33,9 @@ func TestRuntimeCopySelectionUsesExactSource(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("copy did not reach clipboard transport")
 	}
+	// Escape during a running Turn interrupts it. This assertion is about
+	// clearing an idle transcript selection, after its final record settles.
+	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle })
 	h.key(tui.KeyEvent{Key: tui.KeyEscape})
 	h.wait(func(s transcriptState) bool { return s.selected == "" })
 	toolSource := "tool row\t  世界  " + strings.Repeat(" x", 50) + " END  \r\nnext\n"

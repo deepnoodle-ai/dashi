@@ -92,13 +92,18 @@ selection limits, failure recovery, and immutable snapshots.
 | `/temperature N\|omit` | Set or omit next-turn temperature |
 | `/max-tokens N\|default` | Set the next-turn output limit |
 | `/new` | Start a new session |
-| `/sessions` | List the sessions of this directory and reopen one |
+| `/sessions [QUERY]` | Find recorded workspace sessions and reopen one |
+| `/rename TITLE` | Name the current saved session while idle |
+| `/status [ID]` | Inspect recorded stop, destination, and own-session spend |
 | `/continue` | Go on after a model-call limit stop (Enter does the same) |
 | `/queue text` | Hold a prompt for when the running turn ends |
-| `/done` | Mark a command done that was running when dashi stopped |
+| `/done [CALL_ID]` | After verifying its outcome, mark the current unresolved command done |
 | `/discard` | Discard the open turn |
 | `/quit`, `/q`, `/exit` | Save and exit (Ctrl-D requests exit with empty input) |
 | `/help`, `/?` | Show available commands, aliases, and composer controls |
+
+See [find and inspect sessions](cli-sessions.md) for search, names, recorded accounting,
+and targeted recovery guidance. Status is read-only and also works during a Turn.
 
 Help, queueing, resource inspection, and implemented transcript actions work
 during a turn. Other commands require explicit resubmission after it ends.
@@ -182,6 +187,12 @@ Questions support choices or own words. Multiple questions use checkboxes:
 arrows move, Space selects, Tab moves to Submit, and Enter submits. Press `o`
 for own words. Escape interrupts without submitting an empty answer. Dialogs
 restore the draft when they end.
+
+In an own-words answer or denial-reason field, Ctrl-S opens a separate
+`/status [ID]` field without editing the pending draft. Enter inspects;
+Escape returns to the exact answer or reason. You can also submit `/status`
+from an empty dialog field. Ordinary slash/path text stays editable; replacing
+a draft with a command does not preserve the text you deleted.
 
 If you quit during a prompt, the call does not run. After `dashi -c`, press
 Enter to continue the turn. The prompt shows again.

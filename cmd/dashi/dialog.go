@@ -29,6 +29,9 @@ func (s *screen) dialogHeight() int {
 }
 
 func (s *screen) focusID() string {
+	if s.dialogStatus != nil {
+		return dialogStatusInputID
+	}
 	if s.asking != nil && s.asking.own {
 		return questionInputID
 	}
@@ -71,11 +74,11 @@ func (s *screen) approvalView() tui.View {
 	views := []tui.View{
 		tui.Divider(), tui.MaxHeight(2, tui.Text(" Approval pending · %s", p.req.Summary).Wrap().Fg(tui.ColorYellow).Bold()),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, approvalDetails(p.req)).Gap(0)),
-		tui.Text(" ↑/↓ or Page Up/Down inspect · Esc interrupts").Hint(),
+		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint(),
 	}
 	if p.denying {
-		views = append(views, tui.Text(" Deny: Enter submits the optional reason.").Hint(),
-			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.inputKey).OnSubmit(s.denialSubmit(s.promptID)))
+		views = append(views, tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing.").Hint(),
+			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" y allow once · a allow for this Dashi run · n deny").Wrap().Bold())
 	}
@@ -184,11 +187,11 @@ func (s *screen) questionView() tui.View {
 	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Bold(),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
 	if p.own {
-		views = append(views, tui.Text(" Enter submits your words · Esc interrupts").Hint(),
-			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.inputKey).OnSubmit(s.questionSubmit(s.promptID)))
+		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Hint(),
+			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Hint(),
-			tui.Text(" Tab submit · o own words · Page Up/Down inspect · Esc interrupts").Wrap().Hint())
+			tui.Text(" Tab submit · o own words · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint())
 	}
 	if p.err != "" {
 		views = append(views, tui.Text(" %s", p.err).Wrap().Fg(tui.ColorYellow))
@@ -292,14 +295,20 @@ func (s *screen) finishQuestion(a questionAnswer) {
 
 func (s *screen) denialSubmit(id uint64) func(string) {
 	return func(v string) {
-		if s.promptActive && s.promptID == id && s.approval != nil && s.approval.denying {
+		if s.promptActive && s.promptID == id && s.dialogStatus == nil && s.approval != nil && s.approval.denying {
+			if s.inspectDialogSubmission(v) {
+				return
+			}
 			s.finishApproval(Approval{Reason: strings.TrimSpace(v)})
 		}
 	}
 }
 func (s *screen) questionSubmit(id uint64) func(string) {
 	return func(v string) {
-		if s.promptActive && s.promptID == id && s.asking != nil && s.asking.own {
+		if s.promptActive && s.promptID == id && s.dialogStatus == nil && s.asking != nil && s.asking.own {
+			if s.inspectDialogSubmission(v) {
+				return
+			}
 			s.submitOwnAnswer(v)
 		}
 	}

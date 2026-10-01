@@ -56,6 +56,7 @@ type screen struct {
 	frame                 uint64
 	approval              *approvalPrompt
 	asking                *askPrompt
+	dialogStatus          *dialogStatusInput
 	picker                *pickerState
 	quitting              bool
 	width                 int
@@ -100,6 +101,8 @@ type askPrompt struct {
 type pickerState struct {
 	startupReview detailLines
 	startupVP     tui.ViewportState
+	sessionCards  bool
+	sessionVP     tui.ViewportState
 	title         string
 	options       []string
 	details       []string
@@ -242,8 +245,16 @@ func (s *screen) Choose(ctx context.Context, title string, options []string) (in
 
 // ChooseDetailed keeps model facts readable separately from the option list.
 func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string, selected int) (int, bool) {
+	return s.choosePicker(ctx, title, options, details, selected, false)
+}
+
+func (s *screen) ChooseSessions(ctx context.Context, options, details []string) (int, bool) {
+	return s.choosePicker(ctx, "Workspace sessions", options, details, 0, true)
+}
+
+func (s *screen) choosePicker(ctx context.Context, title string, options, details []string, selected int, sessions bool) (int, bool) {
 	id := s.promptSeq.Add(1)
-	p := &pickerState{title: title, options: options, details: details, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
+	p := &pickerState{title: title, options: options, details: details, sessionCards: sessions, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
@@ -306,6 +317,7 @@ func (s *screen) drain() {
 	s.pendMu.Unlock()
 	for _, q := range items {
 		if q.reset {
+			s.endDialogStatus()
 			s.tr = Transcript{}
 			s.attachments.clear()
 			s.attachmentInput = nil
@@ -343,12 +355,19 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		if e.prompt != s.promptID {
 			return nil
 		}
+		if e.id == dialogStatusInputID && s.dialogStatus == nil {
+			return nil
+		}
 		return []tui.Cmd{tui.Focus(e.id)}
 	case inputActionEvent:
 		if e.prompt == 0 && s.promptActive || e.prompt != 0 && (!s.promptActive || e.prompt != s.promptID) {
 			return nil
 		}
 		return s.key(e.key)
+	case dialogStatusKeyEvent:
+		if s.dialogStatusActive(e.input) {
+			return s.dialogStatusKey(e.key)
+		}
 	case transcriptCommandEvent:
 		s.transcriptCommand(e.name, e.arg)
 	case clipboardResultEvent:
@@ -369,6 +388,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 			s.savedDraft = s.input
 		}
 		s.promptActive, s.promptID, s.input = true, e.id, ""
+		s.endDialogStatus()
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
 		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
@@ -384,6 +404,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 const inputID = "main-input"
 
 func (s *screen) clearPrompts() {
+	s.endDialogStatus()
 	s.approval, s.asking, s.picker = nil, nil, nil
 	if s.promptActive {
 		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
@@ -396,6 +417,18 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	}
 	if isCtrlC(e) {
 		return s.interrupt()
+	}
+	if s.dialogStatus != nil {
+		return s.dialogStatusKey(e)
+	}
+	if (s.approval != nil && !s.approval.denying || s.asking != nil && !s.asking.own) &&
+		(e.Rune == '/' || strings.HasPrefix(strings.TrimSpace(e.Paste), "/")) {
+		value := "/"
+		if e.Paste != "" {
+			value = e.Paste
+		}
+		s.beginDialogStatus(value)
+		return []tui.Cmd{tui.Focus(dialogStatusInputID)}
 	}
 	switch {
 	case s.approval != nil:
@@ -475,13 +508,21 @@ func (s *screen) requestQuit() []tui.Cmd {
 	case ModeRunning:
 		s.ctrl.QuitDuringRun("Ctrl-D")
 	case ModeApproval:
-		s.ctrl.Interrupt()
+		s.ctrl.QuitDuringRun("Ctrl-D")
 	}
 	return nil
 }
 
 func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	p := s.picker
+	if p.sessionCards {
+		switch e.Key {
+		case tui.KeyPageUp, tui.KeyPageDown, tui.KeyHome, tui.KeyEnd:
+			scrollDialog(&p.sessionVP, e)
+			return nil
+		}
+		p.sessionVP.ScrollToTop()
+	}
 	if p.startupReview != nil {
 		switch e.Key {
 		case tui.KeyPageUp:
@@ -526,9 +567,12 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 func (s *screen) submit(value string) {
 	raw := value
 	value = strings.TrimSpace(value)
+	if s.promptActive && (s.asking != nil || s.approval != nil) && s.inspectDialogSubmission(value) {
+		return
+	}
 	if s.asking == nil && !s.eng.cfg.MCP.Ready() {
 		name, _ := splitCommand(value)
-		if name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
+		if name != "/status" && name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
 			s.ctrl.mcpInput(value)
 			return
 		}
@@ -596,6 +640,8 @@ func (s *screen) footer() tui.View {
 		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Hint())
 	}
 	switch {
+	case s.dialogStatus != nil:
+		views = append(views, s.dialogStatusView())
 	case s.approval != nil:
 		views = append(views, s.approvalView())
 	case s.picker != nil:
@@ -708,6 +754,9 @@ func shortDir(dir string) string {
 func pickerView(p *pickerState) tui.View {
 	if p.startupReview != nil {
 		return mcpStartupView(p)
+	}
+	if p.sessionCards {
+		return sessionPickerView(p)
 	}
 	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
 	// Keep room for the selected model's facts on an 80×24 terminal.
@@ -869,4 +918,8 @@ func (s *screen) dumpTranscript(w io.Writer) {
 	for _, b := range s.tr.Blocks {
 		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
 	}
+}
+
+func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
+	s.choosePicker(ctx, "Task "+id, []string{"Close details"}, []string{text}, 0, true)
 }

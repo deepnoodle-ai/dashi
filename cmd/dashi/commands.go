@@ -27,6 +27,9 @@ func (c *Controller) commands() []commandEntry {
 		return func(arg string) { c.async(func(ctx context.Context) { fn(ctx, arg) }) }
 	}
 	entries := []commandEntry{
+		{name: "/tasks", description: "list delegated work and separate parent/child spend", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
+		{name: "/task", usage: "ID [continue|done CALL_ID|discard]", description: "inspect or control the exact recorded child", run: func(arg string) { c.taskInput("/task " + arg) }, during: func(arg string) { c.taskInput("/task " + arg) }},
+		{name: "/task-stop", usage: "ID", description: "cancel one live child and verify its record", run: func(arg string) { c.taskInput("/task-stop " + arg) }, during: func(arg string) { c.taskInput("/task-stop " + arg) }},
 		{name: "/compact", description: "summarize history before the next turn", run: func(arg string) {
 			if arg != "" {
 				c.notice("Usage: /compact")
@@ -43,6 +46,7 @@ func (c *Controller) commands() []commandEntry {
 		}},
 		{name: "/quit", aliases: []string{"/q", "/exit"}, description: "save and exit", run: func(string) {
 			if !c.keepQueued("/quit") {
+				c.cancelInspection()
 				c.ui.Quit()
 			}
 		}, during: func(string) { c.QuitDuringRun("/quit") }},
@@ -53,8 +57,13 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.startRun(c.eng.ContinueLimit)
 		}},
-		{name: "/done", description: "mark a command done after an interrupted run", run: func(string) {
-			if id, _ := c.eng.Last(c.base).OpenCall(); id == "" {
+		{name: "/done", usage: "[CALL_ID]", description: "mark a command done after an interrupted run", run: func(arg string) {
+			id, _ := c.eng.Last(c.base).OpenCall()
+			if arg != "" && arg != id {
+				c.notice("/done must name the current unresolved call %s; no outcome was recorded.", id)
+				return
+			}
+			if id == "" {
 				c.notice("/done marks a command done after dashi stopped while it ran.")
 				return
 			}
@@ -74,11 +83,9 @@ func (c *Controller) commands() []commandEntry {
 			}
 		}},
 		{name: "/model", usage: "[destination] [model]", description: "choose the next-turn destination/model", run: run(c.model)},
-		{name: "/sessions", description: "list sessions for this directory", run: func(string) {
-			if !c.keepQueued("/sessions") {
-				c.async(c.sessions)
-			}
-		}},
+		{name: "/sessions", usage: "[QUERY]", description: "find recorded sessions in this workspace", run: run(func(ctx context.Context, arg string) { c.sessions(ctx, arg) })},
+		{name: "/rename", usage: "TITLE", description: "name the current saved session", run: c.renameSession},
+		{name: "/status", usage: "[ID]", description: "inspect recorded status and own-session spend", run: c.inspectSession, during: c.inspectSession},
 		{name: "/settings", usage: "[--json]", description: "inspect next-turn and recorded settings", run: run(c.settings)},
 		{name: "/mcp", description: "inspect MCP servers, sources, and tools", run: c.mcpCommand, during: c.mcpCommand},
 		{name: "/resources", description: "inspect instruction, skill, and tool sources/scopes", run: func(arg string) {
@@ -215,6 +222,7 @@ func (c *Controller) commandHelp() string {
 		}
 		fmt.Fprintf(&out, "  %s %s%s — %s [%s]\n", entry.name, entry.usage, aliases, entry.description, availability)
 	}
+	out.WriteString("\nTask costs: recorded parent caps exclude children. Explore has 24 attempts; General has 32. Children have no monetary cap.\n")
 	out.WriteString(composerKeyboardHelp)
 	if _, ok := c.ui.(*screen); !ok {
 		if _, inline := c.ui.(*inlineScreen); !inline {
