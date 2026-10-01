@@ -351,6 +351,41 @@ func TestSessionMissedSteers(t *testing.T) {
 
 // Queued input under a durable recorder warns memory_only; the in-memory
 // recorder's queue lives as long as its record, so it does not.
+// Withdraw takes back a steer no model call has taken, or a queued item,
+// and reports false once a turn holds it or it is gone.
+func TestSessionWithdraw(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := held(1,
+		dashitest.CallTool("c1", "lookup", `{}`),
+		dashitest.Reply("done"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	s.Runner.Tools = (&chargeTool{}).tools()
+	done := sendAsync(t.Context(), s, "start")
+	entered(t, client)
+	q, err := s.Steer(t.Context(), "never mind")
+	if err != nil || q.TurnID != "s-1" {
+		t.Fatalf("queued=%+v err=%v", q, err)
+	}
+	if !s.Withdraw(q.ID) || s.Withdraw(q.ID) {
+		t.Fatal("the unclaimed steer was not withdrawn exactly once")
+	}
+	close(client.gate.release)
+	out := awaitSend(t, done)
+	if recordsSteer(out.Turn, q.ID) ||
+		strings.Contains(texts(client.Inputs()[1].Messages), "never mind") {
+		t.Fatal("a withdrawn steer reached the turn")
+	}
+	q, err = s.Enqueue(t.Context(), "later")
+	if err != nil || !s.Withdraw(q.ID) {
+		t.Fatalf("queued item not withdrawn: %+v %v", q, err)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 0 {
+		t.Fatalf("state=%+v err=%v", st, err)
+	}
+}
+
 func TestSessionQueueMemoryOnly(t *testing.T) {
 	durable := handle(newLiveRecorder(), dashitest.NewClient())
 	durable.New = true

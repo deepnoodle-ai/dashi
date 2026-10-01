@@ -88,7 +88,7 @@ func (u *lineUI) Emit(b Block) {
 		if !b.Done {
 			return
 		}
-	case KindNotice:
+	case KindNotice, KindQuietNotice:
 		if b.ID == "task-delivery" {
 			if u.printed[b.ID] == b.Text {
 				return

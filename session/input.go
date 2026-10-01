@@ -129,6 +129,24 @@ func (s *Session) EnqueueItem(
 	return s.enqueue(item), nil
 }
 
+// Withdraw removes an item that SteerItem or EnqueueItem put on this handle,
+// while no turn has taken it, and reports whether it did. A background
+// task's notice is withdrawn this way when the agent read the same result
+// with a tool call first.
+func (s *Session) Withdraw(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.queue, func(q *queuedItem) bool {
+		return q.item.ID == id && q.reserved == nil
+	})
+	if i >= 0 {
+		s.queue = slices.Delete(s.queue, i, i+1)
+		return true
+	}
+	in, ok := s.steering().(*dashi.Inbox)
+	return ok && in.Cancel(id)
+}
+
 // History returns the conversation history: every message of every turn,
 // in order, including tool calls and results. Compaction turns are not
 // conversation, so it never includes them; Turns does. A turn that cannot

@@ -57,6 +57,10 @@ const (
 type TaskEvent struct {
 	Kind TaskEventKind
 	Task TaskView
+	// Delivered is set on a TaskEnded event when a task_status call already
+	// gave the agent this turn's final result. Tasks sends no notice for it,
+	// and a host that routes notices from OnTask must not send one either.
+	Delivered bool
 }
 
 // TaskView is a copy of the state of one task. A task runs in a child
@@ -154,6 +158,9 @@ type task struct {
 	// pending fences an unacknowledged explicit command until record reload.
 	pending     *pendingTaskCommand
 	controlling bool
+	// waiting counts the task_status calls that wait for this task. While
+	// one waits, the end of the last turn is left for it to read or report.
+	waiting int
 }
 
 // childTurn is one turn of a child session.
@@ -168,6 +175,9 @@ type childTurn struct {
 	// ended turn counts as pending until reported.
 	notified, reported bool
 	deferred           bool
+	// read is set when a task_status call gave the agent the turn's final
+	// result before its notice went out, so no notice is sent.
+	read bool
 	// suppressed distinguishes Close interruption from acknowledged notices.
 	suppressed bool
 }
@@ -388,7 +398,7 @@ func (ts *Tasks) Recover(
 			"delegate: Recover needs a recorder that implements dashi.Loader",
 		)
 	}
-	delivered := deliveredNotices(turns)
+	delivered := recordedDelivery(turns)
 	var errs []error
 	var adopted, resumed []*task
 	// Restore every task before any turn runs, so a resumed turn that ends
@@ -434,7 +444,7 @@ func (ts *Tasks) adopt(
 	loader dashi.Loader,
 	ref dashi.CallRef,
 	rawArgs []byte,
-	delivered map[string]bool,
+	delivered delivery,
 ) (*task, bool, error) {
 	sessionID := ChildID(ref.TurnID, ref.CallID)
 	rec, err := loadRecord(ctx, loader, sessionID)
@@ -467,7 +477,7 @@ func (ts *Tasks) register(
 	description string,
 	parent dashi.Runner,
 	rec record,
-	delivered map[string]bool,
+	delivered delivery,
 ) (*task, bool, error) {
 	t := newTask(sub, ref, description)
 	ts.mu.Lock()
@@ -548,13 +558,13 @@ func loadRecord(
 }
 
 // restoreLocked fills the task's turns from its record and marks the ended
-// turns whose notice delivered holds as reported. It reports whether the
+// turns that delivered holds as reported. It reports whether the
 // last turn is unfinished: no recorded stop, or an interruption. That turn
 // stays running for the caller to resume.
 func (ts *Tasks) restoreLocked(
 	t *task,
 	rec record,
-	delivered map[string]bool,
+	delivered delivery,
 ) bool {
 	resume := false
 	for i, turn := range rec.turns {
@@ -570,10 +580,10 @@ func (ts *Tasks) restoreLocked(
 			c.final = &v
 			c.state, c.answer, c.reason = endState(ts, stop, v)
 		}
-		if delivered[c.id] {
+		t.turns = append(t.turns, c)
+		if c.state != TaskRunning && delivered.has(ts.viewLocked(t, c).Notice()) {
 			ts.reportedLocked(c, false)
 		}
-		t.turns = append(t.turns, c)
 	}
 	if !resume {
 		t.setStarted()
@@ -850,7 +860,7 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	ts.changedLocked()
 	ts.mu.Unlock()
 	if !interrupted {
-		ts.notifyEnded(t, nil)
+		ts.notifyEnded(t, delivery{})
 	}
 }
 
@@ -876,29 +886,38 @@ func endState(
 
 // notifyEnded reports each ended turn of the task that nobody was told of:
 // it delivers the turn's notice to Config.Session and calls OnTask, once
-// per turn, in order. A turn whose notice delivered holds counts as
-// reported. A turn stays pending until OnTask has returned.
-func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
+// per turn, in order. A turn that delivered holds counts as reported. A turn
+// that a task_status call read gets no notice, and its TaskEnded event says
+// so. While a task_status call waits for the task, the last turn is left to
+// that call, which reports it when it returns. A turn stays pending until
+// OnTask has returned.
+func (ts *Tasks) notifyEnded(t *task, delivered delivery) {
 	for {
 		ts.mu.Lock()
 		i := slices.IndexFunc(t.turns, func(c *childTurn) bool {
-			return !c.notified && !c.deferred && c.state != TaskRunning
+			return !c.notified && !c.deferred && c.state != TaskRunning &&
+				(t.waiting == 0 || c != t.last())
 		})
 		if i < 0 {
 			ts.mu.Unlock()
 			return
 		}
 		c := t.turns[i]
-		if delivered[c.id] {
+		v := ts.viewLocked(t, c)
+		if delivered.has(v.Notice()) {
 			ts.reportedLocked(c, false)
 			ts.mu.Unlock()
 			continue
 		}
 		c.notified = true
-		v := ts.viewLocked(t, c)
+		read := c.read
 		ts.mu.Unlock()
-		ts.toParent(v.Notice().Steer())
-		ts.onTask(TaskEnded, v)
+		if !read {
+			ts.toParent(v.Notice().Steer())
+		}
+		if ts.cfg.OnTask != nil {
+			ts.cfg.OnTask(TaskEvent{Kind: TaskEnded, Task: v, Delivered: read})
+		}
 		ts.mu.Lock()
 		ts.reportedLocked(c, true)
 		ts.mu.Unlock()
@@ -1069,6 +1088,10 @@ func (ts *Tasks) startTask(
 		if err != nil {
 			return TaskView{}, fmt.Errorf("delegate: resolve child tools: %w", err)
 		}
+		// The child can name itself to the parent. The record keeps the line,
+		// so a resumed child still knows it.
+		agent.Instructions = strings.TrimSpace(agent.Instructions +
+			"\n\nYour task ID is " + t.id + ".")
 		start, err = ts.prepareStart(ctx, ref, dashi.Start{CommandID: t.sessionID + "/start", Agent: agent, Parent: &ref, Input: []llm.Message{llm.UserMessage(llm.Text(args.Prompt))}})
 		if err != nil {
 			return TaskView{}, err
@@ -1103,7 +1126,7 @@ func (ts *Tasks) startTask(
 			ts.mu.Unlock()
 			return TaskView{}, err
 		}
-	case ts.restoreLocked(t, rec, nil):
+	case ts.restoreLocked(t, rec, delivery{}):
 		ts.launchLocked(ctx, t, dashi.Continue{})
 	default:
 		// The child ended before the crash. Report the end here, so the
@@ -1113,7 +1136,7 @@ func (ts *Tasks) startTask(
 	ts.addLocked(t)
 	ts.mu.Unlock()
 	if endedBefore {
-		ts.notifyEnded(t, nil)
+		ts.notifyEnded(t, delivery{})
 	}
 	// The call finishes only once the record holds the child, so a crash
 	// after the call cannot lose a child the model was told about.

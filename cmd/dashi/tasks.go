@@ -29,7 +29,7 @@ type taskHost struct {
 	recoveryErr  error
 	inventoryErr error
 	deliveryErr  error
-	notices      map[string]dashi.ContextItem
+	notices      map[string]delegate.Notice
 	queued       map[string]bool
 	rescan       bool
 	recorded     map[string]taskSnapshot
@@ -40,7 +40,7 @@ type taskHost struct {
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
 	loader, _ := chat.Runner.Recorder.(dashi.Loader)
-	host := &taskHost{notices: map[string]dashi.ContextItem{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
+	host := &taskHost{notices: map[string]delegate.Notice{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
 	host.inputs = &taskInputs{loader: loader, parentBind: resolver.bind, clientFor: func(ctx context.Context, agent dashi.Agent) (llm.Client, error) {
 		if p := e.cfg.Preferences; p != nil {
 			return p.clientFor(ctx, agent)
@@ -86,11 +86,13 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 		},
 		OnTask: func(event delegate.TaskEvent) {
 			e.cfg.Emit(taskStatusBlock(event.Task))
-			if event.Kind == delegate.TaskEnded {
-				item := event.Task.Notice().Item()
+			// A result the parent read with task_status is delivered already.
+			if event.Kind == delegate.TaskEnded && !event.Delivered {
+				notice := event.Task.Notice()
+				id := delegate.NoticeID(event.Task.TurnID)
 				host.mu.Lock()
 				if len(host.notices) < 128 {
-					host.notices[item.ID] = item
+					host.notices[id] = notice
 				} else {
 					host.rescan = true
 				}
@@ -305,14 +307,24 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 		// The result marker of the delivery turn shows a delivery this host
 		// queued. Say so only for a repeat that this record absorbed.
 		if _, pending := host.notices[id]; pending && !host.queued[id] {
-			e.cfg.Emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task result delivery is recorded; reopening will not deliver it again.", Done: true})
+			e.cfg.Emit(quietNotice("task-delivery", "This task result was already sent to the model. It will not be sent again."))
+		}
+		delete(host.notices, id)
+		delete(host.queued, id)
+	}
+	// A result the parent read with task_status is delivered by that read.
+	// Take back a notice already queued for it, unless a queue turn holds it.
+	for id, notice := range host.notices {
+		if !notice.DeliveredIn(turns) || host.queued[id] && !chat.Withdraw(id) {
+			continue
 		}
 		delete(host.notices, id)
 		delete(host.queued, id)
 	}
 	if host.rescan {
 		for _, view := range host.tasks.List() {
-			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] {
+			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] ||
+				view.Notice().DeliveredIn(turns) {
 				continue
 			}
 			turn, err := host.inputs.loader.Load(ctx, view.TurnID)
@@ -326,11 +338,10 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 			if !taskNoticeReady(state) {
 				continue
 			}
-			item := view.Notice().Item()
 			if len(host.notices) >= 128 {
 				break
 			}
-			host.notices[item.ID] = item
+			host.notices[delegate.NoticeID(view.TurnID)] = view.Notice()
 		}
 		host.rescan = len(host.notices) >= 128
 	}
@@ -343,7 +354,7 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 		if host.queued[id] {
 			continue
 		}
-		if _, err := chat.EnqueueItem(ctx, host.notices[id]); err != nil {
+		if _, err := chat.EnqueueItem(ctx, host.notices[id].Item()); err != nil {
 			return err
 		}
 		host.queued[id] = true // Submission is provisional; records alone remove it.

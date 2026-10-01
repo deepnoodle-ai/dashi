@@ -69,7 +69,7 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, _, err := ts.register(ctx, Subagent{Name: "worker"}, ref, "change", runner, rec, map[string]bool{child: true})
+	task, _, err := ts.register(ctx, Subagent{Name: "worker"}, ref, "change", runner, rec, delivery{notices: map[string]bool{child: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

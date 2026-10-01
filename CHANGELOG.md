@@ -74,7 +74,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   in bold cyan; a partial or unknown name stays plain.
 - **The CLI shows delegated tasks on their tool lines.** The `task` tool line
   reads `task  explore · find the parser · t_k3f2`. One status line under it
-  follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
+  follows the task, such as `⎿  completed · 1 model call · $0.0069 · /task
   t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
   that repeated the task ID, description, counts, and raw spend. `/tasks`
   prints one line per task in the same words, and counts are pluralized.
@@ -91,6 +91,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that a finished task's result starts now opens with `↳ task t_k3f2
   (explore) completed · result delivered`, live, after a reopen, inline, and
   in plain output.
+- **A task result the agent read with `task_status` is not sent again.** When
+  `task_status` gives the agent a task's final result, that counts as
+  delivery: no `task-ended` reminder follows, and the CLI starts no extra
+  turn for it, also after a reopen. The read returns the notice's own text,
+  so the record shows which result the agent saw (decision 46). A
+  `TaskEnded` event for such a turn has `Delivered` set, and a host that
+  holds notices checks the new `Notice.DeliveredIn(turns)`. A notice already
+  on `Config.Session` is taken back with the new `Session.Withdraw`. Reading a
+  running task or the task list delivers nothing, and the user's `/task` and
+  `/tasks` still never count as delivery.
+- **The CLI no longer says task results wait for a stopped parent while the
+  parent runs.** The line now shows only when the turn really stopped, and
+  says what to do: "Task results will be sent when this turn goes on. Press
+  Enter to continue it, or type a new prompt." It and the pending-prompt line
+  are quiet indented lines.
+- **Task status lines keep their spacing.** Two spaces follow `⎿`, and the
+  space before ` · ` no longer disappears where a status line wraps.
+- **A subagent knows its task ID.** Its instructions end with "Your task ID
+  is t_k3f2.", so it can name itself in its reply.
 
 ## [0.2.0] - 2026-10-01
 

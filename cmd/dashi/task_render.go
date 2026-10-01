@@ -23,6 +23,11 @@ const (
 	taskRecordUnavailable delegate.TaskState = "record unavailable"
 )
 
+// quietNotice returns a quiet line about the CLI's own state.
+func quietNotice(id, text string) Block {
+	return Block{ID: id, Kind: KindQuietNotice, Text: text, Done: true}
+}
+
 // taskNoticeName is the reminder name of delegate's task-ended notice.
 const taskNoticeName = "task-ended"
 
@@ -191,9 +196,14 @@ func taskLineText(b Block) string {
 	return "  ↳ " + head + " · " + b.Text
 }
 
+// taskUnderMarker starts a status line under its tool line. Two spaces
+// follow the marker: some terminal fonts draw ⎿ wider than its cell, and one
+// space then reads as none.
+const taskUnderMarker = "    ⎿  "
+
 // taskLineUnderText is the plain text of a status line under its tool line.
 func taskLineUnderText(b Block) string {
-	return "    ⎿ " + joinNonEmpty(" · ", b.Name, b.Text)
+	return taskUnderMarker + joinNonEmpty(" · ", b.Name, b.Text)
 }
 
 func joinNonEmpty(sep string, parts ...string) string {
@@ -230,8 +240,17 @@ func taskLineView(b Block) tui.View {
 	if b.Name != "" {
 		views = append(views, tui.Text(" %s", b.Name).Fg(color))
 	}
-	views = append(views, tui.Text(" · %s", b.Text).Wrap().Style(mutedStyle).Flex(1))
-	return tui.Group(views...)
+	return tui.Group(append(views, taskFactsViews(b.Text)...)...)
+}
+
+// taskFactsViews draws " · " and the facts of a task line. The separator is
+// its own view: a wrapping view drops the spaces at its edges, which would
+// join the state and the separator where the facts wrap.
+func taskFactsViews(text string) []tui.View {
+	return []tui.View{
+		tui.Text(" · ").Style(mutedStyle),
+		tui.Text("%s", text).Wrap().Style(mutedStyle).Flex(1),
+	}
 }
 
 // withTaskLine adds the task status line of a tool block under its view.
@@ -240,11 +259,10 @@ func withTaskLine(v tui.View, b Block) tui.View {
 		return v
 	}
 	t := *b.Task
-	return tui.Stack(v, tui.Group(
-		tui.Text("    ⎿ ").Style(mutedStyle),
+	return tui.Stack(v, tui.Group(append([]tui.View{
+		tui.Text(taskUnderMarker).Style(mutedStyle),
 		tui.Text("%s", t.Name).Fg(taskLineColor(t.State)),
-		tui.Text(" · %s", t.Text).Wrap().Style(mutedStyle).Flex(1),
-	)).Gap(0)
+	}, taskFactsViews(t.Text)...)...)).Gap(0)
 }
 func (c *Controller) endDialog() {
 	c.mu.Lock()
@@ -332,12 +350,24 @@ func (c *Controller) scheduleTaskNotices() {
 	if !ready {
 		return
 	}
+	// While a turn, dialog, or command runs, say nothing: this runs again
+	// when it ends, and a running turn is not stopped.
+	c.mu.Lock()
+	busy := c.mode != ModeIdle || c.taskPump || c.quit
+	c.mu.Unlock()
+	if busy {
+		return
+	}
 	if c.eng.HasPending() {
-		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results will be delivered after the current prompt is saved. Viewing them here does not use them up.", Done: true})
+		c.emit(quietNotice("task-delivery", "Task results will be sent after the pending prompt. Press Enter to send it."))
 		return
 	}
 	if last := c.eng.Last(c.base); last != nil && last.Open() {
-		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results are waiting for the stopped parent. Resolve the parent with its existing controls; inspection does not consume results.", Done: true})
+		text := "Task results will be sent after your next prompt."
+		if last.CanGoOn() {
+			text = "Task results will be sent when this turn goes on. Press Enter to continue it, or type a new prompt."
+		}
+		c.emit(quietNotice("task-delivery", text))
 		return
 	}
 	c.mu.Lock()

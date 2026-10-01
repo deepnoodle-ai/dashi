@@ -33,6 +33,33 @@ type taskFixtureClient struct {
 	secondTask              bool
 	childModelCalls         map[string]int
 	loopUntil               int
+	// statusRead makes the parent read the task's result with task_status
+	// after it starts the task. beforeStatus runs just before that call.
+	statusRead    bool
+	beforeStatus  func()
+	parentNotices int
+}
+
+// startedTaskID returns the task ID that a task tool result in the request
+// names, such as "t_k3f2".
+func startedTaskID(in llm.Input) string {
+	for _, m := range in.Messages {
+		for _, c := range m.Content {
+			if c.ToolResult == nil {
+				continue
+			}
+			for _, b := range c.ToolResult.Output.Content {
+				if b.Text == nil {
+					continue
+				}
+				if _, rest, ok := strings.Cut(b.Text.Text, "Started task "); ok {
+					id, _, _ := strings.Cut(rest, " ")
+					return id
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Result, err error) {
@@ -63,6 +90,13 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		}
 	} else {
 		c.parentCalls++
+		for _, m := range in.Messages {
+			for _, part := range m.Content {
+				if part.Reminder != nil && part.Reminder.Name == taskNoticeName {
+					c.parentNotices++
+				}
+			}
+		}
 	}
 	c.muTask.Unlock()
 	if child {
@@ -93,6 +127,15 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 			res.Message.Content = append(res.Message.Content, llm.Content{Kind: llm.ContentToolCall, ToolCall: &second})
 		}
 		return res, err
+	}
+	if n == 1 && c.statusRead {
+		if c.beforeStatus != nil {
+			c.beforeStatus()
+		}
+		return callTool("status-call", "task_status", `{"task_id":"`+startedTaskID(in)+`","wait_seconds":30}`)(ctx, call)
+	}
+	if n == 2 && c.statusRead {
+		return say("Parent read the result.")(ctx, call)
 	}
 	if n == 1 {
 		if c.parentHold != nil {
@@ -192,10 +235,9 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 	}
 	beforeParent, beforeChild := client.counts()
 	// A callback duplicate and a fresh reload cannot deliver again.
-	item := task.Notice().Item()
 	host := a.eng.taskHost()
 	host.mu.Lock()
-	host.notices[item.ID] = item
+	host.notices[delegate.NoticeID(task.TurnID)] = task.Notice()
 	host.mu.Unlock()
 	if _, err = a.eng.DriveTaskNotices(t.Context()); err != nil {
 		t.Fatal(err)

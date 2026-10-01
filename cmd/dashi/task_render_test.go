@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
@@ -112,7 +113,7 @@ func TestTaskResultTurnHasNoEmptyUserLineLiveOrReplayed(t *testing.T) {
 		if b.Kind == KindTool && b.Name == delegate.ToolName {
 			text := FormatBlock(b)
 			if b.Task == nil || !b.Done || !strings.Contains(text, "general · Check the exact effect · t_") ||
-				!strings.Contains(text, "\n    ⎿ completed · 1 model call · /task t_") || b.Detail != "" {
+				!strings.Contains(text, "\n    ⎿  completed · 1 model call · /task t_") || b.Detail != "" {
 				t.Fatalf("task tool=%q %+v", text, b)
 			}
 		}
@@ -125,7 +126,7 @@ func TestTaskStatusLineCountsAndCost(t *testing.T) {
 	if b.Kind != KindTaskStatus || b.State != StateOK || !b.Done || b.Parent != "t:call-1" || b.ID != "task:child-1" {
 		t.Fatalf("block=%+v", b)
 	}
-	if got, want := taskLineUnderText(b), "    ⎿ completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
+	if got, want := taskLineUnderText(b), "    ⎿  completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
 		t.Fatalf("line=%q want %q", got, want)
 	}
 	v.State, v.ModelCalls, v.ToolCalls = delegate.TaskRunning, 3, 1
@@ -212,5 +213,140 @@ func TestToolOutputHintPluralizes(t *testing.T) {
 	}
 	if got := outputLinesText("one\ntwo"); got != "2 output lines" {
 		t.Fatal(got)
+	}
+}
+
+// deliveryNotices returns every task-delivery line the UI was sent.
+func deliveryNotices(u *recorderUI) []Block {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	var out []Block
+	for _, b := range u.log {
+		if b.ID == "task-delivery" {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// A task that ends while its parent turn runs says nothing about a stopped
+// parent: its result is sent when the turn ends.
+func TestTaskEndDuringARunningParentShowsNoDeliveryNotice(t *testing.T) {
+	hold := make(chan struct{})
+	client := &taskFixtureClient{parentHold: hold}
+	ui := newRecorderUI()
+	a, _ := taskTestApp(t, client, ui)
+	a.ctrl.mu.Lock()
+	a.ctrl.autoTaskDelivery = true
+	a.ctrl.mu.Unlock()
+	a.ctrl.Input("Delegate this job")
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The end's wake-up runs in the background; give it time to speak.
+	time.Sleep(100 * time.Millisecond)
+	if a.ctrl.Mode() != ModeRunning {
+		t.Fatalf("mode=%v, want the parent still running", a.ctrl.Mode())
+	}
+	if got := deliveryNotices(ui); len(got) != 0 {
+		t.Fatalf("notice while the parent runs: %q", got[0].Text)
+	}
+	close(hold)
+	a.ctrl.Wait()
+	deadline := time.Now().Add(5 * time.Second)
+	for parent, _ := client.counts(); parent < 3 && time.Now().Before(deadline); parent, _ = client.counts() {
+		time.Sleep(time.Millisecond)
+	}
+	a.ctrl.Wait()
+	if parent, _ := client.counts(); parent != 3 {
+		t.Fatalf("parent calls=%d: the result was not delivered after the turn", parent)
+	}
+	if got := deliveryNotices(ui); len(got) != 0 {
+		t.Fatalf("notice after delivery: %q", got[0].Text)
+	}
+}
+
+// A stopped parent holds task results. The line says how to send them, in
+// plain words, as a quiet indented line.
+func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
+	client := &taskFixtureClient{}
+	ui := newRecorderUI()
+	cfg := testConfig(t)
+	cfg.Client = client
+	cfg.ModelCalls = 1 // the parent stops after it starts the task
+	a, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
+	a.ctrl.Input("Delegate this job")
+	a.ctrl.Wait()
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if last := a.eng.Last(t.Context()); !last.Open() || !last.CanGoOn() {
+		t.Fatalf("parent not stopped: %+v", last)
+	}
+	var got []Block
+	deadline := time.Now().Add(5 * time.Second)
+	for len(got) == 0 && time.Now().Before(deadline) {
+		a.ctrl.scheduleTaskNotices()
+		got = deliveryNotices(ui)
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(got) == 0 {
+		t.Fatal("no delivery notice for the stopped parent")
+	}
+	b := got[len(got)-1]
+	if b.Kind != KindQuietNotice || !strings.Contains(b.Text, "Press Enter") ||
+		strings.Contains(b.Text, "inspection") || strings.Contains(b.Text, "parent") {
+		t.Fatalf("notice=%+v", b)
+	}
+	if plain := FormatBlock(b); !strings.HasPrefix(plain, "  ") {
+		t.Fatalf("plain=%q is not indented", plain)
+	}
+	styled := tui.Sprint(blockView(b), tui.WithWidth(100))
+	text := tui.SprintScreen(blockView(b), tui.WithWidth(100), tui.WithHeight(4)).Text()
+	if !strings.Contains(styled, "38;5;248m") || !strings.HasPrefix(text, "  T") {
+		t.Fatalf("screen=%q text=%q is not muted and indented", styled, text)
+	}
+}
+
+// The status line under a tool line, and a status line on its own, keep a
+// gap after their marker and around each separator at every width, also
+// where the line wraps.
+func TestTaskLinesKeepTheirSpacesAtEveryWidth(t *testing.T) {
+	v := completedTaskView()
+	v.ModelCalls, v.ToolCalls = 2, 1
+	var under Transcript
+	under.Apply(Block{ID: "t:call-1", Kind: KindTool, Name: "task", Arg: "general · Test wait and respond · t_sfgudh", State: StateOK, Done: true})
+	under.Apply(taskStatusBlock(v))
+	var alone Transcript
+	alone.Apply(taskStatusBlock(v))
+	result := Block{Kind: KindTaskResult, Arg: "task t_u6d77c (explore)", Name: "completed", Text: "result delivered", State: StateOK}
+	for _, b := range []Block{under.Blocks[0], alone.Blocks[0], result} {
+		for w := 30; w <= 120; w++ {
+			screen := tui.SprintScreen(blockView(b), tui.WithWidth(w), tui.WithHeight(8)).Text()
+			for _, bad := range []string{"⎿c", "⎿ c", "d·", "↳t"} {
+				if strings.Contains(screen, bad) {
+					t.Fatalf("width %d has %q:\n%s", w, bad, screen)
+				}
+			}
+			if strings.Contains(screen, "⎿") && !strings.Contains(screen, "⎿  completed") {
+				t.Fatalf("width %d:\n%s", w, screen)
+			}
+		}
+		plain := FormatBlock(b)
+		if strings.Contains(plain, "⎿") && !strings.Contains(plain, "⎿  completed") {
+			t.Fatalf("plain=%q", plain)
+		}
+		if strings.Contains(plain, "↳") && !strings.Contains(plain, "↳ task") {
+			t.Fatalf("plain=%q", plain)
+		}
 	}
 }

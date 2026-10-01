@@ -3,20 +3,25 @@ package delegate
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // A notice tells the agent that a turn of a task ended. Delivery has one
-// rule: the notice is delivered when the record of the conversation holds
-// it for that child turn. Either a turn recorded a context item with the ID
-// NoticeID(turn), or a session's queue turn started with it: its command ID
-// is "queue:" and the JSON list of the item IDs it carried (see
-// session.Session.RunQueue). A task_status read does not count. Recover and
-// the live path use this same check.
+// rule: the notice is delivered when the record of the conversation shows
+// that the agent received it for that child turn. Either a turn recorded a
+// context item with the ID NoticeID(turn); or a session's queue turn started
+// with it: its command ID is "queue:" and the JSON list of the item IDs it
+// carried (see session.Session.RunQueue); or a recorded task_status call
+// returned the notice's text, which it does when it gives the agent the
+// turn's final result. A task_status read that shows a running task, or the
+// list of tasks, delivers nothing. Recover and the live path use this same
+// check.
 const (
 	noticePrefix = "task-done:"
 	queuePrefix  = "queue:"
@@ -104,14 +109,42 @@ func taskSender(id, subagent string) string {
 	return cutUTF8(from, maxFrom)
 }
 
-// deliveredNotices returns the child turns whose notice the turns record.
-func deliveredNotices(turns []dashi.Turn) map[string]bool {
-	out := map[string]bool{}
+// DeliveredIn reports whether turns record this notice as delivered, by the
+// rule above. A host that holds notices until a turn ends checks it before
+// it sends one, so a result the agent already read with task_status does
+// not start another turn.
+func (n Notice) DeliveredIn(turns []dashi.Turn) bool {
+	return recordedDelivery(turns).has(n)
+}
+
+// delivery is what the record of a conversation shows delivered: the child
+// turns whose notice item it holds, and the text of each finished
+// task_status call.
+type delivery struct {
+	notices map[string]bool
+	reads   []string
+}
+
+// has reports whether the record delivered n: its item, or a status read
+// that ends with its text.
+func (d delivery) has(n Notice) bool {
+	if d.notices[n.Task.TurnID] {
+		return true
+	}
+	text := "\n" + n.Text()
+	return slices.ContainsFunc(d.reads, func(read string) bool {
+		return strings.HasSuffix(read, text)
+	})
+}
+
+// recordedDelivery reads what turns delivered.
+func recordedDelivery(turns []dashi.Turn) delivery {
+	d := delivery{notices: map[string]bool{}}
 	for _, turn := range turns {
 		for _, step := range turn.Steps {
 			for _, item := range step.Items() {
 				if id, ok := strings.CutPrefix(item.ID, noticePrefix); ok {
-					out[id] = true
+					d.notices[id] = true
 				}
 			}
 			if list, ok := strings.CutPrefix(step.CommandID, queuePrefix); ok &&
@@ -120,12 +153,34 @@ func deliveredNotices(turns []dashi.Turn) map[string]bool {
 				if json.Unmarshal([]byte(list), &ids) == nil {
 					for _, id := range ids {
 						if child, ok := strings.CutPrefix(id, noticePrefix); ok {
-							out[child] = true
+							d.notices[child] = true
 						}
 					}
 				}
 			}
+			if read, ok := statusRead(step); ok {
+				d.reads = append(d.reads, read)
+			}
 		}
 	}
-	return out
+	return d
+}
+
+// statusRead returns the text of a finished task_status call that a step
+// records. It reads the outcome, which is what the tool returned, whatever
+// a hook or the result limit later showed the model.
+func statusRead(step dashi.Step) (string, bool) {
+	f := step.Tool
+	if step.Kind != dashi.StepToolFinished || f == nil ||
+		f.Call.Name != StatusToolName || f.Outcome == nil ||
+		f.Outcome.State != tool.StateSucceeded || f.Outcome.Output == nil {
+		return "", false
+	}
+	var sb strings.Builder
+	for _, b := range f.Outcome.Output.Content {
+		if b.Text != nil {
+			sb.WriteString(b.Text.Text)
+		}
+	}
+	return sb.String(), true
 }

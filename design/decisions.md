@@ -516,3 +516,18 @@ file they exercise. Rationale: the root had grown to 43 files that
 did not sort by concern; the public vocabulary (Turn, Step, facts, Commands,
 Runner, Hooks, RunResult) stays together, and Session, which the engine does not
 need, lives in package `session`, built only on the public Runner API.
+
+**46. A `task_status` call that returns a final result delivers it.**
+Decided. The delivery rule kept the record as the only proof, and so ignored
+`task_status` reads: the record could not tell which child turn a read
+showed. A model that read the result then got the notice too, often in a
+whole extra turn that cost money for nothing. Now a read of an ended task
+returns the notice's own text, so the record shows exactly which result
+reached the model: a recorded `task_status` outcome that ends with a turn's
+notice text delivers that turn. Live, the read marks the turn under the lock
+that sending a notice takes, so the read and the notice never both carry it;
+a wait owns the end it waits for, and a notice already on `Config.Session` is
+withdrawn (`Session.Withdraw`). A read of a running task, the task list, a
+deferred stop, and user inspection (`/task`, `/tasks`) deliver nothing.
+Rationale: the record stays the only proof, so a crash before the read is
+recorded still redelivers on reopen.
