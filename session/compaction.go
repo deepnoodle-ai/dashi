@@ -14,7 +14,7 @@ import (
 
 // ErrNothingToCompact reports an attempt with no eligible history. No turn
 // was recorded and no model call was made. Package compaction aliases it.
-var ErrNothingToCompact = errors.New("session: nothing to compact")
+var ErrNothingToCompact = errors.New("compaction: nothing to compact")
 
 // Compact runs one compaction turn without checking the automatic threshold.
 // It requires a Compactor and an ended last turn. A non-nil budget overrides
