@@ -30,7 +30,9 @@ requests keep the name. Failed writes retain the previous title.
 session in this workspace without switching. Status works during a Turn and
 never steers, continues, dispatches, acquires a session lock, or grants approval.
 
-During a Wonton approval or question, type `/status [ID]` and press Enter.
+During an approval choice or an empty answer field, type `/status [ID]` and
+press Enter. From a nonempty own-words answer or denial reason, press Ctrl-S
+to open a separate status field without replacing the draft.
 The original dialog stays pending. Page Up/Down scroll the report; Escape
 cancels inspection and returns to that dialog. Its choices and drafts remain.
 An incomplete or unknown slash command cannot answer an approval. Free-text
