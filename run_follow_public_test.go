@@ -317,7 +317,7 @@ func TestGuideHandlerMatchesGuide(t *testing.T) {
 		}
 		return strings.Join(strings.Fields(text[i:i+j+3]), " ")
 	}
-	if extract("docs/guides/live-updates.md") != extract("serve_public_test.go") {
-		t.Fatal("the guide's events handler differs from serve_public_test.go; update one to match the other")
+	if extract("docs/guides/live-updates.md") != extract("run_follow_public_test.go") {
+		t.Fatal("the guide's events handler differs from run_follow_public_test.go; update one to match the other")
 	}
 }
