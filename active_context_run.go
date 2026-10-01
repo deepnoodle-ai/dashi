@@ -1,13 +1,11 @@
 package dashi
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
@@ -145,7 +143,10 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 	}
 	// Render original input separately so the objective survives every pass.
 	initial := r.turn.Steps[0].Started.Input
-	evidence := append(compactiontext.Transcript(initial), compactiontext.Transcript(covered)...)
+	evidence, err := r.activeTranscript(append(slices.Clone(initial), covered...))
+	if err != nil {
+		return nil, err
+	}
 	// The sender checks the final provider body too; leave room for settings and
 	// hooks here. Every shortened item carries a visible omission marker.
 	budget := max(0, plan.Window-r.summaryMaxTokens(r.agent.Settings.MaxTokens)-len(activeSummaryPrompt)-2048)
@@ -284,21 +285,7 @@ func activeInputHasMedia(input llm.Input) bool {
 			case content.KindImage, content.KindAudio, content.KindVideo:
 				return true
 			case content.KindDocument:
-				// A resolved text document is fixed textual input, including when
-				// a provider encodes its bytes as a native file. Unknown or remote
-				// documents still have no qualified active context estimate.
-				if b.Document == nil {
-					return true
-				}
-				source := b.Document.Source.WithDetectedMIMEType(b.Document.Title)
-				if len(source.Data) == 0 || !utf8.Valid(source.Data) || bytes.IndexByte(source.Data, 0) >= 0 {
-					return true
-				}
-				switch source.MIMEType {
-				case "application/json", "application/xml", "application/yaml", "application/x-yaml":
-					return false
-				}
-				return !strings.HasPrefix(source.MIMEType, "text/")
+				return !activeTextDocument(b)
 			}
 			return false
 		})
