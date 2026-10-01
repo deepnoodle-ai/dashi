@@ -24,12 +24,6 @@ func (r Runner) apply(
 		r.OnContextDone != ContextCancel {
 		return Outcome{}, errors.New("dashi: invalid context-done behavior")
 	}
-	switch command.(type) {
-	case Start, Continue:
-		if r.Client == nil {
-			return Outcome{}, errors.New("dashi: client is required to start or continue a turn")
-		}
-	}
 	// Empty IDs are generated before anything reads them: the turn ID before
 	// replay, recorder setup, and loading, and the command ID before its
 	// digest, which covers the ID.
@@ -215,9 +209,15 @@ func (r Runner) apply(
 				),
 			})
 		}
-		window := activeWindow(agent, r.Client, origin)
+		window, err := activeWindow(agent, r.Client, origin)
+		if err != nil {
+			return Outcome{}, err
+		}
 		if agent.ActiveCompaction != nil && !agent.ActiveCompaction.Disabled && origin != StartCompaction && window == 0 {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{Code: WarningActiveCompactionUnavailable, Message: "Active context protection has no recorded window; set ActiveCompactionPolicy.Window or provide model context evidence."})
+		}
+		if err := r.checkModelClient(opts, state); err != nil {
+			return Outcome{}, err
 		}
 		if o := rt.commit(Step{
 			Kind:          StepStarted,
@@ -322,6 +322,9 @@ func (r Runner) apply(
 		}
 		if !state.canContinueWith(c.Budget, c.ModelAttempts) {
 			return Outcome{}, notReady(state)
+		}
+		if err := r.checkModelClient(opts, state); err != nil {
+			return Outcome{}, err
 		}
 		rt.history = llmclone.Messages(c.History)
 		step := Step{
@@ -498,6 +501,37 @@ func (r Runner) apply(
 		return Outcome{}, errors.New("dashi: unknown command")
 	}
 	return rt.result(rt.run())
+}
+
+// errNoModelClient rejects a run that would prepare or send a model request
+// without a Client.
+var errNoModelClient = errors.New("dashi: client is required to call the model")
+
+// checkModelClient rejects, before anything is recorded, a Start or Continue
+// that would call the model without a Client. Only an already-closed pause
+// stops the run before its next model call, so such a run needs no Client
+// unless a summary from active compaction must still be applied, which
+// prepares a request.
+func (r Runner) checkModelClient(opts runOptions, state *replayState) error {
+	if r.Client != nil {
+		return nil
+	}
+	if !pauseClosed(opts.pause) || state.pendingCompaction != "" {
+		return errNoModelClient
+	}
+	return nil
+}
+
+func pauseClosed(pause <-chan struct{}) bool {
+	if pause == nil {
+		return false
+	}
+	select {
+	case <-pause:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateHistory(history []llm.Message) error {

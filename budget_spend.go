@@ -178,10 +178,9 @@ type AttemptSpend struct {
 	// AtRisk is the worst case computed before the call was sent, nil when
 	// the call had no cost bound.
 	AtRisk *llm.Cost `json:"at_risk,omitempty"`
-	// Final means the charge is complete and nothing recorded later can
-	// change it: a measured charge that is known and not partial, or a
-	// not-executed attempt. A host may hold the reservation for an attempt
-	// that is not final until it learns the real bill.
+	// Final means the charge is exact: a measured, complete charge, or zero
+	// for an attempt that never ran. A charge that is not final is an
+	// estimate, a lower bound, or unknown.
 	Final bool `json:"final,omitempty"`
 }
 

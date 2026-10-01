@@ -173,10 +173,11 @@ the call's intent and rejects the write if it cannot. On the result step it
 calls `AttemptSpendOf(intent, settlement)`, the same per-attempt entry that
 `TurnView.Attempts` lists, with the usage and charge counted into `Spend`
 (which is their sum), a basis (measured, estimated, or not executed), and
-`Final`. A final attempt's hold becomes its charge; the
-application may keep the hold on the rest, such as a call whose usage never
-arrived or whose charge is partial (`Cost.Partial`: hosted requests without a
-price make `Total` a lower bound), until it learns the real bill. Dashi owns
+`Final`. A final attempt's hold becomes its charge. For the rest, such as a
+call whose usage never arrived or whose charge is partial (`Cost.Partial`:
+hosted requests without a price make `Total` a lower bound), the application
+settles the hold by its own rule, for example by keeping it. Dashi records no
+later bill. Dashi owns
 that classification, so hosts do not re-derive it from model facts. The
 attempt ID is the idempotency key.
 

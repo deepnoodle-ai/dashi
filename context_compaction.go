@@ -224,6 +224,9 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if stop != nil {
 		return 0, errors.New("retained summary context references could not be verified")
 	}
+	if r.runner.Client == nil {
+		return 0, errNoModelClient
+	}
 	req, err := r.runner.Client.Prepare(r.ctx, hydrated)
 	if err != nil {
 		return 0, err

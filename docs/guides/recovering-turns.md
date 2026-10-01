@@ -51,8 +51,9 @@ channel passed with
 already running finishes.
 
 Only `Start` and `Continue` call the model, so only they need
-`Runner.Client`. `Settle`, `Deliver`, and `Cancel` record facts and run with a
-`Runner` that has just a `Recorder`. A turn with no steps has not started, so
+`Runner.Client`, and an admitting `Start` (below) does not when its Agent names
+its provider, API, and model. `Settle`, `Deliver`, and `Cancel` record facts
+and run with a `Runner` that has just a `Recorder`. A turn with no steps has not started, so
 `Cancel` refuses it; a host that admitted work and never ran it withdraws its
 own admission.
 

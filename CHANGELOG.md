@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **A `Runner` needs a `Client` only to fill in an agent or call the model.**
+  A Start with an already-closed `WithPause` records ("admits") a turn without
+  a `Client` when its agent names its provider, API, and model. A run that
+  would call the model without one fails with "client is required to call the
+  model" before recording anything.
+
 ## [0.2.0] - 2026-10-01
 
 ### Changed
