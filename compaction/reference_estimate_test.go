@@ -23,10 +23,6 @@ func TestReferenceEstimateCountsEveryOccurrenceWithoutIO(t *testing.T) {
 		{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{image}}},
 	}}
 	before := m.Clone()
-	digest, err := digestOf([]llm.Message{m})
-	if err != nil {
-		t.Fatal(err)
-	}
 	encoded, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -38,11 +34,8 @@ func TestReferenceEstimateCountsEveryOccurrenceWithoutIO(t *testing.T) {
 	if !reflect.DeepEqual(m, before) {
 		t.Fatal("estimate mutated recorded content")
 	}
-	after, err := digestOf([]llm.Message{m})
-	if err != nil || after != digest {
-		t.Fatal("estimate changed coverage digest", err)
-	}
-	m.Context = &llm.MessageContext{}
+	// Descriptive context identity adds no model-visible content.
+	m.Context = &llm.MessageContext{Origin: "runtime", Name: "a long persistent context slot name"}
 	if got := estimate(m); got != want {
 		t.Fatalf("context changed estimate: %d", got)
 	}

@@ -451,18 +451,7 @@ func (s *Session) checkDigest(ctx context.Context, t *sessionTurn) *Warning {
 	}
 	t.checked = true
 	projected, _ := s.history(ctx, f.Through)
-	if digest, err := historyFingerprint(projected); err == nil &&
-		digest == f.Digest {
-		return nil
-	}
-	t.mismatch = &Warning{
-		Code: WarningCompactionMismatch,
-		Message: fmt.Sprintf(
-			"compaction turn %s does not match the turns it covers; its "+
-				"replacement history is still used",
-			t.turn.ID,
-		),
-	}
+	t.mismatch = digestMismatch(t.turn.ID, f.Digest, projected)
 	return t.mismatch
 }
 

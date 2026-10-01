@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Roadmap item | 15 |
-| Status | Implemented, 2026-09-28. Decisions 8 to 13 record changes made during implementation. |
+| Status | Implemented, 2026-09-28. Decisions 8 to 13 record changes made during implementation. Superseded 2026-10-01: `Compact`, `Project`, `Record`, and `Summarizer` were removed. A host runs `Compactor.Start` through its own Runner and builds history with `dashi.ProjectHistory` ([guide](../../docs/guides/compaction.md)). |
 | Owner | Compaction track |
 | Evidence | [Comparative research](15-context-compaction-research.md) |
 | Demo | Wednesday 2026-09-30. First slice ships Tuesday night. |

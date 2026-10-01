@@ -1,124 +1,14 @@
 package compaction
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
-
-// fakeClient is a priced model client whose reply depends on the request.
-type fakeClient struct {
-	window int
-	reply  func(llm.Input) llm.Result
-	inputs []llm.Input
-}
-
-func (*fakeClient) Provider() string {
-	return "test"
-}
-
-func (*fakeClient) API() string {
-	return "test.chat"
-}
-
-func (c *fakeClient) ModelInfo(string) (llm.ModelInfo, bool) {
-	info := llm.ModelInfo{}
-	info.Capabilities.ContextWindow = c.window
-	return info, true
-}
-
-func (c *fakeClient) Prepare(
-	_ context.Context,
-	in llm.Input,
-) (llm.Request, error) {
-	c.inputs = append(c.inputs, in)
-	pricing := llm.Pricing{
-		Currency:  "USD",
-		UpdatedAt: "2026-09-28",
-		Base: llm.Rates{
-			Input:      money.MustParseAmount("1"),
-			Output:     money.MustParseAmount("2"),
-			CacheRead:  money.MustParseAmount("1"),
-			CacheWrite: money.MustParseAmount("1"),
-		},
-	}
-	info := llm.ModelInfo{
-		Pricing: &pricing,
-		Evidence: llm.ModelEvidence{
-			Model:       in.Model,
-			API:         "test.chat",
-			Endpoint:    "https://example.test/model",
-			Owner:       "test",
-			Source:      "fixture",
-			Method:      llm.EvidenceFixture,
-			QualifiedAt: time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC),
-		},
-	}
-	return llm.NewRequest(llm.RequestSnapshot{
-		Origin: content.Origin{
-			Provider: "test",
-			API:      "test.chat",
-			Model:    in.Model,
-			Scope:    "fixture",
-		},
-		Input:            in,
-		Effective:        in.Settings,
-		Body:             []byte(`{"ok":true}`),
-		ModelInfo:        &info,
-		CapabilityPolicy: llm.CapabilityAdjust,
-	})
-}
-
-func (c *fakeClient) Send(
-	_ context.Context,
-	_ llm.Call,
-) (llm.Result, error) {
-	r := c.reply(c.inputs[len(c.inputs)-1])
-	r.Requested = llm.ModelRef{Provider: "test", Model: "fixture"}
-	return r, nil
-}
-
-func textResult(text string) llm.Result {
-	return llm.Result{
-		Message: llm.AssistantMessage(llm.Text(text)),
-		Stop:    llm.Stop{Kind: llm.StopFinished},
-		Usage:   &llm.Usage{InputTokens: 1_000_000, OutputTokens: 500_000},
-	}
-}
-
-// fakeSummarizer records its input and returns fixed text.
-type fakeSummarizer struct {
-	text  string
-	err   error
-	calls int
-	input []llm.Message
-}
-
-func (f *fakeSummarizer) Summarize(
-	_ context.Context,
-	messages []llm.Message,
-) (Summary, error) {
-	f.calls++
-	f.input = messages
-	if f.err != nil {
-		return Summary{}, f.err
-	}
-	return Summary{
-		Text:  f.text,
-		Model: "summary-model",
-		Usage: llm.Usage{InputTokens: 10, OutputTokens: 5},
-		Cost:  map[string]money.Amount{"USD": money.MustParseAmount("0.02")},
-	}, nil
-}
 
 // exchange is one Turn of history: a user prompt, an assistant message with
 // parallel tool calls, the results, and a final answer. Each text is padded
@@ -207,5 +97,3 @@ func sameJSON(t *testing.T, a, b any) bool {
 	}
 	return string(x) == string(y)
 }
-
-var errBoom = errors.New("boom")

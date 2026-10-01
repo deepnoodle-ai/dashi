@@ -407,7 +407,7 @@ const (
 	StartScheduled StartOrigin = "scheduled"
 	// StartOperator identifies work started by an authorized operator.
 	StartOperator StartOrigin = "operator"
-	// StartCompaction identifies a Session's compaction turn, which
+	// StartCompaction identifies a compaction turn, which
 	// summarizes the projected history. Its start records a CompactionFact.
 	StartCompaction StartOrigin = "compaction"
 )
