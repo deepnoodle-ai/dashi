@@ -15,6 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -152,7 +153,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 	if o.Resume {
 		var reader interface {
 			dashi.Loader
-			dashi.SessionIndex
+			dashisession.Index
 			Close() error
 		}
 		var openErr error
@@ -172,7 +173,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		ready := snap.canContinue()
 		if !newRequest && (!ready || snap.latest.Next() == dashi.NextNone && !snap.missingNotice && len(snap.affected) == 0) {
 			output.source(func(ctx context.Context, n int) (dashi.TurnView, error) {
-				turn, err := reader.Load(ctx, dashi.TurnID(saved.ID, n))
+				turn, err := reader.Load(ctx, dashisession.TurnID(saved.ID, n))
 				if err != nil {
 					return dashi.TurnView{}, err
 				}
@@ -270,7 +271,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 	s := a.eng.Session()
 	loader := a.eng.handle().Runner.Recorder.(dashi.Loader)
 	output.source(func(ctx context.Context, n int) (dashi.TurnView, error) {
-		turn, err := loader.Load(ctx, dashi.TurnID(s.ID, n))
+		turn, err := loader.Load(ctx, dashisession.TurnID(s.ID, n))
 		if err != nil {
 			return dashi.TurnView{}, err
 		}
@@ -314,7 +315,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 	defer scanCancel()
 	final, scanErr := loadAutomationSnapshot(scanCtx, a.eng.handle().Runner.Recorder.(interface {
 		dashi.Loader
-		dashi.SessionIndex
+		dashisession.Index
 	}), s.ID)
 	if scanErr != nil {
 		diagnostic(scanErr.Error())

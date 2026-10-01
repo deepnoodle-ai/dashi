@@ -6,6 +6,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 )
 
 // routedCompactor preserves the compactor's own controls and records its route
@@ -41,12 +42,12 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 			// Session closes a stopped turn before admitting Start, and checks
 			// its old destination during that close. Complete that close first.
 			if last.Next == dashi.NextRunning || last.Next == dashi.NextAnswer {
-				return &dashi.TurnBusyError{TurnID: last.View.ID, Next: last.Next}
+				return &dashisession.TurnBusyError{TurnID: last.View.ID, Next: last.Next}
 			}
 			if err := p.bind(ctx, last.View.Agent); err != nil {
 				return err
 			}
-			var closing dashi.Command = dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: dashi.CloseReason}
+			var closing dashi.Command = dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: dashisession.CloseReason}
 			if last.View.Output != nil {
 				cont := dashi.Continue{CommandID: "close:" + last.View.ID}
 				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelAttempts {

@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -347,7 +348,7 @@ func TestResumeSkipsUnreadableTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := dashi.TurnID(h.app.eng.Session().ID, 1)
+	bad := dashisession.TurnID(h.app.eng.Session().ID, 1)
 	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +573,7 @@ func TestDamagedLastTurnIsSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := dashi.TurnID(h.app.eng.Session().ID, 2)
+	bad := dashisession.TurnID(h.app.eng.Session().ID, 2)
 	if err := os.WriteFile(rec.Path(bad), []byte("garbage\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

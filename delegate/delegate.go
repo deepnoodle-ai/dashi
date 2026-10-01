@@ -9,7 +9,7 @@
 // A Tasks value owns the running children. The host creates one for each
 // conversation, so a child does not depend on one tool call or one Turn.
 //
-// Each task runs in a child session (dashi.Session) whose ID comes from the
+// Each task runs in a child session (session.Session) whose ID comes from the
 // parent tool call (ChildID), so its turns are "<child>-1", "<child>-2", and
 // so on, each with its own record. A child turn's record names the parent
 // call that started it (dashi.Start.Parent). If the recorder can load turns
@@ -35,6 +35,7 @@ import (
 	"slices"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -143,7 +144,7 @@ type Config struct {
 	// RunUntilQuiet). A session with a host Steering source, or one that is
 	// compacting, gets the notice on its queue. Nil means the host routes
 	// notices from OnTask.
-	Session *dashi.Session
+	Session *session.Session
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound.
 	MaxTaskTurns int
@@ -184,10 +185,10 @@ type SpendReport struct {
 }
 
 // ChildID returns the ID of the child session for one parent tool call. Its
-// turns are dashi.TurnID(ChildID(…), n). The result depends only on the two
+// turns are session.TurnID(ChildID(…), n). The result depends only on the two
 // arguments, and different pairs give different IDs, so the host stores
 // nothing. With a Loader recorder, a retry finds the same child.
-// A host that wants its own ID can drive a dashi.Session itself.
+// A host that wants its own ID can drive a session.Session itself.
 func ChildID(parentTurnID, callID string) string {
 	// The length prefix keeps ("a", "b:c") apart from ("a:b", "c").
 	return fmt.Sprintf(

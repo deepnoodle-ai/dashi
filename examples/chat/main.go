@@ -1,4 +1,4 @@
-// Command chat holds a short conversation on a dashi.Session: two messages
+// Command chat holds a short conversation on a session.Session: two messages
 // with no history code, a tool call, and a call the user denies. It needs
 // no API key: a scripted dashitest client stands in for the model, so the
 // replies are fixed. With a real client, the session code stays the same.
@@ -13,6 +13,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -57,7 +58,7 @@ func run(ctx context.Context) error {
 		dashitest.CallTool("call-2", "book_flight", `{"to":"Tokyo"}`),
 		dashitest.Reply("OK, I have not booked anything."),
 	)
-	s := &dashi.Session{
+	s := &session.Session{
 		Runner: dashi.Runner{
 			Client: client,
 			Tools:  tool.List{weather, book},

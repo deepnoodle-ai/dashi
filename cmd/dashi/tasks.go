@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -37,7 +38,7 @@ type taskHost struct {
 	observedSeq  map[string]int64
 }
 
-func (e *Engine) newTaskHost(chat *dashi.Session, resolver *engineAttachmentResolver) *taskHost {
+func (e *Engine) newTaskHost(chat *dashisession.Session, resolver *engineAttachmentResolver) *taskHost {
 	loader, _ := chat.Runner.Recorder.(dashi.Loader)
 	host := &taskHost{notices: map[string]dashi.ContextItem{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
 	host.inputs = &taskInputs{loader: loader, parentBind: resolver.bind, clientFor: func(ctx context.Context, agent dashi.Agent) (llm.Client, error) {
@@ -380,7 +381,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	}
 	chat := e.configureChat()
 	state, err := chat.Open(ctx)
-	if err != nil && !errors.Is(err, dashi.ErrSessionNotFound) {
+	if err != nil && !errors.Is(err, dashisession.ErrNotFound) {
 		return Result{}, err
 	}
 	if state.Queued == 0 {
@@ -515,7 +516,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 					}
 				}
 			}
-			if index, ok := host.inputs.loader.(dashi.SessionIndex); ok {
+			if index, ok := host.inputs.loader.(dashisession.Index); ok {
 				n, err := index.LastTurn(ctx, child)
 				if err != nil {
 					problems[id] = err.Error()
@@ -525,10 +526,10 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 			}
 			var last taskSnapshot
 			for n := 1; ; n++ {
-				turn, err := host.inputs.loader.Load(ctx, dashi.TurnID(child, n))
+				turn, err := host.inputs.loader.Load(ctx, dashisession.TurnID(child, n))
 				if errors.Is(err, dashi.ErrTurnNotFound) {
 					if n <= required {
-						problems[id] = fmt.Sprintf("required child Turn %s is missing; restore its journal and reopen", dashi.TurnID(child, n))
+						problems[id] = fmt.Sprintf("required child Turn %s is missing; restore its journal and reopen", dashisession.TurnID(child, n))
 					}
 					break
 				}

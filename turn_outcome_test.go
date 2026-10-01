@@ -791,7 +791,7 @@ func TestCorruptRecordAfterCommitIsDistinct(t *testing.T) {
 	if !errors.Is(rt.err, ErrRecordInvalid) || !errors.Is(rt.err, ErrInvalidTurn) {
 		t.Fatalf("err=%v", rt.err)
 	}
-	if !recorded(rt.err) {
+	if !Recorded(rt.err) {
 		t.Fatal("a corrupt record after commits reads as a rejected command")
 	}
 	if len(out.Turn.Steps) != 1 {

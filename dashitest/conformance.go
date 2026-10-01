@@ -62,11 +62,11 @@ import (
 //   - With dashi.StepWaiter, Wait returns at once when a newer step exists,
 //     wakes on a commit, and returns ctx's error when ctx ends.
 //
-// Run also checks what dashi.Session relies on:
+// Run also checks what session.Session relies on:
 //
-//   - A store that implements dashi.SessionIndex agrees with the turns
+//   - A store that implements session.Index agrees with the turns
 //     committed: LastTurn is 0 for a session with none, counts a session's
-//     turns by their dashi.TurnID, never counts another session whose ID
+//     turns by their session.TurnID, never counts another session whose ID
 //     shares a prefix, and counts a turn two workers raced to start once.
 //   - Without the index, a session of 1, 2, or 3 turns finds its last turn
 //     by probing turn IDs in at most 2·log2(n)+2 reads, plus one to load

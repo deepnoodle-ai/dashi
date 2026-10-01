@@ -24,9 +24,9 @@ type Outcome struct {
 	// Turn is the record to pass to the next Run.
 	Turn Turn
 	TurnView
-	// SessionWarnings holds the warnings of a Session command, which no
-	// turn records: WarningTurnClosed, WarningTurnUnreadable,
-	// WarningMemoryOnly, and WarningQueueBlocked. Runner.Run leaves it empty.
+	// SessionWarnings holds warnings that no turn records, which a host
+	// built on Runner adds: package session reports its own there, and
+	// those of ProjectHistory. Runner.Run leaves it empty.
 	SessionWarnings []Warning
 }
 
@@ -136,7 +136,7 @@ func (p Pending) answer(approve bool, reason string) Settle {
 func restingOutcome(turn Turn) Outcome {
 	s, err := replay(turn)
 	if err != nil {
-		return Outcome{Turn: cloneTurnSafe(turn)}
+		return Outcome{Turn: turn.Clone()}
 	}
 	return outcome(turn, s)
 }

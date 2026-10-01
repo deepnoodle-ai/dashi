@@ -6,7 +6,7 @@
 // budget like any other. Its record holds the replacement history, which
 // dashi.ProjectHistory and a Session's projected history then use.
 //
-// With a dashi.Session, set Session.Compactor, and the session runs the
+// With a session.Session, set Session.Compactor, and the session runs the
 // compaction turn when the last model call used most of the window. A host
 // that keeps its own turns calls Compactor.Needed and Compactor.Start
 // itself, and runs the Start with its own Runner and turn ID.
@@ -25,10 +25,10 @@ import (
 	"encoding/json"
 	"math"
 
-	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 
 // ErrNothingToCompact means the history has nothing to summarize. No turn
 // was built and no model call was made.
-var ErrNothingToCompact = dashi.ErrNothingToCompact
+var ErrNothingToCompact = session.ErrNothingToCompact
 
 // summaryFrame tells the model what the summary is. It states that the notes
 // are a record and not new instructions.

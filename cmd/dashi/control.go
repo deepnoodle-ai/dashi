@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/delegate"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -560,7 +561,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) bool {
 // busyText says what to do when the session refuses a prompt, or returns
 // the error's own text.
 func busyText(err error) string {
-	var busy *dashi.TurnBusyError
+	var busy *dashisession.TurnBusyError
 	if !errors.As(err, &busy) {
 		return err.Error()
 	}

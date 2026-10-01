@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // A task runs in a child session; its first turn is "<child>-1".
@@ -71,7 +72,7 @@ func TestNoticeIsAReminderFromTheTask(t *testing.T) {
 		t.Fatalf("content=%q", r.Content)
 	}
 	// A session takes it as input.
-	s := &dashi.Session{Runner: h.runner, Agent: h.agent}
+	s := &session.Session{Runner: h.runner, Agent: h.agent}
 	if _, err := s.EnqueueItem(t.Context(), item); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out.Turn.ID != dashi.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
+		if out.Turn.ID != session.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
 			out.Answer != "parent read the notice" {
 			t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Answer)
 		}
@@ -158,7 +159,7 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 func TestConfigSessionFallsBackToTheQueueOnRefusal(t *testing.T) {
 	// delivered counts the notice across the turns of session "conv": as a
 	// steer, or in the command ID of a queue turn.
-	delivered := func(t *testing.T, s *dashi.Session) int {
+	delivered := func(t *testing.T, s *session.Session) int {
 		t.Helper()
 		id := delegate.NoticeID(sessionChildTurn(s))
 		n := 0
@@ -290,9 +291,9 @@ func (c *onceCompactor) Start([]llm.Message) (dashi.Start, error) {
 
 // sessionTasks gives the harness a parent session "conv" that its Tasks
 // delivers to.
-func sessionTasks(t *testing.T, h *harness) *dashi.Session {
+func sessionTasks(t *testing.T, h *harness) *session.Session {
 	t.Helper()
-	s := &dashi.Session{ID: "conv", New: true, Agent: h.agent}
+	s := &session.Session{ID: "conv", New: true, Agent: h.agent}
 	h.cfg.Session = s
 	h.newTasks(t)
 	s.Runner = h.runner
@@ -301,8 +302,8 @@ func sessionTasks(t *testing.T, h *harness) *dashi.Session {
 
 // sessionChildTurn is the first child turn of the task that turn 1 of
 // session "conv" started.
-func sessionChildTurn(s *dashi.Session) string {
-	return dashi.TurnID(delegate.ChildID(dashi.TurnID(s.ID, 1), callID), 1)
+func sessionChildTurn(s *session.Session) string {
+	return session.TurnID(delegate.ChildID(session.TurnID(s.ID, 1), callID), 1)
 }
 
 // A later child turn counts under the parent turn whose call started it, and
@@ -326,7 +327,7 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 	sender := interruptTurnTwo(t, h, g)
 	g.open()
 
-	turn2 := dashi.TurnID(childID(), 2)
+	turn2 := session.TurnID(childID(), 2)
 	h.newTasks(t)
 	if err := h.recoverTasks(t); err != nil {
 		t.Fatal(err)
@@ -351,7 +352,7 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 		t.Fatalf("turn 2 stop=%+v interruptions=%d parent=%+v",
 			v.Stop, v.Interruptions, v.Parent)
 	}
-	if _, err := h.rec.Load(t.Context(), dashi.TurnID(childID(), 3)); err == nil {
+	if _, err := h.rec.Load(t.Context(), session.TurnID(childID(), 3)); err == nil {
 		t.Fatal("Recover started a third turn")
 	}
 
@@ -377,7 +378,7 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.none(t, delegate.TaskEnded)
-	conv := &dashi.Session{New: true, Runner: h.runner, Agent: h.agent}
+	conv := &session.Session{New: true, Runner: h.runner, Agent: h.agent}
 	for _, turn := range []string{childTurnID(), turn2} {
 		v.TurnID = turn
 		if _, err := conv.EnqueueItem(t.Context(), v.Notice().Item()); err != nil {
@@ -406,7 +407,7 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 func interruptTurnTwo(t *testing.T, h *harness, g *gate) dashi.CallRef {
 	t.Helper()
 	sender := dashi.CallRef{TurnID: "parent-turn-7", CallID: "send-1"}
-	s := &dashi.Session{
+	s := &session.Session{
 		ID:        childID(),
 		Exclusive: true,
 		Runner: dashi.Runner{
@@ -455,7 +456,7 @@ func TestRecoverMarksDeliveredTurnsBeforeResuming(t *testing.T) {
 	g.open()
 
 	// The parent's record holds turn 1's notice; turn 2 is unfinished.
-	conv := &dashi.Session{New: true, Runner: h.runner, Agent: h.agent}
+	conv := &session.Session{New: true, Runner: h.runner, Agent: h.agent}
 	if _, err := conv.EnqueueItem(t.Context(), notice); err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +473,7 @@ func TestRecoverMarksDeliveredTurnsBeforeResuming(t *testing.T) {
 		[]dashi.Turn{first, queued.Turn}); err != nil {
 		t.Fatal(err)
 	}
-	turn2 := dashi.TurnID(childID(), 2)
+	turn2 := session.TurnID(childID(), 2)
 	if e := h.next(t, delegate.TaskEnded); e.Task.TurnID != turn2 {
 		t.Fatalf("ended turn %q, want %q", e.Task.TurnID, turn2)
 	}

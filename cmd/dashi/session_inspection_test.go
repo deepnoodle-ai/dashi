@@ -15,6 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -289,7 +290,7 @@ func TestSearchCardsAndCanceledSelectionDoNotLoseDraft(t *testing.T) {
 	current := a.eng.Session().ID
 	a.ctrl.Input("/sessions retry handler")
 	a.ctrl.Wait()
-	if len(ui.details) != 1 || !strings.Contains(ui.details[0], "Last request ("+dashi.TurnID(saved.ID, 1)) || !strings.Contains(ui.details[0], "Status: recorded completed") || !strings.Contains(ui.details[0], "Text match (") {
+	if len(ui.details) != 1 || !strings.Contains(ui.details[0], "Last request ("+dashisession.TurnID(saved.ID, 1)) || !strings.Contains(ui.details[0], "Status: recorded completed") || !strings.Contains(ui.details[0], "Text match (") {
 		t.Fatal(ui.details)
 	}
 	if a.eng.Session().ID != current || cfg.Client.(*fakeClient).sends != 0 {

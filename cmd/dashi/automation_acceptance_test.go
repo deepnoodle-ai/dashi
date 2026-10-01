@@ -21,6 +21,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 )
 
 func runAutomationFixture(t *testing.T, cfg appConfig, o Options, input string) (int, string, string) {
@@ -216,7 +217,7 @@ func TestAutomationCorruptLatestAndAnotherOwnerFailWithoutFallback(t *testing.T)
 	if code != 1 || out != "{\"messages\":[]}\n" {
 		t.Fatalf("busy %d %s", code, out)
 	}
-	sum := sha256.Sum256([]byte(dashi.TurnID(saved.ID, 2)))
+	sum := sha256.Sum256([]byte(dashisession.TurnID(saved.ID, 2)))
 	hash := hex.EncodeToString(sum[:])
 	if err := os.WriteFile(filepath.Join(cfg.Store.Root(), saved.ID, "turns", hash[:2], hash+".jsonl"), []byte("not-json\n"), 0600); err != nil {
 		t.Fatal(err)

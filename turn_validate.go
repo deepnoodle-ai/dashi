@@ -263,9 +263,9 @@ func validateMessage(m llm.Message) error {
 			return errors.New("message context requires origin and name")
 		}
 		m.Context = nil
-		return validateContext(ContextItem{
+		return ContextItem{
 			Origin: ContextOrigin(identity.Origin), Name: identity.Name, Message: m,
-		})
+		}.Validate()
 	}
 	switch m.Role {
 	case llm.RoleUser, llm.RoleAssistant, llm.RoleSystem, llm.RoleDeveloper:
@@ -295,7 +295,11 @@ func messageReminder(m llm.Message) *llm.Reminder {
 	return nil
 }
 
-func validateContext(item ContextItem) error {
+// Validate returns why item cannot enter a turn as context, a steer, or
+// queued input, or nil when it can. The rules match Origin to the message
+// role and reminder tier, require a Name for a Snapshot, and allow only
+// content blocks and reminders. An empty Origin counts as ContextUser.
+func (item ContextItem) Validate() error {
 	switch cmp.Or(item.Origin, ContextUser) {
 	case ContextUser, ContextRuntime, ContextTool, ContextAgent:
 		if item.Message.Role != llm.RoleUser {

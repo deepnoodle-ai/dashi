@@ -44,10 +44,12 @@ type Runner struct {
 	// ContentLimits bounds the bytes that references add to a model request.
 	ContentLimits ContentLimits
 
-	// cacheKey is the prompt cache key a Session supplies, its ID. Model
-	// calls use it when the agent sets no key and the model's knowledge
-	// sets CacheKeyDefault.
-	cacheKey string
+	// CacheKey is the fallback prompt cache key, such as a conversation ID,
+	// so the turns of one conversation share the provider's cache. A model
+	// call uses it when the agent sets no Settings.PromptCache.Key and the
+	// model's catalog entry sets CacheKeyDefault. A session.Session sets it
+	// to the session ID.
+	CacheKey string
 }
 
 // RunOption adjusts one Run or Stream call.
@@ -153,7 +155,7 @@ func (r Runner) Stream(
 		if stopped {
 			return
 		}
-		if err != nil && !recorded(err) {
+		if err != nil && !Recorded(err) {
 			yield(Event{}, err)
 			return
 		}
@@ -202,14 +204,18 @@ func (r Runner) run(
 	opts runOptions,
 ) (Outcome, error) {
 	out, err := r.apply(ctx, turn, command, opts)
-	if err != nil && !recorded(err) {
+	if err != nil && !Recorded(err) {
 		out = restingOutcome(turn)
 	}
 	return out, err
 }
 
-// recorded reports whether err came after the run began recording.
-func recorded(err error) bool {
+// Recorded reports whether err, returned by Run or Stream, came after the
+// run began recording: a *CommitError with a Step, or ErrRecordInvalid. The
+// Outcome then holds what was recorded, and Stream yields its Outcome event
+// together with err. Any other error rejected the command before anything
+// was recorded, and the Outcome holds the caller's turn, unchanged.
+func Recorded(err error) bool {
 	var ce *CommitError
 	return errors.As(err, &ce) && ce.Step != nil ||
 		errors.Is(err, ErrRecordInvalid)

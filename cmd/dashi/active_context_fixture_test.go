@@ -15,6 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -153,7 +154,7 @@ func activeAssertCompleted(t *testing.T, cfg appConfig, a *app, c *activeCLIClie
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, err := rec.Load(t.Context(), dashi.TurnID(a.eng.Session().ID, 1))
+	turn, err := rec.Load(t.Context(), dashisession.TurnID(a.eng.Session().ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

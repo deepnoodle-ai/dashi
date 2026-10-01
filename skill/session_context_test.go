@@ -8,6 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/skill"
 )
 
@@ -91,7 +92,7 @@ func TestCatalogVisibilityAfterCompactionAndReopen(t *testing.T) {
 			first.Usage = &llm.Usage{InputTokens: 100}
 			client := dashitest.NewClient(first, dashitest.Reply("summary"), dashitest.Reply("two"), dashitest.Reply("three"))
 			for i := 0; i < 3; i++ {
-				s := &dashi.Session{ID: "catalog", New: i == 0, Runner: dashi.Runner{Client: client, Recorder: rec, Hooks: bundle.Hooks()}, Agent: dashi.Agent{Model: dashitest.Model}}
+				s := &session.Session{ID: "catalog", New: i == 0, Runner: dashi.Runner{Client: client, Recorder: rec, Hooks: bundle.Hooks()}, Agent: dashi.Agent{Model: dashitest.Model}}
 				if i == 1 {
 					s.Compactor = catalogKeep{keep: keep}
 				}

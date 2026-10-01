@@ -99,7 +99,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
-	if key := r.runner.cacheKey; key != "" &&
+	if key := r.runner.CacheKey; key != "" &&
 		input.Settings.PromptCache.Key == "" {
 		info, _ := r.runner.Client.ModelInfo(input.Model)
 		if info.Capabilities.CacheKeyDefault {

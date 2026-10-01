@@ -21,6 +21,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func TestConforms(t *testing.T) {
@@ -82,9 +83,9 @@ func TestLastTurn(t *testing.T) {
 		t.Fatalf("empty session: %d", n)
 	}
 	for i := 1; i <= 5; i++ {
-		commit(t, r, step(dashi.TurnID("x", i), 1, "hi"), "")
+		commit(t, r, step(session.TurnID("x", i), 1, "hi"), "")
 	}
-	commit(t, r, step(dashi.TurnID("x-1", 1), 1, "hi"), "")
+	commit(t, r, step(session.TurnID("x-1", 1), 1, "hi"), "")
 	commit(t, r, step("x-10", 1, "hi"), "")
 	if n := last("x"); n != 5 {
 		t.Fatalf("x: %d", n)

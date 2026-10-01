@@ -1,4 +1,4 @@
-package dashi
+package session
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -22,13 +23,13 @@ type Queued struct {
 	TurnID string
 	// Warnings holds WarningMemoryOnly when the item was queued under a
 	// durable recorder: the queue lives only in this handle.
-	Warnings []Warning
+	Warnings []dashi.Warning
 }
 
 // queuedItem is one item of the handle's queue. A reserved item keeps its
 // place until the session knows whether the turn that carries it started.
 type queuedItem struct {
-	item     ContextItem
+	item     dashi.ContextItem
 	reserved *reservation
 }
 
@@ -43,7 +44,7 @@ type reservation struct {
 
 // errStreamStopped marks a turn whose Stream consumer broke the range, so
 // the session cannot tell from the result whether it recorded anything.
-var errStreamStopped = errors.New("dashi: stream consumer stopped")
+var errStreamStopped = errors.New("session: stream consumer stopped")
 
 // Steer sends text from the user to the turn this handle is running, which
 // sees it at its next model call. When the handle runs no turn, the text
@@ -52,33 +53,33 @@ var errStreamStopped = errors.New("dashi: stream consumer stopped")
 // Start closes it, the steer moves to the queue.
 //
 // Steer sends to the handle's own inbox, or to Session.Steering when it is
-// an *Inbox; with another source it returns an error, and the host sends
+// a *dashi.Inbox; with another source it returns an error, and the host sends
 // through its own system.
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error) {
 	if strings.TrimSpace(text) == "" {
-		return Queued{}, errors.New("dashi: steer text is empty")
+		return Queued{}, errors.New("session: steer text is empty")
 	}
-	return s.SteerItem(ctx, Steer{Item: userItem(text)})
+	return s.SteerItem(ctx, dashi.Steer{Item: userItem(text)})
 }
 
 // SteerItem is Steer for any steer: an urgent one, which may cut short the
 // model call in flight, or an item of another origin, such as a background
 // task's notice. An empty Item.ID is generated and an empty origin means
-// ContextUser. An ID the queue or inbox already holds is an error.
-func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error) {
+// dashi.ContextUser. An ID the queue or inbox already holds is an error.
+func (s *Session) SteerItem(ctx context.Context, steer dashi.Steer) (Queued, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	in, ok := s.steering().(*Inbox)
+	in, ok := s.steering().(*dashi.Inbox)
 	if !ok {
 		return Queued{}, errors.New(
-			"dashi: Session.Steering is not an *Inbox; send steers through it",
+			"session: Session.Steering is not an *Inbox; send steers through it",
 		)
 	}
 	if s.compacting != "" {
 		return Queued{}, &TurnBusyError{
 			TurnID: s.compacting,
-			Next:   NextRunning,
-			Origin: StartCompaction,
+			Next:   dashi.NextRunning,
+			Origin: dashi.StartCompaction,
 		}
 	}
 	item, err := s.newItem(steer.Item)
@@ -105,19 +106,19 @@ func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error) {
 // loses what it queued when the request ends.
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error) {
 	if strings.TrimSpace(text) == "" {
-		return Queued{}, errors.New("dashi: queued text is empty")
+		return Queued{}, errors.New("session: queued text is empty")
 	}
 	return s.EnqueueItem(ctx, userItem(text))
 }
 
 // EnqueueItem is Enqueue for any context item, such as a background task's
-// notice. An empty ID is generated and an empty origin means ContextUser;
+// notice. An empty ID is generated and an empty origin means dashi.ContextUser;
 // an ID the queue or inbox already holds is an error. Items that did not
 // come from the user do not join a caller's Start: they run as a queue turn
 // of their own, whose command ID records their IDs.
 func (s *Session) EnqueueItem(
 	ctx context.Context,
-	item ContextItem,
+	item dashi.ContextItem,
 ) (Queued, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,8 +169,8 @@ func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) {
 // A turn that cannot be read yields a Turn holding only its ID, with the
 // error, and the iteration goes on. A turn the session closed has a
 // canceled stop with the reason CloseReason.
-func (s *Session) Turns(ctx context.Context) iter.Seq2[Turn, error] {
-	return func(yield func(Turn, error) bool) {
+func (s *Session) Turns(ctx context.Context) iter.Seq2[dashi.Turn, error] {
+	return func(yield func(dashi.Turn, error) bool) {
 		s.mu.Lock()
 		last, err := 0, error(nil)
 		if s.ID != "" {
@@ -177,15 +178,15 @@ func (s *Session) Turns(ctx context.Context) iter.Seq2[Turn, error] {
 		}
 		s.mu.Unlock()
 		if err != nil {
-			yield(Turn{}, err)
+			yield(dashi.Turn{}, err)
 			return
 		}
 		for n := 1; n <= last; n++ {
 			s.mu.Lock()
 			t, err := s.load(ctx, n)
-			turn := Turn{ID: TurnID(s.ID, n)}
+			turn := dashi.Turn{ID: TurnID(s.ID, n)}
 			if err == nil {
-				turn = cloneTurn(t.turn)
+				turn = t.turn.Clone()
 			}
 			s.mu.Unlock()
 			if !yield(turn, err) {
@@ -197,62 +198,60 @@ func (s *Session) Turns(ctx context.Context) iter.Seq2[Turn, error] {
 
 // steering returns the source every turn of this handle gets. The caller
 // holds mu, or the source was fixed by an earlier call.
-func (s *Session) steering() Steering {
+func (s *Session) steering() dashi.Steering {
 	if s.Steering != nil {
 		return s.Steering
 	}
 	if s.inbox == nil {
-		s.inbox = NewInbox()
+		s.inbox = dashi.NewInbox()
 	}
 	return s.inbox
 }
 
-func userItem(text string) ContextItem {
-	return ContextItem{
-		Origin:  ContextUser,
+func userItem(text string) dashi.ContextItem {
+	return dashi.ContextItem{
+		Origin:  dashi.ContextUser,
 		Message: llm.UserMessage(llm.Text(text)),
 	}
 }
 
 // newItem fills and checks an item for the queue or inbox. The caller holds
 // mu.
-func (s *Session) newItem(item ContextItem) (ContextItem, error) {
-	item = cloneContextItem(item)
+func (s *Session) newItem(item dashi.ContextItem) (dashi.ContextItem, error) {
+	item.Message = item.Message.Clone()
 	if item.ID == "" {
-		item.ID = NewID()
+		item.ID = dashi.NewID()
 	}
 	if item.Origin == "" {
-		item.Origin = ContextUser
+		item.Origin = dashi.ContextUser
 	}
-	if err := validateContext(item); err != nil {
-		return ContextItem{}, fmt.Errorf("dashi: invalid item: %w", err)
+	if err := item.Validate(); err != nil {
+		return dashi.ContextItem{}, fmt.Errorf("session: invalid item: %w", err)
 	}
 	if item.Message.Role != llm.RoleUser {
-		return ContextItem{}, errors.New(
-			"dashi: invalid item: queued input must use the user role",
+		return dashi.ContextItem{}, errors.New(
+			"session: invalid item: queued input must use the user role",
 		)
 	}
 	taken := slices.ContainsFunc(s.queue, func(q *queuedItem) bool {
 		return q.item.ID == item.ID
 	})
-	if in, ok := s.steering().(*Inbox); ok && !taken {
-		in.mu.Lock()
-		taken = in.find(item.ID) >= 0
-		in.mu.Unlock()
+	if in, ok := s.steering().(*dashi.Inbox); ok && !taken {
+		taken = in.Has(item.ID)
 	}
 	if taken {
-		return ContextItem{}, fmt.Errorf("dashi: item ID %q is already queued", item.ID)
+		return dashi.ContextItem{}, fmt.Errorf("session: item ID %q is already queued", item.ID)
 	}
 	return item, nil
 }
 
 // enqueue appends an item. The caller holds mu.
-func (s *Session) enqueue(item ContextItem) Queued {
+func (s *Session) enqueue(item dashi.ContextItem) Queued {
 	s.queue = append(s.queue, &queuedItem{item: item})
 	q := Queued{ID: item.ID}
 	if r := s.Runner.Recorder; r != nil {
-		if _, ok := r.(*MemoryRecorder); !ok {
-			q.Warnings = []Warning{{
+		if _, ok := r.(*dashi.MemoryRecorder); !ok {
+			q.Warnings = []dashi.Warning{{
 				Code: WarningMemoryOnly,
 				Message: "the queued item lives only in this session handle " +
 					"and is lost when the handle is",
@@ -265,8 +264,8 @@ func (s *Session) enqueue(item ContextItem) Queued {
 // moveLeftovers appends to the queue, in order, the steers the inbox holds
 // that turn never recorded, once the turn has ended or was closed. A host
 // source releases its own. The caller holds mu.
-func (s *Session) moveLeftovers(turn Turn) {
-	in, ok := s.steering().(*Inbox)
+func (s *Session) moveLeftovers(turn dashi.Turn) {
+	in, ok := s.steering().(*dashi.Inbox)
 	if !ok {
 		return
 	}
@@ -279,13 +278,13 @@ func (s *Session) moveLeftovers(turn Turn) {
 	}
 }
 
-func fromUser(item ContextItem) bool {
-	return item.Origin == ContextUser
+func fromUser(item dashi.ContextItem) bool {
+	return item.Origin == dashi.ContextUser
 }
 
 // free returns the queued items no Start holds, in order, that match keep
 // (all of them when keep is nil). The caller holds mu.
-func (s *Session) free(keep func(ContextItem) bool) []*queuedItem {
+func (s *Session) free(keep func(dashi.ContextItem) bool) []*queuedItem {
 	var out []*queuedItem
 	for _, q := range s.queue {
 		if q.reserved == nil && (keep == nil || keep(q.item)) {
@@ -345,7 +344,7 @@ func (s *Session) settle(
 // errReserved marks a reservation the session cannot settle: it cannot
 // tell whether a turn took the queued items. New commands still run, but
 // the queue waits, so its items never run out of order or twice.
-var errReserved = errors.New("dashi: queued items stay reserved")
+var errReserved = errors.New("session: queued items stay reserved")
 
 // settleReserved settles the reservations of Starts that ended with an
 // unknown result. It returns an error matching errReserved when one cannot
@@ -367,7 +366,7 @@ func (s *Session) settleReserved(ctx context.Context) error {
 
 func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 	id := TurnID(s.ID, r.n)
-	loader, ok := s.recorder().(Loader)
+	loader, ok := s.recorder().(dashi.Loader)
 	if !ok {
 		return fmt.Errorf(
 			"%w: turn %s cannot be loaded to learn whether it started",
@@ -378,10 +377,10 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 	turn, err := loader.Load(ctx, id)
 	switch {
 	case err == nil && len(turn.Steps) > 0 &&
-		turn.Steps[0].Kind == StepStarted &&
+		turn.Steps[0].Kind == dashi.StepStarted &&
 		turn.Steps[0].CommandID == r.commandID:
 		s.release(r, true)
-	case err == nil || errors.Is(err, ErrTurnNotFound):
+	case err == nil || errors.Is(err, dashi.ErrTurnNotFound):
 		s.release(r, false)
 	default:
 		return fmt.Errorf(
@@ -396,7 +395,7 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 
 // queueBlocked returns a WarningQueueBlocked while a reservation cannot be
 // settled. The caller holds mu.
-func (s *Session) queueBlocked() []Warning {
+func (s *Session) queueBlocked() []dashi.Warning {
 	n := 0
 	var id string
 	for _, q := range s.queue {
@@ -408,7 +407,7 @@ func (s *Session) queueBlocked() []Warning {
 	if n == 0 {
 		return nil
 	}
-	return []Warning{{
+	return []dashi.Warning{{
 		Code: WarningQueueBlocked,
 		Message: fmt.Sprintf(
 			"%d queued items wait, and the queue with them, until the session "+
@@ -443,15 +442,15 @@ func notStarted(err error) bool {
 	if errors.Is(err, errStreamStopped) {
 		return false
 	}
-	if !recorded(err) {
+	if !dashi.Recorded(err) {
 		return true
 	}
-	var ce *CommitError
+	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
-		ce.Step.Kind == StepStarted &&
-		(ce.Persistence == PersistenceRejected ||
-			errors.Is(ce.Err, ErrRevisionConflict) ||
-			errors.Is(ce.Err, ErrCommandConflict))
+		ce.Step.Kind == dashi.StepStarted &&
+		(ce.Persistence == dashi.PersistenceRejected ||
+			errors.Is(ce.Err, dashi.ErrRevisionConflict) ||
+			errors.Is(ce.Err, dashi.ErrCommandConflict))
 }
 
 // planQueue chooses a queue turn for every free item, when the session is
@@ -474,7 +473,7 @@ func (s *Session) planQueue(
 		return startPlan{}, false, nil
 	}
 	if s.ID == "" {
-		s.ID = NewID()
+		s.ID = dashi.NewID()
 		s.created = true
 	}
 	last, err := s.findLast(ctx)
@@ -493,7 +492,7 @@ func (s *Session) planQueue(
 		if err != nil {
 			if s.Exclusive && ctx.Err() == nil {
 				err = fmt.Errorf(
-					"dashi: queued input waits: turn %s may hold its queue "+
+					"session: queued input waits: turn %s may hold its queue "+
 						"key and cannot be read; a new Start moves past it: %w",
 					TurnID(s.ID, last),
 					err,
@@ -501,22 +500,22 @@ func (s *Session) planQueue(
 			}
 			return startPlan{}, false, err
 		}
-		if s.refine(ctx, t).next != NextNone {
+		if s.refine(ctx, t).next != dashi.NextNone {
 			return startPlan{}, false, nil
 		}
 	}
 	s.created = true
 	ids := make([]string, len(items))
-	origin := StartScheduled
+	origin := dashi.StartScheduled
 	for i, q := range items {
 		ids[i] = q.item.ID
-		if q.item.Origin == ContextUser {
-			origin = StartUser
+		if q.item.Origin == dashi.ContextUser {
+			origin = dashi.StartUser
 		}
 	}
 	slices.Sort(ids)
 	key, _ := json.Marshal(ids)
-	c := Start{
+	c := dashi.Start{
 		CommandID: "queue:" + string(key),
 		Origin:    origin,
 		Input:     itemMessages(items),
@@ -539,7 +538,7 @@ func (s *Session) planQueue(
 	}
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
-	c.Agent = s.agentFor(ctx, Agent{}, last)
+	c.Agent = s.agentFor(ctx, dashi.Agent{}, last)
 	p.reserved = s.reserve(items, c.CommandID, last+1)
 	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
 	s.running[p.id]++

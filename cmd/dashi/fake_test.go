@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -276,7 +277,7 @@ func (h *harness) turn(n int) dashi.Turn {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	turn, err := rec.Load(h.t.Context(), dashi.TurnID(s.ID, n))
+	turn, err := rec.Load(h.t.Context(), dashisession.TurnID(s.ID, n))
 	if err != nil {
 		h.t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -65,7 +66,7 @@ func run(ctx context.Context) error {
 
 	// The whole wiring: a session, and a Tasks value that delivers to it,
 	// with its tools.
-	s := &dashi.Session{
+	s := &session.Session{
 		ID:  "notes",
 		New: true,
 		Agent: dashi.Agent{

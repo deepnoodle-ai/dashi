@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/dashi"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
 )
@@ -38,7 +38,7 @@ func TestSessionInspectionPTYChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	badPath := rec.Path(dashi.TurnID(bad.ID, 1))
+	badPath := rec.Path(dashisession.TurnID(bad.ID, 1))
 	if err = os.MkdirAll(filepath.Dir(badPath), 0700); err != nil {
 		t.Fatal(err)
 	}

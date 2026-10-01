@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // TestSessionIdempotency retries a keyed Start while its turn runs, after
@@ -39,7 +40,7 @@ func TestSessionIdempotency(t *testing.T) {
 		b := handle(rec, dashitest.NewClient())
 		_, err := b.Run(t.Context(), keyed("k", "hello"))
 		busy := requireBusy(t, err, dashi.NextResume, false)
-		if !busy.Duplicate || busy.TurnID != dashi.TurnID("s", 1) {
+		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("busy = %+v; want a duplicate of turn 1", busy)
 		}
 		// The handle running it does.
@@ -96,7 +97,7 @@ func TestSessionIdempotency(t *testing.T) {
 		ownTurn(t, rec, client, 2, queue)
 		ownTurn(t, rec, client, 3, compact)
 		out, err := handle(rec, client).Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Turn.ID != dashi.TurnID("s", 1) {
+		if err != nil || out.Turn.ID != session.TurnID("s", 1) {
 			t.Fatalf("retry: %v, turn %s", err, out.Turn.ID)
 		}
 		requireTurns(t, rec, 3)
@@ -106,7 +107,7 @@ func TestSessionIdempotency(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err = s.Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Turn.ID != dashi.TurnID("s", 5) {
+		if err != nil || out.Turn.ID != session.TurnID("s", 5) {
 			t.Fatalf("outside the window: %v, turn %s", err, out.Turn.ID)
 		}
 	})
@@ -123,7 +124,7 @@ func TestSessionIdempotency(t *testing.T) {
 		queue := keyed(`queue:["n1"]`, "a notice")
 		queue.Origin = dashi.StartScheduled
 		ownTurn(t, rec, client, 2, queue)
-		broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
+		broken := &brokenLoader{MemoryRecorder: rec, id: session.TurnID("s", 1)}
 		_, err := handle(broken, client).Run(t.Context(), keyed("k", "hello"))
 		if err == nil {
 			t.Fatal("retry succeeded; want the load error")
@@ -146,7 +147,7 @@ func TestSessionIdempotency(t *testing.T) {
 				t.Fatalf("%s: err = %v; want the reserved-prefix error", key, err)
 			}
 		}
-		if _, err := rec.Load(t.Context(), dashi.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
+		if _, err := rec.Load(t.Context(), session.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
 			t.Fatalf("turn 1: %v; want none", err)
 		}
 	})
@@ -181,7 +182,7 @@ func TestSessionIdempotency(t *testing.T) {
 		b.New = true
 		b.Agent.Instructions = "Be brief."
 		out, err := b.Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Turn.ID != dashi.TurnID("s", 1) || out.Answer != "from a" {
+		if err != nil || out.Turn.ID != session.TurnID("s", 1) || out.Answer != "from a" {
 			t.Fatalf("b: %v, turn %s %q", err, out.Turn.ID, out.Answer)
 		}
 		if n := len(bClient.Inputs()); n != 0 {
@@ -195,7 +196,7 @@ func TestSessionIdempotency(t *testing.T) {
 		// a retry of d's, so c must get the duplicate busy error, not a
 		// success for a turn still running.
 		rec := dashi.NewMemoryRecorder()
-		held := &heldLoad{MemoryRecorder: rec, id: dashi.TurnID("s", 1),
+		held := &heldLoad{MemoryRecorder: rec, id: session.TurnID("s", 1),
 			reached: make(chan struct{}), proceed: make(chan struct{})}
 		cClient := dashitest.NewClient()
 		c := handle(held, cClient)
@@ -224,7 +225,7 @@ func TestSessionIdempotency(t *testing.T) {
 
 		got := <-cDone
 		busy := requireBusy(t, got.err, dashi.NextResume, false)
-		if !busy.Duplicate || busy.TurnID != dashi.TurnID("s", 1) {
+		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("c: busy = %+v; want a duplicate of turn 1", busy)
 		}
 		close(g.release)
@@ -254,7 +255,7 @@ func TestSessionIdempotency(t *testing.T) {
 		if err != nil || first.Next() != dashi.NextAnswer {
 			t.Fatalf("first: %v, next %s", err, first.Next())
 		}
-		for _, s := range []*dashi.Session{a, handle(rec, client)} {
+		for _, s := range []*session.Session{a, handle(rec, client)} {
 			out, err := s.Run(t.Context(), keyed("k", "pay"))
 			if err != nil || out.Turn.ID != first.Turn.ID ||
 				out.Next() != dashi.NextAnswer || len(out.Pending) != 1 ||
@@ -275,7 +276,7 @@ func ownTurn(t *testing.T, rec dashi.Recorder, client llm.Client, n int, c dashi
 	t.Helper()
 	c.Agent.Model = dashitest.Model
 	r := dashi.Runner{Client: client, Recorder: rec}
-	if _, err := r.Run(t.Context(), dashi.NewTurn(dashi.TurnID("s", n)), c); err != nil {
+	if _, err := r.Run(t.Context(), dashi.NewTurn(session.TurnID("s", n)), c); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -307,13 +308,13 @@ func TestSessionOpenAndCreate(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"))
 	missing := handle(rec, client)
-	if _, err := missing.Open(t.Context()); !errors.Is(err, dashi.ErrSessionNotFound) {
+	if _, err := missing.Open(t.Context()); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("open: %v; want ErrSessionNotFound", err)
 	}
-	if _, err := missing.Send(t.Context(), "hi"); !errors.Is(err, dashi.ErrSessionNotFound) {
+	if _, err := missing.Send(t.Context(), "hi"); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("send: %v; want ErrSessionNotFound", err)
 	}
-	if _, err := missing.Run(t.Context(), dashi.Continue{}); !errors.Is(err, dashi.ErrSessionNotFound) {
+	if _, err := missing.Run(t.Context(), dashi.Continue{}); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("continue: %v; want ErrSessionNotFound", err)
 	}
 	s := handle(rec, client)
@@ -328,7 +329,7 @@ func TestSessionOpenAndCreate(t *testing.T) {
 	}
 	again := handle(rec, client)
 	again.New = true
-	if _, err := again.Send(t.Context(), "hi"); !errors.Is(err, dashi.ErrSessionExists) {
+	if _, err := again.Send(t.Context(), "hi"); !errors.Is(err, session.ErrExists) {
 		t.Fatalf("send: %v; want ErrSessionExists", err)
 	}
 	st, err := handle(rec, client).Open(t.Context())
@@ -343,7 +344,7 @@ func TestSessionOpenAndCreate(t *testing.T) {
 // TestSessionEmptyID generates the ID at the first Start and warns once
 // that the session lives in memory.
 func TestSessionEmptyID(t *testing.T) {
-	s := &dashi.Session{
+	s := &session.Session{
 		Runner: dashi.Runner{Client: dashitest.NewClient(
 			dashitest.Reply("one"),
 			dashitest.Reply("two"),
@@ -354,10 +355,10 @@ func TestSessionEmptyID(t *testing.T) {
 		t.Fatalf("open: %v, %+v", err, st)
 	}
 	out, err := s.Send(t.Context(), "hi")
-	if err != nil || s.ID == "" || out.Turn.ID != dashi.TurnID(s.ID, 1) {
+	if err != nil || s.ID == "" || out.Turn.ID != session.TurnID(s.ID, 1) {
 		t.Fatalf("send: %v, id %q, turn %s", err, s.ID, out.Turn.ID)
 	}
-	if !hasWarning(out.SessionWarnings, dashi.WarningMemoryOnly) {
+	if !hasWarning(out.SessionWarnings, session.WarningMemoryOnly) {
 		t.Fatalf("warnings = %v; want memory_only", out.SessionWarnings)
 	}
 	out, err = s.Send(t.Context(), "again")
@@ -416,7 +417,7 @@ func TestSessionUnreadableTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
+	broken := &brokenLoader{MemoryRecorder: rec, id: session.TurnID("s", 1)}
 	out, err := handle(broken, client).Send(t.Context(), "third")
 	if err != nil || !hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) {
 		t.Fatalf("send: %v, warnings %v", err, out.SessionWarnings)
@@ -424,7 +425,7 @@ func TestSessionUnreadableTurn(t *testing.T) {
 	if got := texts(client.Inputs()[2].Messages); got != "hi|two|third" {
 		t.Fatalf("third call saw %q", got)
 	}
-	broken.id = dashi.TurnID("s", 3)
+	broken.id = session.TurnID("s", 3)
 	if _, err := handle(broken, client).Send(t.Context(), "fourth"); err == nil {
 		t.Fatal("an unreadable last turn was accepted")
 	}
@@ -440,7 +441,7 @@ func TestSessionUnreadableTurn(t *testing.T) {
 		t.Fatalf("fourth call saw %q", got)
 	}
 
-	broken.id = dashi.TurnID("s", 4)
+	broken.id = session.TurnID("s", 4)
 	exclusive = handle(broken, client)
 	exclusive.Exclusive = true
 	if _, err := exclusive.Enqueue(t.Context(), "queued"); err != nil {
@@ -725,7 +726,7 @@ func TestSessionProbingReads(t *testing.T) {
 	for _, n := range []int{64, 1000} {
 		id := fmt.Sprintf("probe-%d", n)
 		for i := 1; i <= n; i++ {
-			turn := dashi.TurnID(id, i)
+			turn := session.TurnID(id, i)
 			err := rec.Commit(t.Context(), dashi.CommitRequest{Step: dashi.Step{
 				Version:       1,
 				TurnID:        turn,
@@ -759,7 +760,7 @@ func TestSessionProbingReads(t *testing.T) {
 			{"Loader", loads, &loads.reads},
 			{"StepReader", steps, &steps.reads},
 		} {
-			s := &dashi.Session{ID: id, Runner: dashi.Runner{Recorder: c.rec}}
+			s := &session.Session{ID: id, Runner: dashi.Runner{Recorder: c.rec}}
 			st, err := s.Open(t.Context())
 			if err != nil || st.Turns != n {
 				t.Fatalf("%s, %d turns: open %v, turns %d", c.name, n, err, st.Turns)

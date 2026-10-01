@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/deepnoodle-ai/dashi"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -37,7 +37,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.startRun(func(ctx context.Context) (Result, error) {
 				res, err := c.eng.Compact(ctx)
-				if errors.Is(err, dashi.ErrNothingToCompact) {
+				if errors.Is(err, dashisession.ErrNothingToCompact) {
 					c.notice("Nothing needs compaction.")
 					return res, nil
 				}

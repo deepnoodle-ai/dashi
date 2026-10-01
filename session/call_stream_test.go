@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // streamed is what a Session.Stream yielded, by turn.
@@ -107,10 +108,10 @@ func TestSessionStreamAcrossTurns(t *testing.T) {
 	if got.last.Turn.ID != "s-3" || got.last.Answer != "three" {
 		t.Fatalf("last=%s %q", got.last.Turn.ID, got.last.Answer)
 	}
-	if w := got.byTurn["s-2"].SessionWarnings; !hasWarning(w, dashi.WarningTurnClosed) {
+	if w := got.byTurn["s-2"].SessionWarnings; !hasWarning(w, session.WarningTurnClosed) {
 		t.Fatalf("turn 2 warnings=%+v", w)
 	}
-	if v := got.byTurn["s-1"]; v.Stop.Reason != dashi.CloseReason {
+	if v := got.byTurn["s-1"]; v.Stop.Reason != session.CloseReason {
 		t.Fatalf("turn 1 stop=%+v", v.Stop)
 	}
 }
@@ -146,7 +147,7 @@ func TestSessionStreamBreak(t *testing.T) {
 	other := handle(rec, client)
 	other.New = true
 	got := drain(t, other.Stream(t.Context(), dashi.Say("x")))
-	if len(got.errs) != 1 || !errors.Is(got.errs[0], dashi.ErrSessionExists) ||
+	if len(got.errs) != 1 || !errors.Is(got.errs[0], session.ErrExists) ||
 		len(got.order) != 0 {
 		t.Fatalf("errs=%v order=%v", got.errs, got.order)
 	}
@@ -167,7 +168,7 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 		done <- result{out, err}
 	}()
 	entered(t, client)
-	rec.set(dashi.LivenessLive)
+	rec.set(session.LivenessLive)
 	retry := handle(rec, client)
 	// Release the model call only once the retry follows the running
 	// turn: a retry planned after the turn ended would get its outcome
@@ -237,7 +238,7 @@ func TestSessionStreamFollowsStoppedDuplicate(t *testing.T) {
 	}
 	// The duplicate check reads the turn before its stop, which a live
 	// worker makes NextRunning; the follow then loads the stopped turn.
-	rec.set(dashi.LivenessLive)
+	rec.set(session.LivenessLive)
 	rec.stale.Store(true)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

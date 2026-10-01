@@ -9,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // A Session with a Compactor runs a compaction turn when the last model
@@ -27,7 +28,7 @@ func ExampleCompactor() {
 	policy := compaction.Policy{}
 	policy.Model.Capabilities.ContextWindow = 1_000
 	rec := dashi.NewMemoryRecorder()
-	s := &dashi.Session{
+	s := &session.Session{
 		ID:        "chat",
 		New:       true,
 		Runner:    dashi.Runner{Client: client, Recorder: rec},
@@ -61,7 +62,7 @@ func ExampleCompactor() {
 		len(history), len(projected))
 	fmt.Println("summary:", projected[0].Text())
 
-	reader := &dashi.Session{
+	reader := &session.Session{
 		ID:     "chat",
 		Runner: dashi.Runner{Client: client, Recorder: rec},
 	}

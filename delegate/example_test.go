@@ -10,6 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -28,7 +29,7 @@ func ExampleRunUntilQuiet() {
 	)
 	child := dashitest.NewClient(dashitest.Reply("ownership.md: billing - Priya"))
 
-	s := &dashi.Session{Agent: dashi.Agent{Model: dashitest.Model}}
+	s := &session.Session{Agent: dashi.Agent{Model: dashitest.Model}}
 	tasks := delegate.NewTasks(delegate.Config{
 		Subagents: []delegate.Subagent{{
 			Name:        "explore",
@@ -55,7 +56,7 @@ func ExampleRunUntilQuiet() {
 		return
 	}
 	fmt.Println(out.Answer)
-	fmt.Println("turn 2:", out.Turn.ID == dashi.TurnID(s.ID, 2))
+	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("origin:", out.Origin)
 	// Output:
 	// Priya owns the billing service.

@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // heldClient holds model call number at (from 1) at its gate.
@@ -36,7 +37,7 @@ func held(at int32, replies ...llm.Result) *heldClient {
 // sendAsync starts a Send and returns its result channel.
 func sendAsync(
 	ctx context.Context,
-	s *dashi.Session,
+	s *session.Session,
 	text string,
 ) <-chan result {
 	done := make(chan result, 1)
@@ -82,7 +83,7 @@ func input(t *testing.T, rec dashi.Loader, id string) []string {
 	return out
 }
 
-func queued(t *testing.T, s *dashi.Session) int {
+func queued(t *testing.T, s *session.Session) int {
 	t.Helper()
 	st, err := s.Open(t.Context())
 	if err != nil {
@@ -308,14 +309,14 @@ func TestSessionMissedSteers(t *testing.T) {
 		if err != nil || out.Turn.ID != "s-2" || out.Answer != "fresh" {
 			t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
 		}
-		if !hasWarning(out.SessionWarnings, dashi.WarningTurnClosed) {
+		if !hasWarning(out.SessionWarnings, session.WarningTurnClosed) {
 			t.Fatalf("warnings=%+v", out.SessionWarnings)
 		}
 		if got := input(t, rec, "s-2"); !slices.Equal(got, []string{"wait", "new"}) {
 			t.Fatalf("input=%q", got)
 		}
 		closed := load(t, rec, "s-1")
-		if closed.Stop.Kind != dashi.StopCanceled || closed.Stop.Reason != dashi.CloseReason {
+		if closed.Stop.Kind != dashi.StopCanceled || closed.Stop.Reason != session.CloseReason {
 			t.Fatalf("closed stop=%+v", closed.Stop)
 		}
 		if n := queued(t, s); n != 0 {
@@ -354,14 +355,14 @@ func TestSessionQueueMemoryOnly(t *testing.T) {
 	durable := handle(newLiveRecorder(), dashitest.NewClient())
 	durable.New = true
 	q, err := durable.Enqueue(t.Context(), "later")
-	if err != nil || !hasWarning(q.Warnings, dashi.WarningMemoryOnly) {
+	if err != nil || !hasWarning(q.Warnings, session.WarningMemoryOnly) {
 		t.Fatalf("queued=%+v err=%v", q, err)
 	}
 	q, err = durable.Steer(t.Context(), "idle steer")
-	if err != nil || !hasWarning(q.Warnings, dashi.WarningMemoryOnly) {
+	if err != nil || !hasWarning(q.Warnings, session.WarningMemoryOnly) {
 		t.Fatalf("queued=%+v err=%v", q, err)
 	}
-	for _, s := range []*dashi.Session{
+	for _, s := range []*session.Session{
 		handle(dashi.NewMemoryRecorder(), dashitest.NewClient()),
 		{Runner: dashi.Runner{Client: dashitest.NewClient()}},
 	} {
@@ -450,7 +451,7 @@ func TestSessionDispatchKeepsWarnings(t *testing.T) {
 	if err != nil || out.Turn.ID != "s-3" || out.Answer != "three" {
 		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
 	}
-	if !hasWarning(out.SessionWarnings, dashi.WarningTurnClosed) {
+	if !hasWarning(out.SessionWarnings, session.WarningTurnClosed) {
 		t.Fatalf("warnings=%+v", out.SessionWarnings)
 	}
 }
@@ -496,7 +497,7 @@ func TestSessionQueueUsedKeyUnreadable(t *testing.T) {
 	if _, ran, err := s.RunQueue(t.Context()); err != nil || !ran {
 		t.Fatalf("run queue: %v, %v", ran, err)
 	}
-	broken := &brokenLoader{MemoryRecorder: rec, id: dashi.TurnID("s", 1)}
+	broken := &brokenLoader{MemoryRecorder: rec, id: session.TurnID("s", 1)}
 	other := handle(broken, client)
 	other.Exclusive = true
 	if _, err := other.EnqueueItem(t.Context(), note); err != nil {

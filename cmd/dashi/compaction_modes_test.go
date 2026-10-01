@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/wonton/tui"
 	"strings"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 func TestCompactBusyRecoveryInstructions(t *testing.T) {
@@ -19,7 +21,7 @@ func TestCompactBusyRecoveryInstructions(t *testing.T) {
 		{dashi.NextResume, "Press Enter to continue"},
 		{dashi.NextRaiseAttempts, "Type /continue"},
 	} {
-		got := busyText(&dashi.TurnBusyError{TurnID: "session-2", Next: tc.next})
+		got := busyText(&dashisession.TurnBusyError{TurnID: "session-2", Next: tc.next})
 		compactionMustHave(t, got, tc.want, "/discard")
 	}
 	started := make(chan struct{})

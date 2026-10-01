@@ -18,6 +18,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -375,7 +376,7 @@ type harness struct {
 	observed   atomic.Int32
 	notify     atomic.Bool
 	// session, when set, gets each ended task's notice on its queue.
-	session atomic.Pointer[dashi.Session]
+	session atomic.Pointer[session.Session]
 	// ran counts runs of the read and write probes.
 	ran atomic.Int32
 }
@@ -622,7 +623,7 @@ func childID() string {
 
 // childTurnID is the ID of the child session's first turn.
 func childTurnID() string {
-	return dashi.TurnID(childID(), 1)
+	return session.TurnID(childID(), 1)
 }
 
 func taskID() string {
@@ -794,7 +795,7 @@ func TestNoticesAfterTheTurnMakeOneQueueTurn(t *testing.T) {
 	g1, g2 := newGate(), newGate()
 	h := newHarness(t, twoTasks(g1, g2), delegate.Config{}, nil)
 	h.agent.Limits.ToolConcurrency = 2
-	s := &dashi.Session{ID: "conv", New: true, Runner: h.runner, Agent: h.agent}
+	s := &session.Session{ID: "conv", New: true, Runner: h.runner, Agent: h.agent}
 	h.session.Store(s)
 	out, err := s.Send(t.Context(), "go")
 	if err != nil {
@@ -812,7 +813,7 @@ func TestNoticesAfterTheTurnMakeOneQueueTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Turn.ID != dashi.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
+	if out.Turn.ID != session.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
 		out.Answer != "parent read the notice" {
 		t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Answer)
 	}
@@ -880,7 +881,7 @@ func TestResultAfterKillReachesTheAgentOnce(t *testing.T) {
 	h.none(t, delegate.TaskEnded)
 
 	// The host delivers the notice in a queue turn of a session.
-	conv := &dashi.Session{New: true, Runner: h.runner, Agent: h.agent}
+	conv := &session.Session{New: true, Runner: h.runner, Agent: h.agent}
 	if _, err := conv.EnqueueItem(t.Context(), ended.Task.Notice().Steer().Item); err != nil {
 		t.Fatal(err)
 	}
@@ -1814,7 +1815,7 @@ func TestParallelTaskCallsGetOwnChildren(t *testing.T) {
 		"call-1": "answer to first",
 		"call-2": "answer to second",
 	} {
-		v := h.view(t, dashi.TurnID(delegate.ChildID(parentTurn, id), 1))
+		v := h.view(t, session.TurnID(delegate.ChildID(parentTurn, id), 1))
 		if v.Answer != want || v.Parent.CallID != id {
 			t.Fatalf("child %s: answer=%q parent=%+v", id, v.Answer, v.Parent)
 		}

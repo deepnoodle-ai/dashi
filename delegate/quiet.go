@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // RunUntilQuiet runs the session's queue and waits while tasks run. It
@@ -11,7 +12,7 @@ import (
 // of the last turn it ran, or of the session's last turn when it ran none.
 // It also returns when a turn stops with anything but dashi.NextNone, since
 // that turn needs the host first; its queued items wait
-// (dashi.SessionState.Queued counts them). With Config.NoticeReady, it
+// (session.State.Queued counts them). With Config.NoticeReady, it
 // propagates AttentionError when only deferred child results remain. The host
 // must inspect and resolve those children before the conversation is quiet.
 //
@@ -23,7 +24,7 @@ import (
 // One Tasks serves one session.
 func RunUntilQuiet(
 	ctx context.Context,
-	s *dashi.Session,
+	s *session.Session,
 	tasks *Tasks,
 	opts ...dashi.RunOption,
 ) (dashi.Outcome, error) {

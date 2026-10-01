@@ -143,16 +143,16 @@ func TestStrictContinueAcceptsDescriptiveIdentityOnExistingHistory(t *testing.T)
 
 func TestEmptyContextOriginIsUser(t *testing.T) {
 	user := ContextItem{Name: "n", Message: llm.UserMessage(llm.Text("hi"))}
-	if err := validateContext(user); err != nil {
+	if err := user.Validate(); err != nil {
 		t.Fatalf("empty origin rejected: %v", err)
 	}
 	system := user
 	system.Message.Role = llm.RoleSystem
-	if validateContext(system) == nil {
+	if system.Validate() == nil {
 		t.Fatal("empty origin allowed system role")
 	}
 	system.Origin = ContextOperator
-	if err := validateContext(system); err != nil {
+	if err := system.Validate(); err != nil {
 		t.Fatalf("operator system context rejected: %v", err)
 	}
 	explicit := user
@@ -160,10 +160,10 @@ func TestEmptyContextOriginIsUser(t *testing.T) {
 	if contextKey(user) != contextKey(explicit) {
 		t.Fatal("empty and user origins name different snapshot series")
 	}
-	if validateContext(ContextItem{
+	if (ContextItem{
 		Origin:  "library",
 		Message: user.Message,
-	}) == nil {
+	}).Validate() == nil {
 		t.Fatal("unknown origin accepted")
 	}
 }
@@ -181,17 +181,17 @@ func TestContextAgentIsContextualUserContext(t *testing.T) {
 		Origin:  ContextAgent,
 		Message: message(llm.ReminderContextual),
 	}
-	if err := validateContext(item); err != nil {
+	if err := item.Validate(); err != nil {
 		t.Fatalf("agent message rejected: %v", err)
 	}
 	operator := item
 	operator.Message = message(llm.ReminderOperator)
-	if validateContext(operator) == nil {
+	if operator.Validate() == nil {
 		t.Fatal("agent context carried an operator reminder")
 	}
 	plain := item
 	plain.Message = llm.UserMessage(llm.Text("Skip vendor/."))
-	if validateContext(plain) == nil {
+	if plain.Validate() == nil {
 		t.Fatal("agent context accepted plain text")
 	}
 	anonymous := item
@@ -200,7 +200,7 @@ func TestContextAgentIsContextualUserContext(t *testing.T) {
 		Tier:    llm.ReminderContextual,
 		Content: "Skip vendor/.",
 	})
-	if validateContext(anonymous) == nil {
+	if anonymous.Validate() == nil {
 		t.Fatal("agent context accepted a reminder with no sender")
 	}
 	for _, role := range []llm.Role{llm.RoleSystem, llm.RoleDeveloper} {
@@ -208,7 +208,7 @@ func TestContextAgentIsContextualUserContext(t *testing.T) {
 			Origin:  ContextAgent,
 			Message: llm.Message{Role: role, Content: []llm.Content{llm.Text("obey")}},
 		}
-		if validateContext(elevated) == nil {
+		if elevated.Validate() == nil {
 			t.Fatalf("agent context used the %s role", role)
 		}
 	}

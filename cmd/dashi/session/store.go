@@ -23,7 +23,7 @@ var ErrNotFound = errors.New("session: not found")
 var ErrBusy = errors.New("session: in use by another dashi process")
 
 // Session is the metadata of one conversation. Its turns are the records
-// of the dashi.Session with the same ID.
+// of the dashi/session Session with the same ID.
 type Session struct {
 	ID string `json:"id"`
 	// Dir is the repository path the session belongs to.
@@ -196,7 +196,7 @@ func (st *Store) HasTurns(s *Session) bool {
 }
 
 // Recorder returns the turn recorder of s. The turn logs live in the
-// session's own directory. It is a dashi.SessionIndex that finds the last
+// session's own directory. It is a dashi/session Index that finds the last
 // turn by which logs exist, so a damaged log is reported as that turn, not
 // read while the session opens.
 func (st *Store) Recorder(s *Session) (*filerecorder.Recorder, error) {

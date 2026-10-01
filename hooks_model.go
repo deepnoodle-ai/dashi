@@ -241,7 +241,7 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 		)
 	}
 	for _, item := range d.Deliver {
-		if err := validateContext(item); err != nil {
+		if err := item.Validate(); err != nil {
 			return fmt.Errorf("invalid context item: %w", err)
 		}
 	}

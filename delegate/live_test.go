@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/providertest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -43,7 +44,7 @@ func TestLiveBackgroundTask(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &dashi.Session{Agent: dashi.Agent{
+	s := &session.Session{Agent: dashi.Agent{
 		Model: model,
 		Instructions: "Start one explore task for the question, then " +
 			"answer from its result. Do not answer before the message " +

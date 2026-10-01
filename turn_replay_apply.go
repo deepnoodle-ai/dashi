@@ -134,7 +134,7 @@ func (s *replayState) apply(step Step) error {
 			s.deliveredOnKept += estimatedItemTokens(step.Context.Items)
 		}
 		for _, item := range step.Context.Items {
-			if err := validateContext(item); err != nil {
+			if err := item.Validate(); err != nil {
 				return err
 			}
 		}
@@ -186,7 +186,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Context != nil {
 			for _, item := range step.Context.Items {
-				if err := validateContext(item); err != nil {
+				if err := item.Validate(); err != nil {
 					return err
 				}
 			}
@@ -521,7 +521,7 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("only a turned-down submission carries context")
 			}
 			for _, item := range step.Context.Items {
-				if err := validateContext(item); err != nil {
+				if err := item.Validate(); err != nil {
 					return err
 				}
 			}

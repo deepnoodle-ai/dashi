@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -250,7 +251,7 @@ func TestRuntimeQuestionCheckboxesAndDraftRestoration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, err := rec.Load(t.Context(), dashi.TurnID(h.app.eng.Session().ID, 1))
+	turn, err := rec.Load(t.Context(), dashisession.TurnID(h.app.eng.Session().ID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +315,7 @@ func (h *runtimeFixture) turn(n int) dashi.Turn {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	turn, err := rec.Load(h.t.Context(), dashi.TurnID(h.app.eng.Session().ID, n))
+	turn, err := rec.Load(h.t.Context(), dashisession.TurnID(h.app.eng.Session().ID, n))
 	if err != nil {
 		h.t.Fatal(err)
 	}

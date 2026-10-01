@@ -1,10 +1,12 @@
-package dashi
+package session
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -16,24 +18,15 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 	for _, started := range []bool{true, false} {
 		t.Run(fmt.Sprintf("started=%v", started), func(t *testing.T) {
 			ctx := t.Context()
-			rec := NewMemoryRecorder()
-			client := &scriptedClient{results: []llm.Result{
-				{
-					Message: llm.AssistantMessage(llm.Text("ok")),
-					Stop:    llm.Stop{Kind: llm.StopFinished},
-				},
-				{
-					Message: llm.AssistantMessage(llm.Text("ok")),
-					Stop:    llm.Stop{Kind: llm.StopFinished},
-				},
-			}}
+			rec := dashi.NewMemoryRecorder()
+			client := okClient{}
 			s := &Session{
 				ID:     "s",
 				New:    true,
-				Runner: Runner{Client: client, Recorder: rec},
-				Agent:  Agent{Model: "fixture"},
+				Runner: dashi.Runner{Client: client, Recorder: rec},
+				Agent:  dashi.Agent{Model: "fixture"},
 			}
-			if _, err := s.EnqueueItem(ctx, ContextItem{
+			if _, err := s.EnqueueItem(ctx, dashi.ContextItem{
 				ID:      "a",
 				Message: llm.UserMessage(llm.Text("a")),
 			}); err != nil {
@@ -46,17 +39,17 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 			s.mu.Unlock()
 			if started {
 				// The start committed before the record went bad.
-				if _, err := (Runner{Client: client, Recorder: rec}).Run(
-					ctx, NewTurn("s-1"), Start{
+				if _, err := (dashi.Runner{Client: client, Recorder: rec}).Run(
+					ctx, dashi.NewTurn("s-1"), dashi.Start{
 						CommandID: key,
-						Agent:     Agent{Model: "fixture"},
+						Agent:     dashi.Agent{Model: "fixture"},
 						Input:     []llm.Message{llm.UserMessage(llm.Text("a"))},
 					},
 				); err != nil {
 					t.Fatal(err)
 				}
 			}
-			invalid := fmt.Errorf("%w: %w: replay failed", ErrRecordInvalid, ErrInvalidTurn)
+			invalid := fmt.Errorf("%w: %w: replay failed", dashi.ErrRecordInvalid, dashi.ErrInvalidTurn)
 			s.mu.Lock()
 			// The failed run returned the recorded steps, so the handle
 			// made the session.
@@ -96,20 +89,20 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 // notStarted names the proofs that a Start's turn_started step was not
 // recorded.
 func TestSessionNotStarted(t *testing.T) {
-	started := &Step{Kind: StepStarted}
-	model := &Step{Kind: StepModelIntent}
+	started := &dashi.Step{Kind: dashi.StepStarted}
+	model := &dashi.Step{Kind: dashi.StepModelIntent}
 	cases := []struct {
 		name string
 		err  error
 		want bool
 	}{
 		{"rejected command", context.Canceled, true},
-		{"start rejected", &CommitError{Persistence: PersistenceRejected, Step: started}, true},
-		{"start conflicts", &CommitError{Persistence: PersistenceUnknown, Step: started, Err: ErrRevisionConflict}, true},
-		{"start key taken", &CommitError{Persistence: PersistenceUnknown, Step: started, Err: ErrCommandConflict}, true},
-		{"start unknown", &CommitError{Persistence: PersistenceUnknown, Step: started}, false},
-		{"model rejected", &CommitError{Persistence: PersistenceRejected, Step: model}, false},
-		{"record invalid", fmt.Errorf("%w: x", ErrRecordInvalid), false},
+		{"start rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: started}, true},
+		{"start conflicts", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrRevisionConflict}, true},
+		{"start key taken", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrCommandConflict}, true},
+		{"start unknown", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started}, false},
+		{"model rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: model}, false},
+		{"record invalid", fmt.Errorf("%w: x", dashi.ErrRecordInvalid), false},
 		{"stream stopped", errStreamStopped, false},
 	}
 	for _, tc := range cases {
@@ -117,4 +110,36 @@ func TestSessionNotStarted(t *testing.T) {
 			t.Errorf("%s: notStarted=%v, want %v", tc.name, got, tc.want)
 		}
 	}
+}
+
+// okClient answers every model call with "ok". The internal tests cannot
+// use package dashitest, which imports this package.
+type okClient struct{}
+
+func (okClient) Provider() string { return "test" }
+
+func (okClient) API() string { return "test.chat" }
+
+func (okClient) ModelInfo(string) (llm.ModelInfo, bool) { return llm.ModelInfo{}, false }
+
+func (okClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
+	return llm.NewRequest(llm.RequestSnapshot{
+		Origin: content.Origin{
+			Provider: "test",
+			API:      "test.chat",
+			Model:    in.Model,
+			Scope:    "fixture",
+		},
+		Input:     in,
+		Effective: in.Settings,
+		Body:      []byte(`{"ok":true}`),
+	})
+}
+
+func (okClient) Send(context.Context, llm.Call) (llm.Result, error) {
+	return llm.Result{
+		Message:   llm.AssistantMessage(llm.Text("ok")),
+		Stop:      llm.Stop{Kind: llm.StopFinished},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}, nil
 }

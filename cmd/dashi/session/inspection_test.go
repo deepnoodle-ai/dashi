@@ -22,6 +22,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
@@ -130,7 +131,7 @@ func storeImage(t *testing.T, path string) map[string]string {
 func TestInspectionSearchCardsAndReadOnlyOwnedElsewhere(t *testing.T) {
 	st, dir := inspectionStore(t)
 	s, rec := savedSession(t, st, dir, "title-only investigation")
-	runInspectionTurn(t, rec, dashi.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("Retry handler answer", "USD")}, window: 1000}, dashi.Start{Input: dashi.Say("Review the handler").Input}, nil)
+	runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("Retry handler answer", "USD")}, window: 1000}, dashi.Start{Input: dashi.Say("Review the handler").Input}, nil)
 	unlock, err := st.Lock(s)
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +147,7 @@ func TestInspectionSearchCardsAndReadOnlyOwnedElsewhere(t *testing.T) {
 		if card.Metadata.Title != s.Title || !card.Metadata.Updated.Equal(s.Updated) || card.Request == nil || card.Request.Text != "Review the handler" || card.Latest == nil || card.Latest.Stop.Kind != dashi.StopCompleted || card.Latest.Revision == 0 {
 			t.Fatalf("incomplete card: %+v", card)
 		}
-		if query == "RETRY HANDLER" && (result.Matches[0].Match == nil || result.Matches[0].Match.TurnID != dashi.TurnID(s.ID, 1)) {
+		if query == "RETRY HANDLER" && (result.Matches[0].Match == nil || result.Matches[0].Match.TurnID != dashisession.TurnID(s.ID, 1)) {
 			t.Fatal("matched text has no snapshot identity")
 		}
 		if query == "title-only" && result.Matches[0].Match != nil {
@@ -184,7 +185,7 @@ func TestInspectionWorkspaceSecurityAndMetadataBounds(t *testing.T) {
 	other, _ := workspace.New(t.TempDir())
 	foreign, _ := savedSession(t, st, other.Dir(), "secret foreign title")
 	local, rec := savedSession(t, st, dir, "local")
-	runInspectionTurn(t, rec, dashi.TurnID(local.ID, 1), &inspectionClient{results: []llm.Result{reply("local answer", "USD")}}, dashi.Start{Input: dashi.Say("local request").Input}, nil)
+	runInspectionTurn(t, rec, dashisession.TurnID(local.ID, 1), &inspectionClient{results: []llm.Result{reply("local answer", "USD")}}, dashi.Start{Input: dashi.Say("local request").Input}, nil)
 	if _, err := st.Inspect(t.Context(), dir, foreign.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign=%v", err)
 	}
@@ -265,12 +266,12 @@ func TestInspectionWorkspaceSecurityAndMetadataBounds(t *testing.T) {
 func TestInspectionLatestUnreadableClaimOnlyAndMissingStorage(t *testing.T) {
 	st, dir := inspectionStore(t)
 	s, rec := savedSession(t, st, dir, "investigation")
-	runInspectionTurn(t, rec, dashi.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("good answer", "USD")}}, dashi.Start{Input: dashi.Say("good request").Input}, nil)
-	runInspectionTurn(t, rec, dashi.TurnID(s.ID, 2), &inspectionClient{results: []llm.Result{reply("later answer", "EUR")}}, dashi.Start{Input: dashi.Say("later request").Input}, nil)
-	if err := os.WriteFile(rec.Path(dashi.TurnID(s.ID, 2)), []byte("damaged\n"), 0o600); err != nil {
+	runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("good answer", "USD")}}, dashi.Start{Input: dashi.Say("good request").Input}, nil)
+	runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 2), &inspectionClient{results: []llm.Result{reply("later answer", "EUR")}}, dashi.Start{Input: dashi.Say("later request").Input}, nil)
+	if err := os.WriteFile(rec.Path(dashisession.TurnID(s.ID, 2)), []byte("damaged\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := rec.Claim(t.Context(), dashi.TurnID(s.ID, 3), "external-worker"); err != nil {
+	if err := rec.Claim(t.Context(), dashisession.TurnID(s.ID, 3), "external-worker"); err != nil {
 		t.Fatal(err)
 	}
 	before := storeImage(t, st.root)
@@ -278,7 +279,7 @@ func TestInspectionLatestUnreadableClaimOnlyAndMissingStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.IndexedTurns != 3 || report.ReadableTurns != 1 || report.OmittedTurns != 2 || report.Latest == nil || report.Latest.Readable || report.Latest.TurnID != dashi.TurnID(s.ID, 3) || !report.RequestIncomplete {
+	if report.IndexedTurns != 3 || report.ReadableTurns != 1 || report.OmittedTurns != 2 || report.Latest == nil || report.Latest.Readable || report.Latest.TurnID != dashisession.TurnID(s.ID, 3) || !report.RequestIncomplete {
 		t.Fatalf("lost latest uncertainty: %+v", report)
 	}
 	if !report.Accounting.Incomplete || report.Accounting.Spend.Cost["USD"] != money.MustParseAmount("0.25") || report.Accounting.Spend.CostUnknown != 0 {
@@ -308,8 +309,8 @@ func TestInspectionLatestUnreadableClaimOnlyAndMissingStorage(t *testing.T) {
 func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 	st, dir := inspectionStore(t)
 	s, rec := savedSession(t, st, dir, "plain title")
-	out := runInspectionTurn(t, rec, dashi.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("plain answer", "USD")}}, dashi.Start{Origin: dashi.StartOperator, Input: []llm.Message{llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("system secret")}}, llm.UserMessage(llm.Text("regex [a.*] two  spaces"))}}, nil)
-	prefix := dashi.NewTurn(dashi.TurnID(s.ID, 2))
+	out := runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 1), &inspectionClient{results: []llm.Result{reply("plain answer", "USD")}}, dashi.Start{Origin: dashi.StartOperator, Input: []llm.Message{llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("system secret")}}, llm.UserMessage(llm.Text("regex [a.*] two  spaces"))}}, nil)
+	prefix := dashi.NewTurn(dashisession.TurnID(s.ID, 2))
 	start := out.Turn.Steps[0]
 	start.TurnID = prefix.ID
 	start.Started.Input = dashi.Say("next ordinary request").Input
@@ -322,7 +323,7 @@ func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runInspectionTurn(t, rec, dashi.TurnID(s.ID, 3), &inspectionClient{results: []llm.Result{reply("internal summary secret", "EUR")}}, dashi.Start{Origin: dashi.StartCompaction, Compaction: &dashi.CompactionFact{Through: 2, Digest: "fixture"}, Input: dashi.Say("summary prompt secret").Input}, nil)
+	runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 3), &inspectionClient{results: []llm.Result{reply("internal summary secret", "EUR")}}, dashi.Start{Origin: dashi.StartCompaction, Compaction: &dashi.CompactionFact{Through: 2, Digest: "fixture"}, Input: dashi.Say("summary prompt secret").Input}, nil)
 	for _, query := range []string{"[a.*]", "two  spaces", "steering needle"} {
 		if r, err := st.Search(t.Context(), dir, query); err != nil || len(r.Matches) != 1 || r.Matches[0].Match == nil {
 			t.Fatalf("literal %q: %+v %v", query, r, err)
@@ -337,7 +338,7 @@ func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Latest.Summary || report.Request.TurnID != dashi.TurnID(s.ID, 2) || report.Accounting.ModelCalls != 2 || report.Accounting.Spend.Cost["EUR"] != money.MustParseAmount("0.25") {
+	if !report.Latest.Summary || report.Request.TurnID != dashisession.TurnID(s.ID, 2) || report.Accounting.ModelCalls != 2 || report.Accounting.Spend.Cost["EUR"] != money.MustParseAmount("0.25") {
 		t.Fatalf("summary/request/accounting: %+v", report)
 	}
 }
@@ -376,7 +377,7 @@ func TestInspectionBoundCancellationAndNoCreate(t *testing.T) {
 func TestRenameRollbackRestartAndValidation(t *testing.T) {
 	st, dir := inspectionStore(t)
 	current, rec := savedSession(t, st, dir, "old title")
-	runInspectionTurn(t, rec, dashi.TurnID(current.ID, 1), &inspectionClient{results: []llm.Result{reply("answer", "USD")}}, dashi.Start{Input: dashi.Say("request").Input}, nil)
+	runInspectionTurn(t, rec, dashisession.TurnID(current.ID, 1), &inspectionClient{results: []llm.Result{reply("answer", "USD")}}, dashi.Start{Input: dashi.Say("request").Input}, nil)
 	unlock, err := st.Lock(current)
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +491,7 @@ func TestInspectionActiveSummariesToolOutputsAndPinnedContext(t *testing.T) {
 	})}
 	client := &inspectionClient{results: results, window: 16000}
 	start := dashi.Start{Agent: dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model", Settings: llm.Settings{MaxTokens: 256}, Tools: []string{"read"}, Limits: dashi.Limits{ModelAttempts: 16, ToolResultBytes: 12000}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}}, Input: dashi.Say("Original objective: investigate evidence").Input}
-	out := runInspectionTurn(t, rec, dashi.TurnID(s.ID, 1), client, start, tools)
+	out := runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 1), client, start, tools)
 	applied := 0
 	for _, step := range out.Turn.Steps {
 		if step.Compacted != nil {
@@ -535,7 +536,7 @@ func TestInspectionReferencesRemainUnresolved(t *testing.T) {
 	start := dashi.Say("Public attachment request")
 	start.Agent = dashi.Agent{ID: "fixture", Provider: "test", API: "test.chat", Model: "recorded-model"}
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "ATTACHMENT_TITLE_NEEDLE.pdf"))
-	out, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(dashi.TurnID(s.ID, 1)), start)
+	out, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(dashisession.TurnID(s.ID, 1)), start)
 	if err != nil || out.Stop.Reason != dashi.StopReasonContentNoResolver || client.sent != 0 {
 		t.Fatalf("unresolved fixture stop=%+v err=%v", out.Stop, err)
 	}
@@ -553,12 +554,12 @@ func TestInspectionReferencesRemainUnresolved(t *testing.T) {
 	}
 	// A newer attachment-only request must not inherit older request prose.
 	start.Input[0].Content = []llm.Content{llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "evidence.pdf")}
-	second, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(dashi.TurnID(s.ID, 2)), start)
+	second, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(dashisession.TurnID(s.ID, 2)), start)
 	if err != nil || second.Stop.Reason != dashi.StopReasonContentNoResolver {
 		t.Fatalf("attachment-only fixture: %v", err)
 	}
 	report, err := st.Inspect(t.Context(), dir, s.ID)
-	if err != nil || report.Request == nil || report.Request.TurnID != dashi.TurnID(s.ID, 2) || report.Request.Text != "[request has no public text]" || report.RequestIncomplete {
+	if err != nil || report.Request == nil || report.Request.TurnID != dashisession.TurnID(s.ID, 2) || report.Request.Text != "[request has no public text]" || report.RequestIncomplete {
 		t.Fatalf("attachment-only preview %+v %v", report.Request, err)
 	}
 
@@ -568,7 +569,7 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	st, dir := inspectionStore(t)
 	s, rec := savedSession(t, st, dir, "partial")
 	client := &inspectionClient{results: []llm.Result{reply("answer", "USD")}, window: 2000}
-	out := runInspectionTurn(t, rec, dashi.TurnID(s.ID, 1), client, dashi.Start{Input: dashi.Say("request").Input}, nil)
+	out := runInspectionTurn(t, rec, dashisession.TurnID(s.ID, 1), client, dashi.Start{Input: dashi.Say("request").Input}, nil)
 	// Crash snapshot: Started, first intent, settled response, continuation,
 	// second intent. No fake model settlement or run stop is introduced.
 	for _, step := range out.Turn.Steps {

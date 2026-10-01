@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"bytes"

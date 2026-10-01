@@ -13,7 +13,7 @@ import (
 // SeedContext returns a BeforeModel hook, named after item, that delivers
 // item unless the latest visible message with its Origin and Name has the
 // same value. It reads the proposed model input, so unchanged context is not
-// repeated across Session turns or reopened handles. Changed values append
+// repeated across session turns or reopened handles. Changed values append
 // without replacing earlier messages. Compaction that removes the item causes
 // it to be delivered again. Summary text does not establish its presence.
 //

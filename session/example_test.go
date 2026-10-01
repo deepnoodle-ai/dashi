@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/skill"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -21,7 +22,7 @@ func ExampleSession() {
 		dashitest.Reply("It is 22°C and sunny in Tokyo."),
 		dashitest.Reply("That is about 72°F."),
 	)
-	s := &dashi.Session{
+	s := &session.Session{
 		Runner: dashi.Runner{Client: client},
 		Agent:  dashi.Agent{Model: dashitest.Model},
 	}
@@ -39,7 +40,7 @@ func ExampleSession() {
 		return
 	}
 	fmt.Println(out.Answer)
-	fmt.Println("turn 2:", out.Turn.ID == dashi.TurnID(s.ID, 2))
+	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("messages sent:", len(client.Inputs()[1].Messages))
 	// Output:
 	// It is 22°C and sunny in Tokyo.
@@ -57,7 +58,7 @@ func ExampleSession_Steer() {
 		dashitest.CallTool("c1", "deploy", `{}`),
 		dashitest.Reply("Deployed to staging."),
 	)
-	s := &dashi.Session{
+	s := &session.Session{
 		Runner: dashi.Runner{Client: client},
 		Agent:  dashi.Agent{Model: dashitest.Model},
 	}
@@ -67,7 +68,7 @@ func ExampleSession_Steer() {
 			if err != nil {
 				return tool.Outcome{}, err
 			}
-			fmt.Println("steer reached turn 1:", q.TurnID == dashi.TurnID(s.ID, 1))
+			fmt.Println("steer reached turn 1:", q.TurnID == session.TurnID(s.ID, 1))
 			return tool.Succeeded("deployed"), nil
 		})
 	s.Runner.Tools = tool.List{deploy}
@@ -95,7 +96,7 @@ func ExampleSession_Enqueue() {
 		dashitest.Reply("Built."),
 		dashitest.Reply("All tests pass."),
 	)
-	s := &dashi.Session{
+	s := &session.Session{
 		Runner: dashi.Runner{Client: client},
 		Agent:  dashi.Agent{Model: dashitest.Model},
 	}
@@ -116,7 +117,7 @@ func ExampleSession_Enqueue() {
 		return
 	}
 	fmt.Println(out.Answer)
-	fmt.Println("turn 2:", out.Turn.ID == dashi.TurnID(s.ID, 2))
+	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("input:", out.Turn.Steps[0].Started.Input[0].Text())
 	// Output:
 	// queued for the next turn: true
@@ -126,13 +127,13 @@ func ExampleSession_Enqueue() {
 }
 
 // An unchanged seed and skill catalog appear once across Session turns.
-func ExampleSeedContext_session() {
+func ExampleSession_seedContext() {
 	bundle, _ := skill.New([]skill.Definition{{Name: "review", Instructions: "Check the code."}}, skill.Options{})
 	client := dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"), dashitest.Reply("three"))
 	seed := dashi.SeedContext(dashi.ContextItem{Name: "on-call", Message: llm.UserMessage(llm.Text("Priya is on call."))})
-	session := &dashi.Session{Runner: dashi.Runner{Client: client, Hooks: dashi.JoinHooks(seed, bundle)}, Agent: dashi.Agent{Model: dashitest.Model}}
+	s := &session.Session{Runner: dashi.Runner{Client: client, Hooks: dashi.JoinHooks(seed, bundle)}, Agent: dashi.Agent{Model: dashitest.Model}}
 	for range 3 {
-		if _, err := session.Send(context.Background(), "Who is on call?"); err != nil {
+		if _, err := s.Send(context.Background(), "Who is on call?"); err != nil {
 			fmt.Println(err)
 			return
 		}
@@ -153,4 +154,26 @@ func ExampleSeedContext_session() {
 	// request 1: seed=1 catalog=1
 	// request 2: seed=1 catalog=1
 	// request 3: seed=1 catalog=1
+}
+
+// NoInheritedSettings makes a layer's Settings a complete set, so the turn
+// runs with provider defaults instead of the settings carried forward.
+func ExampleSession_noInheritedSettings() {
+	client := dashitest.NewClient(dashitest.Reply("first"), dashitest.Reply("next"))
+	s := &session.Session{Runner: dashi.Runner{Client: client}, Agent: dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{Temperature: new(0.7), Reasoning: &llm.ReasoningSettings{Effort: "high"}, MaxTokens: 1234}}}
+	if _, err := s.Send(context.Background(), "Use these controls."); err != nil {
+		panic(err)
+	}
+	s.Agent = dashi.Agent{NoInheritedSettings: true}
+	out, err := s.Send(context.Background(), "Use provider defaults.")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("temperature omitted:", out.Agent.Settings.Temperature == nil)
+	fmt.Println("reasoning omitted:", out.Agent.Settings.Reasoning == nil)
+	fmt.Println("default output allowance:", out.Agent.Settings.MaxTokens == 0)
+	// Output:
+	// temperature omitted: true
+	// reasoning omitted: true
+	// default output allowance: true
 }

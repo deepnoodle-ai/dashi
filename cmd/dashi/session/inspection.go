@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -359,14 +360,14 @@ func scanInspection(ctx context.Context, dir *attachmentDir, metadata Session, q
 	}
 	out.IndexedTurns = highest
 	if highest > 0 {
-		out.Latest = &Execution{TurnID: dashi.TurnID(metadata.ID, highest)}
+		out.Latest = &Execution{TurnID: dashisession.TurnID(metadata.ID, highest)}
 	}
 	for offset := range highest {
 		number := offset + 1
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		id := dashi.TurnID(metadata.ID, number)
+		id := dashisession.TurnID(metadata.ID, number)
 		turn, loadErr := reader.Load(ctx, id)
 		var view dashi.TurnView
 		if loadErr == nil {

@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // flakyLoad fails the next loads once its fault has fired.
@@ -272,7 +273,7 @@ func TestSessionQueueBlocked(t *testing.T) {
 	}
 	out, err := s.Send(t.Context(), "next")
 	if err != nil || out.Turn.ID != "s-2" ||
-		!hasWarning(out.SessionWarnings, dashi.WarningQueueBlocked) {
+		!hasWarning(out.SessionWarnings, session.WarningQueueBlocked) {
 		t.Fatalf("send: %v, turn %s, warnings %v", err, out.Turn.ID, out.SessionWarnings)
 	}
 	if got := input(t, mem, "s-2"); !slices.Equal(got, []string{"next"}) {

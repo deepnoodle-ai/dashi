@@ -1,4 +1,4 @@
-package dashi
+package session
 
 import (
 	"context"
@@ -7,12 +7,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // Session drives one conversation of many turns: a session handle. It sits
-// on Runner.Run and uses only the engine's public contract, as http.Get
+// on dashi.Runner and uses only the engine's public contract, as http.Get
 // sits on Client.Do. The session keeps no record of its own: turn n of
 // session S is the turn S-n (TurnID), and the turn records are the only
 // truth. A handle holds settings and a cache, so a server can build one per
@@ -20,7 +21,7 @@ import (
 //
 // The zero value works once it has a client:
 //
-//	s := &dashi.Session{Runner: dashi.Runner{Client: client}}
+//	s := &session.Session{Runner: dashi.Runner{Client: client}}
 //	out, err := s.Send(ctx, "What's the weather in Tokyo?")
 //	out, err = s.Send(ctx, "And in Fahrenheit?")
 //
@@ -29,27 +30,27 @@ import (
 // must not be copied after first use.
 type Session struct {
 	// ID names the session. Empty means a new session with a generated ID
-	// (NewID), readable from ID after the first Start.
+	// (dashi.NewID), readable from ID after the first Start.
 	ID string
 	// New creates the session: the first Start makes turn 1, and a session
-	// that already has turns fails with ErrSessionExists. Without New, an ID
-	// with no turns fails with ErrSessionNotFound, so a mistyped ID never
-	// starts an empty session.
+	// that already has turns fails with ErrExists. Without New, an ID with
+	// no turns fails with ErrNotFound, so a mistyped ID never starts an
+	// empty session.
 	New bool
 	// Runner supplies services. A nil Recorder becomes one in-memory
 	// recorder that the handle keeps across calls, and the first outcome
-	// warns WarningMemoryOnly.
-	Runner Runner
+	// warns WarningMemoryOnly. The session sets Runner.CacheKey to its ID.
+	Runner dashi.Runner
 	// Agent overrides fields of the carried agent for new turns: a nonzero
 	// field here wins over the last user turn's, and Start.Agent wins over
 	// both. NoInheritedSettings preserves omitted Settings at this layer.
 	// It does not change turns already started.
-	Agent Agent
+	Agent dashi.Agent
 	// Steering reaches the turns this handle runs. Nil means the handle's
-	// own *Inbox, which Steer and SteerItem send to. A host with its own
-	// durable source sets it and sends through that source; Steer then
-	// works only when the source is an *Inbox.
-	Steering Steering
+	// own *dashi.Inbox, which Steer and SteerItem send to. A host with its
+	// own durable source sets it and sends through that source; Steer then
+	// works only when the source is a *dashi.Inbox.
+	Steering dashi.Steering
 	// Compactor, when set, runs a compaction turn before a new turn when
 	// the projected history has grown past its threshold. Package
 	// compaction implements it. Every handle honors compaction turns
@@ -67,7 +68,7 @@ type Session struct {
 	// building the command, never while a turn runs.
 	mu sync.Mutex
 	// inbox is the handle's own steering source when Steering is nil.
-	inbox *Inbox
+	inbox *dashi.Inbox
 	// queue holds input for the next turn, in order (see Enqueue).
 	queue []*queuedItem
 	// driving is the turn a Start, Continue, or queue turn of this handle
@@ -77,7 +78,7 @@ type Session struct {
 	// Steer refuses; empty when none runs.
 	compacting string
 	// memory is the recorder used when Runner.Recorder is nil.
-	memory *MemoryRecorder
+	memory *dashi.MemoryRecorder
 	// warnedMemory is set once an outcome carried WarningMemoryOnly.
 	warnedMemory bool
 	// created is set once this handle started the session's first turn, or
@@ -96,14 +97,34 @@ type Session struct {
 // stopped turn that has not ended.
 const CloseReason = "a new message moved on"
 
+// A session's own warnings. No turn records them; they arrive on
+// dashi.Outcome.SessionWarnings, beside the dashi.WarningTurnUnreadable and
+// dashi.WarningCompactionMismatch of the session's projected history.
+const (
+	// WarningTurnClosed means a new Start closed the session's last turn,
+	// which had stopped without ending, with Cancel and CloseReason.
+	WarningTurnClosed dashi.WarningCode = "turn_closed"
+	// WarningMemoryOnly means the session is recorded only in the handle's
+	// in-memory recorder and ends with the handle.
+	WarningMemoryOnly dashi.WarningCode = "memory_only"
+	// WarningQueueBlocked means queued items wait because the session
+	// cannot read the turn that may have taken some of them. New commands
+	// still run; RunQueue returns the error until the turn can be read.
+	WarningQueueBlocked dashi.WarningCode = "queue_blocked"
+	// WarningCompactionFailed means a compaction turn did not complete with
+	// an answer, or could not start. The session closed it, kept the
+	// previous projected history, and ran the next turn.
+	WarningCompactionFailed dashi.WarningCode = "compaction_failed"
+)
+
 var (
 	// ErrTurnBusy matches a *TurnBusyError.
-	ErrTurnBusy = errors.New("dashi: session turn is busy")
-	// ErrSessionNotFound reports a session ID with no turns, on a handle
-	// without New, or a command other than Start on a session with no turns.
-	ErrSessionNotFound = errors.New("dashi: session not found")
-	// ErrSessionExists reports New on a session that already has turns.
-	ErrSessionExists = errors.New("dashi: session already exists")
+	ErrTurnBusy = errors.New("session: turn is busy")
+	// ErrNotFound reports a session ID with no turns, on a handle without
+	// New, or a command other than Start on a session with no turns.
+	ErrNotFound = errors.New("session: not found")
+	// ErrExists reports New on a session that already has turns.
+	ErrExists = errors.New("session: already exists")
 )
 
 // TurnBusyError refuses a Start because the session's last turn is busy:
@@ -113,9 +134,9 @@ var (
 type TurnBusyError struct {
 	TurnID string `json:"turn_id"`
 	// Next is the busy turn's next action, refined with liveness.
-	Next Next `json:"next"`
+	Next dashi.Next `json:"next"`
 	// Origin is who started the busy turn.
-	Origin StartOrigin `json:"origin,omitempty"`
+	Origin dashi.StartOrigin `json:"origin,omitempty"`
 	// Duplicate means the refused Start is a retry of that turn, which may
 	// still be running.
 	Duplicate bool `json:"duplicate,omitempty"`
@@ -129,44 +150,44 @@ func (e *TurnBusyError) Error() string {
 	switch {
 	case e.Duplicate:
 		return fmt.Sprintf(
-			"dashi: turn %s already runs this command and has not ended "+
+			"session: turn %s already runs this command and has not ended "+
 				"(next: %s); wait for it, then retry",
 			e.TurnID,
 			e.Next,
 		)
 	case e.CallID != "":
 		return fmt.Sprintf(
-			"dashi: call %s in turn %s may still be running; Settle{} it "+
+			"session: call %s in turn %s may still be running; Settle{} it "+
 				"after checking its effect, or Cancel{} the turn to accept "+
 				"the risk",
 			e.CallID,
 			e.TurnID,
 		)
-	case e.Next == NextRunning && e.Origin == StartCompaction:
+	case e.Next == dashi.NextRunning && e.Origin == dashi.StartCompaction:
 		return fmt.Sprintf(
-			"dashi: turn %s is compacting the history; enqueue the input, "+
+			"session: turn %s is compacting the history; enqueue the input, "+
 				"or wait and send again",
 			e.TurnID,
 		)
-	case e.Next == NextRunning:
+	case e.Next == dashi.NextRunning:
 		return fmt.Sprintf(
-			"dashi: turn %s is running; steer it, or stop it and send again",
+			"session: turn %s is running; steer it, or stop it and send again",
 			e.TurnID,
 		)
-	case e.Next == NextResume:
+	case e.Next == dashi.NextResume:
 		return fmt.Sprintf(
-			"dashi: turn %s may still be running; if its worker is lost, "+
+			"session: turn %s may still be running; if its worker is lost, "+
 				"take it over with Continue{} or discard it with Cancel{}",
 			e.TurnID,
 		)
-	case e.Next == NextAnswer:
+	case e.Next == dashi.NextAnswer:
 		return fmt.Sprintf(
-			"dashi: turn %s waits on the host; answer its pending work or "+
+			"session: turn %s waits on the host; answer its pending work or "+
 				"Cancel{} it",
 			e.TurnID,
 		)
 	}
-	return fmt.Sprintf("dashi: turn %s is busy (next: %s)", e.TurnID, e.Next)
+	return fmt.Sprintf("session: turn %s is busy (next: %s)", e.TurnID, e.Next)
 }
 
 // Unwrap lets errors.Is match ErrTurnBusy.
@@ -174,33 +195,29 @@ func (e *TurnBusyError) Unwrap() error {
 	return ErrTurnBusy
 }
 
-// SessionState is what Open reports about a session.
-type SessionState struct {
+// State is what Open reports about a session.
+type State struct {
 	// Turns is the number of the last turn; 0 for a new session.
 	Turns int
 	// Last is the last turn's view, or nil when Turns is 0.
-	Last *TurnView
+	Last *dashi.TurnView
 	// Next is the last turn's next action, refined with liveness: NextRunning
 	// when this handle runs it or TurnLiveness reports it live. It is
 	// NextNone for a new session.
-	Next Next
+	Next dashi.Next
 	// Queued counts the items waiting in this handle's queue, including
 	// those reserved for a turn that is starting.
 	Queued int
 }
 
-// Say returns a Start holding one user text message.
-func Say(text string) Start {
-	return Start{Input: []llm.Message{llm.UserMessage(llm.Text(text))}}
-}
-
-// Send runs Say(text) as a new turn. It is exactly Run(ctx, Say(text)).
+// Send runs dashi.Say(text) as a new turn. It is exactly
+// Run(ctx, dashi.Say(text)).
 func (s *Session) Send(
 	ctx context.Context,
 	text string,
-	opts ...RunOption,
-) (Outcome, error) {
-	return s.Run(ctx, Say(text), opts...)
+	opts ...dashi.RunOption,
+) (dashi.Outcome, error) {
+	return s.Run(ctx, dashi.Say(text), opts...)
 }
 
 // Answer records each answer with Settle, then runs one Continue, so a
@@ -213,9 +230,9 @@ func (s *Session) Send(
 // Continue.
 func (s *Session) Answer(
 	ctx context.Context,
-	answers []Settle,
-	opts ...RunOption,
-) (Outcome, error) {
+	answers []dashi.Settle,
+	opts ...dashi.RunOption,
+) (dashi.Outcome, error) {
 	ids := make([]string, 0, len(answers))
 	for _, answer := range answers {
 		if answer.CommandID == "" && answer.CallID != "" {
@@ -223,13 +240,16 @@ func (s *Session) Answer(
 			// scoped to their turn.
 			answer.CommandID = "settle:" + answer.CallID
 		}
-		answer = normalizeCommand(answer).(Settle)
+		if answer.CommandID == "" {
+			// The Continue's command ID derives from this one.
+			answer.CommandID = dashi.NewID()
+		}
 		if out, err := s.Run(ctx, answer, opts...); err != nil {
 			return out, err
 		}
 		ids = append(ids, answer.CommandID)
 	}
-	next := Continue{}
+	next := dashi.Continue{}
 	if len(ids) > 0 {
 		next.CommandID = "answer:" + strings.Join(ids, ",")
 	}
@@ -242,9 +262,9 @@ func (s *Session) Answer(
 // the last turn is busy, and otherwise closes a stopped last turn and
 // starts. A last turn that cannot be read is an error, except under
 // Exclusive: then the Start leaves it out of the history with a
-// WarningTurnUnreadable and starts the turn after it. Queued user input (see Enqueue) goes ahead of the Start's Input.
-// Any other command (Continue, Settle, Deliver, Cancel) goes to the last
-// turn. The session sets Start.History and Continue.History to the
+// dashi.WarningTurnUnreadable and starts the turn after it. Queued user
+// input (see Enqueue) goes ahead of the Start's Input. Any other command
+// (Continue, Settle, Deliver, Cancel) goes to the last turn. The session sets Start.History and Continue.History to the
 // projected history of the turns before the target turn, replacing any the
 // caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
@@ -259,15 +279,15 @@ func (s *Session) Answer(
 // a queue turn: the next turn's outcome carries its session warnings, and
 // WarningCompactionFailed when it fails.
 //
-// The outcome and error mean what Runner.Run's do, and
+// The outcome and error mean what dashi.Runner.Run's do, and
 // Outcome.SessionWarnings adds the session's own warnings.
 func (s *Session) Run(
 	ctx context.Context,
-	c Command,
-	opts ...RunOption,
-) (Outcome, error) {
+	c dashi.Command,
+	opts ...dashi.RunOption,
+) (dashi.Outcome, error) {
 	if err := checkCommand(c); err != nil {
-		return Outcome{}, err
+		return dashi.Outcome{}, err
 	}
 	return (&call{s: s, opts: opts}).run(ctx, c)
 }
@@ -275,20 +295,20 @@ func (s *Session) Run(
 // checkCommand refuses a nil command, a Start with a reserved key, and a
 // Start that claims to be a compaction turn: the session's projection
 // trusts compaction turns, so only its Compactor may start them.
-func checkCommand(c Command) error {
+func checkCommand(c dashi.Command) error {
 	switch c := c.(type) {
 	case nil:
-		return errors.New("dashi: command is required")
-	case Start:
+		return errors.New("session: command is required")
+	case dashi.Start:
 		if internalKey(c.CommandID) {
 			return fmt.Errorf(
-				"dashi: command ID %q uses a prefix reserved for the session's queue and compaction turns",
+				"session: command ID %q uses a prefix reserved for the session's queue and compaction turns",
 				c.CommandID,
 			)
 		}
-		if c.Origin == StartCompaction || c.Compaction != nil {
+		if c.Origin == dashi.StartCompaction || c.Compaction != nil {
 			return errors.New(
-				"dashi: compaction turns are started by the session's Compactor",
+				"session: compaction turns are started by the session's Compactor",
 			)
 		}
 	}
@@ -296,35 +316,35 @@ func checkCommand(c Command) error {
 }
 
 // Open reads the session's last turn and reports its state. It never runs
-// anything. An ID with no turns gives ErrSessionNotFound, unless New is
-// set; with New, a session that has turns gives ErrSessionExists. An empty
+// anything. An ID with no turns gives ErrNotFound, unless New is
+// set; with New, a session that has turns gives ErrExists. An empty
 // ID is a new session.
-func (s *Session) Open(ctx context.Context) (SessionState, error) {
+func (s *Session) Open(ctx context.Context) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queued := len(s.queue)
 	if s.ID == "" {
-		return SessionState{Next: NextNone, Queued: queued}, nil
+		return State{Next: dashi.NextNone, Queued: queued}, nil
 	}
 	// A reservation that cannot be settled holds only the queue back.
 	_ = s.settleReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
-		return SessionState{}, err
+		return State{}, err
 	}
 	if err := s.checkExists(last); err != nil {
-		return SessionState{}, err
+		return State{}, err
 	}
 	queued = len(s.queue)
 	if last == 0 {
-		return SessionState{Next: NextNone, Queued: queued}, nil
+		return State{Next: dashi.NextNone, Queued: queued}, nil
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
-		return SessionState{}, err
+		return State{}, err
 	}
 	view := t.view
-	return SessionState{
+	return State{
 		Turns:  last,
 		Last:   &view,
 		Next:   s.refine(ctx, t).next,
@@ -335,18 +355,18 @@ func (s *Session) Open(ctx context.Context) (SessionState, error) {
 // commandPlan is a command routed to the last turn.
 type commandPlan struct {
 	n        int
-	turn     Turn
-	warnings []Warning
-	runner   Runner
+	turn     dashi.Turn
+	warnings []dashi.Warning
+	runner   dashi.Runner
 	drives   bool
 }
 
 func (s *Session) planCommand(
 	ctx context.Context,
-	c *Command,
+	c *dashi.Command,
 ) (commandPlan, error) {
 	if s.ID == "" {
-		return commandPlan{}, ErrSessionNotFound
+		return commandPlan{}, ErrNotFound
 	}
 	// A reservation that cannot be settled holds only the queue back.
 	_ = s.settleReserved(ctx)
@@ -358,18 +378,18 @@ func (s *Session) planCommand(
 		return commandPlan{}, err
 	}
 	if last == 0 {
-		return commandPlan{}, fmt.Errorf("%w: %s", ErrSessionNotFound, s.ID)
+		return commandPlan{}, fmt.Errorf("%w: %s", ErrNotFound, s.ID)
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
 		return commandPlan{}, err
 	}
 	p := commandPlan{n: last, turn: t.turn, runner: s.runner()}
-	if cont, ok := (*c).(Continue); ok {
+	if cont, ok := (*c).(dashi.Continue); ok {
 		cont.History, p.warnings = s.historyFor(ctx, last, t)
 		*c = cont
 		p.drives = true
-		if t.view.Origin == StartCompaction {
+		if t.view.Origin == dashi.StartCompaction {
 			s.compacting = t.turn.ID
 		} else {
 			s.driving = t.turn.ID
@@ -386,10 +406,10 @@ func (s *Session) planCommand(
 // another worker then took it over, and a command conflict means the
 // command ID is taken; either way the Start must not run again.
 func lostStart(err error) bool {
-	var ce *CommitError
+	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
-		ce.Step.Kind == StepStarted &&
-		errors.Is(ce.Err, ErrRevisionConflict)
+		ce.Step.Kind == dashi.StepStarted &&
+		errors.Is(ce.Err, dashi.ErrRevisionConflict)
 }
 
 // takenKey reports whether a keyed Start found its command ID on the turn
@@ -397,42 +417,42 @@ func lostStart(err error) bool {
 // run again, tells a true retry, whose history or agent may differ, from a
 // conflict, so the Start never runs as a new turn.
 func takenKey(err error) bool {
-	if !errors.Is(err, ErrCommandConflict) {
+	if !errors.Is(err, dashi.ErrCommandConflict) {
 		return false
 	}
-	var ce *CommitError
+	var ce *dashi.CommitError
 	return !errors.As(err, &ce) || ce.Step == nil ||
-		ce.Step.Kind == StepStarted
+		ce.Step.Kind == dashi.StepStarted
 }
 
 // startPlan is a chosen new turn, or the answer that replaces running one.
 type startPlan struct {
 	n        int
 	id       string
-	command  Start
-	warnings []Warning
-	runner   Runner
+	command  dashi.Start
+	warnings []dashi.Warning
+	runner   dashi.Runner
 	// reserved holds the queued items the Start carries.
 	reserved *reservation
 	// closing holds the events of the step that closed the last turn, for
 	// Stream.
-	closing []Event
+	closing []dashi.Event
 	// compact marks a compaction turn, which runs before the planned turn.
 	compact bool
 	// done is the result when no turn runs: a retried command's outcome.
-	done *Outcome
+	done *dashi.Outcome
 }
 
 func (s *Session) planStart(
 	ctx context.Context,
-	c Start,
+	c dashi.Start,
 	fresh bool,
-	opts []RunOption,
+	opts []dashi.RunOption,
 	stream bool,
 	compacted bool,
 ) (startPlan, error) {
 	if s.ID == "" {
-		s.ID = NewID()
+		s.ID = dashi.NewID()
 		s.created = true
 	}
 	// A reservation that cannot be settled holds only the queue back; its
@@ -466,7 +486,7 @@ func (s *Session) planStart(
 			p.warnings = append(p.warnings, *skip)
 			upTo = last - 1
 		} else {
-			var events []Event
+			var events []dashi.Event
 			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
 			if err != nil {
@@ -504,15 +524,15 @@ func (s *Session) planStart(
 
 // closedWarning is the warning for a last turn a new turn closed: a
 // WarningCompactionFailed for a compaction turn, else a WarningTurnClosed.
-func closedWarning(t *sessionTurn) Warning {
-	if t.view.Origin == StartCompaction {
+func closedWarning(t *sessionTurn) dashi.Warning {
+	if t.view.Origin == dashi.StartCompaction {
 		return compactionFailed(fmt.Sprintf(
 			"compaction turn %s stopped %s and was closed",
 			t.turn.ID,
 			t.view.Stop.Kind,
 		))
 	}
-	return Warning{
+	return dashi.Warning{
 		Code:    WarningTurnClosed,
 		Message: fmt.Sprintf("turn %s was closed: %s", t.turn.ID, CloseReason),
 	}
@@ -525,9 +545,9 @@ func (s *Session) checkExists(last int) error {
 	case s.created:
 		return nil
 	case last == 0 && !s.New:
-		return fmt.Errorf("%w: %s", ErrSessionNotFound, s.ID)
+		return fmt.Errorf("%w: %s", ErrNotFound, s.ID)
 	case last > 0 && s.New:
-		return fmt.Errorf("%w: %s", ErrSessionExists, s.ID)
+		return fmt.Errorf("%w: %s", ErrExists, s.ID)
 	}
 	s.created = last > 0
 	return nil
@@ -542,9 +562,9 @@ func (s *Session) checkExists(last int) error {
 // duplicate busy error. A match with other input conflicts.
 func (s *Session) duplicate(
 	ctx context.Context,
-	c Start,
+	c dashi.Start,
 	last int,
-) (*Outcome, error) {
+) (*dashi.Outcome, error) {
 	for n := last; n >= 1; n-- {
 		t, err := s.load(ctx, n)
 		if err != nil {
@@ -557,13 +577,13 @@ func (s *Session) duplicate(
 			if !sameInputTail(start.Started.Input, c.Input) {
 				return nil, fmt.Errorf(
 					"%w: command %s started turn %s with other input",
-					ErrCommandConflict,
+					dashi.ErrCommandConflict,
 					c.CommandID,
 					t.turn.ID,
 				)
 			}
 			r := s.refine(ctx, t)
-			if r.next == NextRunning || r.next == NextResume {
+			if r.next == dashi.NextRunning || r.next == dashi.NextResume {
 				return nil, &TurnBusyError{
 					TurnID:    t.turn.ID,
 					Next:      r.next,
@@ -571,7 +591,7 @@ func (s *Session) duplicate(
 					Duplicate: true,
 				}
 			}
-			return &Outcome{Turn: cloneTurn(t.turn), TurnView: t.view}, nil
+			return &dashi.Outcome{Turn: t.turn.Clone(), TurnView: t.view}, nil
 		}
 		if !internalKey(start.CommandID) {
 			return nil, nil
@@ -588,13 +608,13 @@ func (s *Session) duplicate(
 func (s *Session) readLast(
 	ctx context.Context,
 	last int,
-) (t *sessionTurn, skip *Warning, err error) {
+) (t *sessionTurn, skip *dashi.Warning, err error) {
 	t, err = s.load(ctx, last)
 	if err == nil || !s.Exclusive || ctx.Err() != nil {
 		return t, nil, err
 	}
-	return nil, &Warning{
-		Code: WarningTurnUnreadable,
+	return nil, &dashi.Warning{
+		Code: dashi.WarningTurnUnreadable,
 		Message: fmt.Sprintf(
 			"turn %s was left out of the history, and the next turn starts after it: %v",
 			TurnID(s.ID, last),
@@ -611,31 +631,31 @@ func (s *Session) closeLast(
 	ctx context.Context,
 	last int,
 	t *sessionTurn,
-	opts []RunOption,
+	opts []dashi.RunOption,
 	stream bool,
-) (bool, []Event, error) {
+) (bool, []dashi.Event, error) {
 	r := s.refine(ctx, t)
 	if busy := r.busy(t, s.Exclusive); busy != nil {
 		return false, nil, busy
 	}
-	if r.next == NextNone {
+	if r.next == dashi.NextNone {
 		return false, nil, nil
 	}
 	id := t.turn.ID
-	var closing Command = Cancel{CommandID: "close:" + id, Reason: CloseReason}
+	var closing dashi.Command = dashi.Cancel{CommandID: "close:" + id, Reason: CloseReason}
 	if t.view.Output != nil {
 		// The engine refuses Cancel once structured output is recorded, so
 		// Continue completes the turn without a model call, raising a spent
 		// model-attempt limit so that it can.
-		cont := Continue{CommandID: "close:" + id}
-		if l := t.view.Stop.Limit; l != nil && l.Kind == LimitModelAttempts {
+		cont := dashi.Continue{CommandID: "close:" + id}
+		if l := t.view.Stop.Limit; l != nil && l.Kind == dashi.LimitModelAttempts {
 			cont.ModelAttempts = int(l.Limit) + 1
 		}
 		cont.History, _ = s.historyFor(ctx, last, t)
 		closing = cont
 	}
-	var out Outcome
-	var events []Event
+	var out dashi.Outcome
+	var events []dashi.Event
 	var err error
 	if stream {
 		// The consumer gets these events after the lock is released.
@@ -647,7 +667,7 @@ func (s *Session) closeLast(
 	if err != nil {
 		return false, events, err
 	}
-	if out.Next() != NextNone {
+	if out.Next() != dashi.NextNone {
 		return false, events, &TurnBusyError{
 			TurnID: id,
 			Next:   out.Next(),
@@ -668,12 +688,12 @@ func (s *Session) finish(
 	ctx context.Context,
 	n int,
 	id string,
-	out Outcome,
+	out dashi.Outcome,
 	err error,
-	warnings []Warning,
+	warnings []dashi.Warning,
 	reserved *reservation,
 	started bool,
-) (Outcome, error) {
+) (dashi.Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running[id]--; s.running[id] <= 0 {
@@ -692,8 +712,8 @@ func (s *Session) finish(
 		s.store(n, out.Turn)
 		s.created = true
 	}
-	if err == nil && out.Turn.ID == id && out.Next() == NextNone &&
-		out.Origin != StartCompaction {
+	if err == nil && out.Turn.ID == id && out.Next() == dashi.NextNone &&
+		out.Origin != dashi.StartCompaction {
 		s.moveLeftovers(out.Turn)
 	}
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
@@ -703,35 +723,35 @@ func (s *Session) finish(
 
 // runner returns the Runner with the recorder the session uses and the
 // session ID as its fallback prompt cache key. The caller holds mu.
-func (s *Session) runner() Runner {
+func (s *Session) runner() dashi.Runner {
 	r := s.Runner
 	r.Recorder = s.recorder()
-	r.cacheKey = s.ID
+	r.CacheKey = s.ID
 	return r
 }
 
 // recorder returns Runner.Recorder, or the handle's in-memory recorder.
 // The caller holds mu.
-func (s *Session) recorder() Recorder {
+func (s *Session) recorder() dashi.Recorder {
 	if s.Runner.Recorder != nil {
 		return s.Runner.Recorder
 	}
 	if s.memory == nil {
-		s.memory = NewMemoryRecorder()
+		s.memory = dashi.NewMemoryRecorder()
 	}
 	return s.memory
 }
 
-func (s *Session) withMemoryWarning(out Outcome) Outcome {
+func (s *Session) withMemoryWarning(out dashi.Outcome) dashi.Outcome {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.withMemoryWarningLocked(out)
 }
 
-func (s *Session) withMemoryWarningLocked(out Outcome) Outcome {
+func (s *Session) withMemoryWarningLocked(out dashi.Outcome) dashi.Outcome {
 	if s.Runner.Recorder == nil && !s.warnedMemory {
 		s.warnedMemory = true
-		out.SessionWarnings = append(out.SessionWarnings, Warning{
+		out.SessionWarnings = append(out.SessionWarnings, dashi.Warning{
 			Code: WarningMemoryOnly,
 			Message: "the session is recorded in memory only and ends " +
 				"with this handle; set Runner.Recorder to keep it",

@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func TestSessionManualCompactionResults(t *testing.T) {
@@ -23,7 +24,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			s.New = true
 			s.Compactor = keepLast{limit: 100000}
 			out, err := s.Compact(t.Context(), nil)
-			if !errors.Is(err, dashi.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.Outcome{}) {
+			if !errors.Is(err, session.ErrNothingToCompact) || !errors.Is(err, compaction.ErrNothingToCompact) || !reflect.DeepEqual(out, dashi.Outcome{}) {
 				t.Fatalf("no work=%+v, %v", out, err)
 			}
 			sendAll(t, s, "first")
@@ -41,7 +42,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			want := []string{"Summary:\n\nkept fact"}
 			if answer == "<summary> </summary>" {
 				want = []string{"first", "first answer"}
-				if !slices.Contains(codes(out.SessionWarnings), dashi.WarningCompactionFailed) {
+				if !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
 					t.Fatal("empty summary lacks failure warning")
 				}
 			} else if len(out.SessionWarnings) != 0 {
@@ -124,7 +125,7 @@ func TestSessionManualCompactionPreparationAndBusy(t *testing.T) {
 			break
 		}
 	}
-	var busy *dashi.TurnBusyError
+	var busy *session.TurnBusyError
 	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
 		t.Fatalf("busy=%+v err=%v", busy, err)
 	}
@@ -162,7 +163,7 @@ func TestSessionManualCompactionPreservesPendingApproval(t *testing.T) {
 	s.Runner.Hooks = dashi.RequireApproval("charge")
 	out := sendAll(t, s, "pay")
 	before := loadTurn(t, rec, out.Turn.ID)
-	var busy *dashi.TurnBusyError
+	var busy *session.TurnBusyError
 	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextAnswer {
 		t.Fatalf("pending approval: %+v, %v", busy, err)
 	}
@@ -186,9 +187,9 @@ func TestSessionManualCompactionConcurrentAndCanceled(t *testing.T) {
 		done <- result{out, err}
 	}()
 	entered(t, client)
-	for _, other := range []*dashi.Session{s, handle(rec, client)} {
+	for _, other := range []*session.Session{s, handle(rec, client)} {
 		other.Compactor = keepLast{limit: 10000}
-		var busy *dashi.TurnBusyError
+		var busy *session.TurnBusyError
 		if _, err := other.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
 			t.Fatalf("active summary: %+v, %v", busy, err)
 		}
@@ -268,7 +269,7 @@ func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
 		if ev.Outcome != nil {
 			outcomes = append(outcomes, ev.TurnID)
 			if len(ev.Outcome.Turn.Steps) == 0 || ev.Outcome.Origin == dashi.StartCompaction ||
-				!slices.Contains(codes(ev.Outcome.SessionWarnings), dashi.WarningCompactionFailed) {
+				!slices.Contains(codes(ev.Outcome.SessionWarnings), session.WarningCompactionFailed) {
 				t.Fatalf("unrecorded summary outcome: %+v", ev.Outcome)
 			}
 		}
@@ -289,7 +290,7 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 10000}
 	out, err := s.Compact(t.Context(), nil)
-	if err != nil || !slices.Contains(codes(out.SessionWarnings), dashi.WarningCompactionFailed) {
+	if err != nil || !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 	projected, err := handle(rec, client).ProjectedHistory(t.Context())
@@ -300,13 +301,13 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 
 func ExampleSession_Compact() {
 	client := dashitest.NewClient(dashitest.Reply("The port is 8443."), dashitest.Reply("<summary>Port 8443.</summary>"), dashitest.Reply("<summary>Port 8443.</summary>"))
-	s := &dashi.Session{ID: "example", New: true, Runner: dashi.Runner{Client: client, Recorder: dashi.NewMemoryRecorder()}, Agent: dashi.Agent{Model: "fixture"}, Compactor: &compaction.Compactor{TailFraction: -1}}
+	s := &session.Session{ID: "example", New: true, Runner: dashi.Runner{Client: client, Recorder: dashi.NewMemoryRecorder()}, Agent: dashi.Agent{Model: "fixture"}, Compactor: &compaction.Compactor{TailFraction: -1}}
 	ctx := context.Background()
 	if _, err := s.Send(ctx, "Remember the port."); err != nil {
 		panic(err)
 	}
 	out, err := s.Compact(ctx, nil)
-	if errors.Is(err, dashi.ErrNothingToCompact) {
+	if errors.Is(err, session.ErrNothingToCompact) {
 		fmt.Println("No history needs a summary.")
 		return
 	}

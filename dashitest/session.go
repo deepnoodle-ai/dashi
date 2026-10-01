@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
-// sessionTests check what dashi.Session relies on: a SessionIndex that
+// sessionTests check what session.Session relies on: a SessionIndex that
 // agrees with the turns committed, and turn IDs that probing finds in few
 // reads.
 var sessionTests = []struct {
@@ -25,9 +26,9 @@ var sessionTests = []struct {
 const sessionID = "dashitest-session"
 
 func testSessionIndexAgrees(t *testing.T, s Store) {
-	idx, ok := s.(dashi.SessionIndex)
+	idx, ok := s.(session.Index)
 	if !ok {
-		t.Skip("store does not implement dashi.SessionIndex")
+		t.Skip("store does not implement session.Index")
 	}
 	requireLast := func(id string, want int) {
 		t.Helper()
@@ -41,17 +42,17 @@ func testSessionIndexAgrees(t *testing.T, s Store) {
 	}
 	requireLast(sessionID, 0)
 	for n := 1; n <= 3; n++ {
-		seed(t, s, dashi.TurnID(sessionID, n), n)
+		seed(t, s, session.TurnID(sessionID, n), n)
 	}
 	// Session IDs may contain dashes: turn 1 of "dashitest-session-1" is
 	// not a turn of "dashitest-session".
-	seed(t, s, dashi.TurnID(sessionID+"-1", 1), 1)
+	seed(t, s, session.TurnID(sessionID+"-1", 1), 1)
 	requireLast(sessionID, 3)
 	requireLast(sessionID+"-1", 1)
 
 	// Two workers race to start turn 4 with different commands; the index
 	// counts the turn the winner committed, once.
-	next := dashi.TurnID(sessionID, 4)
+	next := session.TurnID(sessionID, 4)
 	claim(t, s, next, owner)
 	var wg sync.WaitGroup
 	var wins atomic.Int32
@@ -88,15 +89,15 @@ func testSessionProbing(t *testing.T, s Store) {
 		limit := int(2*math.Log2(float64(n))+2) + 1
 		probe := func(rec dashi.Recorder, counter *atomic.Int64) {
 			t.Helper()
-			session := &dashi.Session{ID: id, Runner: dashi.Runner{Recorder: rec}}
-			st, err := session.Open(t.Context())
+			handle := &session.Session{ID: id, Runner: dashi.Runner{Recorder: rec}}
+			st, err := handle.Open(t.Context())
 			if err != nil {
 				t.Fatalf("open session %q of %d turns: %v", id, n, err)
 			}
 			if st.Turns != n {
 				t.Fatalf("session %q of %d turns opened with %d", id, n, st.Turns)
 			}
-			if want := dashi.TurnID(id, n); st.Last.ID != want ||
+			if want := session.TurnID(id, n); st.Last.ID != want ||
 				st.Last.Revision != steps {
 				t.Fatalf(
 					"session %q: last turn %s at revision %d; want %s at %d",
@@ -127,7 +128,7 @@ func testSessionProbing(t *testing.T, s Store) {
 	for _, n := range []int{1, 2, 3} {
 		id := fmt.Sprintf("%s-probe-%d", sessionID, n)
 		for i := 1; i <= n; i++ {
-			seed(t, s, dashi.TurnID(id, i), 1)
+			seed(t, s, session.TurnID(id, i), 1)
 		}
 		open(id, n, 1)
 	}
@@ -135,10 +136,10 @@ func testSessionProbing(t *testing.T, s Store) {
 	// Each record has its own step count, so a store that answers for the
 	// wrong turn shows up in the last turn's revision.
 	x := sessionID + "-x"
-	seed(t, s, dashi.TurnID(x, 1), 1)
+	seed(t, s, session.TurnID(x, 1), 1)
 	seed(t, s, x+"-10", 3)
-	seed(t, s, dashi.TurnID(x+"-1", 1), 2)
-	seed(t, s, dashi.TurnID(x+"-1", 2), 2)
+	seed(t, s, session.TurnID(x+"-1", 1), 2)
+	seed(t, s, session.TurnID(x+"-1", 2), 2)
 	open(x, 1, 1)
 	open(x+"-1", 2, 2)
 }

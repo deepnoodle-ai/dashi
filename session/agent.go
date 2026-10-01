@@ -1,21 +1,23 @@
-package dashi
+package session
 
 import (
 	"context"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/deepnoodle-ai/dashi"
 )
 
 // agentFor returns the agent for a new turn, merged field by field:
 // Start.Agent, then Session.Agent, then the agent recorded by the last
 // user-origin turn up to turn last. The engine fills what is still zero.
 // The caller holds mu.
-func (s *Session) agentFor(ctx context.Context, start Agent, last int) Agent {
+func (s *Session) agentFor(ctx context.Context, start dashi.Agent, last int) dashi.Agent {
 	agent := mergeAgent(start, s.Agent)
 	for n := last; n >= 1; n-- {
 		t, err := s.load(ctx, n)
-		if err != nil || t.view.Origin != StartUser {
+		if err != nil || t.view.Origin != dashi.StartUser {
 			continue
 		}
 		return mergeAgent(agent, s.carried(t.view.Agent))
@@ -29,13 +31,13 @@ func (s *Session) agentFor(ctx context.Context, start Agent, last int) Agent {
 // runner's client, so a host that changes clients does not fail every
 // turn. A derived revision is dropped and derived again, since the merged
 // agent may differ.
-func (s *Session) carried(a Agent) Agent {
+func (s *Session) carried(a dashi.Agent) dashi.Agent {
 	a.Limits.Deadline = time.Time{}
 	if c := s.Runner.Client; c == nil ||
 		a.Provider != c.Provider() || a.API != c.API() {
 		a.Provider, a.API, a.Model = "", "", ""
 	}
-	if strings.HasPrefix(a.Revision, revisionPrefix) {
+	if strings.HasPrefix(a.Revision, dashi.DerivedRevisionPrefix) {
 		a.Revision = ""
 	}
 	return a
@@ -50,7 +52,7 @@ func (s *Session) carried(a Agent) Agent {
 //
 // It walks the fields by reflection so that a field added to Agent, Limits,
 // or llm.Settings carries forward without a change here.
-func mergeAgent(a, b Agent) Agent {
+func mergeAgent(a, b dashi.Agent) dashi.Agent {
 	if a.NoInheritedSettings {
 		b.Settings = a.Settings
 	}

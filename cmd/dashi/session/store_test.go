@@ -12,6 +12,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 )
 
 // echoClient answers every call with the same text.
@@ -55,8 +56,8 @@ func newStore(t *testing.T) *session.Store {
 }
 
 // chat returns a session handle on the records of s.
-func chat(st *session.Store, s *session.Session, rec dashi.Recorder) *dashi.Session {
-	return &dashi.Session{
+func chat(st *session.Store, s *session.Session, rec dashi.Recorder) *dashisession.Session {
+	return &dashisession.Session{
 		ID:     s.ID,
 		New:    !st.HasTurns(s),
 		Runner: dashi.Runner{Client: echoClient{}, Recorder: rec},
@@ -184,10 +185,10 @@ func TestDamagedTurnIsSkipped(t *testing.T) {
 	}
 	addTurn(t, st, s, rec, "first")
 	addTurn(t, st, s, rec, "second")
-	if err := os.WriteFile(rec.Path(dashi.TurnID(s.ID, 1)), []byte("not a log\n"), 0o600); err != nil {
+	if err := os.WriteFile(rec.Path(dashisession.TurnID(s.ID, 1)), []byte("not a log\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	empty := rec.Path(dashi.TurnID(s.ID, 3))
+	empty := rec.Path(dashisession.TurnID(s.ID, 3))
 	if err := os.MkdirAll(filepath.Dir(empty), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestDamagedTurnIsSkipped(t *testing.T) {
 	}
 	out, err := chat(st, s, rec).Send(t.Context(), "third")
 	if err != nil || !hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) ||
-		out.Turn.ID != dashi.TurnID(s.ID, 3) {
+		out.Turn.ID != dashisession.TurnID(s.ID, 3) {
 		t.Fatalf("turn=%s warnings=%v err=%v", out.Turn.ID, out.SessionWarnings, err)
 	}
 }

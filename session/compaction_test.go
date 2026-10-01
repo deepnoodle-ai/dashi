@@ -1,4 +1,4 @@
-package dashi_test
+package session_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // keepLast is a Compactor that compacts once the last call used at least
@@ -54,7 +55,7 @@ func textsOf(msgs []llm.Message) []string {
 	return out
 }
 
-func sendAll(t *testing.T, s *dashi.Session, texts ...string) dashi.Outcome {
+func sendAll(t *testing.T, s *session.Session, texts ...string) dashi.Outcome {
 	t.Helper()
 	var out dashi.Outcome
 	for _, text := range texts {
@@ -264,7 +265,7 @@ func TestSessionCompactionFailed(t *testing.T) {
 	sendAll(t, s, "first")
 	out := sendAll(t, s, "second")
 	if out.Turn.ID != "s-3" || !slices.Equal(codes(out.SessionWarnings),
-		[]dashi.WarningCode{dashi.WarningCompactionFailed}) {
+		[]dashi.WarningCode{session.WarningCompactionFailed}) {
 		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 	}
 	c := load(t, rec, "s-2")
@@ -303,7 +304,7 @@ func TestSessionCompactionSkipped(t *testing.T) {
 		s.Compactor = always
 		out := sendAll(t, s, "second")
 		if out.Turn.ID != "s-2" || !slices.Equal(codes(out.SessionWarnings),
-			[]dashi.WarningCode{dashi.WarningTurnClosed}) {
+			[]dashi.WarningCode{session.WarningTurnClosed}) {
 			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 		}
 	})
@@ -338,7 +339,7 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			if ev.Outcome != nil {
 				outcomes = append(outcomes, ev.TurnID)
 				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Outcome.SessionWarnings),
-					[]dashi.WarningCode{dashi.WarningTurnClosed}) {
+					[]dashi.WarningCode{session.WarningTurnClosed}) {
 					t.Fatalf("warnings=%v", ev.Outcome.SessionWarnings)
 				}
 			}
@@ -361,7 +362,7 @@ func TestSessionCompactionSkipped(t *testing.T) {
 		s.Compactor = keepLast{err: errors.New("no cut")}
 		out := sendAll(t, s, "first", "second")
 		if out.Turn.ID != "s-2" || !slices.Equal(codes(out.SessionWarnings),
-			[]dashi.WarningCode{dashi.WarningCompactionFailed}) ||
+			[]dashi.WarningCode{session.WarningCompactionFailed}) ||
 			!strings.Contains(out.SessionWarnings[0].Message, "no cut") {
 			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 		}
@@ -381,9 +382,9 @@ func TestSessionCompactionInterrupted(t *testing.T) {
 	done := sendAsync(ctx, s, "second")
 	entered(t, client)
 	_, err := s.Steer(t.Context(), "hurry")
-	var busy *dashi.TurnBusyError
+	var busy *session.TurnBusyError
 	if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction ||
-		busy.TurnID != "s-2" || !errors.Is(err, dashi.ErrTurnBusy) {
+		busy.TurnID != "s-2" || !errors.Is(err, session.ErrTurnBusy) {
 		t.Fatalf("steer err=%v", err)
 	}
 	if _, err := s.Enqueue(t.Context(), "later"); err != nil {
@@ -398,7 +399,7 @@ func TestSessionCompactionInterrupted(t *testing.T) {
 	}
 	out := sendAll(t, s, "second")
 	if out.Turn.ID != "s-3" || !slices.Equal(codes(out.SessionWarnings),
-		[]dashi.WarningCode{dashi.WarningCompactionFailed}) {
+		[]dashi.WarningCode{session.WarningCompactionFailed}) {
 		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 	}
 	if got := input(t, rec, "s-3"); !slices.Equal(got, []string{"later", "second"}) {
@@ -462,7 +463,7 @@ func TestSessionCompactionFailsBeforeQueueTurn(t *testing.T) {
 	out, ran, err := s.RunQueue(t.Context())
 	if err != nil || !ran || out.Turn.ID != "s-3" || !slices.Equal(
 		codes(out.SessionWarnings),
-		[]dashi.WarningCode{dashi.WarningCompactionFailed},
+		[]dashi.WarningCode{session.WarningCompactionFailed},
 	) {
 		t.Fatalf("ran=%v turn=%s warnings=%v err=%v", ran, out.Turn.ID, out.SessionWarnings, err)
 	}
@@ -634,7 +635,7 @@ func TestSessionCompactionBudget(t *testing.T) {
 	}
 	if out.Turn.ID != "s-3" || out.Answer != "two" || !slices.Equal(
 		codes(out.SessionWarnings),
-		[]dashi.WarningCode{dashi.WarningCompactionFailed},
+		[]dashi.WarningCode{session.WarningCompactionFailed},
 	) {
 		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
 	}
@@ -663,7 +664,7 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 		if tc.want == "" {
 			want = []string{"first", "one", "second", "two"}
 		}
-		for _, h := range []*dashi.Session{s, handle(rec, client)} {
+		for _, h := range []*session.Session{s, handle(rec, client)} {
 			projected, err := h.ProjectedHistory(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -691,7 +692,7 @@ func TestSessionCompactionSameHandleRace(t *testing.T) {
 
 	g := newGate()
 	bDone := make(chan error, 1)
-	var s *dashi.Session
+	var s *session.Session
 	race := &raceRecorder{MemoryRecorder: rec, before: func() {
 		// A has planned the compaction slot; B plans it too and wins.
 		go func() {
@@ -705,7 +706,7 @@ func TestSessionCompactionSameHandleRace(t *testing.T) {
 	s.Send(t.Context(), "from a") // loses the slot; its result does not matter
 
 	_, err := s.Steer(t.Context(), "hurry")
-	var busy *dashi.TurnBusyError
+	var busy *session.TurnBusyError
 	if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
 		t.Fatalf("steer during the compaction: %v; want a TurnBusyError", err)
 	}
@@ -744,7 +745,7 @@ func TestSessionRefusesCallerCompaction(t *testing.T) {
 			t.Fatalf("Stream with %s: err = %v; want a refusal", name, err)
 		}
 	}
-	if _, err := rec.Load(t.Context(), dashi.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
+	if _, err := rec.Load(t.Context(), session.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
 		t.Fatalf("turn 1: %v; want none", err)
 	}
 }
