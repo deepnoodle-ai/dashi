@@ -159,9 +159,10 @@ type Compactor interface {
 	Needed(projected []llm.Message, last llm.Usage) bool
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
-	// where the summary goes among them, and its frame. The session sets
-	// the command ID, origin, history, Through, and Digest, turns tools
-	// off, and applies the caller's Start.Budget when it has one.
+	// where the summary goes among them, its frame, and its Digest, the
+	// HistoryFingerprint of projected (without one, nothing is checked).
+	// The session sets the command ID, origin, history, and Through, turns
+	// tools off, and applies the caller's Start.Budget when it has one.
 	Start(projected []llm.Message) (Start, error)
 }
 
@@ -293,8 +294,7 @@ func (s *Session) buildCompaction(
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}
-	digest, ferr := historyFingerprint(projected)
-	if err = errors.Join(err, ferr); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	id := TurnID(s.ID, last+1)
@@ -303,7 +303,6 @@ func (s *Session) buildCompaction(
 	c.History = nil
 	c.Compaction = c.Compaction.clone()
 	c.Compaction.Through = last
-	c.Compaction.Digest = digest
 	if c.Agent.Model == "" {
 		// The summary is written by the session's model, unless the
 		// compactor names another.

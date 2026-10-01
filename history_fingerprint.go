@@ -38,6 +38,14 @@ func fingerprintMessages(history []llm.Message) []fingerprintMessage {
 	return messages
 }
 
+// HistoryFingerprint identifies history as StartFact.HistoryFingerprint
+// and CompactionFact.Digest do. Equal model-visible messages give equal
+// fingerprints, also after a JSON round trip; descriptive context identity
+// does not count.
+func HistoryFingerprint(history []llm.Message) (string, error) {
+	return historyFingerprint(history)
+}
+
 // historyFingerprint identifies the prior messages supplied for one turn. It
 // hashes canonical JSON, so history the application reloads from a store that
 // keeps only JSON meaning (such as jsonb) still matches.

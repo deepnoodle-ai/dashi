@@ -58,9 +58,9 @@ func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 // messages before the cut are sent as a text transcript with the prompt,
 // without their reminders, but with agent mail (a reminder with a From).
 // Their system and developer messages are kept ahead of the summary, with
-// their own role. The Start has origin StartCompaction and no tools; the
-// caller sets its CommandID and may set Budget. A Session also sets the
-// fact's Through and Digest.
+// their own role. The Start has origin StartCompaction and no tools, and
+// its fact's Digest is the fingerprint of projected. The caller sets its
+// CommandID and may set Budget; a Session also sets the fact's Through.
 func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()
 	cut := c.cut(projected, window)
@@ -77,6 +77,10 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	if err != nil {
 		return dashi.Start{}, err
 	}
+	digest, err := dashi.HistoryFingerprint(projected)
+	if err != nil {
+		return dashi.Start{}, err
+	}
 	kept := authoritative(projected[:cut])
 	return dashi.Start{
 		Agent: dashi.Agent{
@@ -90,6 +94,7 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 			Keep:      append(slices.Clone(kept), projected[cut:]...),
 			SummaryAt: len(kept),
 			Frame:     summaryFrame,
+			Digest:    digest,
 		},
 	}, nil
 }

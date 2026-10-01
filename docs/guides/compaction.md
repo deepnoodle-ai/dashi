@@ -122,9 +122,11 @@ be replayed is left out with `turn_unreadable`. `ExampleCompactor_Start` runs
 this without an API key.
 
 Set `Compactor.Model`, or the Start's `Agent`, when the Runner has no default
-model; a session fills in its own. `Through` and `Digest` in the fact are
-optional; a session sets them, and `ProjectHistory` checks a set `Digest`
-against the turns before the compaction turn. Use `compaction.LastUsage`, not
+model; a session fills in its own. `Compactor.Start` records the
+`HistoryFingerprint` of the history it replaces as the fact's `Digest`, and
+`ProjectHistory` checks it against the turns before the compaction turn, for
+a host's turns and a session's alike; a mismatch warns `compaction_mismatch`.
+`Through` is optional; a session sets it. Use `compaction.LastUsage`, not
 `Spend.Usage`, for `Needed`: the spend sums every call, and each call in a
 tool loop sends the whole history again. Do not compact while a turn waits to
 continue: `Continue` must get the history the turn started with.
