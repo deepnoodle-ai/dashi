@@ -56,7 +56,8 @@ Use `/tasks` while work runs, then `/task ID` to inspect that task's evidence, a
 
 - [ ] `/tasks` works during foreground work and when idle, without model dispatch.
   With no tasks, show “No tasks in this session.” Unknown IDs and invalid arguments preserve the draft and list usable controls.
-- [ ] Each row shows ID, description, subagent, actual state, model/tool-call counts, and child spend completeness.
+- [ ] Each row shows ID, description, subagent, actual state, model attempts, tool-call count, and child spend completeness.
+  Model attempts retain the existing task count; details distinguish recorded dispatch evidence, no-dispatch attempts, and unresolved intents.
   Distinguish live progress from recorded facts, and approval pending from ordinary work.
   Listing/scrolling/input stay responsive when a child blocks on a model, tool, or approval.
 - [ ] `/task ID` shows parent link, current/last child Turn, supplied evidence/resources, destination, limits, stop reason, answer, and recorded tool results.
@@ -121,13 +122,17 @@ Quit with a task running, reopen the session, inspect its progress, and receive 
   Separate fixtures exercise waiting approval/result resolution, model-attempt-limited continuation, unsupported limit remedies, discard, and wrong/stale IDs.
 - [ ] Fault fixtures cover crashes around child start, tool settlement, notice enqueue, and notice recording.
   Repeated recovery yields one child for the original parent call, one recorded completion notice per child Turn, and no repeated settled effects.
-- [ ] Task details and session inspection distinguish parent, child, and inclusive model spend, with tool money separate.
-  Inclusive totals count each recorded child Turn once, including after resume, and include scheduled parent queue-Turn spend in session totals.
+- [ ] `/status` retains own-session spend, including parent queue and summary Turns, and excludes child totals.
+  `/tasks` and task details/report supply separate parent, child, and inclusive amounts through existing `delegate.Report` facts.
+  Inclusive totals add parent own spend and each recorded child Turn once, including after resume.
   Running totals are lower bounds. Preserve unpriced-call, accounting-unknown, and usage-incomplete indicators without mislabeling exact money.
+- [ ] Fixture: parent ordinary/queue/summary model spend is USD 2/1/0.50; two distinct child Turns cost USD 4/1.50.
+  `/status` shows own USD 3.50; task reporting shows own/children/inclusive USD 3.50/5.50/9.
+  Reopen and repeated child callbacks retain those amounts. Tool money stays separate.
 - [ ] Display child attempt/turn limits and whether it has a monetary cap.
   Existing Explore/General defaults bound attempts, not dollars; this slice adds no child monetary cap.
-  Parent limits and budgets remain parent-only. Any `--budget` help, startup, and task detail must explicitly exclude child spend; never call it a family/session cap.
-  No child budget is inferred from parent remaining money or inclusive reports.
+  Existing configured parent caps disclose that they exclude child spend; never call them family/session caps.
+  The CLI has no `--budget` flag. Add no budget flag or child/family cap, and infer none from parent remaining money or reports.
 - [ ] Print mode waits for pending children and permitted notice queue work before successful exit, using the existing quiet/wait contract.
   A parent or child stop that requires resolution interrupts remaining children before exit, reports the exact action, and preserves records for reopen.
   Existing non-interactive approval/`--yes` behavior applies to each original child call; child progress/diagnostics add no unsolicited stdout output.

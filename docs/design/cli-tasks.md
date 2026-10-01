@@ -122,6 +122,8 @@ Before claiming quiet, check live children, attention states, pending notices, p
 Pending Start, compaction, stopped parent work, or lost acknowledgement cannot be overtaken.
 
 Render stable task rows/announcements by task/child Turn ID. Deltas remain provisional and never join the parent answer.
+Label `TaskView.ModelCalls` as model attempts: it sums `TurnView.ModelAttempts`, not recorded dispatched calls.
+Details retain recorded dispatch evidence, `NoDispatch`, and unresolved intents; interrupted dispatches cannot disappear behind the attempt count.
 Inspection uses recorded child messages/metadata and the existing bounded viewer, never resolver reads.
 Print progress/errors use stderr; stdout remains the existing answer contract.
 
@@ -138,10 +140,13 @@ Quit/new/session switch closes Tasks, waits for interrupted records, then releas
 Shutdown timeout reports unresolved shutdown and admits no replacement session; no daemon promise.
 Print waits through permitted notice Turns; AttentionError/parent resolution stops close remaining children and return non-success with exact action guidance.
 
-Use TaskView.Spend and `delegate.Report`; session totals deduplicate child Turn IDs and add each parent/queue Turn's own spend once.
+`/status` and session `Inspection` retain own-session spend, including parent queue and summary Turns. Neither adds child reports.
+`/tasks` and task details/report use TaskView.Spend and existing `delegate.Report` for separate own/children/inclusive amounts.
+Across parent Turns, add each parent's own spend once and deduplicate children by recorded child Turn ID and Parent linkage.
 Show parent/children/inclusive model money separately from tool money, preserving currency and completeness.
 Live values are lower bounds. Explore/General attempt limits are not dollar caps.
-No child Budget is inferred or added; parent `--budget` explicitly excludes children in help/startup/details.
+Disclose any existing configured parent cap as parent-only. The CLI has no `--budget`; add no flag, child Budget, or family cap.
+Automation reports richer invocation/cumulative scopes from these same verified facts; it needs no Inspection API or ledger expansion.
 
 ## Alternatives, release, and proof
 
@@ -151,5 +156,6 @@ Immediate unresolved notices consume final identity too early. The opt-in seams 
 Rebase/publish after session inspection under root scheduling. Existing Go callers/records need no migration; update delegation, recovery, and CLI guides/examples.
 Keyless fixtures cover child copies around Start crashes, immutable routes/resources, targeted command retries/fencing, concurrent/stale approvals, waiting/limited/uncertain resolution, and one final notice with one write execution.
 Also prove historical acknowledged notice preservation, enqueue failure/unknown queue Start, truthful quiet/error exits, spend once after reopen, special-file/symlink/cross-session rejection, and effective media sizing.
+Pin the PRD's USD fixture: own 3.50, children 5.50, inclusive 9; status remains 3.50 after reopen and repeated child callbacks.
 Capture both Wonton modes at 80×24 and plain/print states. Run formatting, vet, build, and root/CLI race tests; required implementation, acceptance, security, and taste reviews remain gates.
 No product question remains. Root approved these API and ownership seams; code/publication waits for the scheduled dependency checkpoint.
