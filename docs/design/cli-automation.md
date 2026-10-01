@@ -1,148 +1,128 @@
-# One-shot input and recorded automation results
+# Whole-input requests and response-only output
 
-Status: Accepted · Author: Codex · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then build. Named CI/spend clarity review returned ready. Root accepted it.\
+Status: Approved · Author: Codex · Date: 2026-09-30\
 Requirements: [Run one coding request from a script](../prds/cli-automation.md)
 
 ## Shape and ownership
 
-Private CLI helpers select input, execute through Engine, and project record snapshots into a versioned public result.
-Keep the Turn journal, Session, recorder fencing, and task host authoritative. Add no record format or root API.
-New files: `automation_input.go`, `automation_report.go`, `automation_output.go`, and `ui_automation.go`.
-Root schedules `main.go`, `options.go`, `ui_line.go`, and `engine.go`; app/wire integration is conditional on the preceding task host.
-No screen/composer changes belong here. Update the CLI guide and add keyless examples/transcripts with the implementation.
+Wrap existing parent answer presentation with whole-stdin input and response-only JSON/JSONL formatting.
+Current print mode uses `Outcome.Answer`. The replayed answer is fixed at a terminal stop and can be empty after successful tool-only work.
+A waiting Turn can have answer text beside its calls. Preserve that projection rather than reconstructing text from raw model events.
+Current CLI options expose no task-output schema or multimodal answer export. This slice adds neither.
 
-## Input route before application startup
+Use a small private response encoder, not direct encoding of Outcome, TurnView, Event, llm.Message, or task/model/tool facts.
+The linked slice 8 requirements now cover response content and exits/stderr only. Usage/spend remains in existing inspection and task surfaces, outside automation completion.
+Reuse generic input/descriptor/write helpers. Keep journal, Session, recorder fencing, Engine parent/queue ownership, and delegate.Tasks child ownership.
+Add no root API, record format, ledger, recovery store, or queue driver.
 
-Add `--output-format text|json|jsonl`, exact lowercase, default text. Retain whether the flag was explicit.
-Parse conflicts before environment loading, destination lookup, tool construction, or session creation.
-Explicit format conflicts with `--plain`, `--inline`, and the separate `models` listing. CLI `--help` remains human usage and starts nothing.
-Do not read terminal stdin, even when stdout is redirected.
+## Input and preflight
 
-| Route | Input and behavior |
+Add `--output-format text|json|jsonl`, exact lowercase, default text, retaining whether the flag was explicit.
+Check conflicts and qualify stdout before live environment/client/tool/MCP setup or admission.
+Explicit format conflicts with `--plain`, `--inline`, and `models` listing. CLI `--help` remains human usage and starts nothing.
+
+| Route | Behavior |
 | --- | --- |
-| `-p` or explicit format | One-shot. Read redirected stdin once, then combine it with the optional prompt. |
-| Nonterminal stdin, no `--plain` | One-shot text, including stdin alone. |
-| `--plain`, no `-p` or format | Preserve existing line/command/approval input. |
-| Remaining terminal routes | Preserve fullscreen/inline or terminal-input line fallback. |
+| `-p` or explicit format | One-shot. Read redirected stdin once and combine with optional prompt. |
+| Redirected stdin without `--plain` | One-shot text, including stdin alone. |
+| `--plain` without `-p` or format | Preserve line/command/approval input. |
+| Other terminal routes | Preserve fullscreen/inline or line fallback. |
 
-Read at most `16 MiB + 1` before admission. Reject overflow, NUL, invalid UTF-8, or read error with code 2 and no shortened request.
-Read in bounded chunks and check cancellation. The process adapter owns pipe stdin and closes it on cancellation to unblock reading.
-Never close terminal stdin. Inject cancellable pipes and finite readers in tests; retain no blocked reader after the invocation.
-Join nonempty parts as `prompt + "\n\n" + stdin`; preserve every byte of each part. Reject whitespace-only input unless resuming without a payload.
-Attachment parsing receives only explicit prompt/flags through preceding snapshot helpers. Append literal stdin afterwards, before the one Start.
-Raw stdin never enters command dispatch, attachment mention parsing, or approval input.
+Never read terminal stdin or change terminal input modes, regardless of stdout arrangement.
+Read at most `16 MiB + 1` in bounded chunks before admission. Reject overflow, NUL, invalid UTF-8, or read error with code 2.
+Cancellation returns no partial payload and admits nothing. Own cancellable pipe duplicates; originals stay open.
+Join nonempty parts as `prompt + "\n\n" + stdin` without trimming. Reject whitespace-only input except no-payload resume.
+Parse explicit prompt/attachment flags through existing snapshot helpers before appending literal stdin.
+Raw payload never enters command, attachment mention, or approval dispatch.
 
-Check slash-prefixed explicit `-p` separately. Empty stdin permits existing local help/quit aliases and other-command rejection.
-Nonempty stdin rejects this mixed command/data invocation. Command results contain no Turn IDs and bypass live application setup.
-An explicitly recognized machine format emits structured preflight errors; argument parse failures or `--help` may produce no machine result.
+Slash-prefixed `-p` permits local help/quit only with empty stdin. Reject other commands and mixed command/data input without provider dispatch.
+Machine command/error routes contain no assistant response. Print usage, guidance, and errors on printable stderr.
+When stdout is qualified, JSON can emit `{"messages":[]}` and JSONL emits no line. Malformed parsing and `--help` may bypass machine formatting.
 
-## Record-only open, then optional execution
+## Response selection and framing
 
-For resume, validate the session ID and canonical workspace using the inspection track's scoped loader.
-Acquire the existing exclusive session lock before deciding readiness. Preserve one lease across reporting and any subsequent live open.
-Load existing logs through `filerecorder` and `dashi.Replay`, not Engine.Open/buildApp or a new log parser.
-Require the record directory exists before constructing the reader; do not create missing records, edit metadata, claim a worker, or repair damaged logs.
-Read ownership excludes another CLI driver. Recorder revision/owner checks still fence independent writers.
+The only fields are `messages` for ordered response iteration and `content` for the answer string.
+JSON is `{"messages":[{"content":"..."}]}` plus LF. JSONL is `{"content":"..."}` plus LF per complete message.
+Assistant role is implicit. Omit version/type, IDs, revisions, destinations, stops, actions, persistence, spend, errors, and warnings from stdout.
+Do not infer a typed value by parsing answer text or expose previously unused structured-output blocks.
 
-Derive the original request from the latest root user Start, treating empty legacy origin as user.
-Scheduled task-notice and compaction Starts never impersonate that request. Follow recorded context/notice IDs and Parent links, not display text.
-Traverse task-creating calls using recorded definitions and `delegate.ChildID`; load children from the parent recorder and verify their Start.Parent.
-Derive stable TaskID only after a child Start exists. An unsettled creation with no child Start remains the parent call's unknown admission.
-Read receipt identities from parent context items and queue Start command IDs using the task track's existing notice logic.
-Do not call Tasks.Recover, BindServices, resource discovery, credential lookup, MCP startup, or content resolvers to build a snapshot.
+For new or continued execution, select nonempty Answer text from the parent request/notice Outcomes reached by this invocation.
+Emit once per stopped parent Turn in parent-driver order. Include foreground task-notice answers, excluding direct child output and unrelated earlier requests.
+A continued request's answer can include its own earlier retained content, as the existing Answer projection specifies.
+Do not separately emit tool-loop intermediate messages, compaction summaries, reasoning, tool details, inputs, replay artifacts, or configuration.
+An empty Answer emits no message. Never search older Turns to fill an empty response.
+A noncompleted stop can supply useful response text; its nonzero exit and stderr qualify the work without a stop object.
 
-Without payload, return completed/blocked snapshots offline when no permitted ready work needs execution.
-Completed children with missing recorded notice delivery are unfinished invocation work; report that prerequisite or drive it only through live admission.
-Return code 1 for unreadable required latest/child records, retaining readable facts with omitted-count/incomplete evidence.
-Never substitute an earlier readable stop for a corrupt latest Turn.
+JSON waits for settlement/shutdown and encodes selected answers in order. JSONL emits each acknowledged stopped-parent answer as a complete message object.
+JSONL is not a token-preview protocol. No delta index, correction event, progress gap, or final run envelope is needed.
+Successful EOF means selected content was delivered. Nonzero exit can accompany useful content and never promises completion of invocation work.
+Text retains last-answer-only behavior. JSON escaping preserves exact answer text; terminal text/stderr use workspace.PrintableText.
 
-Only a ready/interrupted continuation or validated new request enters live setup. Preserve the claimed lease when Engine adopts the session.
-Recheck selected record revisions and existing recovery/attachment/destination bindings before dispatch.
-Unavailable live bindings affect that execution target; they cannot invalidate already-readable completed snapshots.
-Continue with plain `dashi.Continue{}` only when Next/readiness permit and the stop is ready/interrupted.
-Do not use Engine.Resume's attempt-limit doubling, retryable-failure heuristic, Settle, discard, budget raise, or silent closure of unfinished work.
-New payload blocks on unresolved parent/child admission rather than letting Engine.Prompt close it.
-Retain the exact pending Start/CommandID on unknown acknowledgement. Reload establishes admission before any repeat submission.
+## Relevant saved response and safe continuation
 
-## Public version 1 projection
+Use the inspection track's workspace-scoped loader and exclusive lock. Preserve one lease across record-only reading and permitted live open.
+Require existing directories. Load through filerecorder and dashi.Replay without creating/repairing records or claiming a worker.
+Use recorded origin/order/links and the existing foreground parent answer selection. Empty legacy origin remains user.
 
-JSON/JSONL serialize a fixed CLI run report, independent of the task. See the PRD's trimmed examples and CI field mapping.
-Optional `structured_output` passes through an already-recorded typed model answer. This slice adds no CLI task-schema selection.
-`exit_code` describes Dashi execution, not build/test success or diagnosis correctness.
-Use tagged private DTOs and copying functions, never direct Turn/Outcome/Event/Block/Agent/tool/model encoding.
-Version 1 permits additive fields. Incompatible meaning requires a new version.
-Stable IDs order arrays. Integers remain JSON numbers; currency amounts remain canonical decimal strings.
+Completed no-payload resume selects the relevant latest saved parent request/notice Outcome for the latest ordinary request, excluding compaction and unrelated history.
+Return its Answer once, or no message if empty. This is a saved-response read, not a transcript export or all earlier request answers.
+Resolution-required work similarly returns available relevant saved content with attention on stderr and a nonzero exit.
+If continuation is permitted, emit newly reached stopped-parent responses. Do not pre-emit the saved answer as another response before continuation.
+A new request's output excludes prior responses; unfinished work blocks admission rather than being silently closed to accept it.
 
-| Object | Version 1 fields and meaning |
-| --- | --- |
-| Result envelope | `version:1`, `type:"result"`, `mode:"execution"\|"report"\|"command"\|"error"`, `exit_code`, `session_id?`, `request_turn_id?`, `answer_turn_id?`, `answer`, `structured_output?`, `quiet`, `turns`, `tasks`, `affected`, `totals`, `persistence`, `error?`, `warnings`. Absent identities mean unavailable, never invented. |
-| Turn snapshot | `turn_id`, `revision`, `origin`, `parent?` (Turn/call IDs), `destination` (recorded ID/API/model), `stop` (kind/reason/terminal/projected/ref/limit), `answer`, `structured_output?`, `public_reasoning?`, `pending`, `model_attempts`, `spend`, `required_action`. Values cover the full replayed Turn, not streaming increments. |
-| Task snapshot | Recorded `task_id`, `session_id`, current `turn_id`, parent Turn/call, subagent, actual state, notice-delivery state, child Turn IDs, and their snapshot links. No truncated TaskView answer substitutes for a loaded Turn answer. |
-| Affected target | Turn/task/call IDs, stop, rank, and structured action (`continue`, `approve`, `answer`, `reconcile`, `new_request`, or `inspect`), with prerequisites. `primary:true` marks one deterministic target; retain every other affected target. Actions describe remedies, never authorize them. |
-| Spend | Explicit usage buckets/maps and all completeness flags, `usage_state` (complete/estimated/incomplete/unavailable), `usage_incomplete`, `estimated`, decimal-string `model_cost`/`tool_cost` currency maps, `cost_unknown`, `cost_partial`, `unpriced_requests`, plus omitted-record evidence. Retained zero counts are not complete measurements when state is partial. |
-| Totals | Covered Turn IDs/revisions, invocation `parent`/`children`/`inclusive`, and separate cumulative session-own/children/inclusive scopes. These are whole-record snapshots, including earlier facts on resumed Turns, not incremental invoices. |
-| Persistence/error | Acknowledged/rejected/unknown command outcome, affected target/known revision, stable error code, sanitized diagnostic. Preserve CommitError classification separately from the record's actual stop. Uncertain output delivery does not rewrite persistence. |
+Load children only where existing readiness, effect safety, quiet/notices, or attention requires them. Verify parent/original-call links with task-host logic.
+Do not aggregate child/spend snapshots for response formatting. Completed/blocked reads require no live credentials, tools, MCP startup, or attachment resolver.
+Required latest/child record failures return code 1 and sanitized guidance. Never replace corrupt latest work with an earlier readable reply.
+Missing recorded child-notice delivery is unfinished work, reported on stderr or driven only through permitted live admission.
 
-Invocation coverage includes its original/continued request, its admitted compaction/notice Turns, and reachable children.
-Session totals include every readable owned parent Turn and each verified child Turn once. Sort IDs before `Spend.Add` for stable overflow retention.
-`/status` keeps `Inspection` own-session spend, excluding children. Task reporting supplies parent/child/inclusive scopes through `delegate.Report`.
-Automation projects invocation and cumulative own/child/inclusive totals from those records. `/status` and ledger ownership remain unchanged.
-Parent/inclusive totals never sum each other. Use replayed Spend and `delegate.Report` semantics, never add deltas, previews, or TaskView plus child snapshots.
-Summary-purpose model attempts are already in their owning Turn's Spend. Between-Turn compaction remains a distinct parent Turn.
-Preserve usage-only incompleteness independently from exact money. Include omitted records as explicit missing contributions, never exact zero.
-Top-level answer comes from the last permitted completed ordinary/notice answer in this invocation, with its own ID; never from a summary attempt.
-Default results omit reasoning. Explicit existing visibility permits public reasoning summaries only, in a separate labeled field.
-Exclude system prompts, attachment bytes, tool args/output dumps, private reasoning, replay artifacts, full prepared requests, and configuration/environment credentials.
-Project endpoint identity from credential-free recorded routing fields. Diagnostics redact credential-bearing URLs/headers without consulting live bindings.
-JSON encoding escapes controls. Terminal stderr/text use `workspace.PrintableText`; public answer/structured data retain their content semantics.
+Only validated new input or ready/interrupted continuation enters live setup. Transfer the lease to Engine and recheck revisions and recovery/destination/tool/resource/attachment bindings.
+Use plain dashi.Continue only when Next/readiness permits. Do not use Engine.Resume attempt doubling or retry heuristics.
+Do not settle, discard, raise budgets, approve, or close unresolved work implicitly.
+Unknown acknowledgement retains its pending Start/CommandID; reload establishes admission before repeat submission.
+Encoding content neither changes persistence nor authorizes a remedy.
 
-## JSONL writing, signals, and exits
+## Bounded writing and shutdown
 
-JSON writes one envelope followed by LF. JSONL writes typed `progress`, optional `gap`, then one identical `result` envelope.
-Each progress object has version, monotonically increasing invocation-local order, target IDs, recorded anchor sequence, event kind, and provisional flag.
-Allow bounded public text deltas, call/task lifecycle names, and status/accounting previews. No raw event payload enters output.
-Apply the allowlist synchronously to Engine events and task OnChild events; child deltas never join the parent's answer.
-Callbacks do not block or retain source facts. Bound queued progress to 64 entries/256 KiB, each text chunk at 4 KiB UTF-8.
-Coalesce/drop progress under pressure and emit a gap with targets and dropped count. Final snapshots supersede previews, including corrections.
-One writer owns stdout. Reserve final-result delivery outside the progress queue; JSON mode need not observe deltas.
-For process pipes use cancellable writes with a 10-second inactivity deadline, renewed when bytes advance.
-Regular files use checked synchronous writes. Refuse unsupported uninterruptible pipe configurations before model/tool execution.
-The final object may exceed the progress limit; serialize/write it once and propagate encoding, write, and flush failures.
-No failed/partial stdout write is retried as another result. Report known saved session/uncertainty on printable stderr.
+One worker owns stdout. Serialize one selected message at a time; use bounded UTF-8 write chunks of at most 4 KiB.
+JSON can traverse recorded selected responses after settlement without retaining another transcript or report.
+JSONL callbacks mark acknowledged responses pending without copying raw events or blocking source recording.
+Bound scheduling hints to 64 entries/256 KiB. Coalesce hints and rescan recorded parent order after overflow, without dropping, reordering, or duplicating content.
+The writer consumes recorded text sequentially. It retains no unbounded queue of copied answers and emits no public gap objects.
 
-Register SIGINT/SIGTERM before reading. Remember the first signal and cancel execution/readers.
-Close the task host through its accepted bounded shutdown path, settle/interrupt owned work where possible, then reload the latest facts.
-Retain unknown shutdown/persistence state explicitly. Emit a final snapshot only if stdout remains usable; release the session lease after shutdown.
-Code priority: first signal (130/143), output/persistence failure (1), then preflight error (2) or ranked affected work.
-Recorded ranks (highest first): 1 failed, 2 waiting/uncertain/interrupted needing action, 3 limited, 4 refused, 5 canceled.
-Ranks select the primary target. The respective exit codes remain 1, 3, 4, 4, and 4.
-Equal rank prefers original parent, then lexical notice/child Turn/task/call IDs. Historical unrelated session stops are not invocation exit candidates.
-Code 0 requires completed invocation work, quiet tasks/notices, and successful final delivery. Preserve all stops even when one rank wins.
+Use cancellable pipe/qualified TTY writes with a 10-second inactivity deadline, renewed when bytes advance.
+Regular files/null use checked writes. Refuse unsupported uninterruptible descriptors before dispatch.
+TTY adapters duplicate descriptors and preserve configurable flags/terminal attributes. Never close originals or read terminal stdin.
 
-## Accepted task integration and proof
+Check encoding/write/flush failures. Never repeat a written prefix, append stdout error objects, or retry effects to reproduce output.
+Output failure cancels owned execution and attempts existing bounded shutdown/settlement. Print saved-session/uncertainty guidance on stderr.
+An unusable stream can end in a partial JSON frame; fail nonzero rather than claim delivery.
 
-Use the accepted preceding `docs/design/cli-tasks.md`: `delegate.Tasks` drives children; Engine alone drives parent commands/notices/queue Turns.
-Keep Config.Session nil, NoticeReady, the bounded pending-notice map, original-call approval broker, and Tasks.Run/TaskTarget fencing.
-Automation adds no second RunUntilQuiet caller. Extend private CLI Result with RequestTurnID, captured from its pending Start's acknowledged CommandID.
-Engine's task-host quiet path preserves it while Outcome advances to the last answer. Resume initializes it from the loaded original request.
-Quiet requires children/report callbacks, pending notices, pending Start, and parent queue all clear.
-`delegate.AttentionError` contributes every withheld task as affected work; reload those child Turns for exact stops/limits, then stop remaining live children.
-Without payload, recover only permitted ready/interrupted child work; first scan attention/unknown effects before Tasks.Recover can dispatch.
-Explicit --yes retains existing original-call approval policy. No stdin line or report remedy becomes an approval/settlement.
+Register SIGINT/SIGTERM before reading. Remember the first signal, cancel execution/readers, and close the task host through its accepted shutdown path.
+Keep writer lifetime separate so usable stdout can deliver selected recorded content after shutdown, without duplicating already-emitted messages.
+Release the lease after workers join and adapters close. Unknown shutdown/persistence is an error on stderr. Hard termination guarantees no output.
 
-Keyless acceptance covers exact multiline/slash/mention input, no-admission failures, offline completed reports with invalid live bindings/storage, framing/gaps/slow and broken readers, every exit/tie, and parent-completed failed/waiting children.
-Pin mixed limited/refused/canceled targets against opposing parent/ID order: limit wins, then refusal, with code 4 and all stops/actions retained.
-Interrupt/reopen fixtures count one write and notice, stable targets/routes, no implicit raises, and one authoritative spend contribution.
-Include incomplete usage/exact money, missing cache reporting, multicurrency, unreadable records, active/between-Turn compaction, and child notice costs.
-PRD fixture: USD 1/2/4 yields `/status` own 3, task/automation invocation 2/4/6, and automation cumulative 3/4/7.
-Duplicate references/offline reports count the verified child Turn once. Complete zero tool money stays separate.
-Run affected formatting/vet/build/race gates after code; independent implementation/acceptance, security, and taste reviews remain required.
+Exit priority remains signal 130/143, output/persistence failure 1, then preflight 2 or affected work.
+Internal ranks remain failed, attention, limited, refused, canceled, with respective codes 1, 3, 4, 4, 4.
+Attention includes approval/question/result, uncertain effects, and interrupted work needing continuation without an invocation signal.
+Equal ranks prefer original parent, then lexical notice/child Turn/task/call IDs. Stderr retains every affected target/remedy and actual stop.
+Code 0 requires completed parent work, quiet children/notices, and successful output. Unrelated historical stops are not exit candidates.
 
-## Alternatives and checkpoint
+## Task integration and proof
 
-Internal events expose hidden requests. Blocks lose record identity/completeness. Offline projection avoids current tools/credentials.
-Bounded progress can drop previews. Final snapshots load full covered records. Explicit --plain preserves scripted line workflows without a record migration.
-No RPC, daemon, transcript repair, credential ingestion, new grant flags, automatic remedy, or family budget is introduced.
-Base: attachment PRD #145 at `f2256f9ac2c8b522958b3669f8130307456efcce`, including merged inspection/task PRDs #146/#148. Rebase onto the reviewed task feature before shared CLI integration and final gates. Root schedules their settled private seams.
-The accepted technical checkpoint retains prerequisite integration, writer qualification, and implementation authorization gates.
+Keep Config.Session nil, NoticeReady, existing pending-notice scheduling, original-call approval, and task fencing.
+Engine alone drives parent commands/notices/queue Turns. Automation adds no second RunUntilQuiet caller.
+Quiet requires children/callbacks, pending notices, pending Start, and parent queue clear.
+Scan attention/unknown effects before Tasks.Recover can dispatch. Recover only permitted ready/interrupted work and stop remaining live children on attention.
+Explicit --yes retains original-call policy. Stdin, formatting, and stderr guidance grant no approval.
+
+Keyless proof covers whole literal input, no-admission failures, response order/equality/empty cases, and exclusion of summaries/children/intermediate/internal content.
+Exercise ordinary plus parent notice responses, partial stops with useful text, empty tool-only completion, and no unrelated history on new/continued/saved-response routes.
+Pin every exit, mixed limit/refusal/cancellation ordering against opposing IDs, equal-rank ties, and all attention guidance on stderr.
+Resume completed content with invalid live bindings/storage. Interrupt/reopen counts one effect and notice; repeated saved-response reads dispatch nothing.
+Prove slow/stalled/broken pipes and inherited TTY output, canceled readers/writers, restored flags/termios, untouched terminal stdin, and joined workers.
+The CI fixture retains failed test status when Dashi successfully emits a diagnosis.
+
+## Decisions
+
+Choose complete-message JSONL over token previews so scripts need no content-correction/event protocol. This delays each message until its parent Turn stops.
+JSON waits for all selected responses; both formats consume existing public answer text. Reject the execution-report DTO and a salvage debug/introspection flag.

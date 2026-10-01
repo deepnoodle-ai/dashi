@@ -8,8 +8,8 @@ The baseline is Dashi `95ec475`, Dive `da15e91` (v1.34.0, experimental CLI 0.1.0
 |---|---|---|---|
 | O01 | `@file` text/image/PDF/video/document references | Missing | V `app.go:expandFileReferences`, `attachments.go:mediaContentFor`; D prompt is text. `content/mention` has text/image/PDF only. 6. |
 | O02 | Dropped/absolute quoted paths, chips, prune drafts | Missing | V `app.go:captureDroppedFiles/pruneAttachments`; D no attachment draft state. 6. |
-| O03 | Print positional/stdin prompt, text answer | Partial | V `main.go:getInput/runPrint`; D `-p PROMPT` and sequential piped line mode. No whole-stdin one-shot composition. 8. |
-| O04 | Print JSON output, errors and usage | Missing | V `main.go:runPrintJSON`; D `printAnswer` writes text, exits nonzero for stops. Add record-derived JSON/JSONL. 8. |
+| O03 | Print positional/stdin prompt, text answer | Partial | V `main.go:getInput/runPrint`; D `-p PROMPT` and sequential piped line mode. Slice 8 adds literal whole-stdin one-shot composition with an optional prompt. |
+| O04 | Print JSON output, errors and usage | Missing | V `main.go:runPrintJSON`; D `printAnswer` writes text, exits nonzero for stops. Intentional replacement in slice 8: response-only JSON and complete-message JSONL. Exact exits/printable stderr carry errors/attention; usage remains inspection/task reporting. |
 | O05 | Print tool approval bypass | Supported replacement | V print auto-approves without hook. D denies unless `--yes`. Keep explicit authorization. |
 | O06 | Turn/session usage, cache breakdown, context %, `/status` | Partial | V `app.go:usageReportView`, `cmd_settings.go`; D `render.go:FooterText` has per-turn count/cost. Slice 7 owns richer reporting, consuming #103 and #116's approved #123 accounting/warning contract. See ownership below. |
 | O07 | Ended-turn manual, between-turn automatic, and active-turn compaction | Missing | V `app.go:handleCompactCommand/checkAndPerformCompaction`; `main.go` registers `compaction.MidTurnCompactionHook` in PreIteration. D does not configure Compactor. #103 covers only ended/between-turn work. Active-turn work needs a separate foundation track. |
@@ -27,7 +27,9 @@ The baseline is Dashi `95ec475`, Dive `da15e91` (v1.34.0, experimental CLI 0.1.0
 
 [#116](https://github.com/deepnoodle-ai/dashi/issues/116) implements the contract approved in merged [#123](https://github.com/deepnoodle-ai/dashi/pull/123). [UC-2](../prds/spend-usage-accounting.md#uc-2-store-reopen-and-report) and the [report spec](../design/spend-usage-accounting.md#compatibility-and-reports) require `usage incomplete` in `Spend.String`, CLI `FooterText`, and delegate summaries. Usage-only overflow must preserve independently exact money. The footer replaces its affected token total with the warning. Cost formatter [#118](https://github.com/deepnoodle-ai/dashi/pull/118) is merged; #116 adapts its display to the new accounting distinction.
 
-Slice 7 owns O06's turn/session reports, cache breakdown, context percentage, and `/status`. Slice 8 owns JSON/JSONL usage schemas. Slice 9 owns task-report presentation. Fixtures must agree with replayed accounting, disclose incomplete usage, and keep model/tool money separate. Minimal warnings alone do not close O06. Context reporting also consumes #103's compaction facts.
+Slice 7 owns O06's turn/session reports, cache breakdown, context percentage, and `/status`. Slice 9 owns task-report presentation. Their fixtures must agree with replayed accounting, disclose incomplete usage, and keep model/tool money separate. Minimal warnings alone do not close O06. Context reporting also consumes #103's compaction facts.
+
+Slice 8 owns O03/O04 whole-stdin requests and response-only JSON/complete-message JSONL, with exact exits and printable stderr for errors/attention. The [response-only PRD](../prds/cli-automation.md) supersedes earlier automation execution-report and usage schemas. It does not close O06 or add a machine inspection/accounting surface.
 
 ## Runtime context replacement
 
