@@ -143,6 +143,9 @@ func (c *Controller) mcpInput(line string) bool {
 		return false
 	}
 	name, arg := splitCommand(line)
+	if name == "/status" {
+		return false
+	}
 	if name == "/mcp" {
 		c.mcpCommand(arg)
 		return true

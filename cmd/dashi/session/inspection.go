@@ -35,24 +35,27 @@ type MessagePreview struct {
 
 type Destination struct{ Provider, API, Model, Revision string }
 type PendingObservation struct {
-	Kind       dashi.PendingKind
-	ID         string
-	ToolStatus dashi.ToolStatus
+	Kind         dashi.PendingKind
+	ID           string
+	ToolStatus   dashi.ToolStatus
+	UnsafeEffect bool
 }
 
 // Execution describes the latest indexed Turn, even if its record is unreadable.
 // Stop.Projected distinguishes replay's inference from a recorded run stop.
 // It says nothing about a live worker or permission to execute a command.
 type Execution struct {
-	TurnID      string
-	Revision    int64
-	Readable    bool
-	Summary     bool
-	Destination Destination
-	Stop        dashi.Stop
-	Pending     []PendingObservation
-	Accounting  Accounting
-	Context     ContextOccupancy
+	TurnID          string
+	Revision        int64
+	Readable        bool
+	Summary         bool
+	Destination     Destination
+	Stop            dashi.Stop
+	Pending         []PendingObservation
+	Accounting      Accounting
+	Context         ContextOccupancy
+	Next            dashi.Next
+	ReadyToContinue bool
 }
 
 // Inspection contains one read-only scan through the captured indexed boundary.
@@ -110,6 +113,29 @@ func (st *Store) Inspect(ctx context.Context, selectedWorkspace, id string) (Ins
 	defer dir.close()
 	result, err := scanInspection(ctx, dir, metadata, "")
 	return result.Inspection, err
+}
+
+// LoadScoped reads only safe metadata before reopening. It does not inspect or
+// resolve conversation content and never grants a session lease.
+func (st *Store) LoadScoped(ctx context.Context, selectedWorkspace, id string) (*Session, error) {
+	if !validAttachmentSession(id) {
+		return nil, errors.New("session: invalid session ID")
+	}
+	selected, err := workspace.New(selectedWorkspace)
+	if err != nil {
+		return nil, errors.New("session: selected workspace is unavailable")
+	}
+	anchor, err := openAttachmentAnchor(st.root)
+	if err != nil {
+		return nil, errors.New("session: saved session unavailable")
+	}
+	defer anchor.close()
+	metadata, dir, err := scopedMetadata(ctx, anchor, selected.Dir(), id)
+	if err != nil {
+		return nil, err
+	}
+	dir.close()
+	return &metadata, nil
 }
 
 func scopedMetadata(ctx context.Context, anchor *attachmentDir, selected, id string) (Session, *attachmentDir, error) {

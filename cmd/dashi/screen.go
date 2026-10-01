@@ -100,6 +100,8 @@ type askPrompt struct {
 type pickerState struct {
 	startupReview detailLines
 	startupVP     tui.ViewportState
+	sessionCards  bool
+	sessionVP     tui.ViewportState
 	title         string
 	options       []string
 	details       []string
@@ -242,8 +244,16 @@ func (s *screen) Choose(ctx context.Context, title string, options []string) (in
 
 // ChooseDetailed keeps model facts readable separately from the option list.
 func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string, selected int) (int, bool) {
+	return s.choosePicker(ctx, title, options, details, selected, false)
+}
+
+func (s *screen) ChooseSessions(ctx context.Context, options, details []string) (int, bool) {
+	return s.choosePicker(ctx, "Workspace sessions", options, details, 0, true)
+}
+
+func (s *screen) choosePicker(ctx context.Context, title string, options, details []string, selected int, sessions bool) (int, bool) {
 	id := s.promptSeq.Add(1)
-	p := &pickerState{title: title, options: options, details: details, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
+	p := &pickerState{title: title, options: options, details: details, sessionCards: sessions, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
@@ -482,6 +492,14 @@ func (s *screen) requestQuit() []tui.Cmd {
 
 func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	p := s.picker
+	if p.sessionCards {
+		switch e.Key {
+		case tui.KeyPageUp, tui.KeyPageDown, tui.KeyHome, tui.KeyEnd:
+			scrollDialog(&p.sessionVP, e)
+			return nil
+		}
+		p.sessionVP.ScrollToTop()
+	}
 	if p.startupReview != nil {
 		switch e.Key {
 		case tui.KeyPageUp:
@@ -528,7 +546,7 @@ func (s *screen) submit(value string) {
 	value = strings.TrimSpace(value)
 	if s.asking == nil && !s.eng.cfg.MCP.Ready() {
 		name, _ := splitCommand(value)
-		if name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
+		if name != "/status" && name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
 			s.ctrl.mcpInput(value)
 			return
 		}
@@ -708,6 +726,9 @@ func shortDir(dir string) string {
 func pickerView(p *pickerState) tui.View {
 	if p.startupReview != nil {
 		return mcpStartupView(p)
+	}
+	if p.sessionCards {
+		return sessionPickerView(p)
 	}
 	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
 	// Keep room for the selected model's facts on an 80×24 terminal.

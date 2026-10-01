@@ -39,6 +39,11 @@ type app struct {
 
 // buildApp wires the adapters, the engine, and the controller around ui.
 func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
+	canonical, err := canonicalWorkspace(cfg.Dir, "")
+	if err != nil {
+		return nil, err
+	}
+	cfg.Dir = canonical
 	var ctrl *Controller
 	home := cfg.HomeDir
 	if home == "" {
@@ -112,10 +117,14 @@ func (a *app) openSession(
 	dir string,
 	o Options,
 ) (notice string, err error) {
+	dir, err = canonicalWorkspace(dir, "")
+	if err != nil {
+		return "", err
+	}
 	var s *session.Session
 	if o.Resume {
 		if o.ResumeID != "" {
-			s, err = store.Load(o.ResumeID)
+			s, err = store.LoadScoped(context.Background(), dir, o.ResumeID)
 		} else {
 			s, err = store.Latest(dir)
 		}

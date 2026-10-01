@@ -394,7 +394,7 @@ func TestSlashCommands(t *testing.T) {
 	h.input("/bogus")
 	mustHave(t, h.ui.text(), "Unknown command /bogus.")
 	h.input("/sessions")
-	mustHave(t, h.ui.text(), "There are no sessions for this directory.")
+	mustHave(t, h.ui.text(), "There are no saved sessions for this workspace.")
 	h.input("/quit")
 	select {
 	case <-h.ui.quit:
