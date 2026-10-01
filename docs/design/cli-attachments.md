@@ -1,9 +1,8 @@
 # CLI attachment snapshots
 
-Status: Accepted · Author: Attachment track · Date: 2026-09-30\
-Workflow: Spec checkpoint accepted by root, then implementation. Named PRD re-review returned ready.\
+Status: Accepted · Date: 2026-09-30\
 Requirements: [Supply screenshots, PDFs, and selected files](../prds/cli-attachments.md) · [PRD PR #145](https://github.com/deepnoodle-ai/dashi/pull/145)\
-Dependency: Active-context requirements [#144](https://github.com/deepnoodle-ai/dashi/pull/144). Its implementation is underway.
+Dependency: Active-context [#147](https://github.com/deepnoodle-ai/dashi/pull/147) is merged. Wonton v0.3.0 is the baseline; drops require a reviewed public official Wonton hook commit.
 
 ## Shape and ownership
 
@@ -12,8 +11,8 @@ Session-private storage owns immutable bytes. Turn records remain the authority 
 The runner's existing resolver verification and active-context guard own model admission.
 Do not create an upload service, attachment queue, transcript journal, or additional tool permission.
 
-Private helpers live in `cmd/dashi/attachments.go` and `attachment_input.go`; storage lives in `cmd/dashi/session/attachments.go`.
-Root schedules shared-file integration after active-context implementation: screen/inline, Controller, Engine, options/main, and transcript rendering.
+Composer helpers: `cmd/dashi/attachments.go`, `attachment_input.go`; storage: `cmd/dashi/session/attachments.go`.
+Root coordinates shared screen/inline, Controller, Engine, and entry-point integration.
 Keep Wonton input ownership. Reuse the command inventory for `/attach`, `/attachments`, and `/detach`; add repeatable print-only `--attach`.
 No clipboard extraction, thumbnail rendering, remote fetch, media conversion, or automatic retention command enters this slice.
 
@@ -60,8 +59,8 @@ Each entry has a stable draft-local number, generation, requested/resolved path,
 Numbers do not shift when an entry is detached. New selection of the same canonical ready path reuses its bytes and entry.
 Loading completions return through the UI event loop and apply only to the current entry generation; removal or session change cannot resurrect a stale result.
 
-On fresh interactive Enter, scan explicit mentions and stage only new selections; preserve the exact draft and show preview without Controller prompt dispatch.
-A second Enter sends only after all entries are ready and no new mention requires staging.
+Fresh mention Enter stages new selections, preserves the draft, and previews without prompt dispatch.
+A second Enter sends only ready entries with no unstaged mention.
 Track spans against the current draft revision. Rescan grammar on edits without reading files; map unchanged mentions to entries and detach disappeared associations.
 Successful outbound text uses mention's labels and preserves line suffixes; the displayed raw draft remains editable before submission.
 
@@ -71,13 +70,45 @@ Removing a ready mention also removes that association, so next Enter cannot sil
 Command-only `/attach` entries have no source span. `/detach` removes their snapshot without changing prose.
 Edited spans are resolved by the latest lexical scan, never by stale offsets or unrestricted string replacement.
 
-Recognize a drop only from a main-composer insertion/paste event whose entire inserted segment parses as existing supported paths.
-Stage that selection and substitute removable labels for the segment. Mixed prose remains untouched.
-If a runtime cannot identify an insertion segment, offer explicit `/attach` or `@file`; never infer a drop from the whole ordinary draft.
-Current Wonton input exposes no identifiable insertion segment, so both terminal modes use that explicit selection fallback.
-Completion, recall, editor return, dialogs, model/tool output, and rendering never read file contents.
-Both Wonton modes show loading/ready/error numbers and removal instructions; plain input provides the same commands and two-step mention review.
-Recall stores raw user text only, without snapshot authority.
+### Saved-file drops
+
+Wonton v0.3.0 consumes paste before `OnKey`; `OnChange` also sees recall/completion. A separate, reviewed commit in the official Wonton repository must add:
+
+```go
+func (f *InputFieldView) OnPaste(fn PasteHandler) *InputFieldView
+func (i *InputView) OnPaste(fn PasteHandler) *InputView
+```
+
+Wire existing `tui.PasteInfo`/`PasteHandler` through shared input state. A nil hook preserves existing behavior.
+Call once before insertion with decoded text in `PasteInfo.Content`; preserve decoder normalization.
+Wonton privately retains the pre-edit value and native insertion range, including actual offsets behind paste placeholders. Export no cursor/range API.
+`PasteAccept` inserts normally; `PasteModified` inserts returned text at that range; `PasteReject` changes nothing.
+Rejection and empty modification consume the event without changing draft/cursor or bubbling. `OnChange` fires only for changed values.
+Typing, recall, completion, editor return, and binding updates never invoke the hook.
+
+Install only on Dashi's main composer. Check `len(PasteInfo.Content)` before path parsing: recognition is limited to 64 KiB of UTF-8 content.
+For a larger segment, return `PasteAccept` unchanged without classification, selection, or file/provider reads.
+Show one fixed notice that it was inserted as text and directs the user to undo it, drop a smaller batch, or use `/attach PATH`.
+This is an attachment-recognition bound, not a global decoder or ordinary-paste limit; no oversized segment is claimed as a recognized drop.
+Within the byte bound, parse the whole segment without I/O as local absolute, `~/`, or `file://` paths.
+Decode quotes/escapes and surrounding whitespace, never shell syntax. Mixed prose uses `PasteAccept` unchanged without a selection error.
+Keep at most 64 decoded candidate paths. If more tokens exist, validate the remaining bounded segment without allocating more paths.
+Only a wholly path-only run can produce a count error; prose anywhere in the segment preserves ordinary paste.
+Before synchronization or reservation, reject a recognized run with more than 64 candidate paths or `len(existingEntries)+len(candidatePaths) > 64`.
+Count spellings before filesystem deduplication and all existing loading/error/ready entries; canonical aliases do not waive this conservative preflight.
+Return `PasteModified, ""` with one fixed notice directing `/attachments`, `/detach N`, or a smaller batch.
+Leave draft/cursor, entries, IDs, and generation unchanged. Make no filesystem or provider call; do not reserve a partial run.
+For accepted idle, unfrozen runs, synchronize the existing draft, stage with `stageAttachments(paths, true)`, and return `PasteModified, ""`.
+Like `/attach`, entries have no source spans. Footer labels hold selections; detach never rewrites prose.
+Reserve loading entries before returning; the existing serial worker resolves/reads them. Invalid paths remain numbered errors.
+Reuse bounds, canonical deduplication, generation guards, immutable snapshots, and outside-workspace disclosure.
+Enter cannot overtake staging or bypass readiness/errors. Ready snapshots send normally; only fresh mentions retain the two-Enter rule.
+
+During work or frozen admission, consume recognized path runs without selection/reads, preserve draft/cursor, and request idle resubmission.
+Dialogs retain ordinary paste. Completion, recall, editor return, model/tool output, and rendering remain read-free.
+Both Wonton modes share the hook. Unbracketed typing lacks provenance; `/attach` and `@file` remain the fallback, including plain mode.
+Paths must exist on Dashi's host; SSH transfers no desktop bytes. Clipboard image extraction remains separate.
+Recall stores raw prose without snapshot authority.
 
 While foreground work runs, an attachment mutation or attachment-bearing submission preserves the draft and asks for a fresh idle submission.
 Lexical detection may identify mentions without reads; ordinary attachment-free text steering remains unchanged.
@@ -96,6 +127,8 @@ Write and sync both files, close them, rename to the final unused ID, then sync 
 Publication failure stops admission and retains the ready draft bytes for correction; never record a partially published reference.
 If publication succeeds, reuse that immutable ID for this submission's retry. Do not republish by rereading the source.
 Session metadata saving does not establish or revoke submission.
+After publication, save the non-authoritative header under its lease with the next-turn destination/model, permitting crash reopen.
+A header alone never lists completed work or authorizes acknowledgement; recorded Start facts do.
 
 Bind a resolver to each Engine-opened session and wire it into that session's `Runner.ContentResolver`.
 `Resolve(ctx, turnID, ref)` requires a valid session Turn ID matching the bound session and a strictly parsed attachment ID.
@@ -132,22 +165,32 @@ Established absence permits retry under existing command identity rules. Conflic
 Continue operates on recorded references, not a composer snapshot; it cannot resend or consume an independent draft.
 
 Pass the actual reference-bearing input into all existing Session admission and compaction paths.
-The preceding active-context implementation hydrates and prepares the complete request before estimating its size; attachments must reach that guard and cannot be represented only by preview labels.
+Active-context admission hydrates/prepares complete requests; preview labels cannot replace attachments. Preserve its media-estimate-unavailable warning and context-sizing exception.
+Preserve monetary admission and provider preparation; that exception never proves tokenizer fit.
 Extend between-Turn compaction's rough tail estimator to count reference bytes from declared size conservatively, without resolving content or changing coverage digests.
 Provider preparation remains authoritative; known incompatibility checks are early diagnostics, not a replacement for it.
 An oversized protected original attachment request can stop at the existing context limit; do not silently remove evidence or summarize the objective away.
 
 ## Alternatives, release, and proof
 
-Inline record bytes avoid blob storage but duplicate evidence through every checkpoint.
-Live-path resolution uses less disk but changes recovery input. Provider uploads reduce repeated transfer but add expiry and credential-bound identities.
-Local immutable references preserve Dashi's existing recovery contract at the cost of disk retention, repeated resolution, and a small mention API addition.
+Inline bytes duplicate checkpoints; live paths change recovery input; provider uploads add expiry/credential identities.
+Local immutable references preserve recovery but require disk retention and repeated resolution. For drops, consume identified paste into entries.
+Rejected: whole-value diffs confuse paste with recall/completion; injecting `@file` tokens changes the draft unnecessarily.
 
 Ship in the root dependency chain after active context; existing text-only records require no migration.
 Update attachment and CLI guides for explicit selection, private storage, outside-workspace evidence, detach, print flags, and unknown admission.
-No implementation or publication starts before root's checkpoint; no product decision remains open.
+Drop integration requires a reviewed public hook commit in the official Wonton repository.
+Require native input proof in fullscreen/inline before Dashi integration; then pin its exact SHA through a Go pseudo-version.
+The upstream PR may remain pending; no merge, release, or tag is required. Wonton v0.3.0 lacks this hook.
 
-Keyless fixtures assert exact dispatched bytes/order; two UI modes exercise preview, loading removal, failed `/attach` and failed mention removal, Unicode/quoted spans, duplicate paths, recalled text, and running-work refusal.
+Keyless fixtures assert exact bytes/order and both UI modes: loading/removal, errors, Unicode/quoted spans, duplicates, recall, and running-work refusal.
+Drop proof covers insertion inside a Unicode draft, escaped screenshots, multiple paths, local URLs, invalid files, source deletion, and paste+Enter batching.
+Boundaries cover 64/65 paths, exactly 64 KiB/one byte over (including Unicode), 63 existing entries plus two paths, and a full 64-entry draft.
+Assert atomic count rejection preserves draft/cursor/IDs/generation with no reservation, file read, or provider call; include missing files and duplicate spellings.
+Oversized path text and oversized multiline mixed prose use native paste unchanged with no attachment recognition or reads.
+Within the byte bound, a 65-path prefix followed by prose remains ordinary paste, with no partial selection or count notice.
+Drive the actual InputField with bracketed and unbracketed input; verify no reads from mixed prose, history, completion, editor return, dialogs, or frozen drafts.
+Qualify a saved-file desktop drop in named terminals for fullscreen/inline; record transport and fallback. Clipboard-byte support remains unclaimed.
 Fault fixtures cover known pre-record failure, acknowledged Start followed by failure, and unknown write with present/absent/conflicting records; count Starts and model/tool calls.
 Reopen after source edit/deletion and continue across Turns/model changes; reject cross-session refs, traversal, all storage symlinks, corruption, growing files, and special files.
 Verify effective attachment bytes trigger context protection, later plain prompts add no new blocks, and Continue preserves an independent draft.

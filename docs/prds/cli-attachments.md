@@ -58,8 +58,8 @@ Inspect `/attachments`, remove a mistaken selection with `/detach 2`, and send �
 
 ### UC-2: Mention or drop a file while composing
 
-Write “Use @src/theme.go and @spec.pdf”, or select a screenshot with `/attach PATH`.
-Review the selected evidence before submitting the request.
+Write “Use @src/theme.go and @spec.pdf”, select with `/attach PATH`, or drop a saved screenshot into the main composer.
+Review the numbered selections, remove mistakes, then send the request. A disk-file drop supplies paths, not image bytes.
 
 - [ ] A fresh `@file` submission first stages its snapshot, displays the attachment preview, and preserves the request without starting work.
   The notice explains that Enter sends the prepared request after review.
@@ -67,11 +67,31 @@ Review the selected evidence before submitting the request.
 - [ ] A failed mention creates a numbered error entry linked to its source span in the draft.
   Detaching it removes its associated failed mention spans, including path/line suffix, while preserving all other request text and successful entries.
   The next Enter sends the remaining request without reselecting the removed mention; only newly entered mentions can select it again.
-- [ ] Recognize a terminal drop only when the input runtime exposes an identifiable inserted segment and that segment consists entirely of existing, supported file paths.
-  Accept quoted/escaped path runs and local file URLs.
-  Current Wonton input exposes no such segment; support explicit `/attach` or `@file` as the selection fallback.
-  Never infer a drop from the whole ordinary draft.
-  Mixed prose, logs, stack traces, and ordinary path references remain text and cause no automatic file reads.
+- [ ] A path-only paste into the main composer stages the same numbered loading/ready/error entries as `/attach`, without starting a Turn.
+  Recognize only the actual inserted segment, consisting entirely of absolute paths, `~/` paths, or local `file://` paths.
+  Accept quoted spaces, shell-style escapes, multiple paths, and terminal whitespace around the run.
+  Consume that segment without inserting path text or changing the existing draft, cursor, Unicode, or newlines.
+  Missing, unsupported, oversized, or unreadable selections remain numbered errors that block dispatch until corrected or detached.
+- [ ] Before path parsing, limit attachment recognition to 64 KiB of UTF-8 paste content, including quotes, escapes, and whitespace.
+  Larger segments retain ordinary native paste behavior, with no selection or file reads and one bounded notice:
+  “Paste exceeded the 64 KiB file-selection limit. It was inserted as text. Undo it, then drop fewer files or use /attach PATH.”
+  Within the byte limit, accept at most 64 candidate paths and at most 64 resulting draft entries; loading, error, and ready entries all count.
+  Count candidate spellings before canonical deduplication. Reject the whole recognized run if existing entries plus candidate paths exceed 64.
+  Preserve the draft, cursor, and existing entries; reserve no entries, read no files, and make no provider call on rejection.
+  Show one bounded notice: “Files were not selected. Drop at most 64 paths; use /attachments and /detach N to make room within 64 draft entries.”
+  Cover 64/65 paths, UTF-8 byte boundaries, and full drafts. Per-file and total snapshot-byte limits still apply.
+- [ ] Dropped selections reuse canonical deduplication, outside-workspace disclosure, selection-time snapshots, and `/detach`.
+  After entries are ready, ordinary Enter sends the request under existing admission rules. Loading or error entries preserve the draft and block Send.
+  Paste followed by Enter in one input batch cannot bypass staging or readiness. It may send only genuinely ready snapshots.
+  Fresh `@file` input retains its existing review Enter before submission.
+- [ ] Automatic drop selection requires a terminal that delivers the insertion as bracketed paste, plus a qualified input hook.
+  Wonton v0.3.0 is the baseline and still needs that hook; its upgrade alone does not enable drops.
+  Integration requires a reviewed public commit in the official Wonton repository with native input proof in both modes.
+  Pin its exact commit through a Go pseudo-version; an upstream PR may remain pending. No merge, release, or tag is required.
+  Unbracketed path text remains ordinary typing; use `/attach` or `@file` to select it.
+  Paths must exist on the machine running Dashi, including over SSH. Path insertion transfers no desktop file bytes.
+  Clipboard image bytes remain outside this slice; save the screenshot to disk first.
+  Never infer a drop from whole-draft changes, timing, or path-looking prose. Mixed prose, logs, and stack traces remain ordinary text.
 - [ ] Path completion inserts text only. History browsing and external-editor return perform no file reads.
   Recalled mentions require fresh staging. Recalled labels never recreate a previous attachment or imply its bytes remain selected.
 - [ ] `@file:12` preserves the line suffix and stages the file, without claiming to restrict its content to that line.
@@ -137,11 +157,12 @@ Known provider content incompatibility reports the affected attachment before di
 ## Success and risks
 
 Keyless acceptance completes screenshot-based and document-based requests, removes mistaken evidence, and reopens against modified source files.
-Counting fixtures prove no model dispatch on selection failure and no repeated settled effects during recovery.
+Counting fixtures prove no dispatch during drop staging or selection failure, and no repeated settled effects during recovery.
 Cover both Wonton UI modes and plain/print entry, including loading, empty, error, removal, and storage corruption states.
 Preserve composer editing/history, workspace policy, Turn recovery, provider selection, and compaction checks.
 Required implementation, acceptance, security, and taste reviews must pass before delivery.
 
 Stored snapshots consume disk and contain user-selected evidence. Keep them private and session-scoped; retention/deletion commands remain outside this slice.
 The technical spec must settle atomic blob publication, reference authorization, draft/input integration, and bounded cleanup without deleting submitted content.
-Named independent PRD re-review returned ready. The [technical spec](../design/cli-attachments.md) checkpoint is approved. Active-context implementation follows requirements [#144](https://github.com/deepnoodle-ai/dashi/pull/144) and precedes shared CLI integration. No product question remains open.
+The [technical spec](../design/cli-attachments.md) defines snapshot storage, input integration, and the required Wonton paste hook.
+Qualification must name the tested desktop terminal and transport; synthetic paste events alone do not prove physical drag-and-drop support.
