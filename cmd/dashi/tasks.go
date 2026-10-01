@@ -287,9 +287,6 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 			// no queue turn carries it again; one that already holds it is
 			// a harmless repeat.
 			chat.Withdraw(id)
-		} else {
-			// Say so for a repeat that this record absorbed.
-			e.cfg.Emit(hintBlock("task-delivery", "This task result was already sent to the model. It will not be sent again."))
 		}
 		delete(host.notices, id)
 		delete(host.queued, id)
