@@ -152,12 +152,21 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 		return nil, err
 	}
 	out := []llm.Message{llm.UserMessage(llm.Text(strings.Join(evidence, "\n\n")))}
-	// All recorded hook/user context stays outside the summary replacement.
+	// Use the ordinary projection for delivery lifetime, roles, and slot
+	// metadata. Raw facts retain expired deliveries but must not restore them.
+	projected, err := projectedMessages(r.turn, nil, true)
+	if err != nil {
+		return nil, err
+	}
+	deliveries := make(map[int64]bool)
 	for _, step := range r.turn.Steps {
 		if step.Context != nil {
-			for _, item := range step.Context.Items {
-				out = append(out, item.Message.Clone())
-			}
+			deliveries[step.Seq] = true
+		}
+	}
+	for _, message := range projected {
+		if deliveries[message.Ref.Seq] {
+			out = append(out, message.Message.Clone())
 		}
 	}
 	return out, nil
