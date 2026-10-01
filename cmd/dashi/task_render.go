@@ -240,17 +240,10 @@ func taskLineView(b Block) tui.View {
 	if b.Name != "" {
 		views = append(views, tui.Text(" %s", b.Name).Fg(color))
 	}
-	return tui.Group(append(views, taskFactsViews(b.Text)...)...)
-}
-
-// taskFactsViews draws " · " and the facts of a task line. The separator is
-// its own view: a wrapping view drops the spaces at its edges, which would
-// join the state and the separator where the facts wrap.
-func taskFactsViews(text string) []tui.View {
-	return []tui.View{
-		tui.Text(" · ").Style(mutedStyle),
-		tui.Text("%s", text).Wrap().Style(mutedStyle).Flex(1),
-	}
+	// The text is the line's source for selection; the rest is a label.
+	views = append(views, tui.Text(" · ").Style(mutedStyle),
+		tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle).Flex(1))
+	return tui.Group(views...)
 }
 
 // withTaskLine adds the task status line of a tool block under its view.
@@ -259,10 +252,14 @@ func withTaskLine(v tui.View, b Block) tui.View {
 		return v
 	}
 	t := *b.Task
-	return tui.Stack(v, tui.Group(append([]tui.View{
+	// The separator is its own view: a wrapping view drops the spaces at its
+	// edges, which would join the state and the separator where it wraps.
+	return tui.Stack(v, tui.Group(
 		tui.Text(taskUnderMarker).Style(mutedStyle),
 		tui.Text("%s", t.Name).Fg(taskLineColor(t.State)),
-	}, taskFactsViews(t.Text)...)...)).Gap(0)
+		tui.Text(" · ").Style(mutedStyle),
+		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
+	)).Gap(0)
 }
 func (c *Controller) endDialog() {
 	c.mu.Lock()

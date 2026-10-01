@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	github.com/deepnoodle-ai/dashi v0.2.0
-	github.com/deepnoodle-ai/wonton v0.5.0
+	github.com/deepnoodle-ai/wonton v0.6.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/term v0.46.0
 )

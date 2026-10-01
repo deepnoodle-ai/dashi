@@ -293,7 +293,11 @@ func (s *screen) Item(i int) tui.View {
 	return blockView(b)
 }
 
-// Source implements tui.ViewportSourceItems. Labels and controls are decorations.
+// Source implements tui.ViewportSourceItems: it is the text a selection
+// copies. Glyphs, labels, rules, and states are decorations. Every
+// non-empty source must match text its view marks with SourceOffset;
+// otherwise Wonton cannot map the item, treats it as decoration, and a
+// selection skips its text.
 func (s *screen) Source(i int) (string, bool) {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return "", true
@@ -301,12 +305,18 @@ func (s *screen) Source(i int) (string, bool) {
 	b := s.tr.Blocks[i]
 	switch b.Kind {
 	case KindTool:
+		head := toolHeadSource(b)
 		if s.expanded[i] && b.Detail != "" {
-			return b.Detail, true
+			return head + "\n" + b.Detail, true
 		}
-		return strings.Join(b.Lines, "\n"), true
+		if len(b.Lines) == 0 {
+			return head, true
+		}
+		return head + "\n" + strings.Join(b.Lines, "\n"), true
 	case KindDiff:
 		return strings.Join(b.Lines, "\n"), true
+	case KindFooter:
+		return footerSource(b), true
 	case KindPending:
 		if b.Done {
 			return "", true
@@ -894,17 +904,28 @@ func blockView(b Block) tui.View {
 	return tui.Text("%s", b.Text).SourceOffset(0).Wrap()
 }
 
+// footerSource is the copyable text of a footer: its plain form without the
+// leading rule.
+func footerSource(b Block) string {
+	if b.Footer == nil {
+		return b.Text
+	}
+	return strings.TrimPrefix(b.Footer.String(), footerRule+" ")
+}
+
 // footerView draws the turn footer as a quiet rule. The values stand out
 // a little from the rule and separators; incomplete usage stands out more.
 func footerView(b Block) tui.View {
 	if b.Footer == nil {
 		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
 	}
+	// The rule is decoration: selection copies the values and separators,
+	// which are footerSource.
 	views := []tui.View{tui.Text("%s ", footerRule).Style(mutedStyle)}
-	offset := len(footerRule) + 1
+	offset := 0
 	for i, p := range b.Footer.parts() {
 		if i > 0 {
-			views = append(views, tui.Text("%s", footerSep).Style(mutedStyle))
+			views = append(views, tui.Text("%s", footerSep).SourceOffset(offset).Style(mutedStyle))
 			offset += len(footerSep)
 		}
 		t := tui.Text("%s", p.text).SourceOffset(offset)
@@ -944,28 +965,47 @@ func toolView(b Block) tui.View {
 		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
 		state = tui.Text("running").Style(mutedStyle)
 	}
-	head := tui.Group(
-		icon,
-		tui.Text(" %s", workspace.PrintableText(b.Name)).Bold(),
-		tui.Text("  %s", fitArg(workspace.PrintableText(b.Arg), 70)).Style(mutedStyle),
-		tui.Spacer(),
-		state,
-	)
+	// The name and argument are the tool line's text, so a selection copies
+	// them. The icon and the state at the right edge are decoration.
+	name, arg := toolHead(b)
+	views := []tui.View{icon, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
+	if arg != "" {
+		views = append(views, tui.Text("%s", toolHeadSep),
+			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
+	}
+	head := tui.Group(append(views, tui.Spacer(), state)...)
+	offset := len(toolHeadSource(b)) + 1
 	if b.Expanded && b.Detail != "" {
 		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
-			tui.Text("%s", b.Detail).SourceOffset(0).Wrap().Style(mutedStyle))).Gap(0)
+			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle))).Gap(0)
 	}
 	if len(b.Lines) == 0 {
 		return head
 	}
-	views := []tui.View{head}
-	offset := 0
+	views = []tui.View{head}
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))
 		offset += len(l) + 1
 	}
 	return tui.Stack(views...).Gap(0)
+}
+
+// toolHeadSep separates a tool's name from its argument on the tool line.
+const toolHeadSep = "  "
+
+// toolHead returns the tool name and argument as the tool line shows them.
+func toolHead(b Block) (name, arg string) {
+	return workspace.PrintableText(b.Name), fitArg(workspace.PrintableText(b.Arg), 70)
+}
+
+// toolHeadSource is the copyable text of a tool line's head.
+func toolHeadSource(b Block) string {
+	name, arg := toolHead(b)
+	if arg == "" {
+		return name
+	}
+	return name + toolHeadSep + arg
 }
 
 // Secondary text uses 256-color gray 248 (#a8a8a8) without dim. Wonton's
