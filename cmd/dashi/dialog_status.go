@@ -93,6 +93,31 @@ func (s *screen) dialogStatusKeyHook(p *dialogStatusInput) func(tui.KeyEvent) bo
 	}
 }
 
+// Open inspection before editing the answer/reason. The bound dialog draft
+// stays in its original field; Escape simply returns focus to that field.
+func (s *screen) dialogTextKey(id uint64) func(tui.KeyEvent) bool {
+	return func(e tui.KeyEvent) bool {
+		// A key can reach the old focused field before the inspector renders.
+		// Route it to the temporary field instead of submitting/editing the draft.
+		if s.promptID == id && s.dialogStatusActive(s.dialogStatus) {
+			if isCtrlC(e) {
+				return false // native dispatch forwards exactly one interrupt
+			}
+			s.post(dialogStatusKeyEvent{input: s.dialogStatus, key: e})
+			return true
+		}
+		if e.Key == tui.KeyCtrlS {
+			if s.promptActive && s.promptID == id && s.dialogStatus == nil &&
+				(s.asking != nil && s.asking.own || s.approval != nil && s.approval.denying) {
+				s.beginDialogStatus("/status")
+				s.post(focusEvent{id: dialogStatusInputID, prompt: id})
+			}
+			return true
+		}
+		return s.inputKey(e)
+	}
+}
+
 func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 	return func(value string) {
 		if !s.dialogStatusActive(p) {
@@ -109,8 +134,9 @@ func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 	}
 }
 
-// Free-text answers retain their existing meaning, except the reserved status
-// command. Entering it never closes or sends to the pending reply channel.
+// Preserve empty-field /status compatibility. This clears only the submitted
+// command itself. Use Ctrl-S to inspect without editing a nonempty dialog draft;
+// user-deleted text is not retained or reconstructed.
 func (s *screen) inspectDialogSubmission(value string) bool {
 	name, _ := splitCommand(strings.TrimSpace(value))
 	if name != "/status" {

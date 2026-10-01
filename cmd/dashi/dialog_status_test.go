@@ -83,7 +83,8 @@ func TestNativeQuestionStatusSubmissionPreservesExactPrompt(t *testing.T) {
 			h.app.ctrl.setMode(ModeApproval)
 			before := inspectionFiles(t, h.store.Root())
 			if own {
-				h.scr.questionSubmit(id)("/status ../invalid")
+				h.scr.dialogTextKey(id)(tui.KeyEvent{Key: tui.KeyCtrlS})
+				h.scr.dialogStatusSubmit(h.scr.dialogStatus)("/status ../invalid")
 			} else {
 				h.scr.HandleEvent(tui.KeyEvent{Rune: '/'})
 				h.scr.dialogStatusSubmit(h.scr.dialogStatus)("/status ../invalid")
@@ -123,12 +124,14 @@ func TestNativeStatusRetainedCallbacksCannotAffectReplacementPrompt(t *testing.T
 	defer h.mu.Unlock()
 	p := &approvalPrompt{reply: make(chan Approval, 1), denying: true, reason: "denial draft"}
 	h.scr.HandleEvent(promptEvent{id: 1, approval: p})
-	h.scr.denialSubmit(1)("/status")
+	h.scr.dialogTextKey(1)(tui.KeyEvent{Key: tui.KeyCtrlS})
 	old := h.scr.dialogStatus
 	submit, key := h.scr.dialogStatusSubmit(old), h.scr.dialogStatusKeyHook(old)
+	open := h.scr.dialogTextKey(1)
 	question := &askPrompt{reply: make(chan questionAnswer, 1), own: true, text: "new answer"}
 	h.scr.HandleEvent(promptEvent{id: 2, asking: question})
 	submit("/status")
+	open(tui.KeyEvent{Key: tui.KeyCtrlS})
 	key(tui.KeyEvent{Key: tui.KeyEscape})
 	h.scr.HandleEvent(dialogStatusKeyEvent{input: old, key: tui.KeyEvent{Rune: 'a'}})
 	h.scr.denialSubmit(1)("/status")
@@ -202,5 +205,103 @@ func TestRuntimeNativeQuestionStatusRecordsOnlyIntentionalAnswer(t *testing.T) {
 	}
 	if answer != "the deliberate answer" {
 		t.Fatalf("unexpected recorded answer: %s", answer)
+	}
+}
+
+func TestRuntimeStatusShortcutPreservesOwnWordsDraft(t *testing.T) {
+	h := newTranscriptRuntimeConfig(t, inspectionTestConfig(t,
+		callTool("question", workspace.ToolAskUser, `{"question":"Describe the fix"}`), say("Accepted.")))
+	h.typeText("ask")
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.wait(func(s transcriptState) bool {
+		return s.question && s.own && strings.Contains(s.text, "Ctrl-S inspects")
+	})
+	const draft = "回答 /tmp/path\n第二行 ✓"
+	h.key(tui.KeyEvent{Paste: draft})
+	h.wait(func(s transcriptState) bool { return s.question && strings.Contains(s.text, "第二行 ✓") })
+	pending := h.scr.asking
+	if pending.text != draft {
+		t.Fatalf("keyboard did not bind the exact draft: %q", pending.text)
+	}
+	before := inspectionFiles(t, h.app.ctrl.store.Root())
+	// Queue both keys without waiting for focus or a rendered inspection field.
+	h.input.events <- tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true}
+	h.input.events <- tui.KeyEvent{Key: tui.KeyEnter}
+	h.wait(func(s transcriptState) bool {
+		return s.question && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
+	})
+	// Ordinary slash/path text edits only the separate status field.
+	h.key(tui.KeyEvent{Paste: "/tmp/inspection-only"})
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Use /status [ID]") })
+	if pending.text != draft || h.scr.asking != pending || len(pending.reply) != 0 ||
+		!reflect.DeepEqual(before, inspectionFiles(t, h.app.ctrl.store.Root())) {
+		t.Fatal("inspection edited, answered, or recorded the pending question")
+	}
+	h.key(tui.KeyEvent{Key: tui.KeyEscape})
+	h.wait(func(s transcriptState) bool {
+		return s.question && s.own && strings.Contains(s.text, "Answer:") && strings.Contains(s.text, "第二行 ✓")
+	})
+	if h.scr.asking != pending || pending.text != draft {
+		t.Fatalf("Escape did not restore the exact answer: %q", pending.text)
+	}
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.app.ctrl.Wait()
+	var answer string
+	for _, step := range h.turn(1).Steps {
+		if step.Tool != nil && step.Tool.Call.ID == "question" {
+			answer = outputText(step.Tool.Outcome)
+		}
+	}
+	if answer != draft {
+		t.Fatalf("intentional answer changed: %q", answer)
+	}
+}
+
+func TestRuntimeStatusShortcutPreservesDenialDraft(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	h := newTranscriptRuntimeConfig(t, inspectionTestConfig(t,
+		callTool("write", "write_note", `{"text":"one"}`), say("Denied.")))
+	h.typeText("write")
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.wait(func(s transcriptState) bool { return s.approval && s.mode == ModeApproval })
+	h.key(tui.KeyEvent{Rune: 'n'})
+	h.wait(func(s transcriptState) bool { return s.denying && strings.Contains(s.text, "Ctrl-S inspects") })
+	const draft = "拒否 /tmp/path /statusful ✓"
+	h.key(tui.KeyEvent{Paste: draft})
+	h.wait(func(s transcriptState) bool { return s.denying && strings.Contains(s.text, draft) })
+	pending := h.scr.approval
+	if pending.reason != draft {
+		t.Fatalf("keyboard did not bind the exact denial: %q", pending.reason)
+	}
+	before := inspectionFiles(t, h.app.ctrl.store.Root())
+	// Queue both keys without waiting for focus or a rendered inspection field.
+	h.input.events <- tui.KeyEvent{Key: tui.KeyCtrlS, Ctrl: true}
+	h.input.events <- tui.KeyEvent{Key: tui.KeyEnter}
+	h.wait(func(s transcriptState) bool {
+		return s.approval && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
+	})
+	if pending.reason != draft || h.scr.approval != pending || len(pending.reply) != 0 || runs.Load() != 0 ||
+		!reflect.DeepEqual(before, inspectionFiles(t, h.app.ctrl.store.Root())) {
+		t.Fatal("inspection edited, answered, or authorized the pending approval")
+	}
+	h.key(tui.KeyEvent{Key: tui.KeyEscape})
+	h.wait(func(s transcriptState) bool {
+		return s.denying && strings.Contains(s.text, "Reason:") && strings.Contains(s.text, draft)
+	})
+	if pending.reason != draft || h.scr.approval != pending {
+		t.Fatalf("Escape did not restore the exact denial: %q", pending.reason)
+	}
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	h.app.ctrl.Wait()
+	var reason string
+	for _, step := range h.turn(1).Steps {
+		if step.Tool != nil && step.Tool.Call.ID == "write" {
+			reason = step.Tool.Reason
+		}
+	}
+	if reason != draft || runs.Load() != 0 {
+		t.Fatalf("intentional denial changed: %q; runs=%d", reason, runs.Load())
 	}
 }

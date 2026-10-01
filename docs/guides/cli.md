@@ -188,6 +188,12 @@ arrows move, Space selects, Tab moves to Submit, and Enter submits. Press `o`
 for own words. Escape interrupts without submitting an empty answer. Dialogs
 restore the draft when they end.
 
+In an own-words answer or denial-reason field, Ctrl-S opens a separate
+`/status [ID]` field without editing the pending draft. Enter inspects;
+Escape returns to the exact answer or reason. You can also submit `/status`
+from an empty dialog field. Ordinary slash/path text stays editable; replacing
+a draft with a command does not preserve the text you deleted.
+
 If you quit during a prompt, the call does not run. After `dashi -c`, press
 Enter to continue the turn. The prompt shows again.
 
