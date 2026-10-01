@@ -77,7 +77,7 @@ when it runs nothing it returns false and the last turn's outcome.
 
 Done is not settled (pi #5886): the call returns when its own turns end, and the
 outcome is the last one's. When that turn stopped with anything but `NextNone`,
-items stay queued; `SessionState.Queued` counts them. Background tasks belong to
+items stay queued; `session.State.Queued` counts them. Background tasks belong to
 `delegate.Tasks`, and `RunUntilQuiet` (below) is the call that waits for them.
 
 A **queue turn** reserves every item under the lock and starts:
@@ -146,7 +146,7 @@ in place of the follow-up prefix. One `Tasks` serves one session.
 // RunUntilQuiet runs the session's queue and waits while tasks run. It
 // returns when no task is pending and the queue is empty, with the outcome
 // of the last turn it ran, or of the session's last turn when it ran none.
-func RunUntilQuiet(ctx context.Context, s *dashi.Session, tasks *Tasks,
+func RunUntilQuiet(ctx context.Context, s *session.Session, tasks *Tasks,
     opts ...dashi.RunOption) (dashi.Outcome, error)
 ```
 

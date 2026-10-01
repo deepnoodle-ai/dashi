@@ -338,9 +338,9 @@ the tech spec is [sessions.md](sessions.md), with
 [session-engine.md](session-engine.md) and [session-input.md](session-input.md).
 
 **35. Sessions are a second layer, and Dashi keeps no session store.** Decided.
-`Runner.Run` stays the public engine. `dashi.Session` sits above it, built only
+`Runner.Run` stays the public engine. `session.Session` sits above it, built only
 on the public engine API, as `http.Get` sits over `Client.Do`. Turn records are
-the only truth: turn *n* of session `S` is `S-n`, an optional `SessionIndex`
+the only truth: turn *n* of session `S` is `S-n`, an optional `session.Index`
 finds the last turn, and probing is the fallback. There is no session record,
 log, lease, or lock; recorder conditional appends, `S-n` collisions, and
 permanently ended turns keep the record correct. An optional `TurnLiveness`
@@ -378,7 +378,7 @@ history** is every message across a session's turns, never shortened. A
 compaction summaries, spend, warnings, closed turns), named by a session ID,
 with no record of its own. **Projected history** is what one model call sends;
 `Start.History` and `Continue.History` carry it, and it replaces "model view".
-The **session handle** is the Go value `dashi.Session`. The handle rule:
+The **session handle** is the Go value `session.Session`. The handle rule:
 anything that must outlast a handle goes in the turn records; `Session` fields
 are handle settings. The known exception is the in-memory queue, which warns
 `memory_only` under a durable recorder until the durable queue exists. The type
@@ -506,8 +506,8 @@ A feature goes in `dashi` only if the Turn engine itself needs it; anything
 else is a sub-package that imports `dashi`, as `compaction`, `delegate`,
 `skill`, `filerecorder`, and `mcp` do. Helpers that touch no public type live
 in `internal/`. Root files are prefixed by area (`turn_`, `run_`, `steer_`,
-`budget_`, `hooks_`, `context_`, `history_`, `session_`) and tests are named
-after the file they exercise. Rationale: the root had grown to 43 files that
+`budget_`, `hooks_`, `context_`, `history_`) and tests are named after the
+file they exercise. Rationale: the root had grown to 43 files that
 did not sort by concern; the public vocabulary (Turn, Step, facts, Commands,
 Runner, Hooks, Outcome) stays together, and Session, which the engine does not
-need, moves to its own package next.
+need, lives in package `session`, built only on the public Runner API.

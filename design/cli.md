@@ -112,7 +112,7 @@ user line. A new prompt closes the limited turn instead.
 
 **Sessions.** Each session is a directory in `~/.dashi/sessions` with a
 `session.json` (title, directory, model) and one `filerecorder` log per turn. A
-`dashi.Session` with `Exclusive` drives it, under the lock; it builds the
+`session.Session` with `Exclusive` drives it, under the lock; it builds the
 history and closes a stopped turn on a new prompt. `filerecorder` finds the last
 turn by which logs exist, so a damaged log is skipped with a warning instead of
 hiding later turns; under `Exclusive`, a damaged last turn is left out and a new

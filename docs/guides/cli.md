@@ -128,7 +128,7 @@ unsupported authentication, and cleanup.
 
 Each session is a folder in `~/.dashi/sessions`. It holds one record for each
 turn, and a `session.json` with the title, directory, and next-turn preferences. The
-turns are a [`dashi.Session`](sessions.md). A session is saved when its first
+turns are a [`session.Session`](sessions.md). A session is saved when its first
 turn records, so an attachment-free launch that you close at once leaves
 nothing behind. Attachment publication can retain snapshots and a discovery
 header before Start. That header is not proof of a recorded request or completed

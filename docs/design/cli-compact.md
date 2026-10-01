@@ -16,7 +16,7 @@ Compact(ctx context.Context, budget *Budget, opts ...RunOption) (Outcome, error)
 StreamCompact(ctx context.Context, budget *Budget, opts ...RunOption) iter.Seq2[Event, error]
 ```
 
-Move the no-work sentinel to `dashi.ErrNothingToCompact`. Make `compaction.ErrNothingToCompact` an alias to the same error value. Existing `errors.Is` checks continue to work without a dependency cycle. Keep the existing error message. Missing Compactor is a configuration error. A missing existing session remains `ErrSessionNotFound`.
+Move the no-work sentinel to `session.ErrNothingToCompact`. Make `compaction.ErrNothingToCompact` an alias to the same error value. Existing `errors.Is` checks continue to work without a dependency cycle. Keep the existing error message. Missing Compactor is a configuration error. A missing existing session remains `session.ErrNotFound`.
 
 Separate automatic eligibility from shared plan construction. Automatic `planCompaction` checks completed ordinary-turn usage and `Needed` as today. Manual planning bypasses `Needed`, but refuses every unended last turn with `TurnBusyError`. It never closes ordinary work. Both planners call one builder that clones retained messages, sets coverage/digest, assigns `compact:<turn ID>`, disables tools and steering, and resolves the summary model. A supplied budget overrides Compactor.Start's budget. Nil retains it. Existing RunOption controls and Runner.Observer continue to apply.
 

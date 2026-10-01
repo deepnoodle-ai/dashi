@@ -15,9 +15,11 @@ the rest.
   conversation. The request snapshot records the lifetime as a `default`
   adjustment of `prompt_cache.ttl`.
 - **OpenAI and Gemini** cache on their own. Dashi sends nothing new.
-- **Sessions:** a `dashi.Session` sends its ID as OpenAI's `prompt_cache_key`
+- **Sessions:** a `session.Session` sends its ID as OpenAI's `prompt_cache_key`
   on models before GPT-5.6, where a key per conversation improves cache
-  routing. The model catalog's `cache_key_default` marks those models.
+  routing. The model catalog's `cache_key_default` marks those models. The
+  session sets `Runner.CacheKey`; a host that drives `Runner` itself sets that
+  field to its conversation ID.
 
 Prompts below the model's minimum length (512 to 4,096 tokens on Claude) are
 not cached, and no error is reported.

@@ -18,7 +18,7 @@ A `Tasks` value owns the running children. The host makes one for each
 conversation, usually a [session](sessions.md). The wiring is short:
 
 ```go
-s := &dashi.Session{Runner: runner}
+s := &session.Session{Runner: runner}
 tasks := delegate.NewTasks(delegate.Config{Session: s}) // results reach s
 defer tasks.Close(ctx)
 s.Runner.Tools = tool.Join(runner.Tools, tasks.Tools())
@@ -65,7 +65,7 @@ prompt.
 
 ## The link between parent and child
 
-Each task runs in a child session, a `dashi.Session` that `Tasks` drives. Its
+Each task runs in a child session, a `session.Session` that `Tasks` drives. Its
 ID comes from `delegate.ChildID(parentTurnID, callID)`, and its turns are
 `<child>-1`, `<child>-2`, and so on, each with its own record. A child turn's
 `dashi.Start.Parent` names the parent turn and tool call that started it, and

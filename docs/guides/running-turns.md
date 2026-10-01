@@ -176,6 +176,15 @@ across turns and compaction with `dashi.ProjectHistory`
 ([compaction without a session](compaction.md#without-a-session)); and
 leases, crashes, and limits ([recovering turns](recovering-turns.md)).
 
+Package `session` is built only on this public API, so a host can do
+everything it does. A few helpers serve such hosts: `Runner.CacheKey` sets a
+conversation's prompt cache key, `dashi.Recorded(err)` tells a failure after
+recording began from a rejected command, `TurnView.ReplacementHistory` reads
+a compaction turn's result, `ContextItem.Validate` checks input before it is
+queued, and `Inbox.Has` checks a steer ID. A host that carries a recorded
+agent into its next turn clears a `Revision` that begins with
+`dashi.DerivedRevisionPrefix`.
+
 ## Structured output
 
 For a validated object result, set `Agent.OutputSchema` or pass a

@@ -11,7 +11,7 @@ Set `Session.Compactor`:
 
 ```go
 info, _ := client.ModelInfo(model)
-s := &dashi.Session{
+s := &session.Session{
 	Runner:    dashi.Runner{Client: client, Recorder: rec},
 	Compactor: compaction.New(compaction.Policy{Model: info}),
 }
@@ -159,9 +159,9 @@ summary. Later Run commands keep their own budget selection.
 compaction Outcome. Existing RunOption controls apply.
 
 Manual compaction requires an ended last turn. It refuses interrupted or
-waiting ordinary work with `*dashi.TurnBusyError`; continue or explicitly
+waiting ordinary work with `*session.TurnBusyError`; continue or explicitly
 cancel that work first. It preserves queued input and starts no queue turn.
-No eligible history returns zero Outcome and `dashi.ErrNothingToCompact`,
+No eligible history returns zero Outcome and `session.ErrNothingToCompact`,
 which is also `compaction.ErrNothingToCompact`. A recorded failed or empty
 summary returns its Outcome with `compaction_failed` and keeps the old
 projection. Preparation and recorder failures remain Go errors.

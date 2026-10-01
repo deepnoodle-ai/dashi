@@ -44,11 +44,11 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 }
 ```
 
-An agent conversation is a session; each turn is recorded, and the second
-message needs no history code:
+An agent conversation is a session (package `session`); each turn is
+recorded, and the second message needs no history code:
 
 ```go
-s := &dashi.Session{Runner: dashi.Runner{Client: client}}
+s := &session.Session{Runner: dashi.Runner{Client: client}}
 out, err := s.Send(ctx, "What's the weather in Tokyo?")
 out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
