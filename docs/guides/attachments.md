@@ -37,6 +37,10 @@ of encoded content per submission. It checks the opened descriptor is a regular
 file, rejects special files, and checks the bytes against the claimed format.
 Selecting outside the workspace grants no tool access there.
 
+Native image or document content can make the active context estimate
+unavailable. The CLI shows that warning and leaves acceptance to the provider.
+Cost limits still apply; an unavailable estimate does not prove the request fits.
+
 Before an ordinary Start, the CLI publishes private immutable snapshots in
 that session. Turn records contain only IDs, digests, sizes, and basenames.
 Resume resolves those snapshots under the same session, checks their size and

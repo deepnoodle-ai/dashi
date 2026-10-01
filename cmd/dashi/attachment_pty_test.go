@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,8 +28,12 @@ func TestAttachmentPTYChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := testConfig(t, say("Original selected snapshot received."))
+	cfg := testConfig(t)
+	cfg.Client = &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Original selected snapshot received."), say("Original screenshot received.")}}}}
 	cfg.Dir = os.Getenv("DASHI_ATTACHMENT_WORKSPACE")
+	if err := os.WriteFile(filepath.Join(cfg.Dir, "screen.png"), realisticAttachmentPNG(t), 0600); err != nil {
+		t.Fatal(err)
+	}
 	s := newScreen(cfg.Dir)
 	a, err := buildApp(t.Context(), cfg, s)
 	if err != nil {
@@ -99,22 +105,37 @@ func (s *screen) captureAttachmentEvidence() {
 	if path == "" {
 		return
 	}
-	client := s.eng.cfg.Client.(*fakeClient)
+	client := &s.eng.cfg.Client.(*mediaCLIClient).fakeClient
 	client.mu.Lock()
 	sends := client.sends
 	var docs []string
+	imageSize := 0
+	imageDigest := ""
 	if len(client.inputs) > 0 {
-		docs = hydratedDocuments(client.inputs[len(client.inputs)-1])
+		last := client.inputs[len(client.inputs)-1]
+		docs = hydratedDocuments(last)
+		for _, m := range last.Messages {
+			for _, c := range m.Content {
+				if c.Block != nil && c.Block.Image != nil {
+					data := c.Block.Image.Source.Data
+					imageSize = len(data)
+					digest := sha256.Sum256(data)
+					imageDigest = hex.EncodeToString(digest[:])
+				}
+			}
+		}
 	}
 	client.mu.Unlock()
 	state := struct {
-		Input     string
-		Rows      []string
-		Blocks    []Block
-		Mode      Mode
-		Sends     int
-		Documents []string
-	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs}
+		Input       string
+		Rows        []string
+		Blocks      []Block
+		Mode        Mode
+		Sends       int
+		Documents   []string
+		ImageSize   int
+		ImageSHA256 string
+	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest}
 	data, _ := json.Marshal(state)
 	temp := filepath.Join(filepath.Dir(path), filepath.Base(path)+".tmp")
 	if os.WriteFile(temp, data, 0600) == nil {

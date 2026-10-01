@@ -21,6 +21,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content/mention"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/money"
 )
 
 func fixtureSelectedText(t *testing.T, dir, name, body string) string {
@@ -284,7 +285,7 @@ func realisticAttachmentPDF() []byte {
 
 func realisticAttachmentPNG(t *testing.T) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 640, 512))
+	img := image.NewRGBA(image.Rect(0, 0, 640, 600))
 	rand.New(rand.NewSource(7)).Read(img.Pix)
 	for i := 3; i < len(img.Pix); i += 4 {
 		img.Pix[i] = 255
@@ -293,22 +294,20 @@ func realisticAttachmentPNG(t *testing.T) []byte {
 	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
 	}
-	if buf.Len() < 900000 {
+	if buf.Len() < 1<<20 {
 		t.Fatalf("PNG fixture unexpectedly small: %d", buf.Len())
 	}
 	return buf.Bytes()
 }
 
-// Run after rebasing onto the accepted parent media-admission implementation.
+// Full prepared bodies exercise the accepted parent media-admission policy.
 func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
-	if os.Getenv("DASHI_ATTACHMENT_MEDIA_QUALIFY") == "" {
-		t.Skip("final parent media policy qualification: set DASHI_ATTACHMENT_MEDIA_QUALIFY=1")
-	}
 	for _, kind := range []string{"png", "pdf"} {
 		for _, window := range []int{128000, 200000} {
 			t.Run(fmt.Sprintf("%s/%d", kind, window), func(t *testing.T) {
-				cfg := testConfig(t, say("Media received"))
-				cfg.Client.(*fakeClient).window = window
+				cfg := testConfig(t)
+				c := &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: window, script: []reply{say("Media received")}}}}
+				cfg.Client = c
 				data := realisticAttachmentPDF()
 				if kind == "png" {
 					data = realisticAttachmentPNG(t)
@@ -321,8 +320,25 @@ func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
 				if code := runPrint(t.Context(), cfg, Options{Print: "read evidence", PrintSet: true, AttachFiles: []string{path}}, &stdout, &stderr); code != 0 {
 					t.Fatalf("%d: %s", code, stderr.String())
 				}
-				if cfg.Client.(*fakeClient).sends != 1 {
+				if c.sends != 1 {
 					t.Fatal("realistic media did not reach Send")
+				}
+				req, err := c.Prepare(t.Context(), c.inputAt(0))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if estimate := llm.EstimatedInputTokens(req); estimate <= window {
+					t.Fatalf("full media body did not exercise window: bytes=%d estimate=%d window=%d", len(data), estimate, window)
+				}
+				if strings.Count(stderr.String(), "Active-Turn protection unavailable for media") != 1 {
+					t.Fatal("missing media admission warning", stderr.String())
+				}
+				t.Logf("bytes=%d prepared estimate=%d window=%d Send=1", len(data), llm.EstimatedInputTokens(req), window)
+				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
+					proof := fmt.Sprintf("kind=%s bytes=%d prepared estimate=%d window=%d Send=1\nstdout:\n%s\nstderr:\n%s", kind, len(data), llm.EstimatedInputTokens(req), window, stdout.String(), stderr.String())
+					if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("media-%s-%d-admission.txt", kind, window)), []byte(proof), 0600); err != nil {
+						t.Fatal(err)
+					}
 				}
 			})
 		}
@@ -649,5 +665,105 @@ func TestAttachmentCompactionInterruptPreservesOwnedInput(t *testing.T) {
 	got := hydratedDocuments(h.client.inputAt(len(h.client.inputs) - 1))
 	if len(got) != 1 || got[0] != "snapshot waiting behind summary" {
 		t.Fatal("resumed prompt lost full attachment input", got)
+	}
+}
+
+type attachmentPricedClient struct{ *mediaCLIClient }
+
+func (c *attachmentPricedClient) Prepare(ctx context.Context, in llm.Input) (llm.Request, error) {
+	req, err := c.mediaCLIClient.Prepare(ctx, in)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	snap := req.Snapshot()
+	if snap.ModelInfo == nil {
+		info, _ := c.ModelInfo(in.Model)
+		info.Evidence = llm.ModelEvidence{Model: in.Model, API: "test.chat", Endpoint: "https://example.test/model", Owner: "test", Source: "attachment fixture", Method: llm.EvidenceFixture, QualifiedAt: time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)}
+		snap.ModelInfo = &info
+	}
+	snap.ModelInfo.Pricing = &llm.Pricing{Currency: "USD", UpdatedAt: "2026-09-30", Base: llm.Rates{Input: money.MustParseAmount("1"), Output: money.MustParseAmount("1")}}
+	return llm.NewRequest(snap)
+}
+func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
+	for _, kind := range []string{"png", "pdf"} {
+		for _, affordable := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/affordable=%v", kind, affordable), func(t *testing.T) {
+				cfg := testConfig(t)
+				c := &attachmentPricedClient{&mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Media admitted under cost cap.")}}}}}
+				cfg.Client = c
+				a, err := buildApp(t.Context(), cfg, newLineUI(&bytes.Buffer{}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer a.eng.Close()
+				if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+					t.Fatal(err)
+				}
+				data := realisticAttachmentPDF()
+				if kind == "png" {
+					data = realisticAttachmentPNG(t)
+				}
+				path := filepath.Join(cfg.Dir, "evidence."+kind)
+				if err = os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				input, err := printAttachmentInput(t.Context(), cfg.Dir, "inspect evidence", []string{path})
+				if err != nil {
+					t.Fatal(err)
+				}
+				store, err := a.eng.attachmentResolver.bind()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = input.publish(t.Context(), store); err != nil {
+					t.Fatal(err)
+				}
+				message, err := input.messageForStart()
+				if err != nil {
+					t.Fatal(err)
+				}
+				agent := a.eng.agent()
+				agent.Settings.MaxTokens = 256
+				cap := "0.01"
+				if affordable {
+					cap = "2"
+				}
+				start := dashi.Start{CommandID: dashi.NewID(), Agent: agent, Input: []llm.Message{message}, Budget: &dashi.Budget{MaxCost: &dashi.Money{Amount: money.MustParseAmount(cap), Currency: "USD"}}}
+				runner := a.eng.handle().Runner
+				observed := false
+				runner.Hooks.BeforeSend = append(runner.Hooks.BeforeSend, dashi.SendHook{Name: "verify unchanged risk", Func: func(_ context.Context, p dashi.SendPlan) (dashi.SendDecision, error) {
+					observed = true
+					expected, ok := llm.MaxCostAtRisk(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
+					if !ok || p.AtRisk == nil || p.AtRisk.Total != expected.Total {
+						t.Fatalf("risk changed: plan=%+v expected=%+v", p.AtRisk, expected)
+					}
+					return dashi.SendDecision{}, nil
+				}})
+				out, err := runner.Run(t.Context(), dashi.Turn{ID: dashi.TurnID(a.eng.Session().ID, 1)}, start)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if affordable {
+					if c.sends != 1 || !observed || out.Stop.Kind != dashi.StopCompleted {
+						t.Fatal("affordable snapshot refused", c.sends, out.Stop)
+					}
+				} else {
+					if c.sends != 0 || observed || out.Stop.Limit == nil || out.Stop.Limit.Kind != dashi.LimitCost {
+						t.Fatal("cost admission bypassed", c.sends, out.Stop)
+					}
+				}
+				t.Logf("kind=%s bytes=%d affordable=%v Send=%d stop=%s", kind, len(data), affordable, c.sends, out.Stop.Kind)
+				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
+					proof := fmt.Sprintf("kind=%s bytes=%d cap=%sUSD affordable=%v Send=%d stop=%s BeforeSend=%v\n", kind, len(data), cap, affordable, c.sends, out.Stop.Kind, observed)
+					if out.Stop.Limit != nil {
+						proof += fmt.Sprintf("limit=%s cost_at_risk=%sUSD\n", out.Stop.Limit.Kind, out.Stop.Limit.CostAtRisk)
+					}
+					if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("cost-%s-affordable-%v.txt", kind, affordable)), []byte(proof), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+			})
+		}
 	}
 }
