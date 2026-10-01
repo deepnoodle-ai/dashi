@@ -39,3 +39,4 @@ go.work.sum
 
 # Built by make build
 /cmd/dashi/dashi
+__pycache__/
