@@ -285,9 +285,22 @@ type AttemptSpend struct {
 	Final bool `json:"final,omitempty"`
 }
 
-// attemptSpendOf derives one attempt's spend from its intent and, once
-// recorded, its settlement. It also reports whether usage derivation was
-// incomplete, which sets Spend.UsageIncomplete.
+// AttemptSpendOf classifies one model attempt from its intent fact and its
+// settlement, or nil while the call is pending. It is the same derivation
+// TurnView.Attempts uses. A recorder that reserved credits on the
+// StepModelIntent step can call it in the commit of the StepModelSettled or
+// StepModelReconciled step, with the intent it stored at reservation, to
+// settle the hold in the same transaction. A nil intent gives the zero value.
+func AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend {
+	if intent == nil {
+		return AttemptSpend{}
+	}
+	a, _ := attemptSpendOf(intent, settlement)
+	return a
+}
+
+// attemptSpendOf is AttemptSpendOf that also reports whether usage
+// derivation was incomplete, which sets Spend.UsageIncomplete.
 func attemptSpendOf(intent, settlement *ModelFact) (AttemptSpend, bool) {
 	a := AttemptSpend{
 		AttemptID: intent.AttemptID,

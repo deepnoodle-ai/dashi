@@ -116,7 +116,7 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 			if tc.settlement != nil {
 				tc.settlement.AttemptID = intent.AttemptID
 			}
-			got, _ := attemptSpendOf(intent, tc.settlement)
+			got := AttemptSpendOf(intent, tc.settlement)
 			if got.AttemptID != "model-1" || got.Provider != "test" ||
 				got.Model != "fixture" {
 				t.Fatalf("identity=%+v", got)
@@ -167,6 +167,27 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	if !view.Attempts[0].Final || view.Attempts[1].Basis != SpendEstimated ||
 		view.Attempts[1].Final {
 		t.Fatalf("attempts=%+v", view.Attempts)
+	}
+	intents := map[string]*ModelFact{}
+	for _, step := range out.Turn.Steps {
+		switch step.Kind {
+		case StepModelIntent:
+			intents[step.Model.AttemptID] = step.Model
+		case StepModelSettled:
+			got := AttemptSpendOf(intents[step.Model.AttemptID], step.Model)
+			var want AttemptSpend
+			for _, a := range view.Attempts {
+				if a.AttemptID == step.Model.AttemptID {
+					want = a
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("AttemptSpendOf=%+v, view=%+v", got, want)
+			}
+		}
+	}
+	if (AttemptSpendOf(nil, nil) != AttemptSpend{}) {
+		t.Fatal("nil intent is not the zero value")
 	}
 	sum := map[string]money.Amount{}
 	var usage llm.Usage

@@ -116,7 +116,7 @@ arrive, `Continue` makes `BeforeSend` check the balance again.
 
 An application can reserve credits in its recorder. `BeforeSend` receives a
 `SendPlan` with the prepared request, `AtRisk`, and the remaining turn cost
-allowance. It can return `ModelAuthorization.Admission` with the account and
+allowance. It can return `SendDecision.Admission` with the account and
 amount to hold. The recorder atomically saves the model intent and reserves
 that amount, using the attempt ID as the idempotency key. A credit denial
 returns a `Limit` of kind `host` and an application code such as
@@ -125,29 +125,40 @@ reports money puts it in the `Cost` fields with a `Currency` (an ISO 4217 code
 or the host's credit unit) and keeps `Limit` and `Used` for counts. Credit
 balances and plan ceilings remain with the application.
 
-To settle, read `TurnView.Attempts` rather than the model facts. It lists every
-model attempt in record order, including one still running, with the `Usage`
-and `Charge` that Dashi counted into `Spend`, so per-attempt charges sum to
-`Spend.Cost`. `Basis` says where the usage came from: `measured` (complete
-provider usage), `estimated` (Dashi filled some in: the call was cut short,
-is uncertain, still running, or its final usage never arrived), or
-`not_executed` (the provider verifiably never ran it, so it costs nothing). A
-nil `Charge` on an executed attempt is unknown, for example an unpriced model.
-`Final` means nothing recorded later can change the charge and it is complete:
-measured, known, and not partial, or not executed. Settle a final attempt; keep
-the hold on the rest until the attempt settles or your own reconciliation
-learns the bill. Since the attempt ID is the key, the settlement can run after
-each run or in the recorder by replaying the turn with the new step.
+To settle, let Dashi classify each attempt rather than reading the model
+facts. `dashi.AttemptSpendOf(intent, settlement)` returns the attempt's
+`AttemptSpend`: the `Usage` and `Charge` that Dashi counts into `Spend`, so
+per-attempt charges sum to `Spend.Cost`. `Basis` says where the usage came
+from: `measured` (complete provider usage), `estimated` (Dashi filled some in:
+the call was cut short, is uncertain, still running, or its final usage never
+arrived), or `not_executed` (the provider verifiably never ran it, so it costs
+nothing). A nil `Charge` on an executed attempt is unknown, for example an
+unpriced model. `Final` means nothing recorded later can change the charge and
+it is complete: measured, known, and not partial, or not executed. Settle a
+final attempt; keep the hold on the rest until a reconciliation step or your
+own reconciliation learns the bill. A recorder settles in the same transaction
+as the settlement step, with the intent fact it stored when it reserved:
 
 ```go
-for _, a := range view.Attempts {
-	switch {
-	case a.Basis == dashi.SpendNotExecuted:
-		ledger.Release(a.AttemptID)
-	case a.Final:
-		ledger.Settle(a.AttemptID, roundUpToMicros(a.Charge.Total))
-	default:
-		ledger.KeepHold(a.AttemptID) // estimated, partial, or unknown
-	}
+func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	return r.db.Tx(ctx, func(tx *Tx) error {
+		// ...append req.Step, and reserve on StepModelIntent...
+		switch req.Step.Kind {
+		case dashi.StepModelSettled, dashi.StepModelReconciled:
+			intent := tx.ReservedIntent(req.Step.Model.AttemptID)
+			a := dashi.AttemptSpendOf(intent, req.Step.Model)
+			switch {
+			case a.Basis == dashi.SpendNotExecuted:
+				return tx.Release(a.AttemptID)
+			case a.Final:
+				return tx.Settle(a.AttemptID, roundUpToMicros(a.Charge.Total))
+			}
+			// Estimated, partial, or unknown: keep the hold.
+		}
+		return nil
+	})
 }
 ```
+
+The same entries are on `TurnView.Attempts`, in record order and including a
+pending attempt, for a host that settles after each run instead.
