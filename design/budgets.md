@@ -169,10 +169,15 @@ once the reached cap has room. A host limit needs no raise.
 plan ceilings. The credit recipe: `BeforeSend` compares `AtRisk` with the
 balance, denies with a host limit when short, and returns `Admission` naming the
 account and amount. The recorder reserves that amount in the same transaction as
-the call's intent and rejects the write if it cannot. Recording the result turns
-the hold into the charge. The application may keep a hold on a call whose usage
-never arrived, or whose charge is partial (`Cost.Partial`: hosted requests
-without a price make `Total` a lower bound), until it learns the real bill. The
+the call's intent and rejects the write if it cannot. On the result step it
+calls `AttemptSpendOf(intent, settlement)`, the same per-attempt entry that
+`TurnView.Attempts` lists, with the usage and charge counted into `Spend`
+(which is their sum), a basis (measured, estimated, or not executed), and
+`Final`. A final attempt's hold becomes its charge; the
+application may keep the hold on the rest, such as a call whose usage never
+arrived or whose charge is partial (`Cost.Partial`: hosted requests without a
+price make `Total` a lower bound), until it learns the real bill. Dashi owns
+that classification, so hosts do not re-derive it from model facts. The
 attempt ID is the idempotency key.
 
 ```go
@@ -200,8 +205,10 @@ type Spend struct {
     Estimated, CostUnknown int
 }
 // Start.Budget, Continue.Budget *Budget; ModelFact.AtRisk, .Charge *llm.Cost;
-// TurnView.Budget, .Raises []BudgetRaise, .Spend; BeforeSend(ctx,
-// SendPlan{Request, Turn, AtRisk, Remaining}); ModelAuthorization.Limit.
+// TurnView.Budget, .Raises []BudgetRaise, .Spend, .Attempts []AttemptSpend;
+// AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend;
+// BeforeSend(ctx, SendPlan{Request, Turn, AtRisk, Remaining});
+// ModelAuthorization.Limit.
 ```
 
 ## Alternatives considered
