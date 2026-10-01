@@ -51,8 +51,9 @@ own admission.
 To record an admitted turn before any paid request, pass a `Start` with an
 already-closed pause channel. Dashi records the `Start` step and a
 `StopInterrupted` stop ("pause requested"), prepares and sends no model
-request, and `Next()` gives `NextContinue`. A later `Continue` runs the turn
-and counts one interruption; a `Cancel` withdraws it.
+request, and `Next()` gives `NextContinue`. A later `Continue` runs the turn;
+it does not count toward `Limits.Interruptions`, because no work was cut
+short. A `Cancel` withdraws it.
 
 A command is applied once per recorder. Running the same command again, with
 the same `CommandID` and content against the same recorder, returns the

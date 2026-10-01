@@ -84,8 +84,9 @@ func WithOwner(owner string) RunOption {
 // A Start with an already-closed pause admits a turn without running it:
 // the turn records its Start step and an interrupted stop ("pause
 // requested"), and no model request is prepared or sent. Next then gives
-// NextContinue; a later Continue runs the turn and counts one interruption
-// (see Limits.Interruptions), and a Cancel, which needs no Client, ends it.
+// NextContinue; a later Continue runs the turn without counting an
+// interruption, since none of its work was cut short, and a Cancel, which
+// needs no Client, ends it.
 // A host uses this to fix the admitted request in the record before any paid
 // request runs.
 func WithPause(pause <-chan struct{}) RunOption {

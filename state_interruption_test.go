@@ -190,8 +190,18 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	def := testAgent()
 	def.Limits.Interruptions = 1
+	// A model attempt comes first: a pause before any attempt interrupted
+	// no work and does not count.
 	steps := []Step{
 		interruptionStart(def),
+		interruptionModelIntent("model-1"),
+		{Kind: StepModelSettled, Model: &ModelFact{
+			AttemptID:   "model-1",
+			MessageID:   "message-1",
+			Error:       "pause requested",
+			Interrupted: InterruptRun,
+			NoDispatch:  true,
+		}},
 		{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
 		{Kind: StepContinued},
 	}

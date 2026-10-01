@@ -107,11 +107,11 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	def := testAgent()
 	def.Limits.Interruptions = -1
-	client := &scriptedClient{results: []llm.Result{final("done")}}
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
-	close(pause)
-	first, err := (Runner{Client: client, Recorder: rec}).Run(
+	tools := tool.List{pausingTool(pause)}
+	first, err := (Runner{Client: client, Tools: tools, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "interruptions"},
 		limitsStart(def),
@@ -120,6 +120,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopInterrupted {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
+	client.sends = 0
 	if first.ReadyToContinue {
 		t.Fatal("interrupted turn is ready to continue with no resumes allowed")
 	}

@@ -272,8 +272,81 @@ func TestAdmitWithoutRunning(t *testing.T) {
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("done=%+v err=%v sends=%d", done.Stop, err, client.sends)
 	}
-	// Resuming a paused turn counts as one interruption.
-	if done.Interruptions != 1 {
+	// A pause before the first model attempt interrupted no work.
+	if done.Interruptions != 0 {
 		t.Fatalf("interruptions=%d", done.Interruptions)
+	}
+}
+
+func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
+	rec := NewMemoryRecorder()
+	paused := make(chan struct{})
+	close(paused)
+	agent := testAgent()
+	agent.Limits.Interruptions = -1
+	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Agent:     agent,
+			Input:     []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+		WithPause(paused),
+	)
+	if err != nil || admitted.Next() != NextContinue {
+		t.Fatalf("admitted=%+v err=%v", admitted.Stop, err)
+	}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	done, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(),
+		admitted.Turn,
+		Continue{CommandID: "run"},
+	)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 0 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
+	}
+}
+
+// pausingTool is a local "lookup" tool that closes paused when it runs, so
+// a turn pauses after a model attempt, before its next model call.
+func pausingTool(paused chan struct{}) tool.Tool {
+	return tool.Tool{
+		Definition: tool.Definition{
+			Name:   "lookup",
+			Schema: []byte(`{"type":"object"}`),
+		},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			close(paused)
+			return tool.Succeeded("ok"), nil
+		}),
+	}
+}
+
+func TestPauseAfterModelAttemptCountsAsInterruption(t *testing.T) {
+	rec := NewMemoryRecorder()
+	paused := make(chan struct{})
+	local := pausingTool(paused)
+	client := &scriptedClient{results: []llm.Result{
+		callResult("call-1", "lookup"),
+		final("done"),
+	}}
+	runner := Runner{Client: client, Tools: tool.List{local}, Recorder: rec}
+	stopped, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{
+			CommandID: "start",
+			Agent:     testAgent(),
+			Input:     []llm.Message{llm.UserMessage(llm.Text("hello"))},
+		},
+		WithPause(paused),
+	)
+	if err != nil || stopped.Stop.Kind != StopInterrupted || client.sends != 1 {
+		t.Fatalf("stopped=%+v err=%v sends=%d", stopped.Stop, err, client.sends)
+	}
+	done, err := runner.Run(t.Context(), stopped.Turn, Continue{CommandID: "run"})
+	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 1 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
 	}
 }
