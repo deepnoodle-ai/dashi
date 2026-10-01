@@ -54,3 +54,21 @@ proposals; unresolved choices remain open.
 
 Keep Markdown documents short and focused: **soft limit two pages; hard limit
 four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
+
+## Modules and releases
+
+Dashi is four Go modules: the root, `mcp`, `providers/google/gemini`, and
+`cmd/dashi`. A committed `go.work` ties them together for local work.
+
+- Never add `replace` directives to a `go.mod`. `go install …@version` refuses
+  a module that has them, which breaks
+  `go install github.com/deepnoodle-ai/dashi/cmd/dashi@latest`.
+- `go.work` holds `replace` lines pinned to the current release version;
+  `make release-prep` rewrites them. Do not edit them by hand.
+- `go mod tidy` ignores the workspace. Avoid it in sub-modules between
+  `release-prep` and tagging, and expect it to fail when a sub-module imports a
+  root package added since the last release.
+- Run `make check` before opening a PR; it covers all four modules.
+- Record user-visible changes under `## [Unreleased]` in `CHANGELOG.md`.
+- Release steps are in `docs/dev/releasing.md`. Tag every module at the same
+  version.
