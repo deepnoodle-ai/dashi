@@ -53,7 +53,10 @@ fallback to another provider.
 
 Latest-Turn and session totals stay separate. Session figures include this
 session's own summary Turns once and exclude child report totals. Model and
-tool money stay separate by currency. No currency conversion occurs.
+tool money stay separate by currency. No currency conversion occurs. Model-call counts use recorded dispatch evidence,
+not an unrecorded host counter. An interrupted call without provider response
+evidence can have estimated usage and an unknown charge without a confirmed
+dispatched call. Unresolved model intents remain separate.
 
 The report keeps usage uncertainty separate from money uncertainty. Estimated
 usage, missing cache-write reporting, token mismatches, partial charges, and
