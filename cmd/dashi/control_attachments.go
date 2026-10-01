@@ -93,7 +93,15 @@ func attachmentSelectionError(path string, err error) error {
 }
 
 // The footer uses single-line names; /attachments retains full source details.
-func attachmentPreviewRows(d *attachmentDraft) []string {
+func attachmentOutsideWorkspace(e *attachmentEntry, dir string) bool {
+	if e.state != attachmentReady {
+		return false
+	}
+	rel, err := filepath.Rel(dir, e.canonical)
+	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func attachmentPreviewRows(d *attachmentDraft, dir string) []string {
 	var rows []string
 	for _, e := range d.entries[:min(2, len(d.entries))] {
 		state := "loading"
@@ -104,14 +112,29 @@ func attachmentPreviewRows(d *attachmentDraft) []string {
 			state = "ready"
 			detail = fmt.Sprintf(" · %s · %d bytes", e.file.Attachment.MIMEType, e.file.Attachment.Size)
 		}
-		rows = append(rows, workspace.PrintableText(fmt.Sprintf("%d. %s %s%s", e.number, state, filepath.Base(e.requested), detail)))
+		location := ""
+		if attachmentOutsideWorkspace(e, dir) {
+			// Place the disclosure before a potentially truncated filename.
+			location = " · outside workspace ·"
+		}
+		rows = append(rows, workspace.PrintableText(fmt.Sprintf("%d. %s%s %s%s", e.number, state, location, filepath.Base(e.requested), detail)))
 	}
 	if len(d.entries) > 0 {
 		more := ""
 		if len(d.entries) > 2 {
 			more = fmt.Sprintf("%d more selections · ", len(d.entries)-2)
 		}
-		rows = append(rows, more+"/attachments lists all · /detach N removes a selection")
+		outside := 0
+		for _, e := range d.entries {
+			if attachmentOutsideWorkspace(e, dir) {
+				outside++
+			}
+		}
+		if outside > 0 {
+			rows = append(rows, more+fmt.Sprintf("%d outside workspace · /attachments · /detach N", outside))
+		} else {
+			rows = append(rows, more+"/attachments lists all · /detach N removes a selection")
+		}
 	}
 	return rows
 }
@@ -128,7 +151,7 @@ func attachmentRows(d *attachmentDraft, dir string) []string {
 		if e.state == attachmentReady {
 			state = "ready"
 			detail = fmt.Sprintf(" — %s, %d bytes", e.file.Attachment.MIMEType, e.file.Attachment.Size)
-			if rel, err := filepath.Rel(dir, e.canonical); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if attachmentOutsideWorkspace(e, dir) {
 				detail += "; outside workspace"
 			}
 		}

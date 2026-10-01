@@ -607,7 +607,7 @@ func (s *screen) footer() tui.View {
 		if mode == ModeRunning {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
 		}
-		for _, row := range attachmentPreviewRows(&s.attachments) {
+		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
 			views = append(views, tui.Text(" %s", row).Hint())
 		}
 		views = append(views,
