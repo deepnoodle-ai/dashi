@@ -121,6 +121,61 @@ resume := dashi.Continue{
 }
 ```
 
+## Running turns without a session
+
+A host that admits and stores its own turns runs one loop per turn. Each
+command is saved before it runs, so a worker that crashes can run the same
+command again; a repeated command returns the recorded result.
+
+1. **Admit.** Choose the turn ID and the Start's `CommandID`, save the Start
+   with `dashi.MarshalCommand`, and run it. With an already-closed
+   `dashi.WithPause`, this records the turn without a model call
+   ([recovering turns](recovering-turns.md#resuming-after-a-stop-or-crash)).
+2. **Advance.** Load the turn and map `view.Next()` to a command.
+   `NextContinue` and `NextResume` give `Continue` with the same history;
+   resume only once the old worker is known to be gone. `NextAnswer` waits
+   for the host to `Settle` each pending call or approval.
+   `NextRaiseBudget` and `NextRaiseAttempts` are the host's choice: `Continue`
+   with a raised `Budget` or `ModelAttempts`, or `Cancel`. `NextResolve`
+   depends on the cause, such as a host limit code the host owns: fix it and
+   `Continue`, or `Cancel`. `NextNone` means done.
+3. **Run.** Save the command, then run it with
+   `runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))`. `Cancel`, `Settle`,
+   and `Deliver` need no `Client`.
+
+Derive each `CommandID` from the turn ID and revision, or save each planned
+command before running it, so a crash replays the same command. After a
+restart, the first saved command with no step in the turn (match
+`dashi.CommandIDOf` against `Step.CommandID`) is the one to run again:
+
+```go
+for {
+	turn, _ := rec.Load(ctx, turnID)
+	cmd := outbox.unapplied(turn) // saved, but no step records it
+	if cmd == nil {
+		view, _ := dashi.Replay(turn)
+		if cmd = plan(turn, view, history); cmd == nil {
+			break // NextNone, or waiting on the host
+		}
+		outbox.save(cmd) // dashi.MarshalCommand
+	}
+	if _, err := runner.Run(ctx, turn, cmd, dashi.WithOwner(owner)); err != nil {
+		return err // reload and back off on ErrRevisionConflict
+	}
+}
+```
+
+Here `plan` is the switch on `view.Next()`, with
+`CommandID: fmt.Sprintf("%s@%d", turn.ID, view.Revision)`.
+`Example_hostTurnLoop` runs the whole loop, including a crash between saving
+and running, without an API key.
+
+The rest of a host's work has its own guide: settling each model attempt in
+the recorder with `dashi.AttemptSpendOf` ([budgets](budgets.md)); history
+across turns and compaction with `dashi.ProjectHistory`
+([compaction without a session](compaction.md#without-a-session)); and
+leases, crashes, and limits ([recovering turns](recovering-turns.md)).
+
 ## Structured output
 
 For a validated object result, set `Agent.OutputSchema` or pass a
