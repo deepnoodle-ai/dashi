@@ -500,22 +500,22 @@ func TestContextViewTracksLiveNamedItems(t *testing.T) {
 }
 
 func TestBeforeSendReservationDenyAndFailure(t *testing.T) {
-	admit := func(name, terms string) SendHook {
+	reserving := func(name, terms string) SendHook {
 		return SendHook{Name: name, Func: func(context.Context, SendPlan) (SendDecision, error) {
 			return SendDecision{Reservation: json.RawMessage(terms)}, nil
 		}}
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := runHooked(t, client, nil, Hooks{BeforeSend: []SendHook{
-		admit("credits", `{"hold":1}`),
-		admit("quota", `{"slot":"a"}`),
+		reserving("credits", `{"hold":1}`),
+		reserving("quota", `{"slot":"a"}`),
 	}})
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	admission := out.Turn.Steps[1].Model.Reservation
-	if len(admission) != 2 || string(admission["quota"]) != `{"slot":"a"}` {
-		t.Fatalf("reservation = %v", admission)
+	reservations := out.Turn.Steps[1].Model.Reservation
+	if len(reservations) != 2 || string(reservations["quota"]) != `{"slot":"a"}` {
+		t.Fatalf("reservation = %v", reservations)
 	}
 
 	deny := SendHook{Name: "funds", Func: func(context.Context, SendPlan) (SendDecision, error) {

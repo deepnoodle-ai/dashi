@@ -59,7 +59,7 @@ type sessionTurn struct {
 	turn             dashi.Turn
 	view             dashi.TurnView
 	messages         []llm.Message
-	projected        bool
+	messagesBuilt    bool
 	contextMessages  []llm.Message
 	contextProjected bool
 	// checked is set once a compaction turn's hash was compared, and
@@ -365,7 +365,7 @@ func (s *Session) conversation(ctx context.Context, n int) []llm.Message {
 		if err != nil || t.view.Origin == dashi.StartCompaction {
 			continue
 		}
-		msgs, err := s.projection(t)
+		msgs, err := s.turnMessages(t)
 		if err == nil {
 			out = append(out, msgs...)
 		}
@@ -388,8 +388,8 @@ func (s *Session) historyFor(
 }
 
 // projection returns a turn's own messages. The caller holds mu.
-func (s *Session) projection(t *sessionTurn) ([]llm.Message, error) {
-	if t.projected {
+func (s *Session) turnMessages(t *sessionTurn) ([]llm.Message, error) {
+	if t.messagesBuilt {
 		return t.messages, nil
 	}
 	msgs, err := dashi.TurnMessagesFull(t.turn)
@@ -397,7 +397,7 @@ func (s *Session) projection(t *sessionTurn) ([]llm.Message, error) {
 		return nil, err
 	}
 	if t.ended() {
-		t.messages, t.projected = msgs, true
+		t.messages, t.messagesBuilt = msgs, true
 	}
 	return msgs, nil
 }

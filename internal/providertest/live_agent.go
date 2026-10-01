@@ -84,12 +84,12 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			err,
 		)
 	}
-	projected, err := dashi.TurnMessagesFull(out.Turn)
+	messages, err := dashi.TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
-	for _, message := range projected {
+	for _, message := range messages {
 		for _, part := range message.Content {
 			if part.Reminder != nil && part.Reminder.Name == "answer-word" && part.Reminder.Content == "The answer word is indigo." {
 				found = true

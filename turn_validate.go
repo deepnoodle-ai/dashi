@@ -98,9 +98,9 @@ func validateHidden(fact *ModelFact) error {
 
 // validateReservation checks the BeforeSend reservation terms recorded on a
 // model call's start.
-func validateReservation(admission map[string]json.RawMessage) error {
+func validateReservation(terms map[string]json.RawMessage) error {
 	total := 0
-	for name, raw := range admission {
+	for name, raw := range terms {
 		if name == "" || len(raw) == 0 || !json.Valid(raw) {
 			return errors.New("invalid model reservation terms")
 		}

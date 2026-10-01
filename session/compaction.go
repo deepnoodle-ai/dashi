@@ -117,8 +117,8 @@ func (s *Session) planManualCompaction(
 			CallID: resultUnknownCall(t),
 		}
 	}
-	projected, warnings := s.history(ctx, last)
-	p, err := s.buildCompaction(ctx, last, projected, budget)
+	messages, warnings := s.history(ctx, last)
+	p, err := s.buildCompaction(ctx, last, messages, budget)
 	if p != nil {
 		p.warnings = warnings
 	}
@@ -154,17 +154,17 @@ func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.RunRes
 // Compactor decides when and how a Session compacts its history.
 // Package compaction implements it.
 type Compactor interface {
-	// Needed reports whether to compact before the next turn. projected is
+	// Needed reports whether to compact before the next turn. messages is
 	// the session's history, as the next turn would receive it, and last is
 	// the usage of the last model call of the last turn.
-	Needed(projected []llm.Message, last llm.Usage) bool
+	Needed(messages []llm.Message, last llm.Usage) bool
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
 	// where the summary goes among them, its frame, and its Hash, the
-	// dashi.HistoryHash of projected. The session sets the command ID,
+	// dashi.HistoryHash of messages. The session sets the command ID,
 	// origin, history, and Through, fills an empty Hash, turns tools
 	// off, and applies the caller's Start.Budget when it has one.
-	Start(projected []llm.Message) (dashi.Start, error)
+	Start(messages []llm.Message) (dashi.Start, error)
 }
 
 // isCompaction reports whether command c runs a compaction turn.
@@ -199,7 +199,7 @@ func lastUsage(turn dashi.Turn) llm.Usage {
 func (s *Session) planCompaction(
 	ctx context.Context,
 	last int,
-	projected []llm.Message,
+	messages []llm.Message,
 	budget *dashi.Budget,
 ) (*startPlan, []dashi.Warning) {
 	if s.Compactor == nil || last == 0 {
@@ -208,10 +208,10 @@ func (s *Session) planCompaction(
 	t, err := s.load(ctx, last)
 	if err != nil || t.view.Stop.Kind != dashi.StopCompleted ||
 		t.view.Origin == dashi.StartCompaction ||
-		!s.Compactor.Needed(projected, lastUsage(t.turn)) {
+		!s.Compactor.Needed(messages, lastUsage(t.turn)) {
 		return nil, nil
 	}
-	p, err := s.buildCompaction(ctx, last, projected, budget)
+	p, err := s.buildCompaction(ctx, last, messages, budget)
 	if err != nil {
 		return nil, []dashi.Warning{compactionFailed(fmt.Sprintf(
 			"the compaction turn could not start: %v", err,
@@ -223,10 +223,10 @@ func (s *Session) planCompaction(
 func (s *Session) buildCompaction(
 	ctx context.Context,
 	last int,
-	projected []llm.Message,
+	messages []llm.Message,
 	budget *dashi.Budget,
 ) (*startPlan, error) {
-	c, err := s.Compactor.Start(llmclone.Messages(projected))
+	c, err := s.Compactor.Start(llmclone.Messages(messages))
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}
@@ -241,7 +241,7 @@ func (s *Session) buildCompaction(
 	c.Compaction.Through = last
 	if c.Compaction.Hash == "" {
 		// A custom Compactor may leave it empty; the check still applies.
-		if c.Compaction.Hash, err = dashi.HistoryHash(projected); err != nil {
+		if c.Compaction.Hash, err = dashi.HistoryHash(messages); err != nil {
 			return nil, err
 		}
 	}
@@ -391,8 +391,8 @@ func (s *Session) checkHash(ctx context.Context, t *sessionTurn) *dashi.Warning 
 		return nil
 	}
 	t.checked = true
-	projected, _ := s.history(ctx, f.Through)
-	if got, err := dashi.HistoryHash(projected); err != nil || got != f.Hash {
+	messages, _ := s.history(ctx, f.Through)
+	if got, err := dashi.HistoryHash(messages); err != nil || got != f.Hash {
 		t.mismatch = &dashi.Warning{
 			Code: dashi.WarningCompactionMismatch,
 			Message: fmt.Sprintf(

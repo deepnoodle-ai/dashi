@@ -250,7 +250,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if costStop != nil {
 		return r.stopWith(costStop), false
 	}
-	admission, sendStop, ctxStop := r.beforeSend(s, req, atRisk, remainingCost, purpose)
+	terms, sendStop, ctxStop := r.beforeSend(s, req, atRisk, remainingCost, purpose)
 	if ctxStop != nil {
 		return *ctxStop, false
 	}
@@ -277,7 +277,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		MessageID:            messageID,
 		RequestHash:          canonjson.Hash(req.Body()),
 		FinalReplyOnly:       finalReplyOnly,
-		Reservation:          admission,
+		Reservation:          terms,
 		WorstCaseCost:        atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
 		Provider:             r.runner.Client.Provider(),

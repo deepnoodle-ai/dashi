@@ -161,7 +161,7 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 	// Use the turn's ordinary messages for added-item lifetime, roles, and
 	// slot metadata. Raw facts retain expired added items but must not
 	// restore them.
-	projected, err := turnMessages(r.turn, nil, true)
+	visible, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 			deliveries[step.Seq] = true
 		}
 	}
-	for _, message := range projected {
+	for _, message := range visible {
 		if deliveries[message.Ref.Seq] {
 			out = append(out, message.Message.Clone())
 		}
@@ -279,7 +279,7 @@ func (r *runtime) activeMediaEstimateUnavailable(s *replayState, input llm.Input
 	if s.ActiveCompactionWindow == 0 || !activeInputHasMedia(input) {
 		return false
 	}
-	warning := Warning{Code: WarningActiveCompactionMediaEstimateUnavailable, Message: "Active context size cannot be estimated for this media request. Provider content preparation and actual window acceptance govern it; financial admission remains unchanged."}
+	warning := Warning{Code: WarningActiveCompactionMediaEstimateUnavailable, Message: "Active context size cannot be estimated for this media request. Provider content preparation and actual window acceptance govern it; cost checks are unchanged."}
 	hasWarning := func(w Warning) bool { return w.Code == warning.Code }
 	if !slices.ContainsFunc(s.Warnings, hasWarning) && !slices.ContainsFunc(r.pendingWarnings, hasWarning) {
 		r.pendingWarnings = append(r.pendingWarnings, warning)

@@ -259,7 +259,7 @@ func (r *runtime) beforeSend(
 	remaining *Money,
 	purpose ModelPurpose,
 ) (map[string]json.RawMessage, *Stop, *RunResult) {
-	var admission map[string]json.RawMessage
+	var terms map[string]json.RawMessage
 	total := 0
 	mark := r.hookMark()
 	for _, h := range r.hooks.BeforeSend {
@@ -300,10 +300,10 @@ func (r *runtime) beforeSend(
 			return nil, stop, nil
 		}
 		if len(d.Reservation) > 0 {
-			if admission == nil {
-				admission = map[string]json.RawMessage{}
+			if terms == nil {
+				terms = map[string]json.RawMessage{}
 			}
-			admission[h.Name] = slices.Clone(d.Reservation)
+			terms[h.Name] = slices.Clone(d.Reservation)
 			total += len(d.Reservation)
 			r.addHookResult(HookResult{
 				Point:   HookBeforeSend,
@@ -312,7 +312,7 @@ func (r *runtime) beforeSend(
 			})
 		}
 	}
-	return admission, nil, nil
+	return terms, nil, nil
 }
 
 func validSendDecision(d SendDecision, used int) error {

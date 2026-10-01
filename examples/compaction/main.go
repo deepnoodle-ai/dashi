@@ -100,13 +100,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	projected, err := s.NextHistory(ctx)
+	messages, err := s.NextHistory(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nconversation: %d messages; the next turn sends %d:\n",
-		len(history), len(projected))
-	for _, m := range projected {
+		len(history), len(messages))
+	for _, m := range messages {
 		fmt.Printf("  [%s] %.60s\n", m.Role, m.Text())
 	}
 
@@ -119,7 +119,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a, _ := json.Marshal(projected)
+	a, _ := json.Marshal(messages)
 	b, _ := json.Marshal(again)
 	fmt.Println("a handle with no compactor reads the same:", string(a) == string(b))
 	return nil

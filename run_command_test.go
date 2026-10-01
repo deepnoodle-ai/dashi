@@ -572,32 +572,32 @@ func TestRecordWithoutClient(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
-	admit := Start{
+	recordOnly := Start{
 		CommandID: "start",
 		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	admitted, err := (Runner{Recorder: rec}).Run(
-		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+	recorded, err := (Runner{Recorder: rec}).Run(
+		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(admitted.Turn.Steps) != 2 ||
-		admitted.Stop.Kind != StopInterrupted ||
-		admitted.Stop.Reason != "pause requested" ||
-		admitted.Next() != NextContinue {
-		t.Fatalf("recorded=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
+	if len(recorded.Turn.Steps) != 2 ||
+		recorded.Stop.Kind != StopInterrupted ||
+		recorded.Stop.Reason != "pause requested" ||
+		recorded.Next() != NextContinue {
+		t.Fatalf("recorded=%+v steps=%d", recorded.Stop, len(recorded.Turn.Steps))
 	}
 
 	// The same unrun Start with a Client records the same Start step.
 	withClient, err := (Runner{Client: &scriptedClient{}}).Run(
-		t.Context(), Turn{ID: "t1"}, admit, WithPause(paused),
+		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, want := admitted.Turn.Steps[0], withClient.Turn.Steps[0]
+	got, want := recorded.Turn.Steps[0], withClient.Turn.Steps[0]
 	if got.CommandHash != want.CommandHash ||
 		!reflect.DeepEqual(got.Started, want.Started) {
 		t.Fatalf("start step differs without a client:\n%+v\n%+v", got, want)
@@ -606,7 +606,7 @@ func TestRecordWithoutClient(t *testing.T) {
 	// A retried Start with a Client is the same command.
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{Client: client, Recorder: rec}
-	retried, err := runner.Run(t.Context(), Turn{ID: "t1"}, admit)
+	retried, err := runner.Run(t.Context(), Turn{ID: "t1"}, recordOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +625,7 @@ func TestRecordWithoutClient(t *testing.T) {
 	// Continue with a Client runs a turn that was recorded without running.
 	rec2 := NewMemoryRecorder()
 	again, err := (Runner{Recorder: rec2}).Run(
-		t.Context(), Turn{ID: "t2"}, admit, WithPause(paused),
+		t.Context(), Turn{ID: "t2"}, recordOnly, WithPause(paused),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -697,14 +697,14 @@ func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
 
 	paused := make(chan struct{})
 	close(paused)
-	admitted, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+	recorded, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
 	}, WithPause(paused))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(t.Context(), admitted.Turn, Continue{})
+	_, err = runner.Run(t.Context(), recorded.Turn, Continue{})
 	if err == nil || !strings.Contains(err.Error(), "client is required to call the model") {
 		t.Fatalf("continue err=%v", err)
 	}
@@ -712,8 +712,8 @@ func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Steps) != len(admitted.Turn.Steps) {
-		t.Fatalf("continue recorded steps: %d, want %d", len(saved.Steps), len(admitted.Turn.Steps))
+	if len(saved.Steps) != len(recorded.Turn.Steps) {
+		t.Fatalf("continue recorded steps: %d, want %d", len(saved.Steps), len(recorded.Turn.Steps))
 	}
 }
 
@@ -878,7 +878,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
-	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	recorded, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
@@ -891,7 +891,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps := admitted.Turn.Steps
+	steps := recorded.Turn.Steps
 	if len(steps) != 2 ||
 		steps[0].Kind != StepTurnStarted ||
 		steps[1].Kind != StepTurnStopped ||
@@ -899,14 +899,14 @@ func TestRecordWithoutRunning(t *testing.T) {
 		steps[1].Stop.Reason != "pause requested" {
 		t.Fatalf("steps=%+v", steps)
 	}
-	if admitted.Next() != NextContinue || !admitted.ReadyToContinue ||
-		admitted.ModelCalls != 0 || admitted.Resumes != 0 {
-		t.Fatalf("view=%+v next=%v", admitted.TurnView, admitted.Next())
+	if recorded.Next() != NextContinue || !recorded.ReadyToContinue ||
+		recorded.ModelCalls != 0 || recorded.Resumes != 0 {
+		t.Fatalf("view=%+v next=%v", recorded.TurnView, recorded.Next())
 	}
 
 	canceled, err := (Runner{Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
+		recorded.Turn,
 		Cancel{CommandID: "cancel", Reason: "reservation withdrawn"},
 	)
 	if err != nil || canceled.Stop.Kind != StopCanceled {
@@ -915,7 +915,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 
 	// The same unrun Start, continued later, runs normally.
 	rec = NewMemoryRecorder()
-	admitted, err = (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	recorded, err = (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t2"},
 		Start{
@@ -931,7 +931,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
+		recorded.Turn,
 		Continue{CommandID: "run"},
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 1 {
@@ -949,7 +949,7 @@ func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 	close(paused)
 	agent := testAgent()
 	agent.Limits.Resumes = -1
-	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
+	recorded, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
 		Start{
@@ -959,13 +959,13 @@ func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 		},
 		WithPause(paused),
 	)
-	if err != nil || admitted.Next() != NextContinue {
-		t.Fatalf("recorded=%+v err=%v", admitted.Stop, err)
+	if err != nil || recorded.Next() != NextContinue {
+		t.Fatalf("recorded=%+v err=%v", recorded.Stop, err)
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
-		admitted.Turn,
+		recorded.Turn,
 		Continue{CommandID: "run"},
 	)
 	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 0 {

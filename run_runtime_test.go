@@ -350,11 +350,11 @@ func budgetHooks() Hooks {
 	return SendHook{
 		Name: "budget",
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
-			admission, err := json.Marshal(testReservation{
+			terms, err := json.Marshal(testReservation{
 				Units:        3,
 				RequestProof: canonjson.Hash(plan.Request.Body()),
 			})
-			return SendDecision{Reservation: admission}, err
+			return SendDecision{Reservation: terms}, err
 		},
 	}.Hooks()
 }
@@ -394,18 +394,18 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	step := req.Step
-	var admission testReservation
+	var terms testReservation
 	if step.Kind == StepModelCallStarted {
 		if err := json.Unmarshal(
 			step.Model.Reservation["budget"],
-			&admission,
-		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestHash {
+			&terms,
+		); err != nil || terms.Units <= 0 || terms.RequestProof != step.Model.RequestHash {
 			return &CommitError{
 				NothingWritten: true,
 				Err:            errors.New("invalid reservation"),
 			}
 		}
-		if r.balance < admission.Units {
+		if r.balance < terms.Units {
 			return &CommitError{
 				NothingWritten: true,
 				Err:            errors.New("budget exhausted"),
@@ -417,8 +417,8 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	}
 	if step.Kind == StepModelCallStarted {
 		if _, exists := r.reservations[step.Model.ModelCallID]; !exists {
-			r.balance -= admission.Units
-			r.reservations[step.Model.ModelCallID] = admission.Units
+			r.balance -= terms.Units
+			r.reservations[step.Model.ModelCallID] = terms.Units
 		}
 		if r.loseCallStart {
 			r.loseCallStart = false

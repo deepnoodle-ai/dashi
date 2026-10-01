@@ -7,10 +7,10 @@ import (
 
 func TestCallIdentityIsZero(t *testing.T) {
 	if !(CallIdentity{}).IsZero() {
-		t.Fatal("empty attempt is not zero")
+		t.Fatal("empty identity is not zero")
 	}
 	if (CallIdentity{TurnID: "t1", ModelCallID: "t1:model:1"}).IsZero() {
-		t.Fatal("set attempt is zero")
+		t.Fatal("set identity is zero")
 	}
 }
 
@@ -38,7 +38,7 @@ func TestStreamPassesCallThrough(t *testing.T) {
 	) {
 	}
 	if client.last.Identity != want {
-		t.Fatalf("attempt=%+v, want %+v", client.last.Identity, want)
+		t.Fatalf("identity=%+v, want %+v", client.last.Identity, want)
 	}
 	if len(observed) != 1 || observed[0] != "hi" {
 		t.Fatalf("caller sink saw %v", observed)
@@ -55,7 +55,7 @@ func TestDirectCallsHaveNoCallIdentity(t *testing.T) {
 	}
 	if !client.last.Identity.IsZero() {
 		t.Fatalf(
-			"direct stream carried attempt %+v",
+			"direct stream carried identity %+v",
 			client.last.Identity,
 		)
 	}
@@ -69,6 +69,6 @@ func TestDirectCallsHaveNoCallIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !client.last.Identity.IsZero() {
-		t.Fatalf("Generate carried attempt %+v", client.last.Identity)
+		t.Fatalf("Generate carried identity %+v", client.last.Identity)
 	}
 }

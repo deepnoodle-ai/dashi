@@ -68,7 +68,7 @@ Every `StopKind`, `LimitKind`, and stop reason in the code maps to one value:
 | `failed` | `content_no_loader`, `content_unavailable`, `content_too_large`, `content_size_mismatch`, `content_hash_mismatch` | `NextFix` |
 | `failed` | free-text failures: provider rejection, invalid or `incomplete_model_result`, `empty_response`, `tool binding unavailable`, `tool binding changed or unavailable`, `provider tool cannot execute locally`, `prepared request changed destination`, `prepared request changed original model input`, `untrusted stop with client calls`, `untrusted stop with provider tool approval`, native output schema unsupported, replay errors | `NextFix` |
 | `result_unknown` | `ReadyToContinue` (the host resolved it) | `NextContinue` |
-| `result_unknown` | otherwise: `model attempt needs reconciliation`, `tool outcome needs reconciliation`, `provider tool may have run`, a send whose status is unknown | `NextFix` |
+| `result_unknown` | otherwise: `model call result unknown; the host must resolve it`, `tool call result unknown; the host must resolve it`, `provider tool may have run`, a send whose status is unknown | `NextFix` |
 
 `NextContinue` is never returned for a refusal, so a host is never told to ask
 the model again after it refused. A test builds each row; a new reason with no
@@ -99,8 +99,8 @@ it). A session *closes* a stopped turn by canceling it, which ends it. Before
 track 1, an ending stop finished only calls that never started
 (`turn_replay_apply.go`, the `StepTurnStopped` case). Calls in state started,
 waiting, or result unknown stayed pending, and so did a started model call.
-`TurnMessagesFull` then failed ("client tool call is unresolved", "model intent
-needs reconciliation"; `history_turn_messages.go`). And `acceptsAfterEnd` still
+`TurnMessagesFull` then failed ("client tool call is unresolved", "model call
+result unknown; the host must resolve it"; `history_turn_messages.go`). And `acceptsAfterEnd` still
 accepted a `Resolve` for started work after the ending stop
 (`turn_replay_checks.go`), which would change an old turn's messages after
 later turns were built on it. With the skip-unreadable rule, an ended turn would

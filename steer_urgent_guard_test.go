@@ -209,8 +209,8 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 			if asked == 1 {
 				inbox.sendUrgent(t, "use staging")
 			}
-			admission := json.RawMessage(fmt.Sprintf(`{"pass":%d}`, asked))
-			return SendDecision{Reservation: admission}, nil
+			terms := json.RawMessage(fmt.Sprintf(`{"pass":%d}`, asked))
+			return SendDecision{Reservation: terms}, nil
 		},
 	}
 	out := runUrgent(t, client, inbox, func(r *Runner) {
@@ -244,11 +244,11 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 			n,
 		)
 	}
-	admission := string(callStarts[0].Model.Reservation["reserve"])
-	if admission != `{"pass":2}` {
+	terms := string(callStarts[0].Model.Reservation["reserve"])
+	if terms != `{"pass":2}` {
 		t.Fatalf(
 			"reservation = %s; the request must carry the second pass's",
-			admission,
+			terms,
 		)
 	}
 	if hasText(client.lastMessages(), "use staging") < 0 {

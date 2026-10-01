@@ -401,13 +401,13 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	switch req.Step.Kind {
 	case StepModelCallStarted:
 		fact := req.Step.Model
-		var admission creditReservation
+		var terms creditReservation
 		if fact == nil || fact.WorstCaseCost == nil ||
-			json.Unmarshal(fact.Reservation["credits"], &admission) != nil ||
-			admission.Account != "tenant-1" ||
-			admission.Currency != fact.WorstCaseCost.Currency ||
-			admission.Amount != fact.WorstCaseCost.Total ||
-			admission.Amount > r.balance {
+			json.Unmarshal(fact.Reservation["credits"], &terms) != nil ||
+			terms.Account != "tenant-1" ||
+			terms.Currency != fact.WorstCaseCost.Currency ||
+			terms.Amount != fact.WorstCaseCost.Total ||
+			terms.Amount > r.balance {
 			return &CommitError{
 				NothingWritten: true,
 				Err:            errors.New("credit reservation rejected"),
@@ -416,8 +416,8 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		if err := r.base.Commit(ctx, req); err != nil {
 			return err
 		}
-		r.balance -= admission.Amount
-		r.holds[fact.ModelCallID] = admission.Amount
+		r.balance -= terms.Amount
+		r.holds[fact.ModelCallID] = terms.Amount
 		return nil
 	case StepModelCallFinished:
 		fact := req.Step.Model

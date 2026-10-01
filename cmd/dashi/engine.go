@@ -624,12 +624,12 @@ func (e *Engine) stream(
 	ctx context.Context,
 	events iter.Seq2[dashi.Event, error],
 	stopCompaction bool,
-	admission ...*dashi.Agent,
+	startAgent ...*dashi.Agent,
 ) (Result, error) {
-	return e.streamBounded(ctx, events, stopCompaction, false, admission...)
+	return e.streamBounded(ctx, events, stopCompaction, false, startAgent...)
 }
 
-func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, admission ...*dashi.Agent) (Result, error) {
+func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, startAgent ...*dashi.Agent) (Result, error) {
 	renderers := map[string]*Renderer{}
 	renderer := func(id string) *Renderer {
 		r := renderers[id]
@@ -673,8 +673,8 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			}
 			if p := e.cfg.Preferences; p != nil && ev.Result.Next() == dashi.NextNone {
 				var next *dashi.Agent
-				if ev.Result.Origin == dashi.StartCompaction && len(admission) > 0 {
-					next = admission[0]
+				if ev.Result.Origin == dashi.StartCompaction && len(startAgent) > 0 {
+					next = startAgent[0]
 				}
 				if ev.Result.Origin != dashi.StartCompaction && e.Queued() > 0 {
 					agent := p.agent()

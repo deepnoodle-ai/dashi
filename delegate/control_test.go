@@ -166,7 +166,7 @@ func TestTaskRunUnknownCommandResolution(t *testing.T) {
 			attention(h, t)
 			if mode == 1 {
 				if _, err := h.tasks.Run(t.Context(), before, dashi.Cancel{CommandID: "new-action"}); !errors.Is(err, delegate.ErrTaskCommandUnknown) {
-					t.Fatalf("unknown write admitted different action: %v", err)
+					t.Fatalf("unknown write accepted a different action: %v", err)
 				}
 			}
 			out, err := h.tasks.Run(t.Context(), before, cmd)
@@ -240,7 +240,7 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 	var prepared, bindings atomic.Int32
 	var h *harness
 	selected := &fakeClient{handle: func(ctx context.Context, in llm.Input) (llm.Result, error) {
-		if !strings.Contains(inputText(in), "admitted parent evidence") || in.Settings.MaxTokens != 321 {
+		if !strings.Contains(inputText(in), "accepted parent evidence") || in.Settings.MaxTokens != 321 {
 			t.Errorf("missing prepared evidence/settings: %+v", in)
 		}
 		return text("frozen child route"), nil
@@ -249,7 +249,7 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 		PrepareStart: func(_ context.Context, ref dashi.CallRef, s dashi.Start) (dashi.Start, error) {
 			prepared.Add(1)
 			h.tasks.List() // callback must run outside Tasks.mu
-			s.Input = append(s.Input, llm.UserMessage(llm.Text("admitted parent evidence")))
+			s.Input = append(s.Input, llm.UserMessage(llm.Text("accepted parent evidence")))
 			s.Agent.Settings.MaxTokens = 321
 			s.Agent.NoInheritedSettings = true
 			s.Agent.Version = "route-fingerprint"
