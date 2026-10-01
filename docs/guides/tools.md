@@ -174,8 +174,9 @@ exceeds 64 KiB is dropped with a `WarningToolDataDropped` warning; the call
 still succeeds. Data describes the result the tool returned, so the record
 keeps it only while the model sees that result. When an `AfterTool` hook
 replaces or withholds the result, or `Limits.ToolResultBytes` shortens it,
-the outcome is recorded without Data, with the same warning. A hook that
-returns the result unchanged keeps it.
+the outcome is recorded without Data, with the same warning. A change the
+model does not see keeps it: a hook that returns the result unchanged, or one
+that changes only `Output.Display`.
 
 A failed, denied, or skipped call reaches the model as a result flagged as an
 error. Anthropic and Gemini carry the flag natively. OpenAI Responses and Chat

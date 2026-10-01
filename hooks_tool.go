@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -194,12 +195,35 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	if !canonjson.SameValue(current, base) {
 		current.CallID = fact.Call.ID
 		fact.Result = &current
-		r.dropChangedData(fact)
+		if !sameForModel(current, base) {
+			r.dropChangedData(fact)
+		}
 	}
 }
 
+// sameForModel reports whether two results send the model the same thing.
+// Providers build the request from the content blocks and IsError only:
+// Output.Display is for presentation and never reaches the model, and
+// empty text blocks carry no text. CallID is the same call either way.
+func sameForModel(a, b llm.ToolResult) bool {
+	return a.IsError == b.IsError &&
+		canonjson.SameValue(modelBlocks(a), modelBlocks(b))
+}
+
+// modelBlocks returns the content blocks of r that carry something.
+func modelBlocks(r llm.ToolResult) []content.Block {
+	out := make([]content.Block, 0, len(r.Output.Content))
+	for _, b := range r.Output.Content {
+		if b.Text != nil && b.Text.Text == "" {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
 // dropChangedData removes Outcome.Data from a fact whose model-visible
-// result differs from the tool's output. Data describes the output the tool
+// result differs from the tool's output (see sameForModel). Data describes the output the tool
 // returned, so a host must never read it as a statement about what the
 // model saw after a hook replaced, withheld, or the limit shortened it.
 func (r *runtime) dropChangedData(fact *ToolFact) {

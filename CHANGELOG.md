@@ -87,8 +87,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   dropped, and the step records the new `WarningToolDataDropped`; the call
   still succeeds. Data describes the result the tool returned, so it is also
   dropped, with the same warning, when an `AfterTool` hook replaces or
-  withholds the result or `Limits.ToolResultBytes` shortens it. A hook that
-  returns the result unchanged keeps it.
+  withholds the result or `Limits.ToolResultBytes` shortens it. A change the
+  model does not see, such as one to `Output.Display` only, keeps it.
 - **`session.Session.Delivered` drops queued items that the record shows
   delivered another way,** just before a queue turn, so they start no turn.
 

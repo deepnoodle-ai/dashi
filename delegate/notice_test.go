@@ -497,6 +497,11 @@ func TestStatusReadChangedBeforeTheModelSawItLeavesTheNotice(t *testing.T) {
 		}), 0, false},
 		{"shortened by the result limit", dashi.Hooks{}, 1024, false},
 		{"unchanged by a hook", onStatus(func(r llm.ToolResult) llm.ToolResult { return r }), 0, true},
+		// Display never reaches the model, so the read still counts.
+		{"display changed by a hook", onStatus(func(r llm.ToolResult) llm.ToolResult {
+			r.Output.Display = "task done"
+			return r
+		}), 0, true},
 	}
 	order := readOrders[1] // the child ends, then the read
 	for _, test := range tests {
@@ -544,8 +549,16 @@ func TestStatusReadChangedBeforeTheModelSawItLeavesTheNotice(t *testing.T) {
 			if err != nil || st.Queued != 0 {
 				t.Fatalf("state=%+v err=%v", st, err)
 			}
+			warned := false
+			for _, turn := range turns {
+				for _, step := range turn.Steps {
+					for _, w := range step.Warnings {
+						warned = warned || w.Code == dashi.WarningToolDataDropped
+					}
+				}
+			}
 			if test.delivered {
-				if st.Turns != 1 || notices.Load() != 0 ||
+				if st.Turns != 1 || notices.Load() != 0 || warned ||
 					len(statusDelivered(turns)) != 1 {
 					t.Fatalf("turns=%d notices=%d marker=%v",
 						st.Turns, notices.Load(), statusDelivered(turns))

@@ -749,6 +749,11 @@ func TestToolOutcomeDataIsDroppedWhenTheModelSeesAChangedResult(t *testing.T) {
 		r := p.Result
 		return ResultDecision{Replace: &r}, nil
 	}}
+	display := ResultHook{Name: "display", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		r := p.Result
+		r.Output.Display = "shown to the user only"
+		return ResultDecision{Replace: &r}, nil
+	}}
 	fail := ResultHook{Name: "fail", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
 		return ResultDecision{}, errors.New("down")
 	}}
@@ -763,6 +768,7 @@ func TestToolOutcomeDataIsDroppedWhenTheModelSeesAChangedResult(t *testing.T) {
 	}{
 		{"no hook", testAgent(), Hooks{}, "ok", true},
 		{"unchanged by a hook", testAgent(), Hooks{AfterTool: []ResultHook{keep}}, "ok", true},
+		{"display changed by a hook", testAgent(), Hooks{AfterTool: []ResultHook{display}}, "ok", true},
 		{"replaced by a hook", testAgent(), Hooks{AfterTool: []ResultHook{replaceText("r", strings.ToUpper)}}, "ok", false},
 		{"withheld by a failing hook", testAgent(), Hooks{AfterTool: []ResultHook{fail}}, "ok", false},
 		{"shortened by the limit", small, Hooks{}, strings.Repeat("x", 4*minToolResultBytes), false},
@@ -787,7 +793,10 @@ func TestToolOutcomeDataIsDroppedWhenTheModelSeesAChangedResult(t *testing.T) {
 				return w.Code == WarningToolDataDropped
 			})
 			if test.kept {
-				if string(step.Tool.Outcome.Data) != string(data) || warned || step.Tool.Result != nil {
+				// A Display-only change is recorded as the result, but the
+				// model sees the same thing, so Data stays.
+				if string(step.Tool.Outcome.Data) != string(data) || warned ||
+					(step.Tool.Result != nil) != (test.name == "display changed by a hook") {
 					t.Fatalf("data=%s warned=%v result=%v", step.Tool.Outcome.Data, warned, step.Tool.Result != nil)
 				}
 			} else if step.Tool.Outcome.Data != nil || !warned || step.Tool.Result == nil {
