@@ -12,7 +12,7 @@ The request can exhaust context before the developer receives a usable answer.
 
 [`Session.Compactor`](../guides/compaction.md) summarizes between ended Turns.
 It cannot protect an active Turn.
-[`Project`](../../project.go) currently combines all settled Turn messages with caller-owned history.
+[`Project`](../../history_project.go) currently combines all settled Turn messages with caller-owned history.
 CLI parity [O07](../research/cli-parity-operations.md) explicitly leaves this workflow incomplete.
 
 [ADK Go #298](https://github.com/google/adk-go/issues/298) requests proactive compaction and retained original history.

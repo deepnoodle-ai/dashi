@@ -830,3 +830,249 @@ func TestWrappedRecorderCommitErrorIsNotRepeated(t *testing.T) {
 		t.Fatalf("message repeats its persistence: %q", err.Error())
 	}
 }
+
+// persistence returns the persistence of a *CommitError returned by Run,
+// empty for nil, and "other" for any other error.
+func persistence(err error) Persistence {
+	if err == nil {
+		return ""
+	}
+	var ce *CommitError
+	if errors.As(err, &ce) {
+		return ce.Persistence
+	}
+	return "other"
+}
+
+// unacknowledged returns the step a *CommitError names, or nil.
+func unacknowledged(err error) *Step {
+	var ce *CommitError
+	if errors.As(err, &ce) {
+		return ce.Step
+	}
+	return nil
+}
+
+// pendingIDs lists the IDs of pending items in order.
+func pendingIDs(items []Pending) []string {
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func TestMalformedInputTurnReturnsErrorWithoutPanic(t *testing.T) {
+	turn := Turn{ID: "t1", Steps: []Step{{
+		Version: 1,
+		TurnID:  "t1",
+		Seq:     1,
+		Kind:    StepStarted,
+		Output:  &StructuredOutput{Value: json.RawMessage(`{bad`)},
+	}}}
+	out, err := (Runner{Client: &scriptedClient{}}).Run(
+		t.Context(),
+		turn,
+		Continue{CommandID: "c"},
+	)
+	if !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("err=%v", err)
+	}
+	if out.Turn.ID != "t1" || len(out.Turn.Steps) != 1 {
+		t.Fatalf("outcome lost the caller's turn: %+v", out.Turn)
+	}
+}
+
+func hostedRequest(id string) llm.Result {
+	request := llm.HostedApprovalRequest{
+		ID:     id,
+		Name:   "remote",
+		Origin: fixtureOrigin,
+	}
+	return llm.Result{
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:                  llm.ContentHostedApprovalRequest,
+			HostedApprovalRequest: &request,
+		}),
+		Stop: llm.Stop{Kind: llm.StopFinished},
+	}
+}
+
+// A provider may reuse a hosted request ID after the first request was
+// answered. The second request needs its own answer command.
+func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{
+		hostedRequest("h1"),
+		hostedRequest("h1"),
+		final("done"),
+	}}
+	agent := testAgent()
+	agent.Limits.ModelAttempts = 4
+	runner := Runner{Client: client}
+	out, err := runner.Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Agent: agent, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+	)
+	if err != nil || len(out.Pending) != 1 {
+		t.Fatalf("start pending=%v err=%v", out.Pending, err)
+	}
+	first := out.Pending[0]
+	if out, err = runner.Run(t.Context(), out.Turn, first.Approve()); err != nil {
+		t.Fatal(err)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Pending) != 1 || out.Pending[0].ID != "h1" {
+		t.Fatalf("second request pending=%v stop=%+v", out.Pending, out.Stop)
+	}
+	second := out.Pending[0]
+	if second.AttemptID == first.AttemptID ||
+		second.Deny("no").CommandID == first.Deny("no").CommandID {
+		t.Fatalf("requests share an identity: %+v %+v", first, second)
+	}
+	if out, err = runner.Run(t.Context(), out.Turn, second.Deny("no")); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Pending) != 0 || !out.ReadyToContinue {
+		t.Fatalf("answered request still pending: %v", out.Pending)
+	}
+	steps := len(out.Turn.Steps)
+	again, err := runner.Run(t.Context(), out.Turn, second.Deny("no"))
+	if err != nil || len(again.Turn.Steps) != steps {
+		t.Fatalf("retried answer: steps=%d err=%v", len(again.Turn.Steps), err)
+	}
+	done, err := runner.Run(t.Context(), out.Turn, Continue{CommandID: "c2"})
+	if err != nil || done.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", done.Stop, err)
+	}
+}
+
+func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
+	origin := content.Origin{
+		Provider: "test",
+		API:      "test.chat",
+		Model:    "fixture",
+		Scope:    "fixture",
+	}
+	request := llm.HostedApprovalRequest{
+		ID:     "approval-1",
+		Name:   "remote",
+		Origin: origin,
+	}
+	incomplete := llm.Result{
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+		Message: llm.AssistantMessage(
+			llm.Text("partial"),
+			llm.Content{
+				Kind:                  llm.ContentHostedApprovalRequest,
+				HostedApprovalRequest: &request,
+			},
+		),
+		Stop: llm.Stop{Kind: llm.StopIncomplete},
+	}
+	client := &scriptedClient{
+		results: []llm.Result{incomplete, final("recovered")},
+	}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with hosted approval" || len(first.Pending) != 0 {
+		t.Fatalf("first: stop=%+v pending=%v err=%v", first.Stop, first.Pending, err)
+	}
+	response := llm.HostedApprovalResponse{
+		RequestID: request.ID,
+		Approve:   true,
+		Origin:    origin,
+	}
+	if _, err := (Runner{
+		Client:   client,
+		Recorder: rec,
+	}).Run(
+		t.Context(),
+		first.Turn,
+		Settle{
+			CommandID:      "approve",
+			CallID:         request.ID,
+			HostedApproval: &response,
+		},
+	); err == nil {
+		t.Fatal("incomplete hosted approval was accepted")
+	}
+	second, err := (Runner{
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
+	if err != nil || second.Stop.Kind != StopCompleted || len(client.inputs) != 2 {
+		t.Fatalf(
+			"second: stop=%+v inputs=%d err=%v",
+			second.Stop,
+			len(client.inputs),
+			err,
+		)
+	}
+	for _, message := range client.inputs[1].Messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentHostedApprovalRequest {
+				t.Fatal("incomplete hosted approval reached the next model request")
+			}
+		}
+	}
+}
+
+func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
+	origin := content.Origin{
+		Provider: "test",
+		API:      "test.chat",
+		Model:    "fixture",
+		Scope:    "fixture",
+	}
+	request := llm.HostedApprovalRequest{
+		ID:     "approval-1",
+		Name:   "remote",
+		Origin: origin,
+	}
+	result := llm.Result{
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+		Message: llm.AssistantMessage(
+			llm.Text("before approval"),
+			llm.Content{
+				Kind:                  llm.ContentHostedApprovalRequest,
+				HostedApprovalRequest: &request,
+			},
+		),
+		Stop: llm.Stop{Kind: llm.StopToolUse},
+	}
+	client := &scriptedClient{results: []llm.Result{result}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Stop.Kind != StopWaiting {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	canceled, err := (Runner{
+		Client:   client,
+		Recorder: rec,
+	}).Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
+	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
+		t.Fatalf("canceled=%+v err=%v", canceled, err)
+	}
+	messages, err := Project(canceled.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptText := false
+	for _, message := range messages {
+		for _, part := range message.Content {
+			if part.Kind == llm.ContentHostedApprovalRequest {
+				t.Fatal("canceled approval reached projection")
+			}
+			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil && part.Block.Text.Text == "before approval" {
+				keptText = true
+			}
+		}
+	}
+	if !keptText {
+		t.Fatal("non-approval content was lost")
+	}
+}

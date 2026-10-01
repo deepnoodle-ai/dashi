@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 
@@ -479,5 +480,268 @@ func TestStructuredAnswerOnFinalCallCompletesAfterContinue(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
 		client.sends != 2 {
 		t.Fatalf("stop=%+v err=%v sends=%d", out.Stop, err, client.sends)
+	}
+}
+
+func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
+	reasoning := llm.Content{
+		Kind:      llm.ContentReasoning,
+		Reasoning: &llm.Reasoning{Text: "thought"},
+	}
+	textC := llm.Text("C")
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors: []error{&llm.Error{
+			Provider: "test", Category: llm.ErrorTransport,
+			Reason: llm.ReasonStreamIdleTimeout,
+		}},
+		deltas: []llm.Delta{
+			{Kind: llm.DeltaText, Index: 0, Text: "A"},
+			{Kind: llm.DeltaContent, Index: 1, Content: &reasoning},
+			{Kind: llm.DeltaText, Index: 2, Text: "B"},
+			// A snapshot takes priority if a client also supplies Text.
+			{Kind: llm.DeltaText, Index: 3, Text: "duplicate", Content: &textC},
+			{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 5, OutputTokens: 1}},
+			{Kind: llm.DeltaUsage, Usage: &llm.Usage{OutputTokens: 2}},
+		},
+	}
+	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
+	if err != nil || out.Stop.Kind != StopUncertain || out.Answer != "" {
+		t.Fatalf("outcome=%+v err=%v", out, err)
+	}
+	var settled *ModelFact
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelSettled {
+			settled = step.Model
+		}
+	}
+	if settled == nil || settled.ErrorReason != llm.ReasonStreamIdleTimeout ||
+		settled.Failure != llm.FailureUnknown || !settled.Uncertain ||
+		!settled.EstimatedUsage || settled.Result == nil ||
+		settled.Result.Stop.Kind != llm.StopIncomplete {
+		t.Fatalf("settlement=%+v", settled)
+	}
+	parts := settled.Result.Message.Content
+	if len(parts) != 4 || parts[0].Block.Text.Text != "A" ||
+		parts[1].Reasoning.Text != "thought" ||
+		parts[2].Block.Text.Text != "B" ||
+		parts[3].Block.Text.Text != "C" ||
+		settled.Result.Message.Text() != "ABC" {
+		t.Fatalf("observed content=%+v", parts)
+	}
+	if settled.Result.Usage == nil || settled.Result.Usage.InputTokens != 5 ||
+		settled.Result.Usage.OutputTokens != 2 || out.Spend.Usage.OutputTokens != 2 {
+		t.Fatalf("usage=%+v spend=%+v", settled.Result.Usage, out.Spend)
+	}
+	replayed, err := Replay(out.Turn)
+	if err != nil || replayed.Answer != "" || replayed.Stop.Kind != StopUncertain {
+		t.Fatalf("replayed=%+v err=%v", replayed, err)
+	}
+}
+
+type timeoutThenCancelClient struct {
+	*scriptedClient
+	cancel context.CancelFunc
+}
+
+func (c timeoutThenCancelClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	result, err := c.scriptedClient.Send(ctx, call)
+	c.cancel()
+	return result, err
+}
+
+func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := timeoutThenCancelClient{
+		scriptedClient: &scriptedClient{
+			results: []llm.Result{{}},
+			errors: []error{&llm.Error{
+				Provider: "test",
+				Category: llm.ErrorTransport,
+				Reason:   llm.ReasonStreamIdleTimeout,
+			}},
+		},
+		cancel: cancel,
+	}
+	out, err := (Runner{
+		Client:   client,
+		Recorder: NewMemoryRecorder(),
+	}).Run(ctx, Turn{ID: "t1"}, streamStart())
+	if err != nil || out.Stop.Kind != StopUncertain {
+		t.Fatalf("outcome=%+v err=%v", out, err)
+	}
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelSettled {
+			if step.Model.Interrupted != InterruptNone ||
+				step.Model.ErrorReason != llm.ReasonStreamIdleTimeout {
+				t.Fatalf("provider timeout lost to later host cancel: %+v", step.Model)
+			}
+			return
+		}
+	}
+	t.Fatal("missing model settlement")
+}
+
+// attemptClient records the attempt identity each Send receives.
+type attemptClient struct {
+	*scriptedClient
+	sent   []llm.Attempt
+	onSend func(llm.Attempt)
+}
+
+func (c *attemptClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	if call.Attempt.IsZero() {
+		return llm.Result{}, errors.New("send without attempt identity")
+	}
+	c.sent = append(c.sent, call.Attempt)
+	if c.onSend != nil {
+		c.onSend(call.Attempt)
+	}
+	return c.scriptedClient.Send(ctx, call)
+}
+
+func stepAttempts(turn Turn, kind StepKind) []string {
+	var ids []string
+	for _, step := range turn.Steps {
+		if step.Kind == kind {
+			ids = append(ids, step.Model.AttemptID)
+		}
+	}
+	return ids
+}
+
+func attemptIDs(t *testing.T, attempts []llm.Attempt) []string {
+	t.Helper()
+	ids := make([]string, len(attempts))
+	for i, a := range attempts {
+		if a.TurnID != "t1" {
+			t.Fatalf("attempt %d turn=%q, want t1", i, a.TurnID)
+		}
+		ids[i] = a.AttemptID
+	}
+	return ids
+}
+
+func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
+	rec := NewMemoryRecorder()
+	client := &attemptClient{
+		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
+	}
+	client.onSend = func(a llm.Attempt) {
+		// The intent carrying this ID is durable before Send is called.
+		saved, err := rec.Load(t.Context(), "t1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := saved.Steps[len(saved.Steps)-1]
+		if last.Kind != StepModelIntent || last.Model.AttemptID != a.AttemptID {
+			t.Fatalf(
+				"send %q before its intent was recorded: last step %s",
+				a.AttemptID,
+				last.Kind,
+			)
+		}
+	}
+	out, err := (Runner{
+		Client:   client,
+		Recorder: rec,
+	}).Run(
+		t.Context(),
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Agent: testAgent(), Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	intents := stepAttempts(out.Turn, StepModelIntent)
+	if want := []string{"t1:model:1"}; !slices.Equal(intents, want) {
+		t.Fatalf("intents=%v", intents)
+	}
+	if got := attemptIDs(t, client.sent); !slices.Equal(got, intents) {
+		t.Fatalf("sent=%v intents=%v", got, intents)
+	}
+}
+
+func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
+	def := testAgent()
+	rec := NewMemoryRecorder()
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	client := &attemptClient{
+		scriptedClient: &scriptedClient{results: []llm.Result{{}, final("done")}},
+	}
+	client.onSend = func(llm.Attempt) {
+		if len(client.sent) == 1 {
+			cancel(errors.New("deploying"))
+		}
+	}
+	first, err := (Runner{Client: client, Recorder: rec}).Run(
+		ctx,
+		Turn{ID: "t1"},
+		Start{CommandID: "start", Agent: def, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}},
+	)
+	if err != nil || first.Stop.Kind != StopInterrupted {
+		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
+	}
+	out, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(),
+		first.Turn,
+		Continue{CommandID: "continue"},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("continue stop=%+v err=%v", out.Stop, err)
+	}
+	intents := stepAttempts(out.Turn, StepModelIntent)
+	if want := []string{
+		"t1:model:1",
+		"t1:model:2",
+	}; !slices.Equal(intents, want) {
+		t.Fatalf("intents=%v", intents)
+	}
+	if got := attemptIDs(t, client.sent); !slices.Equal(got, intents) {
+		t.Fatalf("sent=%v intents=%v", got, intents)
+	}
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelSettled &&
+			step.Model.AttemptID == "t1:model:1" &&
+			step.Model.Interrupted == InterruptNone {
+			t.Fatalf("first attempt settled without interruption: %+v", step.Model)
+		}
+	}
+}
+
+func TestCrashedIntentIsNeverSentUnderItsID(t *testing.T) {
+	def := testAgent()
+	rec := NewMemoryRecorder()
+	turn := seedOpenModelIntent(t, rec, def, nil)
+	client := &attemptClient{
+		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
+	}
+	out, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(),
+		turn,
+		Continue{CommandID: "recover"},
+	)
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if got, want := attemptIDs(t, client.sent), []string{
+		"t1:model:2",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("sent=%v, want %v", got, want)
+	}
+	settled := stepAttempts(out.Turn, StepModelSettled)
+	if want := []string{
+		"t1:model:1",
+		"t1:model:2",
+	}; !slices.Equal(settled, want) {
+		t.Fatalf("settled=%v", settled)
 	}
 }
