@@ -10,7 +10,7 @@ require (
 )
 
 require (
-	github.com/deepnoodle-ai/wonton v0.2.1 // indirect
+	github.com/deepnoodle-ai/wonton v0.4.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
