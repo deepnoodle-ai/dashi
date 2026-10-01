@@ -65,6 +65,15 @@ func (c *Controller) renameSession(title string) {
 
 // Status has its own cancellation generation. It does not change input mode or
 // replace a running Turn's cancellation function.
+func (c *Controller) cancelInspection() {
+	c.mu.Lock()
+	if c.statusCancel != nil {
+		c.statusCancel()
+		c.statusGeneration++
+	}
+	c.mu.Unlock()
+}
+
 func (c *Controller) inspectSession(id string) {
 	c.mu.Lock()
 	if c.statusCancel != nil {
