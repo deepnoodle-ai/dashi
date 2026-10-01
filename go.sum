@@ -1,5 +1,3 @@
-github.com/deepnoodle-ai/wonton v0.2.1 h1:GvfNIQT2B6NrEgXZHuxhUwjeMTm7Ms6YuZN17Oq2m4o=
-github.com/deepnoodle-ai/wonton v0.2.1/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/deepnoodle-ai/wonton v0.4.0 h1:vKRD8gozGl/3yyxoWS4EptzXbTHL82geGjGa3YDArgg=
 github.com/deepnoodle-ai/wonton v0.4.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
