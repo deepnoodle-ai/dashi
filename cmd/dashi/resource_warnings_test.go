@@ -101,7 +101,7 @@ func TestInstructionProblemShowsOncePerProblem(t *testing.T) {
 	putResource(t, agents, "bad\xff")
 	discover()
 	discover()
-	if len(shown) != 1 || !strings.Contains(shown[0], "Workspace instructions not loaded: "+agents) {
+	if len(shown) != 1 || shown[0] != "Workspace instructions not loaded: "+agents+": file is not valid UTF-8. /resources shows details." {
 		t.Fatalf("warnings = %v", shown)
 	}
 	// Fixed, then broken again: the returning problem shows again.

@@ -57,7 +57,10 @@ func (m *resourceManager) discover() (*discoveredResources, error) {
 	m.mu.Unlock()
 	if m.warning != nil {
 		for _, warning := range fresh {
-			m.warning("Workspace instructions not loaded: %s: %s. /resources shows details.", warning.Path, warning.Message)
+			// The line already says the instructions were not loaded.
+			reason := strings.TrimPrefix(warning.Message, "instructions omitted: ")
+			reason = strings.TrimPrefix(reason, "cannot inspect workspace instructions: ")
+			m.warning("Workspace instructions not loaded: %s: %s. /resources shows details.", warning.Path, reason)
 		}
 	}
 	return found, nil
