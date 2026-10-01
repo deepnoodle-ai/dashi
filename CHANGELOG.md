@@ -23,6 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   when it fits. The mouse wheel scrolls three lines per notch, and also
   scrolls dialog details.
 
+- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
+  reads `task  explore · find the parser · t_k3f2`. One status line under it
+  follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
+  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
+  that repeated the task ID, description, counts, and raw spend. `/tasks`
+  prints one line per task in the same words, and counts are pluralized.
+
 ### Fixed
 
 - **The CLI scrolls up when a mouse selection is dragged to the top row.** In
@@ -30,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   scrolls up and extends the selection, as dragging below the transcript
   already scrolled down. The transcript starts on the screen's first row, so
   the terminal could never report the pointer above it.
+- **A task result no longer shows an empty user line in the CLI.** The turn
+  that a finished task's result starts now opens with `↳ task t_k3f2
+  (explore) completed · result delivered`, live, after a reopen, inline, and
+  in plain output.
 
 ## [0.2.0] - 2026-10-01
 

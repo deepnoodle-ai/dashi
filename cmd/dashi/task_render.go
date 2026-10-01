@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,14 +14,237 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
-func taskRow(view delegate.TaskView) Block {
-	if view.State == "record unavailable" {
-		return Block{ID: "task:" + view.SessionID, Kind: KindWarning, Text: fmt.Sprintf("Task %s · %s · latest record unavailable\n%s\nParent %s · call %s\n%s\nRecorded state/counts/spend are incomplete; no completion is inferred. Inspect: /task %s", view.ID, view.Subagent, view.Description, view.Parent.TurnID, view.Parent.CallID, view.Reason, view.ID), Done: true}
+// Task states the CLI adds to the states of delegate.
+const (
+	taskApprovalPending   delegate.TaskState = "approval pending"
+	taskRecordUnavailable delegate.TaskState = "record unavailable"
+)
+
+// taskNoticeName is the reminder name of delegate's task-ended notice.
+const taskNoticeName = "task-ended"
+
+// taskStatusBlock returns the status line of a task, such as
+// "completed · 1 model call · $0.0069 · /task t_k3f2 to inspect". The line
+// of a task's first turn goes under the tool line that started the task.
+func taskStatusBlock(v delegate.TaskView) Block {
+	id := v.TurnID
+	if id == "" {
+		id = v.SessionID
 	}
-	text := fmt.Sprintf("Task %s · %s · %s · %d model attempts · %d tool calls\n%s\nChild spend: %s\nInspect: /task %s", view.ID, view.Subagent, view.State, view.ModelCalls, view.ToolCalls, view.Description, view.Spend.String(), view.ID)
-	return Block{ID: "task:" + view.TurnID, Kind: KindNotice, Text: text, Done: !view.Running()}
+	b := Block{
+		ID:    "task:" + id,
+		Kind:  KindTaskStatus,
+		State: taskLineState(v.State),
+		Name:  taskStateLabel(v),
+		Arg:   taskSender(v.ID, v.Subagent),
+		Text:  taskFacts(v),
+		Done:  !v.Running() && v.State != taskApprovalPending,
+	}
+	if v.Turns <= 1 && v.Parent.CallID != "" {
+		b.Parent = "t:" + v.Parent.CallID
+	}
+	return b
+}
+
+// taskSummary is one line of /tasks.
+func taskSummary(v delegate.TaskView) string {
+	parts := []string{v.ID, orDefault(v.Subagent, "task")}
+	if v.Description != "" {
+		parts = append(parts, truncate(firstLine(v.Description), 48))
+	}
+	parts = append(parts, taskStateLabel(v))
+	parts = append(parts, taskCounts(v)...)
+	return strings.Join(parts, " · ")
+}
+
+// taskToolArg is what a task tool line shows after "task": the subagent,
+// the description, and the task ID, such as "explore · find the parser ·
+// t_k3f2".
+func taskToolArg(raw json.RawMessage, turnID, callID string) string {
+	var args struct {
+		Subagent    string `json:"subagent"`
+		Description string `json:"description"`
+		Prompt      string `json:"prompt"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	var parts []string
+	if args.Subagent != "" {
+		parts = append(parts, args.Subagent)
+	}
+	if d := orDefault(args.Description, args.Prompt); d != "" {
+		parts = append(parts, truncate(firstLine(d), 48))
+	}
+	if turnID != "" && callID != "" {
+		parts = append(parts, delegate.TaskID(delegate.ChildID(turnID, callID)))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func taskSender(id, subagent string) string {
+	if subagent == "" {
+		return "task " + id
+	}
+	return "task " + id + " (" + subagent + ")"
+}
+
+// taskLineState maps a task state to the tool line state whose color it
+// shares.
+func taskLineState(state delegate.TaskState) string {
+	switch state {
+	case delegate.TaskRunning:
+		return StateRunning
+	case delegate.TaskState(dashi.StopCompleted):
+		return StateOK
+	case delegate.TaskState(dashi.StopFailed), delegate.TaskState(dashi.StopRefused),
+		delegate.TaskState(dashi.StopUncertain), taskRecordUnavailable:
+		return StateFailed
+	}
+	return StateWaiting
+}
+
+func taskStateLabel(v delegate.TaskView) string {
+	label := orDefault(string(v.State), "unknown")
+	if v.Reason != "" && v.State != delegate.TaskRunning && v.State != delegate.TaskState(dashi.StopCompleted) {
+		label += ": " + truncate(firstLine(v.Reason), 60)
+	}
+	return label
+}
+
+// taskCounts lists the work and cost of a task. A record that cannot be
+// read has no trustworthy counts.
+func taskCounts(v delegate.TaskView) []string {
+	if v.State == taskRecordUnavailable {
+		return nil
+	}
+	var parts []string
+	if v.ModelCalls > 0 || !v.Running() {
+		parts = append(parts, fmt.Sprintf("%d model %s", v.ModelCalls, plural(v.ModelCalls, "call")))
+	}
+	if v.ToolCalls > 0 {
+		parts = append(parts, fmt.Sprintf("%d tool %s", v.ToolCalls, plural(v.ToolCalls, "call")))
+	}
+	if cost := costText(v.Spend); cost != "" {
+		parts = append(parts, cost)
+	}
+	return parts
+}
+
+func taskFacts(v delegate.TaskView) string {
+	return strings.Join(append(taskCounts(v), "/task "+v.ID+" to inspect"), " · ")
+}
+
+// deliveredItemBlocks returns a KindTaskResult marker for each message from
+// an agent in msgs, such as a task's result. These messages are reminders,
+// so they have no user text.
+func deliveredItemBlocks(prefix string, msgs []llm.Message) []Block {
+	var out []Block
+	for _, m := range msgs {
+		for _, c := range m.Content {
+			r := c.Reminder
+			if c.Kind != llm.ContentReminder || r == nil || r.Name != taskNoticeName && r.From == "" {
+				continue
+			}
+			b := Block{
+				ID:   fmt.Sprintf("%s:%d", prefix, len(out)),
+				Kind: KindTaskResult,
+				Arg:  orDefault(r.From, "agent"),
+				Text: "message delivered",
+				Done: true,
+			}
+			if r.Name == taskNoticeName {
+				b.Text = "result delivered"
+				if state := noticeState(r.Content); state != "" {
+					b.Name, b.State = state, taskLineState(delegate.TaskState(state))
+				}
+			}
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// noticeState reads the state from a notice such as
+// "[task t_k3f2 completed] explore: find the parser".
+func noticeState(text string) string {
+	rest, ok := strings.CutPrefix(firstLine(text), "[task ")
+	if !ok {
+		return ""
+	}
+	inside, _, ok := strings.Cut(rest, "]")
+	if !ok {
+		return ""
+	}
+	_, state, _ := strings.Cut(inside, " ")
+	return state
+}
+
+// taskLineText is the plain text of a task status line or result marker.
+// A status line that is not under its tool line names its task.
+func taskLineText(b Block) string {
+	head := joinNonEmpty(" ", b.Arg, b.Name)
+	if b.Kind == KindTaskResult {
+		return "↳ " + head + " · " + b.Text
+	}
+	return "  ↳ " + head + " · " + b.Text
+}
+
+// taskLineUnderText is the plain text of a status line under its tool line.
+func taskLineUnderText(b Block) string {
+	return "    ⎿ " + joinNonEmpty(" · ", b.Name, b.Text)
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+func taskLineColor(state string) tui.Color {
+	switch state {
+	case StateOK:
+		return tui.ColorGreen
+	case StateFailed:
+		return tui.ColorRed
+	case StateRunning, "":
+		return tui.ColorCyan
+	}
+	return tui.ColorYellow
+}
+
+// taskLineView draws a result marker, or a status line that is not under
+// its tool line. The arrow and the state take the state color.
+func taskLineView(b Block) tui.View {
+	color := taskLineColor(b.State)
+	indent := "  ↳ "
+	if b.Kind == KindTaskResult {
+		indent = "↳ "
+	}
+	views := []tui.View{tui.Text("%s", indent).Fg(color), tui.Text("%s", b.Arg)}
+	if b.Name != "" {
+		views = append(views, tui.Text(" %s", b.Name).Fg(color))
+	}
+	views = append(views, tui.Text(" · %s", b.Text).Wrap().Style(mutedStyle).Flex(1))
+	return tui.Group(views...)
+}
+
+// withTaskLine adds the task status line of a tool block under its view.
+func withTaskLine(v tui.View, b Block) tui.View {
+	if b.Task == nil || v == nil {
+		return v
+	}
+	t := *b.Task
+	return tui.Stack(v, tui.Group(
+		tui.Text("    ⎿ ").Style(mutedStyle),
+		tui.Text("%s", t.Name).Fg(taskLineColor(t.State)),
+		tui.Text(" · %s", t.Text).Wrap().Style(mutedStyle).Flex(1),
+	)).Gap(0)
 }
 func (c *Controller) endDialog() {
 	c.mu.Lock()
@@ -59,7 +283,7 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 					for _, task := range host.list() {
 						if task.SessionID == p.Owner.TaskID {
 							task.State = "approval pending"
-							c.emit(taskRow(task))
+							c.emit(taskStatusBlock(task))
 							break
 						}
 					}
@@ -202,7 +426,12 @@ func taskDetails(snapshot taskSnapshot) string {
 	if snapshot.Prompt != nil {
 		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
 	}
-	fmt.Fprintf(&b, "Child spend: %s\nModel attempts: %d · tool calls: %d\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", snapshot.Task.Spend.String(), snapshot.Task.ModelCalls, snapshot.Task.ToolCalls, snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelAttempts)
+	spend := snapshot.Task.Spend.String()
+	if cost := costText(snapshot.Task.Spend); cost != "" {
+		spend = cost + " (" + spend + ")"
+	}
+	calls, tools := snapshot.Task.ModelCalls, snapshot.Task.ToolCalls
+	fmt.Fprintf(&b, "Child spend: %s\nWork: %d model %s · %d tool %s\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", spend, calls, plural(calls, "call"), tools, plural(tools, "call"), snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelAttempts)
 	calls, unresolved := taskDispatchCounts(snapshot.Turn)
 	fmt.Fprintf(&b, "This Turn: %d confirmed model dispatches · %d unresolved intents. Attempts and estimates do not prove Send.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
 	if len(snapshot.Turn.Steps) > 0 && snapshot.Turn.Steps[0].Started != nil {

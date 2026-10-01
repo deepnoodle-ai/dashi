@@ -89,12 +89,19 @@ func (u *lineUI) Emit(b Block) {
 			return
 		}
 	case KindNotice:
-		if strings.HasPrefix(b.ID, "task:") || b.ID == "task-delivery" {
+		if b.ID == "task-delivery" {
 			if u.printed[b.ID] == b.Text {
 				return
 			}
 			u.printed[b.ID] = b.Text
 		}
+	case KindTaskStatus:
+		// A line per change of state. Counts change with every child step,
+		// and the tool line already says that the task started.
+		if b.State == StateRunning || u.printed[b.ID] == b.Name {
+			return
+		}
+		u.printed[b.ID] = b.Name
 	case KindSteer:
 	}
 	if u.midLine {
@@ -292,6 +299,8 @@ type printUI struct {
 	err io.Writer
 	yes bool
 	mu  sync.Mutex
+	// taskPrinted holds the last state printed for each task status line.
+	taskPrinted map[string]string
 }
 
 func (u *printUI) Emit(b Block) {
@@ -313,6 +322,16 @@ func (u *printUI) Emit(b Block) {
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if b.Kind == KindTaskStatus {
+		// Only the end of a task, once.
+		if !b.Done || u.taskPrinted[b.ID] == b.Name {
+			return
+		}
+		if u.taskPrinted == nil {
+			u.taskPrinted = map[string]string{}
+		}
+		u.taskPrinted[b.ID] = b.Name
+	}
 	fmt.Fprintln(u.err, FormatBlock(b))
 }
 
