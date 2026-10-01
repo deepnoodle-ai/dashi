@@ -143,4 +143,4 @@ Success is a keyless shell transcript piping a multiline log into one recorded r
 It also proves stops/exit codes, accounting completeness, child quiet/result delivery, and interrupt/reopen without repeated effects.
 Named independent PRD re-review returned ready with no remaining findings.
 The [technical spec](../design/cli-automation.md) freezes framing, presentation fields, bounded writing, and preceding-track integration before code.
-No paid qualification or product question blocks this draft. Preceding task/report and attachment APIs must settle before implementation.
+Root accepted the technical checkpoint. This documentation PR stacks provisionally on task PRD #148. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Preceding APIs, writer qualification, and implementation authorization remain gates before code.

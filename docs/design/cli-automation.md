@@ -1,7 +1,7 @@
 # One-shot input and recorded automation results
 
-Status: In Review · Author: Codex · Date: 2026-09-30\
-Workflow: Spec, root dependency checkpoint, then build. Named PRD re-review returned ready.\
+Status: Accepted · Author: Codex · Date: 2026-09-30\
+Workflow: Spec, root dependency checkpoint, then build. Named PRD re-review returned ready; root accepted the technical checkpoint.\
 Requirements: [Run one coding request from a script](../prds/cli-automation.md)
 
 ## Shape and ownership
@@ -137,5 +137,5 @@ Always building the live app reuses startup, but makes historical reporting depe
 Buffered progress prevents slow consumers from blocking execution, at the cost of explicit gaps. Final snapshots require loading full covered records.
 Whole-stdin behavior changes bare pipes; explicit --plain preserves scripted line workflows. Document this intentional change without a record migration.
 No RPC, daemon, transcript repair, credential ingestion, new grant flags, automatic remedy, or family budget is introduced.
-Implementation must integrate the preceding composer/attachment/inspection/task branches under root scheduling and use their settled private seams.
-No new product/API question blocks the spec. Root checkpoint, prerequisite integration, and writer qualification precede production edits.
+This documentation PR stacks on published task PRD #148 at `2d66ad030d75db8a8ef60cab3e9a1f41a1715f1f` as a provisional dependency. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Implementation must use the preceding tracks' settled private seams under root scheduling.
+No new product/API question blocks the spec. Root accepted the checkpoint at `a639074698b8fbbbdf73b60a2f0931dec245fe30`. Prerequisite integration, writer qualification, and implementation authorization still precede production edits.
