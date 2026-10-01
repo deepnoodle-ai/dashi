@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -91,9 +90,17 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 				render(part.HostedResult.Output)
 			}
 			parts = append(parts, part)
-			if part.HostedUse != nil && slices.ContainsFunc(part.HostedUse.Output, activeTextDocument) {
-				render(part.HostedUse.Output)
-				parts = append(parts, llm.Content{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: part.HostedUse.Output}})
+			if use := part.HostedUse; use != nil && (len(use.Output) > 0 || use.IsError) {
+				render(use.Output)
+				output := use.Output
+				if use.IsError {
+					// The shared renderer does not label hosted errors. Keep the
+					// provider's failure visible in this active-only evidence copy.
+					output = append([]content.Block{content.TextBlock("[provider tool error]")}, output...)
+				}
+				parts = append(parts, llm.Content{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{
+					CallID: use.ID, Type: use.Type, Origin: use.Origin, Output: output, IsError: use.IsError,
+				}})
 			}
 		}
 		messages[i].Content = parts
