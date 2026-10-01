@@ -11,7 +11,9 @@ import (
 // of the last turn it ran, or of the session's last turn when it ran none.
 // It also returns when a turn stops with anything but dashi.NextNone, since
 // that turn needs the host first; its queued items wait
-// (dashi.SessionState.Queued counts them).
+// (dashi.SessionState.Queued counts them). With Config.NoticeReady, it
+// propagates AttentionError when only deferred child results remain. The host
+// must inspect and resolve those children before the conversation is quiet.
 //
 // Each ended child turn's notice must reach the session: Tasks puts it
 // there when Config.Session is s, or the host's Config.OnTask does, with

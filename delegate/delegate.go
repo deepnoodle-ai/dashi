@@ -147,6 +147,20 @@ type Config struct {
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound.
 	MaxTaskTurns int
+	// PrepareStart may append admitted evidence and pin generation settings,
+	// active compaction, and behavior revision before a new child is recorded.
+	// It receives an owned Start outside the task lock. It cannot change the
+	// task prompt, parent, destination, instructions, tools, limits, or budget.
+	// Existing recorded children never call it.
+	PrepareStart func(context.Context, dashi.CallRef, dashi.Start) (dashi.Start, error)
+	// BindServices selects immutable services for a new or recovered child.
+	// Nil fields inherit. Recorder, hooks, tools, and observation stay owned
+	// by Tasks. It runs outside the task lock, with an owned agent snapshot.
+	BindServices func(context.Context, dashi.CallRef, dashi.Agent) (ChildServices, error)
+	// NoticeReady defers final notices for a stopped child when false. Live
+	// recorded steps still reach OnChild. Nil preserves existing behavior.
+	// Wait returns AttentionError when only deferred stopped work remains.
+	NoticeReady func(dashi.TurnView) bool
 }
 
 // ChildEvent is one event of a child turn, with the link to its parent.

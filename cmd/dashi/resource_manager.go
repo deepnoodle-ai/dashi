@@ -68,7 +68,7 @@ func (m *resourceManager) rememberedApprovals() []skillFileArgs {
 }
 
 func (m *resourceManager) beforeModel(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
-	if plan.Turn.Origin == dashi.StartCompaction {
+	if plan.Turn.Origin == dashi.StartCompaction || plan.Turn.Parent != nil {
 		return dashi.ModelDecision{}, nil
 	}
 	found, err := m.discover()

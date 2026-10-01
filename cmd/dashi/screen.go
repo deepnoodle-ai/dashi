@@ -508,7 +508,7 @@ func (s *screen) requestQuit() []tui.Cmd {
 	case ModeRunning:
 		s.ctrl.QuitDuringRun("Ctrl-D")
 	case ModeApproval:
-		s.ctrl.Interrupt()
+		s.ctrl.QuitDuringRun("Ctrl-D")
 	}
 	return nil
 }
@@ -918,4 +918,8 @@ func (s *screen) dumpTranscript(w io.Writer) {
 	for _, b := range s.tr.Blocks {
 		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
 	}
+}
+
+func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
+	s.choosePicker(ctx, "Task "+id, []string{"Close details"}, []string{text}, 0, true)
 }

@@ -139,9 +139,8 @@ func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 		if !s.dialogStatusActive(p) {
 			return
 		}
-		name, _ := splitCommand(strings.TrimSpace(value))
-		if name != "/status" {
-			s.Emit(warnBlock("Use /status [ID] to inspect. Press Escape to return to the pending dialog."))
+		if !dialogInspectionCommand(value) {
+			s.Emit(warnBlock("Use /status [ID], /tasks, /task ID, or /task-stop ID. Press Escape to return to the pending dialog."))
 			return
 		}
 		p.text = ""
@@ -150,12 +149,12 @@ func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 	}
 }
 
-// Preserve empty-field /status compatibility. This clears only the submitted
-// command itself. Use Ctrl-S to inspect without editing a nonempty dialog draft;
-// user-deleted text is not retained or reconstructed.
+// Preserve empty-field inspection/task command compatibility. This clears
+// only the submitted command. Use Ctrl-S to inspect without editing a nonempty
+// dialog draft; user-deleted text is not retained or reconstructed.
+
 func (s *screen) inspectDialogSubmission(value string) bool {
-	name, _ := splitCommand(strings.TrimSpace(value))
-	if name != "/status" {
+	if !dialogInspectionCommand(value) {
 		return false
 	}
 	if s.asking != nil && s.asking.text == value {
@@ -180,9 +179,16 @@ func (s *screen) dialogStatusView() tui.View {
 	return tui.Stack(
 		tui.Divider(),
 		tui.MaxHeight(2, tui.Text(" %s", heading).Wrap().Bold()),
-		tui.Text(" /status [ID] · Enter inspects · Page Up/Down scroll · Esc returns").Wrap().Hint(),
+		tui.Text(" /status [ID] · /tasks · /task ID · /task-stop ID · Esc returns").Wrap().Hint(),
 		tui.InputField(&p.text).ID(dialogStatusInputID).Prompt("Inspect:").
 			PromptStyle(tui.NewStyle().WithForeground(tui.ColorBrightBlack)).
 			OnKey(s.dialogStatusKeyHook(p)).OnSubmit(s.dialogStatusSubmit(p)),
 	).Gap(0)
+}
+
+// Resolution commands need their own bound confirmation; they cannot share an
+// already pending dialog. Exact inspection and selective stop need no answer.
+func dialogInspectionCommand(value string) bool {
+	name, _ := splitCommand(strings.TrimSpace(value))
+	return name == "/status" || name == "/tasks" || name == "/task-stop" || name == "/task"
 }

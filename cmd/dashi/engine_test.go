@@ -147,9 +147,7 @@ func TestQuitDuringApprovalThenContinue(t *testing.T) {
 	if h.app.ctrl.Mode() != ModeApproval {
 		t.Fatalf("mode=%v", h.app.ctrl.Mode())
 	}
-	if h.app.ctrl.Interrupt() {
-		t.Fatal("Ctrl-C in approval must cancel first, then quit")
-	}
+	h.app.ctrl.QuitDuringRun("/quit")
 	h.app.ctrl.Wait()
 	select {
 	case <-h.ui.quit:

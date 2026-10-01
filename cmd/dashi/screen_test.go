@@ -199,7 +199,7 @@ func TestScreenCtrlCByMode(t *testing.T) {
 	}
 }
 
-func TestScreenQuitDuringApprovalCancelsTheRun(t *testing.T) {
+func TestScreenInterruptDuringApprovalKeepsSession(t *testing.T) {
 	var runs atomicCounter
 	withNoteTool(t, &runs)
 	h := newScreenHarness(t, 0, callTool("c1", "write_note", `{"text":"one"}`))
@@ -207,7 +207,10 @@ func TestScreenQuitDuringApprovalCancelsTheRun(t *testing.T) {
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
 	h.app.ctrl.Wait()
-	h.waitFor(func() bool { return h.scr.quitting })
+	h.waitFor(func() bool { return h.app.ctrl.Mode() == ModeIdle && h.scr.approval == nil })
+	if h.check(func() bool { return h.scr.quitting }) {
+		t.Fatal("foreground interrupt quit the session")
+	}
 	if runs.Load() != 0 || h.check(func() bool { return h.scr.approval != nil }) {
 		t.Fatalf("runs=%d", runs.Load())
 	}

@@ -64,11 +64,14 @@ type Engine struct {
 	// turns already started.
 	model        string
 	windowWarned map[string]bool
+	tasks        *taskHost
+	taskWake     func()
 
 	// inputMu orders later submissions behind a not-yet-recorded prompt.
-	inputMu sync.Mutex
-	pending *pendingPrompt
-	later   []pendingLine
+	driverMu sync.Mutex
+	inputMu  sync.Mutex
+	pending  *pendingPrompt
+	later    []pendingLine
 }
 
 // NewEngine returns an engine with no session. Call Open before any turn.
@@ -157,10 +160,16 @@ func (e *Engine) Open(s *session.Session) error {
 	if errors.Is(openErr, dashi.ErrSessionNotFound) {
 		chat.New = true
 	}
+	if err := e.closeTasks(); err != nil {
+		unlock()
+		return err
+	}
+	host := e.newTaskHost(chat, resolver)
 	e.mu.Lock()
 	e.release()
 	e.sess, e.chat, e.inbox, e.unlock = s, chat, inbox, unlock
 	e.attachmentResolver = resolver
+	e.tasks = host
 	if s.Model != "" && e.model == "" {
 		e.model = s.Model
 	}
@@ -174,6 +183,10 @@ func (e *Engine) Open(s *session.Session) error {
 
 // Close releases the open session.
 func (e *Engine) Close() {
+	if err := e.closeTasks(); err != nil {
+		e.warn("%v", err)
+		return
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.release()
@@ -425,6 +438,8 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 // before Session dispatches any queued user turn, including after reopening.
 func (e *Engine) continueLast(ctx context.Context, cmd dashi.Continue, last *LastTurn) (Result, error) {
 	if last != nil && last.View.Origin == dashi.StartCompaction {
+		e.driverMu.Lock()
+		defer e.driverMu.Unlock()
 		chat := e.configureChat()
 		if err := e.bindCommand(ctx, cmd); err != nil {
 			return Result{}, err
@@ -553,6 +568,11 @@ func (e *Engine) agent() dashi.Agent {
 
 // run streams one command, and the turns it leads to, as blocks.
 func (e *Engine) run(ctx context.Context, cmd dashi.Command) (Result, error) {
+	e.driverMu.Lock()
+	defer e.driverMu.Unlock()
+	if err := e.recoverTasks(ctx); err != nil {
+		return Result{}, err
+	}
 	if !e.cfg.MCP.Ready() {
 		return Result{}, errors.New("MCP startup has not completed; no work was started")
 	}
